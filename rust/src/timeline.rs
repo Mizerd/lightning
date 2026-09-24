@@ -1,14 +1,11 @@
-//! Live SDK timeline registry (v0.5.7).
+//! Live SDK timeline registry.
 //!
-//! Owns the persistent `matrix_sdk_ui::Timeline` for the currently open
-//! room. One active subscription at a time (the simplest safe design):
-//! opening a room advances the room generation, deterministically cancels
-//! the previous subscription task, drops the previous `Timeline`, and
-//! builds a fresh one whose initial snapshot + incremental `VectorDiff`
-//! stream are forwarded to C++ over the existing poll queue as JSON.
+//! Owns the `matrix_sdk_ui::Timeline` for the open room. One subscription
+//! at a time: opening a room advances the room generation, cancels the
+//! previous subscription task, drops the previous `Timeline`, and forwards
+//! the new one's snapshot and `VectorDiff` stream to C++ as JSON.
 //!
-//! Nothing in this module ever serializes key material, ciphertext, or raw
-//! decrypted event JSON — item payloads carry only UI-safe metadata.
+//! Never serializes key material, ciphertext or raw decrypted event JSON.
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -68,19 +65,13 @@ use serde_json::json;
 
 use crate::enqueue;
 
-/// v0.7 outgoing @-mentions: build an m.mentions payload from a caller-supplied
-/// list of MXID strings. Invalid ids are dropped silently (the mention simply
-/// isn't recorded); an all-empty/all-invalid list yields `None` so no
-/// `m.mentions` is attached. `add_mentions` MUST be called on message content
-/// BEFORE any relation-adding method (reply / replacement) for the mentions to
-/// be set correctly.
+/// Build an m.mentions payload from MXID strings. Invalid ids are dropped;
+/// an empty result yields `None`. `add_mentions` must be called before any
+/// relation-adding method (reply / replacement).
 pub(crate) fn mentions_from_ids(ids: Vec<String>) -> Option<Mentions> {
-    // "@room" is the whole-room mention, and it travels in the SAME list as
-    // the user ids on purpose. It is not a user id and never can be — a
-    // Matrix id needs a domain, so UserId::parse rejects it and no real user
-    // can ever collide with the sentinel. That keeps one FFI signature for
-    // "who does this message mention", instead of a parallel boolean through
-    // every send, thread-send and edit entry point.
+    // "@room" travels in the same list as user ids. It can never collide with
+    // a user (a Matrix id needs a domain), and it keeps one FFI signature for
+    // "who does this message mention".
     let mut room = false;
     let mut users: Vec<OwnedUserId> = Vec::new();
     for id in ids {
@@ -96,64 +87,36 @@ pub(crate) fn mentions_from_ids(ids: Vec<String>) -> Option<Mentions> {
         return None;
     }
     let mut mentions = Mentions::with_user_ids(users);
-    // Whether the server ACTS on it is the room's own power levels
-    // (notifications.room, default 50); the client offers it only where the
-    // account may trigger one, and the event is honest either way.
+    // Whether the server acts on it is up to the room's power levels
+    // (notifications.room); the client offers it only where allowed.
     mentions.room = room;
     Some(mentions)
 }
 
-/// The whole-room mention, as it crosses the FFI. Matches the text the
-/// composer inserts and the id the suggestion model reports.
+/// The whole-room mention as it crosses the FFI; matches the composer text.
 pub(crate) const ROOM_MENTION_SENTINEL: &str = "@room";
 
-/// Default number of events requested per backward-pagination batch.
-/// Matches the size Element X uses for scroll-triggered backfill: large
-/// enough to fill a screen, small enough to stay responsive.
+/// Events per backward-pagination batch (Element X uses the same).
 pub const PAGINATION_BATCH: u16 = 20;
 
-/// The event filter every Lightning timeline is built with: the SDK's own
-/// defaults, minus MatrixRTC MEMBERSHIP state.
+/// Pagination filter diagnostics: events offered to the filter, and those
+/// dropped by the SDK defaults or as MatrixRTC membership. These separate
+/// "the server returned nothing" from "we filtered everything", since
+/// `paginate_backwards` only returns a bool.
 ///
-/// A call keeps one `org.matrix.msc3401.call.member` (or msc4143 / stable
-/// `m.call.member` / `m.rtc.member`) state event per participant per MINUTE
-/// alive by re-publishing it, so a room that hosts calls carries thousands of
-/// them. Each one used to become a timeline item: paginated through twenty at
-/// a time, ingested as a hidden activity row, instantiated as a delegate in
-/// the un-virtualized Column, counted by the viewport fill — measured
-/// 2026-09-05 as the reason ONE room took five seconds to open and stalled
-/// on scroll while every other room was instant. Nothing on screen needs
-/// them: the "started a call" row is the notification event, the call UI
-/// reads membership from room STATE (`rtc.rs`), and the collapsed activity
-/// group is happier without a line per minute. Dropped at the source.
-/// WHY A PAGE ADDED NOTHING, which nothing could answer before.
-///
-/// `added= 0` and "the server returned nothing" were the same log line, and a
-/// room that opened empty and then made fourteen round trips producing no rows
-/// could not be told from a quiet room. It took a maintainer report to find,
-/// and then only because a second room in the same session opened instantly.
-///
-/// The count cannot come from the pagination call: matrix-sdk-ui's
-/// `paginate_backwards` returns a single `bool`, and the raw
-/// `BackPaginationOutcome { reached_start, events }` is discarded on the line
-/// that tests it (pagination.rs). This filter is the one place that sees every
-/// raw event AND knows why it said no.
-///
-/// CUMULATIVE AND PROCESS-GLOBAL, deliberately. The timeline ingests
-/// asynchronously after `paginate_backwards` has already returned, so a
-/// per-batch delta would race the very thing it measures; absolute values read
-/// as a climb across a run of pages instead. The cost is that an open thread
-/// panel shares the counters — both thread builders use this same filter — so
-/// read them while one timeline is doing the work.
-///
-/// WHAT THEY CANNOT SEE, stated so nobody over-reads them: events that fail to
-/// deserialize never reach this function, and `hide_threaded_events` is
-/// applied AFTER it by the SDK (`state_transaction.rs`), so a thread-only page
-/// shows as `offered` climbing with neither drop counter moving.
+/// Cumulative and process-global: the timeline ingests after pagination
+/// returns, so a per-batch delta would race; read the climb across pages.
+/// An open thread panel shares them. Events that fail to deserialize never
+/// reach the filter, and `hide_threaded_events` is applied after it.
 pub(crate) static FILTER_OFFERED: AtomicU64 = AtomicU64::new(0);
 pub(crate) static FILTER_DROP_SDK: AtomicU64 = AtomicU64::new(0);
 pub(crate) static FILTER_DROP_RTC: AtomicU64 = AtomicU64::new(0);
 
+/// The event filter every timeline uses: the SDK defaults, minus MatrixRTC
+/// membership state. A call re-publishes one membership event per
+/// participant per minute, so call rooms carry thousands; as rows they made
+/// such rooms slow to open and scroll, and nothing on screen needs them (the
+/// call UI reads membership from room state).
 pub(crate) fn lightning_event_filter(
     event: &AnySyncTimelineEvent,
     rules: &RoomVersionRules,
@@ -170,20 +133,12 @@ pub(crate) fn lightning_event_filter(
     true
 }
 
-/// AN MSC4274 GALLERY WAS DROPPED BEFORE IT BECAME A ROW, and that is the
-/// whole of "my comparison images aren't visible on Lightning" (Seikm,
-/// 2026-09-23, two screenshots sent from Sable in one message).
-///
-/// matrix-sdk-ui's `default_event_filter` keeps an `m.room.message` only for
-/// the msgtypes it lists, and its `MessageType::Gallery(_) => true` arm is
-/// behind matrix-sdk-ui's OWN `unstable-msc4274` feature, which this build
-/// does not enable. (ruma's feature of the same name IS on, but only by
-/// accident: matrix-sdk's `testing` feature pulls in matrix-sdk-test, which
-/// turns it on — so the variant exists and the filter's arm for it does not.)
-/// Sable's `dm.filament.gallery` (the MSC's unstable name) therefore falls to
-/// the filter's `_ => false`, and the event never reaches the timeline at all
-/// — no row, nothing to reply to, nothing in the log. Accepted here under exactly the rule the default filter applies to
-/// every other msgtype: an `m.replace` is folded into its target, never a row.
+/// MSC4274 galleries (including Sable's unstable `dm.filament.gallery`).
+/// matrix-sdk-ui's default filter keeps a gallery only with its own
+/// `unstable-msc4274` feature, which this build does not enable, so
+/// galleries would never become rows. Accepted under the same rule the
+/// default filter applies to other msgtypes: an `m.replace` is folded into
+/// its target, never a row.
 fn is_visible_gallery_message(event: &AnySyncTimelineEvent) -> bool {
     use matrix_sdk::ruma::events::{
         room::message::Relation, AnySyncMessageLikeEvent, SyncMessageLikeEvent,
@@ -211,113 +166,63 @@ pub(crate) fn is_rtc_membership_event(event: &AnySyncTimelineEvent) -> bool {
     )
 }
 
-/// RETIRED, and deliberately left as a tombstone rather than deleted.
-///
-/// This was the shutdown join bound for timeline and import tasks. It has no
-/// code reference left: every user now sizes against a budget derived from
-/// `RustSdkMatrixClient::kStoreCloseBudgetMs` instead (see
-/// `SHUTDOWN_WORST_CASE_MS` in lib.rs and `SHUTDOWN_ABORTED_JOIN_MS` below).
-///
-/// It is kept because two separate places once sized real timeouts against it
-/// — `sfu.rs`'s leave drain and this file's own shutdown legs — and both
-/// silently became wrong when the real budget changed, which is the whole
-/// reason that budget is now a compile-time assertion. DO NOT SIZE ANYTHING
-/// AGAINST THIS. If you are reaching for it, you want `SHUTDOWN_WORST_CASE_MS`
-/// and the assert beside it.
+/// Retired; do not size anything against this. Use
+/// `SHUTDOWN_WORST_CASE_MS` in lib.rs and its compile-time assert.
 #[deprecated(note = "size against SHUTDOWN_WORST_CASE_MS in lib.rs instead")]
 #[allow(dead_code)]
 pub const SHUTDOWN_JOIN_TIMEOUT_SECS: u64 = 15;
 
 /// Re-enable a room's send queue before handing it anything new.
 ///
-/// COMPOSING A MESSAGE UNWEDGES THE ROOM, and this is the only recovery that
-/// covers a SEND-ONLY failure. matrix-sdk disables a room's queue after any
-/// send error (send_queue/mod.rs:1012), and the two sync-lane recovery edges
-/// only fire when SYNC recovers — so a 429 or 5xx on /send, an upload
-/// timeout, or a ConcurrentRequestFailed leaves the room wedged while sync
-/// stays perfectly healthy. The SDK's own `send_raw` doc says the caller has
-/// to re-enable manually.
+/// matrix-sdk disables a room's queue after any send error, and the sync
+/// recovery edges only fire when sync recovers, so a send-only failure
+/// (429 or 5xx on /send, upload timeout) would leave the room wedged.
+/// Composing a new message unwedges it.
 ///
-/// Taken from the TIMELINE rather than from a room id, so it works on every
-/// send path including the two attachment ones, which have no `Client` in
-/// hand. Cheap enough to do unconditionally: `RoomSendQueue::set_enabled` is
-/// an atomic store plus `notify_one` (:1223) with no store access, unlike the
-/// client-wide `SendQueue::set_enabled`, which walks every room and then
-/// queries SQLite.
-///
-/// Safe: an unrecoverable failure is marked WEDGED and persisted, and
-/// `peek_next_to_send` skips wedged items (:1468), so this can never resend
-/// something the server already rejected.
-///
-/// REDACTION IS THE ONE SEND THAT DOES NOT NEED THIS, and the reason is which
-/// function Lightning calls: `Room::redact`, which is a direct
-/// `client.send(...)` and never reaches the queue. (`Timeline::redact` is a
-/// different matter — it has a local-echo branch that DOES abort through the
-/// send queue — but nothing here calls it.)
+/// Cheap: `RoomSendQueue::set_enabled` is an atomic store plus a notify
+/// (unlike the client-wide `SendQueue::set_enabled`, which queries SQLite).
+/// Safe: unrecoverable failures are persisted as wedged and skipped, so
+/// nothing already rejected is resent. Not needed for redaction, since
+/// Lightning uses `Room::redact`, which bypasses the queue.
 fn unwedge_send_queue(timeline: &Timeline) {
     timeline.room().send_queue().set_enabled(true);
 }
 
-/// How long `shutdown` waits on a timeline task it has ALREADY ABORTED.
-///
-/// Not a cooperative join. `take_active` and `take_active_thread` both call
-/// `task.abort()` before they hand the handle back, so by the time `shutdown`
-/// awaits it the task is cancelled and cannot do further work — the wait
-/// exists only so one wedged in a synchronous stretch cannot hold teardown.
-///
-/// It used to be `SHUTDOWN_JOIN_TIMEOUT_SECS`, twice, which declared 30 s of
-/// worst case in the middle of a chain the C++ side gives 15 s in total
-/// (`RustSdkMatrixClient::kStoreCloseBudgetMs`). It cost under a millisecond
-/// in practice, but a budget that is only safe in practice is what let the
-/// whole chain declare 61 s against that 15 s wait. Both legs are folded into
-/// `SHUTDOWN_WORST_CASE_MS` in lib.rs, whose compile-time assert is what now
-/// keeps the total honest.
+/// How long `shutdown` waits on a timeline task it has already aborted
+/// (`take_active*` call `abort()` first). Only guards against a task stuck
+/// in a synchronous stretch. Counted in `SHUTDOWN_WORST_CASE_MS` in lib.rs.
 pub const SHUTDOWN_ABORTED_JOIN_MS: u64 = 250;
 
 type EventQueue = Arc<Mutex<VecDeque<String>>>;
 
-/// v0.5.9: media sources captured while serializing timeline items so the
-/// media bridge can later retrieve (and, via the SDK, decrypt) attachment
-/// bytes. `MediaSource::Encrypted` values embed the content keys — they are
-/// stored ONLY inside this Rust-side map and never serialized across the
-/// FFI. The map is keyed by the item's event id (or SDK unique id for local
-/// echoes) and lives only as long as the room's timeline.
+/// Media sources captured while serializing timeline items, for the media
+/// bridge. `MediaSource::Encrypted` embeds content keys, so these stay in
+/// this Rust-side map and never cross the FFI. Keyed by event id (or SDK
+/// unique id for local echoes); lives as long as the room's timeline.
 pub struct StoredMedia {
     pub source: MediaSource,
     pub thumbnail: Option<MediaSource>,
     pub filename: String,
     pub mimetype: Option<String>,
-    /// Declared byte size from the Matrix `info` metadata, when present.
-    /// v0.7 defense-in-depth: full-payload fetches are refused pre-flight
-    /// when this exceeds the class size cap.
+    /// Declared byte size from `info`, when present. Full-payload fetches over
+    /// the class cap are refused pre-flight.
     pub declared_size: Option<u64>,
 }
 
-/// Upper bound on how long one reaction toggle may hold its in-flight guard
-/// slot. Long enough that a normal round trip never trips it, short enough
-/// that a send stuck behind a dead connection cannot leave one reaction
-/// permanently unclickable for the rest of the session.
+/// Upper bound on how long one reaction toggle may hold its in-flight slot,
+/// so a stuck send cannot leave a reaction unclickable.
 const REACTION_GUARD_TIMEOUT_SECS: u64 = 30;
 
-/// Bound for the per-room media source map. A timeline view never holds
-/// anywhere near this many media items; the cap only guards runaway growth.
+/// Bound for the per-room media source map; guards runaway growth only.
 const MEDIA_SOURCE_CAP: usize = 4096;
 
-/// The media source map, bounded by EVICTING the least recently used key
-/// rather than by refusing new ones.
+/// The media source map, bounded by evicting the least recently used key.
 ///
-/// It used to refuse once full. That was harmless while one row meant one
-/// key, and stopped being harmless when an MSC4274 gallery started
-/// registering up to GALLERY_ITEM_CAP keys per event: ~128 galleries filled
-/// the map, and from then on every NEW row in the room claimed
-/// `media_source_available` while its fetch answered "unknown media item"
-/// until the room was reopened. Refusing punishes exactly the rows the reader
-/// is looking at now; evicting punishes the ones touched longest ago. "Used"
-/// means registered (every serialization of a row re-registers it) or looked
-/// up by a fetch, so a row re-serialized or fetched recently keeps its key.
-/// A row whose bytes the C++ bridge serves from ITS cache touches nothing
-/// here, so after enough other activity its key can go; a later fetch of it
-/// then fails as "unknown media item" until the row is serialized again.
+/// Refusing new keys when full would break exactly the rows the reader is
+/// looking at (galleries register many keys each). "Used" means registered
+/// (every serialization) or looked up by a fetch. A row served from the C++
+/// cache touches nothing here, so its key can be evicted; a later fetch then
+/// fails as "unknown media item" until the row is serialized again.
 struct MediaRegistry {
     entries: HashMap<String, (StoredMedia, u64)>,
     /// (stamp, key) in stamp order. Lazily pruned: an entry whose stamp no
@@ -334,8 +239,7 @@ impl MediaRegistry {
 
     /// A fresh stamp for `key`, queued. The caller stores it on the entry.
     fn stamp(&mut self, key: &str) -> u64 {
-        // Touches leave superseded entries behind; rebuild before they
-        // outgrow the map by more than a constant factor.
+        // Rebuild before superseded touches outgrow the map by a constant factor.
         if self.order.len() >= self.cap.saturating_mul(4) {
             let mut live: Vec<(u64, String)> =
                 self.entries.iter().map(|(k, (_, t))| (*t, k.clone())).collect();
@@ -387,24 +291,20 @@ impl MediaRegistry {
 struct ActiveTimeline {
     room_id: String,
     room_gen: u64,
-    /// Set by the open task once the SDK `Timeline` is built. `None` while
-    /// the build is still in flight (or when the build failed).
+    /// Set once the SDK `Timeline` is built; `None` while building or after a
+    /// failed build.
     timeline: Option<Arc<Timeline>>,
-    /// The open/subscription forwarder task. Aborting it drops the diff
-    /// stream, which releases the SDK timeline drop-handle and stops the
-    /// timeline's internal tasks.
+    /// The subscription forwarder task. Aborting it drops the diff stream and
+    /// stops the SDK timeline's internal tasks.
     task: Option<tokio::task::JoinHandle<()>>,
     /// Single-flight guard: only one backward pagination at a time.
     pagination_busy: Arc<AtomicBool>,
     reached_start: Arc<AtomicBool>,
 }
 
-/// v0.6.0: one SDK-backed thread timeline for the currently open room. The
-/// SDK `Timeline` uses `TimelineFocus::Thread`, so the root and its replies
-/// (and thread sends, edits, reactions, redactions through it) all use the
-/// official thread machinery — no relation JSON is built by hand and no
-/// second sync engine exists: this is a filtered view over the same SDK
-/// room data the live timeline uses.
+/// The open room's thread timeline, using `TimelineFocus::Thread`, so the
+/// SDK handles all thread relations, sends, edits, reactions and
+/// redactions. A filtered view over the same room data.
 struct ActiveThread {
     room_id: String,
     root_event_id: String,
@@ -415,10 +315,8 @@ struct ActiveThread {
     reached_start: Arc<AtomicBool>,
 }
 
-/// v0.6.0 checkpoint 5: the room's paginated SDK thread list
-/// (`ThreadListService`) while the Threads view is open. Live updates come
-/// from the service's own event-cache listener; full (bounded, page-sized)
-/// snapshots are forwarded to C++ on each update batch.
+/// The room's paginated `ThreadListService` while the Threads view is open.
+/// Page-sized snapshots are forwarded to C++ on each update batch.
 struct ActiveThreadList {
     room_id: String,
     list_gen: u64,
@@ -430,14 +328,13 @@ struct ActiveThreadList {
 pub struct TimelineRegistry {
     events: EventQueue,
     active: Mutex<Option<ActiveTimeline>>,
-    /// v0.6.0: the open thread panel's SDK timeline, if any. A thread always
-    /// belongs to the open room: opening/closing a room closes it.
+    /// The open thread panel's timeline. Always belongs to the open room.
     active_thread: Mutex<Option<ActiveThread>>,
-    /// v0.6.0: the open room's thread list view, if any.
+    /// The open room's thread list view, if any.
     active_thread_list: Mutex<Option<ActiveThreadList>>,
     thread_list_gen: AtomicU64,
-    /// Bumped on every open-thread/close-thread call; stale thread events
-    /// are rejected on both sides by this stamp.
+    /// Bumped on every open-thread/close-thread call; stale thread events are
+    /// rejected on both sides.
     thread_gen: AtomicU64,
     /// Bumped on every open-room call. Diffs/pagination results stamped with
     /// an older generation are stale and must be ignored on both sides.
@@ -445,126 +342,79 @@ pub struct TimelineRegistry {
     /// Bumped on shutdown (sign-out / handle release). Everything stamped
     /// with an older lifecycle is stale.
     lifecycle_gen: AtomicU64,
-    /// v0.5.9: media sources for the currently open room's items. Cleared
-    /// on every room open and on shutdown. Never crosses the FFI.
+    /// Media sources for the open room. Cleared on room open and shutdown.
+    /// Never crosses the FFI.
     media_sources: Mutex<MediaRegistry>,
-    /// 2026-08-18 tester report ("jeigu labai greitai paremovini reactionus
-    /// nuo message pradeda tweakinti ir spaminti juos auto grazinti ir
-    /// naikinti at the same time"): every click used to spawn its own
-    /// independent `Timeline::toggle_reaction` task, and concurrent toggles
-    /// for the SAME (room, event, key) each read the state the others were
-    /// still changing — so a fast series of clicks raced itself into a storm
-    /// of add/remove echoes. One toggle per target at a time; a click that
-    /// arrives while its own target is still resolving is DROPPED, because a
-    /// toggle is a request for a state flip, and queueing flips would just
-    /// replay the same race a moment later. Cleared on shutdown.
+    /// One reaction toggle per (room, event, key) at a time. Concurrent toggles
+    /// for one target raced into a storm of add/remove echoes, so a click
+    /// arriving while its target is still resolving is dropped (a toggle is a
+    /// request to flip, and queueing flips replays the race). Cleared on
+    /// shutdown.
     reaction_inflight: Mutex<std::collections::HashSet<String>>,
-    /// v0.7 recovery supervisor: backup key-download attempts made this
-    /// lifecycle ("<room>" for whole-room passes, "<room>\x1f<session>" for
-    /// per-session downloads), so verified-session recovery never polls the
-    /// backup endpoints. Cleared on shutdown; manual recovery clears the
-    /// open room's entry to force one fresh pass. Session IDENTIFIERS only —
-    /// never key material.
-    ///
-    /// WAS A `HashSet`, AND THAT PERMANENCE WAS THE "WAITING FOR KEYS" BUG.
-    /// A key that reaches your backup AFTER the one attempt for its session
-    /// had no route in: the entry was already present, every later pass
-    /// returned early, and only re-entering the recovery passphrase (the one
-    /// caller of `clear_backup_attempt`) could dislodge it. Now each key
-    /// records when it was last tried and how often, and
-    /// `backup_attempt_backoff` decides whether another attempt is due — so
-    /// a late key is picked up without polling and without a user gesture.
+    /// Backup key-download attempts this lifecycle ("<room>" for whole-room
+    /// passes, "<room>\x1f<session>" per session), so recovery never polls the
+    /// backup. Each key records when and how often it was tried, and
+    /// `backup_attempt_backoff` decides when another try is due, so a key that
+    /// reaches the backup late is still picked up. Cleared on shutdown; manual
+    /// recovery clears the open room. Identifiers only.
     backup_download_attempts: Mutex<std::collections::HashMap<String, BackupAttempt>>,
 }
 
 /// One key's attempt history this lifecycle. Identifiers and counters only.
 ///
-/// TWO COUNTERS, AND THE SPLIT IS THE WHOLE POINT. A single counter that a
-/// transient failure gave back could never escalate: mark took it 1 -> 2, the
-/// refund put it back to 1, the backoff argument was therefore always 0, and
-/// a rate-limited server got hammered at the 30 s floor for ever — the fix
-/// for "one outage exhausts the budget" having created "one outage retries at
-/// the floor for ever", against exactly the 429 that asked us to slow down.
-/// Measured by a review, twelve of twelve cycles allowed.
+/// Two counters: `tries` drives the backoff and is never refunded, so a
+/// sustained outage escalates; `attempts` is the budget and counts only
+/// definitive answers.
 #[derive(Clone, Copy)]
 pub(crate) struct BackupAttempt {
-    /// EVERY attempt, never given back. Drives the backoff, so a sustained
-    /// outage escalates 30 s -> 1 -> 2 ... -> 32 min as designed.
+    /// Every attempt. Drives the backoff (30 s up to 32 min).
     tries: u32,
-    /// DEFINITIVE answers only — the budget. A transport failure proves
-    /// nothing about whether the key is in the backup, so it must not spend
-    /// one; a permanent refusal spends the lot at once.
+    /// Definitive answers only (the budget). A transport failure spends
+    /// nothing; a permanent refusal spends it all.
     attempts: u32,
     /// When the last attempt ran, for the backoff.
     last: std::time::Instant,
 }
 
-/// What an attempt actually established. Named rather than inferred, because
-/// `download_room_key` reports "not in your backup" and "could not reach your
-/// backup" identically — everything but a clean success is an `Err`.
+/// What an attempt established. Explicit, because `download_room_key`
+/// returns `Err` both for "not in your backup" and "could not reach it".
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum BackupOutcome {
-    /// The server answered, and the key is not there. Worth asking again
-    /// later (it may be uploaded), so it spends one unit of budget.
+    /// The server answered and the key is not there. Spends one unit of
+    /// budget; it may be uploaded later.
     Definitive,
-    /// This DEVICE cannot read the backup: it has the upload key but not the
-    /// decryption key, so `download_room_key` returned without sending a
-    /// request at all.
-    ///
-    /// `are_enabled()` does NOT exclude this, which is the trap — it reads
-    /// `BackupMachine::backup_key`, the PUBLIC upload key, while the download
-    /// needs `BackupKeys::decryption_key`, the private one. A verified device
-    /// whose recovery passphrase has never been entered on it has the first
-    /// and not the second, and that is the steady state of exactly the person
-    /// who reports "waiting for keys" — not a race. Charging it as a settled
-    /// answer exhausted the budget for the whole population this feature
-    /// exists to serve. It establishes nothing about the backup's contents,
-    /// so it spends nothing; it gets its own state because it is the one
-    /// outcome here with an action attached (enter your recovery key).
+    /// This device has the backup's public upload key but not the decryption
+    /// key, so no request was sent. `are_enabled()` does not exclude this (it
+    /// checks the public key). Typical for a verified device whose recovery
+    /// key was never entered; spends no budget and prompts the user to enter
+    /// the recovery key.
     NoDecryptionKey,
-    /// The server will never serve this: no such endpoint, or we are not
-    /// allowed. Retrying cannot help, so it ends this key for the lifecycle.
+    /// No such endpoint, or not allowed. Ends this key for the lifecycle.
     PermanentRefusal,
-    /// We learned nothing — unreachable, rate-limited, a store error. Costs a
+    /// Nothing learned (unreachable, rate-limited, store error). Costs a
     /// backoff step and no budget.
     Inconclusive,
 }
 
-/// THE WHOLE RETRY POLICY, AS A PURE FUNCTION, so it can be tested without a
-/// clock. Both defects a review found here were policy defects that no test
-/// could reach while the policy lived inside a `Mutex` and an `Instant`.
+/// The retry policy as a pure function, so it can be tested without a
+/// clock.
 fn backup_attempt_allowed(tries: u32, attempts: u32, since_last: std::time::Duration) -> bool {
     attempts < MAX_BACKUP_ATTEMPTS
         && since_last >= backup_attempt_backoff(tries.saturating_sub(1))
 }
 
-/// The whole bound on automatic key recovery, in one place.
-///
-/// A first attempt is always allowed. After that the wait doubles from 30 s
-/// and stops at ~32 min, and after `MAX_BACKUP_ATTEMPTS` the key is left alone
-/// for the rest of the lifecycle — so a room whose keys are genuinely gone
-/// (withheld, sent before we joined, never backed up) costs a handful of
-/// requests and then nothing, while a key that shows up late still gets
-/// several chances. Nothing here polls: an attempt only happens when an
-/// undecryptable event is actually in front of the user.
+/// Maximum automatic attempts per key per lifecycle. The first attempt is
+/// always allowed; the wait then doubles from 30 s to ~32 min. Attempts
+/// only happen when an undecryptable event is in front of the user.
 const MAX_BACKUP_ATTEMPTS: u32 = 8;
 
-/// A key that must never be tried again this lifecycle. Deliberately NOT
-/// `MAX_BACKUP_ATTEMPTS`: parking a permanent refusal at the cap made it
-/// indistinguishable from an ordinary spent budget, and the cap has already
-/// moved once this round (5 -> 8) — so raising it again would have quietly
-/// un-parked every permanently refused key. `clear_backup_attempt` still
-/// frees these, which is how manual recovery re-probes a server.
+/// Marks a key never to be tried again this lifecycle. Distinct from
+/// `MAX_BACKUP_ATTEMPTS` so raising the cap cannot un-park refused keys.
+/// `clear_backup_attempt` still frees these.
 const BACKUP_ATTEMPTS_STOPPED: u32 = u32::MAX;
 
 /// The wait after `attempts_already_made` tries: 30 s, 1, 2, 4, 8, 16 and
-/// 32 minutes, then flat. Eight attempts therefore span a little over an hour.
-///
-/// TAKES THE COUNT ALREADY MADE, NOT THE NEXT ONE. `mark_backup_attempt`
-/// inserts with `attempts: 1`, so passing that straight in started the
-/// schedule at 60 s and made the ceiling unreachable — the doc said 30 s to
-/// 32 minutes and the code did 60 s to 8 minutes. A review measured the
-/// difference; the call site now subtracts.
+/// 32 minutes, then flat. Takes the count already made, not the next one.
 fn backup_attempt_backoff(attempts_already_made: u32) -> std::time::Duration {
     let secs = 30u64.saturating_mul(1u64 << attempts_already_made.min(6));
     std::time::Duration::from_secs(secs.min(32 * 60))
@@ -587,26 +437,15 @@ impl TimelineRegistry {
         }
     }
 
-    /// Record a backup-download attempt. Returns false when this key is not
-    /// due yet — either an attempt ran recently (see `backup_attempt_backoff`)
-    /// or it has used up `MAX_BACKUP_ATTEMPTS` for this lifecycle — and the
-    /// caller must then skip it.
-    ///
-    /// The false answer used to mean "ever, this lifecycle", which is what
-    /// stranded a key that arrived in backup after its one attempt.
+    /// Record a backup-download attempt. Returns false when the key is not due
+    /// yet (see `backup_attempt_backoff`) or has used up `MAX_BACKUP_ATTEMPTS`;
+    /// the caller then skips it.
     fn mark_backup_attempt(&self, key: &str) -> bool {
         self.mark_backup_attempt_at(key, std::time::Instant::now())
     }
 
-    /// The real logic, with the clock passed in.
-    ///
-    /// SPLIT FOR TESTABILITY, and the reason is specific: the POLICY is a pure
-    /// function and well covered, but the WIRING to it was not, and a review
-    /// measured that swapping the two arguments at this call site reproduces
-    /// H3 exactly — required waits pinned at 30 s — while every policy test
-    /// still passes, because those call the policy with explicit literals.
-    /// Taking the instant as a parameter is what lets a test reach "and much
-    /// later, is it allowed?" without a sleep.
+    /// `mark_backup_attempt` with the clock passed in, so tests can check the
+    /// wiring to the policy (argument order included) without sleeping.
     fn mark_backup_attempt_at(&self, key: &str, now: std::time::Instant) -> bool {
         match self.backup_download_attempts.lock() {
             Ok(mut guard) => match guard.get_mut(key) {
@@ -618,8 +457,7 @@ impl TimelineRegistry {
                     true
                 }
                 Some(record) => {
-                    // `saturating_duration_since`: a clock that appears to go
-                    // backwards must not read as "due for ever".
+                    // A clock that appears to go backwards must not read as "never due".
                     if !backup_attempt_allowed(
                         record.tries,
                         record.attempts,
@@ -640,12 +478,10 @@ impl TimelineRegistry {
     fn record_backup_outcome(&self, key: &str, outcome: BackupOutcome) {
         let spend = match outcome {
             BackupOutcome::Definitive => 1,
-            // Nothing about asking again can change a server that has no such
-            // endpoint, or that refuses us the backup API.
+            // A missing endpoint or a refusal will not change on retry.
             BackupOutcome::PermanentRefusal => BACKUP_ATTEMPTS_STOPPED,
-            // Neither of these learned anything about the backup's CONTENTS,
-            // so neither may spend the budget. The backoff has already
-            // escalated, which is the whole throttle they need.
+            // These say nothing about the backup's contents, so they spend no budget;
+            // the backoff already escalated.
             BackupOutcome::Inconclusive | BackupOutcome::NoDecryptionKey => {
                 return
             }
@@ -661,13 +497,8 @@ impl TimelineRegistry {
         }
     }
 
-    /// Forget a whole-room backup pass so an explicit user action (manual
-    /// recovery-key/passphrase entry) can force one fresh download pass.
-    ///
-    /// Drops the room's PER-SESSION entries too. Removing only the bare room
-    /// key left every `<room>\x1f<session>` entry in place, so the passphrase
-    /// did not clear what it appeared to clear and an exhausted session stayed
-    /// exhausted.
+    /// Forget a room's backup attempts, including its per-session entries, so
+    /// manual recovery can force one fresh pass.
     pub fn clear_backup_attempt(&self, room_id: &str) {
         if let Ok(mut guard) = self.backup_download_attempts.lock() {
             let prefix = format!("{room_id}\u{1f}");
@@ -686,8 +517,8 @@ impl TimelineRegistry {
             && self.lifecycle_gen.load(Ordering::SeqCst) == lifecycle
     }
 
-    /// Current lifecycle generation, stamped on v0.5.9 command results so
-    /// C++ can reject completions from a signed-out session.
+    /// Current lifecycle generation, stamped on command results so C++ can
+    /// reject completions from a signed-out session.
     pub fn lifecycle(&self) -> u64 {
         self.lifecycle_gen.load(Ordering::SeqCst)
     }
@@ -703,13 +534,12 @@ impl TimelineRegistry {
             return;
         }
         if let Ok(mut guard) = self.media_sources.lock() {
-            // Evicts the least recently used key when full; see MediaRegistry.
             guard.insert(key, media);
         }
     }
 
-    /// Look up a media source for the media bridge. Clones the source so the
-    /// lock is never held across an await point.
+    /// Look up a media source for the media bridge. Clones it so the lock is
+    /// never held across an await.
     pub fn media_source(
         &self,
         key: &str,
@@ -738,17 +568,16 @@ impl TimelineRegistry {
         }
     }
 
-    /// Abort and forget the active timeline, if any. Returns the aborted
-    /// task handle so shutdown can await its completion.
+    /// Abort and forget the active timeline. Returns the task handle so
+    /// shutdown can await it.
     fn take_active(&self) -> Option<(Option<tokio::task::JoinHandle<()>>, String)> {
         let mut guard = self.active.lock().ok()?;
         let active = guard.take()?;
         if let Some(task) = &active.task {
             task.abort();
         }
-        // Dropping `active.timeline` here releases our Arc; the stream held
-        // by the aborted task is dropped when the abort lands, which
-        // releases the SDK's internal drop handle.
+        // Dropping our Arc here, and the stream when the abort lands, releases the
+        // SDK's internal drop handle.
         Some((active.task, active.room_id))
     }
 
@@ -764,22 +593,14 @@ impl TimelineRegistry {
         self.open_room_inner(runtime, client, room_id, /*shrink_first=*/ false)
     }
 
-    /// Re-open the live timeline for `room_id`, first letting the SDK's event
-    /// cache SHRINK back to its last chunk — i.e. releasing everything the
-    /// reader paginated in. This is Lightning's equivalent of Element's
-    /// `TimelinePanel.jumpToLiveTimeline()` rebuilding its `TimelineWindow` at
-    /// the live edge instead of scrolling through the backlog, and it exists
-    /// for exactly one caller: an explicit user-initiated jump to the newest
-    /// message from far back. It must never be wired to ordinary scrolling or
-    /// pagination.
+    /// Re-open the live timeline after letting the SDK's event cache shrink to
+    /// its last chunk, releasing the paginated backlog (like Element's
+    /// `jumpToLiveTimeline()`). Only for an explicit jump to the newest message;
+    /// never for ordinary scrolling.
     ///
-    /// The shrink itself is the SDK's, not ours: dropping the last
-    /// `RoomEventCacheSubscriber` pings matrix-sdk's auto-shrink task, which
-    /// calls `shrink_to_last_chunk()` when the subscriber count reaches zero.
-    /// The only thing this adds is ORDERING — waiting for our own timeline to
-    /// be gone, and for the shrink to actually land, before building the
-    /// replacement. Without that wait the new subscription wins the race and
-    /// the reopened timeline inherits the whole backlog again.
+    /// The SDK shrinks when the last `RoomEventCacheSubscriber` drops. This adds
+    /// ordering: wait for our timeline to be gone and the shrink to land before
+    /// building the replacement, or the new subscription inherits the backlog.
     pub fn reload_room_at_live(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -803,9 +624,8 @@ impl TimelineRegistry {
         let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
         self.clear_media();
 
-        // Keep the previous task's handle when we intend to shrink: the
-        // event-cache subscriber lives inside it, so the shrink cannot happen
-        // until it is genuinely gone (abort() only *requests* cancellation).
+        // Keep the previous task's handle when shrinking: the event-cache
+        // subscriber lives in it, and abort() only requests cancellation.
         let mut previous_task: Option<tokio::task::JoinHandle<()>> = None;
         if let Some((task, old_room)) = self.take_active() {
             if shrink_first {
@@ -858,8 +678,7 @@ impl TimelineRegistry {
 
     /// Close the active timeline (room deselected). Safe when none is open.
     pub fn close(&self) {
-        // A thread (and the Threads view) belongs to the open room; neither
-        // outlives it.
+        // A thread and the Threads view never outlive their room.
         self.close_thread();
         self.close_thread_list();
         // Invalidate stale pagination/send completions for the closed room.
@@ -875,7 +694,7 @@ impl TimelineRegistry {
         }
     }
 
-    // ── v0.6.0: SDK-backed thread timelines ─────────────────────────────
+    // ── SDK-backed thread timelines ─────────────────────────────────────
 
     fn take_active_thread(&self) -> Option<(Option<tokio::task::JoinHandle<()>>, String, String)> {
         let mut guard = self.active_thread.lock().ok()?;
@@ -891,10 +710,9 @@ impl TimelineRegistry {
             && self.lifecycle_gen.load(Ordering::SeqCst) == lifecycle
     }
 
-    /// Open (or replace) the thread timeline for `root_event_id` in the
-    /// currently relevant room. Uses `TimelineFocus::Thread`, so the SDK owns
-    /// thread relations, pagination, and encryption exactly as for the live
-    /// room timeline.
+    /// Open (or replace) the thread timeline for `root_event_id`, using
+    /// `TimelineFocus::Thread` so the SDK owns relations, pagination and
+    /// encryption.
     pub fn open_thread(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -952,7 +770,7 @@ impl TimelineRegistry {
         }
     }
 
-    // ── v0.6.0 checkpoint 5: room thread list + threaded read state ─────
+    // ── Room thread list and threaded read state ─────────────────────────
 
     fn take_active_thread_list(&self) -> Option<(Option<tokio::task::JoinHandle<()>>, String)> {
         let mut guard = self.active_thread_list.lock().ok()?;
@@ -968,9 +786,9 @@ impl TimelineRegistry {
             && self.lifecycle_gen.load(Ordering::SeqCst) == lifecycle
     }
 
-    /// Open (or replace) the Threads view for `room_id`: builds the SDK
-    /// ThreadListService, fetches the first page, and forwards a full
-    /// snapshot on every live update batch.
+    /// Open (or replace) the Threads view for `room_id`: build the SDK
+    /// ThreadListService, fetch the first page, and forward a snapshot on each
+    /// update batch.
     pub fn open_thread_list(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -1013,8 +831,8 @@ impl TimelineRegistry {
         let _ = self.take_active_thread_list();
     }
 
-    /// Fetch the next thread-list page. Single-flight; end-of-list requests
-    /// are dropped silently (the UI already knows via end_reached).
+    /// Fetch the next thread-list page. Single-flight; requests past the end
+    /// are dropped (the UI knows via end_reached).
     pub fn paginate_thread_list(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -1059,8 +877,8 @@ impl TimelineRegistry {
         Ok(())
     }
 
-    /// Send a threaded read receipt for the open thread panel (the SDK's
-    /// focus-aware mark_as_read — never a room-wide receipt).
+    /// Send a threaded read receipt for the open thread (the SDK's focus-aware
+    /// mark_as_read, never a room-wide receipt).
     pub fn mark_thread_read(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -1068,9 +886,8 @@ impl TimelineRegistry {
         root_event_id: String,
         privacy: i32,
     ) -> Result<(), String> {
-        // 2 = tell nobody. A thread receipt has no fully-read marker to fall
-        // back to (m.fully_read is room-scoped), so "off" here is genuinely
-        // sending nothing, and the caller's unread state stays local.
+        // 2 = none. A thread receipt has no fully-read marker to fall back to, so
+        // nothing is sent.
         if privacy == 2 {
             return Ok(());
         }
@@ -1090,8 +907,7 @@ impl TimelineRegistry {
         Ok(())
     }
 
-    /// Close the open thread timeline (panel closed / room switch). Safe
-    /// when none is open.
+    /// Close the open thread timeline. Safe when none is open.
     pub fn close_thread(&self) {
         self.thread_gen.fetch_add(1, Ordering::SeqCst);
         if let Some((_task, old_room, old_root)) = self.take_active_thread() {
@@ -1106,15 +922,9 @@ impl TimelineRegistry {
         }
     }
 
-    /// Snapshot of the open thread timeline when it matches, and its stamps.
-    /// The open thread timeline in `room_id`, WITHOUT needing its root id.
-    ///
-    /// `thread_timeline_for` is the right lookup when the caller names a
-    /// root — reactions and redactions both do. Retry and Cancel do not:
-    /// they identify a message by TRANSACTION ID, and the FFI carries no
-    /// thread notion at all, so there is no root to match on. Only one
-    /// thread is open at a time, so "the open thread in this room" is
-    /// unambiguous.
+    /// The open thread timeline in `room_id`, without a root id. Retry and
+    /// Cancel identify messages by transaction id with no thread notion, and
+    /// only one thread is open at a time.
     fn open_thread_timeline_in_room(&self, room_id: &str) -> Option<Arc<Timeline>> {
         let guard = self.active_thread.lock().ok()?;
         let thread = guard.as_ref()?;
@@ -1124,6 +934,8 @@ impl TimelineRegistry {
         thread.timeline.clone()
     }
 
+    /// The open thread timeline when it matches `room_id` and `root_event_id`,
+    /// with its stamps.
     fn thread_timeline_for(
         &self,
         room_id: &str,
@@ -1139,7 +951,7 @@ impl TimelineRegistry {
     }
 
     /// One backward pagination batch for the open thread. Single-flight and
-    /// reached-start suppressed, mirroring the room path.
+    /// suppressed after reaching the start, like the room path.
     pub fn paginate_thread_back(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -1200,14 +1012,10 @@ impl TimelineRegistry {
         Ok(())
     }
 
-    /// Send a plain-text thread reply through the SDK. When the thread panel
-    /// is open its focused timeline is used directly; otherwise a transient
-    /// thread-focused timeline is built for the send, so the m.thread
-    /// relation (with correct reply fallback) is ALWAYS produced by the SDK
-    /// — never hand-assembled — and encrypted rooms use the normal SDK
-    /// encryption path. A non-empty `in_reply_to` produces a rich reply TO
-    /// THAT EVENT within the thread (the thread-focused timeline enforces
-    /// ReplyWithinThread semantics itself).
+    /// Send a plain-text thread reply. Uses the open thread panel's timeline,
+    /// or a transient thread-focused one, so the SDK always builds the m.thread
+    /// relation and reply fallback, and encryption follows the normal path. A
+    /// non-empty `in_reply_to` makes a rich reply within the thread.
     #[allow(clippy::too_many_arguments)]
     pub fn send_thread_text(
         self: &Arc<Self>,
@@ -1230,11 +1038,8 @@ impl TimelineRegistry {
         let mentions = mentions_from_ids(mention_user_ids);
         let events = Arc::clone(&self.events);
         let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
-        // Capture the thread generation at dispatch so a send that resolves
-        // after the user has switched or closed the thread does not raise a
-        // spurious cross-context error toast (mirrors the room path's
-        // is_current gate). A thread switch, room switch, or logout all bump
-        // thread_gen.
+        // Capture the thread generation so a send resolving after a thread switch,
+        // room switch or logout does not raise a cross-context error toast.
         let thread_gen = self.thread_gen.load(Ordering::SeqCst);
         let registry = Arc::clone(self);
         let open_thread = self.thread_timeline_for(&room_id, &root_event_id);
@@ -1297,18 +1102,11 @@ impl TimelineRegistry {
         Ok(())
     }
 
-    /// Send one already-built message-like content to a room or thread
-    /// timeline (v0.7 polls). The room path mirrors `edit`/`redact`
-    /// (generation-gated `timeline_send_failed`); the thread path mirrors
-    /// `send_thread_text` (open panel timeline, else a transient
-    /// thread-focused timeline so the SDK owns any thread relation).
-    /// Contents that already carry an `m.reference` relation (poll response
-    /// / poll end) are left untouched by the SDK's thread-aware send.
-    /// 2026-08 stickers round: `stickers::send_sticker` builds an
-    /// `m.sticker` content and needs exactly this routing — the SDK's own
-    /// thread handling included, since matrix-sdk-ui attaches the `m.thread`
-    /// relation to a Sticker content in `Timeline::send` and Lightning must
-    /// never build that relation by hand (CLAUDE.md §8).
+    /// Send prebuilt message-like content (polls, stickers) to a room or
+    /// thread timeline. The room path mirrors `edit`/`redact`; the thread path
+    /// mirrors `send_thread_text`, so the SDK attaches any `m.thread` relation
+    /// (never built by hand). Content with an `m.reference`
+    /// relation is left untouched.
     pub(crate) fn send_content(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -1397,10 +1195,8 @@ impl TimelineRegistry {
         Ok(())
     }
 
-    /// Vote on an MSC3381 poll through the SDK timeline. An empty answer
-    /// list is the standard "retract my vote" response. Aggregation (latest
-    /// vote per user, spoiled/late votes) stays entirely SDK/ruma-side; the
-    /// updated poll item arrives back as an in-place Set diff.
+    /// Vote on an MSC3381 poll. An empty answer list retracts the vote.
+    /// Aggregation stays in the SDK; the poll item updates via a Set diff.
     pub fn send_poll_response(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -1421,8 +1217,8 @@ impl TimelineRegistry {
         )
     }
 
-    /// End an MSC3381 poll. The SDK/homeserver enforce sender permission;
-    /// the UI additionally offers this only for the user's own polls.
+    /// End an MSC3381 poll. The server enforces permissions; the UI offers it
+    /// only for the user's own polls.
     pub fn end_poll(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -1442,9 +1238,9 @@ impl TimelineRegistry {
         )
     }
 
-    /// Create an MSC3381 poll in a room or thread. Content is built by
-    /// `build_poll_start_content` (ruma constructors only); a thread target
-    /// gets its m.thread relation from the SDK's thread-focused send.
+    /// Create an MSC3381 poll in a room or thread. Content comes from
+    /// `build_poll_start_content`; a thread target gets its relation from the
+    /// SDK.
     pub fn send_poll_start(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -1468,15 +1264,11 @@ impl TimelineRegistry {
         )
     }
 
-    /// One deduplicated whole-room key-download pass from the active key
-    /// backup (v0.7 recovery supervisor). This is the deterministic
-    /// replacement for the SDK's fire-once OneShot download, which never
-    /// re-runs once a backup decryption key is stored (and whose bulk
-    /// download failure is swallowed): whenever backups are usable, each
-    /// room gets exactly one explicit `download_room_keys_for_room` pass
-    /// per session lifecycle (plus one bounded retry), and manual recovery
-    /// can force a fresh pass. Only public SDK APIs; imported keys reach
-    /// open timelines through the SDK's own redecryption propagation.
+    /// One deduplicated whole-room key download from the key backup
+    /// (`download_room_keys_for_room`), since the SDK's OneShot download never
+    /// re-runs once a key is stored. Once per room per lifecycle plus one
+    /// bounded retry; manual recovery can force another. Imported keys reach
+    /// open timelines through the SDK's redecryption.
     pub async fn download_backup_keys_for_room(
         self: &Arc<Self>,
         client: &Client,
@@ -1489,8 +1281,7 @@ impl TimelineRegistry {
                     &self.events,
                     json!({
                         "type": "crypto_bootstrap",
-                        // A skip is NOT a download outcome and must not be
-                        // recorded as one — see the note above.
+                        // A skip is not a download outcome.
                         "kind": if state.starts_with("skipped_") {
                             "backup_download_skipped"
                         } else {
@@ -1503,27 +1294,14 @@ impl TimelineRegistry {
                 );
             }
         };
-        // WHY A PASS DID NOT RUN, not merely the absence of a "started".
+        // Report why a pass did not run, so "backups unusable", "already done this
+        // lifecycle" and "ran and found nothing" can be told apart; this is the
+        // only automatic route from a backed-up key to a decrypted row.
         //
-        // These three returns were silent, so "backups are not usable",
-        // "this room was already done this lifecycle" and "the pass ran and
-        // found nothing" were ONE indistinguishable absence in every capture
-        // — and this is the only automatic route from a backed-up key to a
-        // decrypted row that exists (no room-key requests are compiled in,
-        // and BackupDownloadStrategy::OneShot installs no UTD handler), so
-        // that absence is precisely the standing "waiting for keys" report.
-        // Meanwhile CryptoBootstrapModel reads Ready either way, because its
-        // download field stays empty.
-        //
-        // THESE CARRY THEIR OWN `kind`, AND THE FIRST CUT DID NOT — a review
-        // caught it. Reusing `backup_download` looked inert because that
-        // field is only ever COMPARED against "started" and "failed"; but it
-        // is ASSIGNED unconditionally, and `recompute()` reads anything that
-        // is not "failed" as Ready. So a room that ran NO pass would have
-        // overwritten what a room that FAILED one had recorded, retiring the
-        // recovery banner on an ordinary room switch and reporting Ready over
-        // unrestored history. A separate kind cannot do that to a field it
-        // never touches. Closed vocabulary, no room ids, no key material.
+        // Skips use their own `kind`: `backup_download` is assigned
+        // unconditionally and anything but "failed" reads as Ready, so reusing it
+        // would let a skipped room hide another room's failure. Closed
+        // vocabulary, no room ids, no key material.
         let backups = client.encryption().backups();
         if !backups.are_enabled().await {
             emit("skipped_no_backup_key");
@@ -1540,26 +1318,22 @@ impl TimelineRegistry {
         emit("started");
         let mut result = backups.download_room_keys_for_room(&room_ref).await;
         if result.is_err() && self.lifecycle_current(lifecycle) {
-            // One bounded retry — a single transient network failure must
-            // not silently strand history, but this never polls.
+            // One bounded retry, so one transient failure does not strand history.
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
             result = backups.download_room_keys_for_room(&room_ref).await;
         }
-        // Sanitized outcome only — no error strings (they can embed URLs
-        // and backup versions), no room ids, no counts of key material.
+        // Sanitized outcome only; error strings can embed URLs and backup
+        // versions.
         emit(if result.is_ok() { "ok" } else { "failed" });
-        // A failed pass must stay re-runnable: the attempt mark exists to
-        // dedup SUCCESSFUL passes within a lifecycle, not to pin a failure
-        // until sign-out. The next Verified/BackupState edge (still
-        // edge-driven, never polled) may retry.
+        // A failed pass stays re-runnable on the next Verified/BackupState edge.
         if result.is_err() {
             self.clear_backup_attempt(room_id);
         }
     }
 
-    /// Deterministic stop of all timeline work: advances the lifecycle
-    /// generation, aborts the subscription task and awaits it (bounded).
-    /// Called before sign-out store cleanup and before handle destruction.
+    /// Stop all timeline work: advance the lifecycle generation, abort the
+    /// subscription task and await it (bounded). Called before sign-out store
+    /// cleanup and handle destruction.
     pub fn shutdown(&self, runtime: &tokio::runtime::Runtime) {
         self.lifecycle_gen.fetch_add(1, Ordering::SeqCst);
         self.room_gen.fetch_add(1, Ordering::SeqCst);
@@ -1569,8 +1343,7 @@ impl TimelineRegistry {
         if let Ok(mut guard) = self.backup_download_attempts.lock() {
             guard.clear();
         }
-        // A toggle spawned by the departing session can never complete into
-        // the next one; leaving its key behind would block that reaction.
+        // A toggle from the departing session must not block that reaction later.
         if let Ok(mut guard) = self.reaction_inflight.lock() {
             guard.clear();
         }
@@ -1599,8 +1372,7 @@ impl TimelineRegistry {
         enqueue(&self.events, json!({ "type": "timeline_shutdown" }));
     }
 
-    /// Snapshot of the currently active room's timeline, when it matches
-    /// `room_id` and has finished building.
+    /// The active room's timeline, when it matches `room_id` and is built.
     fn timeline_for(&self, room_id: &str) -> Option<(Arc<Timeline>, u64, u64)> {
         let guard = self.active.lock().ok()?;
         let active = guard.as_ref()?;
@@ -1611,8 +1383,8 @@ impl TimelineRegistry {
         Some((timeline, active.room_gen, self.lifecycle_gen.load(Ordering::SeqCst)))
     }
 
-    /// Start one backward pagination batch. Rejected while another request
-    /// is running or once the start of history has been reached.
+    /// Start one backward pagination batch. Rejected while another runs or
+    /// once the start of history was reached.
     pub fn paginate_back(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -1631,7 +1403,7 @@ impl TimelineRegistry {
             (Arc::clone(&active.pagination_busy), Arc::clone(&active.reached_start))
         };
         if reached.load(Ordering::SeqCst) {
-            // Not an error — the UI already knows via reached_start.
+            // Not an error; the UI knows via reached_start.
             return Ok(());
         }
         if busy
@@ -1673,14 +1445,9 @@ impl TimelineRegistry {
                             "lifecycle": lifecycle,
                             "state": "idle",
                             "reached_start": hit_start,
-                            // Cumulative, never a delta — see the counters'
-                            // own note. What a reader wants is the CLIMB
-                            // across a run of pages: `offered` rising with
-                            // `drop_rtc` names MatrixRTC churn, `offered`
-                            // rising with neither drop moving names
-                            // hide_threaded_events or aggregation folding,
-                            // and `offered` flat means the page really was
-                            // empty and the fault is elsewhere.
+                            // Cumulative (see the counters). `offered` rising with `drop_rtc` means
+                            // MatrixRTC churn; rising with neither drop means thread hiding or
+                            // aggregation; flat means the page really was empty.
                             "filter_offered": FILTER_OFFERED
                                 .load(Ordering::Relaxed),
                             "filter_dropped_sdk": FILTER_DROP_SDK
@@ -1691,8 +1458,7 @@ impl TimelineRegistry {
                     );
                 }
                 Err(_err) => {
-                    // No message forwarding: pagination errors may embed
-                    // server detail. The category is enough for the UI.
+                    // Category only: pagination errors may embed server detail.
                     enqueue(
                         &events,
                         json!({
@@ -1710,11 +1476,9 @@ impl TimelineRegistry {
         Ok(())
     }
 
-    /// Send a text message through the SDK timeline (send queue + SDK-owned
-    /// local echo). By default the body is parsed as markdown by the SDK
-    /// (formatting toolbar); `spec` selects the plain or html lane instead
-    /// (v0.9 formatted sends — see parse_body_spec). Encryption is
-    /// transparent for encrypted rooms.
+    /// Send a text message through the SDK timeline (send queue, SDK local
+    /// echo). The body is markdown by default; `spec` selects the plain or html
+    /// lane (see parse_body_spec).
     pub fn send_text(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -1754,21 +1518,13 @@ impl TimelineRegistry {
         Ok(())
     }
 
-    /// v0.5.9: send an attachment through the SDK timeline. The send queue
-    /// path (`use_send_queue`) provides an SDK-owned local echo that flows
-    /// through the existing diff stream — sending, sent and failed states
-    /// arrive exactly like text-message echoes, and failed uploads are
-    /// retryable via the same `unwedge` route. Encryption of the attachment
-    /// (and thumbnail) is handled entirely by the SDK for encrypted rooms.
+    /// Send an attachment through the SDK send queue. The local echo flows
+    /// through the diff stream like a text echo, failed uploads retry via
+    /// `unwedge`, and the SDK encrypts payload and thumbnail in encrypted rooms.
     ///
-    /// `op_id` identifies the queue attempt for C++; only queueing success/
-    /// failure is reported here. Delivery state is item state, not op state.
-    ///
-    /// v0.7 video round: `thumbnail` carries an optional poster image. The
-    /// SDK send queue uploads it as its OWN media request before the event
-    /// is finalized, encrypting it exactly like the payload in an encrypted
-    /// room, and writes the resulting source into `info.thumbnail_source`.
-    /// Nothing about the thumbnail is assembled by hand here.
+    /// `op_id` identifies the queue attempt; only queueing success/failure is
+    /// reported here. `thumbnail` is an optional poster that the SDK uploads
+    /// and writes into `info.thumbnail_source`.
     #[allow(clippy::too_many_arguments)]
     pub fn send_attachment(
         self: &Arc<Self>,
@@ -1817,8 +1573,8 @@ impl TimelineRegistry {
                     "room_generation": room_gen,
                     "lifecycle": lifecycle,
                     "ok": result.is_ok(),
-                    // Coarse category only; SDK errors may embed local paths
-                    // or server detail that must not cross the FFI.
+                    // Coarse category only; SDK errors may embed local paths or server
+                    // detail.
                     "category": if result.is_ok() { "" } else { "rejected" },
                 }),
             );
@@ -1868,16 +1624,11 @@ impl TimelineRegistry {
         Ok(())
     }
 
-    /// v0.6.1: send an attachment INTO a thread through the SDK's
-    /// thread-focused timeline. Because the timeline is focused on the thread
-    /// root, `send_attachment` runs the SDK's `infer_reply`, which attaches a
-    /// correct `m.thread` relation (with the reply-to fallback for
-    /// non-thread-aware clients) and, in encrypted rooms, encrypts the
-    /// attachment — exactly as the SDK does for a thread text reply. No
-    /// relation JSON is built by hand and the send never lands as an ordinary
-    /// room message. If the panel is not open (a race), a transient
-    /// thread-focused timeline is built for the send. The result is gated on
-    /// the thread still being current so a stale echo never crosses the FFI.
+    /// Send an attachment into a thread via the thread-focused timeline, so the
+    /// SDK's `infer_reply` attaches the `m.thread` relation (with reply
+    /// fallback) and encrypts as needed; it never lands as an ordinary room
+    /// message. Uses a transient thread timeline if the panel is not open. The
+    /// result is gated on the thread still being current.
     #[allow(clippy::too_many_arguments)]
     pub fn send_thread_attachment(
         self: &Arc<Self>,
@@ -1917,8 +1668,7 @@ impl TimelineRegistry {
                         .filter(|c| !c.is_empty())
                         .map(TextMessageEventContent::plain),
                     mentions: None,
-                    // None → infer_reply threads it from the focus; never an
-                    // ordinary room message.
+                    // None: infer_reply threads it from the focus.
                     in_reply_to: None,
                 };
                 unwedge_send_queue(&timeline);
@@ -1940,7 +1690,7 @@ impl TimelineRegistry {
                         "thread_root_id": root_event_id,
                         "lifecycle": lifecycle,
                         "ok": sent,
-                        // Coarse category only; never local paths or detail.
+                        // Coarse category only.
                         "category": if sent { "" } else { "rejected" },
                     }),
                 );
@@ -1960,40 +1710,19 @@ impl TimelineRegistry {
         mention_user_ids: Vec<String>,
         spec: SendBodySpec,
     ) -> Result<(), String> {
-        // THE TIMELINE MUST BE THE ONE THAT HOLDS THE EVENT — the fourth
-        // member of this family, and the last.
-        //
-        // `Timeline::edit` resolves its target with `rfind_event_by_item_id`
-        // over that timeline's OWN items and returns `EventNotInTimeline`
-        // when it is absent (matrix-sdk-ui timeline/mod.rs:475). The live room
-        // timeline is built `hide_threaded_events: true`, and
-        // `should_add_new_items` for that focus is `thread_root.is_none()`
-        // (controller/state.rs:171) — so a thread reply is never in it, and
-        // editing one failed every single time with "The edit could not be
-        // applied."
-        //
-        // Redaction, retry/cancel and reactions each had exactly this defect
-        // and each was fixed by selecting the thread timeline when the caller
-        // names a root. Edit was the one left, because it is the one whose
-        // caller had no root to pass: the thread panel's Edit routes through
-        // the ROOM composer. That is now plumbed, so this can follow the same
-        // rule the other three do.
+        // Use the timeline that holds the event. `Timeline::edit` looks the target
+        // up in its own items, and the live room timeline hides threaded events,
+        // so editing a thread reply there always failed. Same rule as redaction,
+        // retry/cancel and reactions.
         let in_thread = !thread_root_id.trim().is_empty();
         let resolved = if in_thread {
             self.thread_timeline_for(&room_id, &thread_root_id)
         } else {
             self.timeline_for(&room_id)
         };
-        // NAMED `timeline_gen`, NOT `room_gen`, because in the thread branch
-        // it is a THREAD generation — `thread_timeline_for` returns
-        // `thread.thread_gen`. The first revision of this fix bound it to
-        // `room_gen` and handed it to `is_current`, which compares against
-        // `self.room_gen`: two independent counters, and `open_thread` bumps
-        // only the thread one, so with a thread open the thread generation is
-        // STRICTLY GREATER, the guard was unconditionally false, and the
-        // failure report below was dead code. A rejected thread edit said
-        // nothing at all — the silent no-op this whole family exists to
-        // remove, reintroduced in the reporting half.
+        // `timeline_gen`, not `room_gen`: in the thread branch it is a thread
+        // generation, which must be checked against the thread counter. Checking
+        // it against `room_gen` made the failure report unreachable.
         let Some((timeline, timeline_gen, lifecycle)) = resolved else {
             return Err(if in_thread {
                 "No live timeline is open for that thread.".to_owned()
@@ -2006,15 +1735,12 @@ impl TimelineRegistry {
         let mentions = mentions_from_ids(mention_user_ids);
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
-        // The room generation for the PAYLOAD, which names `room_generation`
-        // and must not carry a thread counter under that name even though no
-        // C++ consumer reads it — both handlers dispatch on `category` alone.
+        // The payload field is `room_generation`, so carry the room counter there.
         let room_gen_for_report = self.room_gen.load(Ordering::SeqCst);
         runtime.spawn(async move {
             let item_id = TimelineEventItemId::EventId(event_id);
-            // ruma's make_replacement puts the new mentions in m.new_content and
-            // the top-level content carries only the newly added mentions, so
-            // attach them to the WithoutRelation content before wrapping it.
+            // ruma's make_replacement puts mentions in m.new_content and only newly
+            // added ones at top level, so attach them before wrapping.
             let mut message = composed_content_without_relation(&new_body, &spec);
             if let Some(mentions) = mentions {
                 message = message.add_mentions(mentions);
@@ -2022,19 +1748,15 @@ impl TimelineRegistry {
             let content = EditedContent::RoomMessage(message);
             unwedge_send_queue(&timeline);
             if timeline.edit(&item_id, content).await.is_err() {
-                // Each generation checked against its OWN counter, the split
-                // `toggle_reaction` already makes for the same reason.
+                // Each generation against its own counter, as in `toggle_reaction`.
                 let current = if in_thread {
                     registry.thread_current(timeline_gen, lifecycle)
                 } else {
                     registry.is_current(timeline_gen, lifecycle)
                 };
                 if current {
-                    // timeline_send_failed for BOTH lanes, deliberately: it is
-                    // the branch that produces "The edit could not be applied."
-                    // The thread_send_failed handler has no edit category and
-                    // would say "The thread reply could not be sent." — the
-                    // wrong words for an edit.
+                    // timeline_send_failed for both lanes: it yields "The edit could not be
+                    // applied.", whereas thread_send_failed would talk about a thread reply.
                     enqueue(
                         &events,
                         json!({
@@ -2061,14 +1783,8 @@ impl TimelineRegistry {
         target_event_id: String,
         key: String,
     ) -> Result<(), String> {
-        // THE TIMELINE MUST BE THE ONE THAT HOLDS THE EVENT.
-        //
-        // `Timeline::toggle_reaction` resolves its target from that
-        // timeline's own item list, and the live room timeline is built with
-        // `hide_threaded_events: true` — so reacting to a thread reply looked
-        // the event up in a list it is not in, failed, and did nothing at
-        // all. Selecting the thread timeline when the caller names a root is
-        // the same rule `send_content_to_timeline` already follows.
+        // Use the timeline that holds the event: the live room timeline hides
+        // threaded events, so a thread reply is resolved on its thread timeline.
         let open_room_timeline = self.timeline_for(&room_id);
         let in_thread = !thread_root_id.trim().is_empty();
         if !in_thread && open_room_timeline.is_none() {
@@ -2081,14 +1797,12 @@ impl TimelineRegistry {
         };
         let event_id = EventId::parse(&target_event_id)
             .map_err(|_| "Invalid reaction target event id.".to_owned())?;
-        // One in-flight toggle per (room, event, key). A second click while
-        // the first is still resolving is dropped rather than raced.
+        // One in-flight toggle per (room, event, key); a second click while the
+        // first resolves is dropped.
         //
-        // The key carries the LIFECYCLE generation: shutdown() clears the
-        // set, and a task spawned by the departed session still runs its
-        // release afterwards. Without the stamp that release would free a
-        // slot the NEXT session had just claimed, re-opening the very race
-        // this guard exists to close.
+        // The key includes the lifecycle generation: a task from a departed
+        // session still releases its key after shutdown() cleared the set, and must
+        // not free a slot the next session claimed.
         let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
         let guard_key =
             format!("{lifecycle}\u{1f}{room_id}\u{1f}{target_event_id}\u{1f}{key}");
@@ -2106,15 +1820,11 @@ impl TimelineRegistry {
         let report_thread_root = thread_root_id.clone();
         runtime.spawn(async move {
             let item_id = TimelineEventItemId::EventId(event_id);
-            // The await is bounded and the send is NOT cancelled by the
-            // bound: a queued send that is waiting for the network can take
-            // arbitrarily long, and a slot held for that whole time would
-            // leave the reaction silently unclickable. The inner task keeps
-            // running; only the guard is released.
+            // The await is bounded, but the send is not cancelled: a queued send may
+            // wait on the network indefinitely, and only the guard is released.
             let send = tokio::spawn(async move {
-                // A thread reply reacts on its thread timeline: the open one
-                // if the panel is up, otherwise a transient one built for the
-                // root, exactly as a thread SEND does.
+                // A thread reply reacts on its thread timeline (open or transient), like a
+                // thread send.
                 let timeline = if in_thread {
                     match open_thread {
                         Some((timeline, _, _)) => Some(timeline),
@@ -2127,18 +1837,9 @@ impl TimelineRegistry {
                     room_timeline
                 };
                 match timeline {
-                    // NOT `let _ =`. Discarding this is why reacting to a
-                    // thread reply was a silent no-op with no diagnostic
-                    // anywhere: the picker closed and nothing ever happened.
-                    //
-                    // But NOT every failure is worth saying out loud.
-                    // `FailedToToggleReaction` is the SDK's "that item is not
-                    // in this timeline's loaded window" — which happens
-                    // legitimately after a jump-to-live trim, where the row
-                    // the user clicked has been released. Reporting that
-                    // would trade a silent no-op for a WRONG visible error.
-                    // Anything else (an HTTP refusal, a rejected send) is a
-                    // real failure and is reported.
+                    // Do not discard the result. But `FailedToToggleReaction` (the item is not
+                    // in this timeline's loaded window, e.g. after a jump-to-live trim) is not
+                    // reported, since that would be a wrong visible error; anything else is.
                     Some(timeline) => {
                         unwedge_send_queue(&timeline);
                         match timeline.toggle_reaction(&item_id, &key).await {
@@ -2158,9 +1859,8 @@ impl TimelineRegistry {
             )
             .await;
             registry.end_reaction(&guard_key);
-            // A reaction that could not be applied is reported like any other
-            // failed send. A timeout is NOT a failure — the inner task is
-            // still running by design, and only the guard was released.
+            // A failed reaction is reported like a failed send. A timeout is not a
+            // failure: the inner task is still running.
             if let Ok(Ok(false)) = outcome {
                 let stale = if in_thread {
                     !registry.thread_current(thread_gen, lifecycle)
@@ -2186,10 +1886,8 @@ impl TimelineRegistry {
         Ok(())
     }
 
-    /// Claim the single in-flight slot for one reaction target. Returns
-    /// false when a toggle for the same target is already running (the
-    /// caller must then drop the request). A poisoned lock fails CLOSED:
-    /// refusing a reaction is recoverable, racing one is not.
+    /// Claim the in-flight slot for one reaction target. Returns false when a
+    /// toggle for it is already running. A poisoned lock fails closed.
     fn begin_reaction(&self, key: &str) -> bool {
         match self.reaction_inflight.lock() {
             Ok(mut guard) => guard.insert(key.to_owned()),
@@ -2212,28 +1910,14 @@ impl TimelineRegistry {
         target_event_id: String,
         reason: String,
     ) -> Result<(), String> {
-        // ROOM-LEVEL, NOT TIMELINE-LEVEL, and that is the whole fix.
-        //
-        // `Timeline::redact` resolves the target by looking it up in ITS OWN
-        // item list. The live room timeline is built with
-        // `TimelineFocus::Live { hide_threaded_events: true }`, so a threaded
-        // event is not in that list and the lookup returns
-        // `RedactError::ItemNotFound` — deleting your own thread reply was
-        // therefore never sent, and the user was told the message could not be
-        // SENT, pointing at a Retry action that does not exist for a deletion.
-        //
-        // A redaction does not need a timeline item: it is
-        // `PUT /rooms/{room}/redact/{event}`, addressed by event id. Going
-        // through the room removes the thread/main distinction entirely rather
-        // than teaching this call about threads, and the resulting
-        // `m.room.redaction` comes back through sync to whichever timeline
-        // holds the event.
+        // Room-level, not timeline-level: `Timeline::redact` looks the target up
+        // in its own items, and the live room timeline hides threaded events. A
+        // redaction is addressed by event id, and the `m.room.redaction` returns
+        // through sync to whichever timeline holds the event.
         let room = crate::rooms::joined_room(&client, &room_id)?;
-        // The generations still come from the room's open timeline, so a
-        // failure enqueued after a room change or a sign-out is still dropped
-        // as stale. A redaction dispatched with no timeline open is possible
-        // (nothing here requires one any more), and in that case the failure
-        // is simply not reportable to a surface that no longer exists.
+        // Generations still come from the room's open timeline, so a failure after
+        // a room change or sign-out is dropped as stale. With no timeline open the
+        // failure is not reportable.
         let (room_gen, lifecycle) = match self.timeline_for(&room_id) {
             Some((_, gen, lc)) => (gen, lc),
             None => (
@@ -2265,9 +1949,8 @@ impl TimelineRegistry {
         Ok(())
     }
 
-    /// Retry a failed local echo, identified by its transaction id.
-    /// Uses the SDK send-queue `unwedge` path, which never duplicates the
-    /// echo — the same queued item is re-attempted.
+    /// Retry a failed local echo by transaction id via the send queue's
+    /// `unwedge`, which re-attempts the same item without duplicating it.
     pub fn retry_send(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -2277,31 +1960,15 @@ impl TimelineRegistry {
         let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
             return Err("No live timeline is open for that room.".to_owned());
         };
-        // THE ECHO OF A THREAD REPLY IS NOT IN THE ROOM TIMELINE, so looking
-        // only there made this a no-op for every thread reply ever sent.
-        //
-        // The live room timeline is built with
-        // `TimelineFocus::Live { hide_threaded_events: true }` (below), and
-        // matrix-sdk-ui refuses to add a threaded LOCAL ECHO to such a
-        // timeline: `should_add_new_items` is `thread_root.is_none()` at
-        // timeline/controller/state.rs:171. The handle simply is not in that
-        // item list. Meanwhile the routing sends every retry and cancel here
-        // with the plain room id — the FFI has no thread notion — and the
-        // thread panel renders the SAME MessageDelegate, so its Retry and
-        // Cancel links called this and got `*_target_missing`, which C++
-        // reports as "You can retry from the message's Retry action": the
-        // button that had just failed.
-        //
-        // THIS IS THE THIRD TIME THIS SHAPE HAS BEEN FIXED IN THIS FILE.
-        // `toggle_reaction` and the redaction path above both had it and both
-        // were corrected; these two sit immediately below and were missed.
+        // A thread reply's local echo is not in the live room timeline (it hides
+        // threaded events), and the FFI carries no thread notion, so fall back to
+        // the open thread timeline in this room.
         let thread_timeline = self.open_thread_timeline_in_room(&room_id);
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
-            // Generic over the item container so the SDK's concrete vector
-            // type does not have to be named here — it is an imbl Vector, not
-            // a slice, and it is not otherwise imported in this file.
+            // Generic over the container so the SDK's imbl Vector type need not be
+            // named.
             let find_handle = |items: &_| -> Option<_> {
                 fn scan<'a, I: IntoIterator<Item = &'a Arc<TimelineItem>>>(
                     items: I,
@@ -2344,28 +2011,17 @@ impl TimelineRegistry {
                 }
                 return;
             };
-            // RE-ENABLE THE ROOM'S QUEUE FIRST, or this whole function is a
-            // no-op — which is what it was until 2026-09-10. `unwedge_send_queue`
-            // carries the reasoning; Retry is the one path where the queue is
-            // KNOWN to be disabled, because a failed send is what disabled it.
+            // Re-enable the room's queue first; a failed send is what disabled it.
             unwedge_send_queue(&timeline);
             let _ = handle.unwedge().await;
         });
         Ok(())
     }
 
-    /// Cancel a local echo that has not reached the server yet, identified
-    /// by its transaction id.
-    ///
-    /// `SendHandle::abort` is the whole implementation, and it is the only
-    /// correct one: it aborts an in-flight MEDIA upload as well as a queued
-    /// event, and it answers `Ok(false)` when the event was already sent —
-    /// a race this cannot avoid, only report. Removing the item ourselves
-    /// would leave the queue still holding it.
-    ///
-    /// A successful abort needs no event of its own: the SDK emits
-    /// `CancelledLocalEvent`, the timeline drops the item, and the row
-    /// disappears through the ordinary diff path.
+    /// Cancel a local echo not yet sent, by transaction id, via
+    /// `SendHandle::abort`. It also aborts an in-flight media upload and
+    /// returns `Ok(false)` if the event was already sent. Success emits nothing;
+    /// the SDK's `CancelledLocalEvent` removes the row through the diff path.
     pub fn cancel_send(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -2375,31 +2031,14 @@ impl TimelineRegistry {
         let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
             return Err("No live timeline is open for that room.".to_owned());
         };
-        // THE ECHO OF A THREAD REPLY IS NOT IN THE ROOM TIMELINE, so looking
-        // only there made this a no-op for every thread reply ever sent.
-        //
-        // The live room timeline is built with
-        // `TimelineFocus::Live { hide_threaded_events: true }` (below), and
-        // matrix-sdk-ui refuses to add a threaded LOCAL ECHO to such a
-        // timeline: `should_add_new_items` is `thread_root.is_none()` at
-        // timeline/controller/state.rs:171. The handle simply is not in that
-        // item list. Meanwhile the routing sends every retry and cancel here
-        // with the plain room id — the FFI has no thread notion — and the
-        // thread panel renders the SAME MessageDelegate, so its Retry and
-        // Cancel links called this and got `*_target_missing`, which C++
-        // reports as "You can retry from the message's Retry action": the
-        // button that had just failed.
-        //
-        // THIS IS THE THIRD TIME THIS SHAPE HAS BEEN FIXED IN THIS FILE.
-        // `toggle_reaction` and the redaction path above both had it and both
-        // were corrected; these two sit immediately below and were missed.
+        // A thread reply's local echo is not in the live room timeline; see
+        // `retry_send`.
         let thread_timeline = self.open_thread_timeline_in_room(&room_id);
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
-            // Generic over the item container so the SDK's concrete vector
-            // type does not have to be named here — it is an imbl Vector, not
-            // a slice, and it is not otherwise imported in this file.
+            // Generic over the container so the SDK's imbl Vector type need not be
+            // named.
             let find_handle = |items: &_| -> Option<_> {
                 fn scan<'a, I: IntoIterator<Item = &'a Arc<TimelineItem>>>(
                     items: I,
@@ -2431,8 +2070,7 @@ impl TimelineRegistry {
                 None => Some("cancel_target_missing"),
                 Some(handle) => match handle.abort().await {
                     Ok(true) => None,
-                    // Already on the server. Saying "cancelled" here would
-                    // be a lie the room can see.
+                    // Already on the server; do not report it as cancelled.
                     Ok(false) => Some("cancel_too_late"),
                     Err(_) => Some("cancel_failed"),
                 },
@@ -2455,22 +2093,12 @@ impl TimelineRegistry {
         Ok(())
     }
 
-    /// Immediate decryption retry after a successful room-key import
-    /// (v0.5.7, the main 0.5.7 acceptance path). `sessions_by_room` carries
-    /// only Megolm *session identifiers* — never key material — and stays
-    /// inside Rust. If the active timeline's room is affected, the pinned
-    /// SDK `Timeline::retry_decryption` is awaited and the SDK emits
-    /// in-place `Set` diffs for every newly decryptable item.
-    /// v0.6.0 checkpoint 8: manual "Retry decryption" for the open room.
-    /// Collects the session ids of the currently visible unable-to-decrypt
-    /// items (room timeline + open thread timeline) and asks the SDK to
-    /// retry them — one bounded pass per user action, no polling, no custom
-    /// key transfer. v0.7: since the client runs the OneShot strategy (the
-    /// SDK's per-UTD AfterDecryptionFailure download task does not exist),
-    /// each visible UTD session additionally gets one deduplicated
-    /// `download_room_key` attempt from the active backup before the
-    /// decryption retry, so Retry can actually fetch a missing key instead
-    /// of only re-checking key material that already arrived.
+    /// Manual "Retry decryption" for the open room and thread: collect the
+    /// session ids of visible undecryptable items and ask the SDK to retry
+    /// them. One bounded pass per action, no polling. Since the client uses
+    /// the OneShot strategy (no per-UTD download task), each visible UTD
+    /// session first gets one deduplicated `download_room_key` attempt.
+    /// Session identifiers only; never key material.
     pub fn retry_visible_decryption(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -2516,9 +2144,8 @@ impl TimelineRegistry {
                     "sessions": session_ids.len(),
                 }),
             );
-            // Bounded per-session backup downloads (identifiers only; key
-            // material stays inside the SDK). `download_room_key` is a
-            // harmless Ok(false) when no usable backup exists.
+            // Bounded per-session downloads; `download_room_key` returns Ok(false)
+            // without a usable backup.
             let backups = client.encryption().backups();
             if backups.are_enabled().await {
                 if let Ok(room_ref) = RoomId::parse(&room_id) {
@@ -2614,79 +2241,55 @@ impl TimelineRegistry {
     }
 }
 
-/// Builds the SDK timeline, installs it in the registry, emits the initial
-/// snapshot, then forwards every diff batch until cancelled or stale.
-/// Total time EITHER half of the shrink wait may take — the join and the poll
-/// loop are bounded separately, so the worst case for the whole helper is
-/// twice this (~1.2 s) before it gives up and reopens without trimming.
-/// Reached only when a task will not cancel AND the shrink never fires.
+/// Budget for each half of the shrink wait (join and poll), so the helper
+/// gives up after ~1.2 s and reopens without trimming.
 const SHRINK_WAIT_BUDGET_MS: u64 = 600;
-/// Poll step for observing the shrink. `RoomEventCache::events()` clones every
-/// event, so this is deliberately coarse.
+/// Shrink poll step. Coarse because `RoomEventCache::events()` clones
+/// every event.
 const SHRINK_POLL_STEP_MS: u64 = 60;
 
-/// Wait for the SDK's event cache to release the paginated backlog for
-/// `room_ref`, and report how many events it held beforehand plus whether the
-/// release was actually OBSERVED.
+/// Wait for the event cache to release the paginated backlog for
+/// `room_ref`. Returns the event count beforehand and whether the release
+/// was observed.
 ///
-/// Sequence, and every step of it matters:
-///   1. AWAIT the previous timeline task. `abort()` only requests
-///      cancellation; until the task actually stops it still owns the
-///      `Arc<Timeline>` whose internal `RoomEventCacheSubscriber` keeps the
-///      cache's subscriber count above zero. A cancelled task's join returns
-///      `Err(JoinError::Cancelled)` — that error IS the success signal here.
-///   2. Poll the cache's event count. matrix-sdk's auto-shrink runs on its own
-///      task (a channel ping from the subscriber's Drop), so there is nothing
-///      to await directly; polling the PUBLIC `events()` is the only honest
-///      way to know it landed. Bounded — a shrink that never happens must
-///      degrade to "reopened without trimming", never to a hang.
-/// Never calls `RoomEventCache::clear()`: that would also wipe the room's
-/// PERSISTED events, forcing the live tail itself to be refetched.
+///   1. Await the previous timeline task: until it stops, its `Timeline`
+///      keeps a cache subscriber alive. `Err(JoinError::Cancelled)` is
+///      success here.
+///   2. Poll the cache's event count; the SDK's auto-shrink runs on its own
+///      task, so there is nothing to await. Bounded, so a missing shrink
+///      degrades to "reopened without trimming".
+///
+/// Never calls `RoomEventCache::clear()`, which would also wipe persisted
+/// events.
 async fn await_event_cache_shrink(
     room: &matrix_sdk::Room,
     previous_task: Option<tokio::task::JoinHandle<()>>,
 ) -> Option<(usize, bool)> {
-    // BASELINE FIRST, while the old subscriber is still alive and the cache
-    // therefore still holds the whole backlog. Sampling it after the release
-    // would race the SDK's auto-shrink task: a FAST shrink could land before
-    // the baseline was taken, and the poll below would then see no further
-    // decrease and report `trim_shrunk: false` for a trim that in fact
-    // succeeded (recheck observation, 2026-08-19).
-    //
-    // Room::event_cache() is the public accessor; the drop handles it returns
-    // are deliberately dropped — they keep the cache's own listener tasks
-    // alive, which the client already owns for the session.
+    // Take the baseline while the old subscriber still holds the backlog; a
+    // fast shrink could otherwise land first and be reported as no shrink.
+    // The returned drop handles are dropped; the client owns the listeners.
     let (cache, _drop_handles) = room.event_cache().await.ok()?;
     let before = cache.events().await.ok()?.len();
     if before == 0 {
         return None;
     }
     if let Some(task) = previous_task {
-        // Ignore the outcome: Ok means it finished, Err(Cancelled) means the
-        // abort landed. Both mean its Arc is released, which is all we need.
-        // BOUNDED (review finding): abort() cancels at the next await point,
-        // and nothing downstream of this helper has a timeout — the FFI is
-        // fire-and-forget and the caller has already committed to the trim.
-        // A task slow to reach cancellation must degrade to "reopened
-        // without trimming", never stall the room indefinitely.
+        // Ok or Err(Cancelled) both mean the Arc is released. Bounded: a task slow
+        // to cancel must degrade to reopening without trimming.
         let _ = tokio::time::timeout(
             std::time::Duration::from_millis(SHRINK_WAIT_BUDGET_MS),
             task,
         )
         .await;
     }
-    // The release may already have landed while we awaited the task above, so
-    // check ONCE before sleeping — otherwise the fastest, most common case
-    // would be reported as a 60 ms-late detection at best.
+    // Check once before sleeping; the release may already have landed.
     if let Ok(events) = cache.events().await {
         if events.len() < before {
             return Some((before, true));
         }
     }
-    // The shrink is a channel ping plus a state write-lock acquisition, so it
-    // is normally immediate; this bound exists for the pathological case.
-    // NOTE `events()` CLONES every event, so poll sparingly rather than
-    // tightly — the whole point is a large backlog (review finding).
+    // Normally immediate; bounded for the pathological case. Poll sparingly:
+    // `events()` clones every event.
     let steps = SHRINK_WAIT_BUDGET_MS / SHRINK_POLL_STEP_MS;
     for _ in 0..steps {
         tokio::time::sleep(std::time::Duration::from_millis(SHRINK_POLL_STEP_MS))
@@ -2696,9 +2299,7 @@ async fn await_event_cache_shrink(
             return Some((before, true));
         }
     }
-    // Timed out: the cache still holds everything. Reported as NOT shrunk —
-    // "we waited and nothing happened" and "we released the backlog" must
-    // never be indistinguishable in the emitted data (review finding).
+    // Timed out: report not shrunk, distinct from a successful release.
     Some((before, false))
 }
 
@@ -2725,43 +2326,24 @@ async fn open_room_task(
         return;
     };
 
-    // Release the paginated backlog before rebuilding (jump-to-live only).
-    // Reported honestly in the reset payload below: `trimmed_from` is the
-    // event count the cache held before, so a live capture can show whether
-    // the shrink actually landed rather than us assuming it did.
+    // Release the backlog before rebuilding (jump-to-live only);
+    // `trimmed_from` in the reset reports whether it actually landed.
     let trim_report: Option<(usize, bool)> = if shrink_first {
         await_event_cache_shrink(&room, previous_task).await
     } else {
         None
     };
 
-    // TimelineBuilder::new (not RoomExt::timeline_builder) with read-receipt
-    // tracking enabled for MESSAGE-LIKE events only: Lightning renders
-    // Element-style per-message receipt chips, and MessageLikeEvents keeps
-    // state rows (membership, topic, …) from ever carrying receipt decoration
-    // (AllEvents would attach them there too). ONE switch enables BOTH the
-    // per-item receipts and the SDK's VirtualTimelineItem::ReadMarker row —
-    // there is no way to get receipts without also reviving the marker row.
-    // The marker's presentation policy (render the "New messages" divider,
-    // but collapse it while the reader is pinned to the bottom, so the
-    // own-receipt ack cycle cannot bounce a 28px divider in and out under a
-    // live conversation) lives entirely in QML (MessageDelegate).
+    // Read-receipt tracking for message-like events only, so state rows never
+    // carry receipts. This also enables the SDK's ReadMarker row; its
+    // presentation policy lives in QML (MessageDelegate).
     //
-    // The thread-focused timelines below deliberately KEEP tracking
-    // Disabled. The SDK's receipt handling is not thread-aware (its docs:
-    // read_receipts() "currently ignores threads"), so enabling it on a
-    // thread timeline would attach the room's UNTHREADED receipts to thread
-    // rows — wrong data, not merely missing data. Thread rows therefore
-    // never emit read_by entries.
+    // Thread timelines keep tracking disabled: the SDK's receipt handling is
+    // not thread-aware and would attach unthreaded receipts to thread rows.
     //
-    // hide_threaded_events: true asks the SDK to keep in-thread replies out of
-    // the live room timeline (its `should_add` rule is
-    // `thread_root.is_none() || !hide_threaded_events`). Lightning presents each
-    // thread through a dedicated TimelineFocus::Thread panel plus a summary card
-    // on the root, so replies belong there, not as ordinary main-timeline rows.
-    // The classification is the SDK's authoritative m.thread relation — never a
-    // body-text heuristic — and the thread ROOT (no thread_root, only a
-    // thread_summary) still stays in the main timeline.
+    // hide_threaded_events keeps thread replies out of the live timeline (they
+    // belong in the thread panel), classified by the SDK's m.thread relation.
+    // Thread roots stay in the main timeline.
     let timeline = match TimelineBuilder::new(&room)
         .event_filter(lightning_event_filter)
         .with_focus(TimelineFocus::Live { hide_threaded_events: true })
@@ -2776,8 +2358,8 @@ async fn open_room_task(
         }
     };
 
-    // Atomic initial-snapshot-plus-subscription: no live event can fall
-    // between `items` and the first diff.
+    // Atomic snapshot plus subscription: no event falls between `items` and
+    // the first diff.
     let (items, mut stream) = timeline.subscribe().await;
 
     // Install the timeline handle only if this open is still current.
@@ -2791,33 +2373,16 @@ async fn open_room_task(
         }
     }
 
-    // OPT-IN SEND-STATE RECONCILIATION — the instrument the open
-    // "sending… until a room switch" defect needs, and the question a
-    // screenshot cannot answer.
+    // Opt-in send-state reconciliation (LIGHTNING_SEND_TRACE) for echoes stuck
+    // at "sending…". matrix-sdk-ui's `room_send_queue_update_task` ignores a
+    // lagged broadcast without resyncing, so a lost terminal update leaves an
+    // item NotSentYet until the timeline is rebuilt. `SendQueue::local_echoes()`
+    // reads what the queue still owes from the store, independently:
+    //     queued non-empty -> the send really is outstanding.
+    //     queued empty     -> the terminal update was lost.
     //
-    // Two views of the same fact disagree in that report: the timeline says a
-    // local echo is still in flight while the server already has the event. A
-    // capture of ONE of them cannot separate the two live hypotheses — a slow
-    // link that has not delivered the remote echo yet, versus a TERMINAL
-    // UPDATE THAT WAS LOST. matrix-sdk-ui's `room_send_queue_update_task`
-    // warns "missed {n} local echoes, ignoring those missed" on a lagged
-    // broadcast and then CONTINUES, with no resync — unlike every
-    // event-cache stream in that same crate — so a dropped update leaves the
-    // item at NotSentYet until the timeline is rebuilt, which is precisely
-    // what "resolved only by a room switch" looks like.
-    //
-    // `SendQueue::local_echoes()` is the second view, and it is independent:
-    // it reads what the queue still OWES from the state store, not from the
-    // stream that may have dropped the update. So an item the timeline calls
-    // in flight that the queue no longer holds is ORPHANED, and that is
-    // decisive:
-    //     queued non-empty -> the send really is outstanding. Not a defect.
-    //     queued empty     -> the terminal update never arrived. Defect.
-    //
-    // Counts always, and transaction ids only when something looks orphaned
-    // — never a body (§6). Opt-in because it polls the state store, and
-    // guarded on the room generation so it cannot outlive the room that
-    // started it by more than one tick.
+    // Counts always; transaction ids only when something looks orphaned; never
+    // a body. Stops within one tick of the room generation changing.
     if std::env::var_os("LIGHTNING_SEND_TRACE").is_some() {
         let watch_timeline = Arc::clone(&timeline);
         let watch_client = client.clone();
@@ -2855,9 +2420,7 @@ async fn open_room_task(
                         })
                         .collect(),
                     Err(err) => {
-                        // SAY SO. A silent `continue` here is indistinguishable
-                        // from "nothing in flight", and this whole instrument
-                        // exists so that silence is never ambiguous.
+                        // Report the failure; silence would read as "nothing in flight".
                         eprintln!(
                             "lightning.send_trace: room={watch_room} \
 queue read FAILED ({err}) — this tick says nothing either way"
@@ -2866,12 +2429,8 @@ queue read FAILED ({err}) — this tick says nothing either way"
                     }
                 };
                 let orphaned = in_flight.iter().filter(|id| !queued.contains(id)).count();
-                // eprintln! rather than tracing: `tracing` is not a direct
-                // dependency of this crate and adding one incidentally is
-                // exactly what the dependency rule forbids. This is already
-                // gated behind an env var, so it cannot be noise, and stderr
-                // is where the SDK's own tracing lands — the two lines want
-                // to be read together.
+                // eprintln!, not tracing: `tracing` is not a direct dependency. Gated, and
+                // read alongside the SDK's own stderr tracing.
                 eprintln!(
                     "lightning.send_trace: room={} in_flight={} queued={} \
 orphaned={}{}",
@@ -2880,13 +2439,8 @@ orphaned={}{}",
                     queued.len(),
                     orphaned,
                     if orphaned > 0 {
-                        // The OBSERVATION, not the diagnosis. A lost terminal
-                        // update produces this, and so would a state-store
-                        // read that came back short — `local_echoes()` turns a
-                        // load failure into an empty list rather than an Err
-                        // (matrix-sdk send_queue/mod.rs), so the reading is
-                        // not by itself proof of the mechanism. The ids are
-                        // printed because a bare count cannot be chased.
+                        // An observation, not a diagnosis: `local_echoes()` also returns empty on a
+                        // store read failure. Ids are printed so the case can be chased.
                         format!(
                             "  <-- the timeline calls these in flight and the \
 send queue owes nothing for them: {in_flight:?}"
@@ -2899,17 +2453,14 @@ send queue owes nothing for them: {in_flight:?}"
         });
     }
 
-    // Replies whose target the SDK has not resolved: ask, once, per timeline.
-    // See fetch_missing_reply_details — without this the quote reads
-    // "(original message not loaded)" for ever.
+    // Replies whose target the SDK has not resolved: ask once per timeline
+    // (see fetch_missing_reply_details).
     let reply_details_fetched: Arc<Mutex<HashSet<String>>> =
         Arc::new(Mutex::new(HashSet::new()));
     fetch_missing_reply_details(&timeline, items.iter(), &reply_details_fetched);
 
-    // Anything already undecryptable in the history this room opened with.
-    // The whole-room pass that runs alongside this downloads every key once;
-    // this covers what that pass cannot -- a key that was not in the backup
-    // when the room's one pass ran, and is now.
+    // Undecryptable history this room opened with: covers keys that reached
+    // the backup after the room's one whole-room pass.
     recover_keys_for_utds(
         &registry, &client, &room_id, &timeline,
         utd_sessions_in(items.iter()), RecoveryScope::Room(room_gen),
@@ -2926,21 +2477,15 @@ send queue owes nothing for them: {in_flight:?}"
             "room_generation": room_gen,
             "lifecycle": lifecycle,
             "items": snapshot,
-            // Counts only, never content: how many events the cache held
-            // before a jump-to-live trim, and whether the release was
-            // actually observed (both absent for an ordinary open). The
-            // pair matters — a timed-out wait must not look like a
-            // successful trim.
+            // Counts only: the pre-trim event count and whether the release was
+            // observed (absent for an ordinary open).
             "trimmed_from": trim_report.map(|(before, _)| before),
             "trim_shrunk": trim_report.map(|(_, shrunk)| shrunk),
         }),
     );
 
-    // v0.7 recovery supervisor: one deduplicated key-download pass from the
-    // active backup for THIS room (no-op without a usable backup key; at
-    // most once per room per lifecycle). Runs concurrently — never ahead
-    // of — diff forwarding; imported keys come back as ordinary in-place
-    // Set diffs through the SDK's own redecryption propagation.
+    // One deduplicated backup key-download pass for this room, concurrent with
+    // diff forwarding; imported keys return as in-place Set diffs.
     {
         let registry = Arc::clone(&registry);
         let client = client.clone();
@@ -2950,14 +2495,10 @@ send queue owes nothing for them: {in_flight:?}"
         });
     }
 
-    // v0.7: hydrate room-member sender profiles. With lazy-loaded membership
-    // the SDK only knows senders whose member events happened to sync, so
-    // historical rows showed raw MXIDs and initials while the room list knew
-    // the same person's name. `Timeline::fetch_members` runs the (idempotent,
-    // SDK-deduplicated) member sync and then fills every missing sender
-    // profile in place, which reaches C++ as ordinary Set diffs. It runs
-    // concurrently with — never ahead of — live diff forwarding, and dies
-    // with this task when the room/generation is superseded.
+    // Hydrate sender profiles. With lazy-loaded members the SDK only knows
+    // senders whose member events synced; `Timeline::fetch_members` fills the
+    // rest in place (as Set diffs). Runs concurrently with diff forwarding and
+    // dies with this task.
     let fetch_timeline = Arc::clone(&timeline);
     let fetch_members = async move { fetch_timeline.fetch_members().await };
     tokio::pin!(fetch_members);
@@ -2974,18 +2515,13 @@ send queue owes nothing for them: {in_flight:?}"
                 }
                 for diff in diffs {
                     let changed = diff_items(&diff);
-                    // Before serialising: any newly arrived reply whose target
-                    // the SDK has not resolved gets one fetch. The SDK writes
-                    // the answer back into the item, which returns here as an
-                    // ordinary Set diff and repaints the quote in place.
+                    // Newly arrived replies with an unresolved target get one fetch; the
+                    // result returns as a Set diff.
                     fetch_missing_reply_details(
                         &timeline, changed.iter(), &reply_details_fetched,
                     );
-                    // And any newly arrived event we could not decrypt gets a
-                    // bounded attempt at its key. A successful one lands back
-                    // here as a Set diff and the row decrypts in place, which
-                    // is the path CLAUDE.md section 9 describes and which had
-                    // no automatic trigger at all until now.
+                    // Newly arrived undecryptable events get a bounded key attempt; success
+                    // returns as a Set diff and the row decrypts in place.
                     recover_keys_for_utds(
                         &registry, &client, &room_id, &timeline,
                         utd_sessions_in(changed.iter()),
@@ -3001,10 +2537,8 @@ send queue owes nothing for them: {in_flight:?}"
     }
 }
 
-/// Build a `thread_pagination` lifecycle envelope. Shared by the initial
-/// auto-load in `open_thread_task` and the scroll-driven
-/// `paginate_thread_back`, so both stamp the same generation/lifecycle and
-/// carry identical `state` semantics.
+/// Build a `thread_pagination` envelope, shared by `open_thread_task`'s
+/// auto-load and `paginate_thread_back` so both stamp the same way.
 fn thread_pagination_json(
     room_id: &str,
     root_event_id: &str,
@@ -3029,10 +2563,9 @@ fn thread_pagination_json(
     v
 }
 
-/// v0.6.0: build the thread-focused SDK timeline and forward its snapshot +
-/// diff stream, mirroring `open_room_task`. All payloads are stamped with
-/// the thread generation so stale thread events can never mutate a newer
-/// panel (or another room's panel).
+/// Build the thread-focused timeline and forward its snapshot and diffs,
+/// like `open_room_task`. Payloads carry the thread generation so stale
+/// events cannot reach a newer panel.
 async fn open_thread_task(
     registry: Arc<TimelineRegistry>,
     client: Client,
@@ -3096,16 +2629,13 @@ async fn open_thread_task(
         }
     }
 
-    // Same as the room timeline: a thread reply quoting something the SDK has
-    // not resolved reads "(original message not loaded)" until asked.
+    // As for the room timeline: resolve reply targets.
     let reply_details_fetched: Arc<Mutex<HashSet<String>>> =
         Arc::new(Mutex::new(HashSet::new()));
     fetch_missing_reply_details(&timeline, items.iter(), &reply_details_fetched);
 
-    // Same as the room timeline again: undecryptable replies already in the
-    // thread's history get one bounded attempt at their keys. Scoped to the
-    // THREAD generation, so a thread switch cannot be mutated by a pass the
-    // previous thread started.
+    // Undecryptable replies get one bounded key attempt, scoped to the thread
+    // generation.
     recover_keys_for_utds(
         &registry, &client, &room_id, &timeline,
         utd_sessions_in(items.iter()), RecoveryScope::Thread(thread_gen),
@@ -3129,16 +2659,11 @@ async fn open_thread_task(
         }),
     );
 
-    // Auto-load cold-cache threads. subscribe() only returns what the event
-    // cache already holds for this thread; a thread whose replies never went
-    // through live sync thread-routing (room history, or events pulled in by
-    // back-pagination, which the SDK cannot place into a thread) opens with no
-    // event rows even though the root's bundled thread_summary reports replies
-    // — the "root says N replies, panel items=0" symptom. Kick one backward
-    // pagination so the SDK fetches the thread over /relations; the fetched
-    // replies arrive as diffs on the loop below. Threads that already carry
-    // cached replies skip this and paginate lazily on scroll. Single-flight and
-    // reached-start guarded, so a concurrent scroll cannot double-fetch.
+    // Auto-load cold-cache threads: subscribe() returns only what the event
+    // cache holds, and replies that did not arrive via live sync (history,
+    // back-pagination) are not placed in a thread, so the panel would open
+    // empty. One backward pagination fetches the thread over /relations.
+    // Single-flight and reached-start guarded.
     if !has_event_rows {
         let atomics = match registry.active_thread.lock() {
             Ok(guard) => match guard.as_ref() {
@@ -3189,10 +2714,8 @@ async fn open_thread_task(
         }
     }
 
-    // v0.7: same member-profile hydration as the room timeline — the thread
-    // panel's rows resolve sender names/avatars through the identical SDK
-    // path (the member sync itself is deduplicated inside the SDK, so a
-    // room + thread pair costs one /members request at most).
+    // Same member hydration as the room timeline (the SDK deduplicates the
+    // /members request).
     let fetch_timeline = Arc::clone(&timeline);
     let fetch_members = async move { fetch_timeline.fetch_members().await };
     tokio::pin!(fetch_members);
@@ -3232,8 +2755,8 @@ async fn open_thread_task(
     }
 }
 
-/// v0.6.0 checkpoint 5: build the room's ThreadListService, fetch the first
-/// page, and forward a full bounded snapshot on every live update batch.
+/// Build the room's ThreadListService, fetch the first page, and forward a
+/// bounded snapshot on every update batch.
 async fn open_thread_list_task(
     registry: Arc<TimelineRegistry>,
     client: Client,
@@ -3282,8 +2805,8 @@ async fn open_thread_list_task(
 
     let (_initial, mut stream) = service.subscribe_to_items_updates();
 
-    // First page (server /threads). A failure still emits a snapshot so the
-    // UI leaves its loading state honestly.
+    // First page (/threads). A failure still emits a snapshot so the UI leaves
+    // its loading state.
     let first_page_failed = service.paginate().await.is_err();
     if !registry.thread_list_current(list_gen, lifecycle) {
         return;
@@ -3300,8 +2823,8 @@ async fn open_thread_list_task(
     }
 }
 
-/// Serialize the service's current (page-bounded) items. Presentation-safe
-/// fields only; previews reuse the sanitized content_preview.
+/// Serialize the service's current page-bounded items. Presentation-safe
+/// fields only.
 fn emit_thread_list_snapshot(
     events: &EventQueue,
     room_id: &str,
@@ -3368,10 +2891,8 @@ fn thread_list_item_to_json(item: &ThreadListItem) -> serde_json::Value {
     out
 }
 
-/// One-shot thread timeline used when the panel is not open: a
-/// thread-focused SDK timeline is built just for a send (the SDK attaches
-/// the m.thread relation and reply fallback, and encrypts for encrypted
-/// rooms) and dropped again.
+/// A thread timeline built just for one send when the panel is not open,
+/// so the SDK attaches the m.thread relation and encrypts.
 async fn build_transient_thread_timeline(
     client: &Client,
     room_id: &str,
@@ -3408,10 +2929,8 @@ fn emit_timeline_error(
     );
 }
 
-/// Serialize one `VectorDiff` into the FFI envelope. Every pinned-SDK
-/// variant is covered; there is no fallback arm that silently drops one.
-/// Every item a diff carries, so the reply-detail fetch can look at the ones
-/// that just arrived rather than re-walking the whole timeline on each batch.
+/// Every item a diff carries, so reply-detail fetching looks only at new
+/// items.
 fn diff_items(diff: &VectorDiff<Arc<TimelineItem>>) -> Vec<Arc<TimelineItem>> {
     match diff {
         VectorDiff::Append { values }
@@ -3428,6 +2947,8 @@ fn diff_items(diff: &VectorDiff<Arc<TimelineItem>>) -> Vec<Arc<TimelineItem>> {
     }
 }
 
+/// Serialize one `VectorDiff` into the FFI envelope. Every SDK variant is
+/// covered; no fallback arm silently drops one.
 fn diff_to_json(
     room_id: &str,
     room_gen: u64,
@@ -3442,20 +2963,16 @@ fn diff_to_json(
         "room_generation": room_gen,
         "lifecycle": lifecycle,
     });
-    // Sync-latency tracing (LIGHTNING_SYNC_TRACE): stamp the moment this diff
-    // left the SDK side, so the C++ tracer can measure the sdk->bridge leg
-    // instead of assuming it. Wall-clock millis, because a Rust Instant and a
-    // Qt elapsed timer share no origin across the FFI. Off by default and
-    // costs one atomic load per diff then.
+    // LIGHTNING_SYNC_TRACE: stamp when this diff left the SDK side. Wall-clock
+    // ms (Instant and Qt timers share no origin). One atomic load when off.
     if let Some(stamp) = crate::sync_trace_stamp_ms() {
         base["trace_sdk_ms"] = stamp.into();
     }
     fill_diff_json(base, diff, own_user, registry)
 }
 
-/// Fill the shared `op`/`items`/`index` fields of a diff envelope. The base
-/// carries the stream identity (room vs thread) so room and thread diffs
-/// serialize identically everywhere else.
+/// Fill a diff envelope's `op`/`items`/`index`. The base carries the stream
+/// identity (room vs thread).
 fn fill_diff_json(
     envelope: serde_json::Value,
     diff: &VectorDiff<Arc<TimelineItem>>,
@@ -3516,30 +3033,15 @@ fn fill_diff_json(
     }
 }
 
-/// ASK THE SDK FOR THE REPLIES IT HAS NOT RESOLVED YET.
+/// Max reply-detail fetches started per batch; the rest follow in later
+/// batches.
 ///
-/// REPORTED 2026-09-15: a reply quote reads "(original message not loaded)"
-/// for a message THREE ROWS ABOVE IT, on screen. Being on screen is not the
-/// point — `InReplyToDetails::event` is a per-item field on the replying
-/// event, not a lookup into whatever the timeline happens to hold, and it
-/// starts `Unavailable`. The SDK fills it only when asked, through
-/// `Timeline::fetch_details_for_event`, and **nothing in this repository has
-/// ever called that**: `grep -rn fetch_details_for_event rust/` returned
-/// nothing before this. So a quote was populated only when the homeserver
-/// happened to bundle the replied-to event with the reply, and read
-/// "(original message not loaded)" the rest of the time — permanently, since
-/// no later event could change it.
-///
-/// Cheap to call and safe to call often: the SDK returns immediately for a
-/// detail that is already `Ready` or `Pending`, resolves from its own event
-/// cache before the network, and writes the result back into the item, which
-/// reaches C++ as an ordinary `Set` diff and repaints the quote in place.
-/// The per-timeline `fetched` set only spares the write lock those early
-/// returns would take on every diff of a busy room.
-///
-/// BOUNDED, because a back-pagination can deliver a page of replies whose
-/// targets are all missing: at most `REPLY_DETAIL_FETCH_BURST` are started
-/// per batch, and the rest are picked up by the batches that follow.
+/// `InReplyToDetails::event` starts `Unavailable` and the SDK fills it only
+/// via `Timeline::fetch_details_for_event`, so without asking, a quote reads
+/// "(original message not loaded)" unless the server bundled the target.
+/// The SDK returns early for `Ready`/`Pending`, checks its cache first, and
+/// writes the result back as a Set diff. The `fetched` set only avoids
+/// repeated write locks.
 const REPLY_DETAIL_FETCH_BURST: usize = 8;
 
 fn fetch_missing_reply_details<'a, I>(
@@ -3554,11 +3056,8 @@ fn fetch_missing_reply_details<'a, I>(
         let TimelineItemKind::Event(event) = item.kind() else { continue };
         let TimelineItemContent::MsgLike(msg_like) = event.content() else { continue };
         let Some(reply) = &msg_like.in_reply_to else { continue };
-        // Only the ones the SDK has not resolved. `Pending` is already in
-        // flight inside the SDK and `Error` is a refusal we must not retry in
-        // a loop — a target the server will not serve (redacted, or in
-        // history this account cannot see) would otherwise be re-requested on
-        // every diff for the life of the room.
+        // Only unresolved ones. `Pending` is in flight, and `Error` must not be
+        // retried in a loop (e.g. a redacted or invisible target).
         if !matches!(reply.event, TimelineDetails::Unavailable) {
             continue;
         }
@@ -3583,10 +3082,8 @@ fn fetch_missing_reply_details<'a, I>(
     let timeline = Arc::clone(timeline);
     tokio::spawn(async move {
         for event_id in wanted {
-            // Errors are deliberately swallowed: `EventNotInTimeline` is the
-            // ordinary outcome for an item that scrolled out from under the
-            // request, and a server that will not serve the target leaves the
-            // quote exactly as it already reads.
+            // Errors ignored: `EventNotInTimeline` is normal for an item that scrolled
+            // away, and a refused target leaves the quote as it was.
             let _ = timeline.fetch_details_for_event(&event_id).await;
         }
     });
@@ -3617,27 +3114,16 @@ fn item_to_json(
     }
 }
 
-/// Read-receipt chips: at most this many receipt entries cross the FFI per
-/// event. The last message of a busy room can carry hundreds of receipts
-/// and is re-serialized on every receipt move; the UI shows 4 chips + a
-/// "+N" total, so a bounded newest-first window plus the full count is all
-/// the presentation ever needs.
+/// Max receipt entries per event across the FFI. The UI shows 4 chips and
+/// a "+N" total, so a bounded newest-first window plus the count suffices.
 const READ_BY_CAP: usize = 16;
 
-/// Read-receipt chips: serialize the SDK's per-item receipt map as
-/// (`[{"user_id": "...", "ts": <ms or null>}]`, total_count). ONLY the
-/// public receipt metadata the server already shares crosses the FFI — a
-/// stable user id and the receipt timestamp; never event content or crypto
-/// state. Entries are sorted newest-first and capped at [`READ_BY_CAP`];
-/// the returned total is the UNCAPPED receipt count so the "+N" overflow
-/// chip stays truthful past the cap. The SDK attaches each user's receipt
-/// to the LATEST timeline item it applies to, so a receipt advancing
-/// arrives as two ordinary Set diffs (the old row without the entry, the
-/// new row with it). Local echoes always have an empty map. Thread
-/// timelines never call this with entries: their builders deliberately
-/// leave receipt tracking Disabled (see the live-builder comment — the
-/// SDK's receipt handling is not thread-aware, so enabling it there would
-/// attach unthreaded receipts to thread rows).
+/// Serialize an item's receipts as (`[{"user_id", "ts"}]`, total_count):
+/// public user ids and timestamps only, newest first, capped at
+/// [`READ_BY_CAP`], with the uncapped total for the "+N" chip. The SDK
+/// attaches each receipt to the latest item it applies to, so a moving
+/// receipt arrives as two Set diffs. Thread timelines disable receipt
+/// tracking (see the live builder).
 fn read_by_json<'a>(
     receipts: impl IntoIterator<Item = (&'a OwnedUserId, &'a Receipt)>,
 ) -> (Vec<serde_json::Value>, usize) {
@@ -3651,8 +3137,7 @@ fn read_by_json<'a>(
         })
         .collect();
     let total = entries.len();
-    // Newest first; receipts without a timestamp sort last (stable, so
-    // ties keep the SDK's order).
+    // Newest first; missing timestamps last (stable sort).
     entries.sort_by(|a, b| b.0.unwrap_or(0).cmp(&a.0.unwrap_or(0)));
     entries.truncate(READ_BY_CAP);
     let serialized = entries
@@ -3662,29 +3147,16 @@ fn read_by_json<'a>(
     (serialized, total)
 }
 
-/// Reaction tooltips: at most this many reactor ids cross the FFI per
-/// reaction bucket. Same reasoning (and same number) as [`READ_BY_CAP`] —
-/// the tooltip lists a handful of names and then says "and N more", so the
-/// uncapped `count` is all the presentation needs past the window. A
-/// popular reaction in a large room can carry hundreds of senders and is
-/// re-serialized on every toggle.
+/// Max reactor ids per reaction bucket across the FFI; the tooltip names a
+/// few and says "and N more" from the uncapped `count`.
 const REACTION_SENDER_CAP: usize = 16;
 
-/// Reactor ids longer than this are dropped rather than forwarded. Sender
-/// ids come from the server and a real MXID cannot approach this, but the
-/// same bounding rule the call ids follow applies: never hand the C++ side
-/// an unbounded string just because the source is nominally trusted.
+/// Reactor ids longer than this are dropped rather than forwarded.
 const REACTION_SENDER_MAX_BYTES: usize = 255;
 
-/// Serialize the reactors of ONE reaction bucket as a bounded id list.
-///
-/// The local user comes first when present, so the tooltip can say "You and
-/// …" without the presentation layer re-scanning the list; everything else
-/// keeps the SDK's own iteration order (`IndexMap`, i.e. insertion order),
-/// which makes the window deterministic for a given snapshot. Only the
-/// stable user id crosses — never the reaction event id or its timestamp,
-/// neither of which the tooltip needs, and the redaction target
-/// (`my_event_id`) is already carried separately for the local user alone.
+/// Serialize one reaction bucket's reactors as a bounded id list. The local
+/// user comes first so the tooltip can say "You and …"; the rest keep the
+/// SDK's insertion order. Only user ids cross.
 fn reaction_senders_json<'a>(
     senders: impl IntoIterator<Item = &'a str>,
     own_user: &str,
@@ -3715,27 +3187,19 @@ fn reaction_senders_json<'a>(
     out
 }
 
-/// Display names in a profile-change row are bounded at this many CHARS.
-/// Chars, never bytes: slicing a `String` by byte offset panics mid
-/// code point, and a name is very often emoji or non-Latin.
+/// Bound on display names in a profile-change row, in chars (byte slicing
+/// could split a code point).
 const PROFILE_NAME_CAP: usize = 255;
 
 fn bound_profile_name(name: &str) -> String {
     name.chars().take(PROFILE_NAME_CAP).collect()
 }
 
-/// Classify an `m.room.member` display-name change into the typed triple
-/// (`kind`, bounded old, bounded new) the C++ side turns into a sentence.
+/// Classify an `m.room.member` display-name change as (`kind`, bounded old,
+/// bounded new) for C++ to phrase; no English is built here.
 ///
-/// Rust deliberately builds no English here: the row is presentation, and a
-/// sentence assembled in the bridge cannot be translated and cannot adapt
-/// to the resolved actor name the UI already knows.
-///
-/// Empty is the same as absent — a server that stores `""` for a cleared
-/// name must not be reported as "set their display name to nothing". And an
-/// old value equal to the new one is NO name change at all: the SDK hands
-/// us a profile-change item when only the avatar moved, and claiming a
-/// rename that did not happen is worse than saying nothing.
+/// Empty counts as absent, and old == new is no change (the SDK emits a
+/// profile-change item when only the avatar moved).
 fn profile_name_change(
     old: Option<&str>,
     new: Option<&str>,
@@ -3755,16 +3219,9 @@ fn profile_name_change(
     }
 }
 
-// The activity-row wording for an `OtherState` timeline item. Extracted from
-// the match it used to sit in purely so it can be tested: everything else in
-// that arm needs a real SDK timeline item to construct, while this mapping is
-// the part that actually carries a decision.
-//
-// Nothing here interpolates event CONTENT — only the room-state type and the
-// sender, both of which are already structural. In particular the tombstone
-// row carries neither the successor room id (acting on it is the banner's
-// job, and a row cannot be clicked) nor the tombstone's `body`, which is
-// free text chosen by whoever sent the state event.
+// Activity-row wording for an `OtherState` item, separate so it can be
+// tested. Interpolates only the state type and sender, never content: the
+// tombstone row carries neither the successor id nor the free-text body.
 fn state_row_text(kind: &str, actor: &str) -> String {
     match kind {
         "m.room.create" => format!("{actor} created the room."),
@@ -3773,15 +3230,9 @@ fn state_row_text(kind: &str, actor: &str) -> String {
         "m.room.avatar" => format!("{actor} changed the room avatar."),
         "m.room.encryption" => "Encryption was enabled.".to_owned(),
         "m.room.tombstone" => format!("{actor} upgraded this room."),
-        // Calls are not a room SETTING, so they must not fall through to the
-        // catch-all: "started a call" is the whole reason the row exists.
-        //
-        // The real call rows no longer come through here at all — CallInvite
-        // and RtcNotification emit `msgtype: "call"` with typed fields and an
-        // EMPTY body, and C++ phrases them with the actor's resolved display
-        // name. These two arms remain only for a genuinely state-typed
-        // `m.call*` event arriving through OtherState, so that one cannot
-        // regress to "updated room settings."
+        // Calls must not fall through to "updated room settings". Real call rows
+        // arrive as `msgtype: "call"`; these arms cover only state-typed `m.call*`
+        // events arriving as OtherState.
         "m.call" => format!("{actor} started a call."),
         "m.call.video" => format!("{actor} started a video call."),
         _ => format!("{actor} updated room settings."),
@@ -3817,9 +3268,8 @@ fn event_item_to_json(
         if let Some(name) = &profile.display_name {
             out["sender_display_name"] = name.clone().into();
         }
-        // v0.5.9: SDK-computed ambiguity — two active members share this
-        // display name. QML appends a compact MXID disambiguator; members
-        // are never merged by display name.
+        // SDK-computed ambiguity: two members share this display name. QML adds an
+        // MXID disambiguator; members are never merged by name.
         if profile.display_name_ambiguous {
             out["sender_name_ambiguous"] = true.into();
         }
@@ -3828,11 +3278,8 @@ fn event_item_to_json(
         }
     }
 
-    // Per-message read receipts (empty for local echoes; absent fields keep
-    // the ingest's empty-list default). The user's own receipt is forwarded
-    // too — presentation-side exclusion lives in ONE place (TimelineModel),
-    // so mock/HTTP rows follow the identical rule. read_by is a bounded
-    // newest-first window; read_by_total carries the uncapped count.
+    // Per-message read receipts, including our own (exclusion happens once, in
+    // TimelineModel). read_by is a bounded window; read_by_total the full count.
     let receipts = event.read_receipts();
     if !receipts.is_empty() {
         let (entries, total) = read_by_json(receipts);
@@ -3844,17 +3291,10 @@ fn event_item_to_json(
         match state {
             EventSendState::NotSentYet { progress } => {
                 out["send_state"] = "sending".into();
-                // Real byte progress for a media send, straight from the
-                // SDK: the send queue reports MediaUpload progress and
-                // matrix-sdk-ui parks it on the local echo's send state, so
-                // it arrives as an ordinary timeline diff. There is nothing
-                // to subscribe to and nothing to poll.
-                //
-                // Only crosses when the total is KNOWN. `current`/`total`
-                // are byte counts, never content, and a text send carries
-                // no progress at all — which is the difference between an
-                // upload bar and a spinner, and the reason the presentation
-                // side must not synthesise one.
+                // Media upload progress, parked by matrix-sdk-ui on the local echo's send
+                // state, so it arrives as an ordinary diff. Only sent when the total is
+                // known; text sends carry none, so the UI shows a spinner rather than a
+                // synthesized bar.
                 if let Some(progress) = progress {
                     if progress.progress.total > 0 {
                         out["send_upload_current"] =
@@ -3869,8 +3309,7 @@ fn event_item_to_json(
             }
             EventSendState::SendingFailed { is_recoverable, .. } => {
                 out["send_state"] = "failed".into();
-                // Coarse, non-secret category only. Raw errors may embed
-                // server or crypto detail and never cross the FFI.
+                // Coarse category only; raw errors may embed server or crypto detail.
                 out["send_error"] =
                     if *is_recoverable { "network" } else { "rejected" }.into();
             }
@@ -3889,8 +3328,7 @@ fn event_item_to_json(
                             .unwrap_or(false);
                         json!({
                             "key": key,
-                            // The UNCAPPED total. `senders` below is a
-                            // bounded window, exactly like read receipts.
+                            // The uncapped total; `senders` is a bounded window.
                             "count": senders.len(),
                             "by_me": by_me,
                             "senders": reaction_senders_json(
@@ -3905,13 +3343,8 @@ fn event_item_to_json(
             if let Some(reply) = &msg_like.in_reply_to {
                 out["reply_to_event_id"] = reply.event_id.to_string().into();
                 if let TimelineDetails::Ready(embedded) = &reply.event {
-                    // THE DISPLAY NAME, because that is what the role means:
-                    // MessageDelegate documents ReplyToSenderRole as resolving
-                    // a display name, and sending the raw MXID put a localpart
-                    // in the quote ("obscurus") beside the same person's own
-                    // messages rendered under their chosen name ("dim").
-                    // Resolved the same way every other sender on this timeline
-                    // is, and the id falls back when the profile is not ready.
+                    // ReplyToSenderRole is a display name: resolve it like every other sender
+                    // here, falling back to the id when the profile is not ready.
                     out["reply_to_sender_id"] = embedded.sender.to_string().into();
                     let mut reply_sender = embedded.sender.to_string();
                     if let TimelineDetails::Ready(profile) = &embedded.sender_profile {
@@ -3923,31 +3356,22 @@ fn event_item_to_json(
                     }
                     out["reply_to_sender"] = reply_sender.into();
                     out["reply_to_preview"] = reply_preview(&embedded.content).into();
-                    // What the target IS, so the quote can say "Image" or
-                    // "2 images" when there are no words to quote. The kind
-                    // vocabulary is thread_latest_kind's.
+                    // What the target is, so the quote can say "Image" or "2 images" (the
+                    // thread_latest_kind vocabulary).
                     let (reply_kind, reply_count) = content_kind(&embedded.content);
                     out["reply_to_kind"] = reply_kind.into();
                     if reply_count > 1 {
                         out["reply_to_count"] = reply_count.into();
                     }
-                    // 2026-08-18 tester report #2: reply-to-IMAGE quotes
-                    // show a thumbnail. The embedded event carries the
-                    // FULL media content (encrypted sources included), so
-                    // register it in the media registry under the reply
-                    // target's own event id — exactly the row mechanism —
-                    // and cross only the retrieval key. Images only
-                    // (stickers are MsgLikeKind::Sticker and fall through
-                    // untouched): a filename row already serves files,
-                    // and video posters are a separate concern.
+                    // Reply-to-image quotes show a thumbnail: register the embedded media under
+                    // the target's event id, like a row, and cross only the key. Images only.
                     if let TimelineItemContent::MsgLike(embedded_kind) =
                         &embedded.content
                     {
                         if let MsgLikeKind::Message(message) =
                             &embedded_kind.kind
                         {
-                            // A gallery's thumbnail is its primary picture,
-                            // registered under the same key its own row uses.
+                            // A gallery's thumbnail is its primary picture, under its row's key.
                             if matches!(message.msgtype(),
                                         MessageType::Image(_))
                                 || is_gallery_msgtype(
@@ -3975,11 +3399,8 @@ fn event_item_to_json(
             if let Some(root) = &msg_like.thread_root {
                 out["thread_root_id"] = root.to_string().into();
             }
-            // v0.6.0: SDK-provided thread summary on thread ROOT events —
-            // authoritative reply count and latest-reply metadata from the
-            // server's bundled aggregation, kept live by sync. Only safe
-            // presentation fields cross the FFI (previews reuse the same
-            // sanitized content_preview as reply previews).
+            // Thread summary on thread roots: reply count and latest reply from the
+            // server's bundled aggregation. Safe presentation fields only.
             if let Some(summary) = &msg_like.thread_summary {
                 out["is_thread_root"] = true.into();
                 out["thread_reply_count"] = summary.num_replies.into();
@@ -3991,10 +3412,8 @@ fn event_item_to_json(
                     out["thread_latest_sender"] = latest.sender.to_string().into();
                     out["thread_latest_timestamp_ms"] =
                         u64::from(latest.timestamp.get()).into();
-                    // Latest-reply sender profile from the SDK's bundled
-                    // aggregation — the card shows a friendly name/avatar
-                    // without a separate lookup. Absent fields fall back to
-                    // the MXID / existing avatar path on the C++ side.
+                    // Latest-reply sender profile from the bundled aggregation; C++ falls back
+                    // to the MXID when absent.
                     if let TimelineDetails::Ready(profile) = &latest.sender_profile {
                         if let Some(name) = &profile.display_name {
                             out["thread_latest_sender_display_name"] =
@@ -4006,10 +3425,8 @@ fn event_item_to_json(
                         }
                     }
                     if let TimelineEventItemId::EventId(latest_id) = &latest.identifier {
-                        // Conservative unread hint: read only when the user's
-                        // own threaded receipt points at the latest reply (or
-                        // the latest reply is their own). Absent receipts
-                        // with replies present count as unread.
+                        // Conservative unread hint: read only when our threaded receipt points at
+                        // the latest reply, or we sent it.
                         let read = latest.sender.as_str() == own_user
                             || summary.public_read_receipt_event_id.as_deref()
                                 == Some(&**latest_id)
@@ -4023,8 +3440,7 @@ fn event_item_to_json(
             match &msg_like.kind {
                 MsgLikeKind::Message(message) => {
                     out["edited"] = message.is_edited().into();
-                    // v0.6.0 checkpoint 11: authoritative mention metadata
-                    // from the event's m.mentions — never substring matching.
+                    // Mentions from the event's m.mentions, never substring matching.
                     if let Some(mentions) = message.mentions() {
                         if mentions.room {
                             out["mentions_room"] = true.into();
@@ -4035,35 +3451,21 @@ fn event_item_to_json(
                             }
                         }
                     }
-                    // THE SDK SANITISES INCOMING HTML AND WE NEED THE
-                    // ORIGINAL. matrix-sdk-ui runs every message through
-                    // `HtmlSanitizerMode::Compat` — a `const`, not a
-                    // setting (matrix-sdk-ui src/lib.rs
-                    // DEFAULT_SANITIZER_MODE) — and Compat keeps `data-mx-*`
-                    // on `span` alone. So MSC2545's `data-mx-emoticon` is
-                    // gone before Lightning sees a single byte, and an inline
-                    // custom emoji arrives as an `<img>` with nothing marking
-                    // it as one. Measured: a conformant emoji from the
-                    // homeserver reached the C++ sanitizer already stripped.
+                    // matrix-sdk-ui sanitizes HTML with `HtmlSanitizerMode::Compat` (a const),
+                    // which strips MSC2545's `data-mx-emoticon`, so the raw formatted body is
+                    // restored below. Safe: MessageHtml::sanitize is the boundary for
+                    // untrusted HTML, stricter than Compat except for that one attribute, and
+                    // it rebuilds `<img>` from validated parts.
                     //
-                    // Taking the raw formatted body back is SAFE and is in
-                    // fact the arrangement this code already documents:
-                    // `formatted_body` is untrusted HTML and
-                    // MessageHtml::sanitize is the boundary that makes it
-                    // renderable. That sanitizer is stricter than Compat in
-                    // every respect except the one attribute it deliberately
-                    // recognises, and it rebuilds the `<img>` from validated
-                    // parts rather than filtering it.
-                    // Stable retrieval key: the event id once the item is
-                    // remote, the SDK unique id while it is a local echo.
+                    // Retrieval key: the event id once remote, the SDK unique id for a local
+                    // echo.
                     let key: String = match out["event_id"].as_str() {
                         Some(event_id) if !event_id.is_empty() => event_id.to_owned(),
                         _ => unique_id.to_owned(),
                     };
                     let sources = fill_message_media(&mut out, message.msgtype(), &key);
-                    // PRIMARY FIRST (see fill_message_media): the row's own
-                    // media fields describe that one; a gallery's other items
-                    // are addressed through `gallery_items`.
+                    // Primary first: the row's media fields describe it; other gallery items
+                    // go through `gallery_items`.
                     if let Some((primary_key, primary)) = sources.first() {
                         out["media_key"] = primary_key.clone().into();
                         out["media_source_available"] = true.into();
@@ -4073,9 +3475,7 @@ fn event_item_to_json(
                     for (media_key, media) in sources {
                         registry.remember_media(media_key, media);
                     }
-                    // AFTER fill_message_content, which is what sets
-                    // `formatted_body` — running this before it meant the
-                    // guard always saw no formatted body and returned.
+                    // After fill_message_content, which sets `formatted_body`.
                     restore_raw_formatted_body(&mut out, event, message.is_edited());
                 }
                 MsgLikeKind::Redacted => {
@@ -4092,10 +3492,8 @@ fn event_item_to_json(
                     out["error_kind"] = utd_category(encrypted).into();
                 }
                 MsgLikeKind::Sticker(sticker) => {
-                    // v0.7: stickers render through the image path with a
-                    // transparency-preserving presentation. Only safe
-                    // metadata crosses the FFI; bytes flow through the same
-                    // validated media bridge as image attachments.
+                    // Stickers render through the image path; only safe metadata crosses, and
+                    // bytes go through the same media bridge as images.
                     let content = sticker.content();
                     out["msgtype"] = "sticker".into();
                     out["body"] = content.body.clone().into();
@@ -4151,10 +3549,8 @@ fn event_item_to_json(
                     out["body"] = "[unsupported event]".into();
                 }
                 MsgLikeKind::LiveLocation(state) => {
-                    // matrix-sdk-ui aggregates every beacon MESSAGE onto this
-                    // one item rather than emitting a row per position, so
-                    // what is rendered is the SHARE with its latest point —
-                    // which is also the only sensible thing to draw.
+                    // matrix-sdk-ui aggregates every beacon onto this one item, so the row is
+                    // the share with its latest point.
                     let latest = state.latest_location();
                     let geo = latest.map(|b| b.geo_uri().to_owned())
                         .unwrap_or_default();
@@ -4167,11 +3563,8 @@ fn event_item_to_json(
                         Some("m.self"),
                     );
                     out["locationLive"] = true.into();
-                    // `is_live()` checks the flag AND `ts + timeout`, which
-                    // is the difference between "sharing now" and "shared an
-                    // hour ago and stopped". A UI showing the second as the
-                    // first is telling the reader someone is somewhere they
-                    // may have left.
+                    // `is_live()` checks the flag and `ts + timeout`, distinguishing "sharing
+                    // now" from "shared earlier and stopped".
                     out["locationLiveActive"] = state.is_live().into();
                 }
             }
@@ -4193,12 +3586,8 @@ fn event_item_to_json(
                     Some(M::InvitationRevoked) => format!("{actor} revoked {target}'s invitation."),
                     _ => format!("Membership for {target} changed."),
                 };
-                // The change as a CLOSED SET, beside the sentence rather
-                // than inside it. The presentation layer draws a glyph per
-                // action — joining and being banned are not the same event
-                // and a column of identical grey text says they are — and
-                // parsing that back out of a translated sentence is not
-                // something any layer should be asked to do.
+                // The change as a closed set beside the sentence, so the UI can draw a
+                // glyph per action without parsing a translated sentence.
                 out["membership_change"] = match change.change() {
                     Some(M::Joined) | Some(M::InvitationAccepted) => "joined",
                     Some(M::Left) | Some(M::InvitationRejected) => "left",
@@ -4207,8 +3596,7 @@ fn event_item_to_json(
                     Some(M::Banned) | Some(M::KickedAndBanned) => "banned",
                     Some(M::Unbanned) => "unbanned",
                     Some(M::InvitationRevoked) => "revoked",
-                    // Unknown stays unknown. A wrong glyph is a wrong claim
-                    // about what somebody did.
+                    // Unknown stays unknown; a wrong glyph is a wrong claim.
                     _ => "",
                 }
                 .into();
@@ -4223,10 +3611,8 @@ fn event_item_to_json(
             out["state_kind"] = "member_profile".into();
             out["state_target"] = change.user_id().to_string().into();
 
-            // Typed fields, not a sentence. The old wording also picked the
-            // WRONG one whenever both moved at once ("changed their display
-            // name" swallowed the avatar), and it addressed the member by
-            // raw MXID because the bridge has no resolved name to use.
+            // Typed fields rather than a sentence, so a simultaneous name and avatar
+            // change are both reported and C++ can use the resolved actor name.
             let name_change = change.displayname_change().and_then(|names| {
                 profile_name_change(names.old.as_deref(), names.new.as_deref())
             });
@@ -4242,25 +3628,21 @@ fn event_item_to_json(
                 }
                 None => out["profile_name_change"] = serde_json::Value::Null,
             }
-            // Only the fact, never the mxc URI: the row says an avatar
-            // changed, and the picture it would point at is fetched through
-            // the member cache like every other avatar.
+            // Only the fact, never the mxc URI; the avatar is fetched through the
+            // member cache.
             out["profile_avatar_changed"] =
                 change.avatar_url_change().is_some().into();
 
-            // Present but EMPTY by contract — the sentence is built in C++,
-            // where the actor's resolved display name and translations live.
+            // Empty by contract: the sentence is built in C++ (resolved names,
+            // translations).
             out["body"] = "".into();
         }
         TimelineItemContent::OtherState(state) => {
             let kind = state.content().event_type().to_string();
             let actor = event.sender().to_string();
-            // Call MEMBERSHIP is bookkeeping, not room history — every
-            // join, keepalive refresh and leave writes one of these. The
-            // suppression lives in TimelineModel::stateGroupEntriesFrom,
-            // which is where the "N room updates" group is actually built:
-            // the msgtype must stay "state" so the row keeps its place in
-            // the SDK's index space, and `state_kind` is what C++ keys on.
+            // Call membership is bookkeeping, suppressed in
+            // TimelineModel::stateGroupEntriesFrom. The msgtype stays "state" so the row
+            // keeps its place in the SDK's index space; C++ keys on `state_kind`.
             out["msgtype"] = "state".into();
             out["state_kind"] = kind.clone().into();
             out["body"] = state_row_text(&kind, &actor).into();
@@ -4270,36 +3652,19 @@ fn event_item_to_json(
             out["msgtype"] = "unsupported".into();
             out["body"] = "[unsupported event]".into();
         }
-        // ── Call rows are room HISTORY, not a room setting ───────────────
+        // ── Call rows are room history, not a room setting ───────────────
         //
-        // Both arms used to emit `msgtype: "state"` with `state_kind
-        // "m.call"`, and that is precisely what made the reported row read
-        // "1 room update" expanding to the literal words "call event": a
-        // non-empty `state_kind` is what TimelineModel calls ROUTINE
-        // ACTIVITY, so the row was folded into the collapsed state group and
-        // governed by the room-activity preference. A call someone started
-        // is not a room setting somebody changed. It now has its own msgtype
-        // end to end (`call` -> TimelineEvent::CallEvent ->
-        // CallEventDelegate.qml), which also means it BREAKS a state-group
-        // run instead of joining one.
-        //
-        // Everything below is TYPED and presentation-safe. No free text
-        // chosen by a sender crosses: the sentence is built in C++, where
-        // the actor's resolved display name and the translations live, and
-        // where nothing a remote user wrote can reach a control the reader
-        // is invited to click (the rule the tombstone banner established).
+        // They have their own msgtype end to end (`call` ->
+        // TimelineEvent::CallEvent -> CallEventDelegate.qml), so they break a
+        // collapsed state-group run instead of folding into it. Fields are typed;
+        // no sender-chosen free text crosses, and the sentence is built in C++.
         TimelineItemContent::CallInvite => {
             out["msgtype"] = "call".into();
             out["call_kind"] = "invite".into();
-            // A legacy `m.call.invite` states no intent the SDK surfaces
-            // here, so this row must not CLAIM video. False means "not known
-            // to be video" and the sentence stays "started a call", which is
-            // true of a video call as well.
+            // A legacy `m.call.invite` exposes no video intent here, so do not claim
+            // video; "started a call" stays true either way.
             out["call_video"] = false.into();
-            // EMPTY BY CONTRACT, exactly like a typed profile change: a
-            // sentence built here could be neither translated nor written
-            // with the actor's resolved display name (the old one addressed
-            // the caller by raw MXID).
+            // Empty by contract, as for a typed profile change.
             out["body"] = "".into();
         }
         TimelineItemContent::RtcNotification { call_intent, declined_by } => {
@@ -4307,9 +3672,7 @@ fn event_item_to_json(
             out["call_kind"] = "notification".into();
             out["call_video"] = matches!(call_intent, Some(CallIntent::Video)).into();
             out["body"] = "".into();
-            // A COUNT, never the ids: who declined a call is not something
-            // the timeline row needs and every id crossing the FFI is one
-            // more thing a row can leak.
+            // A count only; who declined is not needed by the row.
             if !declined_by.is_empty() {
                 out["call_declined_count"] = declined_by.len().into();
             }
@@ -4319,18 +3682,9 @@ fn event_item_to_json(
     out
 }
 
-/// Text / notice / emote / media conversion.
-///
-/// v0.5.9: media messages return a `StoredMedia` describing how to fetch
-/// the bytes through the SDK (including encrypted sources, which stay in
-/// Rust). The serialized payload still carries only safe metadata — a plain
-/// mxc string for unencrypted media (HTTP-backend parity), sizes, and
-/// dimensions. Encrypted source material never crosses the FFI.
-/// Forward the sender's `org.matrix.custom.html` formatted body verbatim. It
-/// is untrusted HTML; the C++ side sanitizes it to a safe RichText subset
-/// (see MessageHtml::sanitize) before it ever reaches QML. Only the HTML
-/// format is forwarded — an unknown format is ignored so the plain body is
-/// used instead.
+/// Forward the `org.matrix.custom.html` formatted body verbatim. It is
+/// untrusted HTML; C++ sanitizes it (MessageHtml::sanitize) before it
+/// reaches QML. Other formats are ignored so the plain body is used.
 fn set_formatted_body(out: &mut serde_json::Value, formatted: Option<&FormattedBody>) {
     if let Some(fb) = formatted {
         if fb.format == MessageFormat::Html {
@@ -4339,28 +3693,17 @@ fn set_formatted_body(out: &mut serde_json::Value, formatted: Option<&FormattedB
     }
 }
 
-/// Put the WIRE's `formatted_body` back, when there is one.
+/// Put the wire `formatted_body` back, when there is one.
 ///
-/// See the call site for why: matrix-sdk-ui sanitises incoming HTML with a
-/// hard-coded Compat config, which strips `data-mx-emoticon` and with it the
-/// only thing that distinguishes an inline custom emoji from an image.
-/// Lightning's own sanitizer is the security boundary and runs after this.
+/// matrix-sdk-ui's Compat sanitizer strips `data-mx-emoticon`, the only
+/// marker of an inline custom emoji. Lightning's own sanitizer is the
+/// security boundary and runs after this. Only applies when the raw event
+/// has an `org.matrix.custom.html` body and a formatted body was already
+/// going to be sent; bounded; anything unexpected keeps the SDK's version.
 ///
-/// Conservative on every axis: only when the raw event really carries an
-/// `org.matrix.custom.html` formatted body, only when a formatted body was
-/// already going to be sent, and bounded so a hostile event cannot make the
-/// payload unbounded. Anything unexpected leaves the SDK's version in place.
-///
-/// **THE RAW BODY MUST BE THE ONE THE SDK IS DISPLAYING.** This used to read
-/// `original_json()` unconditionally, and `original_json` NEVER changes when
-/// a message is edited (matrix-sdk-ui `RemoteEventTimelineItem`: "If the
-/// event is edited, this *won't* change, instead `latest_edit_json` will").
-/// So every edited message whose ORIGINAL carried HTML — any markdown at all
-/// — had the SDK's correctly edited formatted body overwritten with the
-/// pre-edit one: the plain `body` moved, the rendered row did not, for our
-/// own edits and received ones alike, and a restart re-derived the same stale
-/// HTML from the event cache. Reported 2026-09-21 ("editing a message doesn't
-/// update it in the UI … only when there is markdown in the message").
+/// The raw body must be the one the SDK displays: `original_json()` never
+/// changes on edit, so for edited messages the latest edit's content is
+/// used (see `raw_displayed_formatted_body`).
 fn restore_raw_formatted_body(
     out: &mut serde_json::Value,
     event: &EventTimelineItem,
@@ -4383,23 +3726,20 @@ fn restore_raw_formatted_body(
     }
 }
 
-/// The wire `formatted_body` of the content the SDK is actually displaying,
-/// or `None` to keep the SDK's own (sanitised) version.
+/// The wire `formatted_body` of the content the SDK is displaying, or `None`
+/// to keep the SDK's own.
 ///
-/// Unedited: the original event's `content`. Edited: the latest replacement's
-/// `content["m.new_content"]` — the only place an `m.replace` carries its new
-/// HTML (its top-level `content` is the `* fallback` for clients that do not
-/// understand edits). An edited message with NO edit JSON is a LOCAL ECHO of
-/// our own edit: matrix-sdk-ui applies it with `edit_json: None` and clears
-/// `latest_edit_json`, so there is no wire copy of the new HTML yet and
-/// falling back to the original would put the pre-edit text back on screen.
-/// Pure over JSON so it can be tested without constructing a timeline item.
+/// Unedited: the original event's `content`. Edited: the latest
+/// replacement's `content["m.new_content"]` (its top-level content is the
+/// `* ` fallback). Edited with no edit JSON is a local echo of our own edit,
+/// with no wire copy yet, so the SDK's version is kept. Pure over JSON for
+/// testing.
 fn raw_displayed_formatted_body(
     is_edited: bool,
     original: Option<&serde_json::Value>,
     latest_edit: Option<&serde_json::Value>,
 ) -> Option<String> {
-    /// Longer than any real message and far shorter than a memory problem.
+    /// Longer than any real message, far short of a memory problem.
     const MAX_FORMATTED_BYTES: usize = 64 * 1024;
     let content = if is_edited {
         latest_edit?.get("content")?.get("m.new_content")?
@@ -4416,18 +3756,10 @@ fn raw_displayed_formatted_body(
     Some(body.to_owned())
 }
 
-/// The name a media row presents: MSC2530's explicit `filename` when the
-/// event carries one, the body otherwise.
-///
-/// Under MSC2530 (and the SDK's own `send_attachment`, which is how Lightning
-/// sends a captioned attachment) a media event with a caption carries the
-/// CAPTION in `body` and the real name in `filename`; with no caption the body
-/// is the name. Sable goes one step further and sends `body: ""` with the name
-/// in `filename` whenever the user typed nothing. Reading the body alone gave
-/// that image no name at all, and gave every captioned image its caption as a
-/// "filename" — which is also what kept the caption from ever rendering,
-/// because a caption is exactly a body that differs from the name. An EMPTY
-/// `filename` is treated as absent: it names nothing.
+/// The name a media row presents: MSC2530's `filename` when present and
+/// non-empty, otherwise the body. With a caption, `body` is the caption and
+/// `filename` the name (the SDK's `send_attachment`, Element); Sable sends
+/// `body: ""` with the name in `filename`.
 fn media_display_name(body: &str, filename: Option<&str>) -> String {
     match filename {
         Some(name) if !name.trim().is_empty() => name.to_owned(),
@@ -4437,27 +3769,19 @@ fn media_display_name(body: &str, filename: Option<&str>) -> String {
 
 // ── MSC4274 media galleries ─────────────────────────────────────────────
 //
-// One event carrying several attachments: `msgtype` is `dm.filament.gallery`
-// (the MSC's unstable name, which is what Sable and matrix-sdk send today) or
-// `m.gallery` (the stable name it will become), `body` is the caption, and
-// `itemtypes` is an array of ordinary attachment contents whose `msgtype` is
-// renamed `itemtype`. Parsed here from `MessageType::data()` rather than by
-// matching ruma's `MessageType::Gallery`: that variant exists in this build
-// only because matrix-sdk's `testing` feature happens to switch ruma's
-// `unstable-msc4274` on, and `m.gallery` is not ruma's name for it at all, so
-// the same code has to read a typed gallery and a custom msgtype alike. Each
-// ITEM still goes through ruma's own typed `m.image` / `m.video` / `m.audio` /
-// `m.file` deserializer, so an item is exactly as validated as the same
-// attachment sent on its own. (With the typed variant in play, an item ruma
-// cannot deserialize fails the WHOLE event upstream of here, and the row is
-// the ordinary "unsupported event" one.)
+// One event with several attachments: `msgtype` is `dm.filament.gallery`
+// (unstable, what Sable and matrix-sdk send) or `m.gallery`, `body` is the
+// caption, and `itemtypes` holds ordinary attachment contents with
+// `msgtype` renamed `itemtype`. Parsed from `MessageType::data()` so a
+// typed ruma Gallery (present only via an unrelated feature) and a custom
+// msgtype read the same. Each item goes through ruma's typed deserializer,
+// so it is as validated as a standalone attachment.
 
 /// The msgtypes that are a gallery.
 pub(crate) const GALLERY_MSGTYPES: [&str; 2] = ["dm.filament.gallery", "m.gallery"];
 
-/// Items rendered from one gallery. Bounded because every item becomes a
-/// media-registry entry and a tile: an event is attacker-authored and nothing
-/// else bounds the array. Real galleries are a handful of pictures.
+/// Max items rendered per gallery. The event is attacker-authored and each
+/// item becomes a registry entry and a tile.
 pub(crate) const GALLERY_ITEM_CAP: usize = 32;
 
 pub(crate) fn is_gallery_msgtype(msgtype: &str) -> bool {
@@ -4481,11 +3805,8 @@ impl Gallery {
     }
 }
 
-/// Parse `msgtype` as an MSC4274 gallery, or `None` when it is not one.
-///
-/// An item that is not an attachment kind, or that its kind's deserializer
-/// refuses (no `url`/`file`, a malformed `info`), is skipped rather than
-/// failing the whole message: the remaining pictures are still the sender's.
+/// Parse `msgtype` as an MSC4274 gallery, or `None`. Items that are not
+/// attachments or fail their kind's deserializer are skipped, not fatal.
 pub(crate) fn parse_gallery(msgtype: &MessageType) -> Option<Gallery> {
     if !is_gallery_msgtype(msgtype.msgtype()) {
         return None;
@@ -4539,17 +3860,11 @@ pub(crate) fn parse_gallery(msgtype: &MessageType) -> Option<Gallery> {
     })
 }
 
-/// True when a gallery's `body` is Sable's generated item list rather than
-/// anything the sender wrote.
-///
-/// MSC4274 makes `body` mandatory, so a gallery sent with no caption still
-/// carries one. matrix-sdk sends `""`; Sable sends one line per item,
-/// `[<filename, else itemtype>: <url, else "file">]` joined by `\n`
-/// (`buildGalleryContent` in Sable's `msgContent.ts`). Rendered as a caption
-/// that is a column of `mxc://` URIs under the pictures they describe, so it is
-/// recognised EXACTLY — every line, against every item, in order — and never by
-/// a looser pattern that could swallow a real caption that happens to use
-/// brackets.
+/// True when a gallery's `body` is Sable's generated item list, not a
+/// caption. Sable writes one `[<filename, else itemtype>: <url, else
+/// "file">]` line per item (`buildGalleryContent`); matched exactly, line by
+/// line against the items in order, so a real caption using brackets is
+/// never swallowed.
 fn gallery_body_is_item_list(body: &str, raw_items: &[serde_json::Value]) -> bool {
     if raw_items.is_empty() {
         return false;
@@ -4570,23 +3885,18 @@ fn gallery_body_is_item_list(body: &str, raw_items: &[serde_json::Value]) -> boo
     lines.next().is_none()
 }
 
-/// Media-registry key for gallery item `index` other than the row's primary
-/// one (which keeps the row key itself, so every path that addresses a row's
-/// media by its event id — the reply thumbnail, hide-image, "Open image" —
-/// reaches its first picture). A derived key could only collide with an event
-/// id that itself ends in `#item<n>`: room v3+ event ids are server-computed
-/// hashes in base64 (standard in v3, URL-safe from v4), neither of which has
-/// a `#`, and in a v1/v2 id the suffix would land in the server name. Even then the map is per open room, so the
-/// worst case is one row of this room drawing another row's attachment.
+/// Registry key for gallery item `index` other than the primary (which uses
+/// the row key, so paths addressing a row by event id reach its first
+/// picture). A collision needs an event id ending in `#item<n>`, which
+/// v3+ ids cannot contain; at worst one row in this room would show
+/// another's attachment.
 pub(crate) fn gallery_item_key(row_key: &str, index: usize) -> String {
     format!("{row_key}#item{index}")
 }
 
-/// Which gallery item stands for the whole row: the first picture, else the
-/// first item. A gallery is a row of whatever kind that item is, so every
-/// surface that only knows single attachments (the room-list line, a
-/// notification, the reply thumbnail, the collapsed-embed summary) says
-/// something true about it.
+/// The item that stands for the whole row: the first picture, else the
+/// first item, so single-attachment surfaces (room list, notifications,
+/// reply thumbnail) say something true.
 fn gallery_primary_index(gallery: &Gallery) -> usize {
     gallery
         .items
@@ -4595,14 +3905,13 @@ fn gallery_primary_index(gallery: &Gallery) -> usize {
         .unwrap_or(0)
 }
 
-/// Fill a message row's content and return every media source it owns, keyed
-/// for the registry, PRIMARY FIRST. `row_key` is the row's media key (its event
-/// id, or the SDK's unique id while it is a local echo).
+/// Fill a message row's content and return its media sources for the
+/// registry, primary first. `row_key` is the row's media key (event id, or
+/// the SDK unique id for a local echo).
 ///
-/// A gallery fills the row from its primary item, carries the caption as the
-/// body, and lists every item in `gallery_items` with its own key — metadata
-/// only; the sources, which embed content keys in an encrypted room, stay in
-/// the registry exactly as a single attachment's do.
+/// A gallery fills the row from its primary item, uses the caption as the
+/// body, and lists every item in `gallery_items` with its key; the sources
+/// (with content keys) stay in the registry.
 fn fill_message_media(
     out: &mut serde_json::Value,
     msgtype: &MessageType,
@@ -4664,12 +3973,10 @@ fn fill_message_media(
     sources
 }
 
-/// What a message IS, for a surface that has one line for it: the row kind
-/// the thread card and the reply quote label by, how many attachments it
-/// carries (0 unless it is a gallery of two or more), and the text worth
-/// quoting — the words the sender wrote, else the attachment's name, else
-/// nothing (the caller then shows the kind's own label, never a placeholder
-/// token and never a gallery's generated `[name: mxc://…]` list).
+/// What a message is, for one-line surfaces (thread card, reply quote): the
+/// row kind, the attachment count (0 unless a gallery of two or more), and
+/// the text worth quoting (the sender's words, else the attachment name,
+/// else nothing; never a gallery's generated list).
 pub(crate) struct MessageSummary {
     pub kind: &'static str,
     pub count: usize,
@@ -4707,8 +4014,7 @@ pub(crate) fn message_summary(msgtype: &MessageType) -> MessageSummary {
                 single
             }
             Some(gallery) => MessageSummary {
-                // A gallery of pictures reads as pictures; anything mixed is
-                // "attachments", which the file kind's label already covers.
+                // Pictures read as "image"; mixed galleries as "file".
                 kind: if gallery.all_images() { "image" } else { "file" },
                 count: gallery.items.len(),
                 text: gallery.caption,
@@ -4722,6 +4028,10 @@ pub(crate) fn message_summary(msgtype: &MessageType) -> MessageSummary {
     }
 }
 
+/// Text / notice / emote / media conversion. Media returns a `StoredMedia`
+/// describing how to fetch the bytes through the SDK; encrypted sources stay
+/// in Rust. The payload carries only safe metadata (an mxc string for
+/// unencrypted media, sizes, dimensions).
 fn fill_message_content(
     out: &mut serde_json::Value,
     msgtype: &MessageType,
@@ -4810,10 +4120,8 @@ fn fill_message_content(
             })
         }
         MessageType::Audio(content) => {
-            // v0.7: audio gets its own semantic type so the UI can reserve
-            // a compact audio row (with duration and the MSC3245 voice
-            // marker) instead of a generic file card. Bytes still flow
-            // through the same safe media path.
+            // Audio has its own type so the UI can show a compact audio row (duration,
+            // MSC3245 voice marker).
             let filename = media_display_name(&content.body, content.filename.as_deref());
             out["msgtype"] = "audio".into();
             out["body"] = content.body.clone().into();
@@ -4824,10 +4132,8 @@ fn fill_message_content(
             if content.voice.is_some() {
                 out["media_voice"] = true.into();
             }
-            // v0.7: the REAL MSC3245 waveform, when the event carried one —
-            // downsampled and normalized to a bounded 0..=100 array. The UI
-            // never fabricates a decorative waveform; absent metadata means
-            // a plain progress track.
+            // The real MSC3245 waveform when present, downsampled to 0..=100. The UI
+            // never fabricates one.
             if let Some(audio) = &content.audio {
                 if !audio.waveform.is_empty() {
                     let raw: Vec<u64> = audio
@@ -4864,9 +4170,7 @@ fn fill_message_content(
             })
         }
         MessageType::Video(content) => {
-            // v0.7: videos reserve their thumbnail geometry (Matrix info
-            // width/height/duration) and render a type-specific placeholder
-            // instead of a generic file card.
+            // Videos reserve their thumbnail geometry and get a typed placeholder.
             let filename = media_display_name(&content.body, content.filename.as_deref());
             out["msgtype"] = "video".into();
             out["body"] = content.body.clone().into();
@@ -4907,10 +4211,8 @@ fn fill_message_content(
             })
         }
         MessageType::Location(content) => {
-            // The extensible accessors resolve legacy-vs-MSC3488 for us:
-            // `geo_uri()` prefers `location.uri` and falls back to the
-            // top-level field, so a message from either generation of
-            // client reads the same.
+            // The extensible accessors resolve legacy vs MSC3488: `geo_uri()` prefers
+            // `location.uri` and falls back to the top-level field.
             crate::location::fill_location(
                 out,
                 content.geo_uri(),
@@ -4931,10 +4233,8 @@ fn fill_message_content(
     }
 }
 
-/// Downsample a voice-message waveform to at most 96 buckets of 0..=100
-/// (v0.7). Pure: bucket-averages the raw MSC3245 amplitudes (0..=`max`),
-/// so the payload crossing the FFI is small, normalized, and carries no
-/// information beyond the coarse envelope the sender already published.
+/// Downsample a voice waveform to at most 96 buckets of 0..=100 by
+/// averaging the raw MSC3245 amplitudes (0..=`max`).
 fn downsample_waveform(raw: &[u64], max: u64) -> Vec<u64> {
     const BUCKETS: usize = 96;
     if raw.is_empty() || max == 0 {
@@ -4950,29 +4250,11 @@ fn downsample_waveform(raw: &[u64], max: u64) -> Vec<u64> {
         vals.push(avg.min(max));
     }
 
-    // SCALED TO THE LOUDEST BUCKET, NOT TO A FIXED 1024 — otherwise a quiet
-    // recording is crushed flat before the UI ever sees it.
-    //
-    // MSC3245 waveform values are absolute amplitudes on a 0..=1024 scale, so
-    // an ordinary indoor voice sits far below the top of that range. Dividing
-    // by a constant 1024 therefore produced tiny buckets, and
-    // `AudioPlayerCard` floors a bar at 0.12 of the strip: measured against a
-    // synthetic envelope peaking at 175/1024, **66 of 96 buckets (68%) landed
-    // under that floor with only 18 distinct values** — a flat line. A live
-    // sweep on 2026-09-20 saw the real thing, 173 of 184 bar columns at the
-    // floor, AFTER the QML side had already been corrected to divide by 100
-    // rather than clamp. That fix was necessary and not sufficient; this is
-    // the other half.
-    //
-    // Normalising to the loudest bucket is what a waveform display is for —
-    // it shows SHAPE, not absolute level, and it is what Element does. A
-    // recording that already uses the full range is unaffected: its loudest
-    // bucket is 1024 and every value is identical to before, verified in the
-    // test below against the same fixtures this function always had.
-    //
-    // The peak is taken AFTER bucketing, so the tallest bar is exactly full
-    // height rather than merely close to it, and digital silence returns all
-    // zeroes instead of dividing by one.
+    // Scale to the loudest bucket, not a fixed 1024: MSC3245 amplitudes are
+    // absolute, so ordinary speech sits low and would render as a flat line
+    // under the UI's bar floor. A waveform shows shape, as in Element; a
+    // full-range recording is unchanged. The peak is taken after bucketing so
+    // the tallest bar is exactly full, and silence stays all zeroes.
     let peak = vals.iter().copied().max().unwrap_or(0);
     if peak == 0 {
         return vec![0; buckets];
@@ -4980,19 +4262,12 @@ fn downsample_waveform(raw: &[u64], max: u64) -> Vec<u64> {
     vals.into_iter().map(|v| (v * 100) / peak).collect()
 }
 
-/// Build MSC3381 poll-start content through ruma constructors only (v0.7).
-/// Pure so the shape is unit-testable. Answer ids are opaque, unique within
-/// the poll (timestamp + index); ruma enforces the 1..=20 answer bound and
-/// Lightning additionally requires two answers, matching the creation UI.
-/// Reduce matrix.to USER links in outgoing markdown to their label for the
-/// PLAIN body: the plain body is the fallback other clients render in room
-/// lists and notifications, and Element's mention pills serialize their
-/// display text there too — never the raw `[label](https://matrix.to/…)`
-/// source. `formatted_body` keeps the full anchor; user-typed markdown and
-/// room/event permalinks pass through untouched. Escaped label characters
-/// ("\\]", "\\\\") unescape. Best-effort on pathological labels containing
-/// an unescaped '[' (the rightmost bracket wins) — this feeds a display
-/// fallback, never protocol state.
+/// Reduce matrix.to user links in outgoing markdown to their label for the
+/// plain body, the fallback other clients show in room lists and
+/// notifications (Element does the same). `formatted_body` keeps the
+/// anchor; room/event permalinks and other markdown pass through. Escaped
+/// label characters unescape. Best effort on labels with an unescaped `[`;
+/// this is display fallback only.
 pub(crate) fn mention_plain_body(markdown: &str) -> String {
     const TARGET: &str = "](https://matrix.to/#/";
     let mut out = String::with_capacity(markdown.len());
@@ -5035,9 +4310,8 @@ pub(crate) fn mention_plain_body(markdown: &str) -> String {
     out
 }
 
-/// Apply the mention plain-body reduction to a just-built markdown message:
-/// the SDK derived `formatted_body` from the full markdown already; only the
-/// plain fallback is rewritten.
+/// Apply the mention plain-body reduction to a just-built markdown message;
+/// only the plain fallback is rewritten.
 fn set_mention_plain_body(msgtype: &mut MessageType, markdown: &str) {
     let plain = mention_plain_body(markdown);
     if plain == markdown {
@@ -5045,35 +4319,27 @@ fn set_mention_plain_body(msgtype: &mut MessageType, markdown: &str) {
     }
     match msgtype {
         MessageType::Text(text) => text.body = plain,
-        // The /me lane sends emotes through the same markdown path, so an
-        // emote carrying a mention needs the identical plain-body reduction.
+        // /me emotes use the same markdown path and need the same reduction.
         MessageType::Emote(emote) => emote.body = plain,
         _ => {}
     }
 }
 
-// ── v0.9 formatted sends ─────────────────────────────────────────────────
+// ── Formatted sends ──────────────────────────────────────────────────────
 //
-// The composer historically sent MARKDOWN and the SDK converted it. Rich
-// text mode and slash commands need two more shapes the markdown path
-// cannot express:
+// Besides markdown (converted by the SDK), the composer sends:
 //
-//   * "plain"  — the body is sent verbatim as m.text/m.emote with NO
-//     markdown parsing (e.g. /shrug's ¯\_(ツ)_/¯, whose underscores
-//     markdown would eat);
-//   * "html"   — C++ supplies BOTH the plain body and the formatted body,
-//     generated from one canonical QTextDocument so they cannot diverge
-//     (rich composer, /spoiler's data-mx-spoiler span).
+//   * "plain": the body verbatim with no markdown parsing (e.g. /shrug's
+//     ¯\_(ツ)_/¯);
+//   * "html": C++ supplies both plain and formatted bodies, generated from
+//     one QTextDocument (rich composer, /spoiler).
 //
-// The spec crosses the FFI as one optional JSON argument so the four send
-// entry points (send, reply, thread, edit) share a single vocabulary and
-// future fields extend one place. Empty/absent means today's markdown path
-// exactly.
+// The spec is one optional JSON argument shared by send, reply, thread and
+// edit. Empty means markdown.
 //
-// SECURITY: the outgoing HTML is sanitized HERE, at the boundary, with
-// ruma's strict Matrix-subset sanitizer — belt and braces over the C++
-// serializer, so no caller can smuggle script/event handlers/unsafe URLs
-// into a formatted_body even if the C++ side regresses.
+// Security: outgoing HTML is sanitized here with ruma's strict
+// Matrix-subset sanitizer, so no caller can put script, event handlers or
+// unsafe URLs into a formatted_body even if the C++ serializer regresses.
 
 /// How an outgoing text body is interpreted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -5091,14 +4357,9 @@ pub(crate) struct SendBodySpec {
     pub(crate) html: String,
     /// true = m.emote (the /me lane), false = m.text.
     pub(crate) emote: bool,
-    /// MSC2545 inline custom emoji: `:shortcode:` -> `mxc://…`, for the
-    /// shortcodes the composer recognised in this body. Empty for the
-    /// overwhelming majority of messages.
-    ///
-    /// Substitution happens HERE rather than in C++ because the default send
-    /// path is MARKDOWN: the C++ side has only the source text, and building
-    /// the `<img>` there would mean sending `format: html` and losing
-    /// markdown for every message that contains an emoji.
+    /// MSC2545 inline custom emoji: `:shortcode:` -> `mxc://…` for shortcodes
+    /// the composer recognised. Substituted here because the default path is
+    /// markdown, and C++ building `<img>` would force `format: html`.
     pub(crate) emoticons: Vec<(String, String)>,
 }
 
@@ -5115,8 +4376,7 @@ impl Default for SendBodySpec {
 
 /// Parse `{"format":"markdown"|"plain"|"html","html":"…","msgtype":"text"|"emote"}`.
 /// Empty input is the default markdown/text spec. Unknown values are
-/// REFUSED, not defaulted — a typo'd caller must fail loudly rather than
-/// silently sending the wrong shape.
+/// refused, not defaulted.
 pub(crate) fn parse_body_spec(spec: &str) -> Result<SendBodySpec, String> {
     if spec.trim().is_empty() {
         return Ok(SendBodySpec::default());
@@ -5141,10 +4401,8 @@ pub(crate) fn parse_body_spec(spec: &str) -> Result<SendBodySpec, String> {
         "emote" => true,
         _ => return Err("Unknown body msgtype.".to_owned()),
     };
-    // `emoticons` is a JSON object of ":code:" -> "mxc://…". A value that is
-    // not an mxc URI is DROPPED rather than refused: the map is built from
-    // the user's own installed packs, and one malformed pack entry must not
-    // stop the message being sent.
+    // ":code:" -> "mxc://…". Non-mxc values are dropped, not refused: one bad
+    // pack entry must not block the message.
     let mut emoticons: Vec<(String, String)> = Vec::new();
     if let Some(map) = value.get("emoticons").and_then(|v| v.as_object()) {
         for (code, target) in map {
@@ -5163,25 +4421,12 @@ pub(crate) fn parse_body_spec(spec: &str) -> Result<SendBodySpec, String> {
     Ok(SendBodySpec { format, html, emote, emoticons })
 }
 
-/// Replace `:shortcode:` runs with MSC2545 emoticon images, in HTML that
-/// markdown has already produced.
+/// Replace `:shortcode:` runs with MSC2545 emoticon images in the HTML that
+/// markdown produced (substituting in the source would get escaped).
 ///
-/// Runs on the FORMATTED body, after markdown, for one reason: the default
-/// send path is markdown, and substituting in the plain source would make
-/// the `<img>` something markdown escapes. Doing it here keeps `**bold**`
-/// working in a message that also contains an emoji.
-///
-/// Three places it must not fire, all of them ordinary content:
-///
-///   * inside a TAG — `<a href="…:8080/…">` contains colons, and rewriting
-///     an attribute would corrupt the markup;
-///   * inside `<code>` or `<pre>` — a shortcode in a code sample is text the
-///     author meant literally;
-///   * inside a URL run — `http://host/:foo:` is a path, not an emoji.
-///
-/// The PLAIN body keeps the shortcodes untouched, which is exactly the
-/// fallback MSC2545 asks for: a client that cannot render the image shows
-/// `:blob:` rather than nothing.
+/// Not inside a tag (attributes contain colons), not inside `<code>`/`<pre>`,
+/// and not inside a URL run (`http://host/:foo:`). The plain body keeps the
+/// shortcodes, which is the fallback MSC2545 asks for.
 fn substitute_emoticons(html: &str, emoticons: &[(String, String)]) -> String {
     if emoticons.is_empty() {
         return html.to_owned();
@@ -5212,16 +4457,11 @@ fn substitute_emoticons(html: &str, emoticons: &[(String, String)]) -> String {
             let mut matched = false;
             for (code, mxc) in emoticons {
                 if html[i..].starts_with(code.as_str()) {
-                    // Not inside a URL run: look back for a scheme separator
-                    // with no whitespace between it and here.
-                    // BYTES, NOT CHARS: `out` is the user's own message and
-                    // 160 bytes back can land inside a multi-byte code point,
-                    // where slicing PANICS. The unwind is swallowed by the
-                    // spawn this runs under and the send is simply lost, so
-                    // it reads as "the message never sent". Falling back to
-                    // the whole string is correct as well as safe: the test
-                    // below only inspects the LAST whitespace-delimited run,
-                    // which is the same run either way.
+                    // Not inside a URL run: look back for a scheme separator with no
+                    // whitespace since. Bytes, not chars: 160 bytes back can land inside a
+                    // code point, and slicing there panics (silently losing the send). Using
+                    // the whole string instead is equivalent, since only the last run is
+                    // inspected.
                     let preceding = out
                         .get(out.len().saturating_sub(160)..)
                         .unwrap_or(out.as_str());
@@ -5250,7 +4490,7 @@ fn substitute_emoticons(html: &str, emoticons: &[(String, String)]) -> String {
                 continue;
             }
         }
-        // Advance one CHARACTER, not one byte, or a multi-byte char splits.
+        // Advance one character, not one byte.
         let step = html[i..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
         out.push_str(&html[i..i + step]);
         i += step;
@@ -5269,25 +4509,13 @@ fn html_escape_attr(value: &str) -> String {
 
 /// Drop every `<img>` whose `src` is not an `mxc:` URI.
 ///
-/// THIS EXISTS BECAUSE ALLOWING ONE ATTRIBUTE DISABLED RUMA'S OWN SCHEME
-/// CHECK, which is not obvious and was found only by asserting it.
-///
-/// ruma's cleaner checks schemes in a loop over an element's attributes, and
-/// the loop RETURNS from the whole check the moment it meets an attribute
-/// with no scheme rules (ruma-html sanitizer_config/clean.rs, the
-/// `list_schemes.is_none() && spec_schemes.is_none() && compat_schemes...`
-/// early return). `data-mx-emoticon` is exactly such an attribute, and it is
-/// serialized BEFORE `src` — so the moment inline emoji became expressible,
-/// `<img data-mx-emoticon src="https://tracker.example/pixel.png">` passed
-/// the strict config untouched. Measured, not theorised: that string is in
-/// the test below and it survived every configuration of allow_schemes,
-/// Add and Override alike.
-///
-/// An outgoing message that can carry a remote image is a tracking pixel the
-/// sender did not know they sent, and a read receipt for the recipient's IP.
-/// So the rule is enforced here, before ruma sees the string, and it fails
-/// CLOSED: no `src`, an unparseable tag, or any scheme but `mxc` drops the
-/// whole element rather than trying to repair it.
+/// Needed because allowing `data-mx-emoticon` disables ruma's own scheme
+/// check: its cleaner returns early at the first attribute with no scheme
+/// rules (ruma-html sanitizer_config/clean.rs), and `data-mx-emoticon` is
+/// serialized before `src`. So `<img data-mx-emoticon src="https://…">`
+/// passed the strict config (see the test below). A remote image in an
+/// outgoing message is a tracking pixel. Fails closed: no `src`, a
+/// malformed tag, or a non-mxc scheme drops the whole element.
 fn strip_non_mxc_images(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut rest = html;
@@ -5299,8 +4527,7 @@ fn strip_non_mxc_images(html: &str) -> String {
         };
         out.push_str(&rest[..found]);
         let tail = &rest[found..];
-        // A tag with no terminator is malformed; drop everything from here
-        // rather than emit half of it.
+        // An unterminated tag is malformed; drop everything from here.
         let Some(close) = tail.find('>') else { return out };
         let tag = &tail[..=close];
         if img_src_is_mxc(tag) {
@@ -5310,15 +4537,13 @@ fn strip_non_mxc_images(html: &str) -> String {
     }
 }
 
-/// Byte offset of the next `<img` tag start, matched case-insensitively and
-/// only where the name really ends (so `<image>` is not mistaken for one).
+/// Byte offset of the next `<img` tag, case-insensitive, only where the name
+/// ends (so `<image>` does not match).
 fn find_img_tag(html: &str) -> Option<usize> {
     let bytes = html.as_bytes();
     let mut i = 0usize;
     while i + 4 <= bytes.len() {
-        // `get`, not a byte-length check and a slice: a length in BYTES says
-        // nothing about whether those three bytes end on a code-point
-        // boundary, and slicing across one panics.
+        // `get`, not a length check and slice: slicing across a code point panics.
         if bytes[i] == b'<'
             && html
                 .get(i + 1..i + 4)
@@ -5348,9 +4573,8 @@ fn img_src_is_mxc(tag: &str) -> bool {
         let after = lower[start + 3..].trim_start();
         if before_ok && after.starts_with('=') {
             let value = after[1..].trim_start();
-            // TERMINATE THE VALUE. Without this `src="mxc://">` reads as the
-            // six-character prefix plus the rest of the tag and passes a
-            // naive length check — an mxc URI with no media id at all.
+            // Terminate the value, or `src="mxc://">` would pass as an mxc URI with no
+            // media id.
             let terminated = if let Some(rest) = value.strip_prefix('"') {
                 rest.split('"').next().unwrap_or("")
             } else if let Some(rest) = value.strip_prefix('\'') {
@@ -5369,27 +4593,13 @@ fn img_src_is_mxc(tag: &str) -> bool {
     false
 }
 
-/// Strict-sanitize the formatted half of an outgoing message in place.
-/// A no-op for messages without a formatted body.
+/// Strict-sanitize the formatted half of an outgoing message in place;
+/// no-op without a formatted body.
 ///
-/// STRICT, PLUS EXACTLY ONE ATTRIBUTE. `sanitize_html(Strict, ..)` is ruma's
-/// own allow-list and it already does the important things for us: `img` is
-/// permitted, and `("img", "src")` is scheme-restricted to `mxc` — an
-/// outgoing message cannot carry a tracking pixel or an http image however
-/// the composer is abused.
-///
-/// What it does NOT allow is `data-mx-emoticon`
-/// (ruma-html sanitizer_config/clean.rs — img keeps only
-/// width|height|alt|title|src, and `data-mx-*` is whitelisted on `span`
-/// alone). That attribute is the whole of MSC2545's inline custom emoji: it
-/// is what tells a receiving client "this image is an emoticon, size it like
-/// text". Stripped, Lightning would send a technically valid message that no
-/// client renders as an emoji — silently non-conformant, and invisible from
-/// this side because our own send path never re-reads it.
-///
-/// So the strict config is taken and ONE attribute is added to it. Nothing
-/// else is widened: not the tag list, not `src`'s scheme restriction, not
-/// `data-mx-*` anywhere else.
+/// ruma's Strict config allows `img` with `src` restricted to `mxc`, but not
+/// `data-mx-emoticon` (data-mx-* is allowed on `span` only), which is what
+/// makes an MSC2545 inline emoji an emoji. So exactly that one attribute is
+/// added; nothing else is widened.
 fn sanitize_outgoing_formatted(msgtype: &mut MessageType) {
     use matrix_sdk::ruma::html::{
         ElementAttributesSchemes, Html, ListBehavior, PropertiesNames,
@@ -5401,14 +4611,9 @@ fn sanitize_outgoing_formatted(msgtype: &mut MessageType) {
         _ => None,
     };
     let Some(formatted) = formatted else { return };
-    // AND THE SCHEME IS PINNED HERE RATHER THAN INHERITED. ruma's spec rules
-    // do restrict ("img", "src") to `mxc`, but that check is gated on the
-    // config's own mode and on nothing else in the chain having overridden
-    // the scheme list — MEASURED: with the attribute added and the scheme
-    // left implicit, `<img src="https://tracker.example/pixel.png">` came
-    // through the strict config intact. An outgoing message that can carry a
-    // remote image is a tracking pixel the sender did not know they sent, so
-    // this states the restriction instead of relying on it.
+    // Pin the scheme rather than inherit it: with the attribute added and the
+    // scheme implicit, `<img src="https://tracker.example/pixel.png">` passed
+    // the strict config.
     let config = SanitizerConfig::strict()
         .allow_attributes(
             [PropertiesNames { parent: "img", properties: &["data-mx-emoticon"] }],
@@ -5423,11 +4628,9 @@ fn sanitize_outgoing_formatted(msgtype: &mut MessageType) {
                         properties: &["mxc"],
                     }],
                 },
-                // `a` MUST be restated. Override replaces the whole scheme
-                // list, and an element absent from it is not scheme-checked
-                // AT ALL — so listing only `img` would have quietly stopped
-                // `href` being checked and let `javascript:` back in. These
-                // are the spec's own schemes for a link.
+                // `a` must be restated: Override replaces the whole scheme list, and an
+                // element missing from it is not scheme-checked at all (`javascript:`
+                // hrefs would pass). These are the spec's link schemes.
                 ElementAttributesSchemes {
                     element: "a",
                     attr_schemes: &[PropertiesNames {
@@ -5443,18 +4646,9 @@ fn sanitize_outgoing_formatted(msgtype: &mut MessageType) {
     formatted.body = html.to_string();
 }
 
-/// Build the outgoing message content for one (body, spec) pair. The
-/// markdown lane keeps its historical mention plain-body reduction; the
-/// html lane trusts the C++ side's plain body verbatim (it was derived from
-/// the same document) and strict-sanitizes the formatted half.
-/// Put the message's inline custom emoji in.
-///
-/// A markdown message with no markdown in it has NO formatted body at all,
-/// so one is created from the escaped plain text — otherwise a message that
-/// is nothing but `:blob:` would have nowhere to carry the image. The plain
-/// body is left alone in every case: those shortcodes are exactly the
-/// fallback MSC2545 asks for, so a client without the pack shows `:blob:`
-/// rather than a gap.
+/// Put the message's inline custom emoji in. A markdown message without
+/// markdown has no formatted body, so one is created from the escaped
+/// plain text. The plain body keeps the shortcodes as MSC2545's fallback.
 fn apply_emoticons(msgtype: &mut MessageType, spec: &SendBodySpec) {
     if spec.emoticons.is_empty() {
         return;
@@ -5475,6 +4669,9 @@ fn apply_emoticons(msgtype: &mut MessageType, spec: &SendBodySpec) {
     *formatted = Some(FormattedBody::html(replaced));
 }
 
+/// Build outgoing message content for one (body, spec) pair. The markdown
+/// lane applies the mention plain-body reduction; the html lane uses the C++
+/// plain body verbatim and strict-sanitizes the formatted half.
 pub(crate) fn composed_content(body: &str, spec: &SendBodySpec) -> RoomMessageEventContent {
     let mut message = match (spec.format, spec.emote) {
         (BodyFormat::Markdown, false) => RoomMessageEventContent::text_markdown(body),
@@ -5493,9 +4690,8 @@ pub(crate) fn composed_content(body: &str, spec: &SendBodySpec) -> RoomMessageEv
         BodyFormat::Plain => {}
         BodyFormat::Html => sanitize_outgoing_formatted(&mut message.msgtype),
     }
-    // Emoji go in AFTER the format's own handling and are sanitized like any
-    // other formatted body — the `<img>` this builds is validated by the same
-    // mxc-only filter that guards a hand-supplied one.
+    // Emoji go in after the format's own handling and pass through the same
+    // mxc-only filter as a hand-supplied `<img>`.
     apply_emoticons(&mut message.msgtype, spec);
     if !spec.emoticons.is_empty() {
         sanitize_outgoing_formatted(&mut message.msgtype);
@@ -5533,9 +4729,8 @@ pub(crate) fn composed_content_without_relation(
         BodyFormat::Plain => {}
         BodyFormat::Html => sanitize_outgoing_formatted(&mut message.msgtype),
     }
-    // Emoji go in AFTER the format's own handling and are sanitized like any
-    // other formatted body — the `<img>` this builds is validated by the same
-    // mxc-only filter that guards a hand-supplied one.
+    // Emoji go in after the format's own handling and pass through the same
+    // mxc-only filter as a hand-supplied `<img>`.
     apply_emoticons(&mut message.msgtype, spec);
     if !spec.emoticons.is_empty() {
         sanitize_outgoing_formatted(&mut message.msgtype);
@@ -5543,8 +4738,10 @@ pub(crate) fn composed_content_without_relation(
     message
 }
 
-/// The MSC1767 fallback body lists the question and numbered answers so
-/// clients without poll support show something honest.
+/// Build MSC3381 poll-start content with ruma constructors only; pure for
+/// testing. Answer ids are opaque and unique within the poll (timestamp +
+/// index); ruma enforces at most 20 answers and Lightning requires two. The
+/// MSC1767 fallback body lists the question and numbered answers.
 pub(crate) fn build_poll_start_content(
     question: &str,
     answers: &[String],
@@ -5595,12 +4792,9 @@ pub(crate) fn build_poll_start_content(
     Ok(NewUnstablePollStartEventContent::plain_text(fallback, block))
 }
 
-/// Crate-owned projection of the SDK's aggregated `PollResult` (v0.7).
-/// Exists because `PollResultAnswer` is not re-exported by matrix-sdk-ui,
-/// which would make the serializer untestable if it consumed `PollResult`
-/// directly. Aggregation (latest vote per user, spoiled votes,
-/// max-selection truncation, votes-after-end, redacted responses) is
-/// entirely ruma/SDK-owned — this projection only carries the outcome.
+/// Crate-owned projection of the SDK's aggregated `PollResult`, since
+/// `PollResultAnswer` is not re-exported (the serializer would be
+/// untestable). Aggregation stays in ruma/the SDK.
 pub(crate) struct PollView {
     pub question: String,
     pub disclosed: bool,
@@ -5631,11 +4825,9 @@ impl PollView {
     }
 }
 
-/// MSC3381 poll presentation payload (v0.7). Privacy: for an undisclosed
-/// poll that has not ended, per-answer tallies never cross the FFI (counts
-/// are forced to 0); only the user's own selections and the distinct-voter
-/// total are forwarded. Voter MXIDs other than the requesting user's own
-/// membership in an answer never cross the FFI.
+/// MSC3381 poll payload. For an undisclosed poll that has not ended,
+/// per-answer counts are forced to 0; only the user's own selections and the
+/// distinct-voter total are forwarded. Other voters' MXIDs never cross.
 fn fill_poll_content(
     out: &mut serde_json::Value,
     view: &PollView,
@@ -5687,18 +4879,14 @@ fn fill_poll_content(
     }
 }
 
-/// Best-effort short preview for reply boxes. Never includes ciphertext.
-/// Coarse semantic kind of a thread's latest reply, so the summary card can
-/// render a safe label ("Image", "GIF", "Encrypted reply", …) instead of a
-/// raw body or a placeholder token. Derived from the SDK content type only —
-/// never from body text. Ciphertext and media URLs never leave the SDK.
+/// Coarse kind of a thread's latest reply ("Image", "GIF", "Encrypted
+/// reply", …), from the SDK content type only, never the body.
 fn thread_latest_kind(content: &TimelineItemContent) -> &'static str {
     content_kind(content).0
 }
 
-/// The coarse kind of an item and, for a gallery, how many attachments it
-/// carries (0 otherwise). One vocabulary for the thread card and the reply
-/// quote; a gallery of pictures is "image", a mixed one "file".
+/// The coarse kind of an item and, for a gallery, its attachment count (0
+/// otherwise). Shared by the thread card and reply quote.
 fn content_kind(content: &TimelineItemContent) -> (&'static str, usize) {
     match content {
         TimelineItemContent::MsgLike(msg_like) => match &msg_like.kind {
@@ -5721,16 +4909,10 @@ fn content_preview(content: &TimelineItemContent) -> String {
     content_preview_capped(content, 80)
 }
 
-/// The budget a REPLY QUOTE gets, which is a different surface from a room-list
-/// row: it sits in a timeline that can be 1500 px wide, and the QML label
-/// already elides to whatever width is actually available. Capping it at 80
-/// characters here meant the quote was cut by a constant instead of by the
-/// window -- reported as "text gets cut off from the original message", with
-/// the cut landing mid-word because the old truncation appended nothing at all.
-/// C++ normalises this again (EventPreview::normalizePreviewText) and adds a
-/// real ellipsis, so this only has to be generous enough that the WIDTH is what
-/// bites first, and bounded enough that a pathological body never crosses the
-/// FFI whole.
+/// Preview budget for a reply quote. The quote spans a wide timeline and
+/// QML elides to the available width, so this is generous and only bounds
+/// pathological bodies. C++ normalizes it and adds a real ellipsis
+/// (EventPreview::normalizePreviewText).
 fn reply_preview(content: &TimelineItemContent) -> String {
     content_preview_capped(content, 320)
 }
@@ -5738,10 +4920,8 @@ fn reply_preview(content: &TimelineItemContent) -> String {
 fn content_preview_capped(content: &TimelineItemContent, max: usize) -> String {
     let text = match content {
         TimelineItemContent::MsgLike(msg_like) => match &msg_like.kind {
-            // The sender's words, else the attachment's name — never a
-            // gallery's generated `[name: mxc://…]` list, and never "" for an
-            // image whose body is empty only because its name is in
-            // `filename` (Sable). What remains empty is labelled by kind.
+            // The sender's words, else the attachment name (never a gallery's
+            // generated list). Empty is labelled by kind.
             MsgLikeKind::Message(message) => message_summary(message.msgtype()).text,
             MsgLikeKind::Redacted => "[message deleted]".to_owned(),
             MsgLikeKind::UnableToDecrypt(_) => "[unable to decrypt]".to_owned(),
@@ -5760,8 +4940,7 @@ fn content_preview_capped(content: &TimelineItemContent, max: usize) -> String {
         },
         _ => "[event]".to_owned(),
     };
-    // Count in CHARACTERS and mark the cut. `take()` alone stops mid-word and
-    // says nothing, which is what made an 80-char cap read as a rendering bug.
+    // Count characters and mark the cut.
     if text.chars().count() > max {
         let mut out: String = text.chars().take(max).collect();
         out.push('\u{2026}');
@@ -5771,12 +4950,8 @@ fn content_preview_capped(content: &TimelineItemContent, max: usize) -> String {
     }
 }
 
-/// Megolm session ids of the undecryptable items in ONE batch of timeline
-/// items — the diff that just arrived, not the whole timeline.
-///
-/// `utd_session_ids` below walks every item a timeline holds, which is the
-/// right cost for the user pressing Retry and the wrong one on every diff of
-/// a thousand-row room. This reads only what changed.
+/// Megolm session ids of undecryptable items in one batch (the diff that
+/// arrived), rather than the whole timeline like `utd_session_ids`.
 fn utd_sessions_in<'a>(
     items: impl Iterator<Item = &'a Arc<TimelineItem>>,
 ) -> Vec<String> {
@@ -5798,45 +4973,13 @@ fn utd_sessions_in<'a>(
     out
 }
 
-/// THE MISSING AUTOMATIC PATH, and the whole of the "waiting for keys" fix.
+/// What a failed `download_room_key` established, from the structured
+/// error rather than its text.
 ///
-/// Until now exactly one thing could fetch a backed-up key for a message that
-/// failed to decrypt: the user pressing Retry, or re-entering their recovery
-/// passphrase. Neither of the SDK's own automatic routes is available here —
-/// `automatic-room-key-forwarding` is not a compiled-in feature, so no
-/// `m.room_key_request` is ever sent, and `BackupDownloadStrategy::OneShot`
-/// installs neither the UTD handler nor the `BackupDownloadTask`. OneShot is
-/// deliberate and must stay: it is what downloads EVERY key at once when a
-/// session is verified, and the `AfterDecryptionFailure` alternative was tried
-/// in v0.7 and reverted because it left already-rendered history encrypted.
-/// So the gap is not the strategy — it is that nothing re-ran after the one
-/// pass a room gets when it opens.
-///
-/// This closes it with the machinery `retry_visible_decryption` already uses,
-/// which is why it needs no new SDK surface: a per-session
-/// `download_room_key`, then a `retry_decryption` naming those sessions —
-/// which the pinned SDK widens to the whole timeline anyway, see the note at
-/// the call. Identifiers only; key material never leaves the SDK.
-///
-/// It is bounded three ways and none of them is a timer: it runs only when an
-/// undecryptable event actually arrives in front of the user, only for the
-/// sessions in that batch, and only while `mark_backup_attempt` says a key is
-/// due (first try, then a doubling backoff, then never again this lifecycle).
-/// What a failed `download_room_key` established, from the STRUCTURED error
-/// rather than its text.
-///
-/// NOT `classify_room_error`, which this first used. That is a good tool for
-/// turning an error into a user-facing category and the wrong one for a
-/// control-flow decision about spending a budget, for two measured reasons.
-/// It is a denylist here — anything that was not `not_found` counted as
-/// inconclusive, so `unrecognized` (the server has no such endpoint) and
-/// `forbidden` (we are not allowed) were retried for ever, even though
-/// `rtc.rs`'s `delayed_refusal_is_permanent` latches on exactly those. And it
-/// matches SUBSTRINGS of the error's Display, which for a transport failure
-/// carries the request URL — and that URL ends in a 43-character base64
-/// session id, so a dropped connection whose session id happens to contain
-/// "404" was filed as a definitive answer and spent a budget it had not
-/// earned. Roughly 1.6e-4 per session: small, not zero, and silent.
+/// Not `classify_room_error`: it treated `unrecognized` and `forbidden`
+/// (permanent) as retryable, and it matches substrings of the Display text,
+/// which for a transport error includes the URL and its base64 session id,
+/// so a session id containing "404" could spend budget.
 fn classify_backup_error(err: &matrix_sdk::Error) -> BackupOutcome {
     use matrix_sdk::ruma::api::error::ErrorKind;
     match err.client_api_error_kind() {
@@ -5844,9 +4987,8 @@ fn classify_backup_error(err: &matrix_sdk::Error) -> BackupOutcome {
         Some(ErrorKind::Unrecognized) | Some(ErrorKind::Forbidden) => {
             BackupOutcome::PermanentRefusal
         }
-        // Everything else, `None` (a transport error, which has no errcode at
-        // all) included, taught us nothing. Failing closed toward "inconclusive"
-        // is the safe direction: it costs a backoff step, never the budget.
+        // Anything else, including transport errors with no errcode, taught us
+        // nothing: costs a backoff step, never the budget.
         _ => BackupOutcome::Inconclusive,
     }
 }
@@ -5858,6 +5000,18 @@ pub(crate) enum RecoveryScope {
     Thread(u64),
 }
 
+/// Automatic backup key recovery for undecryptable events as they arrive.
+///
+/// The SDK's automatic routes are off here: `automatic-room-key-forwarding`
+/// is not enabled (no `m.room_key_request` is sent), and
+/// `BackupDownloadStrategy::OneShot` installs no UTD handler or download task.
+/// OneShot stays, since it downloads every key when a session is verified. This
+/// re-runs `download_room_key` per session, then `retry_decryption`.
+/// Identifiers only.
+///
+/// Bounded without a timer: it runs only when an undecryptable event arrives,
+/// only for that batch's sessions, and only while `mark_backup_attempt` says
+/// a key is due.
 fn recover_keys_for_utds(
     registry: &Arc<TimelineRegistry>,
     client: &Client,
@@ -5875,9 +5029,9 @@ fn recover_keys_for_utds(
     let timeline = Arc::clone(timeline);
     let room_id = room_id.to_owned();
     tokio::spawn(async move {
-        // A room timeline and a thread timeline carry SEPARATE generations,
-        // and answering to the wrong one is exactly how a late callback
-        // mutates the next timeline (§9). The caller names which.
+        // Room and thread timelines have separate generations; answering to the
+        // wrong one lets a late callback mutate the next timeline. The caller
+        // names which.
         let current = |registry: &Arc<TimelineRegistry>| match scope {
             RecoveryScope::Room(generation) => {
                 registry.is_current(generation, lifecycle)
@@ -5890,10 +5044,8 @@ fn recover_keys_for_utds(
             return;
         }
         let emit = |state: &str, count: usize, inconclusive: usize| {
-            // GUARDED, like download_backup_keys_for_room's own emit. The C++
-            // bridge drops the lifecycle field entirely, so this is the only
-            // gate there is; without it a pass from the previous account can
-            // still enqueue one misleading line into the next one.
+            // Guarded: C++ drops the lifecycle field, so this is the only gate against
+            // a previous account's pass reporting into the next.
             if current(&registry) {
                 enqueue(
                     &registry.events,
@@ -5902,12 +5054,8 @@ fn recover_keys_for_utds(
                         "kind": "auto_key_recovery",
                         "state": state,
                         "count": count,
-                        // How many of this pass taught us nothing. Without it
-                        // a pass of 32 that downloaded 1 and was rate-limited
-                        // on 31 reports "ok count=1", and the reader cannot
-                        // tell the 31 from "not in the backup" — the very
-                        // distinction this round exists to make, preserved at
-                        // the pass level and lost at the session level.
+                        // How many sessions taught us nothing, so rate-limited ones are not
+                        // mistaken for "not in the backup".
                         "inconclusive": inconclusive,
                         "lifecycle": lifecycle,
                     }),
@@ -5916,42 +5064,22 @@ fn recover_keys_for_utds(
         };
         let backups = client.encryption().backups();
         if !backups.are_enabled().await {
-            // No usable backup key: there is nothing to download from, and
-            // saying so is the difference between "we tried" and "we could
-            // not have tried" — the ambiguity that made this defect
-            // undiagnosable for months.
-            //
-            // THROTTLED, not latched, and not capped either — two earlier
-            // versions of this comment claimed each of those in turn. Nothing
-            // records an OUTCOME for this key, so its budget is never spent
-            // and only the backoff applies: it emits on the escalating
-            // schedule and then once every 32 minutes for as long as the
-            // account keeps meeting undecryptable rows. That is the intended
-            // shape (the alternative is silence about a condition the user can
-            // fix) and the volume is trivial; it is written down because the
-            // comment has now been wrong twice. The gate returns
-            // BEFORE the per-session mark, so nothing else throttles it, and
-            // on the account most likely to be staring at undecryptable rows
-            // (no usable backup key at all) every single diff would otherwise
-            // cross the FFI and print a line. `are_enabled()` is an in-memory
-            // read, so this is log and FFI noise rather than load.
+            // No usable backup key: report "could not have tried" rather than
+            // silence. Throttled by the backoff only (no outcome is recorded, so the
+            // budget is never spent): escalating, then every 32 minutes while
+            // undecryptable rows keep arriving. Returns before the per-session mark,
+            // so nothing else throttles it.
             if registry.mark_backup_attempt("\u{1f}auto-recovery-no-backup") {
                 emit("skipped_no_backup_key", 0, 0);
             }
             return;
         }
         let Ok(room_ref) = RoomId::parse(&room_id) else { return };
-        // ONE PASS DOES NOT TRY TO FIX A WHOLE BACKLOG. A `Reset` diff hands
-        // us every item in the timeline, so a room reopened with a long
-        // undecryptable history could otherwise issue hundreds of sequential
-        // store-read-plus-HTTP round trips from one diff. The rest are not
-        // lost: the loop walks EVERY session and breaks only at 32 PUSHED, so
-        // a later pass finds the first 32 refused by the backoff and marks
-        // 33-64 instead. The guarantee is conditional, though: it needs
-        // another diff to arrive, and a successful retry does not cascade —
-        // the resulting Set diffs carry rows that have just STOPPED being
-        // undecryptable, so `utd_sessions_in` returns empty on them. Any
-        // scroll, pagination or new message re-offers the remainder.
+        // Bound one pass. A `Reset` diff hands over every item, so a long
+        // undecryptable history could otherwise issue hundreds of round trips. The
+        // loop walks every session and stops after 32 pushed; later diffs (scroll,
+        // pagination, new messages) offer the rest, since backoff skips those just
+        // tried. A successful retry does not cascade on its own.
         const MAX_SESSIONS_PER_PASS: usize = 32;
         let mut wanted: Vec<String> = Vec::new();
         for session_id in sessions {
@@ -5981,11 +5109,8 @@ fn recover_keys_for_utds(
                     registry
                         .record_backup_outcome(&key, BackupOutcome::Definitive);
                 }
-                // NOT a definitive "nothing to fetch", and the comment here
-                // used to say it was. `are_enabled()` reads the PUBLIC upload
-                // key; this needs the PRIVATE decryption key, and a verified
-                // device whose recovery passphrase has never been entered on
-                // it has one and not the other — so no request was even sent.
+                // Not "nothing to fetch": this device lacks the private decryption key
+                // (`are_enabled()` checks the public key), so no request was sent.
                 Ok(false) => {
                     no_decryption_key += 1;
                     registry.record_backup_outcome(
@@ -6001,22 +5126,10 @@ fn recover_keys_for_utds(
                 }
             }
         }
-        // THE ARGUMENT IS IGNORED BY THE PINNED SDK, and an earlier comment
-        // here reasoned carefully about which sessions to pass as though it
-        // were not. `Timeline::retry_decryption` -> `retry_event_decryption`
-        // accepts `session_ids` and never reads it; it calls
-        // `compute_redecryption_candidates()`, which takes no argument and
-        // derives the set from the whole timeline
-        // (matrix-sdk-ui-0.18.0/src/timeline/controller/mod.rs:1754). So this
-        // is effectively retry-everything.
-        //
-        // Harmless — a superset can only decrypt MORE rows, never fewer — but
-        // two things follow. The cost is O(timeline) per pass, not
-        // O(|wanted|), which on the 600-1000 row rooms §16 measures is not
-        // free. And `wanted` is still passed deliberately: a later
-        // matrix-sdk-ui may start honouring it, and the day it does this
-        // should already be asking for the right set rather than acquiring
-        // correct behaviour by accident.
+        // The pinned SDK ignores the session ids: `retry_decryption` computes
+        // candidates from the whole timeline
+        // (matrix-sdk-ui timeline/controller/mod.rs), so this is O(timeline).
+        // Harmless, and `wanted` is still passed in case a later SDK honours it.
         if !current(&registry) {
             return;
         }
@@ -6024,20 +5137,13 @@ fn recover_keys_for_utds(
         if !current(&registry) {
             return;
         }
-        // `no_keys_found` must MEAN no keys were found. Reporting an
-        // unreachable server that way is §16's "a log line that cannot tell
-        // 'nothing happened' from 'we threw everything away' is not a log
-        // line" — and it would hide the one cause the next capture has to
-        // distinguish.
+        // `no_keys_found` must mean exactly that, not an unreachable server.
         emit(
             if downloaded > 0 {
                 "ok"
             } else if no_decryption_key > 0 {
-                // RANKED ABOVE `failed`, because it is the only outcome here
-                // with a remedy attached: this device needs the recovery key.
-                // It is also the one state a capture most needs named — it
-                // separates open-items' ranked cause (2), "the backup key was
-                // never in the crypto store", from cause (4), a failed fetch.
+                // Ranked above `failed`: it has a remedy (enter the recovery key), and it
+                // distinguishes "the backup key was never here" from a failed fetch.
                 "no_decryption_key"
             } else if inconclusive > 0 {
                 "failed"
@@ -6050,9 +5156,7 @@ fn recover_keys_for_utds(
     });
 }
 
-/// Safe, coarse UTD reason categories. No crypto internals are exposed.
-/// Megolm session IDS (identifiers only — no key material) of the timeline's
-/// currently visible unable-to-decrypt items.
+/// Megolm session ids (identifiers only) of the visible undecryptable items.
 async fn utd_session_ids(timeline: &Timeline) -> Vec<String> {
     let mut session_ids = Vec::new();
     for item in timeline.items().await.iter() {
@@ -6090,9 +5194,7 @@ fn utd_category(encrypted: &EncryptedMessage) -> &'static str {
 }
 
 /// Map a `RoomKeyImportResult`-shaped key set into `(room_id, session_ids)`
-/// pairs for `Timeline::retry_decryption`. Only session *identifiers* are
-/// retained; sender keys are deliberately flattened away and key material
-/// never reaches this function.
+/// for `Timeline::retry_decryption`. Only session identifiers are kept.
 pub fn sessions_by_room_from_import(
     keys: &std::collections::BTreeMap<
         matrix_sdk::ruma::OwnedRoomId,
@@ -6121,15 +5223,9 @@ mod tests {
     use matrix_sdk::ruma::events::AnySyncTimelineEvent;
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-    /// AN EDITED MESSAGE MUST RENDER ITS EDITED HTML, NOT ITS ORIGINAL'S.
-    ///
-    /// The raw-HTML restore (which exists to keep MSC2545's
-    /// `data-mx-emoticon`, stripped by matrix-sdk-ui's Compat sanitizer) read
-    /// `original_json()` for every message, and the SDK never updates that on
-    /// an edit. So an edit of any message whose original had markdown showed
-    /// the new plain body and the OLD rendered HTML, forever. The shapes below
-    /// are the real wire shapes: an `m.replace` carries its new HTML in
-    /// `m.new_content`, and its top-level content is the `* ` fallback.
+    /// An edited message must render its edited HTML: `original_json()` is
+    /// never updated on edit. Real wire shapes: an `m.replace` carries its new
+    /// HTML in `m.new_content`, and its top-level content is the `* ` fallback.
     #[test]
     fn an_edited_message_renders_the_edits_html_not_the_originals() {
         let original = serde_json::json!({
@@ -6163,23 +5259,21 @@ mod tests {
             raw_displayed_formatted_body(false, Some(&original), None).as_deref(),
             Some("<strong>old</strong>"),
         );
-        // Edited and echoed by the server: the replacement's m.new_content —
-        // never the original's, and never the `* ` fallback.
+        // Edited and echoed: the replacement's m.new_content, never the original
+        // or the `* ` fallback.
         assert_eq!(
             raw_displayed_formatted_body(true, Some(&original), Some(&edit)).as_deref(),
             Some("<strong>new</strong>"),
             "an edited message rendered pre-edit HTML",
         );
-        // Our own edit as a LOCAL ECHO: the SDK clears latest_edit_json, so
-        // there is no wire copy yet. Keep the SDK's (already edited) HTML
-        // rather than falling back to the original.
+        // Our own edit as a local echo: no wire copy yet, keep the SDK's edited
+        // HTML.
         assert_eq!(
             raw_displayed_formatted_body(true, Some(&original), None),
             None,
             "a local-echo edit fell back to the original's HTML",
         );
-        // An edit that REMOVED the markdown: m.new_content has no HTML, so
-        // nothing is restored and the original's HTML cannot come back.
+        // An edit that removed the markdown restores nothing.
         let plain_edit = serde_json::json!({
             "content": {
                 "msgtype": "m.text",
@@ -6192,11 +5286,8 @@ mod tests {
             raw_displayed_formatted_body(true, Some(&original), Some(&plain_edit)),
             None,
         );
-        // DEFENSIVE, not an encrypted-room case: in matrix-sdk 0.18 an
-        // `m.room.encrypted` edit is never applied (edit validation rejects
-        // the event-type mismatch, and bundled edits are decrypted in place
-        // by OlmMachine::decrypt_unsigned_events). The helper must still not
-        // guess from an edit JSON that carries no m.new_content.
+        // Defensive: matrix-sdk 0.18 never applies an `m.room.encrypted` edit, but
+        // an edit JSON without m.new_content must not be guessed from.
         let opaque = serde_json::json!({ "content": { "algorithm": "m.megolm.v1.aes-sha2" } });
         assert_eq!(
             raw_displayed_formatted_body(true, Some(&original), Some(&opaque)),
@@ -6219,18 +5310,12 @@ mod tests {
         );
     }
 
-    /// THE AUTOMATIC KEY-RECOVERY BUDGET IS WHAT KEEPS IT FROM POLLING, SO
-    /// ITS SCHEDULE IS PINNED HERE RATHER THAN DESCRIBED IN A COMMENT.
-    ///
-    /// The comment and the code disagreed once already: `mark_backup_attempt`
-    /// inserts with `attempts: 1`, and passing that straight into the backoff
-    /// started the schedule at 60 s and made the documented 32-minute ceiling
-    /// unreachable. A review measured it. This asserts the real series.
+    /// The automatic key-recovery backoff schedule, pinned. The backoff takes
+    /// the number of attempts already made.
     #[test]
     fn the_backup_retry_schedule_is_the_one_documented() {
         let secs = |n: u32| backup_attempt_backoff(n).as_secs();
-        // Called with the number of attempts ALREADY MADE, so the wait after
-        // the first try is the first entry.
+        // The wait after the first try is the first entry.
         assert_eq!(secs(0), 30);
         assert_eq!(secs(1), 60);
         assert_eq!(secs(2), 120);
@@ -6238,16 +5323,14 @@ mod tests {
         assert_eq!(secs(4), 480);
         assert_eq!(secs(5), 960);
         assert_eq!(secs(6), 1920);
-        // Flat at the ceiling rather than doubling for ever -- and the
-        // ceiling must be REACHABLE within the budget, which is the half the
-        // first version got wrong.
+        // Flat at the ceiling, which must be reachable within the budget.
         assert_eq!(secs(7), 1920);
         assert_eq!(secs(50), 1920);
         assert!(MAX_BACKUP_ATTEMPTS > 6,
                 "the 32-minute ceiling must be reachable before the budget \
                  runs out, or it is decoration");
 
-        // Monotonic, and never zero: a zero wait would be a poll.
+        // Monotonic and never zero (zero would be a poll).
         let mut previous = 0;
         for n in 0..10 {
             let current = secs(n);
@@ -6257,36 +5340,16 @@ mod tests {
         }
     }
 
-    /// EVERY QUEUE-BACKED SEND UNWEDGES THE ROOM FIRST.
+    /// Every queue-backed send unwedges the room first (source scan).
     ///
-    /// A source scan, and it earns its keep: this fix shipped TWICE with call
-    /// sites missing. The first revision guarded only
-    /// `send_content_to_timeline`, whose callers are stickers and polls, so
-    /// the ordinary composer was never covered and the commit said it was.
-    ///
-    /// THE FIRST VERSION OF THIS TEST WAS ITSELF WRONG, and review caught it:
-    /// it matched per LINE and required the word `timeline` on the same line,
-    /// so rustfmt's builder-chain continuations hid five of the twelve sites —
-    /// `.send_attachment(` matched nothing at all, which is both attachment
-    /// paths. It also used a fixed look-back, so one send's unwedge could
-    /// satisfy a neighbour's. It now splits on braces as well as semicolons —
-    /// a send that is a block's TAIL EXPRESSION has no trailing `;`, which
-    /// merged it with the next block — and requires the unwedge in the
-    /// IMMEDIATELY preceding statement rather than anywhere in a window.
-    ///
-    /// MUTATION-PROVEN SITE BY SITE, not once: every one of the twelve
-    /// `unwedge_send_queue` calls was deleted in turn. This test catches 11;
-    /// `retry_send`'s is the twelfth and is caught by
-    /// `retry_send_re_enables_before_unwedging` below. The first revision
-    /// caught 7 of 12, and the single mutation used to "prove" it happened to
-    /// pick one of the 7.
-    ///
-    /// `retry_send` is deliberately not in the send set: its "send" is
-    /// `handle.unwedge()`, not a queue-backed send. It is covered by
-    /// `retry_send_re_enables_before_unwedging` below.
-    ///
-    /// `Timeline::redact` is absent because Lightning calls `Room::redact`,
-    /// a direct `client.send(...)` that never reaches the send queue.
+    /// Splits on braces as well as semicolons (a block's tail expression has no
+    /// `;`) and requires the unwedge in the immediately preceding statement,
+    /// so builder chains split by rustfmt still match and a neighbour's unwedge
+    /// cannot satisfy another send. Mutation-checked per site: this catches 11
+    /// of the 12 `unwedge_send_queue` calls; `retry_send`'s is covered by
+    /// `retry_send_re_enables_before_unwedging` (its "send" is
+    /// `handle.unwedge()`). `Timeline::redact` is absent because Lightning uses
+    /// `Room::redact`, which bypasses the queue.
     #[test]
     fn every_queue_backed_send_unwedges_the_room_first() {
         let source = include_str!("timeline.rs");
@@ -6294,9 +5357,8 @@ mod tests {
             source.contains("fn unwedge_send_queue"),
             "the scan is not reading the file it thinks it is"
         );
-        // Collapse each statement onto one logical line, so a builder chain
-        // that rustfmt split across lines is matched as a whole. Comments are
-        // dropped first: this file quotes these method names in prose.
+        // Collapse statements onto one line so rustfmt-split chains match. Comment
+        // lines are dropped first, since this file mentions these names in prose.
         let code: String = source
             .lines()
             .map(|l| {
@@ -6305,10 +5367,8 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        // Split on braces as well as semicolons. A send that is the TAIL
-        // EXPRESSION of a block has no trailing `;`, so `;` alone merges it
-        // with the following block and a neighbour's unwedge then satisfies
-        // it — measured, that masked two of the twelve sites.
+        // Split on braces too: a tail expression has no `;`, and would merge with
+        // the next block so a neighbour's unwedge satisfied it.
         let statements: Vec<String> = code
             .split(|c| c == ';' || c == '{' || c == '}')
             .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "))
@@ -6322,9 +5382,7 @@ mod tests {
             ".edit(",
             ".toggle_reaction(",
         ];
-        // A send enqueues onto the room's queue; the unwedge must appear in
-        // the same statement run, which is what `;`-splitting gives us — the
-        // unwedge is its own statement immediately before.
+        // The unwedge must be its own statement immediately before the send.
         let mut sends = 0usize;
         for (i, stmt) in statements.iter().enumerate() {
             let is_send = SENDS.iter().any(|n| stmt.contains(n))
@@ -6335,9 +5393,8 @@ mod tests {
                 continue;
             }
             sends += 1;
-            // The IMMEDIATELY preceding statement, not a window. A window
-            // lets one send's unwedge satisfy its neighbour's — measured: a
-            // three-statement look-back masked two of the twelve sites.
+            // Only the immediately preceding statement; a wider window lets one send's
+            // unwedge satisfy its neighbour's.
             let guarded = statements[i.saturating_sub(1)..=i]
                 .iter()
                 .any(|s| s.contains("unwedge_send_queue("));
@@ -6349,14 +5406,9 @@ mod tests {
                 stmt.chars().take(140).collect::<String>()
             );
         }
-        // EXACT, not a floor: a floor cannot tell "a site was removed" from
-        // "the scan stopped seeing it", and the first version sat exactly on
-        // its own floor with no headroom.
-        // WHAT THIS COUNT BUYS, AND WHAT IT DOES NOT. It catches a site being
-        // REMOVED or the scan going blind. It cannot catch a site that
-        // ESCAPES the needles — a send on a receiver not named `timeline`
-        // (this file already binds one to `thread`) matches nothing, so the
-        // count stays 11 and this passes. A new send must still be read.
+        // Exact, not a floor, so a removed site or a blind scan both fail. It
+        // cannot catch a send on a receiver not named `timeline`; new sends still
+        // need reading.
         assert_eq!(
             sends, 11,
             "expected 11 queue-backed sends in timeline.rs; found {sends}. \
@@ -6365,20 +5417,13 @@ mod tests {
         );
     }
 
-    /// A THREAD EDIT MUST CHECK ITS OWN GENERATION COUNTER.
+    /// A thread edit must check the thread generation: `thread_timeline_for`
+    /// returns `thread_gen`, while `is_current` compares with `room_gen`, so
+    /// passing a thread generation there can never match and the failure report
+    /// becomes dead code.
     ///
-    /// `thread_timeline_for` returns `thread.thread_gen`, and `is_current`
-    /// compares against `self.room_gen` — two independent counters where
-    /// `open_thread` bumps only the thread one. So a thread generation handed
-    /// to `is_current` can never match, and the first revision of the
-    /// thread-edit fix did exactly that: the failure report was dead code and
-    /// a rejected thread edit said nothing at all.
-    ///
-    /// A source scan, because the behaviour needs a live SDK timeline that
-    /// this crate has no harness for. It pins the pairing that matters:
-    /// inside `edit`, the staleness test must branch on `in_thread` and reach
-    /// `thread_current`, and must not hand the resolved generation to
-    /// `is_current` unconditionally.
+    /// A source scan (no live SDK timeline here): inside `edit`, the staleness
+    /// test must branch on `in_thread` and reach `thread_current`.
     #[test]
     fn a_thread_edit_checks_the_thread_generation() {
         let source = include_str!("timeline.rs");
@@ -6386,10 +5431,8 @@ mod tests {
             .split("pub fn edit(")
             .nth(1)
             .expect("edit() not found — the scan is reading the wrong file");
-        // BOUND THE WINDOW, AND PROVE IT WAS BOUND. `split(..).next()` on a
-        // marker that has moved returns the WHOLE REMAINDER without failing,
-        // and the rest of this file is full of `thread_current` call sites —
-        // the scan would then pass on an edit() that had none of its own.
+        // Bound the window and prove it: if the marker moved, `split().next()`
+        // returns the whole remainder, full of other `thread_current` calls.
         let bound = "\n    /// Toggle a reaction";
         assert!(
             after.contains(bound),
@@ -6398,11 +5441,8 @@ mod tests {
         );
         let body = after.split(bound).next().unwrap();
 
-        // THE PAIRING IS ORDERED, AND THE SCAN MUST READ IT THAT WAY. Two
-        // independent `contains` checks — one for each call — survive the
-        // single likeliest mutation there is: swapping the two arms restores
-        // the original defect verbatim while both substrings remain present.
-        // So each arm is isolated and asserted on its own.
+        // Isolate each arm: two independent `contains` checks would survive
+        // swapping the arms, which restores the defect.
         let (then_arm, else_arm) = {
             let head = "let current = if in_thread {";
             let split = "} else {";
@@ -6440,8 +5480,8 @@ mod tests {
             !else_arm.contains("registry.thread_current("),
             "the ROOM arm checks the thread counter: {else_arm:?}"
         );
-        // And the resolved binding must not be NAMED room_gen while holding a
-        // thread generation — that name is what made the defect invisible.
+        // The binding must not be named room_gen while holding a thread
+        // generation.
         assert!(
             !body.contains("let Some((timeline, room_gen, lifecycle))"),
             "edit() binds the resolved generation as `room_gen`, which is a \
@@ -6449,21 +5489,14 @@ mod tests {
         );
     }
 
-    /// Retry's own re-enable, which the scan above cannot see.
-    ///
-    /// `retry_send` does not issue a queue-backed send — it calls
-    /// `handle.unwedge()` — so it has no `.send(` for the scan to match. It is
-    /// nonetheless the one path where the queue is KNOWN to be disabled,
-    /// because a failed send is what disabled it, and without the re-enable
-    /// `unwedge()` wakes a loop that immediately parks again.
+    /// `retry_send`'s re-enable, which the scan above cannot see (its "send" is
+    /// `handle.unwedge()`). A failed send is what disabled the queue, so
+    /// without the re-enable `unwedge()` wakes a loop that parks again.
     #[test]
     fn retry_send_re_enables_before_unwedging() {
         let source = include_str!("timeline.rs");
-        // BOUNDED AT THE NEXT ITEM, or the slice runs to end of file and
-        // picks up this test's own doc comments — which quote
-        // `handle.unwedge()` verbatim. Measured: unbounded, deleting the real
-        // call still left two prose matches and the .expect below passed while
-        // claiming to catch exactly that.
+        // Bounded at the next item, or the slice would reach this test's own doc
+        // comments, which quote `handle.unwedge()`.
         let body = source
             .split("pub fn retry_send(")
             .nth(1)
@@ -6485,19 +5518,15 @@ mod tests {
 
     use std::sync::{Arc, Mutex};
 
-    // 2026-08-18 tester report: rapid reaction clicks used to spawn one
-    // independent SDK toggle per click for the SAME target, and those raced
-    // each other into an add/remove storm. Exactly one toggle per
-    // (room, event, key) may be in flight; the rest are dropped, and the
-    // slot is reusable as soon as the first one finishes.
+    // One reaction toggle per (room, event, key) may be in flight; the rest
+    // are dropped, and the slot is reusable once the first finishes.
 
-    // Both of these PANICKED on a multi-byte code point, and the unwind is
-    // swallowed by the spawn the send runs under: "it never sent" and "we
-    // threw it away" looked identical to the user.
+    // Both of these panicked on a multi-byte code point, silently losing the
+    // send.
     #[test]
     fn an_img_scan_does_not_panic_across_a_code_point() {
-        // The three bytes after `<` span a code-point boundary here: `a`
-        // plus the first two bytes of a three-byte character.
+        // The three bytes after `<` span a code-point boundary: `a` plus the first
+        // two bytes of a three-byte character.
         assert_eq!(find_img_tag("<a\u{65e5}b"), None);
         assert_eq!(find_img_tag("x<img src=y>"), Some(1));
         assert_eq!(find_img_tag("<image>"), None);
@@ -6508,27 +5537,16 @@ mod tests {
 
     #[test]
     fn an_emoticon_scan_does_not_panic_on_a_long_multibyte_body() {
-        // 160 bytes back from the end lands mid code point for a body of
-        // 3-byte characters, which is the exact reported shape.
+        // 160 bytes back from the end lands mid code point for 3-byte characters.
         let body = "\u{65e5}".repeat(54);
         let emoticons = vec![(":tada:".to_owned(), "mxc://x/y".to_owned())];
         let out = substitute_emoticons(&format!("{body}:tada:"), &emoticons);
         assert!(out.contains("mxc://x/y"), "the emoticon was not substituted");
     }
 
-    /// THE POLICY IS TESTED; THIS TESTS THE WIRING TO IT.
-    ///
-    /// A review measured that swapping the two arguments where
-    /// `mark_backup_attempt_at` calls the policy reproduces H3 exactly — the
-    /// required wait pinned at 30 s for ever — while every policy test keeps
-    /// passing, because those pass literals rather than going through the
-    /// registry. So this drives the registry itself, and uses a fabricated
-    /// "much later" instant so the backoff can never be the thing doing the
-    /// refusing.
-    ///
-    /// FAIL-ON-OLD: swap the first two arguments at that call site, or make
-    /// `record_backup_outcome` spend the budget for `Inconclusive` or
-    /// `NoDecryptionKey`, and this fails.
+    /// Tests the wiring from the registry to the policy (argument order, and
+    /// which outcomes spend budget), using a fabricated "much later" instant so
+    /// the backoff is never what refuses.
     #[test]
     fn what_an_attempt_established_decides_whether_it_cost_anything() {
         let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
@@ -6538,8 +5556,8 @@ mod tests {
                 .expect("a few hours must be representable")
         };
 
-        // A failure that taught us nothing costs a backoff step and NO budget,
-        // so given enough time the key is always allowed again.
+        // A failure that taught nothing costs a backoff step and no budget, so the
+        // key is eventually allowed again.
         let transient = "!room:example.org\u{1f}TRANSIENT";
         assert!(registry.mark_backup_attempt(transient));
         for hour in 1..=12 {
@@ -6550,10 +5568,8 @@ mod tests {
             );
         }
 
-        // Nor does "this device cannot decrypt the backup" -- no request was
-        // even sent, so it establishes nothing about the backup's contents.
-        // This is the case that matters most: it is the steady state of a
-        // device whose recovery key has never been entered.
+        // Nor does "this device cannot decrypt the backup": no request was sent.
+        // The steady state of a device whose recovery key was never entered.
         let undecryptable = "!room:example.org\u{1f}NODECRYPTKEY";
         assert!(registry.mark_backup_attempt(undecryptable));
         for hour in 1..=12 {
@@ -6565,7 +5581,7 @@ mod tests {
             );
         }
 
-        // A DEFINITIVE answer does spend it, and it runs out.
+        // A definitive answer spends budget, and it runs out.
         let definitive = "!room:example.org\u{1f}DEFINITIVE";
         assert!(registry.mark_backup_attempt(definitive));
         let mut allowed = 1;
@@ -6580,7 +5596,7 @@ mod tests {
             "a definitive answer must spend exactly one unit of budget"
         );
 
-        // A PERMANENT refusal stops the key at once, however long we wait.
+        // A permanent refusal stops the key at once.
         let refused = "!room:example.org\u{1f}REFUSED";
         assert!(registry.mark_backup_attempt(refused));
         registry.record_backup_outcome(refused, super::BackupOutcome::PermanentRefusal);
@@ -6593,32 +5609,17 @@ mod tests {
         assert!(registry.mark_backup_attempt(refused));
     }
 
-    /// A SERVER THAT KEEPS FAILING MUST BE ASKED LESS OFTEN, NOT FOR EVER AT
-    /// THE FLOOR — and a failure that taught us nothing must not spend the
-    /// budget. Those two pull in opposite directions and one counter cannot
-    /// hold both.
-    ///
-    /// The first attempt at this had a single counter that an inconclusive
-    /// failure gave back: mark took it 1 -> 2, the refund put it to 1, and
-    /// the backoff argument was therefore pinned at 0 — 30 s, for ever, at
-    /// exactly the rate-limited server that asked us to slow down. A review
-    /// proved it by running it, twelve of twelve cycles allowed. No test
-    /// could see it, because the policy lived inside a Mutex and an Instant.
-    /// It is a pure function now, and this is the assertion that was missing.
+    /// A failing server is asked less often (escalating backoff), and a failure
+    /// that taught nothing does not spend the budget; one counter cannot do
+    /// both.
     #[test]
     fn a_failing_server_is_asked_less_often_and_never_for_ever() {
         let huge = std::time::Duration::from_secs(u32::MAX as u64);
         let secs = std::time::Duration::from_secs;
 
-        // ESCALATION, PROBED THROUGH THE POLICY ITSELF.
-        //
-        // A first version of this test computed the expected wait with
-        // `backup_attempt_backoff` and compared the series — which tests the
-        // backoff function and says NOTHING about whether the policy consults
-        // it. Mutating the policy to ignore `tries` left that version passing.
-        // So: hold the elapsed time fixed and walk `tries` up. If the policy
-        // escalates, a fixed 45 s is enough after one try (30 s) and not
-        // enough after two (60 s). If it is pinned at the floor, both allow.
+        // Probe escalation through the policy itself (comparing against
+        // `backup_attempt_backoff` would not show whether the policy uses it):
+        // with 45 s elapsed, one try (30 s) allows and two tries (60 s) do not.
         assert!(
             backup_attempt_allowed(1, 0, secs(45)),
             "45s must satisfy the 30s wait that follows the first try"
@@ -6632,7 +5633,7 @@ mod tests {
         assert!(!backup_attempt_allowed(4, 0, secs(200)));
         assert!(backup_attempt_allowed(4, 0, secs(300)));
 
-        // The required wait must keep growing, again asked only of the policy.
+        // The required wait keeps growing.
         let mut last_needed = 0u64;
         for tries in 1..=7u32 {
             let needed = (0..=4000u64)
@@ -6650,12 +5651,11 @@ mod tests {
             "the ceiling must actually be reached within the budget"
         );
 
-        // INCONCLUSIVE failures must never exhaust the budget: `attempts`
-        // stays 0 however many tries have happened.
+        // Inconclusive failures never exhaust the budget.
         assert!(backup_attempt_allowed(8, 0, huge));
         assert!(backup_attempt_allowed(99, 0, huge));
 
-        // DEFINITIVE answers are what spend it, and it does run out.
+        // Definitive answers spend it, and it runs out.
         for attempts in 0..MAX_BACKUP_ATTEMPTS {
             assert!(
                 backup_attempt_allowed(1, attempts, huge),
@@ -6666,22 +5666,12 @@ mod tests {
             !backup_attempt_allowed(1, MAX_BACKUP_ATTEMPTS, huge),
             "a spent budget must stop the key, however long we wait"
         );
-        // A permanent refusal sets the budget straight to the cap, so this is
-        // also the assertion that it stops immediately.
+        // A permanent refusal sets the budget to the cap, so it stops at once.
         assert!(!backup_attempt_allowed(99, MAX_BACKUP_ATTEMPTS, huge));
     }
 
-    /// THE PASSPHRASE MUST CLEAR WHAT IT APPEARS TO CLEAR.
-    ///
-    /// Manual recovery forces one fresh pass by forgetting the room's attempt
-    /// record — and the record is no longer a single entry. Automatic
-    /// recovery keys each SESSION as `<room>\x1f<session>`, so removing only
-    /// the bare room id left every exhausted session exhausted, and the one
-    /// user gesture that is supposed to fix everything fixed the room-level
-    /// pass alone.
-    ///
-    /// FAIL-ON-OLD: restore `guard.remove(room_id)` and the second
-    /// `mark_backup_attempt(&session)` below returns false.
+    /// Manual recovery clears the room's per-session entries
+    /// (`<room>\x1f<session>`), not just the whole-room one.
     #[test]
     fn clearing_a_room_forgets_its_per_session_attempts_too() {
         let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
@@ -6692,8 +5682,8 @@ mod tests {
         assert!(registry.mark_backup_attempt(room));
         assert!(registry.mark_backup_attempt(&session));
         assert!(registry.mark_backup_attempt(other_room_session));
-        // Straight away again: the backoff refuses, which is what makes the
-        // clear below meaningful rather than vacuous.
+        // Immediately again: the backoff refuses, so the clear below is
+        // meaningful.
         assert!(
             !registry.mark_backup_attempt(&session),
             "a second attempt inside the backoff must be refused"
@@ -6732,9 +5722,8 @@ mod tests {
         );
     }
 
-    // A session change must not strand a claimed slot: the toggle it
-    // belonged to can never complete into the next session, and leaving the
-    // key behind would make that reaction permanently unclickable.
+    // A session change must not strand a claimed slot, or that reaction would
+    // stay unclickable.
     #[test]
     fn shutdown_releases_in_flight_reaction_slots() {
         let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
@@ -6751,9 +5740,7 @@ mod tests {
         );
     }
 
-    // v0.7.x room upgrades: a tombstone used to fall into the catch-all and
-    // render as the generic "updated room settings", which told the reader
-    // nothing about the one state change that ends a room.
+    // A tombstone gets its own row text, not "updated room settings".
     #[test]
     fn tombstone_state_row_names_the_upgrade() {
         assert_eq!(
@@ -6762,30 +5749,27 @@ mod tests {
         );
     }
 
-    // The row must not leak the tombstone's body or the successor id. It is
-    // built from the state TYPE and the sender only, so there is no path by
-    // which event content could reach it — this pins that.
+    // The row must not leak the tombstone's body or the successor id; it uses
+    // only the state type and sender.
     #[test]
     fn state_row_text_uses_only_kind_and_actor() {
         let row = state_row_text("m.room.tombstone", "@alice:example.org");
         assert!(!row.contains('!'), "a room id must never appear in the row: {row}");
 
-        // An unknown state type still falls back rather than echoing the
-        // type string at the reader.
+        // An unknown state type falls back rather than echoing the type string.
         let unknown = state_row_text("org.example.custom", "@bob:example.org");
         assert_eq!(unknown, "@bob:example.org updated room settings.");
         assert!(!unknown.contains("org.example.custom"));
     }
 
-    // The extraction must not have changed any existing wording.
+    // Existing wording is unchanged.
     #[test]
     fn existing_state_rows_are_unchanged() {
         assert_eq!(state_row_text("m.room.create", "@a:b.c"), "@a:b.c created the room.");
         assert_eq!(state_row_text("m.room.name", "@a:b.c"), "@a:b.c changed the room name.");
         assert_eq!(state_row_text("m.room.topic", "@a:b.c"), "@a:b.c changed the room topic.");
         assert_eq!(state_row_text("m.room.avatar", "@a:b.c"), "@a:b.c changed the room avatar.");
-        // Deliberately actor-free: the sender of an encryption event is not
-        // the interesting fact, the room becoming encrypted is.
+        // Actor-free: the room becoming encrypted is the fact.
         assert_eq!(state_row_text("m.room.encryption", "@a:b.c"), "Encryption was enabled.");
     }
 
@@ -6809,8 +5793,8 @@ mod tests {
         let mapped = sessions_by_room_from_import(&keys);
         assert_eq!(mapped.len(), 1);
         assert_eq!(mapped[0].0, "!room:example.org");
-        // Sessions across sender keys are merged and deduplicated; sender
-        // keys themselves are dropped.
+        // Sessions across sender keys are merged and deduplicated; sender keys
+        // are dropped.
         assert_eq!(mapped[0].1, vec!["session1", "session2", "session3"]);
     }
 
@@ -6820,9 +5804,8 @@ mod tests {
         assert!(sessions_by_room_from_import(&keys).is_empty());
     }
 
-    // Read-receipt serialization: only user id + timestamp cross the FFI,
-    // and a receipt without a timestamp serializes ts as null (the C++
-    // ingest maps that to 0 = "no timestamp").
+    // Only user id and timestamp cross; a missing timestamp serializes as
+    // null (C++ maps it to 0).
     #[test]
     fn read_by_serializes_user_id_and_timestamp_only() {
         use matrix_sdk::ruma::{
@@ -6848,7 +5831,7 @@ mod tests {
         assert_eq!(entries[0]["ts"], 1_700_000_123_000u64);
         assert_eq!(entries[1]["user_id"], "@bob:example.org");
         assert!(entries[1]["ts"].is_null());
-        // Exactly the two documented fields — nothing else crosses the FFI.
+        // Exactly the two documented fields.
         for entry in &entries {
             assert_eq!(entry.as_object().unwrap().len(), 2);
         }
@@ -6860,9 +5843,7 @@ mod tests {
         assert_eq!(empty_total, 0);
     }
 
-    // The FFI window is bounded: a busy room's last message can carry
-    // hundreds of receipts, but only the newest READ_BY_CAP entries cross,
-    // while the total keeps the uncapped count for a truthful "+N".
+    // Only the newest READ_BY_CAP entries cross; the total stays uncapped.
     #[test]
     fn read_by_caps_entries_newest_first_and_reports_total() {
         use matrix_sdk::ruma::{
@@ -6890,8 +5871,7 @@ mod tests {
             super::read_by_json(users.iter().zip(receipts.iter()));
         assert_eq!(total, 20);
         assert_eq!(entries.len(), super::READ_BY_CAP);
-        // Newest first: @u19 leads, and the 4 oldest (@u0..@u3) fell
-        // outside the window.
+        // Newest first; the 4 oldest fell outside the window.
         assert_eq!(entries[0]["user_id"], "@u19:example.org");
         assert_eq!(
             entries[super::READ_BY_CAP - 1]["user_id"],
@@ -6899,10 +5879,8 @@ mod tests {
         );
     }
 
-    // Reaction tooltips: the local user leads the window so the sentence
-    // can start with "You", the rest keeps the SDK's insertion order, and
-    // the window is bounded exactly like the receipt window is. `count`
-    // stays uncapped at the call site — this helper only builds the list.
+    // The local user leads the window, the rest keep insertion order, and the
+    // window is bounded like receipts.
     #[test]
     fn reaction_senders_put_the_local_user_first_and_cap_the_rest() {
         let ids: Vec<String> = (0..20).map(|i| format!("@u{i}:example.org")).collect();
@@ -6914,7 +5892,7 @@ mod tests {
         );
         assert_eq!(mine.len(), super::REACTION_SENDER_CAP);
         assert_eq!(mine[0], "@u5:example.org");
-        // Then the SDK's order with our own id removed, not re-sorted.
+        // Then the SDK's order minus our own id.
         assert_eq!(mine[1], "@u0:example.org");
         assert_eq!(mine[6], "@u6:example.org");
         assert_eq!(
@@ -6948,8 +5926,7 @@ mod tests {
         );
     }
 
-    // Ids come from the server, so they are bounded anyway — an absurd one
-    // is dropped rather than forwarded into a QStringList.
+    // An absurd id is dropped rather than forwarded.
     #[test]
     fn reaction_senders_drop_an_unbounded_id() {
         let huge = format!("@{}:example.org", "x".repeat(4096));
@@ -6961,17 +5938,15 @@ mod tests {
         assert_eq!(out[0], "@ok:example.org");
     }
 
-    // Typed profile changes: the classification the C++ sentence is built
-    // from. The old==new case is the one that matters most — the SDK emits
-    // a profile-change item when only the AVATAR moved, and claiming a
-    // rename that did not happen is worse than saying nothing.
+    // Typed profile changes. old == new (an avatar-only change) must report no
+    // rename.
     #[test]
     fn profile_name_change_classifies_set_changed_and_cleared() {
         assert_eq!(
             super::profile_name_change(None, Some("Alice")),
             Some(("set", None, Some("Alice".to_owned())))
         );
-        // A server that stores the cleared name as "" must not read as a set.
+        // A cleared name stored as "" is not a set.
         assert_eq!(
             super::profile_name_change(Some(""), Some("Alice")),
             Some(("set", None, Some("Alice".to_owned())))
@@ -7003,8 +5978,7 @@ mod tests {
         assert_eq!(super::profile_name_change(None, Some("")), None);
     }
 
-    // The bound is CHARS. A byte slice would panic mid code point on a name
-    // made of emoji, which is exactly the kind of name people set.
+    // The bound is in chars; a byte slice would panic inside an emoji.
     #[test]
     fn profile_names_are_bounded_by_chars_never_bytes() {
         let long: String = "🌩".repeat(300);
@@ -7013,8 +5987,7 @@ mod tests {
         assert_eq!(kind, "set");
         let new = new.expect("set carries the new name");
         assert_eq!(new.chars().count(), super::PROFILE_NAME_CAP);
-        // Four bytes per storm cloud: the byte length proves nothing was
-        // sliced at a code-point boundary that does not exist.
+        // Four bytes each: the byte length shows no code point was split.
         assert_eq!(new.len(), super::PROFILE_NAME_CAP * 4);
         assert!(new.chars().all(|c| c == '🌩'));
 
@@ -7026,10 +5999,8 @@ mod tests {
         );
     }
 
-    // The interactive send paths construct message content through the
-    // SDK's markdown constructors. These prove the pinned SDK converts the
-    // toolbar's syntax into a formatted body and leaves ordinary text as a
-    // plain m.text event (no formatted_body).
+    // The pinned SDK's markdown constructors produce a formatted body for the
+    // toolbar's syntax and a plain m.text for ordinary text.
     #[test]
     fn markdown_body_produces_formatted_content() {
         use matrix_sdk::ruma::events::room::message::{
@@ -7062,7 +6033,7 @@ mod tests {
         }
     }
 
-    // ── v0.9 formatted sends (parse_body_spec / composed_content) ────────
+    // ── Formatted sends (parse_body_spec / composed_content) ────────────
 
     #[test]
     fn body_spec_defaults_and_refusals() {
@@ -7072,7 +6043,7 @@ mod tests {
         let emote = parse_body_spec(r#"{"msgtype":"emote"}"#).unwrap();
         assert!(emote.emote);
         assert_eq!(emote.format, BodyFormat::Markdown);
-        // Refused, never defaulted: a typo'd caller must fail loudly.
+        // Refused, never defaulted.
         assert!(parse_body_spec(r#"{"format":"htm"}"#).is_err());
         assert!(parse_body_spec(r#"{"msgtype":"notice"}"#).is_err());
         assert!(parse_body_spec("not json").is_err());
@@ -7103,8 +6074,8 @@ mod tests {
     fn outgoing_html_is_strict_sanitized_at_the_boundary() {
         use super::{composed_content, parse_body_spec};
         use matrix_sdk::ruma::events::room::message::MessageType;
-        // Belt and braces over the C++ serializer: script, event handlers
-        // and unsafe URL schemes must not survive even if a caller regresses.
+        // Script, event handlers and unsafe schemes must not survive even if the
+        // C++ serializer regresses.
         let spec = parse_body_spec(
             r#"{"format":"html","html":"<b onclick=\"x()\">b</b><script>evil()</script><a href=\"javascript:evil()\">l</a>"}"#,
         )
@@ -7125,9 +6096,8 @@ mod tests {
         }
     }
 
-    /// Sending an inline custom emoji: a `:shortcode:` in the composer
-    /// becomes an MSC2545 image in the FORMATTED body while the plain body
-    /// keeps the shortcode — which is the fallback the MSC asks for.
+    /// An inline custom emoji becomes an MSC2545 image in the formatted body;
+    /// the plain body keeps the shortcode as fallback.
     #[test]
     fn a_shortcode_becomes_an_image_and_the_plain_body_keeps_it() {
         use super::{composed_content, parse_body_spec};
@@ -7154,9 +6124,8 @@ mod tests {
         }
     }
 
-    /// MARKDOWN STILL WORKS. Substituting in the plain source would have
-    /// meant sending `format: html` and losing markdown for every message
-    /// that happened to contain an emoji, which is why this runs after.
+    /// Markdown still works alongside emoji, which is why substitution runs
+    /// after markdown.
     #[test]
     fn an_emoji_does_not_cost_the_message_its_markdown() {
         use super::{composed_content, parse_body_spec};
@@ -7181,7 +6150,7 @@ mod tests {
         use super::substitute_emoticons;
         let map = vec![(":blob:".to_owned(), "mxc://e.org/blob".to_owned())];
 
-        // Inside a code span or block: the author meant it literally.
+        // Inside a code span or block: literal.
         for literal in [
             "<code>:blob:</code>",
             "<pre><code>x :blob: y</code></pre>",
@@ -7190,7 +6159,7 @@ mod tests {
                        "rewrote a shortcode inside code");
         }
 
-        // Inside a URL: that is a path segment, not an emoji.
+        // Inside a URL: a path segment.
         let url = r#"<a href="https://h.example/:blob:/x">l</a>"#;
         assert_eq!(substitute_emoticons(url, &map), url,
                    "rewrote inside a tag");
@@ -7198,13 +6167,12 @@ mod tests {
         assert_eq!(substitute_emoticons(bare, &map), bare,
                    "rewrote inside a bare URL run");
 
-        // ...and it DOES fire in ordinary prose either side of those.
+        // It does fire in ordinary prose around them.
         let prose = "hi :blob: there";
         assert!(substitute_emoticons(prose, &map).contains("data-mx-emoticon"));
     }
 
-    /// A longer shortcode must win, or `:blob:` eats the front of
-    /// `:blob_wave:` and the message sends the wrong picture.
+    /// The longer shortcode wins, or `:blob:` eats the front of `:blob_wave:`.
     #[test]
     fn the_longest_shortcode_wins() {
         use super::{parse_body_spec, substitute_emoticons};
@@ -7217,13 +6185,12 @@ mod tests {
         assert!(!out.contains("mxc://e.org/a"), "{out}");
     }
 
-    /// The image filter, on the shapes an attacker would actually try. It
-    /// fails CLOSED: anything it cannot read for certain is dropped.
+    /// The image filter against realistic attacks; it fails closed.
     #[test]
     fn only_mxc_images_survive_the_outgoing_filter() {
         use super::strip_non_mxc_images;
 
-        // Kept: a real emoticon, in the exact shape MSC2545 specifies.
+        // Kept: a real emoticon in the MSC2545 shape.
         let good = r#"a <img data-mx-emoticon src="mxc://e.org/b" alt=":b:" height="32"> z"#;
         assert_eq!(strip_non_mxc_images(good), good);
 
@@ -7234,7 +6201,7 @@ mod tests {
             r#"<img src="javascript:evil()">"#,
             r#"<img src="data:image/png;base64,AAAA">"#,
             r#"<img src="mxc://">"#,
-            // No src at all: nothing to render, and nothing to trust.
+            // No src: dropped.
             r#"<img data-mx-emoticon alt=":b:">"#,
             // Case is not an escape.
             r#"<IMG SRC="https://evil.test/x.png">"#,
@@ -7252,25 +6219,19 @@ mod tests {
             );
         }
 
-        // A tag that never terminates is malformed; emitting half of it would
-        // be worse than dropping the rest.
+        // An unterminated tag is malformed; drop the rest.
         assert!(!strip_non_mxc_images(r#"ok <img src="mxc://e.org/b""#)
             .contains("<img"));
 
-        // ...and it must not eat elements that merely start similarly.
+        // It must not eat elements that merely start similarly.
         let other = "<image>x</image>";
         assert_eq!(strip_non_mxc_images(other), other);
         let text = "1 < 2 and imgs are fine";
         assert_eq!(strip_non_mxc_images(text), text);
     }
 
-    /// MSC2545 inline custom emoji. `data-mx-emoticon` is the whole feature —
-    /// it is what tells a receiving client "this image is an emoticon, size
-    /// it like text" — and ruma's strict allow-list drops it, because `img`
-    /// keeps only width|height|alt|title|src and `data-mx-*` is whitelisted
-    /// on `span` alone. Without the one added attribute Lightning sends a
-    /// message no client renders as an emoji, and nothing on this side would
-    /// ever notice.
+    /// MSC2545 inline emoji: `data-mx-emoticon` must survive, although ruma's
+    /// strict allow-list permits `data-mx-*` only on `span`.
     #[test]
     fn an_inline_custom_emoji_keeps_the_attribute_that_makes_it_one() {
         use super::{composed_content, parse_body_spec};
@@ -7298,11 +6259,8 @@ mod tests {
         }
     }
 
-    /// ...and NOTHING ELSE was widened. Adding one attribute to a strict
-    /// config is a security change, so the properties that make it safe are
-    /// asserted rather than assumed: an image may only address `mxc`, event
-    /// handlers still die, and the marker is not a general permission to put
-    /// `data-mx-*` on anything.
+    /// Nothing else was widened: images may only use `mxc`, event handlers are
+    /// still removed, and `data-mx-*` is not allowed elsewhere.
     #[test]
     fn widening_for_emoji_did_not_widen_anything_else() {
         use super::{composed_content, parse_body_spec};
@@ -7330,9 +6288,8 @@ mod tests {
             other => panic!("unexpected msgtype: {other:?}"),
         }
 
-        // Overriding the scheme list is what pins img to mxc, and an element
-        // MISSING from an override list stops being scheme-checked at all —
-        // so the link half is asserted here rather than assumed.
+        // An element missing from the override list is not scheme-checked at all,
+        // so the link half is asserted too.
         let links = parse_body_spec(
             r#"{"format":"html","html":"<a href=\"javascript:evil()\">a</a><a href=\"https://ok.example/\">b</a>"}"#,
         )
@@ -7355,7 +6312,7 @@ mod tests {
     fn plain_spec_never_parses_markdown() {
         use super::{composed_content, parse_body_spec};
         use matrix_sdk::ruma::events::room::message::MessageType;
-        // The /shrug case: markdown would eat the escaped underscore.
+        // /shrug: markdown would eat the escaped underscore.
         let spec = parse_body_spec(r#"{"format":"plain"}"#).unwrap();
         let content = composed_content(r"¯\_(ツ)_/¯ **not bold**", &spec);
         match content.msgtype {
@@ -7377,9 +6334,8 @@ mod tests {
         let content = composed_content(markdown, &spec);
         match content.msgtype {
             MessageType::Emote(emote) => {
-                // The /me lane inherits the markdown path's plain-body
-                // mention reduction: the anchor stays in formatted_body,
-                // the plain body carries the label alone.
+                // The /me lane gets the mention reduction: the anchor stays in
+                // formatted_body, the plain body carries the label.
                 assert_eq!(emote.body, "waves at Alice");
                 let formatted = emote.formatted.expect("formatted body");
                 assert!(formatted.body.contains("matrix.to/#/@alice:example.org"));
@@ -7388,9 +6344,8 @@ mod tests {
         }
     }
 
-    // v0.7 outgoing @-mentions: content built with add_mentions serializes an
-    // "m.mentions".user_ids array, invalid MXIDs are dropped, and an all-empty
-    // list produces no mentions at all.
+    // add_mentions serializes "m.mentions".user_ids, invalid MXIDs are
+    // dropped, and an all-invalid list produces no mentions.
     #[test]
     fn mentions_serialize_user_ids_and_drop_invalid() {
         use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
@@ -7420,9 +6375,8 @@ mod tests {
         assert!(plain_value.get("m.mentions").is_none());
     }
 
-    // Outgoing mention sends: the PLAIN body carries the display text (the
-    // fallback other clients show in room lists/notifications), while
-    // formatted_body keeps the full matrix.to anchor.
+    // Mention sends: the plain body carries the display text; formatted_body
+    // keeps the matrix.to anchor.
     #[test]
     fn mention_plain_body_reduces_user_links_only() {
         use super::mention_plain_body;
@@ -7471,7 +6425,7 @@ mod tests {
         }
     }
 
-    // ---- v0.7 polls -----------------------------------------------------
+    // ---- Polls ------------------------------------------------------------
 
     fn poll_view(disclosed: bool, ended: bool) -> super::PollView {
         let mut votes = std::collections::HashMap::new();
@@ -7627,14 +6581,8 @@ mod tests {
 
     #[test]
     fn waveform_of_a_quiet_recording_is_not_flattened() {
-        // THE REGRESSION. A voice message recorded at ordinary indoor level
-        // sits far below the MSC3245 0..=1024 ceiling, and scaling it against
-        // that constant crushed it under AudioPlayerCard's 0.12 display floor
-        // — 173 of 184 bar columns at the floor in a live sweep, a flat line
-        // where a waveform should be.
-        //
-        // A speech-shaped envelope peaking at 175/1024, i.e. about 17% of the
-        // nominal range.
+        // A voice message at ordinary indoor level (peaking at 175/1024) must not
+        // be crushed under AudioPlayerCard's 0.12 display floor.
         let raw: Vec<u64> = (0..180)
             .map(|i| {
                 let f = i as f64;
@@ -7649,15 +6597,15 @@ mod tests {
 
         // The loudest bucket reaches full height...
         assert_eq!(out.iter().copied().max().unwrap(), 100);
-        // ...and the shape survives: most buckets clear the UI's 0.12 floor,
-        // where the old fixed-1024 scaling left 68% of them beneath it.
+        // Most buckets clear the UI's 0.12 floor (the fixed-1024 scaling left 68%
+        // beneath it).
         let above_floor = out.iter().filter(|v| **v >= 12).count();
         assert!(
             above_floor >= 70,
             "only {above_floor} of 96 buckets clear the 0.12 display floor; \
              a quiet recording is still being flattened"
         );
-        // And it is a waveform, not a block: many distinct heights.
+        // A waveform, not a block: many distinct heights.
         let distinct: std::collections::BTreeSet<u64> = out.iter().copied().collect();
         assert!(
             distinct.len() >= 30,
@@ -7667,10 +6615,7 @@ mod tests {
 
     #[test]
     fn waveform_of_a_full_range_recording_is_unchanged() {
-        // Normalising must not alter a recording that already uses the range:
-        // its loudest bucket IS the ceiling, so every value is what the old
-        // fixed divisor produced. This is what makes the change safe for
-        // clients that scale properly.
+        // A recording that already uses the full range is unchanged.
         let raw: Vec<u64> = (0..96).map(|i| (i * 1024) / 95).collect();
         let out = super::downsample_waveform(&raw, 1024);
         let expected: Vec<u64> = raw.iter().map(|v| (v.min(&1024) * 100) / 1024).collect();
@@ -7708,8 +6653,7 @@ mod tests {
         );
     }
 
-    // 2026-09-05: MatrixRTC membership churn must not become timeline items
-    // (one state event per participant per minute of every call).
+    // MatrixRTC membership churn must not become timeline items.
     #[test]
     fn rtc_membership_state_is_filtered_and_messages_are_not() {
         let member: AnySyncTimelineEvent = serde_json::from_value(serde_json::json!({
@@ -7757,11 +6701,9 @@ mod tests {
     }
 }
 
-/// MSC4274 galleries and MSC2530 empty-body attachments, in the exact shapes
-/// Sable sends (SableClient/Sable `src/app/features/room/msgContent.ts`,
-/// `buildGalleryContent` / `getGalleryItemContent` / `getImageMsgContent`, and
-/// `RoomInput.tsx handleSendUpload`). Reported 2026-09-23: two comparison
-/// screenshots sent from Sable as one message never appeared in Lightning.
+/// MSC4274 galleries and MSC2530 empty-body attachments in the exact shapes
+/// Sable sends (`msgContent.ts` `buildGalleryContent` /
+/// `getGalleryItemContent` / `getImageMsgContent`, `RoomInput.tsx`).
 #[cfg(test)]
 mod gallery_tests {
     use super::{
@@ -7781,9 +6723,9 @@ mod gallery_tests {
     const MXC_A: &str = "mxc://sable.example/aaaaaaaaaaaaaaaaaaaa";
     const MXC_B: &str = "mxc://sable.example/bbbbbbbbbbbbbbbbbbbb";
 
-    /// One `itemtypes` entry exactly as Sable builds it for an image in an
-    /// UNENCRYPTED room: `getImageMsgContent` with `msgtype` swapped for
-    /// `itemtype`, the MSC4193 spoiler flag and the blurhash included.
+    /// One `itemtypes` entry as Sable builds it for an image in an unencrypted
+    /// room: `getImageMsgContent` with `msgtype` renamed `itemtype`, plus the
+    /// MSC4193 spoiler flag and blurhash.
     fn sable_plain_image_item(name: &str, mxc: &str, w: u64, h: u64) -> Value {
         json!({
             "filename": name,
@@ -7801,8 +6743,7 @@ mod gallery_tests {
         })
     }
 
-    /// The same item from an ENCRYPTED room, as the decrypted event carries
-    /// it: no top-level `url`, an `EncryptedFile` under `file` instead.
+    /// The same item from an encrypted room: `file` instead of `url`.
     fn sable_encrypted_image_item(name: &str, mxc: &str) -> Value {
         json!({
             "filename": name,
@@ -7858,8 +6799,8 @@ mod gallery_tests {
         .expect("the wire event deserializes")
     }
 
-    // THE ROOT CAUSE. matrix-sdk-ui's default filter answered `false` for the
-    // custom msgtype, so the gallery never became a timeline item.
+    // matrix-sdk-ui's default filter rejected the custom msgtype, so the
+    // gallery never became a timeline item.
     #[test]
     fn a_sable_gallery_is_admitted_to_the_timeline() {
         let rules = RoomVersionRules::V11;
@@ -7879,9 +6820,8 @@ mod gallery_tests {
         assert!(lightning_event_filter(&event(stable), &rules));
     }
 
-    // Exactly the default filter's rule for every other msgtype: an edit is
-    // folded into its target, never a row of its own. And an unrelated custom
-    // msgtype stays dropped — this is not a blanket "show everything".
+    // The default filter's rule for other msgtypes: an edit folds into its
+    // target. An unrelated custom msgtype stays dropped.
     #[test]
     fn a_gallery_edit_and_other_custom_msgtypes_stay_out() {
         let rules = RoomVersionRules::V11;
@@ -7907,7 +6847,7 @@ mod gallery_tests {
         assert_eq!(out["media_filename"], "before.png");
         assert_eq!(out["media_mxc"], MXC_A);
         assert_eq!(out["media_width"], 1280);
-        // ...its caption is EMPTY, not Sable's generated `[name: mxc]` list...
+        // ...its caption is empty, not Sable's generated `[name: mxc]` list...
         assert_eq!(out["body"], "");
         assert!(out.get("formatted_body").is_none());
         // ...and every item is listed with its own key, in the sender's order.
@@ -7922,15 +6862,15 @@ mod gallery_tests {
         assert_eq!(items[1]["mimetype"], "image/png");
         assert_eq!(items[1]["thumb_available"], false);
 
-        // Every source is registered, the primary FIRST under the row key.
+        // Every source is registered, the primary first under the row key.
         let keys: Vec<&str> = sources.iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(keys, vec!["$g", "$g#item1"]);
         assert!(matches!(&sources[1].1.source, MediaSource::Plain(m) if m.as_str() == MXC_B));
         assert_eq!(sources[1].1.filename, "after.png");
     }
 
-    // The decrypted content of an encrypted room: the sources carry content
-    // keys and must stay in Rust. Nothing mxc-shaped crosses for them.
+    // Encrypted-room sources carry content keys and stay in Rust; nothing
+    // mxc-shaped crosses for them.
     #[test]
     fn an_encrypted_sable_gallery_keeps_its_sources_in_rust() {
         let wire = content(sable_gallery(vec![
@@ -7968,8 +6908,8 @@ mod gallery_tests {
         assert_eq!(summary.text, "left is **0.9.8**");
     }
 
-    // A caption that merely LOOKS like the generated list (a bracketed line)
-    // is still the sender's words: the match is exact, line for line.
+    // A caption that merely looks like the generated list is kept: the match
+    // is exact, line for line.
     #[test]
     fn only_the_exact_generated_list_is_dropped_as_a_caption() {
         let mut wire = sable_gallery(vec![sable_plain_image_item("a.png", MXC_A, 1, 1)]);
@@ -7978,9 +6918,8 @@ mod gallery_tests {
         assert_eq!(gallery.caption, "[a.png: see the diff]");
     }
 
-    // The reply quote and the thread card read this. "Image" / "2 images" is
-    // built from kind + count on the QML side; the text is never the
-    // generated list.
+    // Read by the reply quote and thread card; QML builds "Image" / "2 images"
+    // from kind and count, and the text is never the generated list.
     #[test]
     fn a_gallery_summarises_as_its_kind_and_count() {
         let images = content(sable_gallery(vec![
@@ -8001,10 +6940,9 @@ mod gallery_tests {
         assert_eq!((summary.kind, summary.count), ("file", 2));
     }
 
-    // An item type a gallery may not carry is skipped; the good pictures
-    // still render. And the array is bounded: an event is attacker-authored.
-    // (An item with no source at all fails ruma's typed gallery deserializer
-    // and with it the whole event, before this code sees anything.)
+    // Disallowed item types are skipped and the rest render. The array is
+    // bounded (attacker-authored). An item with no source fails ruma's typed
+    // deserializer, and with it the whole event, before this code runs.
     #[test]
     fn foreign_items_are_skipped_and_the_array_is_bounded() {
         let mut text_item = sable_plain_image_item("x", MXC_A, 1, 1);
@@ -8032,9 +6970,8 @@ mod gallery_tests {
         assert_eq!(parse_gallery(&wire.msgtype).unwrap().items.len(), GALLERY_ITEM_CAP);
     }
 
-    // Sable's DEFAULT for one attachment and no caption
-    // (`sendIndividualAttachmentAsCaption`): an ordinary m.image whose body
-    // is EMPTY and whose name is in MSC2530's `filename`.
+    // Sable's default for one attachment without caption: an m.image with an
+    // empty body and the name in MSC2530's `filename`.
     #[test]
     fn an_empty_body_image_takes_its_name_from_filename() {
         let mut wire = sable_plain_image_item("comparison.png", MXC_A, 800, 600);
@@ -8063,10 +7000,9 @@ mod gallery_tests {
         }
     }
 
-    // THE REVIEW'S DoS (M3). The map used to REFUSE new keys once full, and a
-    // gallery registers up to 32: ~128 of them and every later row in the
-    // room claimed media it could not fetch. Full now evicts the least
-    // recently used key, so the newest row always gets its source.
+    // When full, the map evicts the least recently used key, so a newly
+    // registered row always gets its source (refusing let ~128 galleries break
+    // every later row).
     #[test]
     fn a_full_media_registry_still_takes_a_new_rows_key() {
         let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
@@ -8086,8 +7022,7 @@ mod gallery_tests {
         assert!(registry.media_source("$gallery0", false).is_none());
     }
 
-    // A key a row is still using — re-registered by a diff or looked up by a
-    // fetch — outlives keys nobody has touched since.
+    // A key still in use (re-registered or fetched) outlives untouched keys.
     #[test]
     fn the_media_registry_evicts_the_least_recently_used_key() {
         let mut registry = MediaRegistry::with_cap(3);
@@ -8104,8 +7039,8 @@ mod gallery_tests {
         assert_eq!(registry.len(), 3);
     }
 
-    // Touches queue stamps; the queue is compacted so it stays bounded and
-    // the map never exceeds its cap however the two interleave.
+    // The stamp queue is compacted, so it stays bounded and the map never
+    // exceeds its cap.
     #[test]
     fn the_media_registry_stays_bounded_under_repeated_touches() {
         let mut registry = MediaRegistry::with_cap(4);
@@ -8119,9 +7054,8 @@ mod gallery_tests {
         assert!(registry.contains("k0") && registry.contains("k3"));
     }
 
-    // MSC2530 with a caption — also how matrix-sdk (and so Lightning) sends a
-    // captioned attachment. The name is `filename`, the caption stays the
-    // body, and so the caption is finally distinguishable from the name.
+    // MSC2530 with a caption (as matrix-sdk and Lightning send it): the name is
+    // `filename`, the caption stays the body.
     #[test]
     fn a_captioned_image_keeps_caption_and_name_apart() {
         let wire = content(json!({

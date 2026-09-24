@@ -1,49 +1,32 @@
-//! Stickers and image packs — MSC2545 (`im.ponies.*`), plus `m.sticker` send.
+//! Stickers and image packs: MSC2545 (`im.ponies.*`) and `m.sticker` send.
 //!
-//! Lightning invents NO storage format here. The three events are exactly the
-//! ones MSC2545 defines, and the shapes below are transcribed from ruma's own
-//! `ruma_events::image_pack` module (ruma-events 0.34.0, `src/image_pack.rs`),
-//! which models the same MSC:
+//! The three MSC2545 events, with shapes transcribed from ruma-events
+//! 0.34's `image_pack` module:
 //!
-//!   * `im.ponies.user_emotes`  — GLOBAL ACCOUNT DATA. The account's own pack.
-//!   * `im.ponies.room_emotes`  — ROOM STATE. **The state key IS the pack id**,
-//!     so one room may publish several packs; the empty state key is the
-//!     room's default pack.
-//!   * `im.ponies.emote_rooms`  — GLOBAL ACCOUNT DATA. `{ "rooms": { room_id:
-//!     { state_key: {} } } }`, selecting which room packs are active GLOBALLY
-//!     (a room's own packs are always available inside that room).
+//!   * `im.ponies.user_emotes`: global account data, the account's own pack.
+//!   * `im.ponies.room_emotes`: room state. The state key is the pack id, so
+//!     a room may have several packs; the empty key is the default pack.
+//!   * `im.ponies.emote_rooms`: global account data, `{ "rooms": { room_id:
+//!     { state_key: {} } } }`, selecting room packs usable everywhere (a
+//!     room's own packs are always usable inside it).
 //!
-//! We deliberately do NOT enable ruma's `unstable-msc2545` feature and use its
-//! typed structs. That feature is off in this build, and turning it on would
-//! mean taking ruma-events as a DIRECT dependency — a dependency change, which
-//! CLAUDE.md forbids doing incidentally. Hand-written serde_json against the
-//! identical JSON shape costs nothing and keeps `Cargo.lock` untouched. If the
-//! feature is ever enabled for another reason, this module should switch to
-//! the typed structs rather than keep its own.
+//! Hand-written serde_json rather than ruma's typed structs: those need the
+//! `unstable-msc2545` feature and ruma-events as a direct dependency. Switch
+//! to them if that feature is ever enabled for another reason.
 //!
-//! # A pack is remote, user-chosen content
+//! Packs are remote, user-chosen content, so nothing here is trusted:
 //!
-//! Every field below arrives from another user's account data or from room
-//! state that anyone with the power level can write. Nothing here is trusted:
+//!   * `url` must be a valid `mxc://server/id`; anything else (an https
+//!     tracking pixel, `file://`, `data:`) drops the image.
+//!   * A declared `info.mimetype` outside the five raster types is refused,
+//!     notably `image/svg+xml` (untrusted SVG is forbidden, and Qt here does
+//!     decode svg/svgz). An absent mimetype is unknown, allowed here, and
+//!     caught by the byte sniff in `rooms::media_fetch_mxc`.
+//!   * Shortcodes, bodies, names and attribution are bounded and stripped of
+//!     control characters; C++ treats them as plain labels.
+//!   * Packs and images per pack are capped.
 //!
-//!   * `url` MUST be a syntactically valid `mxc://server/id`. Anything else —
-//!     an `https://` tracking pixel, a `file://`, a `data:` blob — makes the
-//!     image DROPPED, not merely unrendered. A pack that could put an http URL
-//!     on a picker tile is a beacon that fires once per pack listing.
-//!   * a DECLARED `info.mimetype` outside the five raster types is a refusal.
-//!     `image/svg+xml` is the case that matters: CLAUDE.md §6 forbids
-//!     untrusted SVG in a media path, and this build's QImageReader really
-//!     does decode `svg`/`svgz` (measured, not assumed). An ABSENT mimetype is
-//!     UNKNOWN rather than a lie, so it passes here and is caught by the byte
-//!     sniff in `rooms::media_fetch_mxc`.
-//!   * shortcodes, bodies, pack names and attribution are bounded and stripped
-//!     of control characters. They are LABELS on the C++ side and are never
-//!     rendered as rich text.
-//!   * the number of packs and the number of images per pack are capped, so a
-//!     hostile account-data blob cannot turn one picker open into an
-//!     unbounded model.
-//!
-//! Nothing in this module logs a shortcode, a body, a pack name or an mxc.
+//! Nothing here logs a shortcode, body, pack name or mxc.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -73,40 +56,34 @@ pub(crate) const USER_EMOTES: &str = "im.ponies.user_emotes";
 pub(crate) const ROOM_EMOTES: &str = "im.ponies.room_emotes";
 pub(crate) const EMOTE_ROOMS: &str = "im.ponies.emote_rooms";
 
-/// At most this many packs are reported in one snapshot. A user pack, a
-/// handful of room packs and the active room's own packs is the real shape;
-/// anything past this is a hostile or broken blob.
+/// Max packs in one snapshot; more means a hostile or broken blob.
 const MAX_PACKS: usize = 64;
 
-/// Images per pack. Real packs run to a few dozen; the largest public ones are
-/// a few hundred.
+/// Max images per pack (large public packs have a few hundred).
 const MAX_IMAGES_PER_PACK: usize = 512;
 
-/// A shortcode is a token, not prose. MSC2545 caps it at 100 BYTES; 64 ASCII
-/// characters is stricter and, because the sanitized alphabet is ASCII-only,
-/// characters and bytes are the same thing here.
+/// Shortcode length cap. MSC2545 allows 100 bytes; 64 is stricter, and the
+/// sanitized alphabet is ASCII, so chars equal bytes.
 const MAX_SHORTCODE_CHARS: usize = 64;
 
-/// A sticker is a small picture. Refused before the file is read, so an
-/// accidental 4K screenshot never reaches memory or the homeserver.
+/// Refused before reading the file, so a large screenshot never reaches
+/// memory or the homeserver.
 const MAX_STICKER_UPLOAD_BYTES: u64 = 4 * 1024 * 1024;
 
-/// A body is the sticker's alt text — a label.
+/// A body is the sticker's alt text.
 const MAX_BODY_CHARS: usize = 160;
 
 /// Pack display name / attribution.
 const MAX_PACK_NAME_CHARS: usize = 80;
 const MAX_ATTRIBUTION_CHARS: usize = 160;
 
-/// One bounded request per state read. A pack refresh is disposable and the
-/// room-action pool is JOINED during sign-out, so a retrying request loop here
-/// would stall shutdown (the same reasoning as `pinned.rs`).
+/// One bounded request per state read: the room-action pool is joined at
+/// sign-out, so retry loops here would stall shutdown (as in `pinned.rs`).
 const PACK_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The five raster types Lightning accepts anywhere. Mirrors
-/// `rooms::sniff_image_mime`'s outputs exactly and deliberately: a declared
-/// type outside this set is refused before the media is ever requested, and
-/// the bytes are sniffed against the same set when they arrive.
+/// The five raster types Lightning accepts, matching
+/// `rooms::sniff_image_mime`'s outputs: declared types are checked before
+/// the request, bytes are sniffed on arrival.
 const ALLOWED_MIMETYPES: [&str; 5] = [
     "image/png",
     "image/jpeg",
@@ -129,37 +106,23 @@ fn one_line(text: &str, max_chars: usize) -> String {
     trimmed.chars().take(max_chars).collect()
 }
 
-/// A shortcode is the KEY of the `images` map.
+/// Sanitize a shortcode (the key of the `images` map) to MSC2545's alphabet:
+/// `[a-zA-Z0-9-_]+`, at most 100 bytes, no colons. Illegal characters become
+/// `_`, runs collapse, and leading/trailing separators are trimmed.
 ///
-/// MSC2545 is explicit about the alphabet: a shortcode MUST match
-/// `[a-zA-Z0-9-_]+`, MUST NOT exceed 100 bytes, and MUST NOT contain colons
-/// (the MSC says so specifically, to avoid clashing with the `:code:` UI
-/// convention). So this is not an invented rule — it is the MSC's own, applied
-/// as a REPAIR rather than a rejection: an out-of-alphabet character becomes
-/// `_`, runs of `_` collapse, and leading/trailing separators are trimmed.
-///
-/// Repairing rather than rejecting matters on the READ side: packs in the wild
-/// do carry shortcodes the MSC would refuse (Sable writes `sticker-$eventId`,
-/// which is illegal twice over — see the round notes), and dropping those
-/// images would make another client's pack look empty rather than merely
-/// tidied. An empty result means the entry has no usable name at all and IS
-/// dropped.
+/// Repaired rather than rejected, because real packs carry illegal
+/// shortcodes (Sable writes `sticker-$eventId`) and dropping them would
+/// empty other clients' packs. An empty result is dropped.
 pub(crate) fn sanitize_shortcode(raw: &str) -> String {
     let mut out = String::new();
     for c in raw.trim().chars() {
         if c.is_ascii_alphanumeric() || c == '-' {
             out.push(c);
         } else if !out.ends_with('_') {
-            // Collapse any run of illegal characters into one separator, so
-            // "a.b.c" is `a_b_c` and not `a___b___c`.
-            //
-            // A LITERAL `_` takes this branch too, deliberately. Once an
-            // illegal character has become `_`, a replacement separator and a
-            // typed one are indistinguishable in the output, so the two must
-            // collapse together or "emoji_<U+1F600>_here" yields `emoji__here`
-            // — a double separator that came from neither the author nor a
-            // single substitution. `-` is NOT collapsed: it is never produced
-            // by substitution, so a run of them is the author's own.
+            // Collapse runs of illegal characters into one separator. A literal `_`
+            // takes this branch too: once substituted, a typed and an inserted `_`
+            // are indistinguishable, so they must collapse together. `-` is never
+            // produced by substitution, so its runs are kept.
             out.push('_');
         }
         if out.len() >= MAX_SHORTCODE_CHARS {
@@ -169,11 +132,8 @@ pub(crate) fn sanitize_shortcode(raw: &str) -> String {
     out.trim_matches(['-', '_']).to_owned()
 }
 
-/// True when `url` is a syntactically valid `mxc://server/mediaid`.
-///
-/// `MxcUri::parts()` is the authority — it is what rejects `mxc://` with no
-/// media id, an empty server part, and anything that merely starts with the
-/// scheme. A non-mxc string never reaches it.
+/// True when `url` is a valid `mxc://server/mediaid`, as judged by
+/// `MxcUri::parts()`.
 pub(crate) fn is_valid_mxc(url: &str) -> bool {
     if !url.starts_with("mxc://") {
         return false;
@@ -181,8 +141,8 @@ pub(crate) fn is_valid_mxc(url: &str) -> bool {
     <&MxcUri>::from(url).parts().is_ok()
 }
 
-/// A DECLARED mimetype must be one Lightning can actually decode. Absent is
-/// unknown, which is a different fact and is allowed through.
+/// A declared mimetype must be one Lightning can decode. Absent is unknown
+/// and allowed.
 fn mimetype_allowed(declared: Option<&str>) -> bool {
     match declared {
         None => true,
@@ -194,9 +154,8 @@ fn mimetype_allowed(declared: Option<&str>) -> bool {
 // Pack model
 // ---------------------------------------------------------------------------
 
-/// Usage as MSC2545 defines it. Unknown values are IGNORED rather than
-/// treated as a third state — a pack from a future client must not become
-/// invisible here.
+/// Usage as MSC2545 defines it. Unknown values are ignored rather than a
+/// third state, so a future client's pack stays visible.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub(crate) enum Usage {
     Emoticon,
@@ -222,13 +181,9 @@ fn parse_usage(value: Option<&Value>) -> BTreeSet<Usage> {
     out
 }
 
-/// MSC2545's inheritance rule, written out once so both call sites agree:
-/// the IMAGE's own usage wins when it declares any; otherwise the PACK's;
-/// and an empty set at both levels means the image is usable as BOTH.
-///
-/// Returned as a concrete pair rather than a set, because "empty means both"
-/// is exactly the kind of implicit rule that gets re-derived differently in a
-/// second place.
+/// MSC2545's inheritance rule, in one place: the image's usage wins if it
+/// declares any, else the pack's; empty at both levels means both. Returned
+/// as a concrete pair so "empty means both" is not re-derived elsewhere.
 fn resolve_usage(
     image: &BTreeSet<Usage>,
     pack: &BTreeSet<Usage>,
@@ -260,8 +215,7 @@ pub(crate) struct PackImage {
 /// One validated pack.
 #[derive(Clone, Debug)]
 pub(crate) struct Pack {
-    /// Stable identity for the C++ side: `user` for the account pack, or
-    /// `room:<room_id>:<state_key>` for a room pack.
+    /// Stable id for C++: `user`, or `room:<room_id>:<state_key>`.
     pub id: String,
     pub display_name: String,
     pub avatar_url: String,
@@ -270,18 +224,15 @@ pub(crate) struct Pack {
     pub source: &'static str,
     /// Empty for the user pack.
     pub room_id: String,
-    /// Empty for the user pack; the state key otherwise (may legitimately be
-    /// the empty string, which is the room's default pack).
+    /// Empty for the user pack; otherwise the state key (which may itself be
+    /// empty: the room's default pack).
     pub state_key: String,
-    /// ROOM packs only: whether `im.ponies.emote_rooms` lists this pack, i.e.
-    /// whether it is available OUTSIDE its own room. A room's packs are
-    /// always usable inside that room, so this says nothing about there.
-    /// Always false for the user pack, which is global by definition.
+    /// Room packs only: whether `im.ponies.emote_rooms` lists this pack, i.e.
+    /// it is usable outside its room. Always false for the user pack.
     pub enabled_globally: bool,
-    /// ROOM packs only: whether THIS account may write
-    /// `im.ponies.room_emotes` in that room — the room's own required power
-    /// level for that state event, asked of the SDK. Never a role label, and
-    /// false until a snapshot has actually said otherwise.
+    /// Room packs only: whether this account may write `im.ponies.room_emotes`
+    /// there, per the room's required power level (asked of the SDK). False
+    /// until known.
     pub can_manage: bool,
     pub images: Vec<PackImage>,
 }
@@ -313,10 +264,8 @@ impl Pack {
     }
 }
 
-/// Parse one pack's CONTENT object (the `{ images, pack }` body of any of the
-/// three event types). Returns `None` only when the content is not an object
-/// at all; a pack with zero usable images parses to an EMPTY pack, which is a
-/// different and reportable fact.
+/// Parse one pack's `{ images, pack }` content. `None` only when it is not
+/// an object; a pack with no usable images is an empty pack, not a failure.
 pub(crate) fn parse_pack_content(
     content: &Value,
     id: String,
@@ -335,12 +284,11 @@ pub(crate) fn parse_pack_content(
         .and_then(|v| v.as_str())
         .map(|s| one_line(s, MAX_PACK_NAME_CHARS))
         .filter(|s| !s.is_empty())
-        // MSC2545: a room pack with no display_name defaults to the room's
-        // name. The caller supplies that; the user pack passes its own label.
+        // MSC2545: a room pack without display_name defaults to the room name,
+        // which the caller supplies.
         .unwrap_or_else(|| one_line(fallback_name, MAX_PACK_NAME_CHARS));
 
-    // A pack avatar is displayed on a tab — the same untrusted-URL rule as
-    // any image. A non-mxc avatar is dropped, not passed through.
+    // A pack avatar is an image too: non-mxc avatars are dropped.
     let avatar_url = pack_info
         .and_then(|p| p.get("avatar_url"))
         .and_then(|v| v.as_str())
@@ -356,11 +304,8 @@ pub(crate) fn parse_pack_content(
 
     let mut images = Vec::new();
     if let Some(Value::Object(map)) = object.get("images") {
-        // BTreeMap so the order a picker shows is stable across refreshes.
-        // A JSON object has no defined order and serde_json preserves input
-        // order only with the `preserve_order` feature, which is not enabled;
-        // sorting explicitly means the same pack never reshuffles under the
-        // user's pointer between one open and the next.
+        // Sorted, so a pack's order is stable across refreshes (serde_json has no
+        // `preserve_order` here).
         let sorted: BTreeMap<&String, &Value> = map.iter().collect();
         for (raw_code, entry) in sorted {
             if images.len() >= MAX_IMAGES_PER_PACK {
@@ -373,7 +318,7 @@ pub(crate) fn parse_pack_content(
                 continue;
             }
 
-            // The one unconditional requirement in MSC2545's PackImage.
+            // The one unconditional requirement of MSC2545's PackImage.
             let Some(url) = entry.get("url").and_then(|v| v.as_str()) else {
                 continue;
             };
@@ -387,7 +332,7 @@ pub(crate) fn parse_pack_content(
                 .and_then(|v| v.as_str())
                 .map(|s| s.trim().to_ascii_lowercase());
             if !mimetype_allowed(mimetype.as_deref()) {
-                // The SVG case, and anything else this client cannot decode.
+                // SVG and anything else Lightning cannot decode.
                 continue;
             }
 
@@ -430,8 +375,7 @@ pub(crate) fn parse_pack_content(
         source,
         room_id,
         state_key,
-        // Both are properties of the ACCOUNT's relationship to the pack, not
-        // of the pack's content, so the caller sets them after parsing.
+        // Account-relationship properties, set by the caller after parsing.
         enabled_globally: false,
         can_manage: false,
         images,
@@ -439,7 +383,7 @@ pub(crate) fn parse_pack_content(
 }
 
 /// Parse `im.ponies.emote_rooms` into the (room id, state key) pairs it
-/// enables. Invalid room ids are dropped rather than carried as strings.
+/// enables. Invalid room ids are dropped.
 pub(crate) fn parse_emote_rooms(content: &Value) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let Some(rooms) = content.get("rooms").and_then(|v| v.as_object()) else {
@@ -464,23 +408,16 @@ pub(crate) fn parse_emote_rooms(content: &Value) -> Vec<(String, String)> {
 // Reading packs
 // ---------------------------------------------------------------------------
 
-/// Read every pack available to this account, and emit one `sticker_packs`
-/// snapshot.
+/// Read every pack available to this account and emit one `sticker_packs`
+/// snapshot, in this order:
+///   1. `im.ponies.user_emotes`, the account's own pack;
+///   2. the active room's own `im.ponies.room_emotes` packs (usable inside
+///      that room without opt-in);
+///   3. every (room, state key) in `im.ponies.emote_rooms` not already
+///      collected.
 ///
-/// Sources, in the order they are presented:
-///   1. `im.ponies.user_emotes` — the account's own pack. Always available.
-///   2. the ACTIVE room's own `im.ponies.room_emotes` packs (all state keys).
-///      MSC2545 makes a room's packs available inside that room without any
-///      opt-in; `emote_rooms` is what makes them available *elsewhere*.
-///   3. every (room, state key) named in `im.ponies.emote_rooms`, skipping
-///      any already collected in step 2.
-///
-/// `room_id` may be empty — then step 2 is skipped and the snapshot carries
-/// the globally available packs only.
-///
-/// Account data is read from the STORE first and the server second. Sliding
-/// sync does deliver global account data, so the store is usually populated;
-/// the server read is what makes a cold start correct rather than empty.
+/// Empty `room_id` skips step 2. Account data is read from the store, then
+/// the server, so a cold start is correct rather than empty.
 pub(crate) fn fetch_packs(
     bridge: &RustClient,
     op_id: u64,
@@ -497,10 +434,8 @@ pub(crate) fn fetch_packs(
 
         // ---- 0. which room packs this account has turned on ----------
         //
-        // Read FIRST, because it answers `enabled_globally` for the ACTIVE
-        // room's packs too — those are available inside their room whatever
-        // this says, and the flag is what a "use these everywhere" control
-        // reflects.
+        // Read first: it also answers `enabled_globally` for the active room's
+        // packs.
         let enabled = match read_global_account_data(&client, EMOTE_ROOMS).await {
             Some(content) => parse_emote_rooms(&content),
             None => Vec::new(),
@@ -524,9 +459,8 @@ pub(crate) fn fetch_packs(
 
         // ---- 2. the active room's own packs ---------------------------
         //
-        // `can_manage` is reported for the ROOM, on the snapshot itself, not
-        // only per pack — a room with NO pack yet has no pack row to hang it
-        // on, and without it the room's FIRST pack could never be created.
+        // `can_manage` is reported for the room on the snapshot itself: a room with
+        // no pack yet has no row to carry it, and its first pack must be creatable.
         let mut room_can_manage = false;
         if !room_id.is_empty() {
             let can_manage = can_manage_room_packs(&client, &room_id).await;
@@ -575,8 +509,7 @@ pub(crate) fn fetch_packs(
                 state_key,
                 &name,
             ) {
-                // It is in `emote_rooms` by construction — that is how it got
-                // into this loop at all.
+                // In `emote_rooms` by construction.
                 pack.enabled_globally = true;
                 pack.can_manage =
                     can_manage_room_packs(&client, &enabled_room).await;
@@ -602,13 +535,9 @@ pub(crate) fn fetch_packs(
     Ok(())
 }
 
-/// Whether THIS account may write `im.ponies.room_emotes` in `room_id`.
-///
-/// Offer policy is the room's OWN required power level for that state event,
-/// asked of the SDK — never a role label and never "is an admin" (the
-/// `banner.rs` precedent). A room we cannot resolve, or a membership we
-/// cannot read, answers FALSE: an unknown permission must never be presented
-/// as permission.
+/// Whether this account may write `im.ponies.room_emotes` in `room_id`, per
+/// the room's own required power level, asked of the SDK (never a role
+/// label). An unresolvable room or unreadable membership answers false.
 async fn can_manage_room_packs(client: &matrix_sdk::Client, room_id: &str) -> bool {
     let Ok(room) = joined_room(client, room_id) else {
         return false;
@@ -623,19 +552,13 @@ async fn can_manage_room_packs(client: &matrix_sdk::Client, room_id: &str) -> bo
         .is_some_and(|m| m.can_send_state(StateEventType::from(ROOM_EMOTES)))
 }
 
-/// Turn one ROOM pack on or off in `im.ponies.emote_rooms` — "use this room's
-/// stickers everywhere".
+/// Turn one room pack on or off in `im.ponies.emote_rooms` ("use this room's
+/// stickers everywhere"). Account data: the reader's own choice, no power
+/// level. A room's packs remain usable inside that room regardless.
 ///
-/// This is ACCOUNT DATA, not room state: it records the reader's own choice
-/// and needs no power level. It is also the only one of MSC2545's three
-/// events that says anything about availability OUTSIDE a room — a room's
-/// packs are always usable inside that room, whatever this holds, which is
-/// why turning a pack off does not make it vanish from its own room.
-///
-/// Read-modify-write against the SERVER copy, never the store: account data
-/// has no server-side merge, so writing back a stale blob would silently drop
-/// every pack another device enabled since. Same reasoning as
-/// `add_to_user_pack`.
+/// Read-modify-write against the server copy, never the store: account data
+/// has no server-side merge, so a stale blob would drop other devices'
+/// selections.
 pub(crate) fn set_room_pack_enabled(
     bridge: &RustClient,
     op_id: u64,
@@ -679,10 +602,9 @@ pub(crate) fn set_room_pack_enabled(
     Ok(())
 }
 
-/// The pure `im.ponies.emote_rooms` read-modify-write, split out from the
-/// network so it can be tested. Takes whatever the server returned — which
-/// may be anything at all, since this is another client's blob — and returns
-/// the content to write back.
+/// The pure `im.ponies.emote_rooms` read-modify-write, testable offline.
+/// Takes whatever the server returned (another client's blob) and returns
+/// the content to write.
 pub(crate) fn apply_emote_rooms_change(
     existing: Value,
     room_id: &str,
@@ -690,10 +612,9 @@ pub(crate) fn apply_emote_rooms_change(
     enabled: bool,
 ) -> Result<Value, String> {
     let mut content = existing;
-    // A non-object (or a `rooms` that is a string, a number, an array) is a
-    // blob this client cannot merge into. It is REPLACED rather than refused:
-    // refusing would leave the user permanently unable to turn a pack on,
-    // and there was no valid selection in it to preserve.
+    // A malformed blob (non-object, or a non-object `rooms`) is replaced, not
+    // refused: refusing would lock the user out, and it holds no valid
+    // selection to preserve.
     if !content.is_object() {
         content = json!({});
     }
@@ -712,9 +633,8 @@ pub(crate) fn apply_emote_rooms_change(
         if !entry.is_object() {
             *entry = json!({});
         }
-        // MSC2545's value is an ImagePackRoomContent, which models NO
-        // overrides at all in ruma 0.34 — presence of the key IS the
-        // enablement. An empty object is therefore the whole payload.
+        // ruma 0.34's ImagePackRoomContent has no overrides: the key's presence is
+        // the enablement, so an empty object is the whole payload.
         entry
             .as_object_mut()
             .ok_or_else(|| "rejected".to_owned())?
@@ -726,10 +646,7 @@ pub(crate) fn apply_emote_rooms_change(
             entry.remove(state_key);
             room_now_empty = entry.is_empty();
         }
-        // A room whose last pack was turned off leaves no empty husk behind:
-        // another client reading this sees "no packs from that room", which
-        // is what the user asked for and is also what the absent key already
-        // means.
+        // Drop a room whose last pack was turned off; an absent key means the same.
         if room_now_empty {
             rooms.remove(room_id);
         }
@@ -766,9 +683,8 @@ async fn set_room_pack_enabled_inner(
     Ok(())
 }
 
-/// Store first, then the server. `None` means "no such event" OR "could not
-/// be read" — the caller treats both as "this source contributed nothing",
-/// which is correct: a pack that cannot be read is not a pack with no images.
+/// Store first, then the server. `None` means absent or unreadable; either
+/// way the source contributes nothing.
 async fn read_global_account_data(
     client: &matrix_sdk::Client,
     event_type: &str,
@@ -785,9 +701,8 @@ async fn read_global_account_data(
     }
 }
 
-/// Every `im.ponies.room_emotes` state event in one room, as
-/// (state key, content, room name). The room name is the MSC's documented
-/// default display name for a room pack that does not name itself.
+/// Every `im.ponies.room_emotes` state event in one room, as (state key,
+/// content, room name). The room name is the MSC's default display name.
 async fn read_room_packs(
     client: &matrix_sdk::Client,
     room_id: &str,
@@ -817,8 +732,7 @@ async fn read_room_packs(
             .unwrap_or_default()
             .to_owned();
         let Some(content) = value.get("content") else { continue };
-        // An empty content object is how Matrix RETIRES a state event —
-        // it is a removed pack, not an empty one.
+        // An empty content object retires a state event: a removed pack.
         if content.get("images").is_none() {
             continue;
         }
@@ -827,10 +741,9 @@ async fn read_room_packs(
     out
 }
 
-/// One room pack by state key, for a room the account may not have open.
-/// The state store is consulted first; sliding sync does not deliver custom
-/// state types, so a store miss is the ORDINARY case and the bounded `/state`
-/// read is what actually answers (the same reasoning as `banner.rs`).
+/// One room pack by state key. Sliding sync does not deliver custom state
+/// types, so a store miss is normal and the bounded `/state` read answers
+/// (as in `banner.rs`).
 async fn read_one_room_pack(
     client: &matrix_sdk::Client,
     room_id: &str,
@@ -876,25 +789,12 @@ async fn read_one_room_pack(
 // The sticker event's `info`
 // ---------------------------------------------------------------------------
 
-/// The `info` block of a sticker event, with UNKNOWN fields left out.
+/// The `info` block of a sticker event, with unknown fields omitted.
 ///
-/// ZERO IS A CLAIM; ABSENT IS THE TRUTH. `UInt::new(0)` is `Some(0)`, so
-/// assigning a width through unconditionally puts `"w": 0` on the wire — an
-/// assertion that this picture is zero pixels across — where the honest
-/// encoding of "we did not measure it" is to omit the field entirely.
-///
-/// It arrives here as 0 all the time and BY DESIGN: a pack entry's `info` is
-/// advisory and `upload_to_user_pack` deliberately will not decode an image to
-/// fill it (see its own note there), so a sticker sent from a pack LIGHTNING
-/// uploaded has no dimensions to pass on. One from another client, or from a
-/// pack Lightning did not write, usually does — `add_image_to_pack_content`
-/// preserves whatever it was given.
-///
-/// The difference is invisible to us — Lightning's own renderer tests `> 0`
-/// and falls back to the file size either way — and it is exactly what every
-/// OTHER client reads to reserve space before the bitmap loads. Same
-/// distinction as an absent `info` versus an empty one, and the same lesson as
-/// a boolean that cannot say "unknown".
+/// A width of 0 would claim the image is zero pixels wide; unknown is
+/// encoded by omitting the field. Stickers from packs Lightning uploaded
+/// have no dimensions (`upload_to_user_pack` does not decode images), and
+/// other clients use these fields to reserve space.
 fn sticker_image_info(mimetype: String, width: u64, height: u64, size: u64) -> ImageInfo {
     let mut info = ImageInfo::new();
     if !mimetype.is_empty() {
@@ -916,24 +816,16 @@ fn sticker_image_info(mimetype: String, width: u64, height: u64, size: u64) -> I
 // Sending a sticker
 // ---------------------------------------------------------------------------
 
-/// Send one `m.sticker` to a room or a thread.
+/// Send one `m.sticker` to a room or thread.
 ///
-/// The media is the pack's OWN `mxc://`. That is what MSC2545 packs are and
-/// what every other client sends — the pack image is already Matrix media, so
-/// there is nothing to upload and nothing to re-encode. **Consequence, stated
-/// plainly rather than glossed:** in an encrypted room the sticker EVENT is
-/// encrypted by the SDK exactly like every other event, but the BITMAP it
-/// points at is ordinary unencrypted media, because that is what a shared pack
-/// is. This is inherent to MSC2545, not a Lightning choice, and it is why the
-/// picker must never present a pack sticker as private content.
+/// The media is the pack's own `mxc://`, as every client sends it. In an
+/// encrypted room the event is encrypted but the bitmap is ordinary
+/// unencrypted media (inherent to MSC2545), so the picker must never
+/// present pack stickers as private.
 ///
-/// The event itself goes through the SDK timeline (`Timeline::send`), so the
-/// local echo, the send queue and Retry all work exactly as they do for a
-/// message — and the SDK, not Lightning, attaches the `m.thread` relation when
-/// a thread root is given (matrix-sdk-ui 0.18 handles
-/// `AnyMessageLikeEventContent::Sticker` in that path; see `timeline/mod.rs`).
-/// Nothing here builds a relation by hand, so a thread sticker can never leak
-/// into the main timeline (CLAUDE.md §8).
+/// Sent through the SDK timeline (`Timeline::send`), so local echo, send
+/// queue and Retry work as for messages, and the SDK attaches the `m.thread`
+/// relation for a thread root. No relation is built by hand (CLAUDE.md §8).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_sticker(
     bridge: &RustClient,
@@ -946,8 +838,7 @@ pub(crate) fn send_sticker(
     height: u64,
     size: u64,
 ) -> Result<(), String> {
-    // The same refusal as the parser, re-applied at the edge: a caller that
-    // somehow assembled a non-mxc source must not be able to send it.
+    // Re-check at the edge: a non-mxc source must never be sent.
     if !is_valid_mxc(&url) {
         return Err("sticker url is not an mxc URI".to_owned());
     }
@@ -983,36 +874,14 @@ pub(crate) fn send_sticker(
 // Writing the user's own pack
 // ---------------------------------------------------------------------------
 
-/// Add one image to `im.ponies.user_emotes` ("steal this sticker").
-///
-/// Read-modify-write of the account data event. The read is from the SERVER,
-/// never the store: the store may be stale, and writing a stale pack back
-/// would silently delete every image added since. That is the same reasoning
-/// as `Room::pin_event`'s read-modify-send, applied to account data, which has
-/// no server-side merge of its own.
-///
-/// Duplicate policy (Lightning's own choice, documented in the round report —
-/// see the note about Sable): an image whose `url` is ALREADY in the pack is
-/// reported as `duplicate` and nothing is written, so pressing the button
-/// twice cannot fill the pack with copies of one sticker. A shortcode that is
-/// taken by a DIFFERENT url gets a numeric suffix (`cat`, `cat-2`, `cat-3`),
-/// so a name collision never overwrites an existing image.
 #[allow(clippy::too_many_arguments)]
-/// Upload a LOCAL image file and add it to this account's own pack.
+/// Upload a local image file and add it to this account's own pack: the
+/// only way to create a pack from nothing (every other route needs an
+/// existing mxc).
 ///
-/// This is the only way to BOOTSTRAP a pack. Every other route into one —
-/// "add to my stickers" on a sticker somebody sent — needs an mxc that
-/// already exists, so a user with no packs and nobody sending them stickers
-/// had no way in at all. Reported as "i dont have any sticker packs to test
-/// it".
-///
-/// Uploads first, then reuses `add_to_user_pack_inner`, so the pack write,
-/// the dedupe, the shortcode collision handling and the cap are ONE
-/// implementation shared with the save path rather than a second copy.
-///
-/// The MIME is sniffed from the bytes, never taken from the file name, and
-/// the sniffer is the shared one — so this cannot accept a format the rest of
-/// the client refuses, and it refuses SVG.
+/// Uploads, then reuses `add_to_user_pack_inner`, so dedupe, collision
+/// handling and the cap are shared with the save path. The MIME is sniffed
+/// from the bytes with the shared sniffer, so SVG is refused.
 pub(crate) fn upload_to_user_pack(
     bridge: &RustClient,
     op_id: u64,
@@ -1020,8 +889,7 @@ pub(crate) fn upload_to_user_pack(
     body: String,
     local_path: String,
 ) -> Result<(), String> {
-    // Checked before the file is read, so an absurd file is refused without
-    // being pulled into memory.
+    // Checked before reading, so an absurd file never reaches memory.
     let metadata = std::fs::metadata(&local_path)
         .map_err(|_| "sticker file is not readable".to_owned())?;
     if !metadata.is_file() {
@@ -1054,10 +922,8 @@ pub(crate) fn upload_to_user_pack(
                 .await
                 .map_err(|_| "upload_failed".to_owned())?;
             let url = upload.content_uri.to_string();
-            // Dimensions are left at 0: the pack entry's `info` is advisory,
-            // and decoding an image in the bridge purely to fill it would add
-            // an image decoder to a path that does not need one. Clients size
-            // a sticker from the picture itself.
+            // Dimensions stay 0: `info` is advisory, and decoding here just to fill it
+            // would add an image decoder to this path.
             add_to_user_pack_inner(
                 &client, requested, url, body, mime_str.to_owned(), 0, 0, size,
             )
@@ -1086,6 +952,13 @@ pub(crate) fn upload_to_user_pack(
     Ok(())
 }
 
+/// Add one image to `im.ponies.user_emotes` ("save this sticker").
+///
+/// Read-modify-write against the server copy, never the store: account data
+/// has no merge, and a stale write would delete images added since. An
+/// image whose `url` is already present is reported as `duplicate` and
+/// nothing is written; a shortcode taken by a different url gets a numeric
+/// suffix (`cat`, `cat-2`, ...), so nothing is overwritten.
 pub(crate) fn add_to_user_pack(
     bridge: &RustClient,
     op_id: u64,
@@ -1137,26 +1010,17 @@ pub(crate) fn add_to_user_pack(
     Ok(())
 }
 
-/// Add one image to a ROOM's `im.ponies.room_emotes` pack ("add to this
-/// room's stickers").
+/// Add one image to a room's `im.ponies.room_emotes` pack. Room state, so
+/// power-level gated:
 ///
-/// This is the one part of MSC2545 that is ROOM STATE rather than account
-/// data, so unlike `add_to_user_pack` it is POWER-LEVEL GATED. Two rules
-/// follow from that and neither may be softened:
+///   * the gate is the room's own required level for
+///     `im.ponies.room_emotes`, via the SDK (`can_send_state`), and false
+///     when membership cannot be read. The server would refuse anyway; this
+///     stops callers that did not ask.
+///   * nothing is optimistic: the caller re-reads the pack afterwards.
 ///
-///   * the gate is the room's OWN required level for `im.ponies.room_emotes`,
-///     asked of the SDK (`can_send_state`) — never a role label, never "is an
-///     admin", and FALSE when the membership cannot be read. The server would
-///     refuse anyway; asking first is what lets the UI stop offering an action
-///     that cannot work, and the check here is what stops a caller that did
-///     not ask.
-///   * nothing is applied optimistically anywhere. The write completes, the
-///     caller re-reads the authoritative pack, so a refusal cannot leave a
-///     picker showing an image the room does not have.
-///
-/// Read-modify-write of the CURRENT state event, exactly as the user-pack
-/// path does: a concurrent edit by another moderator must not be clobbered by
-/// a stale copy of ours.
+/// Read-modify-write of the current state event, so a concurrent edit by
+/// another moderator is not clobbered.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn add_to_room_pack(
     bridge: &RustClient,
@@ -1229,13 +1093,12 @@ async fn add_to_room_pack_inner(
     size: u64,
 ) -> Result<String, String> {
     let room = joined_room(client, room_id).map_err(|_| "unknown_room".to_owned())?;
-    // The gate, before anything is read or built.
+    // Gate before anything is read or built.
     if !can_manage_room_packs(client, room_id).await {
         return Err("forbidden".to_owned());
     }
 
-    // The CURRENT pack. A miss is "this room has no pack under that key yet",
-    // which is a normal first use — the same shape as the user pack's 404.
+    // A miss means no pack under that key yet: a normal first use.
     let existing = match read_one_room_pack(client, room_id, state_key).await {
         Some((content, _name)) => content,
         None => json!({}),
@@ -1251,13 +1114,10 @@ async fn add_to_room_pack_inner(
     Ok(code)
 }
 
-/// The pure "add one image to a pack content object" transform, shared by the
-/// user-pack and room-pack writers so the two can never disagree about
-/// duplicate policy, the size cap, or shortcode collisions. Split out from
-/// the network so it is testable.
-///
-/// Returns the content to write plus the shortcode the image actually got —
-/// which may carry a numeric suffix the caller did not ask for.
+/// Pure "add one image to a pack content object", shared by the user and
+/// room pack writers so duplicate policy, the size cap and shortcode
+/// collisions cannot diverge. Returns the content and the shortcode
+/// actually used (possibly suffixed).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn add_image_to_pack_content(
     existing: Value,
@@ -1283,7 +1143,7 @@ pub(crate) fn add_image_to_pack_content(
     if images.len() >= MAX_IMAGES_PER_PACK {
         return Err("pack_full".to_owned());
     }
-    // Already present, by IDENTITY (the mxc), not by name.
+    // Already present, by identity (the mxc), not by name.
     if images
         .values()
         .any(|v| v.get("url").and_then(|u| u.as_str()) == Some(url.as_str()))
@@ -1328,37 +1188,28 @@ pub(crate) fn add_image_to_pack_content(
     if !info.is_empty() {
         entry.insert("info".to_owned(), Value::Object(info));
     }
-    // The saved image is a STICKER. Saying so explicitly keeps it out of an
-    // emoticon completion list, where a 512px picture inline in a sentence is
-    // not what the user asked for.
+    // Mark it a sticker so it stays out of emoticon completion.
     entry.insert("usage".to_owned(), json!(["sticker"]));
 
     images.insert(code.clone(), Value::Object(entry));
     Ok((content, code))
 }
 
-/// One editing operation on a pack, independent of WHERE the pack lives.
-///
-/// The user pack (`im.ponies.user_emotes`, account data) and a room pack
-/// (`im.ponies.room_emotes`, room state) differ only in how the content is
-/// read and written. Every RULE about what the content may become is the
-/// same, so the rules live in the pure transforms and this enum is what
-/// carries the caller's intent across the one shared writer.
+/// One pack edit, independent of where the pack lives (account data or room
+/// state). The rules live in the pure transforms; this carries the intent
+/// to the one shared writer.
 pub(crate) enum PackEdit {
     RemoveImage { shortcode: String },
     RenameImage { from: String, to: String },
     SetName { name: String },
-    /// Empty the pack entirely. Matrix has no "delete this account data"
-    /// verb — an empty object is the idiom — and a room pack is emptied the
-    /// same way, by writing an empty state event. Neither is a redaction:
-    /// the event stays in the room's history, as every state event does.
+    /// Empty the pack by writing an empty object (no delete verb exists for
+    /// account data or state). Not a redaction: the event stays in history.
     DeletePack,
 }
 
 impl PackEdit {
-    /// Applied to a content object. Returns the content to write plus
-    /// whatever the caller needs to be told back (the applied shortcode for
-    /// a rename, empty otherwise).
+    /// Apply to a content object. Returns the content to write and the applied
+    /// shortcode for a rename (empty otherwise).
     fn apply(&self, existing: Value) -> Result<(Value, String), String> {
         match self {
             PackEdit::RemoveImage { shortcode } => {
@@ -1372,22 +1223,15 @@ impl PackEdit {
                 set_pack_display_name_content(existing, name)
                     .map(|c| (c, String::new()))
             }
-            // Deliberately does not preserve the name: "delete this pack"
-            // that left a named empty pack behind would not read as deleted.
+            // Drops the name too: a named empty pack would not read as deleted.
             PackEdit::DeletePack => Ok((json!({}), String::new())),
         }
     }
 }
 
-/// Edit a pack — the user's own, or a room's.
-///
-/// `room_id` empty selects the USER pack; otherwise the room pack under
-/// `state_key`. One writer for both, because the alternative is six almost
-/// identical async functions and a rule that gets fixed in five of them.
-///
-/// Read-modify-write in both cases, for the reason the add path already
-/// gives: a concurrent edit by another moderator (or by this account on
-/// another device) must not be clobbered by a stale copy of ours.
+/// Edit a pack: the user's own (empty `room_id`) or the room pack under
+/// `state_key`. One writer for both. Read-modify-write, so concurrent edits
+/// from other moderators or devices are not clobbered.
 pub(crate) fn edit_pack(
     bridge: &RustClient,
     op_id: u64,
@@ -1433,10 +1277,8 @@ async fn edit_user_pack_inner(
     edit: &PackEdit,
 ) -> Result<String, String> {
     let ty = GlobalAccountDataEventType::from(USER_EMOTES);
-    // A 404 here is NOT the normal first use it is on the add path: every
-    // one of these operations edits something that must already exist, so
-    // "there is no pack" is a real answer and reporting success would leave
-    // a picker showing an image the account does not have.
+    // Unlike the add path, a 404 is a real answer here: these operations edit
+    // something that must already exist.
     let existing = match client.account().fetch_account_data(ty.clone()).await {
         Ok(Some(raw)) => serde_json::from_str::<Value>(raw.json().get())
             .unwrap_or_else(|_| json!({})),
@@ -1462,11 +1304,8 @@ async fn edit_room_pack_inner(
     edit: &PackEdit,
 ) -> Result<String, String> {
     let room = joined_room(client, room_id).map_err(|_| "unknown_room".to_owned())?;
-    // THE SAME GATE THE ADD PATH USES, and for the same reason: the room's
-    // own required level for `im.ponies.room_emotes`, asked of the SDK, and
-    // FALSE when the membership cannot be read. Deleting a room's whole
-    // sticker pack is a more destructive act than adding to it, so the gate
-    // being identical rather than merely similar is the point.
+    // The same gate as the add path; deleting a room's pack is more
+    // destructive than adding to it.
     if !can_manage_room_packs(client, room_id).await {
         return Err("forbidden".to_owned());
     }
@@ -1481,18 +1320,9 @@ async fn edit_room_pack_inner(
     Ok(code)
 }
 
-/// Remove one image from a pack, by shortcode.
-///
-/// PURE, and shared by the user-pack and room-pack writers for the same
-/// reason `add_image_to_pack_content` is: two copies of a rule drift, and
-/// this one decides what a user's own pack looks like afterwards.
-///
-/// Removing the LAST image leaves an empty `images` map rather than deleting
-/// the key. MSC2545 treats a pack with no images as an empty pack, which is
-/// what "I removed everything" should mean — and a client that reads the
-/// `pack` block for a display name still finds it, so an empty pack the user
-/// deliberately made keeps its name instead of silently reverting to the
-/// room's.
+/// Remove one image from a pack by shortcode. Pure and shared by both
+/// writers. Removing the last image leaves an empty `images` map and keeps
+/// the `pack` block, so the pack keeps its name.
 pub(crate) fn remove_image_from_pack_content(
     existing: Value,
     shortcode: &str,
@@ -1503,28 +1333,17 @@ pub(crate) fn remove_image_from_pack_content(
         .and_then(|v| v.as_object_mut())
         .ok_or_else(|| "not_found".to_owned())?;
     if images.remove(shortcode).is_none() {
-        // NOT an error worth a scary message, but not a success either: the
-        // caller re-reads the pack afterwards, and reporting "removed" for
-        // something that was never there would make a stale picker look
-        // authoritative.
+        // Not found: report it rather than "removed", since the caller re-reads the
+        // pack.
         return Err("not_found".to_owned());
     }
     Ok(content)
 }
 
-/// Change one image's SHORTCODE, keeping its entry intact.
-///
-/// The shortcode is the map KEY in MSC2545, so a rename is a re-key rather
-/// than a field edit — which is exactly why it belongs here as one transform
-/// and not as a remove-then-add at the call site: a remove that succeeded
-/// followed by an add that failed would DELETE the image the user was trying
-/// to rename.
-///
-/// Returns the code actually applied. A collision is refused rather than
-/// silently suffixed: `add` may invent `blob-2` because the user is adding
-/// something new and any name will do, but someone deliberately renaming to
-/// a name that is taken means the one they typed, and quietly storing a
-/// different one would be a lie they only discover later.
+/// Change one image's shortcode, keeping its entry. The shortcode is the map
+/// key, so this re-keys in one transform (remove-then-add could lose the
+/// image if the add failed). A collision is refused rather than suffixed:
+/// a deliberate rename means the name typed.
 pub(crate) fn rename_image_in_pack_content(
     existing: Value,
     from: &str,
@@ -1535,8 +1354,7 @@ pub(crate) fn rename_image_in_pack_content(
         return Err("invalid_shortcode".to_owned());
     }
     if code == from {
-        // Nothing to do, and reporting it as done is honest: the pack ends
-        // in the state the user asked for.
+        // Unchanged: report success, the pack is as requested.
         return Ok((existing, code));
     }
     let mut content = existing;
@@ -1552,12 +1370,9 @@ pub(crate) fn rename_image_in_pack_content(
     Ok((content, code))
 }
 
-/// Set (or clear) a pack's display name.
-///
-/// An empty name REMOVES the field rather than storing "". For a room pack
-/// that matters: MSC2545 says a room pack with no `display_name` falls back
-/// to the ROOM's name, so an empty string would show as a blank tab in every
-/// other client where absence shows the room.
+/// Set or clear a pack's display name. Empty removes the field: MSC2545
+/// room packs without one fall back to the room name, whereas "" would show
+/// a blank tab.
 pub(crate) fn set_pack_display_name_content(
     existing: Value,
     name: &str,
@@ -1594,7 +1409,7 @@ async fn add_to_user_pack_inner(
 ) -> Result<String, String> {
     let ty = GlobalAccountDataEventType::from(USER_EMOTES);
 
-    // SERVER read. A 404 is "no pack yet", which is a normal first use.
+    // Server read. A 404 means no pack yet: a normal first use.
     let existing = match client.account().fetch_account_data(ty.clone()).await {
         Ok(Some(raw)) => serde_json::from_str::<Value>(raw.json().get())
             .unwrap_or_else(|_| json!({})),
@@ -1602,16 +1417,13 @@ async fn add_to_user_pack_inner(
         Err(err) => return Err(classify_room_error(&err.to_string()).to_owned()),
     };
 
-    // ONE transform, shared with the room-pack writer, so duplicate policy,
-    // the size cap and shortcode collisions cannot drift between the two.
+    // The shared transform (see add_image_to_pack_content).
     let (mut content, code) = add_image_to_pack_content(
         existing, requested, url, body, mimetype, width, height, size,
     )?;
 
-    // Give a brand-new pack a name, so it does not show up as an unnamed tab
-    // in every other client. Deliberately NOT done for a room pack: MSC2545
-    // says a room pack with no display_name defaults to the ROOM's name, and
-    // stamping "Stickers" over that would be worse than the default.
+    // Name a brand-new user pack so it is not an unnamed tab elsewhere. Not for
+    // room packs, which default to the room name.
     if content.get("pack").and_then(|p| p.as_object()).is_none() {
         content["pack"] = json!({ "display_name": "Stickers" });
     }
@@ -1665,8 +1477,7 @@ mod tests {
 
     #[test]
     fn a_non_mxc_url_is_dropped_not_carried() {
-        // The tracking-pixel case: an https URL on a picker tile would fire
-        // one request per pack listing, to a host the pack author chose.
+        // An https URL on a picker tile would be a tracking request per listing.
         let pack = parse(json!({
             "images": {
                 "beacon": { "url": "https://tracker.example/pixel.gif" },
@@ -1693,8 +1504,7 @@ mod tests {
                           "info": { "mimetype": "text/html" } },
                 "png":  { "url": "mxc://example.org/4",
                           "info": { "mimetype": "image/png" } },
-                // Absent mimetype is UNKNOWN, not a lie — it passes here and
-                // is caught by the byte sniff when the media arrives.
+                // Absent mimetype is unknown: passes here, byte-sniffed on arrival.
                 "unknown": { "url": "mxc://example.org/5" }
             }
         }));
@@ -1713,9 +1523,7 @@ mod tests {
                                "usage": ["sticker"] },
                 "both":      { "url": "mxc://example.org/3",
                                "usage": ["sticker", "emoticon"] },
-                // An unknown usage value is IGNORED, leaving the set empty,
-                // so the pack's usage applies — a future client's pack must
-                // not become invisible.
+                // An unknown usage value is ignored, so the pack's usage applies.
                 "future":    { "url": "mxc://example.org/4",
                                "usage": ["hologram"] }
             }
@@ -1733,7 +1541,7 @@ mod tests {
         assert_eq!(by("both"), (true, true));
         assert_eq!(by("future"), (true, false));
 
-        // And with no usage at ALL, at either level, everything is both.
+        // No usage at either level: both.
         let open = parse(json!({
             "images": { "x": { "url": "mxc://example.org/1" } }
         }));
@@ -1750,11 +1558,11 @@ mod tests {
         assert_eq!(sanitize_shortcode("has space"), "has_space");
         assert_eq!(sanitize_shortcode("ctrl\u{0007}x"), "ctrl_x");
         assert_eq!(sanitize_shortcode("my.cool.cat"), "my_cool_cat");
-        // Runs of illegal characters collapse to ONE separator.
+        // Runs of illegal characters collapse to one separator.
         assert_eq!(sanitize_shortcode("a...b"), "a_b");
         assert_eq!(sanitize_shortcode("emoji_\u{1F600}_here"), "emoji_here");
-        // Sable writes this, and it is illegal twice over (`$`, and a colon
-        // in room versions 1-2). We repair it rather than drop the image.
+        // Sable's shape, illegal twice over (`$`, and a colon in room versions
+        // 1-2): repaired, not dropped.
         assert_eq!(
             sanitize_shortcode("sticker-$AbCd:example.org"),
             "sticker-_AbCd_example_org"
@@ -1836,8 +1644,7 @@ mod tests {
 
     #[test]
     fn a_pack_with_no_name_falls_back_to_the_supplied_default() {
-        // MSC2545: a room pack with no display_name defaults to the room's
-        // name. The caller passes it; the parser must use it.
+        // MSC2545: a room pack without display_name uses the room name.
         let pack = parse_pack_content(
             &json!({ "images": {} }),
             "room:!r:example.org:".to_owned(),
@@ -1865,8 +1672,7 @@ mod tests {
 
     #[test]
     fn an_empty_pack_is_a_pack_not_a_parse_failure() {
-        // "The user has a pack with nothing in it" and "there is no pack"
-        // are different facts and the UI says different things about them.
+        // An empty pack and no pack are different facts.
         let pack = parse(json!({ "images": {} }));
         assert!(pack.images.is_empty());
     }
@@ -1917,13 +1723,11 @@ mod tests {
         assert_eq!(code, "cat");
         let entry = &content["images"]["cat"];
         assert_eq!(entry["url"], json!("mxc://example.org/a"));
-        // A saved image is a STICKER, said explicitly, so it never lands in
-        // an emoticon completion list.
+        // A saved image is marked a sticker, never an emoticon.
         assert_eq!(entry["usage"], json!(["sticker"]));
         assert_eq!(entry["info"]["mimetype"], json!("image/png"));
         assert_eq!(entry["info"]["w"], json!(128));
-        // `body` equals the shortcode, which MSC2545 already defaults to —
-        // writing it again would be noise.
+        // `body` equal to the shortcode is MSC2545's default; not written.
         assert!(entry.get("body").is_none());
     }
 
@@ -1931,13 +1735,12 @@ mod tests {
     fn the_same_mxc_twice_is_a_duplicate_by_identity_not_by_name() {
         let (content, _) =
             add(json!({}), "cat", "mxc://example.org/a").expect("adds");
-        // A DIFFERENT name for the same image is still the same image.
+        // A different name for the same image is still the same image.
         assert_eq!(
             add(content.clone(), "kitty", "mxc://example.org/a"),
             Err("duplicate".to_owned())
         );
-        // A different image under a taken name gets a suffix rather than
-        // overwriting what is there.
+        // A different image under a taken name gets a suffix.
         let (after, code) =
             add(content, "cat", "mxc://example.org/b").expect("adds");
         assert_eq!(code, "cat-2");
@@ -1947,7 +1750,7 @@ mod tests {
 
     #[test]
     fn an_unnamed_image_still_gets_a_usable_shortcode() {
-        // Nothing survives sanitizing: the pack still needs a key.
+        // Nothing survives sanitizing; the image still needs a key.
         let (content, code) =
             add(json!({}), ":::", "mxc://example.org/a").expect("adds");
         assert_eq!(code, "sticker");
@@ -1964,7 +1767,7 @@ mod tests {
             );
         }
         let full = json!({ "images": Value::Object(images) });
-        // A full pack must not silently discard what the user asked to keep.
+        // A full pack must not silently discard the addition.
         assert_eq!(
             add(full, "new", "mxc://example.org/new"),
             Err("pack_full".to_owned())
@@ -1983,8 +1786,7 @@ mod tests {
 
     #[test]
     fn adding_preserves_every_image_already_in_the_pack() {
-        // The whole point of the read-modify-write: a concurrent edit by
-        // another device or another moderator must survive ours.
+        // Read-modify-write: other devices' or moderators' images survive.
         let before = json!({
             "pack": { "display_name": "Theirs" },
             "images": {
@@ -1996,15 +1798,13 @@ mod tests {
             add(before, "three", "mxc://example.org/3").expect("adds");
         assert_eq!(after["images"].as_object().unwrap().len(), 3);
         assert_eq!(after["images"]["two"]["usage"], json!(["emoticon"]));
-        // And the pack's own metadata is untouched — a room pack must not be
-        // renamed by someone adding one image to it.
+        // The pack metadata is untouched.
         assert_eq!(after["pack"]["display_name"], json!("Theirs"));
     }
 
     #[test]
     fn enabling_a_room_pack_preserves_every_other_selection() {
-        // The whole point of reading the SERVER copy: another device's
-        // choices must survive our write.
+        // Other devices' selections survive our write.
         let before = json!({
             "rooms": {
                 "!a:example.org": { "": {}, "second": {} },
@@ -2022,7 +1822,7 @@ mod tests {
             .as_object()
             .unwrap()
             .contains_key("packone"));
-        // Presence of the key IS the enablement; the value carries nothing.
+        // The key's presence is the enablement.
         assert_eq!(rooms["!c:example.org"]["packone"], json!({}));
     }
 
@@ -2037,15 +1837,14 @@ mod tests {
         let after =
             apply_emote_rooms_change(before, "!a:example.org", "second", false)
                 .expect("applies");
-        // One of two removed: the room stays, with the other pack.
+        // One of two removed: the room stays with the other.
         assert_eq!(after["rooms"]["!a:example.org"], json!({ "": {} }));
 
         let empty = apply_emote_rooms_change(
             after, "!a:example.org", "", false,
         )
         .expect("applies");
-        // Its last pack removed: the room key goes too. An empty husk and an
-        // absent key mean the same thing, and only one of them is tidy.
+        // Its last pack removed: the room key goes too.
         assert!(!empty["rooms"]
             .as_object()
             .unwrap()
@@ -2089,8 +1888,7 @@ mod tests {
             ),
             Err("too_many_rooms".to_owned())
         );
-        // A room already in the map may gain a second pack: the cap is on
-        // ROOMS, and refusing here would be a cap on nothing.
+        // The cap is on rooms, so an existing room may gain a second pack.
         let after =
             apply_emote_rooms_change(full, "!r0:example.org", "second", true)
                 .expect("applies");
@@ -2100,10 +1898,8 @@ mod tests {
         );
     }
 
-    // A STICKER FROM A LIGHTNING-WRITTEN PACK HAS NO DIMENSIONS, and what
-    // goes on the wire for that must be silence, not a zero. Serialized
-    // rather than asserted on the struct, because the whole point is the
-    // shape of the JSON another client parses.
+    // No dimensions must serialize as absent, not zero. Checked on the JSON,
+    // since that is what other clients parse.
     #[test]
     fn an_unmeasured_sticker_omits_its_dimensions_rather_than_claiming_zero() {
         let info = sticker_image_info("image/webp".to_owned(), 0, 0, 43008);
@@ -2124,8 +1920,7 @@ mod tests {
         );
     }
 
-    // And a pack that DOES carry dimensions is passed through untouched, so
-    // the omission above is about the absence and not about the field.
+    // Real dimensions pass through untouched.
     #[test]
     fn a_measured_sticker_still_carries_what_it_measured() {
         let info = sticker_image_info("image/png".to_owned(), 512, 384, 900);
@@ -2134,9 +1929,8 @@ mod tests {
         assert_eq!(wire.get("h").and_then(Value::as_u64), Some(384));
     }
 
-    // An empty mimetype is already omitted and must stay that way: the
-    // parser accepts an absent one on purpose (MSC2545 lets an entry omit
-    // it), so writing "" back would be inventing a type nothing declared.
+    // An empty mimetype stays omitted: MSC2545 allows absence, and "" would be
+    // an invented type.
     #[test]
     fn an_empty_mimetype_is_omitted_not_written_as_an_empty_string() {
         let info = sticker_image_info(String::new(), 0, 0, 0);
@@ -2161,9 +1955,8 @@ mod tests {
 
     #[test]
     fn allowed_mimetypes_match_the_byte_sniffers_outputs() {
-        // The declared-type allowlist and the magic-byte sniffer must accept
-        // exactly the same set, or a pack image passes one gate and fails the
-        // other for reasons nobody can see. This pins them together.
+        // The declared-type allowlist and the byte sniffer accept exactly the same
+        // set.
         for m in ALLOWED_MIMETYPES {
             assert!(mimetype_allowed(Some(m)), "{m} should be allowed");
         }
@@ -2176,10 +1969,6 @@ mod tests {
     }
 
     // ── Pack management (MSC2545 CRUD) ──────────────────────────────────
-    //
-    // These transforms decide what a user's own pack — and a room's shared
-    // one — look like afterwards, so what is pinned here is the difference
-    // between the operations, not merely that they run.
 
     #[test]
     fn removing_an_image_takes_only_that_one() {
@@ -2194,21 +1983,19 @@ mod tests {
         let images = out["images"].as_object().unwrap();
         assert!(!images.contains_key("blob"));
         assert!(images.contains_key("wave"));
-        // The pack's own name is not collateral damage.
+        // The pack's name is kept.
         assert_eq!(out["pack"]["display_name"], json!("Blobs"));
     }
 
     #[test]
     fn removing_something_absent_is_reported_not_swallowed() {
-        // The caller re-reads the pack after a success. Reporting "removed"
-        // for something that was never there would make a stale picker look
-        // authoritative.
+        // Removing something absent is reported, not swallowed.
         let content = json!({ "images": { "blob": { "url": "mxc://e/a" } } });
         assert_eq!(
             remove_image_from_pack_content(content, "nope").unwrap_err(),
             "not_found"
         );
-        // And a pack with no images at all is the same answer, not a panic.
+        // A pack with no images gives the same answer, not a panic.
         assert_eq!(
             remove_image_from_pack_content(json!({}), "blob").unwrap_err(),
             "not_found"
@@ -2217,9 +2004,8 @@ mod tests {
 
     #[test]
     fn removing_the_last_image_leaves_an_empty_pack_that_keeps_its_name() {
-        // Deliberately NOT the same as deleting the pack. A room pack with no
-        // display_name falls back to the ROOM's name in every client, so
-        // dropping the name here would rename the user's pack behind them.
+        // Not the same as deleting: the pack keeps its name (a room pack would
+        // otherwise fall back to the room name).
         let content = json!({
             "pack": { "display_name": "Blobs" },
             "images": { "blob": { "url": "mxc://example.org/a" } }
@@ -2243,21 +2029,17 @@ mod tests {
         assert_eq!(code, "blobcat");
         let images = out["images"].as_object().unwrap();
         assert!(!images.contains_key("blob"));
-        // The whole entry moved, not just the url: usage decides whether it
-        // is offered as an inline emoticon at all.
+        // The whole entry moves, including usage.
         assert_eq!(images["blobcat"]["url"], json!("mxc://example.org/a"));
         assert_eq!(images["blobcat"]["usage"], json!(["emoticon"]));
 
-        // A COLLISION IS REFUSED, not silently suffixed. `add` may invent
-        // "wave-2" because any name will do for something new; someone
-        // deliberately renaming meant the name they typed, and storing a
-        // different one is a lie they find out about later.
+        // A collision is refused, not suffixed.
         assert_eq!(
             rename_image_in_pack_content(content.clone(), "blob", "wave")
                 .unwrap_err(),
             "shortcode_taken"
         );
-        // Renaming something absent is not a silent no-op either.
+        // Renaming something absent is not a silent no-op.
         assert_eq!(
             rename_image_in_pack_content(content.clone(), "ghost", "x")
                 .unwrap_err(),
@@ -2272,10 +2054,8 @@ mod tests {
 
     #[test]
     fn renaming_to_the_same_name_succeeds_without_losing_the_image() {
-        // The naive re-key (remove then insert) is fine here, but a naive
-        // GUARD ("refuse if the target exists") would refuse this — and the
-        // pack does end in the state the user asked for, so refusing would
-        // be wrong.
+        // Renaming to the same name succeeds (a naive "target exists" guard would
+        // refuse it).
         let content = json!({ "images": { "blob": { "url": "mxc://e/a" } } });
         let (out, code) =
             rename_image_in_pack_content(content, "blob", "blob").unwrap();
@@ -2285,9 +2065,8 @@ mod tests {
 
     #[test]
     fn an_empty_pack_name_removes_the_field_rather_than_storing_blank() {
-        // MSC2545: a room pack with no display_name falls back to the ROOM's
-        // name. An empty string would show as a blank tab everywhere that
-        // absence would have shown the room.
+        // An empty name removes the field: a room pack then shows the room name
+        // instead of a blank tab.
         let named =
             set_pack_display_name_content(json!({}), "  Blobs  ").unwrap();
         assert_eq!(named["pack"]["display_name"], json!("Blobs"));
@@ -2306,11 +2085,8 @@ mod tests {
 
     #[test]
     fn deleting_a_pack_leaves_nothing_behind_including_its_name() {
-        // "Delete this pack" that left a named empty pack would not read as
-        // deleted — and in a room, every other client would keep showing the
-        // tab. Matrix has no delete verb for either store; an empty object
-        // is the idiom, and it is not a redaction: the event stays in
-        // history like every state event does.
+        // Deleting leaves nothing, name included. An empty object is the idiom; it
+        // is not a redaction.
         let content = json!({
             "pack": { "display_name": "Blobs" },
             "images": { "blob": { "url": "mxc://e/a" } }
@@ -2322,9 +2098,7 @@ mod tests {
 
     #[test]
     fn every_edit_dispatches_to_its_own_transform() {
-        // The FFI takes the action as a STRING, so this pins that each arm
-        // does its own thing — the accident this shape allows is one action
-        // quietly running another's code.
+        // The action arrives as a string; each arm must run its own transform.
         let base = json!({
             "pack": { "display_name": "Blobs" },
             "images": {
@@ -2350,7 +2124,7 @@ mod tests {
             .apply(base.clone())
             .unwrap();
         assert_eq!(named["pack"]["display_name"], json!("Other"));
-        // ...and the images are untouched by a rename of the PACK.
+        // Images are untouched by renaming the pack.
         assert_eq!(named["images"].as_object().unwrap().len(), 2);
     }
 }

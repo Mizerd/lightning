@@ -1,41 +1,25 @@
-//! LiveKit SFU authorization and signalling (MatrixRTC phase 2).
+//! LiveKit SFU authorization and signalling for MatrixRTC.
 //!
-//! This module is the SIGNALLING half of group calling. It obtains
-//! authorization for the SFU the homeserver advertised, speaks LiveKit's
-//! WebSocket/protobuf signalling protocol, and reports participants, tracks
-//! and session descriptions across the FFI. **It owns no media**: the actual
-//! RTP flows through Lightning's existing GStreamer `webrtcbin` engine on the
-//! C++ side, exactly as the legacy 1:1 lane already works.
+//! The signalling half of group calling: obtains SFU authorization, speaks
+//! LiveKit's WebSocket/protobuf protocol, and reports participants, tracks
+//! and session descriptions across the FFI. It owns no media; RTP flows
+//! through the C++ GStreamer `webrtcbin` engine.
 //!
-//! ## Why not the `livekit` client crate
+//! Not the `livekit` client crate: it depends on `webrtc-sys`, which
+//! downloads a prebuilt libwebrtc during the build (breaking
+//! `--offline --locked`) and adds hundreds of crates. `livekit-protocol` is
+//! message definitions only.
 //!
-//! The official Rust client would bring its own media stack: it depends on
-//! `webrtc-sys`, which DOWNLOADS a prebuilt libwebrtc during the build. That
-//! breaks this crate's `--offline --locked` contract outright, and measured
-//! at 318 extra crates and ~1.7 GB of build artifacts on a tree that already
-//! links a 2.1 GB debug staticlib into ~150 test binaries. `livekit-protocol`
-//! is pure message definitions — no media, no download — so Lightning speaks
-//! the same wire with the engine it already ships.
+//! The SFU is authorized with a Matrix OpenID token, never the access
+//! token: `POST {service_url}/sfu/get` with `{room, openid_token,
+//! device_id}` answers `{url, jwt}`. The JWT is never logged, persisted or
+//! sent across the FFI; it lives in the signalling task for one connection.
 //!
-//! ## Authorization, and what never leaves the client
-//!
-//! The SFU is authorized with a **Matrix OpenID token**, not the access
-//! token: `POST {service_url}/sfu/get` with `{room, openid_token, device_id}`
-//! answers `{url, jwt}`. So the user's Matrix credentials never reach the
-//! SFU, and the SFU's JWT never reaches Matrix. Neither is logged, neither
-//! crosses the FFI, and neither is persisted — the JWT lives in the
-//! signalling task for the lifetime of one connection.
-//!
-//! ## Safety rules specific to this surface
-//!
-//! * The SFU is a party outside the homeserver's trust boundary. Everything
-//!   it sends is bounded and sanitized before it crosses the FFI, and
-//!   participant identities are compared, never rendered raw.
-//! * SDP carries host IPs and ICE credentials. It crosses only in
-//!   media-capable mode (the same `AtomicBool` the legacy lane uses), is
-//!   never logged, and is never exposed to QML.
-//! * One connection at a time, owned by an explicit generation counter, so a
-//!   late frame from a closed session can never be attributed to the next.
+//! The SFU is outside the homeserver's trust boundary: everything it sends
+//! is bounded and sanitized, and identities are compared, never rendered
+//! raw. SDP (host IPs, ICE credentials) crosses only in media-capable mode,
+//! is never logged and never reaches QML. One connection at a time, owned
+//! by a generation counter, so a late frame cannot reach the next session.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -44,23 +28,15 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use livekit_protocol as lkp;
 
-/// The LiveKit `TrackSource` for a track we are about to publish.
-///
-/// Exists as a named function so the test and the production path cannot
-/// disagree: the first version of this mapping was written inline with
-/// literals and every value was off by one, which published our screen share
-/// as SCREEN_SHARE_AUDIO — a track Element Call treats as audio and never
-/// renders.
+/// The LiveKit `TrackSource` for a track we are about to publish. A named
+/// function so tests and production share it (an inline literal mapping
+/// was once off by one, publishing screen share as SCREEN_SHARE_AUDIO).
 pub(crate) fn track_source_for(kind: i32, screen_share: bool) -> i32 {
     let video = kind == lkp::TrackType::Video as i32;
     match (screen_share, video) {
-        // A share has TWO sources, not one. Declaring the audio half as
-        // SCREEN_SHARE — which this function did while it branched on
-        // `screen_share` alone — hands a receiver an audio track labelled
-        // video: Element renders share audio only when it is
-        // SCREEN_SHARE_AUDIO, and puts anything else through the wrong
-        // path entirely. Exactly the failure the comment above describes,
-        // one enum value along.
+        // A share has two sources. Element renders share audio only as
+        // SCREEN_SHARE_AUDIO, so labelling the audio half SCREEN_SHARE would send
+        // it down the video path.
         (true, false) => lkp::TrackSource::ScreenShareAudio as i32,
         (true, true) => lkp::TrackSource::ScreenShare as i32,
         (false, true) => lkp::TrackSource::Camera as i32,
@@ -68,9 +44,8 @@ pub(crate) fn track_source_for(kind: i32, screen_share: bool) -> i32 {
     }
 }
 
-/// LiveKit's per-track E2EE declaration. A receiving client reads this to
-/// decide whether to run its frame decryptor at all, so encrypting the bytes
-/// while declaring None renders as garbage at the far end.
+/// LiveKit's per-track E2EE declaration. Receivers use it to decide whether
+/// to decrypt, so encrypted bytes declared None render as garbage.
 pub(crate) fn track_encryption_for(encrypted: bool) -> i32 {
     if encrypted {
         lkp::encryption::Type::Gcm as i32
@@ -89,20 +64,20 @@ use crate::rtc::{
 };
 use crate::{enqueue, RustClient};
 
-/// Bound on the JWT-service response body. A `{url, jwt}` object is small.
+/// Bound on the JWT-service response body.
 const MAX_SFU_RESPONSE: usize = 64 * 1024;
 const SFU_TIMEOUT: Duration = Duration::from_secs(20);
-/// LiveKit signalling frames are small; a media-free protocol has no reason
-/// to send megabytes, and this is a party outside the homeserver's trust.
+/// Signalling frames are small; this party is outside the homeserver's
+/// trust boundary.
 const MAX_SIGNAL_FRAME: usize = 256 * 1024;
-/// Cap on how many participants and tracks are tracked/reported.
+/// Cap on participants and tracks tracked and reported.
 const MAX_PARTICIPANTS: usize = 128;
 const MAX_TRACKS_PER_PARTICIPANT: usize = 8;
 /// The signalling protocol version this client implements.
 const LK_PROTOCOL_VERSION: u32 = 15;
 
-/// Bounded, control-character-free, or nothing. Same discipline as rtc.rs:
-/// a `None` means drop the surrounding thing rather than repair it.
+/// Bounded and control-character free, or nothing (as in rtc.rs): `None`
+/// means drop the surrounding thing.
 fn sane(value: &str, max: usize) -> Option<&str> {
     if value.is_empty() || value.len() > max {
         return None;
@@ -113,27 +88,23 @@ fn sane(value: &str, max: usize) -> Option<&str> {
     Some(value)
 }
 
-/// The shortest trailer the bridge will forward. LiveKit's is ~43 bytes; a
-/// short one could match real frames by chance.
+/// Shortest trailer forwarded; LiveKit's is ~43 bytes, and a short one could
+/// match real frames by chance.
 const MIN_SIF_TRAILER: usize = 16;
 
-/// The longest server-injected-frame trailer the bridge will forward.
-///
-/// livekit-server's is `base62(32 random bytes)`, about 43 bytes. The value
-/// is SFU input, so it is bounded like every other wire field. Mirrors
-/// `CallFrameCryptor::kMaxServerTrailerBytes` on the C++ side, which
-/// re-checks it.
+/// Longest server-injected-frame trailer forwarded. livekit-server's is
+/// `base62(32 random bytes)`, about 43 bytes. Mirrors
+/// `CallFrameCryptor::kMaxServerTrailerBytes`, which re-checks it.
 const MAX_SIF_TRAILER: usize = 64;
 
-/// `JoinResponse.sif_trailer`, base64-encoded for the JSON bridge, or "" when
-/// absent or unusable.
+/// `JoinResponse.sif_trailer`, base64 for the JSON bridge, or "" when absent
+/// or unusable.
 ///
-/// The trailer marks the UNENCRYPTED blank frames the SFU writes into an
-/// encrypted track itself (a sender's mute, unpublish or leave). Without it
-/// every such frame read as a decryption failure on our side. An oversized
-/// value is DROPPED rather than truncated: a truncated trailer would match
-/// frames the SFU never marked. Not a secret -- every participant receives
-/// the same one -- but it is never logged in full.
+/// It marks the unencrypted blank frames the SFU injects into an encrypted
+/// track (mute, unpublish, leave), which would otherwise read as decryption
+/// failures. Oversized values are dropped, not truncated, since a truncated
+/// trailer could match unmarked frames. Not secret, but never logged in
+/// full.
 fn sif_trailer_b64(trailer: &[u8]) -> String {
     if trailer.len() < MIN_SIF_TRAILER || trailer.len() > MAX_SIF_TRAILER
         || !trailer.iter().all(u8::is_ascii_alphanumeric)
@@ -144,11 +115,9 @@ fn sif_trailer_b64(trailer: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(trailer)
 }
 
-/// Which peer connection a description or candidate belongs to.
-///
-/// LiveKit runs TWO: the client offers on PUBLISHER (its own tracks), the
-/// server offers on SUBSCRIBER (everyone else's). Mixing them up wires audio
-/// to the wrong direction, so the target rides every message.
+/// Which peer connection a description or candidate belongs to. LiveKit runs
+/// two: the client offers on publisher (its tracks), the server on
+/// subscriber (everyone else's). Mixing them wires audio the wrong way.
 fn target_str(target: i32) -> &'static str {
     match target {
         0 => "publisher",
@@ -167,34 +136,19 @@ pub(crate) fn target_from_str(value: &str) -> i32 {
 // Why the websocket connect did not happen
 // ---------------------------------------------------------------------------
 //
-// SEVEN UNRELATED FAILURES USED TO ARRIVE AS ONE WORD.
-//
-// Everything between `authorized` and `signalling` — the DNS lookup, the TCP
-// connect, the TLS handshake, the HTTP status the SFU answers, the websocket
-// upgrade — collapsed into `connect_failed`, and `connect_failed` rendered as
-// "Couldn't connect to the call." A macOS bundle that went straight from
-// `authorized` to `failed` therefore said nothing at all about WHICH of those
-// five steps had failed, and there is no second log line to fall back on: the
-// error's own text can embed the request URL, which carries the JWT, so it is
-// never enqueued and never logged.
-//
-// This is the same split `e21dd08` made for `forbidden` (the room's power
-// levels versus the call service's authorisation), for the same reason: a
-// category the log carries verbatim is the only thing a report from another
-// machine can be diagnosed from, so a category has to name ONE cause.
-//
-// Nothing here reads an error's message. It reads the error's SHAPE, plus a
-// status code, both of which are a closed set.
+// Each step between `authorized` and `signalling` (DNS, TCP, TLS, HTTP
+// status, websocket upgrade) gets its own category, since the error text
+// can embed the URL with the JWT and is never logged; the category is all a
+// remote report carries. Only the error's shape and a status code are read,
+// both closed sets.
 
 /// The category for one refused host resolution.
 fn resolve_refusal_category(refusal: HostRefusal) -> &'static str {
     match refusal {
-        // A name that can only mean this machine. Distinct from the resolved
-        // case because there is nothing to look up and nothing to retry.
+        // Local-only names: nothing to look up or retry.
         HostRefusal::PrivateName => "focus_private_name",
         HostRefusal::Unresolved => "focus_unresolved",
-        // The one case the existing `focus_unroutable` sentence is true of,
-        // so it keeps that category and that wording.
+        // The case the `focus_unroutable` wording is true of, so it keeps it.
         HostRefusal::NonPublicAddress => "focus_unroutable",
     }
 }
@@ -203,10 +157,9 @@ fn resolve_refusal_category(refusal: HostRefusal) -> &'static str {
 fn classify_io_error(err: &std::io::Error) -> &'static str {
     use std::io::ErrorKind as Kind;
     match err.kind() {
-        // The address answered, and said no. The SFU is not listening there.
+        // The address answered and refused: nothing listening.
         Kind::ConnectionRefused => "sfu_refused_connection",
-        // No route at all. THE SHAPE A MACHINE WITH AN AAAA RECORD AND NO
-        // WORKING IPv6 SEES, which is why it is worth its own word.
+        // No route: typical of an AAAA record without working IPv6.
         Kind::HostUnreachable | Kind::NetworkUnreachable => "sfu_unreachable",
         Kind::TimedOut => "connect_timeout",
         Kind::PermissionDenied => "connect_blocked",
@@ -219,48 +172,31 @@ fn classify_io_error(err: &std::io::Error) -> &'static str {
     }
 }
 
-/// What one walk over a host's approved addresses ended in.
-///
-/// Its own type rather than a `Result`, because THREE outcomes have to stay
-/// distinguishable at the call site: a connection, a budget that ran out
-/// (`connect_timeout`), and every address having failed (whose category comes
-/// from the LAST error). Folding the last two together is how the old code
-/// reported a timeout and a dead SFU with the same word.
+/// What one walk over a host's approved addresses ended in: connected, the
+/// shared budget ran out, or every address failed (category from the last
+/// error). Kept apart so a timeout and a dead SFU are reported differently.
 enum ConnectWalk<S> {
     Connected(S),
     /// Every address was tried and failed. Carries the last error, or `None`
-    /// when the list was empty — which cannot happen today
-    /// (`resolve_public_hosts` refuses an empty answer) and is handled rather
-    /// than asserted.
+    /// for an empty list (not currently possible; handled anyway).
     Failed(Option<tokio_tungstenite::tungstenite::Error>),
     /// The shared budget expired mid-attempt.
     TimedOut,
 }
 
-/// Try each approved address in turn, under ONE shared deadline.
+/// Try each approved address in turn under one shared deadline.
 ///
-/// WHY THIS IS NOT "THE FIRST ADDRESS". `lookup_host` hands back whatever the
-/// platform resolver returns, and the platforms disagree about the order:
-/// macOS offers the AAAA record first far more readily than glibc's RFC 6724
-/// sort does. A host with an AAAA record and no working IPv6 route then gets
-/// ENETUNREACH from address one while the A record beside it would have
-/// connected — and taking only the first address turned that into a hard
-/// failure indistinguishable from a dead SFU. Browsers and LiveKit's own
-/// clients walk the list; so does this.
+/// Resolvers order addresses differently (macOS offers AAAA first more
+/// readily than glibc's RFC 6724 sort), and a host with AAAA but no working
+/// IPv6 fails on the first address while its A record would connect.
+/// Browsers and LiveKit clients walk the list too.
 ///
-/// TWO PROPERTIES THAT MATTER MORE THAN THE WALK ITSELF, both tested:
+///   * The budget is shared (`timeout_at` against the caller's deadline), so
+///     N addresses never cost N timeouts.
+///   * Only transport failures move on. An HTTP status, TLS alert or refused
+///     upgrade is the server answering, the same at every address.
 ///
-///   * the budget is SHARED. `timeout_at` against one deadline computed by
-///     the caller, never `timeout` per address — N addresses must not cost N
-///     timeouts, which would let a join hang for N times as long as it can
-///     today. That is a worse failure than the one being fixed.
-///   * only a TRANSPORT failure is retried. An HTTP status, a TLS alert or a
-///     refused upgrade is the server answering, and it will answer the same
-///     way at every address it has; walking on would multiply one refusal
-///     into several and report the last one.
-///
-/// The connect step is a parameter so the walk can be driven without a
-/// network, which is the only way its ordering is testable at all.
+/// The connect step is a parameter so the walk is testable offline.
 async fn walk_addresses<S, F, Fut>(
     addresses: Vec<std::net::SocketAddr>,
     deadline: tokio::time::Instant,
@@ -291,19 +227,18 @@ where
     ConnectWalk::Failed(last)
 }
 
-/// The category for one failed websocket connect. Closed set; no error text.
+/// Category for one failed websocket connect. Closed set; no error text.
 fn classify_ws_error(
     err: &tokio_tungstenite::tungstenite::Error,
 ) -> &'static str {
     use tokio_tungstenite::tungstenite::Error as Ws;
     match err {
         Ws::Io(io) => classify_io_error(io),
-        // rustls could not agree with the peer, or would not trust it. The
-        // roots are compiled in (webpki-roots), so this is about the SERVER's
-        // certificate or its protocol support, never the local trust store.
+        // rustls rejected the peer. Roots are compiled in (webpki-roots), so this
+        // concerns the server's certificate or protocol, not the local store.
         Ws::Tls(_) => "tls_failed",
-        // The SFU answered HTTP instead of upgrading. The status is the whole
-        // diagnosis and it is not a secret; the body is never touched.
+        // The SFU answered HTTP instead of upgrading; the status is the diagnosis.
+        // The body is never read.
         Ws::Http(response) => match response.status().as_u16() {
             401 | 403 => "sfu_forbidden",
             404 => "sfu_not_found",
@@ -311,16 +246,14 @@ fn classify_ws_error(
             500..=599 => "server_error",
             _ => "ws_rejected",
         },
-        // It spoke, and what it said was not a websocket upgrade — a proxy or
-        // a captive portal in front of the SFU is the usual reason.
+        // Not a websocket upgrade: usually a proxy or captive portal.
         Ws::Protocol(_) | Ws::HttpFormat(_) | Ws::Utf8 | Ws::AttackAttempt => {
             "ws_handshake_failed"
         }
         Ws::Url(_) => "focus_url_invalid",
         Ws::Capacity(_) => "ws_frame_too_large",
         Ws::ConnectionClosed | Ws::AlreadyClosed => "connection_lost",
-        // The enum is #[non_exhaustive]; an unmapped shape keeps the old word
-        // rather than being reported as something it is not.
+        // Non-exhaustive enum: unmapped shapes keep the generic word.
         _ => "connect_failed",
     }
 }
@@ -332,30 +265,25 @@ fn classify_ws_error(
 /// What `POST {service_url}/sfu/get` answered.
 #[derive(Clone, Debug)]
 pub(crate) struct SfuCredentials {
-    /// The SFU's own websocket URL (`wss://…`). NOT the JWT service URL.
+    /// The SFU's websocket URL (`wss://…`), not the JWT service URL.
     pub url: String,
     /// Short-lived SFU authorization. Never logged, never crosses the FFI.
     pub jwt: String,
 }
 
-/// The SFU websocket URL as the JWT service returned it, normalised to the
-/// one shape the connect accepts -- or `None`.
+/// Normalize the SFU websocket URL from the JWT service to the one shape
+/// the connect accepts, or `None`.
 ///
-/// `https` is ACCEPTED and normalised to `wss`: lk-jwt-service echoes its
-/// configured LIVEKIT_URL verbatim and `https://…` is a normal value there
-/// (livekit-client does the same in `toWebsocketUrl`); `ws`/`http` would
-/// carry the JWT in the clear and are refused. `has_host()` alone is TRUE
-/// for an empty host (`wss:///rtc`), which normalises cleanly and then
-/// cannot connect to anything, so the host must be non-empty -- and PUBLIC:
-/// this URL was chosen by the focus, the focus by another participant, and
-/// a TLS websocket to the loopback is still a websocket to the loopback.
-/// This is the production transform; the tests call it, not a copy.
+/// `https` is normalized to `wss` (lk-jwt-service echoes LIVEKIT_URL, often
+/// `https://…`; livekit-client converts it the same way). `ws`/`http` would
+/// send the JWT in the clear and are refused. The host must be non-empty
+/// (`has_host()` accepts an empty one) and public: the URL is chosen by the
+/// focus, which another participant chose. Tests call this function.
 pub(crate) fn normalize_sfu_url(raw: &str) -> Option<String> {
     let mut parsed = url::Url::parse(raw).ok()?;
     match parsed.scheme() {
         "wss" => {}
-        // set_scheme can only fail between incompatible special schemes;
-        // https -> wss is allowed.
+        // https -> wss is an allowed scheme change.
         "https" => parsed.set_scheme("wss").ok()?,
         _ => return None,
     }
@@ -368,7 +296,7 @@ pub(crate) fn normalize_sfu_url(raw: &str) -> Option<String> {
 }
 
 /// The literal-host half of the SFU websocket policy; the resolved half is
-/// `rtc::resolve_public_host`, applied at connect time.
+/// `rtc::resolve_public_host` at connect time.
 fn public_ws_host(url: &url::Url) -> bool {
     match url.host() {
         Some(url::Host::Ipv4(addr)) => public_ip(std::net::IpAddr::V4(addr)),
@@ -378,11 +306,8 @@ fn public_ws_host(url: &url::Url) -> bool {
     }
 }
 
-/// Obtain SFU credentials for one room.
-///
-/// The OpenID token is minted by the homeserver for exactly this purpose:
-/// it lets the JWT service verify who the user is, by asking their
-/// homeserver, without ever seeing a Matrix access token.
+/// Obtain SFU credentials for one room. The homeserver-minted OpenID token
+/// lets the JWT service verify the user without a Matrix access token.
 async fn fetch_sfu_credentials(
     client: &matrix_sdk::Client,
     service_url: &str,
@@ -394,8 +319,7 @@ async fn fetch_sfu_credentials(
         .ok_or_else(|| "no session".to_owned())?
         .to_owned();
 
-    // Ask the homeserver to vouch for us. This token is scoped and
-    // short-lived; it is not a credential for anything else.
+    // Scoped, short-lived; not a credential for anything else.
     let openid = client
         .send(request_openid_token::v3::Request::new(user_id))
         .await
@@ -413,9 +337,9 @@ async fn fetch_sfu_credentials(
     }))
     .map_err(|_| "invalid_request".to_owned())?;
 
-    // The service URL was validated as https with a routable host when the
-    // transport was parsed (rtc::sane_https_url); this joins the documented
-    // path onto it without letting a crafted URL escape.
+    // The service URL was validated as https with a routable host at parse
+    // time (rtc::sane_https_url); join the documented path without letting a
+    // crafted URL escape.
     let mut url = url::Url::parse(service_url)
         .map_err(|_| "invalid_transport".to_owned())?;
     url.path_segments_mut()
@@ -423,27 +347,22 @@ async fn fetch_sfu_credentials(
         .pop_if_empty()
         .extend(["sfu", "get"]);
 
-    // The focus host was chosen by whoever holds the oldest membership --
-    // another participant -- and this request carries the user's OpenID
-    // token, device id and room id. So it goes through a client built for
-    // exactly this call and nothing else:
-    //   * the name is resolved HERE, every address must be public, and the
-    //     first one is pinned, so a private A record or a rebinding between
-    //     lookup and connect cannot land the POST on the loopback;
-    //   * redirects are refused outright. The SDK's shared client follows
-    //     up to ten, cross-scheme and cross-host, re-sending a cloneable
-    //     body -- a validated public host answering `307` to
-    //     `http://169.254.169.254/...` would have replayed the token there.
-    //     A JWT service has no reason to redirect;
-    //   * the environment proxy is ignored, or the pin is advisory;
-    //   * https only, with the same timeouts as the SDK's client.
+    // The focus host is chosen by another participant, and this request
+    // carries the user's OpenID token, device id and room id, so it uses a
+    // dedicated client:
+    //   * the name is resolved here, all addresses must be public, and the
+    //     first is pinned, so a private record or rebinding cannot reach the
+    //     loopback;
+    //   * redirects are refused (the SDK client would follow cross-host and
+    //     replay the body, e.g. to http://169.254.169.254/);
+    //   * the environment proxy is ignored, or the pin would be advisory;
+    //   * https only, with the SDK client's timeouts.
     let host = url
         .host_str()
         .map(ToOwned::to_owned)
         .ok_or_else(|| "invalid_transport".to_owned())?;
     let port = url.port_or_known_default().unwrap_or(443);
-    // Resolution is bounded like the request it precedes: an unanswering
-    // resolver must not hold the join open past the SFU timeout.
+    // Resolution is bounded too, so a silent resolver cannot hold the join.
     let pinned = tokio::time::timeout(SFU_TIMEOUT, resolve_public_host(&host, port))
         .await
         .ok()
@@ -471,8 +390,7 @@ async fn fetch_sfu_credentials(
     let status = response.status().as_u16();
     if !(200..300).contains(&status) {
         return Err(match status {
-            // A redirect is refused above, so a 3xx surfaces here: the
-            // service is misconfigured or hostile, and either way "invalid".
+            // Redirects are refused above, so a 3xx means misconfigured or hostile.
             300..=399 => "invalid".to_owned(),
             401 | 403 => "forbidden".to_owned(),
             404 => "unsupported".to_owned(),
@@ -481,10 +399,8 @@ async fn fetch_sfu_credentials(
             _ => "unknown".to_owned(),
         });
     }
-    // Refuse an oversized answer BEFORE reading it, and stop reading at the
-    // cap when there is no Content-Length: `text()` buffers the whole body
-    // first, so a check afterwards enforces nothing against a chunked reply
-    // that streams for the full timeout.
+    // Refuse an oversized answer before reading, and stop at the cap without a
+    // Content-Length: `text()` buffers everything first.
     if response
         .content_length()
         .is_some_and(|len| len > MAX_SFU_RESPONSE as u64)
@@ -507,15 +423,8 @@ async fn fetch_sfu_credentials(
     let parsed: serde_json::Value =
         serde_json::from_str(&text).map_err(|_| "invalid".to_owned())?;
 
-    // The SFU websocket URL is remote-supplied and is where media
-    // authorization is presented, so cleartext is refused — the JWT travels
-    // in this URL's query string.
-    //
-    // `https` is ACCEPTED and normalised to `wss`. lk-jwt-service echoes its
-    // configured LIVEKIT_URL verbatim, and `https://…` is a perfectly normal
-    // value there (livekit-client does the same conversion in
-    // `toWebsocketUrl`). Requiring `wss` outright rejected a correctly
-    // configured deployment and failed the call instantly with "invalid".
+    // The SFU URL carries the JWT in its query string, so cleartext is refused;
+    // `https` is normalized to `wss` (see normalize_sfu_url).
     let raw_url = parsed.get("url").and_then(|v| v.as_str()).unwrap_or("");
     let url_ok = sane(raw_url, 1024)
         .and_then(normalize_sfu_url)
@@ -534,24 +443,13 @@ async fn fetch_sfu_credentials(
 // Live session
 // ---------------------------------------------------------------------------
 
-/// How long `disconnect` lets the session task drain its queued Leave and
-/// close the websocket before the abort backstop fires.
+/// How long `disconnect` lets the session drain its queued Leave and close
+/// the websocket before the abort backstop.
 ///
-/// DERIVED FROM THE BUDGET IT RIDES, never written as a literal.
-///
-/// `disconnect` puts this drain on the tracked room-action pool, so the
-/// budget that joins it on quit is `crate::SHUTDOWN_ACTION_JOIN_MS`. The
-/// graceful close must finish INSIDE that, or the teardown aborts the waiter
-/// before its own window closes — taking the `abort()` backstop with it — and
-/// the `Leave` never goes out. Peers then keep a stale participant, age the
-/// membership out and rotate media keys without that user, which is the ghost
-/// this drain exists to prevent.
-///
-/// It was 3 s against a hand-copied "15 s" that named
-/// `timeline::SHUTDOWN_JOIN_TIMEOUT_SECS`. When the teardown chain was
-/// bounded, that budget became 1500 ms and this silently became twice its own
-/// window — caught in review, and the reason it is now an expression. The
-/// margin leaves the pool time to notice and abort rather than racing it.
+/// Derived from `crate::SHUTDOWN_ACTION_JOIN_MS`, the budget that joins
+/// this drain at teardown: it must finish inside that, or the teardown
+/// aborts the waiter first and the Leave never goes out, leaving a ghost
+/// participant for peers. The margin lets the pool abort cleanly.
 const LEAVE_FLUSH_MARGIN_MS: u64 = 250;
 const LEAVE_FLUSH_TIMEOUT: Duration =
     Duration::from_millis(crate::SHUTDOWN_ACTION_JOIN_MS - LEAVE_FLUSH_MARGIN_MS);
@@ -569,8 +467,8 @@ pub(crate) enum SfuCommand {
     /// A local description for one peer connection.
     Offer { sdp: String, target: i32 },
     Answer { sdp: String, target: i32 },
-    /// One trickled local ICE candidate (`candidate_init` is the JSON form
-    /// LiveKit expects).
+    /// One trickled local ICE candidate (`candidate_init` in LiveKit's JSON
+    /// form).
     Candidate { candidate_init: String, target: i32 },
     /// Declare a track before publishing it.
     AddTrack {
@@ -578,27 +476,23 @@ pub(crate) enum SfuCommand {
         name: String,
         /// 0 = audio, 1 = video
         kind: i32,
-        /// Video only, and 0 for audio. See the AddTrack arm: a video track
-        /// declared with no size and no layer leaves the SFU to guess, and it
-        /// guesses SIMULCAST.
+        /// Video only, 0 for audio. A video track declared without size and layer
+        /// makes the SFU assume simulcast.
         width: u32,
         height: u32,
         /// True for a screen share, which LiveKit sources separately.
         screen_share: bool,
-        /// Whether the frames on this track are E2EE-encrypted. LiveKit
-        /// carries this per TRACK, and a receiving client decides whether
-        /// to decrypt from it — encrypting the bytes while declaring NONE
-        /// means Element renders our frames as garbage rather than trying.
+        /// Whether this track's frames are E2EE-encrypted. Declared per track;
+        /// receivers use it to decide whether to decrypt.
         encrypted: bool,
     },
-    /// Mute/unmute a published track at the SFU, so other participants see
-    /// the state even though the valve already stopped the bytes.
+    /// Mute/unmute a published track at the SFU so others see the state (the
+    /// valve already stopped the bytes).
     MuteTrack { sid: String, muted: bool },
     Leave,
 }
 
-/// The one live signalling session. Guarded by a generation so a late frame
-/// from a closed session can never be attributed to the next one.
+/// The one live signalling session, guarded by a generation.
 pub(crate) struct SfuSession {
     pub generation: u64,
     pub commands: tokio::sync::mpsc::UnboundedSender<SfuCommand>,
@@ -617,8 +511,8 @@ impl Default for SfuState {
 }
 
 fn participant_json(info: &lkp::ParticipantInfo) -> Option<serde_json::Value> {
-    // `identity` is what maps an SFU participant back to a Matrix device:
-    // MatrixRTC sets it to the membership's rtc identity.
+    // `identity` maps an SFU participant to a Matrix device (MatrixRTC sets it
+    // to the membership's rtc identity).
     let identity = sane(&info.identity, 512)?;
     let tracks: Vec<serde_json::Value> = info
         .tracks
@@ -628,12 +522,9 @@ fn participant_json(info: &lkp::ParticipantInfo) -> Option<serde_json::Value> {
             let sid = sane(&track.sid, 256)?;
             Some(json!({
                 "sid": sid,
-                // Closed set: never the raw enum from the wire.
+                // Closed set, never the raw wire enum.
                 "kind": if track.r#type == 1 { "video" } else { "audio" },
-                // Named constants, never literals: these were once written
-                // out by hand and every one was off by one, which made our
-                // screen share arrive at Element as SCREEN_SHARE_AUDIO and
-                // never render.
+                // Named constants, not literals (see track_source_for).
                 "source": match lkp::TrackSource::try_from(track.source) {
                     Ok(lkp::TrackSource::Camera) => "camera",
                     Ok(lkp::TrackSource::Microphone) => "microphone",
@@ -643,15 +534,11 @@ fn participant_json(info: &lkp::ParticipantInfo) -> Option<serde_json::Value> {
                     _ => "unknown",
                 },
                 "muted": track.muted,
-                // The media-section id this track was negotiated on. THE
-                // authoritative pad-to-track mapping: the subscriber SDP's
-                // `a=mid:` for a section names exactly this, so a receiver
-                // can tell a participant's camera from their screen share
-                // instead of guessing from an msid that carries only the
-                // sending participant. Bounded like every other wire string.
+                // The media-section id this track was negotiated on: the subscriber SDP's
+                // `a=mid:` names exactly this, so a receiver can tell a camera from a
+                // screen share. Bounded.
                 "mid": sane(&track.mid, 128).unwrap_or_default(),
-                // LiveKit's own stream id for the track, when the server
-                // states it. Used only as a fallback key.
+                // LiveKit's stream id for the track, when stated. Fallback key only.
                 "stream": sane(&track.stream, 256).unwrap_or_default(),
             }))
         })
@@ -669,7 +556,8 @@ fn participant_json(info: &lkp::ParticipantInfo) -> Option<serde_json::Value> {
     }))
 }
 
-/// Encode and send one signalling request. `false` means the socket is gone.
+/// Encode and send one signalling request; `false` means the socket is
+/// gone.
 async fn send_request<S>(
     sink: &mut S,
     message: lkp::signal_request::Message,
@@ -685,10 +573,8 @@ where
     sink.send(WsMessage::Binary(buffer)).await.is_ok()
 }
 
-/// Run one signalling session to completion.
-///
-/// Every enqueue is gated on the session generation still being current, so
-/// nothing from a closed call reaches a later one.
+/// Run one signalling session to completion. Every enqueue checks the
+/// session generation, so nothing reaches a later call.
 #[allow(clippy::too_many_arguments)]
 async fn run_session(
     events: Arc<Mutex<std::collections::VecDeque<String>>>,
@@ -712,17 +598,13 @@ async fn run_session(
         }
     };
 
-    // LiveKit takes its authorization in the query string of the signalling
-    // URL. That is the protocol; the JWT is short-lived, the connection is
-    // wss, and this URL is never logged or enqueued.
+    // LiveKit takes the JWT in the signalling URL's query string. The JWT is
+    // short-lived, the connection wss, and the URL never logged or enqueued.
     let mut url = match url::Url::parse(&credentials.url) {
         Ok(url) => url,
         Err(_) => {
-            // Its OWN category rather than the shared `invalid`, which the
-            // credentials fetch already uses for five other things: this one
-            // says the SFU URL itself is unparseable, and it is reachable
-            // only if `normalize_sfu_url` accepted something this cannot
-            // re-parse.
+            // Its own category: the SFU URL is unparseable, reachable only if
+            // normalize_sfu_url accepted something this cannot re-parse.
             emit(json!({
                 "type": "sfu_state", "generation": generation,
                 "state": "failed", "category": "focus_url_invalid",
@@ -730,12 +612,8 @@ async fn run_session(
             return;
         }
     };
-    // `/rtc` is APPENDED to whatever path the SFU URL already has, never
-    // substituted for it. `set_path("/rtc")` discarded the prefix, so a
-    // LiveKit behind a reverse proxy at, say, `https://host/livekit` was
-    // asked for `/rtc` at the root and the handshake could not succeed.
-    // livekit-client appends too; the known double-slash bug in its own
-    // issue tracker is the same join being done less carefully.
+    // Append `/rtc` to the existing path rather than replacing it, so a
+    // LiveKit behind a reverse proxy prefix still works.
     {
         let existing = url.path().trim_end_matches('/').to_owned();
         url.set_path(&format!("{existing}/rtc"));
@@ -747,16 +625,14 @@ async fn run_session(
         .append_pair("sdk", "cpp")
         .append_pair("version", env!("CARGO_PKG_VERSION"));
 
-    // Resolve, check every address, and connect the TCP stream OURSELVES
-    // so the address the policy approved is the address the socket goes
-    // to; the TLS handshake still verifies the URL's hostname. And the
-    // frame ceilings go into the websocket CONFIG: the post-receipt
-    // MAX_SIGNAL_FRAME check below could only ever see a frame tungstenite
-    // had already buffered, up to its 64 MiB default.
-    // Resolution is its OWN step with its OWN category: a focus whose name
-    // resolves to a private, loopback or link-local address is refused by
-    // policy (docs/matrixrtc.md), and a user pointed at a LAN-only SFU
-    // deserves a reason that is not "the network is down".
+    // Resolve, check every address, and connect the TCP stream ourselves so the
+    // socket goes to the approved address (TLS still verifies the hostname).
+    // Frame ceilings go in the websocket config; a check after receipt would
+    // only see what tungstenite already buffered (up to 64 MiB).
+    //
+    // Resolution has its own category: a focus resolving to a private,
+    // loopback or link-local address is refused by policy (docs/matrixrtc.md),
+    // and that deserves a clearer reason than "network down".
     let host = url.host_str().unwrap_or_default().to_owned();
     let port = url.port_or_known_default().unwrap_or(443);
     let addresses = match tokio::time::timeout(
@@ -782,13 +658,9 @@ async fn run_session(
             return;
         }
     };
-    // EVERY approved address, in resolver order, not just the first, under
-    // one shared budget. Why, and the two properties that keep it safe, are
-    // on `walk_addresses`; the POLICY is untouched, because the list is
-    // all-or-nothing public before it gets here.
-    //
-    // `target` is a plain `&Url` so the per-address future can borrow it
-    // without cloning the URL — which carries the JWT — once per attempt.
+    // Every approved address, in resolver order, under one budget (see
+    // `walk_addresses`). `target` is borrowed so the URL, which carries the
+    // JWT, is not cloned per attempt.
     let target = &url;
     let stream = match walk_addresses(
         addresses,
@@ -821,10 +693,8 @@ async fn run_session(
             return;
         }
         ConnectWalk::Failed(err) => {
-            // The error STRING can embed the URL, which carries the JWT.
-            // Only a closed-set category ever leaves this scope —
-            // classify_ws_error reads the error's SHAPE and a status code,
-            // never its text.
+            // The error string can embed the URL (and JWT); only a closed-set category
+            // leaves this scope.
             let category = err
                 .as_ref()
                 .map(classify_ws_error)
@@ -843,36 +713,23 @@ async fn run_session(
         "category": "",
     }));
 
-    // LiveKit's APPLICATION-LEVEL keepalive.
-    //
-    // This is not the WebSocket ping/pong frame handled below — the server
-    // requires a `ping`/`ping_req` SIGNAL and disconnects a client that stops
-    // sending them, which is exactly what happened here: the session reached
-    // `signalling` and then the SFU sent Leave, every time, in every room.
-    //
-    // The interval comes from JoinResponse (`ping_interval` seconds); until
-    // the join lands, the ticker is parked far in the future so nothing is
-    // sent before the server has told us what it wants. livekit-client sends
-    // BOTH the deprecated `ping` and the newer `ping_req` on every tick, and
-    // this does the same: the pair costs nothing and covers servers on either
-    // side of that change.
+    // LiveKit's application-level keepalive (not websocket ping/pong): the
+    // server disconnects clients that stop sending `ping`/`ping_req` signals.
+    // The interval comes from JoinResponse; until then the ticker is parked.
+    // Both the deprecated `ping` and `ping_req` are sent, as livekit-client
+    // does.
     let mut ping_ticker =
         tokio::time::interval(std::time::Duration::from_secs(3600));
     ping_ticker.set_missed_tick_behavior(
         tokio::time::MissedTickBehavior::Delay);
-    // The first tick of a tokio interval fires immediately; consume it so the
-    // parked interval does not ping before the join.
+    // A tokio interval ticks immediately; consume it so nothing is sent before
+    // the join.
     ping_ticker.tick().await;
     let mut ping_armed = false;
-    // LiveKit correlates an answer with the offer it answers through
-    // `SessionDescription.id`. It is NOT the peer-connection target, which is
-    // what this used to send: the server generates its offer ids from a
-    // RANDOM base (`rand.Intn(1<<8)+1`, then incremented), so a hardcoded
-    // value matched only by accident and the server logged an "answer id
-    // mismatch" against every answer we ever sent. livekit-client keeps the
-    // last remote offer id and echoes it back (`latestRemoteOfferId`), and
-    // numbers its OWN offers with a counter; both are done here.
-    // Index 0 = publisher, 1 = subscriber, matching `target_str`.
+    // LiveKit matches an answer to its offer by `SessionDescription.id`, not
+    // the peer-connection target. Server offer ids start from a random base, so
+    // echo the last remote offer id back and number our own offers with a
+    // counter, as livekit-client does. Index 0 = publisher, 1 = subscriber.
     let mut remote_offer_id = [0u32; 2];
     let mut local_offer_id = [0u32; 2];
 
@@ -883,8 +740,7 @@ async fn run_session(
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_millis() as i64)
                     .unwrap_or(0);
-                // send_request returns false on a write failure — the
-                // socket is gone, so stop rather than tick into a dead sink.
+                // Write failure: the socket is gone, stop.
                 if !send_request(
                     &mut sink,
                     lkp::signal_request::Message::Ping(now_ms)).await
@@ -920,10 +776,8 @@ async fn run_session(
                         lkp::signal_request::Message::Answer(
                             lkp::SessionDescription {
                                 r#type: "answer".to_owned(), sdp,
-                                // The id of the offer this answers, echoed
-                                // back. 0 means "we never saw an offer", and
-                                // the server treats 0 as unset rather than as
-                                // a mismatch.
+                                // The id of the offer being answered; 0 means none seen, which the
+                                // server treats as unset.
                                 id: remote_offer_id[slot],
                                 ..Default::default()
                             })
@@ -937,17 +791,9 @@ async fn run_session(
                     SfuCommand::AddTrack {
                         cid, name, kind, width, height, screen_share, encrypted,
                     } => {
-                        // ONE explicit layer for video, with real dimensions.
-                        //
-                        // livekit-client always sets `req.width`/`req.height`
-                        // (it waits on `track.waitForDimensions()` to do it),
-                        // and the proto says of VideoLayer.quality: "for
-                        // tracks with a single layer, this should be HIGH".
-                        // Declaring neither leaves the SFU to infer the shape
-                        // of the track — it logs `sdpRids ["q","h","f"]`, the
-                        // three-layer simulcast default — while we publish a
-                        // single untagged stream, so what it forwards and what
-                        // we send do not describe the same track.
+                        // One explicit video layer with real dimensions, as livekit-client does
+                        // (the proto: single-layer tracks should use HIGH). Without it the SFU
+                        // assumes three-layer simulcast while we send a single stream.
                         let layers = if kind == lkp::TrackType::Video as i32 {
                             vec![lkp::VideoLayer {
                                 quality: lkp::VideoQuality::High as i32,
@@ -964,19 +810,10 @@ async fn run_session(
                                 width, height, layers,
                                 source: track_source_for(kind, screen_share),
                                 encryption: track_encryption_for(encrypted),
-                                // RED (RFC 2198 redundant audio) and frame
-                                // E2EE are mutually exclusive, and the
-                                // reference says so in one line:
-                                // livekit-client sets
-                                // `disableRed: this.isE2EEEnabled || …`.
-                                // RED wraps the Opus payload, so a receiver
-                                // hands its frame decryptor a RED packet
-                                // whose first byte is not the Opus TOC the
-                                // format leaves in the clear — every frame
-                                // then fails its authentication tag and is
-                                // dropped. Left false, an SFU is free to
-                                // apply RED to our audio and nobody can
-                                // decrypt a word of it.
+                                // RED and frame E2EE are mutually exclusive (livekit-client:
+                                // `disableRed: this.isE2EEEnabled || …`): RED wraps the Opus payload, so
+                                // the decryptor gets a RED packet instead of the clear Opus TOC byte, and
+                                // every frame fails authentication.
                                 disable_red: encrypted,
                                 ..Default::default()
                             })
@@ -1025,10 +862,8 @@ async fn run_session(
 
                 match message {
                     lkp::signal_response::Message::Join(join) => {
-                        // Arm the keepalive at the interval the SERVER asked
-                        // for, clamped: a hostile or misconfigured 0 would
-                        // spin, and an absurd value would be no keepalive at
-                        // all. livekit's own default is 15s/30s.
+                        // Arm the keepalive at the server's interval, clamped (0 would spin; a huge
+                        // value is no keepalive).
                         let interval = join.ping_interval.clamp(1, 120) as u64;
                         ping_ticker = tokio::time::interval(
                             std::time::Duration::from_secs(interval));
@@ -1036,17 +871,9 @@ async fn run_session(
                             tokio::time::MissedTickBehavior::Delay);
                         ping_ticker.tick().await;   // consume the immediate one
                         ping_armed = true;
-                        // OUR OWN row FIRST, then the others.
-                        //
-                        // `JoinResponse.participant` is the local
-                        // participant and `other_participants` is everyone
-                        // else — livekit-client keeps them apart, but this
-                        // bridge carries ONE list, and leaving ours out of it
-                        // meant the call stage could never draw the local
-                        // tile from the join alone, and `ownParticipantRow()`
-                        // (which is how a mute reaches the SFU) had nothing
-                        // to find until the server happened to send an update
-                        // about us.
+                        // Our own row first, then the others. JoinResponse keeps the local
+                        // participant separate; without it in the list the stage cannot draw the
+                        // local tile, and `ownParticipantRow()` (used to send mutes) finds nothing.
                         let mut participants: Vec<serde_json::Value> =
                             Vec::with_capacity(MAX_PARTICIPANTS);
                         if let Some(own) = join.participant.as_ref()
@@ -1058,9 +885,8 @@ async fn run_session(
                             .other_participants.iter()
                             .take(MAX_PARTICIPANTS.saturating_sub(1))
                             .filter_map(participant_json));
-                        // ICE servers the SFU names. Credentials among them
-                        // are short-lived and engine-only, exactly like the
-                        // homeserver's TURN answer.
+                        // ICE servers from the SFU; their credentials are short-lived and
+                        // engine-only, like the homeserver's TURN answer.
                         let ice: Vec<serde_json::Value> = join.ice_servers
                             .iter().take(8).map(|server| json!({
                                 "urls": server.urls.iter().take(8)
@@ -1082,10 +908,8 @@ async fn run_session(
                         }));
                     }
                     lkp::signal_response::Message::Offer(sdp) => {
-                        // The server offers on SUBSCRIBER: this is everyone
-                        // else's media arriving. Its id has to survive until
-                        // our answer is built, or the answer cannot name the
-                        // offer it answers.
+                        // The server offers on subscriber (everyone else's media). Keep its id for
+                        // the answer.
                         remote_offer_id[1] = sdp.id;
                         if media_capable.load(Ordering::SeqCst) {
                             emit(json!({
@@ -1184,10 +1008,8 @@ async fn run_session(
                         }));
                     }
                     lkp::signal_response::Message::Leave(leave) => {
-                        // The REASON, not just the fact. Discarding it cost a
-                        // whole debugging round: "the server told us to
-                        // leave" with no reason is unactionable, and the
-                        // reason is a closed enum, not content.
+                        // Include the reason (a closed enum, not content); "told to leave" alone is
+                        // unactionable.
                         emit(json!({
                             "type": "sfu_state", "generation": generation,
                             "state": "ended", "category": "server_leave",
@@ -1217,11 +1039,9 @@ async fn run_session(
     }));
 }
 
-/// Connect to the SFU named by `service_url` for `room_id`.
-///
-/// Tears down any existing session first: one media call at a time, and the
-/// generation bump means the old session's frames stop being reported the
-/// instant this is called.
+/// Connect to the SFU at `service_url` for `room_id`. Tears down any
+/// existing session first (one call at a time); the generation bump stops
+/// the old session's reports immediately.
 pub(crate) fn connect(
     bridge: &RustClient,
     service_url: String,
@@ -1277,8 +1097,7 @@ pub(crate) fn connect(
     Ok(())
 }
 
-/// Send one command into the live session. Silently ignored when there is
-/// none — a command for a call that has ended is not an error.
+/// Send one command into the live session; ignored when there is none.
 pub(crate) fn send_command(bridge: &RustClient, command: SfuCommand) {
     if let Ok(guard) = bridge.sfu.session.lock() {
         if let Some(session) = guard.as_ref() {
@@ -1287,11 +1106,8 @@ pub(crate) fn send_command(bridge: &RustClient, command: SfuCommand) {
     }
 }
 
-/// Tear down the live session.
-///
-/// Bumping the generation FIRST is what makes this safe: the running task
-/// may already be mid-`await`, and every enqueue it can still reach checks
-/// the generation, so nothing from the old call reaches the next one.
+/// Tear down the live session. The generation is bumped first, so a task
+/// mid-await cannot report into the next call.
 pub(crate) fn disconnect(bridge: &RustClient) {
     bridge.sfu_generation.fetch_add(1, Ordering::SeqCst);
     let session = bridge.sfu.session.lock().ok().and_then(|mut g| g.take());
@@ -1299,31 +1115,17 @@ pub(crate) fn disconnect(bridge: &RustClient) {
         let SfuSession { commands, task, .. } = session;
         let _ = commands.send(SfuCommand::Leave);
 
-        // THE LEAVE HAS TO REACH THE WIRE, AND ABORTING HERE GUARANTEED IT
-        // NEVER DID.
+        // Let the Leave reach the wire. `commands.send` only queues; aborting
+        // immediately cancelled the task with the Leave unread, so the SFU kept the
+        // participant until its own timeout and every rejoin added another copy.
+        // Give the task a bounded window to drain, keeping abort as the backstop
+        // for a dead connection.
         //
-        // `commands.send` only queues onto an unbounded channel — it schedules
-        // nothing. The session task was still parked on its `select!` and had
-        // not been polled since, so the immediate `task.abort()` that used to
-        // stand here cancelled it at that await point with the Leave still
-        // sitting unread in the channel. The LiveKit SFU therefore never
-        // learned we had gone, held the participant open until its own peer
-        // timeout, and every rejoin added ANOTHER copy of us: the maintainer's
-        // "multiple same users sit in the call", each labelled waiting for
-        // media because a stale publisher has no tracks.
-        //
-        // So give the task a bounded window to drain the Leave and close its
-        // socket, and keep abort as what it always claimed to be — the backstop
-        // for a task blocked on a dead connection.
-        //
-        // Two details this depends on:
-        //  * `abort_handle()` is taken BEFORE the JoinHandle moves into the
-        //    timeout. A timed-out `timeout(d, handle)` DROPS the handle, and
-        //    dropping a JoinHandle DETACHES the task rather than cancelling it
-        //    — the backstop would be silently gone.
-        //  * `commands` is held alive for the window. Dropping the sender is a
-        //    second end-of-stream signal; the queued Leave would still be
-        //    delivered first, but there is no reason to run that race.
+        //  * `abort_handle()` is taken before the JoinHandle moves into the
+        //    timeout: a timed-out `timeout(d, handle)` drops the handle, which
+        //    detaches the task instead of cancelling it.
+        //  * `commands` is kept alive for the window, so sender drop does not race
+        //    the queued Leave.
         let abort = task.abort_handle();
         bridge.spawn_room_action(async move {
             let _commands = commands;
@@ -1338,12 +1140,9 @@ pub(crate) fn disconnect(bridge: &RustClient) {
 mod tests {
     use super::*;
 
-    // THE SERVER-INJECTED-FRAME TRAILER CROSSES THE BRIDGE, BOUNDED.
-    //
-    // It was never read at all: `Message::Join` ignored `sif_trailer`, so the
-    // C++ probe could not recognise the SFU's own blank frames and failed
-    // every one as `bad-iv-length`. Round-trips a real JoinResponse through
-    // prost so the FIELD is what is exercised, not a hand-built struct.
+    // The server-injected-frame trailer crosses the bridge, bounded.
+    // Round-trips a real JoinResponse through prost so the field itself is
+    // exercised.
     #[test]
     fn sif_trailer_is_forwarded_base64_and_bounded() {
         use base64::Engine;
@@ -1365,8 +1164,7 @@ mod tests {
         // Exactly at the bound: forwarded whole.
         let at_bound = vec![b'A'; MAX_SIF_TRAILER];
         assert_eq!(b64.decode(sif_trailer_b64(&at_bound)).unwrap(), at_bound);
-        // One over: DROPPED, never truncated -- a truncated trailer would
-        // match frames the SFU never marked.
+        // One over: dropped, never truncated.
         assert_eq!(sif_trailer_b64(&vec![b'A'; MAX_SIF_TRAILER + 1]), "");
         // Too short, or not base62: dropped.
         assert_eq!(sif_trailer_b64(b"R"), "");
@@ -1377,19 +1175,9 @@ mod tests {
         assert_eq!(sif_trailer_b64(&not_base62), "");
     }
 
-    // ONE WORD FOR SEVEN FAILURES WAS THE DEFECT; THIS PINS THE SPLIT.
-    //
-    // Before 2026-09-09 every failure between `authorized` and `signalling`
-    // — the whole DNS + TCP + TLS + HTTP + websocket-upgrade sequence —
-    // emitted `connect_failed`, and the C++ side rendered that as "Couldn't
-    // connect to the call." A macOS bundle reporting exactly that pair could
-    // not be diagnosed at all, because the error's own text can embed the
-    // request URL (which carries the JWT) and is therefore never logged.
-    //
-    // Two properties, both of which the old code failed:
-    //   * distinct causes get distinct categories, and
-    //   * nothing here is derived from an error MESSAGE, so no secret can
-    //     leak through a category.
+    // Each failure between `authorized` and `signalling` gets a distinct
+    // category, and none is derived from an error message (which could leak
+    // the JWT).
     #[test]
     fn every_connect_failure_shape_has_its_own_category() {
         use tokio_tungstenite::tungstenite::Error as Ws;
@@ -1398,17 +1186,15 @@ mod tests {
         let io = |kind: Kind| {
             classify_ws_error(&Ws::Io(std::io::Error::new(kind, "x")))
         };
-        // No route is the shape a machine with an AAAA record and no working
-        // IPv6 sees, and it must not read as "the service refused us".
+        // No route (AAAA without IPv6) must not read as a refusal.
         assert_eq!(io(Kind::NetworkUnreachable), "sfu_unreachable");
         assert_eq!(io(Kind::HostUnreachable), "sfu_unreachable");
         assert_eq!(io(Kind::ConnectionRefused), "sfu_refused_connection");
         assert_eq!(io(Kind::TimedOut), "connect_timeout");
         assert_eq!(io(Kind::PermissionDenied), "connect_blocked");
         assert_eq!(io(Kind::ConnectionReset), "connection_lost");
-        // An unmapped socket error is still a transport failure, never the
-        // generic word: `connect_failed` now means "a websocket error shape
-        // this build does not know", which is a different statement.
+        // An unmapped socket error is a transport failure; `connect_failed` means
+        // an unknown websocket error shape.
         assert_eq!(io(Kind::InvalidData), "transport_failed");
 
         let http = |status: u16| {
@@ -1426,9 +1212,7 @@ mod tests {
         assert_eq!(http(503), "server_error");
         assert_eq!(http(418), "ws_rejected");
 
-        // A proxy or a captive portal answering something that is not an
-        // upgrade. Its own category, because the remedy is on the network
-        // and not on the SFU.
+        // A proxy or captive portal: the remedy is on the network, not the SFU.
         assert_eq!(
             classify_ws_error(&Ws::Protocol(
                 tokio_tungstenite::tungstenite::error::ProtocolError::
@@ -1442,8 +1226,7 @@ mod tests {
         assert_eq!(classify_ws_error(&Ws::ConnectionClosed),
                    "connection_lost");
 
-        // And the categories are all DIFFERENT words where the causes
-        // differ: a table that collapses is the old defect wearing a test.
+        // Distinct causes must have distinct words.
         let distinct = [
             io(Kind::NetworkUnreachable),
             io(Kind::ConnectionRefused),
@@ -1467,21 +1250,10 @@ mod tests {
 
     // ── The address walk ─────────────────────────────────────────────────
     //
-    // The one change in this round that is NOT macOS-guarded, so it is the
-    // one that has to be pinned hardest: it alters what Linux and Windows do
-    // too. Three properties, one case each.
+    // Affects every platform, so it is pinned: three properties, one case each.
 
-    // 1. AN UNREACHABLE FIRST ADDRESS IS NOT THE ANSWER FOR THE HOST.
-    //
-    // FAILS ON THE OLD CODE, which was `addresses.into_iter().next()` in
-    // rtc.rs plus a single connect: it attempts address one, gets
-    // ENETUNREACH and reports the whole host dead. Both assertions below are
-    // false on it — the second address is never tried, so `tried` holds one
-    // entry and nothing is ever connected.
-    //
-    // This is the shape a Mac with an AAAA record and no working IPv6 route
-    // sees, and macOS offers the AAAA first far more readily than glibc's
-    // RFC 6724 sort does.
+    // 1. An unreachable first address is not the answer for the host: the
+    // second address must be tried and connect (AAAA-first without IPv6).
     #[tokio::test]
     async fn an_unreachable_first_address_is_not_the_whole_host() {
         use std::sync::{Arc, Mutex};
@@ -1518,21 +1290,11 @@ mod tests {
                    "both addresses must be tried, in resolver order");
     }
 
-    // 2. N ADDRESSES COST ONE BUDGET, NOT N BUDGETS.
-    //
-    // The obvious way to write the walk — a fresh `timeout(SFU_TIMEOUT, …)`
-    // per address — lets a join hang for N times as long as it can today.
-    // That is a worse failure than the one being fixed.
-    //
-    // THE CASE THAT ACTUALLY DISTINGUISHES THE TWO IS A SLOW FAILURE, and
-    // finding that out cost a wrong test first. An address that HANGS proves
-    // nothing: the walk returns `TimedOut` on the first expiry whichever
-    // timeout it uses, so a fixed-per-address mutation passed. What only a
-    // shared deadline survives is several addresses that each fail slowly
-    // and legitimately — a TCP connect that sits for seconds and then
-    // answers ECONNREFUSED. None of those trips a per-address budget, so
-    // that shape runs all six to completion and costs six times the wait,
-    // while `timeout_at` cuts the walk at the deadline.
+    // 2. N addresses cost one budget, not N. Only a slow failure distinguishes
+    // the two: each address fails slowly but legitimately (connect sits, then
+    // ECONNREFUSED), which a per-address timeout lets run to completion while a
+    // shared `timeout_at` cuts it at the deadline. (A hanging address returns
+    // `TimedOut` either way.)
     #[tokio::test]
     async fn the_whole_address_walk_shares_one_budget() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1554,9 +1316,7 @@ mod tests {
                 let counter = Arc::clone(&counter);
                 async move {
                     counter.fetch_add(1, Ordering::SeqCst);
-                    // Slow, and then a RETRYABLE transport failure — so the
-                    // walk legitimately moves on, and nothing here trips a
-                    // per-address timeout of its own.
+                    // Slow, then a retryable transport failure, so the walk moves on.
                     tokio::time::sleep(per_attempt).await;
                     Err(tokio_tungstenite::tungstenite::Error::Io(
                         std::io::Error::new(
@@ -1567,23 +1327,19 @@ mod tests {
         .await;
         let elapsed = started.elapsed();
 
-        // The deadline, not the address list, is what ends this.
+        // The deadline ends this, not the address list.
         assert!(matches!(walk, ConnectWalk::TimedOut),
                 "six slow addresses ran to completion instead of being cut \
                  off at the shared deadline");
         assert!(attempts.load(Ordering::SeqCst) < 6,
                 "every address was tried despite the budget running out");
-        // 6 x 200 ms = 1200 ms if each address gets its own budget, against
-        // ~500 ms when they share one. The margin is wide enough that a
-        // loaded machine cannot flake it and narrow enough that the broken
-        // shape cannot slip under it.
+        // 6 x 200 ms = 1200 ms with per-address budgets versus ~500 ms shared; wide
+        // enough for a loaded machine, narrow enough to catch the broken shape.
         assert!(elapsed < budget + per_attempt * 2,
                 "the walk took {elapsed:?} against a {budget:?} budget");
 
-        // AND the hanging case, which is bounded by the early return rather
-        // than by the deadline: one attempt, then the walk gives up. Pinned
-        // here because it is the OTHER half of "a join cannot hang for N
-        // budgets", and it is a different mechanism.
+        // The hanging case is bounded by the early return rather than the
+        // deadline: one attempt, then give up.
         let hangs = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&hangs);
         let walk: ConnectWalk<()> = walk_addresses(
@@ -1604,13 +1360,9 @@ mod tests {
                    "an address that never answers was followed by five more");
     }
 
-    // 3. A REFUSAL FROM THE SERVER IS NOT RETRIED SOMEWHERE ELSE.
-    //
-    // An HTTP status, a TLS alert or a refused upgrade is the server
-    // answering, and it answers the same way at every address it has.
-    // Walking on would turn one 403 into four, cost the user four round
-    // trips, and report the LAST one — so a transient failure at address
-    // four would mask the real refusal at address one.
+    // 3. A server refusal (HTTP status, TLS alert, refused upgrade) is not
+    // retried elsewhere: it would repeat at every address and could be masked
+    // by a later transient failure.
     #[tokio::test]
     async fn a_refusal_from_the_server_is_not_retried_at_another_address() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1654,33 +1406,25 @@ mod tests {
         }
     }
 
-    // A NAME THAT DOES NOT RESOLVE IS NOT A PRIVATE ADDRESS.
-    //
-    // All three used to arrive as one `None` and were reported with the
-    // private-address sentence, which sends the reader to fix a thing that
-    // is not broken.
+    // An unresolvable name is not a private address.
     #[test]
     fn each_host_refusal_keeps_its_own_reason() {
         assert_eq!(resolve_refusal_category(HostRefusal::PrivateName),
                    "focus_private_name");
         assert_eq!(resolve_refusal_category(HostRefusal::Unresolved),
                    "focus_unresolved");
-        // The one case the existing user-facing sentence is true of, so it
-        // keeps the category that sentence is keyed on.
+        // The case the existing sentence is true of keeps its category.
         assert_eq!(resolve_refusal_category(HostRefusal::NonPublicAddress),
                    "focus_unroutable");
     }
 
     #[test]
     fn signal_targets_are_a_closed_set_and_round_trip() {
-        // Publisher and subscriber must never be confused: the client offers
-        // on publisher (its own tracks) and the server offers on subscriber
-        // (everyone else's). Swapping them wires audio the wrong way.
+        // Publisher and subscriber must never be swapped.
         assert_eq!(target_str(0), "publisher");
         assert_eq!(target_str(1), "subscriber");
-        // Anything unrecognised degrades to subscriber, never to publisher —
-        // guessing "publisher" would attach a remote description to our own
-        // outgoing peer connection.
+        // Unknown degrades to subscriber, never publisher (which would attach a
+        // remote description to our outgoing connection).
         assert_eq!(target_str(99), "subscriber");
         assert_eq!(target_from_str("publisher"), 0);
         assert_eq!(target_from_str("subscriber"), 1);
@@ -1689,9 +1433,7 @@ mod tests {
 
     #[test]
     fn participant_without_a_sane_identity_is_dropped() {
-        // The identity is what maps an SFU participant to a Matrix device.
-        // A control character in it means the whole participant is refused,
-        // never repaired.
+        // A control character in the identity drops the whole participant.
         let mut info = lkp::ParticipantInfo {
             identity: "@a:x:DEVICE".to_owned(),
             sid: "PA_1".to_owned(),
@@ -1704,9 +1446,8 @@ mod tests {
         assert!(participant_json(&info).is_none());
     }
 
-    /// The PRODUCTION normalisation (super::normalize_sfu_url) plus the
-    /// `/rtc` path join the connect performs, so the assertions below hold
-    /// against what fetch_sfu_credentials actually does.
+    /// The production normalisation plus the connect's `/rtc` join, so the
+    /// assertions hold for what fetch_sfu_credentials does.
     fn normalize_sfu_url(raw: &str) -> Option<String> {
         let normalized = super::normalize_sfu_url(raw)?;
         let mut parsed = url::Url::parse(&normalized).ok()?;
@@ -1717,11 +1458,8 @@ mod tests {
 
     #[test]
     fn an_https_sfu_url_is_accepted_and_normalised_to_wss() {
-        // lk-jwt-service echoes its configured LIVEKIT_URL verbatim, and
-        // `https://…` is a normal value there — livekit-client converts it in
-        // `toWebsocketUrl`. Requiring `wss` outright rejected a correctly
-        // configured deployment and failed the call instantly with "invalid",
-        // which is what "calls insta fail" looked like.
+        // lk-jwt-service echoes LIVEKIT_URL verbatim, often `https://…`; rejecting
+        // it failed calls instantly.
         assert_eq!(
             normalize_sfu_url("https://livekit.example.net").as_deref(),
             Some("wss://livekit.example.net/rtc")
@@ -1734,23 +1472,18 @@ mod tests {
 
     #[test]
     fn cleartext_signalling_is_still_refused() {
-        // The JWT travels in this URL's query string, so ws/http would put a
-        // media authorization credential on the wire in the clear. Accepting
-        // https is a normalisation; accepting ws would be a downgrade.
+        // The JWT is in the query string: ws/http would send it in the clear.
         assert!(normalize_sfu_url("ws://livekit.example.net").is_none());
         assert!(normalize_sfu_url("http://livekit.example.net").is_none());
         assert!(normalize_sfu_url("not a url").is_none());
-        // NOT `wss:///rtc` — measured, that parses with host "rtc" (the
-        // triple slash collapses), so it is a well-formed URL for a host
-        // that simply will not resolve. A genuinely hostless form is what
-        // has to be refused.
+        // Not `wss:///rtc`, which parses with host "rtc"; a genuinely hostless
+        // form must be refused.
         assert!(normalize_sfu_url("wss:").is_none());
     }
 
-    /// The focus chooses this URL and another participant chooses the
-    /// focus. A TLS websocket to the loopback, a private range, an
-    /// IPv4-mapped loopback, or a local-only name is refused at the
-    /// literal, before any resolution.
+    /// The focus chooses this URL and another participant chooses the focus.
+    /// Loopback, private ranges, IPv4-mapped loopback and local-only names are
+    /// refused at the literal, before resolution.
     #[test]
     fn an_sfu_url_on_an_unroutable_host_is_refused() {
         for bad in [
@@ -1772,15 +1505,12 @@ mod tests {
 
     #[test]
     fn the_rtc_path_is_appended_never_substituted() {
-        // A LiveKit behind a reverse proxy carries a path prefix.
-        // `set_path("/rtc")` discarded it and asked the root for /rtc, so the
-        // handshake could not succeed.
+        // A reverse-proxy path prefix must be kept.
         assert_eq!(
             normalize_sfu_url("https://host.example.net/livekit").as_deref(),
             Some("wss://host.example.net/livekit/rtc")
         );
-        // A trailing slash must not produce a double slash — the exact shape
-        // livekit-client has its own bug report about.
+        // No double slash after a trailing slash.
         assert_eq!(
             normalize_sfu_url("https://host.example.net/livekit/").as_deref(),
             Some("wss://host.example.net/livekit/rtc")
@@ -1793,12 +1523,9 @@ mod tests {
 
     #[test]
     fn the_jwt_service_request_body_matches_the_reference_service() {
-        // lk-jwt-service declares its request types with
-        // #[serde(deny_unknown_fields)], so ONE extra field is a 400. The
-        // legacy /sfu/get body is exactly `room`, `openid_token` and
-        // `device_id`; the openid token is the homeserver's response verbatim.
-        // Probed live against a real deployment: an empty body answers
-        // `M_BAD_JSON: Missing room parameter`, which is this handler.
+        // lk-jwt-service uses #[serde(deny_unknown_fields)], so any extra field is
+        // a 400. The /sfu/get body is exactly `room`, `openid_token` (the
+        // homeserver's response verbatim) and `device_id`.
         let body = json!({
             "room": "!room:example.org",
             "openid_token": {
@@ -1830,39 +1557,28 @@ mod tests {
 
     #[test]
     fn track_source_numbers_match_the_livekit_wire() {
-        // The values Element Call and every livekit-client read. They were
-        // hand-written once and every one was off by one, which put our
-        // screen share on SCREEN_SHARE_AUDIO — a track Element renders as
-        // audio and never shows. Pinned as NUMBERS on purpose: an
-        // assertion written in terms of the same enum could not have
-        // caught the original defect.
+        // The numbers Element Call and livekit-client read, pinned as literals:
+        // an assertion through the enum could not catch an off-by-one mapping.
         assert_eq!(lkp::TrackSource::Camera as i32, 1);
         assert_eq!(lkp::TrackSource::Microphone as i32, 2);
         assert_eq!(lkp::TrackSource::ScreenShare as i32, 3);
         assert_eq!(lkp::TrackSource::ScreenShareAudio as i32, 4);
         assert_eq!(lkp::TrackType::Audio as i32, 0);
         assert_eq!(lkp::TrackType::Video as i32, 1);
-        // The E2EE declaration. Element Call publishes GCM when the room is
-        // encrypted, and a receiver reads this to decide whether to run the
-        // frame decryptor at all.
+        // E2EE declaration: Element Call publishes GCM in encrypted rooms.
         assert_eq!(lkp::encryption::Type::None as i32, 0);
         assert_eq!(lkp::encryption::Type::Gcm as i32, 1);
     }
 
     #[test]
     fn added_tracks_carry_the_right_source() {
-        // Calls the SAME function the AddTrack path calls, in the raw numbers
-        // that go on the wire. Asserting through the enum would pass against
-        // the original off-by-one defect, which is why these are literals.
+        // The same function as the AddTrack path, asserted in raw wire numbers.
         assert_eq!(track_source_for(1, true), 3);   // screen share video
         assert_eq!(track_source_for(0, true), 4);   // screen share AUDIO
         assert_eq!(track_source_for(1, false), 1);  // camera
         assert_eq!(track_source_for(0, false), 2);  // microphone
 
-        // All four combinations are DISTINCT. The bug this guards against is
-        // not "a wrong constant" but "two inputs collapsing onto one output":
-        // branching on screen_share alone made the two share tracks
-        // indistinguishable, and the audio half is the one that loses.
+        // All four combinations are distinct; two collapsing was the bug.
         let all = [
             track_source_for(1, true),
             track_source_for(0, true),
@@ -1873,12 +1589,11 @@ mod tests {
         seen.sort_unstable();
         seen.dedup();
         assert_eq!(seen.len(), 4, "two track sources collapsed onto one");
-        // A screen share is a VIDEO track whose source is the screen, never
-        // SCREEN_SHARE_AUDIO — the original bug, in one assertion.
+        // A screen share is a video track sourced from the screen, never
+        // SCREEN_SHARE_AUDIO.
         assert_ne!(track_source_for(1, true),
                    lkp::TrackSource::ScreenShareAudio as i32);
-        // Screen share must not be mistaken for a camera either: Element
-        // lays the two out differently and pins a share to the stage.
+        // Nor a camera: Element lays them out differently.
         assert_ne!(track_source_for(1, true), track_source_for(1, false));
 
         assert_eq!(track_encryption_for(true), 1);  // GCM
@@ -1917,16 +1632,12 @@ mod tests {
         assert_eq!(tracks[0]["source"], json!("microphone"));
         assert_eq!(tracks[1]["kind"], json!("video"));
         assert_eq!(tracks[1]["source"], json!("screen_share"));
-        // An unrecognised source must not be forwarded verbatim; it becomes
-        // "unknown" so the UI cannot act on a value it does not understand.
+        // An unrecognised source becomes "unknown", never forwarded verbatim.
         assert_eq!(tracks[2]["source"], json!("unknown"));
     }
 
-    // A camera and a screen share from ONE participant are two tracks, and a
-    // receiver keyed only on the participant can feed exactly one surface —
-    // which is why a remote screen share never rendered. `mid` is the
-    // media-section id LiveKit states per track and the subscriber SDP repeats
-    // as `a=mid:`, so it is what tells the two apart.
+    // A participant's camera and screen share are two tracks; `mid` (repeated
+    // as the subscriber SDP's `a=mid:`) tells them apart.
     #[test]
     fn tracks_carry_their_media_section_id() {
         let info = lkp::ParticipantInfo {
@@ -1957,14 +1668,11 @@ mod tests {
         assert_eq!(tracks[1]["mid"], json!("2"));
         // The two video tracks are distinguishable, which is the whole point.
         assert_ne!(tracks[0]["mid"], tracks[1]["mid"]);
-        // A server that states no stream id must not produce a null the UI
-        // would have to special-case; absent is the empty string.
+        // No stream id is the empty string, not null.
         assert_eq!(tracks[1]["stream"], json!(""));
     }
 
-    // Wire strings are bounded like every other one: a mid is an SDP token,
-    // and an absurd or control-laden value is dropped rather than forwarded
-    // into a routing key.
+    // A mid is an SDP token; absurd or control-laden values are dropped.
     #[test]
     fn an_absurd_media_section_id_is_dropped_not_forwarded() {
         let info = lkp::ParticipantInfo {
@@ -2006,9 +1714,8 @@ mod tests {
 
     #[test]
     fn a_signal_request_round_trips_through_prost() {
-        // Guards the wire encoding itself: if the protocol crate's tags ever
-        // shift under us, this fails rather than the SFU silently ignoring
-        // our offers.
+        // Guards the wire encoding: shifted tags would otherwise make the SFU
+        // silently ignore our offers.
         let request = lkp::SignalRequest {
             message: Some(lkp::signal_request::Message::Offer(
                 lkp::SessionDescription {

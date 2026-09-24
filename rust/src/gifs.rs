@@ -1,12 +1,9 @@
-//! Client-side GIF provider network access (v0.6.1).
+//! GIF provider network access (GIPHY / KLIPY).
 //!
-//! A single bounded, redirect-validated HTTPS GET that the C++ GIF controller
-//! uses to reach an external GIF provider (GIPHY / KLIPY). The provider URL is
-//! built C++-side and carries the provider API key — it is treated as secret:
-//! it is NEVER logged here (the reused `safe_get_following_redirects` never
-//! logs URLs either), and only a coarse status/category and the bounded JSON
-//! body cross back to C++. No Matrix identifiers are ever sent; the URL is the
-//! only thing this layer touches.
+//! A bounded, redirect-validated HTTPS GET for the C++ GIF controller. The
+//! URL is built in C++ and carries the provider API key, so it is treated
+//! as secret and never logged; only a coarse status/category and the bounded
+//! JSON body cross back. No Matrix identifiers are sent.
 
 use std::sync::Arc;
 
@@ -14,12 +11,11 @@ use serde_json::json;
 
 use crate::RustClient;
 
-// A provider search/trending JSON response is small (a page of items). Bound it
-// so a hostile or broken endpoint cannot stream unbounded bytes into memory.
+// Bound provider JSON responses so a broken endpoint cannot stream
+// unbounded bytes into memory.
 const MAX_GIF_JSON_BYTES: usize = 2 * 1_048_576;
 
-/// Map a provider HTTP status to a coarse, safe category for the UI state
-/// machine. Never carries server text.
+/// Coarse, safe category for a provider HTTP status. Never server text.
 fn status_category(status: u16) -> &'static str {
     match status {
         200..=299 => "ok",
@@ -29,20 +25,17 @@ fn status_category(status: u16) -> &'static str {
     }
 }
 
-/// Fetch a provider trending/search response. Emits exactly one
-/// `gif_response` poll event:
+/// Fetch a provider trending/search response. Emits one `gif_response`:
 ///   { type:"gif_response", op_id, lifecycle, ok, status, category, body }
-/// `body` is the bounded JSON text on success (parsed C++-side into safe
-/// structs — QML never sees raw JSON); empty on failure. `category` is one of
-/// ok / rate_limited / provider_error / timeout / network / too_large /
-/// blocked / invalid_url.
+/// `body` is the bounded JSON on success (parsed in C++; QML never sees raw
+/// JSON), empty otherwise. `category`: ok / rate_limited / provider_error /
+/// timeout / network / too_large / blocked / invalid_url.
 pub(crate) fn gif_get(
     bridge: &RustClient,
     url: String,
     op_id: u64,
 ) -> Result<(), String> {
-    // Session-scoped so logout/account-switch cancels in-flight provider work
-    // via the lifecycle check, exactly like previews.
+    // Session-scoped, so logout or account switch cancels in-flight work.
     crate::rooms::require_client(bridge)?;
     let parsed = url::Url::parse(url.trim())
         .map_err(|_| "invalid provider URL".to_owned())?;
@@ -66,8 +59,7 @@ pub(crate) fn gif_get(
             Ok((response, _final_url, _redirects)) => {
                 let status = response.status.as_u16();
                 let category = status_category(status);
-                // Body is UTF-8 JSON text; lossless-ish for the parser. Only
-                // forwarded on a 2xx — error bodies are never surfaced.
+                // Only forwarded on 2xx; error bodies are never surfaced.
                 let body = if category == "ok" {
                     String::from_utf8_lossy(&response.bytes).into_owned()
                 } else {
@@ -84,7 +76,7 @@ pub(crate) fn gif_get(
                 }));
             }
             Err(failure) => {
-                // Normalize preview failure categories to the GIF set.
+                // Map preview failure categories to the GIF set.
                 let category = match failure.category {
                     "timeout" => "timeout",
                     "response_too_large" => "too_large",
@@ -108,32 +100,30 @@ pub(crate) fn gif_get(
     Ok(())
 }
 
-// Maximum bytes we will download for a sendable GIF.
+// Maximum download size for a sendable GIF.
 const MAX_GIF_BYTES: usize = 25 * 1_048_576;
-// Maximum GIF canvas edge (matches the C++ gif::kMaxGifDimension).
+// Maximum canvas edge (matches C++ gif::kMaxGifDimension).
 const MAX_GIF_EDGE: u16 = 4096;
 
-/// True when `host` is one of the known GIF-provider media CDNs. Defense in
-/// depth: C++ already validates the sendable URL host, and Rust re-checks here.
+/// True for known GIF-provider media CDNs. C++ validates the host too.
 fn is_provider_media_host(host: &str) -> bool {
     let h = host.to_ascii_lowercase();
     h == "giphy.com" || h.ends_with(".giphy.com")
         || h == "klipy.com" || h.ends_with(".klipy.com")
 }
 
-/// Validate downloaded bytes as a real GIF and read its canvas size from the
-/// header. Returns (width, height) or a coarse rejection category. Rejects
-/// HTML/JSON error pages, non-GIF magic, and oversized canvases.
+/// Validate bytes as a real GIF and read its canvas size: (width, height),
+/// or a coarse rejection. Rejects error pages, non-GIF magic and oversized
+/// canvases.
 fn validate_gif_bytes(bytes: &[u8]) -> Result<(u32, u32), &'static str> {
     if bytes.len() < 10 {
         return Err("invalid_media");
     }
-    // GIF magic: "GIF87a" or "GIF89a". Nothing else may be sent as image/gif —
-    // never an HTML page, JSON error, mp4, or webp renamed into place.
+    // Only "GIF87a"/"GIF89a" may be sent as image/gif.
     if &bytes[0..6] != b"GIF87a" && &bytes[0..6] != b"GIF89a" {
         return Err("not_a_gif");
     }
-    // Logical-screen descriptor: width/height are little-endian u16 at [6..10].
+    // Logical screen descriptor: little-endian u16 width/height at [6..10].
     let width = u16::from_le_bytes([bytes[6], bytes[7]]);
     let height = u16::from_le_bytes([bytes[8], bytes[9]]);
     if width == 0 || height == 0 {
@@ -146,11 +136,10 @@ fn validate_gif_bytes(bytes: &[u8]) -> Result<(u32, u32), &'static str> {
 }
 
 /// Download and validate a provider GIF, parking the bytes for
-/// `mx_rust_media_take` (op_id key) exactly like SDK media — they never enter
-/// the JSON queue. Emits one `gif_download_result`:
-///   { op_id, ok, mime, width, height, size, category }
-/// `category` on failure: blocked / not_a_gif / too_large / invalid_media /
-/// timeout / network / provider_error.
+/// `mx_rust_media_take` (by op_id); they never enter the JSON queue. Emits
+/// one `gif_download_result { op_id, ok, mime, width, height, size,
+/// category }`; failure categories: blocked / not_a_gif / too_large /
+/// invalid_media / timeout / network / provider_error.
 pub(crate) fn gif_download(
     bridge: &RustClient,
     url: String,
@@ -164,7 +153,7 @@ pub(crate) fn gif_download(
     {
         return Err("unsupported or credentialed URL".to_owned());
     }
-    // Host policy: provider media CDNs only.
+    // Provider media CDNs only.
     match parsed.host_str() {
         Some(host) if is_provider_media_host(host) => {}
         _ => return Err("gif host not allowed".to_owned()),
@@ -175,8 +164,7 @@ pub(crate) fn gif_download(
     let results = Arc::clone(&bridge.media_results);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        // Accept: image/gif only — a `.gif` provider URL must not be
-        // content-negotiated into webp/mp4.
+        // Accept image/gif only, so a `.gif` URL is not negotiated into webp/mp4.
         let fetched = crate::rooms::safe_get_following_redirects(
             parsed, MAX_GIF_BYTES, "image/gif").await;
         if !timelines.lifecycle_current(lifecycle) {
@@ -257,7 +245,7 @@ mod tests {
                    Err("not_a_gif"));
         assert_eq!(validate_gif_bytes(b"{\"error\":\"nope\"}"),
                    Err("not_a_gif"));
-        // MP4 ftyp box is not a GIF.
+        // An MP4 ftyp box is not a GIF.
         assert_eq!(validate_gif_bytes(b"\x00\x00\x00\x18ftypmp42"),
                    Err("not_a_gif"));
         assert_eq!(validate_gif_bytes(b"GIF"), Err("invalid_media"));
@@ -279,12 +267,11 @@ mod tests {
     }
 }
 
-// Live provider checks. Ignored by default (network + real key required). Set
-// the provider keys in the environment first, then run:
+// Live provider checks, ignored by default (network and real keys needed):
 //   export LIGHTNING_GIPHY_API_KEY=... LIGHTNING_KLIPY_API_KEY=...
 //   cargo test --manifest-path rust/Cargo.toml -- --ignored --nocapture gif_live
-// They exercise the exact hardened fetch gif_get uses against the real
-// provider hosts; the key/URL is never printed (only status + a parse check).
+// They use the same fetch path as gif_get; the key and URL are never
+// printed.
 #[cfg(test)]
 mod live_tests {
     async fn fetch_json(url: url::Url) -> (u16, serde_json::Value) {
@@ -324,8 +311,8 @@ mod live_tests {
     #[tokio::test]
     #[ignore]
     async fn gif_live_download_and_validate() {
-        // Fetch a real GIPHY result, then download its original .gif through the
-        // same bounded path gif_download uses and validate it end to end.
+        // Download a real GIPHY result's original .gif through gif_download's path
+        // and validate it.
         let key = std::env::var("LIGHTNING_GIPHY_API_KEY").expect("GIPHY key");
         let trending = url::Url::parse(&format!(
             "https://api.giphy.com/v1/gifs/trending?api_key={key}&limit=1&rating=g"

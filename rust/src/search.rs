@@ -1,16 +1,10 @@
-//! Server-side message search (v0.7.x): `POST /_matrix/client/v3/search`
-//! through raw ruma via `Client::send` — matrix-sdk 0.18 has no high-level
-//! wrapper for this endpoint. Same managed-task/op-id/lifecycle contract as
-//! `rooms.rs`.
+//! Server-side message search: `POST /_matrix/client/v3/search` via raw ruma
+//! (`Client::send`; matrix-sdk 0.18 has no wrapper). Same task/op-id/
+//! lifecycle contract as `rooms.rs`.
 //!
-//! HONESTY NOTE, load-bearing: the homeserver can only search what it can
-//! read. In an encrypted room the server holds ciphertext, so `/search`
-//! silently returns nothing for it. The UI must (and does) disclose that
-//! server search covers unencrypted rooms only; the loaded-timeline find
-//! remains the only search inside encrypted rooms. No decrypted content is
-//! ever sent to the server by this module — the only thing that crosses is
-//! the user's typed search term, which is inherent to server search and
-//! disclosed in the UI.
+//! The server cannot search encrypted rooms (it holds ciphertext), and the
+//! UI says so; `localsearch.rs` covers those. Only the typed search term is
+//! sent, never decrypted content.
 
 use std::sync::Arc;
 
@@ -33,8 +27,8 @@ use crate::{enqueue, RustClient};
 /// Bound on one result page (server may return fewer).
 const SEARCH_PAGE_CAP: u64 = 30;
 
-/// One `/search` request budget; runs on the room-action pool which is
-/// joined during sign-out, so no retry and a hard timeout.
+/// One request budget, no retry: runs on the room-action pool, joined at
+/// sign-out.
 const SEARCH_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
 #[derive(Default, Deserialize)]
@@ -46,13 +40,11 @@ struct SearchFilters {
 
 /// One page of server-side message search.
 ///
-/// `room_id` empty = all (unencrypted) rooms the account can search;
-/// otherwise the search is filtered to that room. `next_batch` empty = the
-/// first page. Result event: `message_search_result { op_id, lifecycle, ok,
-/// category, results[], next_batch, count }` where each result row carries
-/// room_id, event_id, sender, sender_display_name, sender_avatar_url,
-/// timestamp_ms, msgtype and body (the plain body only — no formatted
-/// payloads cross the bridge).
+/// Empty `room_id` searches all rooms; empty `next_batch` is the first page.
+/// Result event: `message_search_result { op_id, lifecycle, ok, category,
+/// results[], next_batch, count }`; rows carry room_id, event_id, sender,
+/// sender_display_name, sender_avatar_url, timestamp_ms, msgtype and the
+/// plain body only.
 pub(crate) fn search_messages(
     bridge: &RustClient,
     term: String,
@@ -67,7 +59,7 @@ pub(crate) fn search_messages(
     if term.is_empty() {
         return Err("empty search term".to_owned());
     }
-    // A room filter that does not parse is caller error, not a search miss.
+    // An unparseable room filter is caller error, not a miss.
     let room_filter = if room_id.trim().is_empty() {
         None
     } else {
@@ -79,9 +71,8 @@ pub(crate) fn search_messages(
     };
     let filters: SearchFilters = serde_json::from_str(&filters_json)
         .map_err(|_| "invalid search filters".to_owned())?;
-    // Matrix's RoomEventFilter can apply sender ids on the homeserver. Cap
-    // the list before dispatch and reject malformed ids instead of silently
-    // broadening the user's query.
+    // Sender ids are filtered server-side; cap the list and reject malformed
+    // ids rather than silently broadening the query.
     if filters.from_user_ids.len() > 50 {
         return Err("too many search senders".to_owned());
     }
@@ -99,13 +90,11 @@ pub(crate) fn search_messages(
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
         let mut criteria = Criteria::new(term);
-        // Message bodies only: name/topic hits would surface state events
-        // the timeline UI cannot honestly present as "messages".
+        // Message bodies only: name/topic hits would be state events, not messages.
         criteria.keys = Some(vec![SearchKeys::ContentBody]);
         criteria.order_by = Some(OrderBy::Recent);
-        // No surrounding events — the result row is a pointer, and event
-        // context for navigation is the timeline's job. Historic profiles
-        // ARE requested so rows can show real names without extra lookups.
+        // No surrounding events (navigation context is the timeline's job), but
+        // historic profiles so rows show real names.
         let mut context = EventContext::new();
         context.before_limit = uint!(0);
         context.after_limit = uint!(0);
@@ -187,8 +176,7 @@ pub(crate) fn search_messages(
                         .pointer("/content/formatted_body")
                         .and_then(|v| v.as_str())
                         .unwrap_or_default();
-                    // This is intentionally conservative: only explicit
-                    // http(s) targets count as links. Media MXC URLs do not.
+                    // Only explicit http(s) targets count as links; mxc URLs do not.
                     let has_link = body
                         .split_whitespace()
                         .any(|word| {
@@ -198,8 +186,7 @@ pub(crate) fn search_messages(
                         || formatted_body.contains("href=\"https://")
                         || formatted_body.contains("href=\"http://");
                     if event_id.is_empty() || room.is_empty() || body.is_empty() {
-                        // Redacted or non-message hits carry nothing a
-                        // result row could honestly display.
+                        // Redacted or non-message hits have nothing to display.
                         continue;
                     }
                     let ts = value

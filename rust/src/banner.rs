@@ -1,38 +1,20 @@
 //! Profile banners (MSC4427) over extended profile fields (MSC4133).
 //!
-//! A banner is a wide image shown behind a user's profile card. Matrix has one
-//! proposal for it and exactly one existing implementation, so this module is
-//! written for INTEROPERABILITY rather than for a Lightning-only feature:
+//! Written for interoperability with the existing implementations:
 //!
-//!   * READ asks for BOTH `m.banner_url` (the stable MSC4427 name) and
-//!     `chat.commet.profile_banner` (the unstable key Commet already ships
-//!     and Sable and Haven read), and when the two DISAGREE it takes the
-//!     unstable one. See `resolve_banner`: neither field carries a timestamp,
-//!     so age cannot break the tie and the rule falls back to provenance —
-//!     the deployed key is the one single-name clients write. It is a
-//!     heuristic and it CAN be wrong (a half-successful write from Lightning
-//!     itself produces the one case where the stable name is newer); the
-//!     reasoning, including that counter-example, is at the call site. A
-//!     disagreement is logged. This is a transitional rule, not a permanent
-//!     preference for an unstable name over a stable one.
+//!   * Read asks for both `m.banner_url` (stable) and
+//!     `chat.commet.profile_banner` (the unstable key Commet ships and Sable
+//!     and Haven read). When they disagree the unstable one wins; see
+//!     `resolve_banner`. A transitional heuristic, and disagreements are
+//!     logged.
+//!   * Write sets both, so a banner set here is visible there and vice versa.
 //!
-//!     It used to stop at the first usable value with the stable name first.
-//!     Measured 2026-09-17 on a live account, that showed an OLD banner
-//!     permanently while every Commet-family client showed the current one,
-//!     because the stale value sat on the server where no restart reached it.
-//!   * WRITE sets BOTH, so a banner set in Lightning shows up in those clients
-//!     and vice versa. Two round trips is the price of not being the odd one
-//!     out; a banner nobody else can see is not a banner.
+//! The value must be an `mxc://` URI: a profile field is remote text, and an
+//! http URL would be a tracking pixel on every card that renders it.
 //!
-//! The value is an `mxc://` URI and nothing else — the MSC requires it, and a
-//! profile field is remote text that a client would otherwise be free to point
-//! at an arbitrary http URL, which is a tracking pixel on every profile card
-//! that renders it.
-//!
-//! Extended profile fields are new, and a homeserver that does not implement
-//! MSC4133 answers with an unrecognised-endpoint error. That is reported as
-//! `supported: false` and rendered as NOTHING, never as "this user has no
-//! banner" — the two are different facts.
+//! A homeserver without MSC4133 answers with an unrecognised-endpoint error,
+//! reported as `supported: false` and rendered as nothing, never as "this
+//! user has no banner".
 
 use std::sync::Arc;
 
@@ -53,38 +35,22 @@ use crate::{enqueue, RustClient};
 
 /// The extended-profile field endpoints, addressed directly.
 ///
-/// Lightning used ruma's typed `get/set/delete_profile_field` until it turned
-/// out they cannot reach a homeserver that actually implements the feature.
+/// ruma's typed `get/set/delete_profile_field` choose the stable path
+/// `/_matrix/client/v3/profile/{userId}/{keyName}` only for spec 1.16 or the
+/// `uk.tcpip.msc4133` feature, but Synapse 1.156 signals it as
+/// `uk.tcpip.msc4133.stable: true` with versions up to v1.12, so the typed
+/// requests hit a path Synapse rejects with M_UNRECOGNIZED.
 ///
-/// MSC4133's stable path is `/_matrix/client/v3/profile/{userId}/{keyName}`,
-/// and ruma selects it only when the server advertises **spec version 1.16**
-/// (`EXTENDED_PROFILE_FIELD_HISTORY`, ruma-client-api 0.24), or the unstable
-/// feature `uk.tcpip.msc4133` for the unstable path. Synapse 1.156 signals a
-/// stabilised MSC the way Synapse always does — `uk.tcpip.msc4133.stable:
-/// true` in `unstable_features` — and its `versions` list stops at v1.12.
-/// Neither of ruma's gates is met, so the typed request cannot select the
-/// working path; every read came back M_UNRECOGNIZED and the client reported
-/// "your homeserver does not support profile banners" about a homeserver that
-/// does. ruma has the mechanism for this (`StablePathSelector::Feature`); it
-/// is simply not wired to that endpoint.
-///
-/// So these three calls address the stable path themselves, over the SDK's OWN
-/// configured transport (`Client::http_client()` — same TLS, proxy and
-/// timeouts as every other request; nothing new is constructed). The ANSWER
-/// then decides what the server supports, which is what `is_unsupported` was
-/// always for: a server without extended profiles replies M_UNRECOGNIZED and
-/// is reported exactly as before. Nothing is concluded from a version number
-/// in either direction.
-///
-/// The access token is read from the SDK, used for one request, and never
-/// logged, stored, or returned. Revisit when ruma wires the stable feature in:
-/// this becomes a straight swap back to `ruma::api::client::profile`.
+/// These calls use the stable path over the SDK's own transport
+/// (`Client::http_client()`), and the answer decides support
+/// (`is_unsupported`), never a version number. The access token is used for
+/// one request and never logged or stored. Switch back to
+/// `ruma::api::client::profile` once ruma selects the stable path here.
 pub(crate) mod profile_field {
     use matrix_sdk::Client;
 
-    /// Coarse outcome. The BODY of a successful read is the caller's problem;
-    /// what matters here is telling "the server answered" apart from "the
-    /// server does not know this endpoint".
+    /// Coarse outcome: distinguishes "the server answered" from "the server
+    /// does not know this endpoint"; the body is the caller's concern.
     pub(crate) struct Answer {
         pub status: u16,
         pub body: String,
@@ -92,8 +58,8 @@ pub(crate) mod profile_field {
 
     fn endpoint(client: &Client, user_id: &str, field: &str) -> Result<String, String> {
         let mut url = client.homeserver();
-        // Percent-encoding is done by Url::path_segments_mut, so a field name
-        // or user id containing a slash cannot escape the path.
+        // Url::path_segments_mut percent-encodes, so a slash in a field name or
+        // user id cannot escape the path.
         url.path_segments_mut()
             .map_err(|_| "homeserver url cannot carry a path".to_owned())?
             .pop_if_empty()
@@ -118,8 +84,7 @@ pub(crate) mod profile_field {
             .await
             .map_err(|err| err.to_string())?;
         let status = response.status().as_u16();
-        // Bounded: a profile field response is a small JSON object, and this
-        // is remote input. 64 KiB is far more than any field may hold.
+        // Bounded: remote input, and a profile field is small.
         let body = response.text().await.unwrap_or_default();
         Ok(Answer { status, body: body.chars().take(65_536).collect() })
     }
@@ -142,9 +107,8 @@ pub(crate) mod profile_field {
         timeout: std::time::Duration,
     ) -> Result<Answer, String> {
         let url = endpoint(client, user_id, field)?;
-        // Built with serde rather than string formatting so a field name or
-        // value can never inject JSON, and sent as an explicit body because
-        // reqwest's `json` helper needs a feature this build does not enable.
+        // Built with serde so neither field nor value can inject JSON; an explicit
+        // body because reqwest's `json` helper is not enabled.
         let body = serde_json::to_vec(&serde_json::json!({ field: value }))
             .map_err(|_| "invalid_value".to_owned())?;
         run(
@@ -159,14 +123,9 @@ pub(crate) mod profile_field {
         .await
     }
 
-    /// Set a field whose value is a JSON OBJECT rather than a string.
-    ///
-    /// `set` above serialises the value as a JSON string, which is right for
-    /// `m.banner_url` (an mxc URI) and wrong for anything structured. MSC4440's
-    /// biography is an extensible-events object, so it needs this. Same request,
-    /// same bounds, same transport — only the body shape differs, and it is
-    /// still built with serde so neither the field name nor the value can
-    /// inject JSON.
+    /// Set a field whose value is a JSON object (e.g. MSC4440's biography), as
+    /// opposed to `set`'s string. Same request, bounds and transport; built with
+    /// serde.
     pub(crate) async fn set_json(
         client: &Client,
         user_id: &str,
@@ -202,64 +161,46 @@ pub(crate) mod profile_field {
 
 /// The stable field from MSC4427.
 const BANNER_FIELD: &str = "m.banner_url";
-/// The key Commet shipped first, which the MSC adopted as its unstable prefix.
-/// Written as well as read: interoperating with the implementation that exists
-/// matters more than writing only the name that is not deployed yet.
+/// Commet's key, adopted by the MSC as its unstable prefix. Written as well
+/// as read, to interoperate with deployed clients.
 const BANNER_FIELD_UNSTABLE: &str = "chat.commet.profile_banner";
 
-/// One profile-field round trip. Rides the room-action pool, which sign-out
-/// joins, so no retry and a hard bound.
+/// One profile-field round trip. Runs on the room-action pool, which
+/// sign-out joins, so no retry and a hard bound.
 const BANNER_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
-/// A banner is a wide image, not a wallpaper. Bounded before it is read, so a
-/// mis-selected file is refused rather than loaded into memory.
+/// Size bound, checked before reading, so a mis-selected file is refused.
 const MAX_BANNER_BYTES: u64 = 8 * 1024 * 1024;
 
-/// Whether a value from a profile field is usable as a banner.
-///
-/// `mxc://` ONLY. A profile field is remote text: rendering an http(s) URL
-/// from one would let anybody who sets their banner to a URL they control see
-/// the IP of everyone who so much as opens their profile card. Authenticated
-/// media is fetched through the media bridge, which is the whole point of
-/// having one.
+/// Whether a profile field value is usable as a banner: `mxc://` only. An
+/// http(s) URL would reveal the IP of everyone who opens the card to the
+/// URL's owner; media goes through the authenticated media bridge.
 pub(crate) fn is_usable_banner(value: &str) -> bool {
     value.starts_with("mxc://") && value.len() > "mxc://".len() && value.len() <= 512
 }
 
-/// Pick the banner when BOTH field names answered.
-///
-/// Extracted from the fetch so the rule can be stated once and tested. It
-/// cannot be tested where it is used: that code lives inside an async closure
-/// behind two live HTTP GETs, and a rule that can only be exercised against a
-/// real homeserver is a rule with no regression test.
-///
-/// Neither field carries a timestamp, so age cannot order them. Provenance
-/// can — see the long note at the call site. When only one name is set, both
-/// arms give the same answer.
+/// Pick the banner when both field names answered. Separate so the rule is
+/// testable without live HTTP. Neither field has a timestamp, so provenance
+/// decides (see the call site); with one name set both arms agree.
 pub(crate) fn resolve_banner(stable: Option<String>,
                              unstable: Option<String>) -> String {
     unstable.or(stable).unwrap_or_default()
 }
 
 fn banner_from_body(field: &str, body: &str) -> Option<String> {
-    // The body is `{ "<field>": <value> }`; the value is the only thing read,
-    // and only as a string.
+    // The body is `{ "<field>": <value> }`; only a string value is read.
     let value: serde_json::Value = serde_json::from_str(body).ok()?;
     let text = value.get(field)?.as_str()?;
     is_usable_banner(text).then(|| text.to_owned())
 }
 
-/// True when the failure means "this server does not do extended profiles",
-/// rather than "this user has no banner". The distinction is the difference
-/// between rendering nothing and claiming something.
+/// True when the failure means the server does not support extended
+/// profiles, rather than that this user has no banner.
 ///
-/// It keys on the ERRCODE, never on the status. Both answers are 404:
-/// `M_NOT_FOUND` is the ORDINARY reply for a profile field that is simply not
-/// set, and `M_UNRECOGNIZED` is a server that does not implement the endpoint
-/// at all. An earlier version also matched "404" and "not found", so a
-/// homeserver that fully supports extended profiles reported itself
-/// unsupported the moment a user had no banner — which hid the entire
-/// feature for everyone on it.
+/// Keys on the errcode, not the status: both are 404, `M_NOT_FOUND` is the
+/// ordinary reply for an unset field, and `M_UNRECOGNIZED` means the
+/// endpoint is unknown. Matching on 404 hid the feature for users without a
+/// banner.
 pub(crate) fn is_unsupported(error: &str) -> bool {
     let lowered = error.to_ascii_lowercase();
     lowered.contains("m_unrecognized")
@@ -281,70 +222,25 @@ pub(crate) fn fetch_profile_banner(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        // BOTH NAMES ARE READ, ALWAYS. This used to stop at the first usable
-        // value, stable name first — and that made a disagreement between the
-        // two permanent in the wrong direction.
+        // Both names are always read, concurrently (one round trip).
         //
-        // Measured 2026-09-17 against a real account, which is what settled
-        // it: the same user carried two DIFFERENT mxc URIs, `m.banner_url`
-        // holding an old banner and `chat.commet.profile_banner` the current
-        // one. Sable showed the new banner and Lightning showed the old one,
-        // for as long as the account existed — no cache to clear, no restart
-        // that helped, because the staleness was on the server.
+        // Neither field has a timestamp, so a disagreement is settled by
+        // provenance. Lightning writes both names together, so a divergence usually
+        // means a client writing only one name, and the only such name deployed is
+        // Commet's (Commet, Sable, Haven). So the unstable name is taken as the
+        // newer. Lightning can also diverge: `set_own_profile_banner` reports
+        // success on `wrote_any`, so a write that fails on the unstable field
+        // leaves the stable one newer, and this rule then shows the old banner.
+        // That case is visible immediately, whereas the opposite failure is silent
+        // and permanent, so this default is the better one. It becomes wrong once a
+        // client writes only `m.banner_url`.
         //
-        // Neither field carries a timestamp (MSC4133 profile fields have no
-        // metadata at all), so age cannot break the tie. What is left is
-        // PROVENANCE, and the honest version of that argument is narrower
-        // than it first looks.
+        // Disagreements are logged with both URIs (not secret) via eprintln!
+        // (`tracing` is not a direct dependency).
         //
-        // Lightning writes both names in one operation, so its ORDINARY
-        // writes keep them equal. A divergence therefore usually means a
-        // client that writes exactly one name, and the only such name
-        // deployed today is the Commet key — the one Commet, Sable and Haven
-        // read and write. On that reading the unstable name is the one that
-        // moved last, which is what the observed case looked like.
-        //
-        // BUT LIGHTNING CAN PRODUCE A DIVERGENCE TOO, and pretending
-        // otherwise is how a rule outlives its reason. `set_own_profile_banner`
-        // below reports success on `wrote_any`, not on both — so a write
-        // where the stable field succeeds and the unstable one fails leaves
-        // them disagreeing with the STABLE name holding the newer value, and
-        // this rule then prefers the older one. That case is loud (the user
-        // just set a banner and immediately sees the previous one) where the
-        // case this fixes is silent and permanent, which is why the rule is
-        // still the better default — not because it cannot be wrong.
-        //
-        // A disagreement is REPORTED, because this rule can be wrong and a
-        // silent wrong answer here is indistinguishable from the defect it
-        // replaced. `eprintln!` rather than tracing: `tracing` is not a
-        // direct dependency of this crate and adding one incidentally is
-        // exactly what the dependency rule forbids — the same reasoning, and
-        // the same mechanism, as timeline.rs's in-flight diagnostic. stderr
-        // is where matrix-sdk's own spans land, so the lines read together.
-        //
-        // The URIs are included: an mxc is not a secret, this function hands
-        // one to the UI two statements later, and knowing WHICH value won is
-        // the whole point of the line.
-        //
-        // That makes this a TRANSITIONAL rule, not a permanent preference for
-        // an unstable name over a stable one. The day a client ships that
-        // writes `m.banner_url` alone, this tie-break becomes wrong and the
-        // right answer becomes whatever the spec gives us to order them by.
-        // When only one field is set — the ordinary case — the two branches
-        // agree and this behaves exactly as before.
-        //
-        // `supported` is decided by ACCOUNTING, not by whichever field
-        // happened to be asked last: the server is unsupported only when
-        // every attempt came back unrecognised. An M_NOT_FOUND — no such
-        // field — is a supported server answering "there is no banner".
-        // BOTH REQUESTS GO OUT AT ONCE. Reading both names means two GETs
-        // where the old code could stop after one, and awaited in a loop that
-        // is two round trips end to end — reported immediately as "the banner
-        // takes about a second to load". Concurrently it is ONE round trip,
-        // which is also better than the code this replaced: that stopped
-        // early only when the STABLE name was set, and for a user whose
-        // banner was set by any Commet-family client it always paid for two
-        // serialized requests anyway.
+        // `supported` is decided across both attempts: unsupported only if every
+        // attempt came back unrecognised. M_NOT_FOUND is a supported server saying
+        // there is no banner.
         let (stable_answer, unstable_answer) = tokio::join!(
             profile_field::get(&client, uid.as_str(), BANNER_FIELD,
                                BANNER_REQUEST_TIMEOUT),
@@ -373,13 +269,11 @@ pub(crate) fn fetch_profile_banner(
                     if is_unsupported(&answer.body) {
                         any_unrecognised = true;
                     } else {
-                        // A refusal, or a plain M_NOT_FOUND, both come from a
-                        // server that KNOWS the endpoint.
+                        // A refusal or M_NOT_FOUND comes from a server that knows the endpoint.
                         any_answered = true;
                     }
                 }
-                // A transport failure says nothing about what the server
-                // implements, so it must never latch "unsupported".
+                // A transport failure says nothing about support; never latch unsupported.
                 Err(_) => any_answered = true,
             }
         }
@@ -410,8 +304,8 @@ pub(crate) fn fetch_profile_banner(
     Ok(())
 }
 
-/// Upload `local_path` and set it as the signed-in account's banner, under
-/// BOTH field names. An empty path CLEARS both. Emits `profile_banner_set`.
+/// Upload `local_path` and set it as the account's banner under both field
+/// names. An empty path clears both. Emits `profile_banner_set`.
 pub(crate) fn set_own_profile_banner(
     bridge: &RustClient,
     op_id: u64,
@@ -444,8 +338,7 @@ pub(crate) fn set_own_profile_banner(
                 let data = tokio::fs::read(&local_path)
                     .await
                     .map_err(|_| "read_failed".to_owned())?;
-                // The CONTENT decides the type, never the file name: this is
-                // the same rule every other image path in this bridge follows.
+                // The content decides the type, never the file name.
                 let mime_str =
                     sniff_image_mime(&data).ok_or_else(|| "unsupported_image".to_owned())?;
                 let mime: mime::Mime =
@@ -458,9 +351,8 @@ pub(crate) fn set_own_profile_banner(
                 upload.content_uri.to_string()
             };
 
-            // Both names, so a banner set here is visible in the clients that
-            // already implement this. A failure on the stable field alone is
-            // still a failure: half-set is not set.
+            // Both names, so other clients see it. A failure on the stable field alone
+            // is still a failure.
             let mut last_error: Option<String> = None;
             let mut wrote_any = false;
             for field in [BANNER_FIELD, BANNER_FIELD_UNSTABLE] {
@@ -521,41 +413,21 @@ pub(crate) fn set_own_profile_banner(
 
 // ─── Room / Space banners ────────────────────────────────────────────────
 //
-// Matrix specifies no room banner. MSC4427 covers user PROFILES only, and
-// there is no equivalent for a room or a Space, so unlike the profile half
-// above there is no deployed key to interoperate with — this is Lightning's
-// own state event, in Lightning's own namespace, and it is named as such
-// rather than squatting on the reserved `m.` prefix or on another client's
-// unstable one. Any client that does not know it simply does not render a
-// banner, which is the correct outcome for a decoration.
-//
-// It IS a real state event and not a local preference: a banner belongs to
-// the room, everyone in it sees the same one, and it is set by whoever the
-// room's own power levels allow to set it — never "whoever opened the panel".
-/// The room/space banner state event, as Sable writes it.
-///
-/// Matrix specifies no room banner, so 0.7.5 shipped Lightning's own name for
-/// it. That was the wrong call the moment another client already had one:
-/// Sable (`src/types/matrix/room.ts`) uses
-/// `page.codeberg.everypizza.room.banner`, state key "", content
-/// `{ "url": "mxc://..." }`, gated on that event's own power level — the same
-/// shape, under a name that is already in the wild. A banner nobody else can
-/// see is not a banner, which is exactly the reasoning the PROFILE half of
-/// this file already follows for `chat.commet.profile_banner`.
+// Matrix specifies no room banner (MSC4427 covers profiles only). This is a
+// real state event, so everyone in the room sees the same banner and the
+// room's power levels decide who may set it. Clients that do not know it
+// render no banner.
+/// The room/space banner state event as Sable writes it
+/// (`src/types/matrix/room.ts`): state key "", content
+/// `{ "url": "mxc://..." }`, gated on its own power level.
 const ROOM_BANNER_EVENT: &str = "page.codeberg.everypizza.room.banner";
-/// Read-only, for the banners 0.7.5 wrote under Lightning's own name. Never
-/// written again: it exists so a banner set by the one release that used it
-/// does not vanish. Only consulted when the interoperable key has none.
+/// Read-only legacy name from 0.7.5, so banners written then do not vanish.
+/// Consulted only when the interoperable key has none; never written.
 const ROOM_BANNER_EVENT_LEGACY: &str = "org.lightning_matrix.room_banner";
 
-/// Read one room's banner, and whether this account may change it. Emits
-/// `room_banner`.
-///
-/// The state store is consulted first and the homeserver second. Sliding sync
-/// only delivers the state event types Lightning asks for in `required_state`,
-/// and a custom type is not among them, so a store miss is the ORDINARY case
-/// here and is not evidence that the room has no banner. A 404 from the direct
-/// read is that evidence.
+/// Read one room's banner and whether this account may change it. Emits
+/// `room_banner`. Sliding sync does not deliver custom state types, so a
+/// store miss is normal; the homeserver read decides (404 means no banner).
 pub(crate) fn fetch_room_banner(
     bridge: &RustClient,
     op_id: u64,
@@ -569,10 +441,8 @@ pub(crate) fn fetch_room_banner(
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
         let mut banner = String::new();
-        // The interoperable key first, then the one 0.7.5 wrote. Store before
-        // network for each: sliding sync only delivers the state types a
-        // subscription names, so a store miss is the ORDINARY case here and is
-        // not evidence that the room has no banner.
+        // The interoperable key first, then the legacy one; store before network
+        // for each.
         for event_type in [ROOM_BANNER_EVENT, ROOM_BANNER_EVENT_LEGACY] {
             if let Ok(Some(raw)) = room
                 .get_state_event(StateEventType::from(event_type), "")
@@ -603,8 +473,8 @@ pub(crate) fn fetch_room_banner(
             }
         }
 
-        // Offer policy is the room's OWN required level for this event type,
-        // asked of the SDK — never a role label and never "is an admin".
+        // Offer policy is the room's own required level for this event type, from
+        // the SDK, never a role label.
         let can_set = match own_id {
             Some(own) => room
                 .get_member_no_sync(&own)
@@ -632,9 +502,9 @@ pub(crate) fn fetch_room_banner(
     Ok(())
 }
 
-/// Upload `local_path` and set it as the room's banner. An EMPTY path clears
-/// it (an empty content object, which is how Matrix retires a state event).
-/// Emits `room_banner_set`.
+/// Upload `local_path` and set it as the room's banner. An empty path clears
+/// it (an empty content object retires a state event). Emits
+/// `room_banner_set`.
 pub(crate) fn set_room_banner(
     bridge: &RustClient,
     op_id: u64,
@@ -716,10 +586,8 @@ pub(crate) fn set_room_banner(
     Ok(())
 }
 
-/// Pull a usable banner mxc out of either a full state event or a bare
-/// content object — the store hands over the event, the direct `/state` read
-/// hands over the content, and both funnel through here so the same
-/// mxc-only rule applies to both.
+/// Pull a usable banner mxc from a full state event (store) or a bare
+/// content object (`/state` read), applying the same mxc-only rule.
 fn banner_url_from_json(raw: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(raw).ok()?;
     let content = value.get("content").unwrap_or(&value);
@@ -734,27 +602,19 @@ mod tests {
     #[test]
     fn only_mxc_uris_are_usable_banners() {
         assert!(is_usable_banner("mxc://example.org/abc"));
-        // An http URL in a profile field would make every viewer who opens
-        // the card fetch it from a host the profile's owner controls.
+        // An http URL would be fetched from a host the profile owner controls.
         assert!(!is_usable_banner("https://example.org/banner.png"));
         assert!(!is_usable_banner("http://example.org/banner.png"));
         assert!(!is_usable_banner("//example.org/banner.png"));
         assert!(!is_usable_banner("mxc://"));
         assert!(!is_usable_banner(""));
-        // Bounded: a profile field is remote text.
+        // Bounded: remote text.
         assert!(!is_usable_banner(&format!("mxc://{}", "a".repeat(600))));
     }
 
-    // THE DEPLOYED KEY WINS A DISAGREEMENT, AND A REAL ACCOUNT IS WHY.
-    //
-    // Measured 2026-09-17 on a live profile: `m.banner_url` held one mxc and
-    // `chat.commet.profile_banner` held a different one. The read stopped at
-    // the first usable value with the stable name first, so Lightning showed
-    // the old banner permanently while every Commet-family client showed the
-    // new one. Nothing local could fix it — the stale value was server-side,
-    // so no cache clear and no restart touched it.
-    //
-    // This case fails on that code: it returned the stable value.
+    // The deployed key wins a disagreement: with the stable name first, a stale
+    // server-side value was shown permanently while Commet-family clients
+    // showed the new banner. Fails on the old first-match code.
     #[test]
     fn a_disagreement_between_the_two_names_resolves_to_the_deployed_one() {
         let stable = "mxc://example.org/old".to_owned();
@@ -769,44 +629,39 @@ mod tests {
              is the one such clients write"
         );
 
-        // The ordinary cases are an identity: one name set, that name wins.
+        // One name set: that name wins.
         assert_eq!(resolve_banner(Some(stable.clone()), None), stable);
         assert_eq!(resolve_banner(None, Some(unstable.clone())), unstable);
-        // Agreement is not a tie-break at all.
+        // Agreement is not a tie-break.
         assert_eq!(resolve_banner(Some(stable.clone()), Some(stable.clone())),
                    stable);
-        // No banner anywhere is the empty string, which is what the bridge
-        // reads as "this user has none" — not an error.
+        // No banner anywhere is "", which the bridge reads as "none", not an error.
         assert_eq!(resolve_banner(None, None), "");
     }
 
     #[test]
     fn the_room_banner_uses_the_name_other_clients_already_write() {
-        // Sable writes page.codeberg.everypizza.room.banner with state key ""
-        // and content {"url": "mxc://..."} — same shape Lightning had, under a
-        // name that is already in the wild. Written under that name, so a
-        // banner set here is visible there and the other way round.
+        // Sable's name, state key "" and content {"url": "mxc://..."}, so banners
+        // are shared both ways.
         assert_eq!(ROOM_BANNER_EVENT, "page.codeberg.everypizza.room.banner");
-        // ...and 0.7.5's own name is still READ, so the banners that release
-        // wrote do not disappear. It must never be written again.
+        // 0.7.5's own name is still read, never written.
         assert_eq!(ROOM_BANNER_EVENT_LEGACY, "org.lightning_matrix.room_banner");
         assert_ne!(ROOM_BANNER_EVENT, ROOM_BANNER_EVENT_LEGACY);
 
-        // Both names carry the same content shape, which is what makes
-        // reading either of them one function.
+        // Both names share the content shape.
         let content = r#"{"url":"mxc://example.org/banner"}"#;
         assert_eq!(
             banner_url_from_json(content).as_deref(),
             Some("mxc://example.org/banner")
         );
-        // ...whether it arrives as a bare content object or a full event.
+        // Bare content or full event.
         let event = r#"{"type":"page.codeberg.everypizza.room.banner",
                         "content":{"url":"mxc://example.org/banner"}}"#;
         assert_eq!(
             banner_url_from_json(event).as_deref(),
             Some("mxc://example.org/banner")
         );
-        // An http URL in room state is refused here exactly as in a profile.
+        // An http URL in room state is refused, as in a profile.
         let unsafe_url = r#"{"url":"https://example.org/banner.png"}"#;
         assert_eq!(banner_url_from_json(unsafe_url), None);
     }
@@ -814,12 +669,10 @@ mod tests {
     #[test]
     fn an_unrecognised_endpoint_is_unsupported_not_absent() {
         assert!(is_unsupported("M_UNRECOGNIZED: Unrecognized request"));
-        // Both of these are 404. M_NOT_FOUND is the ordinary answer for a
-        // field nobody has set, and treating it as "this server cannot do
-        // banners" hid the whole feature from every user without one.
+        // Both are 404; M_NOT_FOUND is the ordinary answer for an unset field.
         assert!(!is_unsupported("[404 / M_NOT_FOUND] Profile field not found"));
         assert!(!is_unsupported("the server returned 404 Not Found"));
-        // A real refusal is NOT "the server cannot do banners".
+        // A real refusal is not "unsupported".
         assert!(!is_unsupported("M_FORBIDDEN: not allowed"));
         assert!(!is_unsupported("connection reset"));
     }

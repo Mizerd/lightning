@@ -1,22 +1,15 @@
-//! Reusable User-Interactive Authentication (UIA) layer + device sign-out
-//! (v0.7.x).
+//! User-Interactive Authentication (UIA) and device sign-out.
 //!
-//! The SDK owns the protocol: the privileged call is attempted WITHOUT auth
-//! first, the server's 401 UIA challenge is surfaced through
-//! `Error::as_uiaa_response()`, and the retry carries the ruma
-//! `AuthData::Password` the SDK serializes. Lightning implements no auth
-//! stage itself; it only parks the pending operation between the challenge
-//! and the user's response — the same slot pattern the SDK's own
-//! `CrossSigningResetHandle` uses.
+//! The SDK owns the protocol: the call is tried without auth, the server's
+//! 401 challenge comes from `Error::as_uiaa_response()`, and the retry
+//! carries ruma's `AuthData::Password`. Lightning only parks the pending
+//! operation between challenge and answer (like the SDK's
+//! `CrossSigningResetHandle`).
 //!
-//! SECURITY: the password crosses this module exactly once, inside the
-//! retry call. Transit scrubbing is BEST-EFFORT (see `scrub_string`): the
-//! error paths zero our copy, but the success path MOVES the String into
-//! ruma's `uiaa::Password`, which serializes and drops it without zeroing.
-//! ruma's type holds a plain `String` (its Debug impl redacts, but there
-//! is no zeroize), so nothing here may clone, log, or enqueue it — and
-//! nothing does. Only stage NAMES and coarse categories cross the FFI
-//! event queue.
+//! The password is used once, in the retry. Scrubbing is best effort (see
+//! `scrub_string`): on success the String moves into ruma's
+//! `uiaa::Password`, which is dropped without zeroing. It is never cloned,
+//! logged or enqueued; only stage names and categories cross the FFI.
 
 use std::sync::Arc;
 
@@ -29,32 +22,26 @@ use serde_json::json;
 use crate::rooms::{classify_room_error, require_client};
 use crate::{enqueue, RustClient};
 
-/// The one privileged operation the UIA layer currently retries. Extend as
-/// an enum variant per operation — never as a second slot.
+/// The one operation the UIA layer retries. Add a variant per operation,
+/// never a second slot.
 pub(crate) enum UiaOperation {
     DeleteDevices(Vec<OwnedDeviceId>),
 }
 
 /// One parked operation awaiting user authentication.
 pub(crate) struct UiaPending {
-    /// Doubles as the challenge id C++ replies to; equals the op id of the
-    /// call that triggered the challenge, so stale replies are rejected by
-    /// simple equality.
+    /// The challenge id C++ replies to: the op id of the triggering call, so
+    /// stale replies are rejected by equality.
     pub uia_id: u64,
-    /// The server's UIA session cookie, echoed back on the retry.
+    /// The server's UIA session, echoed on the retry.
     pub session: Option<String>,
     pub op: UiaOperation,
 }
 
-/// Best-effort scrub of a secret's transit buffer: volatile writes plus a
-/// compiler fence so dead-store elimination cannot drop the zeroing; zero
-/// bytes are valid UTF-8, and `clear()` then drops the length.
-///
-/// HONESTY (review L1): this covers OUR copy on the error paths only. On
-/// the success path the String is MOVED into ruma's `uiaa::Password`,
-/// which serializes it into the request body and drops both without
-/// zeroing — that memory is not scrubbable from here without patching
-/// ruma. "Best-effort", not a guarantee.
+/// Best-effort scrub of a secret's buffer: volatile zero writes plus a
+/// compiler fence so the stores are not eliminated, then `clear()`. Covers
+/// our copy on error paths only; on success the String is moved into ruma's
+/// `uiaa::Password`, which drops it unzeroed.
 fn scrub_string(secret: &mut String) {
     // SAFETY: writing 0x00 into every byte keeps the buffer valid UTF-8.
     unsafe {
@@ -66,8 +53,8 @@ fn scrub_string(secret: &mut String) {
     secret.clear();
 }
 
-/// Sanitized challenge event. Stage names and flow shapes only — never the
-/// server's params payload, never anything typed by the user.
+/// Sanitized challenge event: stage names and flow shapes only, never the
+/// server's params or anything the user typed.
 fn enqueue_challenge(
     events: &crate::EventQueueRef,
     uia_id: u64,
@@ -82,9 +69,8 @@ fn enqueue_challenge(
         .collect();
     let completed: Vec<String> =
         info.completed.iter().map(|s| s.to_string()).collect();
-    // "Can the password stage complete some flow?" — the only stage this
-    // layer renders today. A flow whose remaining stages are exactly
-    // [password] (or [password, dummy]) is completable.
+    // Can the password stage complete a flow (remaining stages exactly
+    // [password] or [password, dummy])? The only stage rendered today.
     let has_password_stage = info.flows.iter().any(|flow| {
         flow.stages
             .iter()
@@ -105,12 +91,10 @@ fn enqueue_challenge(
     }));
 }
 
-/// Delete one or more of the account's OWN devices.
-///
-/// First attempt runs without auth (some servers allow a grace window). A
-/// UIA challenge parks the operation and emits `uia_required`; any other
-/// failure is terminal. Result event: `device_delete_result { op_id,
-/// lifecycle, ok, category }`.
+/// Delete one or more of the account's own devices. The first attempt has no
+/// auth (some servers allow a grace window); a UIA challenge parks the
+/// operation and emits `uia_required`; other failures are terminal. Result
+/// event: `device_delete_result { op_id, lifecycle, ok, category }`.
 pub(crate) fn delete_devices(
     bridge: &RustClient,
     device_ids: Vec<String>,
@@ -124,8 +108,8 @@ pub(crate) fn delete_devices(
     if ids.is_empty() {
         return Err("no devices given".to_owned());
     }
-    // One UIA-gated operation at a time: a second challenge would have no
-    // UI surface and could cross answers between operations.
+    // One UIA-gated operation at a time; a second would have no UI and could
+    // cross answers.
     if bridge
         .uia_pending
         .lock()
@@ -178,10 +162,9 @@ pub(crate) fn delete_devices(
     Ok(())
 }
 
-/// Answer the pending UIA challenge with the account password and retry the
-/// parked operation. A wrong password re-parks the operation with the
-/// server's refreshed session and re-emits `uia_required` with
-/// `wrong_password`, so the dialog can offer another attempt.
+/// Answer the pending challenge with the account password and retry. A
+/// wrong password re-parks with the server's refreshed session and
+/// re-emits `uia_required` with `wrong_password`.
 pub(crate) fn uia_submit_password(
     bridge: &RustClient,
     uia_id: u64,
@@ -192,8 +175,8 @@ pub(crate) fn uia_submit_password(
         scrub_string(&mut password);
         return Err("no authenticated user".to_owned());
     };
-    // Take the pending op only if the reply matches it; a stale reply must
-    // not consume (or answer) a newer challenge.
+    // Take the pending op only if the reply matches, so a stale reply cannot
+    // consume a newer challenge.
     let pending = {
         let mut guard = bridge
             .uia_pending
@@ -243,8 +226,7 @@ pub(crate) fn uia_submit_password(
             }
             Err(err) => {
                 if let Some(info) = err.as_uiaa_response() {
-                    // Wrong password (or a further stage): re-park with the
-                    // server's refreshed session so the user can retry.
+                    // Wrong password (or a further stage): re-park with the refreshed session.
                     if let Ok(mut guard) = pending_slot.lock() {
                         *guard = Some(UiaPending {
                             uia_id,
@@ -268,8 +250,7 @@ pub(crate) fn uia_submit_password(
     Ok(())
 }
 
-/// Abandon the pending challenge (dialog cancelled). Local only — the
-/// server's UIA session simply expires.
+/// Abandon the pending challenge. Local only; the server's session expires.
 pub(crate) fn uia_cancel(bridge: &RustClient, uia_id: u64) {
     if let Ok(mut guard) = bridge.uia_pending.lock() {
         match guard.as_ref() {

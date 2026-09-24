@@ -1,28 +1,17 @@
-//! Pinned messages (v0.7.x): `m.room.pinned_events` read, resolve and write.
+//! Pinned messages: read, resolve and write `m.room.pinned_events`.
 //!
-//! Everything here is SDK-owned Matrix state. Lightning invents no storage
-//! format: the pinned list IS the `m.room.pinned_events` state event, read
-//! through `Room::pinned_event_ids()` (current room state) with
-//! `Room::load_pinned_events()` as the `/state` fallback, and written through
-//! `Room::pin_event()` / `Room::unpin_event()`, which perform the
-//! read-modify-send of the state event themselves.
+//! The list is the state event itself, read via `Room::pinned_event_ids()`
+//! (with `Room::load_pinned_events()` as the `/state` fallback) and written
+//! via `Room::pin_event()` / `unpin_event()`, which do the read-modify-send.
 //!
-//! A pinned event is very often NOT in the loaded timeline — that is the
-//! normal case, not an edge case — so each id is resolved through
-//! `Room::load_or_fetch_event()`: cache-first, one bounded `/event` request
-//! on a miss, and the result is written back into the event cache. In an
-//! encrypted room the SDK decrypts on that path exactly like any other
-//! event; nothing here touches ciphertext or crypto state.
+//! Pinned events are usually not in the loaded timeline, so each id is
+//! resolved with `Room::load_or_fetch_event()` (cache-first, one bounded
+//! request on a miss; the SDK decrypts as usual). At most
+//! `PINNED_RESOLVE_CAP` ids are resolved, sequentially, with a short
+//! no-retry timeout; longer lists report `truncated`.
 //!
-//! Fan-out is bounded twice: at most `PINNED_RESOLVE_CAP` ids are resolved,
-//! sequentially, each with a short no-retry timeout. A room whose pin list
-//! is longer reports `truncated` honestly rather than issuing hundreds of
-//! sequential GETs.
-//!
-//! Only presentation-safe fields cross the FFI. Message bodies do cross (the
-//! preview is the point of the surface, exactly like the room-list latest
-//! preview) but they are memory-only on the C++ side and are never written
-//! into `CacheStore`. Nothing here logs event ids, senders or bodies.
+//! Bodies cross for the preview but stay in memory on the C++ side and are
+//! never written to `CacheStore`. Nothing here logs ids, senders or bodies.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -42,22 +31,19 @@ use serde_json::json;
 use crate::rooms::{classify_room_error, joined_room, require_client};
 use crate::{enqueue, RustClient};
 
-/// Hard cap on how many pinned events one snapshot resolves. Rooms pin a
-/// handful; a pathological list must not become a hundred sequential GETs.
-/// The MOST RECENT entries are kept (Matrix appends new pins to the end).
+/// Max pinned events resolved per snapshot. The most recent are kept (pins
+/// are appended).
 const PINNED_RESOLVE_CAP: usize = 32;
 
-/// Per-event bound. A pinned-list refresh is disposable — the next one
-/// supersedes it — and the room-action pool is JOINED during sign-out, so a
-/// default-retry request loop here would stall shutdown.
+/// Per-event bound, no retries: refreshes are disposable and the room-action
+/// pool is joined at sign-out.
 const PINNED_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Preview text is a label, not a message view.
+/// A preview is a label, not a message view.
 const PREVIEW_MAX_CHARS: usize = 140;
 
-/// One-line preview: no control characters, bounded length. Collapsing the
-/// newlines here (rather than in QML) keeps a multi-line pin from ever
-/// arriving as something a single-line label must silently clip.
+/// One-line preview: no control characters, bounded; newlines collapse here
+/// so a single-line label never has to clip them silently.
 fn one_line(body: &str) -> String {
     let collapsed: String = body
         .chars()
@@ -67,9 +53,8 @@ fn one_line(body: &str) -> String {
     trimmed.chars().take(PREVIEW_MAX_CHARS).collect()
 }
 
-/// Classify a resolved pinned event into (kind, preview). `kind` is what the
-/// UI renders when a textual preview is not useful; `preview` is empty for
-/// those kinds rather than a fabricated placeholder.
+/// Classify a resolved pinned event into (kind, preview). `preview` is empty
+/// for kinds where text is not useful, never a placeholder.
 fn describe(parsed: &AnySyncTimelineEvent) -> (&'static str, String) {
     use matrix_sdk::ruma::events::room::message::MessageType;
 
@@ -80,16 +65,14 @@ fn describe(parsed: &AnySyncTimelineEvent) -> (&'static str, String) {
             MessageType::Text(c) => ("text", one_line(&c.body)),
             MessageType::Notice(c) => ("notice", one_line(&c.body)),
             MessageType::Emote(c) => ("emote", one_line(&c.body)),
-            // For media the body IS the filename/caption in Matrix; it is
-            // the most useful label there is, so it crosses as the preview
-            // with the kind alongside it.
+            // For media the body is the filename or caption, the most useful label.
             MessageType::Image(c) => ("image", one_line(&c.body)),
             MessageType::Video(c) => ("video", one_line(&c.body)),
             MessageType::Audio(c) => ("audio", one_line(&c.body)),
             MessageType::File(c) => ("file", one_line(&c.body)),
             MessageType::Location(c) => ("location", one_line(&c.body)),
-            // An MSC4274 gallery pins as what it holds, with its caption —
-            // never Sable's generated `[name: mxc://…]` body.
+            // An MSC4274 gallery pins as what it holds, with its caption, never Sable's
+            // generated `[name: mxc://…]` body.
             other => match crate::timeline::parse_gallery(other)
                 .filter(|g| !g.items.is_empty())
             {
@@ -100,16 +83,14 @@ fn describe(parsed: &AnySyncTimelineEvent) -> (&'static str, String) {
                 None => ("other", String::new()),
             },
         },
-        // Redacted is an ANSWER, not a failure: the pin still exists and the
-        // UI says so plainly instead of pretending the event is missing.
+        // Redacted is an answer, not a failure: the pin still exists.
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
             SyncMessageLikeEvent::Redacted(_),
         )) => ("redacted", String::new()),
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::Sticker(
             SyncMessageLikeEvent::Original(sticker),
         )) => ("sticker", one_line(&sticker.content.body)),
-        // Still encrypted after the SDK's decryption attempt: an honest
-        // "cannot show this yet", never an empty text bubble.
+        // Still encrypted after the SDK's attempt: say so, never an empty bubble.
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(_)) => {
             ("encrypted", String::new())
         }
@@ -120,22 +101,15 @@ fn describe(parsed: &AnySyncTimelineEvent) -> (&'static str, String) {
 /// Read the room's pinned list and resolve it into displayable rows.
 ///
 /// Result event: `room_pinned { op_id, room_id, ok, can_pin, total,
-/// truncated, entries[] }`. Each entry carries `event_id`, `available`, and
-/// — when available — `sender`, `sender_display_name`, `sender_avatar_url`,
-/// `timestamp_ms`, `kind`, `preview`.
+/// truncated, entries[] }`. Each entry has `event_id` and `available`, and
+/// when available `sender`, `sender_display_name`, `sender_avatar_url`,
+/// `timestamp_ms`, `kind`, `preview`. Unresolvable ids are reported as
+/// unavailable, not dropped.
 ///
-/// An id that cannot be resolved is reported with `available: false` rather
-/// than dropped: the pin genuinely exists in room state, and silently
-/// omitting it would misreport the room's own state.
-///
-/// `allow_remote` governs ONLY the `/state` fallback taken when the room
-/// carries no pinned-events state at all. matrix-sdk-ui asks for
-/// `m.room.pinned_events` in every room SUBSCRIPTION's required state, so a
-/// room the user has open has it from sync — the fallback exists for the
-/// first fetch, which can outrun that subscription's first response. C++
-/// passes false for refreshes driven by a sync poke, where the state is
-/// known to be current; without that gate every room with no pins would
-/// spend one 404-able GET on every refresh.
+/// `allow_remote` governs only the `/state` fallback when the room has no
+/// pinned-events state yet. Subscribed rooms get it from sync, so C++ passes
+/// false for sync-driven refreshes; otherwise every pinless room would cost
+/// a GET per refresh.
 pub(crate) fn fetch_pinned(
     bridge: &RustClient,
     room_id: String,
@@ -149,21 +123,10 @@ pub(crate) fn fetch_pinned(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        // Current room state first; `/state` only when the state event has
-        // not been synced into the room yet.
-        //
-        // `Room::load_pinned_events()` takes no RequestConfig (unlike the
-        // per-event resolves below, which go through `Room::event`), so it
-        // would otherwise run with the client's default retry policy — and
-        // the room-action pool is JOINED during sign-out, where an
-        // unbounded retry loop stalls shutdown. Wrapped in an explicit
-        // timeout of the same budget instead.
-        //
-        // A timeout is reported as a FAILURE, never collapsed into the
-        // Ok(None) "this room pins nothing" answer: those two are different
-        // facts, and the C++ side keeps its last known list on a failure
-        // precisely so a flaky connection cannot read as "the pins are
-        // gone".
+        // Room state first; `/state` only when the event has not synced yet.
+        // `load_pinned_events()` takes no RequestConfig, so it is wrapped in a
+        // timeout (the room-action pool is joined at sign-out). A timeout is a
+        // failure, never "pins nothing": C++ keeps its last list on failure.
         let ids: Vec<OwnedEventId> = match room.pinned_event_ids() {
             Some(ids) => ids,
             None if !allow_remote => Vec::new(),
@@ -175,11 +138,10 @@ pub(crate) fn fetch_pinned(
                 .await;
                 match loaded {
                     Ok(Ok(Some(ids))) => ids,
-                    // No pinned-events state event at all: an empty list is
-                    // the correct, authoritative answer.
+                    // No pinned-events state at all: an empty list is the answer.
                     Ok(Ok(None)) => Vec::new(),
                     other => {
-                        // Elapsed timeout or a server error — both failures.
+                        // Timeout or server error: both failures.
                         let category = match other {
                             Ok(Err(err)) => {
                                 classify_room_error(&err.to_string())
@@ -202,9 +164,8 @@ pub(crate) fn fetch_pinned(
             }
         };
 
-        // Permission comes from the SDK's own power-level helper against the
-        // real `m.room.pinned_events` required level — never a hardcoded
-        // "admin only", never derived from a role label.
+        // Permission from the SDK's check against the real required level, never
+        // a role label.
         let can_pin = match own_id.as_deref() {
             Some(own) => room
                 .get_member_no_sync(own)
@@ -217,13 +178,10 @@ pub(crate) fn fetch_pinned(
 
         let total = ids.len();
         let truncated = total > PINNED_RESOLVE_CAP;
-        // The COMPLETE id list crosses, uncapped: it is what answers "is
-        // this message pinned?" for the message-action menu, and a capped
-        // answer there would be a wrong answer rather than a partial one.
-        // Ids are cheap, and the list is bounded in practice by the
-        // homeserver's own event-size limit on the state event.
+        // The complete id list crosses uncapped: it answers "is this pinned?" for
+        // the message menu, where a capped answer would be wrong.
         let all_ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
-        // Newest pins are appended, so the tail is what a capped list keeps.
+        // Newest pins are appended, so the tail is kept.
         let resolve: Vec<OwnedEventId> = ids
             .into_iter()
             .skip(total.saturating_sub(PINNED_RESOLVE_CAP))
@@ -234,16 +192,15 @@ pub(crate) fn fetch_pinned(
             .timeout(PINNED_REQUEST_TIMEOUT);
         let mut entries = Vec::with_capacity(resolve.len());
         for event_id in resolve {
-            // Re-check between resolutions: a sign-out mid-list must abandon
-            // the round rather than issue the remaining GETs.
+            // Re-check between resolutions so a sign-out abandons the round.
             if !timelines.lifecycle_current(lifecycle) {
                 return;
             }
             let loaded = room.load_or_fetch_event(&event_id, Some(config)).await;
             let parsed = loaded.ok().and_then(|ev| ev.raw().deserialize().ok());
             let Some(parsed) = parsed else {
-                // Missing, deleted, or unreachable: an honest unavailable
-                // row. The UI must not navigate anywhere for it.
+                // Missing, deleted or unreachable: an unavailable row that navigates
+                // nowhere.
                 entries.push(json!({
                     "event_id": event_id.to_string(),
                     "available": false,
@@ -290,15 +247,11 @@ pub(crate) fn fetch_pinned(
     Ok(())
 }
 
-/// Pin (`pin = true`) or unpin one event. The SDK performs the
-/// read-modify-send of `m.room.pinned_events` itself, so Lightning never
-/// constructs the state event content and can never clobber a concurrent
-/// change with a stale list of its own.
+/// Pin (`pin = true`) or unpin one event. The SDK does the read-modify-send,
+/// so a concurrent change is never clobbered by a stale list.
 ///
 /// Result event: `room_pin_result { op_id, room_id, event_id, pin, ok,
-/// changed, category }`. `changed` is false when the event was already in
-/// the requested state — a no-op, reported as one rather than as a success
-/// that did something.
+/// changed, category }`. `changed` is false when it was already so.
 pub(crate) fn set_pinned(
     bridge: &RustClient,
     room_id: String,
@@ -356,14 +309,14 @@ mod tests {
 
     #[test]
     fn one_line_is_char_bounded_not_byte_bounded() {
-        // Multi-byte input must not be truncated mid-character.
+        // Multi-byte input is not cut mid-character.
         let long = "é".repeat(PREVIEW_MAX_CHARS + 10);
         let out = one_line(&long);
         assert_eq!(out.chars().count(), PREVIEW_MAX_CHARS);
     }
 
-    // A pinned MSC4274 gallery (Sable) is described as what it holds, with
-    // its caption; Sable's generated `[name: mxc]` body is not a caption.
+    // A pinned MSC4274 gallery is described by its contents and caption, not
+    // Sable's generated body.
     #[test]
     fn describe_maps_a_gallery_to_its_kind_and_caption() {
         let event = |body: &str, second: &str| {
@@ -422,7 +375,7 @@ mod tests {
             serde_json::from_value(raw_image).expect("deserialize fixture");
         assert_eq!(describe(&parsed), ("image", "cat.png".to_owned()));
 
-        // A redacted pin is a real state, distinguishable from unavailable.
+        // Redacted is distinguishable from unavailable.
         let raw_redacted = serde_json::json!({
             "type": "m.room.message",
             "event_id": "$three:example.org",
@@ -443,7 +396,7 @@ mod tests {
             serde_json::from_value(raw_redacted).expect("deserialize fixture");
         assert_eq!(describe(&parsed), ("redacted", String::new()));
 
-        // Still-encrypted content never crosses as an empty text bubble.
+        // Encrypted content never crosses as an empty text bubble.
         let raw_encrypted = serde_json::json!({
             "type": "m.room.encrypted",
             "event_id": "$four:example.org",

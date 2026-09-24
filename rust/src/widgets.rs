@@ -1,63 +1,35 @@
-//! Matrix widgets (MSC1236 / MSC2764): DISCOVERY and URL construction.
+//! Matrix widgets (MSC1236 / MSC2764): discovery and URL construction.
 //!
-//! # What this is, and the decision behind it
+//! Lightning lists a room's widgets, resolves their URLs, tells the user what
+//! the page will learn, and opens them in the user's own browser rather than
+//! embedding them (evidence in `docs/widgets.md`). Embedding needs Qt
+//! WebEngine, which cannot be built for the MinGW Windows package, would run
+//! unsandboxed under Flatpak's seccomp rules next to Megolm keys, forces the
+//! whole scenegraph to OpenGL, and is ~429 MB; matrix-sdk 0.18's widget
+//! driver also treats any send grant as a redaction grant. A browser gives a
+//! separate process with no access to this one's tokens, keys or memory.
 //!
-//! A widget is a web page a room advertises — a Jitsi call, an Etherpad, a
-//! dashboard. Element renders them in a sandboxed iframe. Lightning does not
-//! render them: it lists them, resolves their URL, tells the user what the
-//! page will learn about them, and opens it in the user's own browser.
-//!
-//! That is a deliberate choice, not a shortcut, and `docs/widgets.md` carries
-//! the evidence. In short, embedding needs Qt WebEngine, and:
-//!
-//! * **Windows cannot build it.** The Windows package comes from Fedora's
-//!   `mingw64-qt6-*` RPMs and there is no `mingw64-qt6-qtwebengine`; Chromium
-//!   needs MSVC.
-//! * **Flatpak could only ship it unsandboxed.** Flatpak's seccomp blocklist
-//!   EPERMs `unshare`/`CLONE_NEWUSER`, so Chromium's own sandbox cannot start
-//!   and the documented workaround is to disable it. Untrusted web content
-//!   running unsandboxed beside Megolm keys is not something CLAUDE.md §6
-//!   permits.
-//! * **`QtWebEngineQuick::initialize()` forces the whole application's Qt
-//!   Quick scenegraph to OpenGL**, which is a cross-cutting change to a
-//!   client whose timeline is a hand-tuned rotated Flickable with a
-//!   documented frame-cost history.
-//! * The payload is ~429 MB, and matrix-sdk 0.18's widget driver has a
-//!   capability bypass (its `send` short-circuits on a `redacts` field before
-//!   any type check, so ANY send grant is a redaction grant).
-//!
-//! Opening in the browser gives up the widget API and gets, in exchange, a
-//! containment boundary the operating system already enforces: a separate
-//! process with no access to this one's tokens, keys or memory.
-//!
-//! # A widget URL is attacker-chosen
-//!
-//! Widget state is written by any room member with permission — a moderator
-//! in most rooms, everybody in some. Every URL here is hostile until checked,
-//! and the checks are MSC2764's own Security Considerations, which say
-//! clients MUST refuse schemes other than http/https "including template
-//! variables as schemes", and MUST validate AFTER templating and BEFORE
-//! rendering or asking for permission.
+//! Widget URLs are attacker-chosen (any member with the power level can
+//! write widget state). Per MSC2764's security considerations, only
+//! http/https is allowed (including template variables as schemes), and
+//! validation happens after templating and before opening.
 
 use serde_json::{json, Value};
 
-/// Matrix has never specified widgets. `im.vector.modular.widgets` is what is
-/// deployed; `m.widget` has been proposed since 2020 and is written by
-/// nothing, so it is read as a courtesy and never written.
+/// `im.vector.modular.widgets` is what is deployed. `m.widget` (proposed
+/// since 2020, written by nothing) is read as a courtesy, never written.
 pub(crate) const WIDGETS_TYPE: &str = "im.vector.modular.widgets";
 pub(crate) const WIDGETS_TYPE_ALT: &str = "m.widget";
 
-/// Widgets returned per room. A room advertising hundreds is either broken or
-/// hostile, and either way a list nobody can read is not worth building.
+/// Widgets returned per room; hundreds means broken or hostile.
 pub(crate) const MAX_WIDGETS: usize = 32;
 
-/// Bound on every free-text field. These are attacker-chosen strings that end
-/// up in a QML label.
+/// Bound on every free-text field (attacker-chosen, shown in QML labels).
 const MAX_TEXT: usize = 512;
 
 fn bounded(value: &str) -> String {
-    // Control characters would let a name forge layout in a list. Stripped
-    // here rather than in QML, so every consumer inherits it.
+    // Control characters could forge layout in a list; stripped here so every
+    // consumer inherits it.
     value
         .chars()
         .filter(|c| !c.is_control())
@@ -65,11 +37,9 @@ fn bounded(value: &str) -> String {
         .collect()
 }
 
-/// Whether THIS account may write the room's widget state. The room's own
-/// required level for `im.vector.modular.widgets`, asked of the SDK — never a
-/// role label — and FALSE when the membership cannot be read. Same helper
-/// shape as `can_manage_room_packs` and the policy-list gate, because it is
-/// the same question about a different event type.
+/// Whether this account may write the room's widget state, per the room's
+/// required level for `im.vector.modular.widgets` asked of the SDK; false
+/// when membership cannot be read. Same shape as `can_manage_room_packs`.
 pub(crate) async fn can_manage_widgets(
     client: &matrix_sdk::Client,
     room: &matrix_sdk::room::Room,
@@ -85,25 +55,14 @@ pub(crate) async fn can_manage_widgets(
         .is_some_and(|m| m.can_send_state(StateEventType::from(WIDGETS_TYPE)))
 }
 
-/// Add or REMOVE one widget: write `content` under `widget_id` as the state
-/// key. An empty object is the removal — it is how Element removes a widget,
-/// and `widget_from_state` already reads that shape as "no widget".
+/// Every synchronous refusal of a widget write, shared with the test so it
+/// exercises the writer's own code.
 ///
-/// The content is BUILT on the C++ side from a validated https URL, a name
-/// and a kind; this end re-checks only what a bridge must: that the room is
-/// joined, that the account holds the power level, and that the JSON is an
-/// object. It does NOT accept a `url` that is not https — a widget is opened
-/// in the user's browser and `UrlLauncher` refuses anything else, so writing
-/// one would publish a widget this client itself cannot open.
-/// Every synchronous refusal of a widget write, in one place so the test
-/// below exercises the SAME code the writer runs (a review found the
-/// previous test re-implementing the predicate and pinning nothing).
-///
-/// The id bound matches `bounded()`'s (512, no control characters), so
-/// any key the reader can name exactly the writer can tombstone. `url` may
-/// be ABSENT — an empty object is the tombstone — but if present it must
-/// be a string naming an https address with a host and no credentials:
-/// nothing this client would refuse to open is ever published.
+/// The id bound matches `bounded()` (512, no control characters), so any key
+/// the reader can name, the writer can tombstone. `url` may be absent (an
+/// empty object is the tombstone), but if present it must be an https
+/// address with a host and no credentials, so nothing this client would
+/// refuse to open is published.
 pub(crate) fn validate_widget_write(widget_id: &str, content: &Value) -> Result<(), String> {
     if widget_id.trim().is_empty()
         || widget_id.chars().count() > MAX_TEXT
@@ -127,6 +86,10 @@ pub(crate) fn validate_widget_write(widget_id: &str, content: &Value) -> Result<
     }
 }
 
+/// Add or remove one widget: write `content` under `widget_id` as the state
+/// key; an empty object removes it (as Element does). Content is built in C++
+/// from a validated https URL; this re-checks the joined room, the power
+/// level and `validate_widget_write`.
 pub(crate) fn write_room_widget(
     bridge: &crate::RustClient,
     op_id: u64,
@@ -181,12 +144,12 @@ pub(crate) fn write_room_widget(
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Widget {
     pub id: String,
-    /// The state key EXACTLY as the event carries it — `id` above is the
-    /// bounded display form. A tombstone must name this one.
+    /// The state key exactly as the event carries it (`id` is the bounded
+    /// display form). A tombstone must name this.
     pub state_key: String,
-    /// Whether this client can write the tombstone for it: the event is of
-    /// the type the writer publishes and the key survived `bounded`
-    /// unchanged. The panel hides Remove otherwise (found in review).
+    /// Whether this client can write its tombstone: the event is the type the
+    /// writer publishes and the key survived `bounded` unchanged. The panel hides
+    /// Remove otherwise.
     pub removable: bool,
     pub creator: String,
     pub kind: String,
@@ -195,18 +158,15 @@ pub(crate) struct Widget {
     pub data: Value,
 }
 
-/// Read one widget out of a room-state event.
+/// Read one widget from a room-state event.
 ///
-/// THE STATE KEY IS THE ID AND THE SENDER IS THE CREATOR. The content carries
-/// `id` and `creatorUserId` fields too, and Element does not even write them —
-/// it reconstructs both from the envelope and overwrites whatever the content
-/// said. Trusting the content would let a widget claim an id that belongs to
-/// another widget, which is how a remembered consent gets applied to the wrong
-/// page.
+/// The state key is the id and the sender is the creator. The content's own
+/// `id` and `creatorUserId` are ignored (Element overwrites them from the
+/// envelope); trusting them would let a widget claim another's id and
+/// inherit its remembered consent.
 ///
-/// A widget is LIVE when `type` and `url` are both present and non-empty. An
-/// empty content object is the tombstone: it is how Element removes a widget,
-/// and reading it as a widget would resurrect deleted ones.
+/// A widget is live when `type` and `url` are both non-empty. An empty
+/// content object is the tombstone (how Element removes a widget).
 pub(crate) fn widget_from_state(value: &Value) -> Option<Widget> {
     let state_key = value.get("state_key")?.as_str()?;
     if state_key.is_empty() {
@@ -219,8 +179,7 @@ pub(crate) fn widget_from_state(value: &Value) -> Option<Widget> {
     if kind.trim().is_empty() || url.trim().is_empty() {
         return None;
     }
-    // `name` falls back to the type, as Element's own does — a widget with no
-    // name should read as "Jitsi", not as a blank row.
+    // `name` falls back to the type, as in Element.
     let name = content
         .get("name")
         .and_then(|v| v.as_str())
@@ -240,14 +199,10 @@ pub(crate) fn widget_from_state(value: &Value) -> Option<Widget> {
     })
 }
 
-/// Every `$variable` the widget API defines, with its value for this user and
-/// room.
-///
-/// Ten of them, and TWO SPELLINGS of the device id: matrix-widget-api says
-/// `$org.matrix.msc3819.matrix_device_id` and matrix-sdk 0.18 writes
-/// `$org.matrix.msc2873.matrix_device_id`. They disagree, so both are
-/// substituted — a widget expecting the other spelling would otherwise be
-/// handed a literal `$org.matrix...` in its URL.
+/// Every `$variable` the widget API defines, with its value for this user
+/// and room. The device id has two spellings (matrix-widget-api uses
+/// `$org.matrix.msc3819.matrix_device_id`, matrix-sdk 0.18
+/// `$org.matrix.msc2873.matrix_device_id`), so both are substituted.
 pub(crate) fn template_values(
     user_id: &str,
     room_id: &str,
@@ -263,8 +218,7 @@ pub(crate) fn template_values(
         ("$matrix_user_id", user_id.to_owned()),
         ("$matrix_room_id", room_id.to_owned()),
         ("$matrix_widget_id", widget_id.to_owned()),
-        // Element falls back to the user id here; a widget that greets you by
-        // name should not greet you as an empty string.
+        // Falls back to the user id, as Element does, rather than an empty name.
         (
             "$matrix_display_name",
             if display_name.is_empty() { user_id.to_owned() } else { display_name.to_owned() },
@@ -279,12 +233,9 @@ pub(crate) fn template_values(
     ]
 }
 
-/// Percent-encode a substituted value.
-///
-/// Unconditional, for every variable, in path, query and fragment alike —
-/// which is what matrix-widget-api and the SDK both do. A display name is
-/// user-chosen text and may contain `/`, `?`, `#` or `..`; substituted raw it
-/// would change the URL's structure rather than fill a slot in it.
+/// Percent-encode a substituted value, always, as matrix-widget-api and the
+/// SDK do. A display name may contain `/`, `?`, `#` or `..`, which would
+/// otherwise change the URL's structure.
 fn encode(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for byte in value.as_bytes() {
@@ -297,27 +248,21 @@ fn encode(value: &str) -> String {
     out
 }
 
-/// Why a widget cannot be opened, or `None` when it can.
-///
-/// MSC2764: clients MUST NOT render a widget whose scheme is anything but
-/// http/https, **including template variables as schemes**, and MUST validate
-/// AFTER templating.
+/// Why a widget cannot be opened, or `None`. MSC2764: only http/https,
+/// including template variables as schemes, validated after templating.
 pub(crate) fn refusal(url: &str) -> Option<&'static str> {
     let parsed = match url::Url::parse(url) {
         Ok(parsed) => parsed,
         Err(_) => return Some("not_a_url"),
     };
     if parsed.scheme() != "https" {
-        // http is refused too, not only javascript/data/file. A widget is a
-        // page that will be handed the user's display name and device id;
-        // sending those over cleartext because the room said so is not a
-        // choice worth offering.
+        // http is refused too: the page receives the user's display name and device
+        // id.
         return Some("not_https");
     }
     if !parsed.username().is_empty() || parsed.password().is_some() {
-        // `https://evil.example@trusted.example/` reads as trusted.example to
-        // a person and resolves to evil.example nowhere — but the shape is
-        // built for misreading, so it is refused rather than explained.
+        // `https://evil.example@trusted.example/` is built for misreading, so it is
+        // refused.
         return Some("has_userinfo");
     }
     match parsed.host_str() {
@@ -327,13 +272,10 @@ pub(crate) fn refusal(url: &str) -> Option<&'static str> {
     }
 }
 
-/// True when the RAW url could make the origin depend on a substituted value.
-///
-/// Templating is textual over the whole URL, so `https://$matrix_display_name
-/// .evil.example/` becomes a host derived from the user's own profile. The
-/// origin must be a property of the room's state, not of who is looking at it,
-/// so a variable anywhere in the authority disqualifies the widget before any
-/// substitution happens.
+/// True when the raw URL could make the origin depend on a substituted value
+/// (e.g. `https://$matrix_display_name.evil.example/`). The origin must come
+/// from room state, not from who is viewing, so any variable in the
+/// authority disqualifies the widget before substitution.
 pub(crate) fn templates_the_authority(raw_url: &str) -> bool {
     let after_scheme = match raw_url.split_once("://") {
         Some((_, rest)) => rest,
@@ -346,12 +288,10 @@ pub(crate) fn templates_the_authority(raw_url: &str) -> bool {
     authority.contains('$')
 }
 
-/// Substitute every template variable and return the URL to open.
-///
-/// Returns `Err(reason)` when the result must not be opened. The order is
-/// load-bearing and is MSC2764's: refuse an authority-templating URL FIRST,
-/// substitute SECOND, validate the RESULT THIRD. Validating before
-/// substitution would pass a URL whose final scheme is `javascript:`.
+/// Substitute every template variable and return the URL to open, or
+/// `Err(reason)`. MSC2764's order: refuse authority templating, substitute,
+/// then validate the result (validating first would pass a URL that
+/// templates into `javascript:`).
 pub(crate) fn resolve_url(
     raw_url: &str,
     values: &[(&'static str, String)],
@@ -360,11 +300,8 @@ pub(crate) fn resolve_url(
         return Err("templated_authority");
     }
     let mut out = raw_url.to_owned();
-    // LONGEST NAME FIRST. The names share prefixes
-    // (`$org.matrix.msc2873.client_id` and `$org.matrix.msc2873.client_theme`
-    // do not, but `$matrix_room_id` and a shorter `$matrix_room` would), and a
-    // plain replace in declaration order can eat the prefix of a longer name
-    // and leave its tail behind. Element has exactly this hazard.
+    // Longest name first, so a shorter name cannot eat the prefix of a longer
+    // one (Element has this hazard).
     let mut ordered: Vec<&(&'static str, String)> = values.iter().collect();
     ordered.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
     for (name, value) in ordered {
@@ -378,13 +315,9 @@ pub(crate) fn resolve_url(
     Ok(out)
 }
 
-/// What the widget will learn about the user, as stable keys the UI renders as
-/// sentences.
-///
-/// Derived from the URL that will actually be opened, so it never claims more
-/// than is shared: a widget whose URL uses no variables is told nothing beyond
-/// the request itself, and saying otherwise would train people to ignore the
-/// notice.
+/// What the widget will learn about the user, as stable keys the UI renders
+/// as sentences. Derived from the URL actually opened, so it never claims
+/// more than is shared.
 pub(crate) fn disclosures(resolved: &str, raw_url: &str) -> Vec<&'static str> {
     let mut out = Vec::new();
     let mentions = |name: &str| raw_url.contains(name);
@@ -412,10 +345,8 @@ pub(crate) fn disclosures(resolved: &str, raw_url: &str) -> Vec<&'static str> {
     if mentions("matrix_base_url") {
         out.push("homeserver");
     }
-    // The origin ALWAYS learns the request itself: an IP address, a browser
-    // fingerprint, and whatever cookies it has already set. Listed
-    // unconditionally so the notice is never empty and never implies "this
-    // widget learns nothing".
+    // The origin always learns the request itself (IP, browser fingerprint, its
+    // cookies), so the notice is never empty.
     let _ = resolved;
     out.push("connection");
     out
@@ -425,14 +356,10 @@ pub(crate) fn disclosures(resolved: &str, raw_url: &str) -> Vec<&'static str> {
 // Reading a room's widgets
 // ---------------------------------------------------------------------------
 
-/// Fetch and parse every widget a room advertises.
-///
-/// Reads BOTH deployed type names. `get_state_events` is store-only in
-/// matrix-sdk 0.18 (no network fallback), and widget state is not in sliding
-/// sync's required-state list — which `RoomListService::subscribe_to_rooms`
-/// gives no way to extend — so a room whose state has not been fetched would
-/// answer "no widgets" rather than "not loaded yet". The caller therefore
-/// falls back to a raw `/state` read, the same shape banner.rs already needed.
+/// Fetch and parse every widget a room advertises, under both type names.
+/// `get_state_events` is store-only, and widget state is not in sliding
+/// sync's required state, so the caller falls back to a raw `/state` read
+/// (as in banner.rs).
 pub(crate) async fn read_room_widgets(
     client: &matrix_sdk::Client,
     room: &matrix_sdk::room::Room,
@@ -445,16 +372,15 @@ pub(crate) async fn read_room_widgets(
     let mut out: Vec<Widget> = Vec::new();
     let mut absorb = |value: &Value, out: &mut Vec<Widget>| {
         if let Some(widget) = widget_from_state(value) {
-            // One id wins once. The two type names can carry the same widget,
-            // and the store and the network answer can carry it twice — a list
-            // with duplicates is a list that opens the same page twice.
+            // One entry per id: both type names and both sources can carry the same
+            // widget.
             if !out.iter().any(|w| w.id == widget.id) {
                 out.push(widget);
             }
         }
     };
 
-    // 1. THE STORE, which costs nothing when the state is already there.
+    // 1. The store, free when the state is already there.
     for type_name in [WIDGETS_TYPE, WIDGETS_TYPE_ALT] {
         let Ok(events) = room
             .get_state_events(StateEventType::from(type_name))
@@ -479,22 +405,11 @@ pub(crate) async fn read_room_widgets(
         return out;
     }
 
-    // 2. THE NETWORK, and this is not a nicety — it is the only path that
-    //    works today.
-    //
-    //    `Room::get_state_events` reads the STATE STORE and never the network.
-    //    Widget state reaches that store only if sliding sync asked for it in
-    //    `required_state`, and matrix-sdk-ui 0.18's
-    //    `RoomListService::subscribe_to_rooms` takes room ids ONLY — there is
-    //    no API to extend the list. So the store answer is empty for every
-    //    room, and a live run against a real homeserver found exactly zero
-    //    widgets in a room that had four. This is the same shape recorded for
-    //    `m.room.pinned_events` and answered the same way banner.rs answers
-    //    it: store first, raw ruma second.
-    //
-    //    The whole state is fetched because widgets are keyed by state key and
-    //    there is no "all keys of one type" endpoint. One request, on demand,
-    //    only when a surface actually asks.
+    // 2. The network, the only path that works today: `get_state_events` never
+    //    fetches, and `RoomListService::subscribe_to_rooms` cannot add widget
+    //    state to required_state, so the store is empty for every room (the
+    //    same as for `m.room.pinned_events`). The whole state is fetched since
+    //    there is no "all keys of one type" endpoint; on demand only.
     let config = RequestConfig::new()
         .disable_retry()
         .timeout(std::time::Duration::from_secs(20));
@@ -518,10 +433,9 @@ pub(crate) async fn read_room_widgets(
     out
 }
 
-/// One widget as it crosses the FFI. `url` is the RESOLVED, validated URL, or
-/// empty with `refusal` naming why it cannot be opened — the UI shows the row
-/// either way, because a widget silently missing from the list is
-/// indistinguishable from a room having none.
+/// One widget as it crosses the FFI. `url` is the resolved, validated URL,
+/// or empty with `refusal` naming why. The row is shown either way, so a
+/// refused widget is not mistaken for none.
 pub(crate) fn widget_payload(
     widget: &Widget,
     values: &[(&'static str, String)],
@@ -558,10 +472,8 @@ mod tests {
 
     #[test]
     fn theStateKeyIsTheIdAndTheSenderIsTheCreator() {
-        // The content's own `id`/`creatorUserId` are IGNORED. Element does not
-        // even write them, and trusting them would let a widget claim an id
-        // belonging to another — which is how a remembered consent gets
-        // applied to the wrong page.
+        // The content's `id`/`creatorUserId` are ignored; trusting them would let a
+        // widget claim another's id.
         let w = widget_from_state(&state(
             "real-key",
             "@alice:x",
@@ -575,10 +487,10 @@ mod tests {
 
     #[test]
     fn aTombstoneIsNotAWidget() {
-        // `{}` is how Element REMOVES a widget. Reading it as one would
-        // resurrect every widget anybody ever deleted.
+        // `{}` is Element's removal; reading it as a widget would resurrect deleted
+        // ones.
         assert!(widget_from_state(&state("k", "@a:x", json!({}))).is_none());
-        // Either field missing or blank is equally dead.
+        // Either field missing or blank is dead.
         assert!(widget_from_state(&state("k", "@a:x", json!({"type": "jitsi"}))).is_none());
         assert!(widget_from_state(&state("k", "@a:x",
             json!({"type": "jitsi", "url": "   "}))).is_none());
@@ -628,10 +540,7 @@ mod tests {
 
     #[test]
     fn aTemplatedAuthorityIsRefusedBeforeAnySubstitution() {
-        // Substitution is textual over the whole URL, so a variable in the
-        // authority makes the ORIGIN depend on the user's own profile. The
-        // origin has to be a property of the room's state, not of who is
-        // looking at it.
+        // A variable in the authority would make the origin depend on the viewer.
         assert!(templates_the_authority("https://$matrix_display_name.evil.example/"));
         assert!(templates_the_authority("https://$matrix_user_id@x.example/"));
         assert!(!templates_the_authority("https://ok.example/?u=$matrix_user_id"));
@@ -647,8 +556,7 @@ mod tests {
 
     #[test]
     fn everySubstitutedValueIsPercentEncoded() {
-        // A display name is user-chosen text. Substituted raw, `../` or a `#`
-        // would change the URL's STRUCTURE rather than fill a slot in it.
+        // A raw display name could change the URL's structure.
         let values = template_values(
             "@a:x", "!r:x", "w", "../../evil?x=#y", "", "DEV",
             "https://hs.example", "dark", "en");
@@ -662,12 +570,10 @@ mod tests {
 
     #[test]
     fn substitutionCannotProduceANonHttpsUrl() {
-        // The order is the whole point: validate the RESULT, not the input. A
-        // template that assembles a scheme must not slip through.
+        // Validate the result, not the input.
         let values = template_values("@a:x", "!r:x", "w", "Ann", "", "DEV",
                                      "https://hs.example", "dark", "en");
-        // A raw URL that does not parse as https is refused whatever it
-        // templates to.
+        // A raw URL that is not https is refused whatever it templates to.
         assert!(resolve_url("javascript:$matrix_user_id", &values).is_err());
     }
 
@@ -686,8 +592,7 @@ mod tests {
                    &b=$org.matrix.msc4039.matrix_base_url";
         let out = resolve_url(raw, &values).expect("refused");
         assert!(!out.contains('$'), "a variable was left unsubstituted: {out}");
-        // BOTH device spellings: matrix-widget-api and matrix-sdk disagree,
-        // and a widget expecting the other one would receive a literal.
+        // Both device spellings are substituted.
         assert_eq!(out.matches("DEVICE").count(), 2, "{out}");
         assert!(out.contains("storm") && out.contains("en-GB"));
     }
@@ -712,23 +617,19 @@ mod tests {
                 "the notice claimed something this widget never receives");
         assert!(!told.contains(&"room_id"));
 
-        // A widget using no variables still learns the connection itself, so
-        // the notice is never empty and never implies "this learns nothing".
+        // A widget with no variables still learns the connection itself.
         let plain = disclosures("https://ok.example/", "https://ok.example/");
         assert_eq!(plain, vec!["connection"]);
     }
 
     // ── The write side ──────────────────────────────────────────────────
     //
-    // Only the checks that run BEFORE a task is spawned can be tested here;
-    // the power-level gate needs a live room. What is pinned is that a widget
-    // this client could not open is never published: `UrlLauncher` refuses
-    // anything but http/https, and a widget row is opened in the browser.
+    // Only the checks before a task is spawned are testable here (the power
+    // gate needs a live room). A widget this client could not open (non-https,
+    // credentials) is never published.
     #[test]
     fn a_widget_that_lightning_could_not_open_is_refused_before_any_task() {
-        // THE WRITER'S OWN predicate, not a copy of it: write_room_widget
-        // calls validate_widget_write before it touches the client, so a
-        // change to the rule fails here rather than in a room.
+        // The writer's own predicate, not a copy.
         let bad_urls = ["http://pad.example/p/x", "https://user:pw@pad.example/",
                         "ftp://pad.example/", "javascript:alert(1)", "",
                         "https://"];
@@ -739,12 +640,11 @@ mod tests {
         }
         let good = json!({ "type": "m.custom", "url": "https://pad.example/p/notes" });
         assert!(validate_widget_write("w1", &good).is_ok());
-        // The tombstone carries no url at all, and must pass.
+        // The tombstone carries no url and must pass.
         assert!(validate_widget_write("w1", &json!({})).is_ok());
-        // A url that is not a string is not an address.
+        // A non-string url is not an address.
         assert!(validate_widget_write("w1", &json!({ "url": 7 })).is_err());
-        // The id bound is the reader's: what it can name, the writer can
-        // tombstone — and nothing beyond that or carrying a control char.
+        // The id bound matches the reader's.
         assert!(validate_widget_write(&"k".repeat(512), &json!({})).is_ok());
         assert!(validate_widget_write(&"k".repeat(513), &json!({})).is_err());
         assert!(validate_widget_write("bad\u{7}key", &json!({})).is_err());

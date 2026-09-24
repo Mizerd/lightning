@@ -1,56 +1,22 @@
-//! The LOCAL message index: SQLite FTS5 over what this client has seen.
+//! The local message index: SQLite FTS5 over what this client has seen.
 //!
-//! # Why this exists
+//! Server search (`search.rs`) cannot read encrypted rooms, so this index,
+//! built from plaintext the client already has, makes search work the same
+//! in encrypted and public rooms.
 //!
-//! `search.rs` is server search (`POST /_matrix/client/v3/search`), and the
-//! homeserver can only search what it can READ. In an encrypted room it holds
-//! ciphertext, so server search returns nothing there — which for most people
-//! is most of their conversations. This module is the other half: an index
-//! built from the plaintext this client already has, so search works the same
-//! in an encrypted room as in a public one.
+//! It adds no new class of data to disk: the SDK event cache already stores
+//! decrypted events unencrypted (`encode_event` serializes the `Decrypted`
+//! variant and Lightning opens `sqlite_store(path, None)`), in the same 0700
+//! directory. The index is a second, more queryable copy (see
+//! `docs/local-search.md`). Encrypting the store at rest would fix both, but
+//! `sqlite_store` uses one config for all stores, and adding a passphrase
+//! would leave existing installs unable to decode their account pickle.
 //!
-//! # Where the plaintext already is
-//!
-//! Building this does NOT introduce decrypted message text to disk. The SDK's
-//! own event cache already persists it: `SqliteEventCacheStore::encode_event`
-//! serializes the whole `TimelineEvent` including its `Decrypted` variant, its
-//! `encode_value` is a no-op when no cypher is configured, and Lightning opens
-//! `sqlite_store(path, None)`. The redecryptor's own documentation says it
-//! "replace[s] the events in the cache" once a late room key arrives. So the
-//! bodies are in `matrix-rust-sdk-store` beside this file already, protected
-//! by the same 0700 directory and nothing else.
-//!
-//! That is a real and separate finding, recorded in `docs/local-search.md`.
-//! What it means HERE is narrow and worth stating precisely: this index is a
-//! second copy of something already present, in a form that is easier to
-//! query. It does not change what an attacker with read access to the store
-//! directory can learn; it changes how quickly. Encrypting the whole store at
-//! rest is the fix for both, and it is a decision of its own — `sqlite_store`
-//! builds ONE config for the state, event-cache, media and crypto stores, and
-//! matrix-sdk-sqlite mints a new cipher when it finds no cipher row, so
-//! handing it a passphrase would leave every existing install unable to decode
-//! its own account pickle.
-//!
-//! # Tokenizer: trigram, and why
-//!
-//! Measured in this module's own tests rather than assumed:
-//!
-//! * `unicode61` splits on whitespace and punctuation. Chinese has neither
-//!   between words, so a whole sentence becomes ONE token and no word inside
-//!   it can ever be found. That is a silent, total failure for a language
-//!   Lightning ships.
-//! * `trigram` indexes 3-character sequences, so it matches substrings in
-//!   every script — including CJK — and gives the "find the word I half
-//!   remember" behaviour people expect from a chat search box. Its cost is a
-//!   larger index and a hard 3-character minimum.
-//!
-//! A visible, explainable limit ("type at least three characters") beats an
-//! invisible one ("Chinese never matches"), so: trigram.
-//!
-//! trigram matches raw code points and folds nothing, so the FOLDING is ours:
-//! [`fold`] runs over both the indexed text and the query, which is what makes
-//! `koln` find `Köln` and `ß` behave. The folded copies are what FTS5 sees;
-//! the original text is kept alongside and is what the UI displays.
+//! Tokenizer: `trigram`, not `unicode61`. unicode61 splits on spaces and
+//! punctuation, so unspaced scripts like Chinese become one token and are
+//! unsearchable; trigram matches substrings in every script at the cost of
+//! a larger index and a 3-character minimum. `remove_diacritics 2` on the
+//! trigram table folds both stored text and query (`koln` finds `Köln`).
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -60,15 +26,12 @@ use rusqlite::{params, Connection, OptionalExtension};
 /// File name inside the account's store directory.
 pub(crate) const INDEX_FILE: &str = "lightning-search.sqlite3";
 
-/// Rows kept before the oldest are evicted. An index is a convenience, not a
-/// second copy of the account: unbounded growth on a machine the user did not
-/// choose to spend is its own defect. At roughly 100 bytes of text per message
-/// this is tens of megabytes of index — large enough that nobody reaches it by
-/// ordinary use, small enough that a runaway cannot fill a disk.
+/// Rows kept before the oldest are evicted, so the index cannot grow without
+/// bound (roughly tens of MB at ~100 bytes per message).
 pub(crate) const MAX_ROWS: i64 = 250_000;
 
-/// Shortest query the trigram tokenizer can match. Stated to the user rather
-/// than silently returning nothing.
+/// Shortest query the trigram tokenizer can match; reported to the user
+/// rather than silently returning nothing.
 pub(crate) const MIN_QUERY_CHARS: usize = 3;
 
 /// One result.
@@ -83,33 +46,26 @@ pub(crate) struct Hit {
     pub ts: i64,
 }
 
-/// What the index currently holds, for an honest "search covers N messages".
+/// What the index holds, for "search covers N messages".
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct IndexStats {
     pub messages: i64,
     pub rooms: i64,
 }
 
-/// The user's typed text as an FTS5 MATCH expression.
-///
-/// ONE QUOTED PHRASE, always. FTS5's query language has operators (`AND`,
-/// `OR`, `NOT`, `*`, `^`, `:`, parentheses) and a user typing any of them into
-/// a chat search box means the characters, not the operator — and an unbalanced
-/// quote is a syntax error that would surface as "search failed" for what is
-/// really "you typed a quotation mark". Quoting the whole thing makes the query
-/// a literal substring search, which with trigram is exactly the intent.
-///
-/// A double quote inside a phrase is escaped by doubling it, per SQLite.
+/// The typed text as an FTS5 MATCH expression: always one quoted phrase, so
+/// FTS5 operators (`AND`, `OR`, `NOT`, `*`, `^`, `:`, parentheses) are taken
+/// literally and an unbalanced quote is not a syntax error. With trigram this
+/// is a literal substring search. Inner double quotes are doubled, per
+/// SQLite.
 pub(crate) fn match_expression(query: &str) -> String {
-    // NOT folded here. `remove_diacritics 2` on the trigram table folds the
-    // QUERY as well as the stored text, so folding first would be a second
-    // implementation of the same rule that could drift from SQLite's.
+    // Not folded here: `remove_diacritics 2` on the trigram table folds the
+    // query too, and a second implementation could drift.
     format!("\"{}\"", query.trim().replace('"', "\"\""))
 }
 
-/// True when a query is long enough for the trigram tokenizer to match at all.
-/// Counted in CHARACTERS, not bytes: three Chinese characters are nine bytes
-/// and are a perfectly good query.
+/// True when a query is long enough for trigram to match. Counted in
+/// characters: three Chinese characters are nine bytes and a valid query.
 pub(crate) fn query_is_long_enough(query: &str) -> bool {
     query.trim().chars().count() >= MIN_QUERY_CHARS
 }
@@ -140,9 +96,8 @@ impl SearchIndex {
     }
 
     fn ensure_schema(&self) -> Result<(), String> {
-        // WAL so an indexing write cannot block a search read, and NORMAL
-        // synchronous because losing the tail of an INDEX on a power cut costs
-        // a re-index of a few messages, not data.
+        // WAL so indexing writes do not block search reads; NORMAL synchronous,
+        // since losing an index tail on power loss only costs a re-index.
         self.conn
             .execute_batch(
                 "PRAGMA journal_mode=WAL;
@@ -202,12 +157,9 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// Add or update one message.
-    ///
-    /// UPSERT on the event id, which is what makes an EDIT correct: an
-    /// `m.replace` carries the new text for an event already indexed, and
-    /// inserting it again would leave the old wording findable forever. The
-    /// caller resolves the edit; this stores whatever the current text is.
+    /// Add or update one message. An upsert on the event id, so an edit
+    /// replaces the old wording instead of leaving it findable. The caller
+    /// resolves the edit.
     pub(crate) fn upsert(
         &self,
         event_id: &str,
@@ -221,8 +173,7 @@ impl SearchIndex {
         if event_id.is_empty() || room_id.is_empty() {
             return Ok(());
         }
-        // Nothing to find in an empty body. Storing it would spend a row and a
-        // trigram entry on a message no query can ever return.
+        // An empty body can never be found; do not spend a row on it.
         if body.trim().is_empty() {
             return Ok(());
         }
@@ -249,11 +200,8 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// A redaction removes the row outright.
-    ///
-    /// Not "blank the body": a redacted message is one somebody asked to be
-    /// unsayable, and leaving it findable by its own text would be the single
-    /// worst thing this index could do.
+    /// A redaction removes the row outright; a redacted message must not stay
+    /// findable by its text.
     pub(crate) fn remove_event(&self, event_id: &str) -> Result<(), String> {
         self.conn
             .execute("DELETE FROM messages WHERE event_id = ?1", params![event_id])
@@ -261,7 +209,7 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// Everything for one room — used when the user forgets a room.
+    /// Everything for one room (the user forgets a room).
     pub(crate) fn remove_room(&self, room_id: &str) -> Result<(), String> {
         self.conn
             .execute("DELETE FROM messages WHERE room_id = ?1", params![room_id])
@@ -277,11 +225,8 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// Evict the oldest rows past [`MAX_ROWS`].
-    ///
-    /// Oldest FIRST, by timestamp: the newest messages are the ones a search
-    /// is most often looking for, and an index that forgot this week to keep
-    /// 2019 would be worse than useless.
+    /// Evict the oldest rows past [`MAX_ROWS`], by timestamp: recent messages
+    /// are the ones most often searched.
     pub(crate) fn prune(&self) -> Result<i64, String> {
         let total: i64 = self
             .conn
@@ -314,8 +259,7 @@ impl SearchIndex {
         Ok(IndexStats { messages, rooms })
     }
 
-    /// True when this event is already indexed. Lets a backfill skip work
-    /// without paying for a write.
+    /// True when this event is already indexed.
     #[cfg(test)]
     pub(crate) fn contains(&self, event_id: &str) -> Result<bool, String> {
         let found: Option<i64> = self
@@ -336,8 +280,7 @@ impl SearchIndex {
         if event_ids.is_empty() {
             return Ok(out);
         }
-        // Chunked: SQLite's default parameter limit is 999 and a backfill can
-        // hand over a whole room's chunk.
+        // Chunked below SQLite's default 999-parameter limit.
         for slice in event_ids.chunks(500) {
             let placeholders = std::iter::repeat("?")
                 .take(slice.len())
@@ -359,12 +302,8 @@ impl SearchIndex {
         Ok(out)
     }
 
-    /// Search. `room_id` empty searches every indexed room.
-    ///
-    /// NEWEST FIRST, not by bm25 relevance. A chat search answers "when did we
-    /// talk about this", and the server-side search beside it is ordered by
-    /// recency too — two search boxes in one client that disagree about what
-    /// "first result" means is worse than either ordering.
+    /// Search; empty `room_id` searches every indexed room. Newest first rather
+    /// than by bm25, matching the server search beside it.
     pub(crate) fn search(
         &self,
         query: &str,
@@ -428,26 +367,21 @@ impl SearchIndex {
 // Feeding the index
 // ---------------------------------------------------------------------------
 //
-// ONE source: the SDK's own event cache. Not the live timeline, which exists
-// only for the room the user has open — an index built from it would answer
-// "search the room you are looking at", which is not search.
+// One source: the SDK event cache, not the live timeline (which covers only
+// the open room). `RoomEventCache::events()` returns events already
+// decrypted (the redecryptor replaces UTDs in place), so encrypted rooms
+// index like public ones.
 //
-// `RoomEventCache::events()` returns the room's cached events, already
-// DECRYPTED (the store persists the `Decrypted` variant and the redecryptor
-// replaces UTDs in place), so an encrypted room indexes exactly like a public
-// one. That is the whole reason this approach works at all.
-//
-// Coverage is therefore "everything Lightning has cached", which grows as the
-// user reads and as [`deep_index_room`] pages backwards. It is not "everything
-// that ever happened in the room", and the UI says so with a count rather than
+// Coverage is what Lightning has cached, growing as the user reads and as
+// [`deep_index_room`] pages backwards; the UI shows a count rather than
 // implying completeness.
 
 use matrix_sdk::room::Room;
 
-/// Rows pulled per backward page while deep-indexing.
+/// Events per backward page while deep-indexing.
 const DEEP_PAGE_SIZE: u16 = 100;
 
-/// One message worth indexing, lifted out of a cached event.
+/// One message worth indexing, taken from a cached event.
 struct Indexable {
     event_id: String,
     sender: String,
@@ -456,15 +390,9 @@ struct Indexable {
     ts: i64,
 }
 
-/// Pull the searchable text out of one cached event.
-///
-/// Deliberately narrow. A state change, a reaction, a receipt and a redacted
-/// event have no text a person would search for, and indexing them would spend
-/// rows and trigram entries to make "joined the room" the most common hit in
-/// the account.
-///
-/// A REDACTED event is skipped by construction rather than by a check: its
-/// content has no `body` left once the server has redacted it.
+/// Pull the searchable text out of one cached event. Only messages with text
+/// qualify; state changes, reactions and receipts would make "joined the
+/// room" the most common hit. Redacted events are skipped (see below).
 fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
     let event_id = raw.get("event_id")?.as_str()?.to_owned();
     let sender = raw.get("sender")?.as_str()?.to_owned();
@@ -472,13 +400,10 @@ fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
     if raw.get("type")?.as_str()? != "m.room.message" {
         return None;
     }
-    // A REDACTED EVENT IS NEVER INDEXABLE, however it reaches us. The live
-    // handler removes the row when the redaction arrives; this is the other
-    // half, because a sweep re-reads the event cache and would otherwise put
-    // the row straight back. The cache applies the redaction in place and
-    // stamps `unsigned.redacted_because`, so this is the reliable marker —
-    // the emptied `content` alone is not (a message legitimately carrying no
-    // body is simply not indexable for other reasons).
+    // A redacted event is never indexable. The live handler removes the row
+    // when the redaction arrives, but a sweep re-reads the cache and would put
+    // it back. The cache marks redactions with `unsigned.redacted_because`,
+    // which is the reliable marker (an empty content alone is not).
     if raw
         .get("unsigned")
         .and_then(|unsigned| unsigned.get("redacted_because"))
@@ -488,11 +413,9 @@ fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
     }
     let content = raw.get("content")?;
 
-    // An EDIT carries the replacement under `m.new_content` and leaves a
-    // "* fallback" in `body` for clients that do not understand edits. Indexing
-    // the fallback would make every edited message findable by an asterisk and
-    // by its OLD text; the edit is applied to the original event's row instead,
-    // keyed by the relation target.
+    // An edit carries its text in `m.new_content` and a "* fallback" in `body`.
+    // Indexing the fallback would make edits findable by an asterisk and keep
+    // the old text; the edit is applied to the original event's row instead.
     let relates = content.get("m.relates_to");
     let is_replacement = relates
         .and_then(|r| r.get("rel_type"))
@@ -513,8 +436,7 @@ fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_owned();
-    // An attachment's `body` IS its filename in Matrix, which is worth
-    // finding — "that pdf someone sent" is a real search.
+    // An attachment's `body` is its filename, which is worth finding.
     let body = body_source.get("body").and_then(|v| v.as_str())?.to_owned();
     if body.trim().is_empty() {
         return None;
@@ -524,20 +446,13 @@ fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
 
 /// Page a room backwards, indexing what each page brings in.
 ///
-/// THE INTERLEAVING IS THE POINT, and getting it wrong is why the first
-/// revision of this would have indexed almost nothing.
-/// `RoomEventCache::events()` reads the room's IN-MEMORY linked chunk, not
-/// everything the store holds — and Lightning's own jump-to-live history trim
-/// deliberately shrinks that chunk back to roughly one page. So "paginate N
-/// times, then read the events" collects one page's worth however far back it
-/// went. Reading after EVERY page is what makes the coverage real.
+/// Read after every page: `RoomEventCache::events()` reads the in-memory
+/// linked chunk, which Lightning's jump-to-live trim shrinks to about one
+/// page, so reading only at the end would collect one page.
 ///
-/// Bounded by `max_pages`: a room with years of history is a long download,
-/// and an unbounded background task nobody asked for that never ends is its
-/// own defect. Stops early when the room start is reached, and checks `stop`
-/// between pages so sign-out never waits for it.
-///
-/// Returns (pages run, reached_start, rows written).
+/// Bounded by `max_pages`, stops at the room start, and checks `stop`
+/// between pages so sign-out never waits. Returns (pages run,
+/// reached_start, rows written).
 pub(crate) async fn deep_index_room(
     room: &Room,
     index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
@@ -551,7 +466,7 @@ pub(crate) async fn deep_index_room(
     let room_id = room.room_id().as_str();
 
     let mut written = 0usize;
-    // What is already loaded, before spending a single request.
+    // What is already loaded, before any request.
     if let Ok(batch) = collect_from(room, &room_cache).await {
         if let Ok(mut guard) = index.lock() {
             if let Some(ix) = guard.as_mut() {
@@ -591,20 +506,16 @@ pub(crate) async fn deep_index_room(
 // The background indexer
 // ---------------------------------------------------------------------------
 
-/// Rooms swept per wake-up. A sweep walks every joined room's cached events,
-/// and doing all of them in one go on an account with hundreds of rooms would
-/// be a long hold on the runtime for work nobody is waiting on.
+/// Rooms swept per wake-up, so an account with hundreds of rooms does not
+/// hold the runtime for long.
 pub(crate) const SWEEP_ROOM_BATCH: usize = 40;
 
-/// Backward pages pulled per room by the deep index. Fifty pages of a hundred
-/// events is five thousand messages a room — deep enough to be useful, bounded
-/// enough that "index my history" is not an unbounded download.
+/// Backward pages per room for the deep index: 50 x 100 events, useful yet
+/// bounded.
 pub(crate) const DEEP_MAX_PAGES: u16 = 50;
 
-/// Sweep every joined room's cached events into the index.
-///
-/// Returns (rooms visited, rows written). Cooperative: `stop` is checked
-/// between rooms, so sign-out does not wait for a whole account.
+/// Sweep every joined room's cached events into the index. Returns (rooms
+/// visited, rows written). `stop` is checked between rooms.
 pub(crate) async fn sweep(
     client: &matrix_sdk::Client,
     index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
@@ -620,8 +531,7 @@ pub(crate) async fn sweep(
             break;
         }
         rooms_done += 1;
-        // The lock is taken per ROOM, not held across the whole sweep: a
-        // search typed while indexing runs must not wait for it.
+        // Lock per room, not for the whole sweep, so a search is not blocked.
         let events = match collect_room(&room).await {
             Ok(events) => events,
             Err(_) => continue,
@@ -635,8 +545,8 @@ pub(crate) async fn sweep(
     (rooms_done, written)
 }
 
-/// One room's indexable events, resolved and ready to write. Split from the
-/// write so the index mutex is never held across an `.await`.
+/// One room's indexable events, ready to write. Separate from the write so
+/// the index mutex is never held across an `.await`.
 pub(crate) struct RoomBatch {
     ordinary: Vec<Indexable>,
     edits: Vec<Indexable>,
@@ -651,11 +561,8 @@ pub(crate) async fn collect_room(room: &Room) -> Result<RoomBatch, String> {
     collect_from(room, &room_cache).await
 }
 
-/// The same walk, against a cache handle the caller is already holding.
-///
-/// A deep index paginates and re-reads in a loop, and re-acquiring the cache
-/// per page would drop and recreate the handles between pages — which is
-/// exactly what lets the linked chunk shrink out from under the walk.
+/// The same walk against a cache handle the caller already holds; re-taking
+/// it per page would let the linked chunk shrink under the walk.
 pub(crate) async fn collect_from(
     room: &Room,
     room_cache: &matrix_sdk::event_cache::RoomEventCache,
@@ -704,7 +611,7 @@ pub(crate) async fn collect_from(
 }
 
 /// Write one collected room. Synchronous, so the index mutex is held for a
-/// bounded burst of inserts and never across a network wait.
+/// bounded burst of inserts, never across a network wait.
 pub(crate) fn write_batch(index: &SearchIndex, room_id: &str, batch: &RoomBatch) -> usize {
     let ids: Vec<String> = batch.ordinary.iter().map(|c| c.event_id.clone()).collect();
     let known = index.known(&ids).unwrap_or_default();
@@ -738,15 +645,10 @@ pub(crate) fn write_batch(index: &SearchIndex, room_id: &str, batch: &RoomBatch)
     written
 }
 
-/// Remove a redacted message's row as the redaction arrives.
-///
-/// Registered for the sync loop's lifetime, exactly like the RTC and call
-/// observers, so it can never fire into a later account's index. Best effort
-/// by design: a redaction we cannot act on right now is caught by
-/// `indexable_from` refusing to re-add the event on the next sweep, and the
-/// row is unreachable to search either way once the body is gone from the
-/// cache. What must not happen is the row surviving BOTH, which is what
-/// shipped.
+/// Remove a redacted message's row as the redaction arrives. Registered for
+/// the sync loop's lifetime, like the RTC and call observers, so it never
+/// fires into a later account's index. Best effort: `indexable_from` also
+/// refuses to re-add a redacted event on the next sweep.
 pub(crate) fn register_redaction_handler(
     client: &matrix_sdk::Client,
     index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
@@ -756,9 +658,8 @@ pub(crate) fn register_redaction_handler(
         move |ev: matrix_sdk::ruma::events::room::redaction::SyncRoomRedactionEvent| {
             let index = std::sync::Arc::clone(&index);
             async move {
-                // `redacts` moved from the event to its content between room
-                // versions; both spellings are read for the same reason the
-                // RTC handler reads both.
+                // `redacts` moved from the event to its content between room versions;
+                // both are read.
                 let Some(redacts) = ev
                     .as_original()
                     .and_then(|original| original.redacts.as_ref())
@@ -793,12 +694,8 @@ mod tests {
         ix.upsert(id, room, "@a:x", "Ann", body, "m.text", ts).unwrap();
     }
 
-    // ── The load-bearing build fact ──────────────────────────────────────
-    //
-    // FTS5 is a COMPILE-TIME option of SQLite. Without `bundled-sqlite` the
-    // build links whatever libsqlite3 the host happens to have, and whether
-    // search works at all would be decided per platform, thirty minutes into
-    // a release pipeline. This asserts the schema builds, which it cannot
+    // FTS5 is a compile-time SQLite option; `bundled-sqlite` makes it a build
+    // constant rather than whatever the host has. The schema cannot build
     // without FTS5.
     #[test]
     fn fts5_is_compiled_in() {
@@ -814,30 +711,26 @@ mod tests {
         add(&ix, "$2", "!r:x", "hello world", 2000);
         add(&ix, "$3", "!r:x", "привет мир", 3000);
         add(&ix, "$4", "!r:x", "مرحبا بالعالم", 4000);
-        // Chinese has no spaces between words. unicode61 would make the whole
-        // sentence one token and find NOTHING here; trigram finds it.
+        // Chinese has no spaces: unicode61 would find nothing here, trigram does.
         assert_eq!(ix.search("一个测", "", 10, 0).unwrap().len(), 1);
-        // A substring inside a word, which is what people actually type.
+        // A substring inside a word.
         assert_eq!(ix.search("ell", "", 10, 0).unwrap().len(), 1);
         assert_eq!(ix.search("ривет", "", 10, 0).unwrap().len(), 1);
         assert_eq!(ix.search("العا", "", 10, 0).unwrap().len(), 1);
     }
 
-    // ── The cost of trigram, stated rather than hidden ───────────────────
+    // ── The cost of trigram ──────────────────────────────────────────────
     #[test]
     fn a_query_shorter_than_three_characters_is_refused_not_silently_empty() {
         let ix = index();
         add(&ix, "$1", "!r:x", "ok then", 1000);
         assert!(!query_is_long_enough("ok"));
         assert!(!query_is_long_enough(" a "));
-        // Trimmed BEFORE counting, so trailing space does not buy a character
-        // and a query that looks long enough is not accepted and then matched
-        // against nothing.
+        // Trimmed before counting, so trailing space does not count.
         assert!(!query_is_long_enough("ok "));
         assert!(query_is_long_enough(" okay "));
         assert!(query_is_long_enough("测试消"));
-        // Three CJK characters are nine bytes: the minimum is CHARACTERS, or
-        // every non-Latin query would be refused for being "too short".
+        // The minimum is in characters, not bytes, or CJK queries would be refused.
         assert_eq!("测试消".len(), 9);
         assert_eq!(ix.search("ok", "", 10, 0).unwrap().len(), 0);
     }
@@ -847,8 +740,7 @@ mod tests {
         let ix = index();
         add(&ix, "$1", "!r:x", "Köln im Sommer", 1000);
         add(&ix, "$2", "!r:x", "CAFÉ au lait", 2000);
-        // trigram folds nothing on its own — this passes only because both
-        // the stored copy and the query go through fold().
+        // Passes only because `remove_diacritics 2` folds both sides.
         assert_eq!(ix.search("koln", "", 10, 0).unwrap().len(), 1);
         assert_eq!(ix.search("KÖLN", "", 10, 0).unwrap().len(), 1);
         assert_eq!(ix.search("cafe", "", 10, 0).unwrap().len(), 1);
@@ -860,8 +752,7 @@ mod tests {
         let ix = index();
         add(&ix, "$1", "!r:x", "deploy AND release notes", 1000);
         add(&ix, "$2", "!r:x", "deploy only", 2000);
-        // As an FTS5 operator this would match both rows. As text it matches
-        // the one that contains the phrase.
+        // As an FTS5 operator this would match both rows; as text, only one.
         let hits = ix.search("deploy AND release", "", 10, 0).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].event_id, "$1");
@@ -871,11 +762,10 @@ mod tests {
     fn aQuotationMarkIsASearchTermNotASyntaxError() {
         let ix = index();
         add(&ix, "$1", "!r:x", "he said \"hello\" loudly", 1000);
-        // Unescaped, this would be an FTS5 syntax error and the whole search
-        // would fail rather than the query simply not matching.
+        // Unescaped, this would be an FTS5 syntax error.
         let hits = ix.search("said \"hello\"", "", 10, 0).unwrap();
         assert_eq!(hits.len(), 1);
-        // And a lone quote must not blow up either.
+        // A lone quote must not fail either.
         assert!(ix.search("\"\"\"", "", 10, 0).is_ok());
         assert!(ix.search("a*b(c)", "", 10, 0).is_ok());
     }
@@ -931,7 +821,7 @@ mod tests {
         assert_eq!(page1[1].event_id, "$4");
         let page2 = ix.search("paging", "", 2, 2).unwrap();
         assert_eq!(page2[0].event_id, "$3");
-        // The limit is clamped rather than trusted.
+        // The limit is clamped.
         assert!(ix.search("paging", "", 100_000, 0).unwrap().len() <= 5);
         assert!(ix.search("paging", "", 0, -5).is_ok());
     }
@@ -958,8 +848,7 @@ mod tests {
     #[test]
     fn pruningEvictsTheOldestAndKeepsTheNewest() {
         let ix = index();
-        // Prove the policy without writing a quarter of a million rows: the
-        // eviction SQL is the same one MAX_ROWS drives.
+        // Exercise the eviction SQL MAX_ROWS drives without writing 250k rows.
         for i in 1..=10 {
             add(&ix, &format!("${i}"), "!r:x", "bounded sample", i * 1000);
         }
@@ -980,7 +869,7 @@ mod tests {
             "$5",
             "eviction took the newest instead of the oldest"
         );
-        // And under the cap, prune() does nothing at all.
+        // Under the cap, prune() does nothing.
         assert_eq!(ix.prune().unwrap(), 0);
     }
 
@@ -996,7 +885,7 @@ mod tests {
         assert!(ix.contains("$1").unwrap());
         assert!(!ix.contains("$9").unwrap());
         assert!(ix.known(&[]).unwrap().is_empty());
-        // Past SQLite's 999-parameter limit, which is why known() chunks.
+        // Past SQLite's 999-parameter limit, hence the chunking.
         let many: Vec<String> = (0..1500).map(|i| format!("$x{i}")).collect();
         assert!(ix.known(&many).unwrap().is_empty());
     }
@@ -1013,18 +902,13 @@ mod tests {
 
 
     // ── Lifting text out of a cached event ───────────────────────────────
-    //
-    // The narrow part of the whole feature. Everything the SDK cached goes
-    // through here, and each of these cases is a way to put the wrong thing
-    // in the index or to miss the right one.
     fn raw(json: serde_json::Value) -> serde_json::Value {
         json
     }
 
     #[test]
     fn onlyRoomMessagesWithTextAreIndexed() {
-        // A state change has no text a person searches for, and indexing it
-        // would make "joined the room" the commonest hit in the account.
+        // State changes are not indexed.
         assert!(indexable_from(&raw(serde_json::json!({
             "event_id": "$1", "sender": "@a:x", "origin_server_ts": 1,
             "type": "m.room.member",
@@ -1038,15 +922,13 @@ mod tests {
             "content": {"m.relates_to": {"key": "👍"}}
         })))
         .is_none());
-        // A REDACTED message has had its content emptied by the server, so it
-        // falls out here by construction rather than by a check that could be
-        // forgotten.
+        // A redacted message's content is emptied by the server.
         assert!(indexable_from(&raw(serde_json::json!({
             "event_id": "$3", "sender": "@a:x", "origin_server_ts": 1,
             "type": "m.room.message", "content": {}
         })))
         .is_none());
-        // And an empty body is nothing to find.
+        // An empty body is nothing to find.
         assert!(indexable_from(&raw(serde_json::json!({
             "event_id": "$4", "sender": "@a:x", "origin_server_ts": 1,
             "type": "m.room.message",
@@ -1068,8 +950,7 @@ mod tests {
 
     #[test]
     fn anAttachmentIsIndexedByItsFilename() {
-        // In Matrix an attachment's `body` IS its filename, and "that pdf
-        // someone sent" is a real search.
+        // An attachment's `body` is its filename.
         let item = indexable_from(&raw(serde_json::json!({
             "event_id": "$f", "sender": "@a:x", "origin_server_ts": 7,
             "type": "m.room.message",
@@ -1083,11 +964,8 @@ mod tests {
 
     #[test]
     fn anEditIsAttributedToTheEventItReplaces() {
-        // THE case that decides whether editing works. An m.replace carries a
-        // "* new text" fallback in `body` for clients that do not understand
-        // edits; indexing THAT would make every edited message findable by an
-        // asterisk, and would leave the original row carrying the old wording
-        // forever because the edit arrived under a different event id.
+        // An m.replace's "* new text" fallback must not be indexed; the edit is
+        // attributed to the original event, or the old wording would stay findable.
         let item = indexable_from(&raw(serde_json::json!({
             "event_id": "$edit", "sender": "@a:x", "origin_server_ts": 99,
             "type": "m.room.message",
@@ -1110,9 +988,8 @@ mod tests {
 
     #[test]
     fn aReplyIsAnOrdinaryMessageNotAnEdit() {
-        // m.in_reply_to is also an m.relates_to, and treating it like a
-        // replacement would file every reply on top of the message it answers
-        // — silently deleting the original from the index.
+        // m.in_reply_to is also an m.relates_to; treating a reply as a replacement
+        // would overwrite the original's row.
         let item = indexable_from(&raw(serde_json::json!({
             "event_id": "$reply", "sender": "@a:x", "origin_server_ts": 5,
             "type": "m.room.message",
@@ -1129,8 +1006,7 @@ mod tests {
     #[test]
     fn aMalformedEventIsSkippedRatherThanPanicking()
     {
-        // Every field here is attacker-influenced: the events come off the
-        // wire. None of these may be an unwrap.
+        // Events come off the wire: none of these may unwrap.
         for value in [
             serde_json::json!({}),
             serde_json::json!({"event_id": "$1"}),
@@ -1143,8 +1019,7 @@ mod tests {
             serde_json::json!({"event_id": "$1", "sender": "@a:x",
                                "origin_server_ts": 1, "type": "m.room.message",
                                "content": {"body": 12345}}),
-            // An m.replace with no target: the relation is unusable, so the
-            // event must be dropped rather than filed under a guess.
+            // An m.replace without a target is dropped, not filed under a guess.
             serde_json::json!({"event_id": "$1", "sender": "@a:x",
                                "origin_server_ts": 1, "type": "m.room.message",
                                "content": {"body": "* x",
@@ -1157,8 +1032,7 @@ mod tests {
 
     #[test]
     fn trigramCanFoldDiacriticsItself() {
-        // Claimed by review; measured here. If true, the fold_* columns this
-        // module carries are unnecessary weight.
+        // Measures that trigram's remove_diacritics folds diacritics itself.
         let db = Connection::open_in_memory().unwrap();
         let created = db.execute_batch(
             "CREATE VIRTUAL TABLE t USING fts5(body, tokenize='trigram remove_diacritics 2');
@@ -1182,9 +1056,7 @@ mod tests {
     // ── The tokenizer decision, evidenced ────────────────────────────────
     #[test]
     fn unicode61WouldHaveMadeChineseUnsearchable() {
-        // Not a test of Lightning: a test of the ALTERNATIVE, kept so the
-        // choice of trigram is defended by a measurement rather than a
-        // sentence in a comment.
+        // Tests the alternative, so choosing trigram rests on a measurement.
         let db = Connection::open_in_memory().unwrap();
         db.execute_batch(
             "CREATE VIRTUAL TABLE t USING fts5(body,

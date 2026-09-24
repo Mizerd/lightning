@@ -1,45 +1,22 @@
 //! Profile biographies (MSC4440) over extended profile fields (MSC4133).
 //!
-//! A bio is a short free-text self-description shown on a profile card. This
-//! module is written for INTEROPERABILITY, exactly like its sibling
-//! `banner.rs`, and it reuses that module's `profile_field` transport rather
-//! than inventing a second one — ruma's typed profile-field requests cannot
-//! reach a Synapse that actually implements MSC4133 (the reasoning is written
-//! out in full at the top of `banner.rs`; do not "fix" it back).
+//! Uses `banner.rs`'s `profile_field` transport, since ruma's typed requests
+//! cannot reach Synapse's MSC4133 implementation (see `banner.rs`).
 //!
-//!   * READ prefers the stable field `m.biography` and falls back to
-//!     `gay.fomx.biography`, MSC4440's own unstable prefix and the key Sable
-//!     writes today.
-//!   * WRITE sets BOTH, so a bio written in Lightning is visible in Sable and
-//!     the other way round. A bio nobody else can see is not a bio.
+//!   * Read prefers `m.biography` and falls back to `gay.fomx.biography`
+//!     (MSC4440's unstable prefix, which Sable writes).
+//!   * Write sets both, so bios are shared with Sable.
 //!
-//! # What crosses the FFI, and what deliberately does not
+//! Plain text only: MSC4440 allows an HTML representation (its example even
+//! embeds `<img src="mxc://...">`), but a bio is remote free text and
+//! rendering it would fetch content of the owner's choosing for every
+//! viewer. An HTML-only bio is stripped to plain text rather than hidden.
+//! Text is bounded (`MAX_BIO_CHARS`, per MSC4440's security section),
+//! control characters are removed, and bios are never logged.
 //!
-//! MSC4440 stores an extensible-events object: an ordered `m.text` array whose
-//! entries may carry an HTML representation alongside the plain one, and the
-//! MSC invites clients to render the HTML in preference.
-//!
-//! **Lightning does not, and this is a security decision, not an omission.** A
-//! bio is free text chosen by a REMOTE user. §6 of the development guide
-//! forbids rendering untrusted remote content as rich text, and the MSC's own
-//! example carries an `<img src="mxc://...">` — a profile card that rendered
-//! that would fetch an image of the profile owner's choosing for every person
-//! who so much as looked at them. So only PLAIN TEXT ever crosses this
-//! boundary. When a peer supplied nothing but an HTML representation, its
-//! markup is stripped here and the result is still delivered as plain text,
-//! because the alternative — showing nothing for a bio that plainly exists —
-//! is worse interoperability for no additional safety.
-//!
-//! The text is bounded, control characters are removed, and the value is never
-//! logged. MSC4440's own security section names an unbounded bio as the
-//! obvious attack; `MAX_BIO_CHARS` is that bound.
-//!
-//! A homeserver that does not implement MSC4133 answers with an
-//! unrecognised-endpoint error, reported as `supported: false` and rendered as
-//! NOTHING. That is a DIFFERENT fact from "this user has no bio", which is an
-//! ordinary `M_NOT_FOUND`, and the two must not be conflated — see
-//! `banner::is_unsupported`, which is shared with this module precisely so the
-//! distinction cannot drift between them.
+//! A server without MSC4133 is reported as `supported: false` and renders
+//! nothing, distinct from "no bio" (`M_NOT_FOUND`); `banner::is_unsupported`
+//! is shared so the two cannot drift.
 
 use std::sync::Arc;
 
@@ -52,57 +29,40 @@ use crate::{enqueue, RustClient};
 
 /// The stable field from MSC4440.
 const BIO_FIELD: &str = "m.biography";
-/// MSC4440's own unstable prefix, and the key Sable already writes. Read AND
-/// written, for the same reason `banner.rs` writes `chat.commet.profile_banner`.
+/// MSC4440's unstable prefix, which Sable writes. Read and written, as with
+/// `banner.rs`'s Commet key.
 const BIO_FIELD_UNSTABLE: &str = "gay.fomx.biography";
 
-/// One profile-field round trip. Rides the room-action pool, which sign-out
-/// joins, so no retry and a hard bound.
+/// One profile-field round trip on the room-action pool (joined at
+/// sign-out): no retry, hard bound.
 const BIO_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
-/// Client-side ceiling on a bio, in Unicode scalar values.
-///
-/// MSC4440 specifies no limit and names that as a security consideration:
-/// "malicious actors could set an unreasonably long bio, potentially lagging or
-/// even crashing clients". This is a CLIENT bound, not a protocol one, and it
-/// is applied on read as well as on write — a peer's server is not obliged to
-/// enforce ours.
+/// Client-side ceiling on a bio, in Unicode scalar values. MSC4440 sets no
+/// limit and names long bios as an attack; applied on read and on write.
 pub(crate) const MAX_BIO_CHARS: usize = 2048;
 
-/// Client-side ceiling on the number of LINES.
-///
-/// The character bound alone does not stop 2048 newlines, which would render as
-/// a profile card several screens tall containing nothing.
+/// Client-side ceiling on lines, so 2048 newlines cannot make a card several
+/// screens tall.
 pub(crate) const MAX_BIO_LINES: usize = 40;
 
-/// Normalise and bound a bio for display.
-///
-/// Deliberately `chars()`, never a byte slice: `&text[..N]` panics on a
-/// multi-byte boundary. Newlines survive — a bio is a multi-line block and
-/// collapsing it to one line would destroy the only formatting this client
-/// honours — but every other control character becomes a space, so a bio
-/// cannot carry terminal escapes, bidirectional overrides expressed as
-/// controls, or embedded NULs into a label.
+/// Normalise and bound a bio for display. Uses `chars()`, never byte slices
+/// (which panic mid code point). Newlines are kept; other control
+/// characters become spaces, so no escapes, control-form bidi overrides or
+/// NULs reach a label.
 pub(crate) fn sanitize_bio(text: &str) -> String {
-    // CRLF and bare CR both normalise to LF first, so a Windows-authored bio
-    // does not end up with a control character on every line.
+    // Normalise CRLF and bare CR to LF.
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
     let cleaned: String = normalized
         .chars()
         .map(|c| if c == '\n' || !c.is_control() { c } else { ' ' })
         .collect();
 
-    // Collapse runs of three or more blank lines to one blank line, and bound
-    // the line count. A paragraph break is meaningful; forty of them are not.
+    // Collapse runs of blank lines to one and bound the line count.
     let mut lines: Vec<&str> = Vec::new();
     let mut consecutive_blank = 0usize;
     for line in cleaned.lines() {
-        // trim_END only. Trailing whitespace is invisible and carries
-        // nothing; LEADING whitespace is content — a bio may indent a list
-        // or a snippet, and silently un-indenting someone's own words is a
-        // change to what they wrote rather than a bound on it. A line that
-        // is nothing BUT whitespace still reads as blank here, which is what
-        // the blank-run collapse below needs.
+        // Trim the end only: leading whitespace is the author's (indented lists).
+        // A whitespace-only line still reads as blank for the collapse below.
         let trimmed = line.trim_end();
         if trimmed.is_empty() {
             consecutive_blank += 1;
@@ -117,8 +77,7 @@ pub(crate) fn sanitize_bio(text: &str) -> String {
             break;
         }
     }
-    // Leading/trailing blank lines carry no information and would render as
-    // empty space inside the card's border.
+    // Drop leading/trailing blank lines.
     while lines.first().is_some_and(|l| l.is_empty()) {
         lines.remove(0);
     }
@@ -128,16 +87,10 @@ pub(crate) fn sanitize_bio(text: &str) -> String {
     lines.join("\n").chars().take(MAX_BIO_CHARS).collect()
 }
 
-/// Strip HTML markup from a formatted bio, conservatively.
-///
-/// This is NOT an HTML parser and does not try to be one. It exists for a
-/// single case: a peer whose client wrote only an HTML representation. The
-/// result is delivered and rendered as PLAIN TEXT, so a tag this misses is a
-/// cosmetic blemish and never an injection — the safety comes from the
-/// rendering mode, not from this function.
-///
-/// `<br>` and `</p>` become line breaks because a bio written as HTML
-/// paragraphs is otherwise delivered as one unbroken run.
+/// Strip HTML from a formatted bio, conservatively; not a parser. Only for
+/// peers that wrote nothing but HTML. The result is shown as plain text, so
+/// a missed tag is cosmetic, never an injection. `<br>` and `</p>` become
+/// line breaks.
 fn strip_html(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut in_tag = false;
@@ -163,14 +116,13 @@ fn strip_html(html: &str) -> String {
             _ => out.push(c),
         }
     }
-    // The five predefined XML entities, and nothing else: a numeric-entity
-    // decoder here would be a second parser to get wrong, and an undecoded
-    // entity in plain text is legible.
+    // Only the five predefined XML entities; an undecoded entity is legible,
+    // and a numeric decoder would be another parser to get wrong.
     out.replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
-        // Ampersand LAST, so "&amp;lt;" does not become "<".
+        // Ampersand last, so "&amp;lt;" does not become "<".
         .replace("&amp;", "&")
 }
 
@@ -182,15 +134,10 @@ fn is_html_entry(entry: &serde_json::Value) -> bool {
         .is_some_and(|m| m.eq_ignore_ascii_case("text/html"))
 }
 
-/// Pull displayable plain text out of an MSC4440 biography value.
-///
-/// Accepts the three shapes seen in the wild:
-///   * the MSC's object — `{ "m.text": [ { "body": …, "mimetype": … }, … ] }`;
-///   * a bare string, which some clients stored before the MSC settled;
-///   * an `m.text` array of bare strings.
-///
-/// A plain entry always wins over an HTML one regardless of order (the MSC's
-/// example puts HTML FIRST, so taking `[0]` would pick the markup every time).
+/// Pull plain text out of an MSC4440 biography value. Accepts the MSC object
+/// (`{ "m.text": [ { "body", "mimetype" }, … ] }`), a bare string (older
+/// clients), and an `m.text` array of strings. A plain entry wins over an
+/// HTML one regardless of order (the MSC's example puts HTML first).
 pub(crate) fn bio_text_from_value(value: &serde_json::Value) -> Option<String> {
     if let Some(text) = value.as_str() {
         let cleaned = sanitize_bio(text);
@@ -233,12 +180,9 @@ fn bio_from_body(field: &str, body: &str) -> Option<String> {
     bio_text_from_value(value.get(field)?)
 }
 
-/// The MSC4440 value for a bio, as Lightning writes it.
-///
-/// Plain text only, one `m.text` entry, no `mimetype` — the absence of a
-/// mimetype IS "this is plain text" in extensible events. Lightning never
-/// authors an HTML representation, so it can never be the client that puts a
-/// remote image reference into somebody else's profile card.
+/// The MSC4440 value Lightning writes: one plain `m.text` entry without
+/// `mimetype` (absence means plain text). Lightning never writes HTML, so it
+/// never puts remote image references in a profile.
 pub(crate) fn bio_value(text: &str) -> serde_json::Value {
     json!({ "m.text": [ { "body": text } ] })
 }
@@ -258,11 +202,8 @@ pub(crate) fn fetch_profile_bio(
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
         let mut bio = String::new();
-        // `supported` is decided by ACCOUNTING, exactly as in `banner.rs`: the
-        // server is unsupported only when EVERY attempt came back
-        // unrecognised. An M_NOT_FOUND is a supported server answering "this
-        // user has not written one", and reporting that as unsupported would
-        // hide the whole feature from everyone whose contacts have no bio.
+        // `supported` is decided across all attempts, as in `banner.rs`: only
+        // unsupported if every one came back unrecognised. M_NOT_FOUND means no bio.
         let mut any_answered = false;
         let mut any_unrecognised = false;
         for field in [BIO_FIELD, BIO_FIELD_UNSTABLE] {
@@ -282,8 +223,7 @@ pub(crate) fn fetch_profile_bio(
                         any_answered = true;
                     }
                 }
-                // A transport failure says nothing about what the server
-                // implements, so it must never latch "unsupported".
+                // A transport failure says nothing about support; never latch unsupported.
                 Err(_) => any_answered = true,
             }
         }
@@ -306,13 +246,9 @@ pub(crate) fn fetch_profile_bio(
     Ok(())
 }
 
-/// Set — or CLEAR — the signed-in account's bio, under BOTH field names.
-///
-/// An EMPTY (or whitespace-only) `text` means CLEAR, and clearing DELETES the
-/// fields rather than storing an empty object: a present-but-empty bio would
-/// render as an empty card in every client that shows one.
-///
-/// Emits `profile_bio_set`.
+/// Set or clear the account's bio under both field names. Empty or
+/// whitespace-only `text` clears by deleting the fields (an empty object
+/// would render as an empty card elsewhere). Emits `profile_bio_set`.
 pub(crate) fn set_own_profile_bio(
     bridge: &RustClient,
     op_id: u64,
@@ -323,7 +259,7 @@ pub(crate) fn set_own_profile_bio(
         .user_id()
         .map(ToOwned::to_owned)
         .ok_or_else(|| "no session".to_owned())?;
-    // Bounded HERE as well as on read: this is what leaves the machine.
+    // Bounded here too: this is what leaves the machine.
     let bounded = sanitize_bio(&text);
     let clearing = bounded.is_empty();
     let events = Arc::clone(&bridge.events);
@@ -348,8 +284,7 @@ pub(crate) fn set_own_profile_bio(
             };
             let outcome = match answer {
                 Ok(a) if (200..300).contains(&a.status) => Ok(()),
-                // Clearing a field that was never set is not a failure: the
-                // desired end state — no bio under this key — already holds.
+                // Clearing a never-set field is not a failure.
                 Ok(a) if clearing && a.status == 404 && !is_unsupported(&a.body) => Ok(()),
                 Ok(a) => Err(a.body),
                 Err(text) => Err(text),
@@ -404,9 +339,8 @@ mod tests {
 
     #[test]
     fn the_field_names_are_the_ones_other_clients_already_use() {
-        // MSC4440's stable name, and its unstable prefix — which is what Sable
-        // writes today. Both are READ and both are WRITTEN; a bio nobody else
-        // can see is not a bio.
+        // MSC4440's stable name and its unstable prefix (Sable's); both are read
+        // and written.
         assert_eq!(BIO_FIELD, "m.biography");
         assert_eq!(BIO_FIELD_UNSTABLE, "gay.fomx.biography");
         assert_ne!(BIO_FIELD, BIO_FIELD_UNSTABLE);
@@ -425,9 +359,8 @@ mod tests {
 
     #[test]
     fn the_plain_entry_wins_even_though_the_html_one_comes_first() {
-        // The MSC's own formatted example puts HTML at index 0, so anything
-        // that took entry [0] would render markup — and would pull the remote
-        // image in that example's <img src="mxc://...">.
+        // The MSC's formatted example puts HTML at index 0 (with a remote image);
+        // the plain entry must win.
         let body = r#"{"m.biography":{"m.text":[
             {"body":"hello <b>world</b>!<br/>bye","mimetype":"text/html"},
             {"body":"hello world!\nbye"}]}}"#;
@@ -439,9 +372,7 @@ mod tests {
 
     #[test]
     fn an_html_only_bio_is_delivered_as_stripped_plain_text() {
-        // Interop, not rendering: the value still crosses as plain text and is
-        // shown as plain text. Showing nothing for a bio that exists would be
-        // worse interoperability for no extra safety.
+        // An HTML-only bio is still delivered, as stripped plain text.
         let body = r#"{"m.biography":{"m.text":[
             {"body":"hi <b>there</b><br/>second line","mimetype":"text/html"}]}}"#;
         assert_eq!(
@@ -452,9 +383,7 @@ mod tests {
 
     #[test]
     fn markup_never_survives_into_the_delivered_text() {
-        // The exact hazard §6 forbids: a remote image reference in a profile
-        // field would be fetched by every viewer if it were rendered as rich
-        // text. Nothing resembling a tag may cross.
+        // No tag-like text may survive into what crosses.
         let body = r#"{"m.biography":{"m.text":[
             {"body":"look <img data-mx-emoticon src=\"mxc://evil.example/x\" /> at me",
              "mimetype":"text/html"}]}}"#;
@@ -473,7 +402,7 @@ mod tests {
 
     #[test]
     fn a_bare_string_value_is_accepted() {
-        // Not the MSC's shape, but cheap to tolerate on READ.
+        // Not the MSC's shape, but tolerated on read.
         let body = r#"{"m.biography":"just a sentence"}"#;
         assert_eq!(
             bio_from_body("m.biography", body).as_deref(),
@@ -509,8 +438,7 @@ mod tests {
 
     #[test]
     fn a_bio_is_bounded_in_both_length_and_height() {
-        // MSC4440's own security section names the unbounded bio as the
-        // attack. Both bounds are ours; the protocol specifies neither.
+        // Both bounds are ours; the protocol specifies neither.
         let long = "a".repeat(MAX_BIO_CHARS * 3);
         assert_eq!(sanitize_bio(&long).chars().count(), MAX_BIO_CHARS);
 
@@ -520,15 +448,13 @@ mod tests {
             .join("\n");
         assert_eq!(sanitize_bio(&tall).lines().count(), MAX_BIO_LINES);
 
-        // ...and a bio that is nothing but blank lines collapses to nothing at
-        // all, rather than to a card several screens tall.
+        // A bio of only blank lines collapses to nothing.
         assert!(sanitize_bio(&"\n".repeat(500)).is_empty());
     }
 
     #[test]
     fn bounding_cuts_at_a_scalar_boundary_never_inside_one() {
-        // Same rule as `profile::bound_display_name`: a byte slice would panic
-        // on a multi-byte boundary or emit half a UTF-8 sequence.
+        // Cuts at scalar boundaries, as in `profile::bound_display_name`.
         let text = format!("{}{}", "\u{1F98A}".repeat(MAX_BIO_CHARS), "tail");
         let bounded = sanitize_bio(&text);
         assert_eq!(bounded.chars().count(), MAX_BIO_CHARS);
@@ -537,10 +463,8 @@ mod tests {
 
     #[test]
     fn blank_line_runs_collapse_and_the_block_is_trimmed() {
-        // Leading and trailing BLANK LINES go, a run of them collapses to
-        // one, and trailing spaces go. Leading indentation stays: it is the
-        // author's own text, not padding this client gets to remove. A line
-        // of nothing but spaces still counts as blank.
+        // Blank lines at the ends go, runs collapse, trailing spaces go; leading
+        // indentation stays. A whitespace-only line counts as blank.
         assert_eq!(sanitize_bio("\n\n a \n\n\n\n b \n\n"), " a\n\n b");
         assert_eq!(sanitize_bio("   \n a\n   \n"), " a");
         assert_eq!(sanitize_bio("a  \nb\t"), "a\nb");
@@ -548,10 +472,7 @@ mod tests {
 
     #[test]
     fn what_lightning_writes_is_plain_text_with_no_html_representation() {
-        // Lightning must never be the client that puts a remote image
-        // reference into somebody else's profile card, so it authors no HTML
-        // representation at all. The absence of a mimetype IS "plain text" in
-        // extensible events.
+        // Lightning writes no HTML representation; no mimetype means plain text.
         let value = bio_value("hello\nworld");
         let entries = value["m.text"].as_array().expect("m.text array");
         assert_eq!(entries.len(), 1);
@@ -562,8 +483,7 @@ mod tests {
 
     #[test]
     fn what_lightning_writes_is_what_lightning_reads_back() {
-        // Round trip: the write shape must parse through the read path, or a
-        // bio set here would be invisible here.
+        // The write shape must parse through the read path.
         let value = bio_value(&sanitize_bio("hello\n\nworld"));
         assert_eq!(
             bio_text_from_value(&value).as_deref(),

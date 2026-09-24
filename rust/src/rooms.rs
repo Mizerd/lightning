@@ -1,16 +1,13 @@
-//! Room management, user search and the media bridge (v0.5.9).
+//! Room management, user search and the media bridge.
 //!
-//! Every function here is invoked from a thin `extern "C"` wrapper in
-//! `lib.rs`, does its synchronous validation on the caller's thread, and
-//! spawns the network work as a *managed* task (`spawn_room_action`) on the
-//! shared runtime so sign-out joins it deterministically. Async completions
-//! are stamped with the lifecycle generation and an operation id; C++
-//! rejects stale generations and unknown operation ids.
+//! Each function backs a thin `extern "C"` wrapper in `lib.rs`: it validates
+//! synchronously, then runs network work as a managed task
+//! (`spawn_room_action`) on the shared runtime so sign-out joins it. Results
+//! carry the lifecycle generation and an op id; C++ rejects stale ones.
 //!
-//! Nothing in this module serializes key material, access tokens, raw
-//! events, local file paths (into logs), or media bytes into the JSON event
-//! queue. Media bytes cross the FFI through the dedicated take/free binary
-//! bridge in `lib.rs`.
+//! Never puts key material, tokens, raw events, local paths or media bytes
+//! into the JSON event queue; media bytes use the take/free bridge in
+//! `lib.rs`.
 
 use std::sync::Arc;
 
@@ -46,15 +43,12 @@ use serde_json::json;
 
 use crate::{enqueue, RustClient};
 
-/// Upper bound on one member-snapshot payload. Rooms larger than this are
-/// truncated (flagged in the event) — the UI shows counts, not 10k rows.
+/// Upper bound on one member-snapshot payload; larger rooms are truncated
+/// (flagged in the event).
 const MEMBER_SNAPSHOT_CAP: usize = 500;
 
 /// Avatar uploads are small; refuse anything larger before reading it.
-///
-/// `pub(crate)` so the OWN-avatar path in `profile.rs` enforces the same
-/// ceiling rather than carrying a second copy of the number that could drift
-/// away from this one.
+/// Shared with the own-avatar path in `profile.rs`.
 pub(crate) const MAX_AVATAR_BYTES: u64 = 8 * 1024 * 1024;
 
 pub(crate) fn require_client(bridge: &RustClient) -> Result<matrix_sdk::Client, String> {
@@ -77,9 +71,8 @@ pub(crate) fn joined_room(
         .ok_or_else(|| "unknown or not-joined room".to_owned())
 }
 
-/// Coarse, non-secret categories for room-management failures. The raw SDK
-/// error text may embed server detail; only the category crosses to QML
-/// user strings. Pure and unit-tested.
+/// Coarse, non-secret categories for room-management failures; raw SDK
+/// error text may embed server detail. Pure and unit-tested.
 pub(crate) fn classify_room_error(message: &str) -> &'static str {
     let lc = message.to_lowercase();
     if lc.contains("m_limit_exceeded") || lc.contains("limit exceeded") || lc.contains("429") {
@@ -90,13 +83,9 @@ pub(crate) fn classify_room_error(message: &str) -> &'static str {
         "alias_taken"
     } else if lc.contains("m_invalid") || lc.contains("invalid") {
         "invalid"
-    // BEFORE the 404 branch, and that ordering is the whole point: a server
-    // that does not implement an endpoint answers 404 WITH M_UNRECOGNIZED, so
-    // the generic branch would swallow it and "your server cannot do this at
-    // all" would read as "there is nothing there" — the absence-looks-like-
-    // success shape this project keeps rediscovering. Jump-to-date is the
-    // caller that needs it (MSC3030 is only stable since Matrix 1.6), but any
-    // endpoint an older homeserver lacks benefits.
+    // Before the 404 branch: a server lacking an endpoint answers 404 with
+    // M_UNRECOGNIZED, and "your server cannot do this" must not read as
+    // "nothing there" (e.g. MSC3030 jump-to-date on pre-1.6 servers).
     } else if lc.contains("m_unrecognized") || lc.contains("unrecognized") {
         "unrecognized"
     } else if lc.contains("m_not_found") || lc.contains("not found") || lc.contains("404") {
@@ -106,18 +95,13 @@ pub(crate) fn classify_room_error(message: &str) -> &'static str {
     }
 }
 
-/// Sniff a raster-image MIME type from magic bytes. Used for avatar upload
-/// and clipboard data so a mislabelled extension cannot spoof the type.
-/// Pure and unit-tested.
+/// Sniff a raster-image MIME type from magic bytes, so a mislabelled
+/// extension cannot spoof the type. Pure and unit-tested.
 ///
-/// This IDENTIFIES; it does not promise the GUI can draw the result. Qt image
-/// formats are dlopen'd plugins, so what a build decodes is a packaging fact
-/// that differs per platform (JPEG XL is reachable on Linux and on neither
-/// Windows nor macOS — Qt has never shipped a JXL plugin and the only one that
-/// exists, KDE's kimageformats, is packaged for neither). Deciding what THIS
-/// build can render belongs to `lightning::imagefmt::canDecode` on the C++
-/// side, which asks QImageReader; the mirror of this table lives in
-/// `src/media/ImageFormatSupport.h`.
+/// This identifies; it does not promise the GUI can decode it (Qt image
+/// formats are per-platform plugins; e.g. JPEG XL decodes only on Linux).
+/// That is `lightning::imagefmt::canDecode` in C++; this table is mirrored
+/// in `src/media/ImageFormatSupport.h`.
 pub(crate) fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
     if bytes.len() < 12 {
         return None;
@@ -130,18 +114,13 @@ pub(crate) fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
         Some("image/gif")
     } else if bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
         Some("image/webp")
-    // JPEG XL, both shapes. VERIFIED against real `cjxl` output rather than
-    // read off a spec summary:
+    // JPEG XL, both shapes (verified against `cjxl` output):
     //   ISOBMFF container: 00 00 00 0C "JXL " 0D 0A 87 0A, then "ftypjxl "
-    //   bare codestream:   FF 0A            (lossy and `-d 0` lossless alike)
-    // The container test comes FIRST and is 12 bytes, so it cannot be reached
-    // by the two-byte codestream test. Note bytes[4..8] here is "JXL ", not
-    // "ftyp", so nothing that keys on the ISO BMFF brand can mistake a .jxl
-    // for an MP4.
-    //
-    // The codestream signature is two bytes, which is weak — no weaker than
-    // the "BM" below, and the cost of a false positive is a payload declared
-    // image/jxl that a decoder then refuses, never a wrong decode.
+    //   bare codestream:   FF 0A
+    // The 12-byte container test comes first. bytes[4..8] is "JXL ", not
+    // "ftyp", so it cannot be mistaken for MP4. The two-byte codestream
+    // signature is weak, but a false positive only yields a payload a decoder
+    // refuses.
     } else if bytes.starts_with(&[0x00, 0x00, 0x00, 0x0C, b'J', b'X', b'L', b' ', 0x0D, 0x0A, 0x87, 0x0A])
     {
         Some("image/jxl")
@@ -214,18 +193,14 @@ pub(crate) fn search_users(
     Ok(())
 }
 
-/// v0.5.11: exact profile lookup for one user id (GET /profile/{userId}).
-/// Backs the bare-localpart invite search: the directory may not list local
-/// users, so a plausible `@localpart:own-server` candidate is confirmed (or
-/// refuted) against the homeserver before it is offered as a result. Only
-/// display name and avatar mxc cross the FFI; a missing user surfaces as
-/// ok=false with category "not_found".
-/// A profile lookup is decoration — a face and a display name — and every room
-/// action is joined on the GUI thread at teardown, so an unbounded one is an
-/// unbounded freeze. Ten seconds matches the presence batch's per-request
-/// bound in `presence.rs`.
+/// Profile lookups are decoration, and every room action is joined on the
+/// GUI thread at teardown, so they are bounded (like the presence batch).
 const PROFILE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Exact profile lookup for one user id (GET /profile/{userId}). Backs the
+/// bare-localpart invite search, since the directory may not list local
+/// users. Only display name and avatar mxc cross; a missing user is ok=false
+/// with category "not_found".
 pub(crate) fn fetch_user_profile(
     bridge: &RustClient,
     user_id: String,
@@ -238,24 +213,11 @@ pub(crate) fn fetch_user_profile(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        // BOUNDED, and it is the reason this one needed it more than most.
-        //
-        // This was the only network room action with NO timeout, on matrix-sdk's
-        // default RequestConfig — which RETRIES and honours M_LIMIT_EXCEEDED's
-        // retry_after_ms. DirectAvatarResolver fires one of these per DM peer
-        // the moment an account finishes restoring, which is exactly the burst
-        // a homeserver rate-limiter answers with a retry-after.
-        //
-        // And every room action is JOINED, on the GUI thread, when the session
-        // is torn down (shutdown_managed_tasks). So an unbounded profile
-        // request is an unbounded GUI freeze on the next account switch — the
-        // reported "switch to one acc and back to the first acc it freezes for
-        // about 3-5 seconds", which reproduces on the SECOND switch precisely
-        // because that is when the fan-out is still in flight.
-        //
-        // A profile is decoration: a face and a display name. It is never
-        // worth holding a teardown for, and a timed-out lookup is reported as
-        // an ordinary failure the resolver already handles.
+        // Bounded: matrix-sdk's default config retries and honours
+        // M_LIMIT_EXCEEDED's retry_after_ms, and DirectAvatarResolver fires one per
+        // DM peer right after restore. Room actions are joined on the GUI thread at
+        // teardown, so an unbounded lookup freezes the next account switch. A
+        // timeout is reported as an ordinary failure.
         let result = match tokio::time::timeout(
             PROFILE_REQUEST_TIMEOUT,
             client.account().fetch_user_profile_of(&uid),
@@ -318,7 +280,7 @@ pub(crate) fn fetch_user_profile(
 }
 
 // ---------------------------------------------------------------------------
-// Client-side URL previews (v0.5.12)
+// Client-side URL previews
 // ---------------------------------------------------------------------------
 
 const MAX_HTML_BYTES: usize = 2 * 1_048_576;
@@ -336,29 +298,20 @@ pub(crate) fn public_ip(ip: std::net::IpAddr) -> bool {
             || (v.octets()[0] == 100 && (64..=127).contains(&v.octets()[1]))
             || (v.octets()[0] == 169 && v.octets()[1] == 254)),
         std::net::IpAddr::V6(v) => {
-            // UNMAP FIRST, OR EVERY V4 RULE ABOVE IS BYPASSABLE. `::ffff:a.b.c.d`
-            // is an IPv4 address wearing a v6 coat: `is_loopback()` is false for
-            // `::ffff:127.0.0.1` (only `::1` counts), it is not multicast, and it
-            // matches neither the fc00::/7 nor the fe80::/10 mask — so it was
-            // judged PUBLIC and pinned into the client. Connecting an AF_INET6
-            // socket to one reaches the IPv4 host, so an attacker publishing only
-            // `AAAA ::ffff:127.0.0.1` for a domain they control aimed a link
-            // preview at the user's loopback, RFC1918 space, or 169.254.169.254.
-            // Every redirect hop re-validates through this same function, so the
-            // hole was equally open on all of them.
-            //
-            // Also refused: the deprecated `::a.b.c.d` compatible form, and
-            // NAT64's 64:ff9b::/96, both of which likewise carry an embedded
-            // IPv4 destination that the masks below cannot see.
+            // Unmap first, or every v4 rule above is bypassable: `::ffff:127.0.0.1` is
+            // not loopback, multicast, fc00::/7 or fe80::/10 as v6, yet an AF_INET6
+            // socket to it reaches the IPv4 host, so an `AAAA ::ffff:127.0.0.1` record
+            // could aim a preview at loopback, RFC1918 or 169.254.169.254 (on every
+            // redirect hop too). Also refused: the deprecated `::a.b.c.d` form and
+            // NAT64's 64:ff9b::/96, which also embed an IPv4 destination.
             if let Some(v4) = v.to_ipv4_mapped() {
                 return public_ip(std::net::IpAddr::V4(v4));
             }
             if v.segments()[0] == 0x0064 && v.segments()[1] == 0xff9b {
                 return false;
             }
-            // `to_ipv4()` also matches the compatible form (::a.b.c.d); anything
-            // it resolves that is not already handled above is judged as the
-            // embedded IPv4 address rather than as an opaque v6 one.
+            // `to_ipv4()` also matches the compatible form (::a.b.c.d); judge it as the
+            // embedded IPv4 address.
             if let Some(v4) = v.to_ipv4() {
                 return public_ip(std::net::IpAddr::V4(v4));
             }
@@ -370,9 +323,8 @@ pub(crate) fn public_ip(ip: std::net::IpAddr) -> bool {
 }
 
 pub(crate) struct SafeResponse { pub status: reqwest::StatusCode, pub mime: String, pub location: Option<String>, pub bytes: Vec<u8> }
-// Default Accept for HTML/image previews. GIF downloads and provider JSON pass
-// their own via the `accept` parameter so a `.gif` URL is never
-// content-negotiated into webp, and JSON endpoints get a JSON Accept.
+// Default Accept for HTML/image previews. GIF downloads and provider JSON
+// pass their own so a `.gif` is never negotiated into webp.
 pub(crate) const PREVIEW_ACCEPT: &str =
     "text/html,image/jpeg,image/png,image/webp,image/gif";
 
@@ -393,14 +345,9 @@ async fn safe_get(url: &url::Url, limit: usize, accept: &str)
         return Err("blocked_destination");
     }
     // Pin the validated DNS answer so a second lookup cannot rebind the host.
-    // NO PROXY, and this is not a preference. Everything above — the DNS
-    // resolution, the public_ip() judgement, the pin of the resolved address
-    // via .resolve() — decides which HOST this request may reach. reqwest
-    // honours HTTPS_PROXY/ALL_PROXY from the environment by default, and a
-    // proxied request CONNECTs to the proxy and asks IT to reach the origin
-    // by name, so the pinned address is never used and every check above
-    // becomes advisory. On a machine with a proxy set, the SSRF guard was
-    // simply not enforced.
+    // No proxy: reqwest honours HTTPS_PROXY/ALL_PROXY by default, and a proxied
+    // request asks the proxy to reach the origin by name, bypassing the pinned
+    // address and every check above.
     let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none())
         .no_proxy()
         .connect_timeout(CONNECT_TIMEOUT).timeout(REQUEST_TIMEOUT)
@@ -408,11 +355,9 @@ async fn safe_get(url: &url::Url, limit: usize, accept: &str)
         .map_err(|_| "request_failure")?;
     let response = client.get(url.clone())
         .header(reqwest::header::ACCEPT, accept)
-        // A handful of ordinary sites' CDN/WAF layers treat a request
-        // missing standard browser headers (Accept-Language in particular)
-        // as suspicious and serve an interstitial or a terminal status
-        // instead of the article. Accept-Encoding is handled by reqwest's
-        // gzip/deflate features, not set manually here.
+        // Some CDN/WAF layers treat requests without standard browser headers
+        // (Accept-Language especially) as bots. Accept-Encoding comes from
+        // reqwest's gzip/deflate features.
         .header(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
         .send().await.map_err(|e|
         if e.is_timeout() { "timeout" } else { "request_failure" })?;
@@ -465,11 +410,9 @@ fn html_fields(input: &str) -> (std::collections::HashMap<String,String>, String
 fn pick(fields: &std::collections::HashMap<String,String>, keys: &[&str]) -> String {
     keys.iter().find_map(|k| fields.get(*k).cloned()).unwrap_or_default()
 }
-// Sanitized failure detail for one preview attempt — carries only what is
-// needed to distinguish a real code regression from live remote policy
-// (a site's own bot/WAF layer) without ever including the URL, query
-// string, or response body. `status` is None for failures that never got
-// an HTTP response at all (DNS, timeout, blocked destination, ...).
+// Sanitized failure detail for one preview attempt, enough to tell a code
+// regression from a site's own bot/WAF policy, never the URL, query or
+// body. `status` is None when no HTTP response arrived.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PreviewFailure {
     pub category: &'static str,
@@ -482,10 +425,9 @@ impl From<&'static str> for PreviewFailure {
     }
 }
 
-// Follow redirects manually so every hop receives the same DNS/IP policy,
-// DNS pinning, scheme check, timeout, and response bound. Used for both the
-// primary URL and HTML metadata images; reqwest redirect following remains
-// disabled inside safe_get().
+// Follow redirects manually so every hop gets the same DNS/IP policy,
+// pinning, scheme check, timeout and size bound. reqwest's own redirect
+// following stays disabled in safe_get().
 pub(crate) async fn safe_get_following_redirects(
     mut url: url::Url,
     limit: usize,
@@ -528,12 +470,10 @@ pub(crate) async fn safe_get_following_redirects(
     })
 }
 
-// Some CDNs label passive image bytes as application/octet-stream or even
-// text/html. Classification therefore checks both the final declared MIME
-// and the bytes. A declared supported image must agree with its magic bytes;
-// generic/mislabeled responses may be promoted only when recognized bytes
-// prove a supported passive raster. Actual HTML remains HTML. SVG never
-// matches the passive-image sniffer.
+// Some CDNs mislabel images as application/octet-stream or text/html, so
+// classification checks both the declared MIME and the bytes. A declared
+// image must match its magic; a generic label may be promoted only when the
+// bytes prove a supported raster. HTML stays HTML; SVG never matches.
 fn classify_preview_payload(
     declared_mime: &str,
     bytes: &[u8],
@@ -558,11 +498,8 @@ fn classify_preview_payload(
     Err("unsupported_mime")
 }
 
-// The redirect loop's own fetch doesn't know ahead of time whether the
-// destination is an HTML page or a direct image — Content-Type is only
-// known after the fetch completes — so it must accommodate the larger of
-// the two byte limits. Using the smaller MAX_HTML_BYTES here (as 0.5.13
-// did) silently capped every direct-image preview at that smaller ceiling.
+// The first fetch cannot know whether it gets HTML or an image, so it uses
+// the larger limit; MAX_HTML_BYTES would cap direct-image previews.
 const MAX_INITIAL_FETCH_BYTES: usize = MAX_IMAGE_BYTES;
 
 async fn preview(page: url::Url) -> Result<serde_json::Value, PreviewFailure> {
@@ -639,10 +576,8 @@ async fn preview(page: url::Url) -> Result<serde_json::Value, PreviewFailure> {
                 "image_height": 0, "image_size": 0
             });
             if let Some(image) = image {
-                // A broken/protected/slow thumbnail CDN must not sink an
-                // otherwise-valid preview that already has title/description —
-                // fetch failures and unsupported/invalid image bytes here are
-                // swallowed, leaving the image fields empty.
+                // A failing thumbnail must not sink a preview that already has a title or
+                // description; image errors are swallowed and the fields stay empty.
                 if let Ok((fetched, _, _)) =
                     safe_get_following_redirects(image, MAX_IMAGE_BYTES, PREVIEW_ACCEPT).await
                 {
@@ -686,10 +621,8 @@ fn image_dimensions(mime: &str, b: &[u8]) -> Option<(u32,u32)> {
     }
     if mime == "image/webp" && b.len() >= 16 && &b[..4] == b"RIFF" && &b[8..12] == b"WEBP" {
         let chunk = &b[12..16];
-        // "VP8X" (extended: animation/alpha/exif) is the only variant the
-        // original check handled — but most real-world direct WebP links
-        // use the much more common simple lossy ("VP8 ") or lossless
-        // ("VP8L") chunk, which would otherwise fail as "invalid_image".
+        // Accept the simple lossy ("VP8 ") and lossless ("VP8L") chunks as well
+        // as extended "VP8X", which most direct WebP links do not use.
         if chunk == b"VP8X" && b.len() >= 30 {
             let n = |i| 1 + u32::from_le_bytes([b[i],b[i+1],b[i+2],0]);
             return Some((n(24),n(27)));
@@ -713,25 +646,14 @@ fn image_dimensions(mime: &str, b: &[u8]) -> Option<(u32,u32)> {
 
 /// The homeserver's own preview of a page, or None if it cannot supply one.
 ///
-/// WHY THIS EXISTS AND RUNS FIRST. A client-side preview fetch contacts the
-/// linked website directly, which hands that site the member's IP address —
-/// a tracking pixel by another name, and the reason previews have shipped
-/// default-OFF behind a consent box since the 2026-08-12 privacy audit. The
-/// homeserver fetching on our behalf removes that exposure entirely: the site
-/// sees the SERVER, and the returned thumbnail is an `mxc://` that rides the
-/// existing authenticated media path.
+/// Tried first because a client-side fetch hands the linked site the
+/// user's IP; via the server the site sees only the server, and the
+/// thumbnail is an `mxc://` on the authenticated media path. The server does
+/// learn the URL: in an unencrypted room it already saw the message, and
+/// encrypted rooms still require an explicit per-message gesture.
 ///
-/// WHAT IT COSTS INSTEAD, because it is not free. The homeserver learns which
-/// URL was previewed. In an unencrypted room it already saw the message
-/// carrying that link, so this discloses nothing new. In an ENCRYPTED room it
-/// did not — which is exactly why the caller keeps the existing rule that an
-/// encrypted room never previews without an explicit per-message gesture.
-/// Server-side previewing does not weaken that gate; it changes only WHO sees
-/// the URL once the user has asked for it.
-///
-/// Returns Ok(None) — not an error — when the server has previews disabled or
-/// the endpoint is unrecognised, so the caller falls back to the client path
-/// without treating a normal server configuration as a failure.
+/// Returns Ok(None), not an error, when previews are disabled or the
+/// endpoint is unrecognised, so the caller falls back.
 async fn server_preview(
     client: &matrix_sdk::Client,
     page: &url::Url,
@@ -744,20 +666,13 @@ async fn server_preview(
     server_preview_fields(&data)
 }
 
-/// The OpenGraph object a server returned, reshaped into our field set — or
-/// None when it did not actually say anything.
-///
-/// SPLIT OUT SO A TEST CAN DRIVE IT. Left inline it was reachable only
-/// through a live homeserver, and the test that "covered" it re-implemented
-/// the predicate as a local closure — which asserts that the test agrees with
-/// itself and would pass with this function deleted.
+/// Reshape a server's OpenGraph object into our field set, or None when it
+/// says nothing. Separate so a test can drive it.
 pub(crate) fn server_preview_fields(data: &serde_json::Value) -> Option<serde_json::Value> {
     let obj = data.as_object()?;
-    // OPENGRAPH KEYS, and the server may legitimately supply none of them:
-    // a URL it could not fetch still returns 200 with an empty object. An
-    // answer with neither a title nor a description is no better than no
-    // answer, so it counts as "the server could not do this" and the caller
-    // falls back rather than drawing an empty card.
+    // A server that could not fetch the URL still returns 200 with an empty
+    // object; no title and no description counts as no answer, so the caller
+    // falls back instead of drawing an empty card.
     let text = |k: &str| -> String {
         obj.get(k).and_then(|v| v.as_str()).unwrap_or_default().to_owned()
     };
@@ -766,10 +681,8 @@ pub(crate) fn server_preview_fields(data: &serde_json::Value) -> Option<serde_js
     if title.is_empty() && description.is_empty() {
         return None;
     }
-    // The SAME field set the client path emits, so nothing downstream needs to
-    // know which route produced it. `og:image` is an mxc:// URI here rather
-    // than an http(s) URL — the media bridge already resolves those, and it is
-    // the whole reason the thumbnail costs no direct contact either.
+    // Same field set as the client path. `og:image` is an mxc:// URI here,
+    // resolved by the media bridge, so the thumbnail needs no direct contact.
     let image_source = text("og:image");
     let image_size = obj
         .get("matrix:image:size")
@@ -797,9 +710,7 @@ pub(crate) fn fetch_url_preview(
     url: String,
     op_id: u64,
 ) -> Result<(), String> {
-    // Previews are account/session scoped — and the client this returns is
-    // also what the server-side attempt below sends through, so there is one
-    // session involved, not two.
+    // The client that runs the server-side attempt below: one session.
     let sdk = require_client(bridge)?;
     let parsed = url::Url::parse(url.trim()).map_err(|_| "invalid URL".to_owned())?;
     if parsed.scheme() != "https" || !parsed.username().is_empty() || parsed.password().is_some() {
@@ -809,20 +720,15 @@ pub(crate) fn fetch_url_preview(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        // SERVER FIRST, CLIENT ONLY IF IT CANNOT. The homeserver fetching the
-        // page means the linked site never sees the member's IP. Falling back
-        // is not a silent downgrade of that property — the caller decides
-        // whether a direct fetch is permitted at all, and the result carries
-        // `preview_route` so the UI can say which one produced the card
-        // rather than implying the private path was used.
+        // Server first, client only if it cannot, so the site does not see the
+        // user's IP. Whether a direct fetch is allowed is the caller's decision;
+        // `preview_route` tells the UI which path produced the card.
         let mut result = match server_preview(&sdk, &parsed).await {
             Some(fields) => Ok(fields),
             None => preview(parsed.clone()).await,
         };
-        // Anything the client path produced took the direct route. Stamped
-        // here rather than in preview() so there is exactly one place that
-        // decides what the label means, and no way to return a card without
-        // one.
+        // Anything the client path produced took the direct route. Stamped here,
+        // in one place.
         if let Ok(ref mut fields) = result {
             if fields.get("preview_route").is_none() {
                 fields["preview_route"] = "client".into();
@@ -862,8 +768,8 @@ pub(crate) fn fetch_url_preview(
 // Direct messages
 // ---------------------------------------------------------------------------
 
-/// Existing joined DM rooms with `user_id`, straight from the SDK's
-/// authoritative m.direct projection. Synchronous (store lookup only).
+/// Existing joined DM rooms with `user_id`, from the SDK's m.direct
+/// projection. Synchronous store lookup.
 pub(crate) fn get_dm_rooms(bridge: &RustClient, user_id: &str) -> Result<String, String> {
     let client = require_client(bridge)?;
     let uid = UserId::parse(user_id).map_err(|_| "invalid Matrix user id".to_owned())?;
@@ -880,9 +786,9 @@ pub(crate) fn get_dm_rooms(bridge: &RustClient, user_id: &str) -> Result<String,
         .map_err(|_| "serialization failed".to_owned())
 }
 
-/// Create an encrypted DM with `user_id` via the pinned `Client::create_dm`
-/// (TrustedPrivateChat preset, encryption initial state, `is_direct`, and
-/// the SDK's locked read-modify-write m.direct update).
+/// Create an encrypted DM with `user_id` via `Client::create_dm`
+/// (TrustedPrivateChat preset, encryption state, `is_direct`, and the SDK's
+/// locked m.direct update).
 pub(crate) fn create_dm(bridge: &RustClient, user_id: String, op_id: u64) -> Result<(), String> {
     let client = require_client(bridge)?;
     let uid: OwnedUserId =
@@ -948,8 +854,8 @@ pub(crate) struct CreateRoomOptions {
     pub is_space: bool,
 }
 
-/// Build the pinned ruma create-room request from validated options.
-/// No room id or room version is generated locally — the server decides.
+/// Build the ruma create-room request from validated options. The server
+/// chooses the room id and version.
 pub(crate) fn build_create_room_request(
     opts: &CreateRoomOptions,
 ) -> Result<create_room::v3::Request, String> {
@@ -964,8 +870,7 @@ pub(crate) fn build_create_room_request(
             invites.push(uid);
         }
     }
-    // A Space is a room of type m.space; it is never an encrypted timeline,
-    // so the encryption initial-state is skipped for Spaces.
+    // A Space is never an encrypted timeline, so no encryption state for it.
     let initial_state = if opts.encrypted && !opts.is_space {
         vec![InitialStateEvent::with_empty_state_key(
             RoomEncryptionEventContent::with_recommended_defaults(),
@@ -974,25 +879,12 @@ pub(crate) fn build_create_room_request(
     } else {
         Vec::new()
     };
-    // A ROOM THAT CAN HOST A CALL MUST LET ITS MEMBERS SAY THEY ARE IN ONE.
-    //
-    // MatrixRTC membership is a STATE event, and a room's default
-    // `state_default` is 50. So in a room created with stock power levels only
-    // moderators can publish `m.call.member` -- and an ordinary member who
-    // presses Join gets a call that looks connected and is silently broken in
-    // one direction.
-    //
-    // The failure is invisible from both ends and took a long time to find.
-    // The peer's membership never lands, so this side never sees them as a
-    // participant, `mediaKeyTargets()` stays empty, and our media key is never
-    // sent: they can be HEARD (their key reaches us over to-device, which
-    // needs no room permission) and they cannot hear US. Each end reports a
-    // healthy call throughout. Confirmed live 2026-09-16: promoting the member
-    // to moderator fixed it outright.
-    //
-    // Element Call does the same thing for the rooms it creates, which is why
-    // this never bit a room made there. Spaces are excluded: a Space holds no
-    // calls, and widening its state permissions would be a real change.
+    // A room that can host a call must let its members publish their call
+    // membership. `m.call.member` is a state event, and the default
+    // `state_default` of 50 lets only moderators publish it: an ordinary member
+    // who joins gets a call that looks connected but is one-way (their
+    // membership never lands, so no media key is sent to them). Element Call
+    // does the same for rooms it creates. Spaces are excluded (no calls).
     let power_levels = if opts.is_space {
         None
     } else {
@@ -1000,15 +892,12 @@ pub(crate) fn build_create_room_request(
         for ev in [crate::rtc::EV_MEMBER_LEGACY, crate::rtc::EV_MEMBER_STICKY] {
             events.insert(ev.to_owned(), json!(0));
         }
-        // ONLY these event types are lowered. `state_default` is left alone,
-        // so nothing else about who may change the room moves.
+        // Only these event types are lowered; `state_default` is unchanged.
         Some(json!({ "events": serde_json::Value::Object(events) }))
     };
-    // Raised out of the request literal: `?` cannot cross the assign! macro.
+    // Outside the request literal: `?` cannot cross the assign! macro.
     let power_level_content_override = match power_levels {
-        // cast_unchecked, as elsewhere in this bridge: the value is built
-        // here from literals, so the shape is ours and not a parse of
-        // anything a server or a peer sent.
+        // cast_unchecked: the value is built here from literals.
         Some(v) => Some(
             Raw::new(&v)
                 .map_err(|e| format!("power level override: {e}"))?
@@ -1062,8 +951,8 @@ pub(crate) fn create_room(
         }
         match result {
             Ok(room) => {
-                // Optional Space placement. Failure here must not read as a
-                // failed room creation — it is reported as a warning.
+                // Optional Space placement. A failure there is reported as a warning, not
+                // a failed room creation.
                 let mut warning = String::new();
                 if !opts.space_id.is_empty() {
                     let placed = add_space_child(&client, &opts.space_id, room.room_id().as_str())
@@ -1121,11 +1010,10 @@ async fn add_space_child(
         .map_err(|err| classify_room_error(&err.to_string()).to_owned())
 }
 
-/// Child removal: an `m.space.child` with content `{}`, which is what
-/// matrix-sdk-ui's own remove_child sends. `{"via": []}` is "not a child" by
-/// the spec too, but the SDK's space graph still counts it as an edge: seen
-/// live 2026-09-24, a child removed that way stayed listed. The room itself
-/// is never left or deleted.
+/// Child removal: an `m.space.child` with content `{}`, as matrix-sdk-ui's
+/// remove_child sends. `{"via": []}` is also "not a child" per spec, but the
+/// SDK's space graph still counts it as an edge. Never leaves or deletes
+/// the room itself.
 async fn remove_space_child(
     client: &matrix_sdk::Client,
     space_id: &str,
@@ -1198,12 +1086,9 @@ pub(crate) fn add_room_to_space(
     Ok(())
 }
 
-/// Toggle the MSC1772 `suggested` flag on an EXISTING m.space.child,
-/// preserving the event's `via` list and `order` key — the flag rides the
-/// same state event that makes the room a child, so a blind rewrite would
-/// clobber routing. A room that is not currently a child (no event, or an
-/// empty-via tombstone) is refused, never promoted to a child as a side
-/// effect of suggesting it.
+/// Toggle the MSC1772 `suggested` flag on an existing m.space.child,
+/// preserving `via` and `order` (a blind rewrite would clobber routing). A
+/// room that is not a child is refused, never made one as a side effect.
 async fn set_space_child_suggested_inner(
     client: &matrix_sdk::Client,
     space_id: &str,
@@ -1340,30 +1225,20 @@ pub(crate) fn invite_users(
 // Thread participants (facepiles)
 // ---------------------------------------------------------------------------
 
-/// How many participants cross the FFI. The facepile shows 2-4; a small
-/// surplus lets the UI dedupe/choose without a second request, and caps what
-/// one payload can carry.
+/// Participants crossing the FFI. The facepile shows 2-4; a small surplus
+/// lets the UI choose without another request.
 const THREAD_PARTICIPANT_CAP: usize = 8;
 
-/// v0.7: the REAL participants of a thread, for the summary card facepile.
+/// The real participants of a thread, for the summary-card facepile.
 ///
-/// matrix-sdk-ui 0.18 does not expose this: `ThreadSummary` and
-/// `ThreadListItem` both carry only the root sender, the latest reply's
-/// sender and a reply COUNT — a count of replies, never of people. So the
-/// participants are derived from the thread's actual events via
-/// `Room::load_or_fetch_event_with_relations`, which is CACHE-FIRST and only
-/// hits the network when the relations are not already known locally (and
-/// writes what it fetches back into the event cache, so a second card for
-/// the same root is free).
+/// matrix-sdk-ui 0.18's `ThreadSummary` / `ThreadListItem` carry only the
+/// root and latest senders and a reply count, so participants come from
+/// `Room::load_or_fetch_event_with_relations` (cache-first; fetched
+/// relations are cached).
 ///
-/// Ordering is deterministic: the root's sender first, then every other
-/// sender in the order they first appear in the thread. Deduplicated by
-/// Matrix user id, so the same person appearing ten times is one face.
-///
-/// Only presentation-safe fields cross the FFI — user id, display name,
-/// avatar mxc — never event content, never message bodies. `truncated`
-/// reports honestly whether more distinct participants exist than were
-/// returned, so the UI is never invited to imply a total it does not know.
+/// Order: root sender first, then others by first appearance, deduplicated
+/// by user id. Only user id, display name and avatar mxc cross, never
+/// content. `truncated` says whether more participants exist.
 pub(crate) fn thread_participants(
     bridge: &RustClient,
     room_id: String,
@@ -1390,8 +1265,7 @@ pub(crate) fn thread_participants(
             return;   // account/session moved on: never touch the next one
         }
         let Ok((root_event, replies)) = loaded else {
-            // A failure is reported as a failure. The card keeps whatever it
-            // already had rather than being handed a fabricated empty set.
+            // Report a failure as such; the card keeps what it had.
             enqueue(&events, json!({
                 "type": "thread_participants",
                 "lifecycle": lifecycle,
@@ -1426,9 +1300,8 @@ pub(crate) fn thread_participants(
         let truncated = distinct > THREAD_PARTICIPANT_CAP;
         let mut rows: Vec<serde_json::Value> = Vec::new();
         for user_id in ordered.into_iter().take(THREAD_PARTICIPANT_CAP) {
-            // Profile from the already-synced member state; no extra network
-            // call per face. Absent fields stay empty and the C++ side falls
-            // back to the localpart + colour avatar, never a bare MXID label.
+            // Profile from synced member state, no request per face. Missing fields
+            // stay empty and C++ falls back to localpart and colour avatar.
             let member = room.get_member_no_sync(&user_id).await.ok().flatten();
             rows.push(json!({
                 "user_id": user_id.to_string(),
@@ -1456,28 +1329,20 @@ pub(crate) fn thread_participants(
     Ok(())
 }
 
-/// How many edit events one "remove edits" pass will redact. An edit chain
-/// this long is already pathological; the report says honestly how many were
-/// removed, so a longer chain simply needs a second pass rather than an
-/// unbounded burst of redactions.
+/// Max edit events one "remove edits" pass redacts. The report gives the
+/// count, so a longer chain needs a second pass instead of an unbounded
+/// burst.
 const EDIT_REDACTION_CAP: usize = 50;
 
-/// 2026-08-18 tester request ("add function remove all edits").
+/// Remove a message's edits, restoring its original text.
 ///
-/// Matrix has no "unedit" primitive: an edit is a separate `m.replace` event,
-/// and the ONLY way to take one back is to redact it. So this collects the
-/// message's replacement events through
-/// `Room::load_or_fetch_event_with_relations` (cache-first, exactly like the
-/// thread facepile above) and redacts them, which returns the message to its
-/// ORIGINAL text — including dropping the "edited" marker, since the marker
-/// is derived from the presence of those events, not stored anywhere.
+/// Matrix has no "unedit": an edit is a separate `m.replace` event and can
+/// only be taken back by redaction. The replacements are collected via
+/// `Room::load_or_fetch_event_with_relations` (cache-first) and redacted,
+/// which also drops the "edited" marker (derived from their presence).
 ///
-/// Only the caller's OWN edits are touched. A homeserver accepts a redaction
-/// of someone else's event only with the redact power level, and quietly
-/// redacting another person's edits from a message-menu entry is not what
-/// this action says it does.
-///
-/// The result crosses as counts only — never event content.
+/// Only the caller's own edits are touched; redacting others' edits needs
+/// the redact power level and is not what this action means. Counts only.
 pub(crate) fn remove_message_edits(
     bridge: &RustClient,
     room_id: String,
@@ -1521,8 +1386,7 @@ pub(crate) fn remove_message_edits(
             return;
         };
 
-        // Own replacement events only, newest-first order is irrelevant: all
-        // of them go. The original event is never in this list.
+        // Own replacement events only; all of them go. The original is never here.
         let mut edit_ids: Vec<matrix_sdk::ruma::OwnedEventId> = Vec::new();
         for related in &relations {
             let Ok(parsed) = related.raw().deserialize() else {
@@ -1583,13 +1447,10 @@ pub(crate) fn room_members(
     let lifecycle = timelines.lifecycle();
     let own_id = client.user_id().map(|u| u.to_owned());
     bridge.spawn_room_action(async move {
-        // Cache-first: an instant PARTIAL snapshot from the state store
-        // (the members already known locally — typically timeline senders
-        // and heroes on a lazy-loaded room) so the People list renders
-        // immediately instead of sitting empty through the first
-        // network-backed /members fetch. The synced full roster follows
-        // under the SAME op with partial=false. An empty cache emits
-        // nothing — an empty partial would read as "nobody".
+        // Cache-first: emit a partial snapshot from the state store so the People
+        // list renders immediately, then the full synced roster under the same op
+        // with partial=false. An empty cache emits nothing (it would read as
+        // "nobody").
         if let Ok(cached) = room
             .members_no_sync(RoomMemberships::ACTIVE | RoomMemberships::BAN)
             .await
@@ -1600,17 +1461,15 @@ pub(crate) fn room_members(
                     lifecycle, /*partial=*/ true,
                 )
                 .await;
-                // Re-check after the await inside the builder (§9: the
-                // guard sits immediately before the emit).
+                // Re-check after the builder's await; the guard sits right before the emit.
                 if timelines.lifecycle_current(lifecycle) {
                     enqueue(&events, snapshot);
                 }
             }
         }
 
-        // ACTIVE (join+invite) plus BAN: banned members must be visible or
-        // unban is unreachable from the client. They are excluded from the
-        // joined/invited counts and from mention suggestions downstream.
+        // Active (join+invite) plus banned: banned members must be visible for
+        // unban. They are excluded from counts and mention suggestions downstream.
         let members = match room
             .members(RoomMemberships::ACTIVE | RoomMemberships::BAN)
             .await
@@ -1638,8 +1497,7 @@ pub(crate) fn room_members(
             /*partial=*/ false,
         )
         .await;
-        // Guard immediately before the emit (§9) — the builder awaits a
-        // store read for the own-member permissions.
+        // Guard right before the emit; the builder awaits a store read.
         if timelines.lifecycle_current(lifecycle) {
             enqueue(&events, snapshot);
         }
@@ -1647,8 +1505,7 @@ pub(crate) fn room_members(
     Ok(())
 }
 
-// One snapshot shape for both the instant cache-only (partial) emit and
-// the synced full roster — sort, counts, cap, rows, own permissions.
+// One snapshot shape for the partial and full emits.
 async fn members_snapshot_json(
     room: &matrix_sdk::Room,
     members: &[matrix_sdk::room::RoomMember],
@@ -1685,11 +1542,9 @@ async fn members_snapshot_json(
                 _ => {}
             }
         }
-        // `truncated` speaks about the ACTIVE roster (the population the
-        // joined/invited counts and the UI notice describe). Banned
-        // members sort last, so they are the first rows the cap drops —
-        // silently: a ban list beyond the cap makes those bans
-        // unreachable for unban, an accepted limit (review LU1/LU2).
+        // `truncated` refers to the active roster. Banned members sort last, so the
+        // cap drops them first, making those bans unreachable for unban (accepted
+        // limit).
         let truncated =
             (joined_count + invited_count) as usize > MEMBER_SNAPSHOT_CAP;
 
@@ -1714,10 +1569,8 @@ async fn members_snapshot_json(
                         _ => "other",
                     },
                     "role": role,
-                    // Raw power level so the UI can hide moderation actions
-                    // against peers at or above the viewer's own level (the
-                    // server enforces regardless; this only avoids offering
-                    // an action that must fail).
+                    // Raw power level so the UI can hide actions against peers at or above the
+                    // viewer's level; the server enforces regardless.
                     "power_level": power_level_int(member.power_level()),
                     "ambiguous": member.name_ambiguous(),
                     "is_own": Some(member.user_id()) == own_id,
@@ -1725,8 +1578,8 @@ async fn members_snapshot_json(
             })
             .collect();
 
-        // Own permissions, from the SDK's power-level helpers — never
-        // guessed from role labels or room-creator status.
+        // Own permissions from the SDK's power-level helpers, never guessed from
+        // role labels.
         let own_member = match own_id {
             Some(own) => room.get_member_no_sync(own).await.ok().flatten(),
             None => None,
@@ -1741,9 +1594,8 @@ async fn members_snapshot_json(
         let can_edit_avatar = own_member
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::RoomAvatar));
-        // @room: the room's OWN required level for a whole-room notification
-        // (notifications.room, default 50), asked of the SDK rather than
-        // assumed to be "moderator". A room may set it to anything.
+        // @room: the room's own required level (notifications.room), asked of the
+        // SDK.
         let can_notify_room = own_member.as_ref().is_some_and(|m| {
             m.can_do(PowerLevelAction::TriggerNotification(
                 NotificationPowerLevelType::Room,
@@ -1751,9 +1603,8 @@ async fn members_snapshot_json(
         });
         let can_kick = own_member.as_ref().is_some_and(|m| m.can_kick());
         let can_ban = own_member.as_ref().is_some_and(|m| m.can_ban());
-        // Unban's required level is max(ban, kick) (ruma
-        // PowerLevelAction::Unban), NOT the ban level alone — ask the SDK
-        // rather than deriving it (review MU1).
+        // Unban requires max(ban, kick) (ruma PowerLevelAction::Unban), not the ban
+        // level alone; ask the SDK.
         let can_unban = own_member
             .as_ref()
             .is_some_and(|m| m.can_do(PowerLevelAction::Unban));
@@ -1761,10 +1612,8 @@ async fn members_snapshot_json(
             .as_ref()
             .map(|m| power_level_int(m.power_level()))
             .unwrap_or(0);
-        // v0.7.x room administration. Each of these is the SDK's own
-        // power-level check against the REAL required level for that state
-        // event — a room may define any level it likes for any of them, so
-        // nothing here assumes "admin only".
+        // Each is the SDK's check against the room's real required level for that
+        // state event; nothing assumes "admin only".
         let can_change_power_levels = own_member
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::RoomPowerLevels));
@@ -1777,31 +1626,18 @@ async fn members_snapshot_json(
         let can_change_alias = own_member
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::RoomCanonicalAlias));
-        // 2026-08-19: Space child management (add/remove/suggest all ride
-        // m.space.child) — the same real-required-level rule as the rest.
+        // Space child management (add/remove/suggest all use m.space.child).
         let can_manage_space_children = own_member
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::SpaceChild));
-        // 2026-08-26: the room's REAL m.room.power_levels thresholds, read
-        // ONCE (this used to be a `power_levels_or_default()` call solely
-        // for `users_default`).
+        // The room's real m.room.power_levels thresholds, for the Permissions
+        // matrix.
         //
-        // Until now only the derived `own_can_*` booleans crossed, so a
-        // Permissions surface could say whether YOU may do a thing and never
-        // what the room REQUIRES for it — every row of a power-level matrix
-        // had no source of truth on the C++ side, read OR write.
-        //
-        // ONLY INTEGERS UNDER A FIXED SET OF KEYS CROSS. The `events` map is
-        // keyed by event TYPE, written by whoever last sent the state event,
-        // i.e. an unbounded sender-chosen string: it must never reach the
-        // bridge. Each row is therefore looked up by a TYPED
-        // `StateEventType` and emitted under a key chosen here.
-        //
-        // Each per-event row is the EFFECTIVE level — the explicit entry
-        // when the room has one, otherwise `state_default`, which is what
-        // the server actually enforces. A row that merely inherits the
-        // default is indistinguishable from an explicit one here, on
-        // purpose: the number a person needs is the one that applies.
+        // Only integers under a fixed set of keys cross: the `events` map is keyed
+        // by sender-chosen event type strings, which must never reach the bridge,
+        // so rows are looked up by typed `StateEventType` and emitted under our own
+        // keys. Each row is the effective level (explicit entry or
+        // `state_default`), which is what the server enforces.
         let power_levels = room.power_levels_or_default().await;
         let state_level = |ty: StateEventType| -> i64 {
             power_levels
@@ -1810,37 +1646,25 @@ async fn members_snapshot_json(
                 .map(|value| i64::from(*value))
                 .unwrap_or_else(|| i64::from(power_levels.state_default))
         };
-        // The room's default user level: without it the UI cannot tell a
-        // member sitting AT the default from one explicitly pinned to the
-        // same number, and `update_power_levels` treats a set-to-default as
-        // a removal from the users map. Rooms may set it to any value.
+        // The room's default user level, so the UI can tell "at default" from
+        // "pinned to the same number" (`update_power_levels` treats setting the
+        // default as a removal).
         let users_default: i64 = i64::from(power_levels.users_default);
-        // The room version, for the Advanced / Upgrade disclosure. Read from
-        // the SDK (`Room::version()`), never parsed out of m.room.create by
-        // hand; empty when the room state has not settled yet, which the UI
-        // must render as nothing rather than as a fabricated "1".
+        // From `Room::version()`; empty while state has not settled, rendered as
+        // nothing rather than a fabricated "1".
         let room_version = room
             .version()
             .map(|version| version.to_string())
             .unwrap_or_default();
-        // Whether this account may send m.room.tombstone — the level that
-        // governs an UPGRADE. It is not among the flags computed above, and
-        // an upgrade is irreversible, so it is reported separately and
-        // deliberately gates nothing but a disclosure today.
+        // Whether this account may send m.room.tombstone (the upgrade level).
+        // Reported separately; it gates only a disclosure.
         let can_upgrade = own_member
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::RoomTombstone));
-        // WHETHER THIS ACCOUNT MAY PUBLISH A CALL MEMBERSHIP, which is what
-        // decides whether the Join button can work at all.
-        //
-        // Computed with the SAME STRING Lightning actually sends
-        // (`rtc::EV_MEMBER_LEGACY`), not a typed ruma enum: this file already
-        // records that ruma's aliasing makes a typed variant govern a
-        // different wire string than the one we write, and getting that wrong
-        // here would report a capability for an event nobody sends. A room
-        // with default power levels puts state events at 50, so an ordinary
-        // member cannot join a call at all — and until now they learned that
-        // only after the publish came back refused.
+        // Whether this account may publish a call membership, i.e. whether Join
+        // can work. Checked with the string we actually send
+        // (`rtc::EV_MEMBER_LEGACY`), not a typed ruma enum, whose aliasing could
+        // govern a different wire string. Default power levels put state at 50.
         let can_publish_rtc_membership = own_member.as_ref().is_some_and(|m| {
             m.can_send_state(StateEventType::from(crate::rtc::EV_MEMBER_LEGACY))
         });
@@ -1849,11 +1673,10 @@ async fn members_snapshot_json(
             .canonical_alias()
             .map(|a| a.to_string())
             .unwrap_or_default();
-        // v0.9 room access (phase 4). The restricted allow list is reported
-        // as ROOM IDS so the UI can render a configuration another client
-        // wrote and edit it without dropping entries — an allow rule of an
-        // unknown kind is carried through as an opaque marker the editor
-        // must preserve (see set_room_join_rule).
+        // The restricted allow list as room ids, so a configuration another client
+        // wrote can be shown and edited without loss; unknown allow-rule kinds are
+        // carried as an opaque marker the editor must preserve (see
+        // set_room_join_rule).
         let (restricted_allow, restricted_has_unknown) = {
             use matrix_sdk::ruma::room::{AllowRule, JoinRule};
             match room.join_rule() {
@@ -1887,12 +1710,8 @@ async fn members_snapshot_json(
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::RoomGuestAccess));
 
-        // Built BEFORE the snapshot rather than inline in it. `json!` expands
-        // recursively, and this object pushed the already-large snapshot past
-        // serde_json's macro recursion limit ("recursion limit reached while
-        // expanding `$crate::json_internal!`") — a compile error, not a
-        // runtime one, and one that says nothing about which key caused it.
-        // Hoisting any nested object out of that macro is the fix.
+        // Built outside the snapshot: nesting it inside `json!` exceeds serde_json's
+        // macro recursion limit (a compile error).
         let power_levels_json = json!({
             "ban": i64::from(power_levels.ban),
             "invite": i64::from(power_levels.invite),
@@ -1915,7 +1734,7 @@ async fn members_snapshot_json(
                 state_level(StateEventType::RoomHistoryVisibility),
             "m.room.guest_access": state_level(StateEventType::RoomGuestAccess),
         });
-        // Hoisted for the same macro-recursion reason as the power levels.
+        // Outside the snapshot for the same macro-recursion reason.
         let access_json = json!({
             "history_visibility": history_visibility,
             "guest_access": guest_access,
@@ -1932,9 +1751,7 @@ async fn members_snapshot_json(
             "lifecycle": lifecycle,
             "room_id": room_id,
             "ok": true,
-            // A partial snapshot keeps the op OPEN on the C++ side: the
-            // panel renders it but stays "loading" until the synced
-            // roster lands under the same op.
+            // A partial snapshot keeps the op open in C++ until the full roster lands.
             "partial": partial,
             "truncated": truncated,
             "joined_count": joined_count,
@@ -1957,8 +1774,8 @@ async fn members_snapshot_json(
             "own_can_upgrade": can_upgrade,
             "own_can_publish_rtc_membership": can_publish_rtc_membership,
             "room_version": room_version,
-            // Every key here is one this file chose; see the comment above.
-            // The C++ side mirrors them verbatim into the Permissions matrix.
+            // Every key here is chosen by this file (see above); C++ mirrors them into
+            // the Permissions matrix.
             "power_levels": power_levels_json,
             "join_rule": join_rule,
             "canonical_alias": canonical_alias,
@@ -1972,12 +1789,10 @@ async fn members_snapshot_json(
 // Moderation (kick / ban)
 // ---------------------------------------------------------------------------
 
-// UserPowerLevel → bridge integer. MSC4289 room creators are "Infinite";
-// they map to a sentinel every finite room power level sits below, chosen
-// to survive the JSON f64 hop exactly. Known accepted edges: a pathological
-// explicit power level above 1e9 would outrank a creator here, and the
-// value is consumed as a 64-bit integer on the C++ side — neither occurs
-// in real deployments.
+// UserPowerLevel -> bridge integer. MSC4289 creators ("Infinite") map to a
+// sentinel above every finite level that survives the JSON f64 hop exactly.
+// Accepted edges: an explicit level above 1e9 would outrank a creator, and
+// C++ reads it as a 64-bit integer.
 fn power_level_int(
     level: matrix_sdk::ruma::events::room::power_levels::UserPowerLevel,
 ) -> i64 {
@@ -1985,18 +1800,14 @@ fn power_level_int(
     match level {
         UserPowerLevel::Infinite => 1_000_000_000,
         UserPowerLevel::Int(v) => v.into(),
-        // The enum is non_exhaustive; an unknown future variant reads as
-        // an ordinary member rather than inventing power.
+        // Non-exhaustive enum: an unknown variant reads as an ordinary member.
         _ => 0,
     }
 }
 
-// Kick, ban or unban one user through the SDK's own moderation calls
-// (`op`: 0 = kick, 1 = ban, 2 = unban). Power-level enforcement is the
-// SERVER'S; the client only avoids offering actions that must fail and
-// surfaces the result honestly. An empty reason means "no reason given".
-// Result event:
-// room_moderation_result { op_id, room_id, user_id, op, ok, category }.
+// Kick, ban or unban one user (`op`: 0 kick, 1 ban, 2 unban) through the
+// SDK. The server enforces power levels. Empty reason means none. Result
+// event: room_moderation_result { op_id, room_id, user_id, op, ok, category }.
 pub(crate) fn moderate_member(
     bridge: &RustClient,
     room_id: String,
@@ -2005,9 +1816,8 @@ pub(crate) fn moderate_member(
     op: u8,
     op_id: u64,
 ) -> Result<(), String> {
-    // Parse once into an exhaustive enum so the dispatch below has no
-    // fallthrough arm — a dispatcher of destructive membership actions
-    // must refuse an unknown op, never default to one (review LU4).
+    // An exhaustive enum: a dispatcher of destructive actions must refuse an
+    // unknown op, never default to one.
     enum ModOp {
         Kick,
         Ban,
@@ -2053,14 +1863,11 @@ pub(crate) fn moderate_member(
 }
 
 // ---------------------------------------------------------------------------
-// Room administration (v0.7.x): member power levels, join rule, alias
+// Room administration: member power levels, join rule, alias
 // ---------------------------------------------------------------------------
 
-/// Coarse join-rule label for the bridge. `restricted` / `knock_restricted`
-/// cross so the UI can DISPLAY them honestly; Lightning does not offer to
-/// SET them (they carry an allow-rule list that needs a space picker — a
-/// documented follow-up, not something to fake with an empty list, which
-/// would lock the room to invite-only while claiming otherwise).
+/// Coarse join-rule label. `restricted` / `knock_restricted` are reported so
+/// the UI can display them.
 fn join_rule_str(rule: Option<&matrix_sdk::ruma::room::JoinRule>) -> &'static str {
     use matrix_sdk::ruma::room::JoinRule;
     match rule {
@@ -2070,22 +1877,16 @@ fn join_rule_str(rule: Option<&matrix_sdk::ruma::room::JoinRule>) -> &'static st
         Some(JoinRule::Private) => "private",
         Some(JoinRule::Restricted(_)) => "restricted",
         Some(JoinRule::KnockRestricted(_)) => "knock_restricted",
-        // Unknown/custom or not yet synced: the UI renders nothing rather
-        // than guessing a rule the room may not have.
+        // Unknown or not yet synced: the UI renders nothing.
         _ => "",
     }
 }
 
-/// Set ONE member's power level through the SDK's `update_power_levels`,
-/// which reads the room's real `m.room.power_levels`, applies exactly this
-/// user's change and sends the whole content back. Every other user's level
-/// — including arbitrary custom numbers — is carried through untouched, and
-/// a level equal to the room's `users_default` is REMOVED from the users map
-/// rather than written redundantly (SDK behaviour, and the correct Matrix
-/// semantics).
-///
-/// Permission is the SERVER'S to enforce; the client only avoids offering an
-/// action that must fail. Result event: room_power_level_result.
+/// Set one member's power level via the SDK's `update_power_levels`, which
+/// reads the real `m.room.power_levels`, changes only this user, and keeps
+/// every other level. A level equal to `users_default` is removed from the
+/// users map. The server enforces permission. Result event:
+/// room_power_level_result.
 pub(crate) fn set_member_power_level(
     bridge: &RustClient,
     room_id: String,
@@ -2098,8 +1899,7 @@ pub(crate) fn set_member_power_level(
     let client = require_client(bridge)?;
     let room = joined_room(&client, &room_id)?;
     let uid = UserId::parse(&user_id).map_err(|_| "invalid user id".to_owned())?;
-    // Refuse out-of-range before spawning: `Int` is the JSON-safe integer
-    // range, and a value outside it cannot be a real Matrix power level.
+    // Refuse out-of-range before spawning: `Int` is the JSON-safe range.
     let target_level =
         Int::try_from(level).map_err(|_| "power level out of range".to_owned())?;
     let events = Arc::clone(&bridge.events);
@@ -2129,35 +1929,25 @@ pub(crate) fn set_member_power_level(
     Ok(())
 }
 
-/// 2026-08-26: set ONE threshold in the room's `m.room.power_levels` — the
-/// Permissions matrix (Sable parity). `key` is one of a FIXED allowlist;
-/// anything else is refused at this edge, so no caller can turn this into a
-/// generic "write an arbitrary event type's level" primitive.
+/// Set one threshold in `m.room.power_levels` (the Permissions matrix).
+/// `key` must be in a fixed allowlist, so this is never a generic "set any
+/// event type's level" primitive.
 ///
-/// Two write paths, both a read-modify-send of the WHOLE content, which is
-/// what Matrix requires (the event has no partial update):
-///   * the seven scalar thresholds plus name/avatar/topic/space_child go
-///     through the SDK's own `apply_power_level_changes`, which leaves every
-///     field it was not given untouched — including per-event entries that
-///     happen to equal the new default, deliberately (matrix-sdk
-///     room/power_levels.rs:141: removing them would grant unintended
-///     privileges when the default is changed in isolation);
-///   * the remaining rows are per-event-type levels that
-///     `RoomPowerLevelChanges` cannot express, so they take the same
-///     read-modify-send by hand into `events`.
+/// Both paths read-modify-send the whole content (the event has no partial
+/// update):
+///   * scalar thresholds and name/avatar/topic/space_child go through the
+///     SDK's `apply_power_level_changes`, which leaves other fields alone,
+///     including per-event entries equal to the new default (removing them
+///     would grant unintended privileges);
+///   * other per-event rows, which `RoomPowerLevelChanges` cannot express,
+///     are edited in `events` by hand.
 ///
-/// The event type is always a TYPED `StateEventType`, never `key` reinterpreted
-/// as a wire string: ruma's event-type enums carry ALIASES (a string that
-/// parses as one identifier and serializes back as another), so a hand-built
-/// type could silently govern an event nobody sends.
+/// Event types are always typed `StateEventType`, never `key` as a wire
+/// string: ruma's aliasing could make a hand-built type govern an event
+/// nobody sends. `m.call.member` is not in the allowlist (ruma aliases the
+/// stable name onto the unstable one we send, and Spaces host no calls).
 ///
-/// `m.call.member` is NOT in the allowlist. The identifier Lightning actually
-/// sends today is the MSC3401 unstable one (`rust/src/rtc.rs`), ruma aliases
-/// the stable name onto it, and a Space has no timeline to hold a call — a row
-/// that governs neither string honestly is worse than a missing row.
-///
-/// Permission remains the SERVER'S to enforce; the client only avoids
-/// offering a write that must fail. Result event: room_power_matrix_result.
+/// The server enforces permission. Result event: room_power_matrix_result.
 pub(crate) fn set_room_power_level_key(
     bridge: &RustClient,
     room_id: String,
@@ -2171,8 +1961,7 @@ pub(crate) fn set_room_power_level_key(
 
     let client = require_client(bridge)?;
     let room = joined_room(&client, &room_id)?;
-    // Refuse out-of-range before spawning: `Int` is the JSON-safe integer
-    // range, and a value outside it cannot be a real Matrix power level.
+    // Refuse out-of-range before spawning: `Int` is the JSON-safe range.
     let target_level =
         Int::try_from(level).map_err(|_| "power level out of range".to_owned())?;
 
@@ -2251,15 +2040,10 @@ pub(crate) fn set_room_power_level_key(
     Ok(())
 }
 
-/// Set the room's join rule.
-///
-/// v0.9 (phase 4): `restricted` and `knock_restricted` are accepted with
-/// `allowed_room_ids` — the Spaces (or rooms) whose members may join, each
-/// becoming an `m.room_membership` allow rule. UNKNOWN allow-rule kinds a
-/// previous client wrote are PRESERVED verbatim from the current state,
-/// never dropped: editing which spaces grant access must not silently strip
-/// a rule this client cannot render. An empty allow list is refused — it
-/// would lock the room to invite-only while claiming otherwise.
+/// Set the room's join rule. `restricted` and `knock_restricted` take
+/// `allowed_room_ids` (each an `m.room_membership` allow rule). Unknown
+/// allow-rule kinds already present are preserved verbatim. An empty allow
+/// list is refused: it would silently make the room invite-only.
 pub(crate) fn set_room_join_rule(
     bridge: &RustClient,
     room_id: String,
@@ -2319,16 +2103,12 @@ pub(crate) fn set_room_join_rule(
     Ok(())
 }
 
-/// Set (or clear, with an empty `alias`) the room's canonical alias.
+/// Set or clear (empty `alias`) the room's canonical alias.
 ///
-/// Two steps, because Matrix separates the directory MAPPING from the room's
-/// own state: the alias must resolve to this room on the server before
-/// `m.room.canonical_alias` may name it (a server rejects a canonical alias
-/// it cannot resolve). So an alias that does not already point here is
-/// published first via `Client::create_room_alias`, and only then does the
-/// state event go out. Clearing sends the state event with no alias and
-/// deliberately does NOT delete the directory mapping — removing a published
-/// alias is a separate, more destructive action than demoting it.
+/// The alias must resolve to this room before `m.room.canonical_alias` may
+/// name it, so one not yet pointing here is published first via
+/// `Client::create_room_alias`. Clearing does not delete the directory
+/// mapping; that is a separate, more destructive action.
 pub(crate) fn set_room_canonical_alias(
     bridge: &RustClient,
     room_id: String,
@@ -2355,15 +2135,13 @@ pub(crate) fn set_room_canonical_alias(
     let room_id_for_task = room_id.clone();
     bridge.spawn_room_action(async move {
         let result = async {
-            // Keep every alternative alias the room already advertises; this
-            // action promotes one alias, it does not rewrite the list.
+            // Keep existing alternative aliases; this promotes one alias only.
             let alt_aliases = room.alt_aliases();
             if let Some(alias) = parsed.as_deref() {
                 let already_here = match client.resolve_room_alias(alias).await {
                     Ok(response) => response.room_id.as_str() == room_id_for_task,
-                    // Not resolvable yet: publish it below. Any other
-                    // failure also falls through to the create attempt,
-                    // whose own error is what gets reported.
+                    // Not resolvable yet: publish it below. Other failures also fall through;
+                    // the create attempt's error is reported.
                     Err(_) => false,
                 };
                 if !already_here {
@@ -2396,10 +2174,9 @@ pub(crate) fn set_room_canonical_alias(
 }
 
 // ---------------------------------------------------------------------------
-// v0.9 room access (phase 4): history visibility, guest access, directory
-// visibility, alternative aliases. Every write is the SDK's own request
-// (RoomPrivacySettings or a plain state event); the client only chooses
-// values and reports the server's answer.
+// Room access: history visibility, guest access, directory visibility,
+// alternative aliases. Every write is the SDK's own request; the client only
+// chooses values and reports the server's answer.
 // ---------------------------------------------------------------------------
 
 pub(crate) fn set_room_history_visibility(
@@ -2470,9 +2247,8 @@ pub(crate) fn set_room_guest_access(
     Ok(())
 }
 
-/// Directory visibility is not room state — it lives on the server's
-/// public room list — so it is fetched on demand and answered as its own
-/// poll event rather than riding the member snapshot.
+/// Directory visibility is not room state (it lives on the server's public
+/// room list), so it is fetched on demand as its own poll event.
 pub(crate) fn request_room_directory_visibility(
     bridge: &RustClient,
     room_id: String,
@@ -2546,11 +2322,9 @@ pub(crate) fn set_room_directory_visibility(
     Ok(())
 }
 
-/// Replace the alternative-alias list. Same two-step rule as the canonical
-/// alias: an alias must resolve to this room before m.room.canonical_alias
-/// may list it, so any alias not already pointing here is published first.
-/// The canonical alias is preserved untouched, and a removed alias keeps its
-/// directory mapping (demoting is not deleting — see the canonical path).
+/// Replace the alternative-alias list. As with the canonical alias, aliases
+/// not yet resolving here are published first. The canonical alias is
+/// untouched, and removed aliases keep their directory mapping.
 pub(crate) fn set_room_alt_aliases(
     bridge: &RustClient,
     room_id: String,
@@ -2609,11 +2383,9 @@ pub(crate) fn set_room_alt_aliases(
 }
 
 // ---------------------------------------------------------------------------
-// v0.9 room upgrade (phase 8). The version list comes from the homeserver's
-// /capabilities (never a hard-coded table), the upgrade is the standard
-// /upgrade endpoint via ruma, and the server is what carries state, power
-// levels and aliases into the replacement (the endpoint's contract); this
-// client never approximates that by hand.
+// Room upgrade. Versions come from /capabilities, the upgrade uses the
+// standard /upgrade endpoint, and the server carries state, power levels
+// and aliases into the replacement.
 // ---------------------------------------------------------------------------
 
 pub(crate) fn request_room_versions(bridge: &RustClient) -> Result<(), String> {
@@ -2639,9 +2411,8 @@ pub(crate) fn request_room_versions(bridge: &RustClient) -> Result<(), String> {
                         })
                     })
                     .collect();
-                // Sort numerically where the ids are numbers ("1".."12"),
-                // otherwise lexically after them, so the picker reads in
-                // order and the recommendation is deterministic.
+                // Numeric ids first, in order, then others lexically, so the picker is
+                // ordered and the recommendation deterministic.
                 available.sort_by(|a, b| {
                     let key = |v: &serde_json::Value| {
                         let s = v["version"].as_str().unwrap_or_default();
@@ -2727,15 +2498,12 @@ pub(crate) fn upgrade_room(
 }
 
 // ---------------------------------------------------------------------------
-// v0.9 message edit history + event source (phase 7).
+// Message edit history and event source.
 //
-// Both read what the SDK holds or can fetch; nothing is fabricated. The
-// history is the original event plus its m.replace relations, which
-// `load_or_fetch_event_with_relations` serves from the event cache or the
-// server's /relations. In an encrypted room the SDK decrypts each event on
-// the way through; one it cannot decrypt is reported as such rather than
-// dropped. Bodies cross the FFI for DISPLAY only — the C++ side holds them
-// in memory for the open dialog and never caches them (CLAUDE.md §6).
+// The history is the original plus its m.replace relations, from the event
+// cache or /relations; the SDK decrypts on the way, and an undecryptable
+// event is reported, not dropped. Bodies cross for display only; C++ keeps
+// them in memory for the open dialog and never caches them.
 // ---------------------------------------------------------------------------
 
 pub(crate) fn request_edit_history(
@@ -2755,12 +2523,9 @@ pub(crate) fn request_edit_history(
     bridge.spawn_room_action(async move {
         use matrix_sdk::room::{IncludeRelations, RelationsOptions};
         use matrix_sdk::ruma::UInt;
-        // The ORIGINAL comes from the cache or the server; the REPLACEMENTS
-        // are asked of the server first (/relations), because the event
-        // cache holds only the edits that happened to arrive over sync — a
-        // cache-first read would silently show a partial history whenever it
-        // held at least one. The cache is the fallback when the server call
-        // fails, and the answer says which it was.
+        // Replacements are asked of the server first (/relations): the event cache
+        // holds only edits that arrived over sync, so cache-first could show a
+        // partial history. The cache is the fallback, and the answer says so.
         let loaded = room.load_or_fetch_event(&target, None).await;
         let Ok(original) = loaded else {
             if timelines.lifecycle_current(lifecycle) {
@@ -2777,13 +2542,9 @@ pub(crate) fn request_edit_history(
             IncludeRelations::RelationsOfType(RelationType::Replacement);
         options.limit = Some(UInt::from(200u32));
         let (relations, partial) = match room.relations(target.to_owned(), options).await {
-            // A next_batch_token means the server had MORE than the page we
-            // asked for. RelationsOptions defaults to Direction::Backwards,
-            // so what we hold is the most RECENT 200 edits and the oldest
-            // revisions — the ones next to the original — are the ones
-            // missing. Reporting that as a complete history is the same
-            // dishonesty as the cache fallback below, so it sets the same
-            // flag.
+            // A next_batch_token means more existed than the page. Relations default
+            // to backwards, so the missing ones are the oldest; flagged partial like
+            // the cache fallback.
             Ok(answer) => {
                 let truncated = answer.next_batch_token.is_some();
                 (answer.chunk, truncated)
@@ -2804,8 +2565,8 @@ pub(crate) fn request_edit_history(
             return;
         }
 
-        // One revision row from a raw event. Replacements carry the new
-        // text in m.new_content; the original carries it at the top level.
+        // One revision row. Replacements carry the text in m.new_content; the
+        // original at the top level.
         let revision = |raw: &matrix_sdk::ruma::serde::Raw<AnySyncTimelineEvent>,
                         is_original: bool|
          -> Option<serde_json::Value> {
@@ -2840,8 +2601,7 @@ pub(crate) fn request_edit_history(
         if let Some(row) = revision(original.raw(), true) {
             rows.push(row);
         } else {
-            // An original that cannot be read is a failure, not an empty
-            // history.
+            // An unreadable original is a failure, not an empty history.
             enqueue(&events, json!({
                 "type": "message_edit_history", "lifecycle": lifecycle,
                 "room_id": room_id, "event_id": event_id, "ok": false,
@@ -2852,8 +2612,7 @@ pub(crate) fn request_edit_history(
         let mut edits: Vec<serde_json::Value> = relations
             .iter()
             .filter_map(|related| {
-                // Only replacements FROM the original sender count, which is
-                // the same rule every client applies when aggregating edits.
+                // Only replacements from the original sender count, as every client does.
                 let parsed: AnySyncTimelineEvent = related.raw().deserialize().ok()?;
                 let sender_ok = match (&parsed, rows.first()) {
                     (AnySyncTimelineEvent::MessageLike(_), Some(first)) => {
@@ -2885,17 +2644,11 @@ pub(crate) fn request_edit_history(
 // ---------------------------------------------------------------------------
 // Jump to date (MSC3030 `timestamp_to_event`, stable since Matrix 1.6).
 //
-// The server answers with the event closest to a timestamp in one direction;
-// nothing here scans a timeline, and there is no client-side fallback. A
-// homeserver that does not implement it answers 404/unrecognised and the
-// client says so — guessing by paginating backwards until the dates look
-// right would be an unbounded walk through a room's whole history to answer a
-// question the server can answer in one request.
-//
-// FORWARD from the start of the chosen day, which is what "jump to date"
-// means: the FIRST message of that day, not the last one before it. A day
-// with no messages therefore lands on the next message after it, which is the
-// honest answer to "take me to here" — the alternative is refusing to move.
+// The server answers in one request; there is no client-side fallback
+// (paginating until the dates match would be unbounded). A server without it
+// answers 404/unrecognised and the client says so. Searches forward from the
+// start of the chosen day, so it lands on that day's first message, or the
+// next one after an empty day.
 // ---------------------------------------------------------------------------
 
 pub(crate) fn event_at_timestamp(
@@ -2911,10 +2664,8 @@ pub(crate) fn event_at_timestamp(
     let client = require_client(bridge)?;
     let room = joined_room(&client, &room_id)?;
     let parsed_room = room.room_id().to_owned();
-    // Negative or absurd stamps are caller error, not something to send.
-    // MilliSecondsSinceUnixEpoch wraps ruma's UInt, whose range is JavaScript's
-    // safe-integer range rather than u64's — a stamp past it cannot be
-    // serialized and would fail at the wire rather than here.
+    // Negative or absurd stamps are caller error. ruma's UInt is limited to the
+    // JavaScript safe-integer range, so larger stamps cannot be serialized.
     let ts = MilliSecondsSinceUnixEpoch::from_system_time(
         std::time::SystemTime::UNIX_EPOCH
             + std::time::Duration::from_millis(
@@ -2939,8 +2690,7 @@ pub(crate) fn event_at_timestamp(
                 "event_id": response.event_id.to_string(),
                 "timestamp_ms": u64::from(response.origin_server_ts.0),
             })),
-            // The category is the sanitized shape every other failure here
-            // uses: never the server's prose, which can carry anything.
+            // Sanitized category, never the server's prose.
             Err(error) => enqueue(&events, json!({
                 "type": "timestamp_event", "lifecycle": lifecycle,
                 "op_id": op_id, "room_id": room_id, "ok": false,
@@ -2975,11 +2725,9 @@ pub(crate) fn request_event_source(
             }));
             return;
         };
-        // The JSON the SDK holds: for an encrypted event this is the
-        // DECRYPTED event (the SDK keeps the plaintext form once decrypted),
-        // with the ciphertext envelope described beside it rather than
-        // reproduced. No key material: session id and sender key are the
-        // public identifiers every client shows.
+        // The JSON the SDK holds: for an encrypted event, the decrypted form, with
+        // the ciphertext envelope described beside it. Session id and sender key
+        // are public identifiers; no key material.
         let json_value: serde_json::Value =
             event.raw().deserialize_as().unwrap_or(serde_json::Value::Null);
         let pretty = serde_json::to_string_pretty(&json_value).unwrap_or_default();
@@ -3004,21 +2752,16 @@ pub(crate) fn request_event_source(
 }
 
 // ---------------------------------------------------------------------------
-// v0.9 scheduled send (phase 11): MSC4140 delayed message events.
+// Scheduled send: MSC4140 delayed message events.
 //
-// Server-side scheduling is the standard delayed-event endpoint the RTC lane
-// already relies on (rtc.rs); the message content is built by the SAME
-// composed_content the ordinary send uses, so a scheduled message is
-// byte-for-byte what an immediate one would have been. Limits that come from
-// the protocol, not from this file: the delay is a TIMEOUT (relative, ms),
-// the server caps it, there is no endpoint to enumerate pending delayed
-// events (the client must remember delay ids), and — decisive for E2EE —
-// the server stores the content AS GIVEN, so in an encrypted room a delayed
-// event would have to be encrypted NOW with today's session, and matrix-sdk
-// 0.18 exposes no way to encrypt a content payload outside the send path.
-// Encrypted rooms are therefore REFUSED here (category
-// "encrypted_unsupported") and handled by the client-side queue instead,
-// which the UI labels honestly.
+// Uses the delayed-event endpoint the RTC lane relies on, with content from
+// the same composed_content as an ordinary send. Protocol limits: the delay
+// is a relative timeout, the server caps it, pending delayed events cannot
+// be listed (the client must remember delay ids), and the server stores the
+// content as given, so an encrypted room would need it encrypted now, which
+// matrix-sdk 0.18 cannot do outside the send path. Encrypted rooms are
+// therefore refused ("encrypted_unsupported") and use the client-side
+// queue instead.
 // ---------------------------------------------------------------------------
 
 pub(crate) fn probe_delayed_events(bridge: &RustClient) -> Result<(), String> {
@@ -3085,8 +2828,7 @@ pub(crate) fn schedule_message(
                 "category": category,
             }));
         };
-        // Encrypted, or not yet known to be unencrypted: refused (see the
-        // banner comment). Fail closed on unknown, like the draft store.
+        // Encrypted, or not yet known to be unencrypted: refused (fail closed).
         let state = room.encryption_state();
         if state.is_unknown() || state.is_encrypted() {
             refuse(&events, "encrypted_unsupported");
@@ -3344,8 +3086,8 @@ pub(crate) fn leave_room(
 // Attachment sending
 // ---------------------------------------------------------------------------
 
-/// Image metadata for the media event; dimensions come from C++ (bounded
-/// Qt-side decode), size from the filesystem.
+/// Image metadata for the media event: dimensions from C++ (bounded
+/// decode), size from the filesystem.
 fn image_info(width: u64, height: u64, size: u64, animated: bool) -> Option<AttachmentInfo> {
     if width == 0 && height == 0 {
         return None;
@@ -3359,28 +3101,16 @@ fn image_info(width: u64, height: u64, size: u64, animated: bool) -> Option<Atta
     }))
 }
 
-/// Typed attachment metadata for every send. Non-image sends used to go
-/// out with `info: None` — no size, dimensions, or duration on the wire —
-/// which broke every receiver-side feature keyed on declared metadata:
-/// Lightning's own bounded playable prefetch and first-frame poster both
-/// (deliberately) decline when an event declares no size, so every
-/// Lightning-sent video rendered as a bare placeholder forever. The size
-/// is authoritative here (filesystem / byte count); dimensions and
-/// duration are best-effort from the caller and omitted when unknown
-/// rather than fabricated.
-/// `duration_ms` is 0 when the caller could not determine one, which is a
-/// real and ordinary outcome: an unsupported codec, a corrupt file, or a
-/// decoder that never reported a length. It is then OMITTED rather than sent
-/// as zero — "unknown" and "zero seconds" are different claims, and a
-/// receiver that reads a literal 0 renders "0:00" beside a perfectly good
-/// file. That is exactly the defect this parameter exists to fix: an
-/// attached audio file arrived with no duration at all, so every player drew
-/// an empty track.
+/// Typed attachment metadata for every send. The size is authoritative;
+/// dimensions and duration are best-effort and omitted when unknown, never
+/// fabricated. Without declared metadata, receivers (including Lightning's
+/// own prefetch and poster logic) cannot show videos properly.
 ///
-/// NOT a voice message. `AttachmentInfo::Audio` carries the duration and
-/// nothing else; `voice_info` above is the MSC3245 shape, and using it here
-/// would mark every attached music file as a voice recording — a semantic
-/// lie, and the reason this was not fixed by simply reusing that path.
+/// `duration_ms` of 0 means unknown and is omitted, since a literal 0 would
+/// render "0:00" beside a playable file.
+///
+/// Not a voice message: `AttachmentInfo::Audio` carries only the duration;
+/// `voice_info` is the MSC3245 shape and would mark music as a recording.
 pub(crate) fn attachment_info(
     mime: &str,
     width: u64,
@@ -3414,25 +3144,19 @@ pub(crate) fn attachment_info(
     }))
 }
 
-/// v0.7 video round: the send-side poster handed over by C++.
-///
-/// The bytes come from a frame Lightning decoded itself out of the file the
-/// user picked (VideoPosterExtractor). They are re-validated here by MAGIC
-/// SNIFFING, never by the caller's label: `into_thumbnail` refuses anything
-/// that is not a supported raster, is unreasonably large, or declares
-/// nonsense dimensions, and a refusal degrades to "no thumbnail" rather
-/// than failing the video send. No mime crosses the FFI at all: the
-/// content type on the event is the SNIFFED one, so the thumbnail can
-/// never advertise a type its bytes are not.
+/// A send-side video poster from C++ (a frame Lightning decoded from the
+/// picked file). Re-validated by magic sniffing: `into_thumbnail` refuses
+/// non-rasters, oversized data and nonsense dimensions, degrading to no
+/// thumbnail. The event's content type is the sniffed one; no mime crosses
+/// the FFI.
 pub(crate) struct PosterBytes {
     pub data: Vec<u8>,
     pub width: u64,
     pub height: u64,
 }
 
-/// A poster is a small timeline cover (VideoPosterExtractor emits a 640px
-/// JPEG). Anything beyond this is not a poster; refuse rather than upload a
-/// second full-size image alongside the video.
+/// A poster is a small cover (VideoPosterExtractor emits a 640px JPEG);
+/// anything larger is refused.
 const MAX_POSTER_BYTES: usize = 2 * 1024 * 1024;
 
 impl PosterBytes {
@@ -3443,8 +3167,7 @@ impl PosterBytes {
         if self.width == 0 || self.height == 0 {
             return None;
         }
-        // The bytes decide the type — SVG and every non-raster is refused
-        // here exactly as it is on the saved-media path.
+        // The bytes decide the type; SVG and other non-rasters are refused.
         let sniffed = sniff_image_mime(&self.data)?;
         let content_type: mime::Mime = sniffed.parse().ok()?;
         let size = UInt::new(self.data.len() as u64)?;
@@ -3458,9 +3181,9 @@ impl PosterBytes {
     }
 }
 
-/// Video metadata for an outgoing video event. Same shape as the generic
-/// `attachment_info` video arm, plus the duration Lightning learned while
-/// decoding the poster frame. Unknown values are omitted, never fabricated.
+/// Video metadata for an outgoing video: like `attachment_info`'s video arm,
+/// plus the duration learned while decoding the poster. Unknown values are
+/// omitted.
 fn video_info(
     width: u64,
     height: u64,
@@ -3477,15 +3200,11 @@ fn video_info(
     })
 }
 
-/// MSC3245 voice-message metadata. The SDK converts AttachmentInfo::Voice
-/// into the `org.matrix.msc3245.voice` marker plus the
-/// `org.matrix.msc1767.audio` block (duration + waveform normalized to
-/// 0..=1) and sends through the ordinary attachment path — uploaded and,
-/// in encrypted rooms, encrypted exactly like any audio file. `waveform`
-/// carries 0..=100 amplitudes (the same scale the receive path emits);
-/// empty is allowed — the voice marker still applies and receivers fall
-/// back to a plain progress track (the SDK emits the audio block only
-/// when BOTH duration and waveform are present).
+/// MSC3245 voice-message metadata. The SDK turns AttachmentInfo::Voice into
+/// the `org.matrix.msc3245.voice` marker plus `org.matrix.msc1767.audio`
+/// (duration and 0..=1 waveform) and sends it like any audio file. `waveform`
+/// is 0..=100 amplitudes and may be empty; the SDK emits the audio block
+/// only when both duration and waveform are present.
 pub(crate) fn voice_info(
     duration_ms: u64,
     size: u64,
@@ -3508,10 +3227,8 @@ pub(crate) fn voice_info(
     })
 }
 
-/// v0.7 voice round: send a recorded voice message. Same validation and
-/// routing as send_attachment_path; only the info differs (see voice_info).
-/// The waveform is bounded by the FFI layer; duration must be real — a
-/// zero-length recording is a caller bug, not a sendable message.
+/// Send a recorded voice message; like send_attachment_path but with
+/// voice_info. A zero-length recording is a caller bug.
 pub(crate) fn send_voice_path(
     bridge: &RustClient,
     room_id: String,
@@ -3545,18 +3262,9 @@ pub(crate) fn send_voice_path(
     )
 }
 
-/// The thread twin of `send_voice_path`.
-///
-/// Validation and MSC3245 metadata are IDENTICAL — the same `voice_info`
-/// builds the same `AttachmentInfo::Voice`, so a voice message sent into a
-/// thread carries exactly the marker, duration and waveform a room voice
-/// message does. The only difference is the routing: this goes through
-/// `send_thread_attachment`, the thread-focused SDK timeline, so the event
-/// carries a real `m.thread` relation to `root_event_id`. Encryption is
-/// unchanged and entirely SDK-owned; nothing here touches crypto, and there
-/// is deliberately no fallback to an ordinary room send — a thread voice
-/// message that cannot be routed into its thread must fail, not silently
-/// land in the main timeline.
+/// Thread twin of `send_voice_path`: identical validation and MSC3245
+/// metadata, routed through the thread-focused timeline so the event gets a
+/// real `m.thread` relation. No fallback to a room send.
 pub(crate) fn send_thread_voice_path(
     bridge: &RustClient,
     room_id: String,
@@ -3582,23 +3290,11 @@ pub(crate) fn send_thread_voice_path(
     let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
         return Err("Rust SDK session is not logged in.".to_owned());
     };
-    // Read the recording NOW, on the caller's thread, rather than handing
-    // over a path for the spawned task to read later.
-    //
-    // The SDK resolves AttachmentSource::File with fs::read INSIDE the
-    // spawned task — after it has resolved (and possibly BUILT) the
-    // thread-focused timeline. C++ reclaims a thread recording when the
-    // panel closes, which is one click away from Send, so a path handed
-    // over here could be deleted before that read ever happened: the send
-    // would fail with InvalidAttachmentData AND the result would be
-    // suppressed by the advanced thread generation, silently losing a
-    // message the user believed they had sent.
-    //
-    // Taking the bytes up front removes the window entirely instead of
-    // racing it. A voice message is hard-bounded by the recorder (mono
-    // 32 kbps Opus under a 15-minute cap, a few MB), so this is a small,
-    // predictable allocation — not the unbounded read that makes the File
-    // variant the right choice for ordinary attachments.
+    // Read the recording now rather than passing a path: the SDK reads
+    // AttachmentSource::File inside the spawned task, after building the
+    // thread timeline, and C++ deletes thread recordings when the panel closes.
+    // The file could be gone by then and the failure suppressed as stale. A
+    // voice message is small (mono 32 kbps Opus, 15-minute cap).
     let bytes = std::fs::read(&path)
         .map_err(|_| "voice file is not readable".to_owned())?;
     if bytes.is_empty() {
@@ -3622,16 +3318,10 @@ pub(crate) fn send_thread_voice_path(
     )
 }
 
-/// v0.7 video round: send a video WITH a poster thumbnail.
-///
-/// Identical validation and routing to `send_attachment_path`; the only
-/// differences are the richer video info (duration) and the `Thumbnail`
-/// handed to the SDK. The SDK owns everything after this point: it uploads
-/// the poster as its own media request, encrypts it with the payload in an
-/// encrypted room, and fills `info.thumbnail_url` / `info.thumbnail_file`
-/// plus `info.thumbnail_info` on the outgoing `m.video` event. A poster
-/// that fails validation is DROPPED — the video still sends, exactly as it
-/// did before this path existed.
+/// Send a video with a poster thumbnail. Same validation and routing as
+/// `send_attachment_path`, plus duration and the `Thumbnail`; the SDK
+/// uploads and encrypts the poster and fills the thumbnail fields. An
+/// invalid poster is dropped and the video still sends.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_video_path(
     bridge: &RustClient,
@@ -3668,9 +3358,7 @@ pub(crate) fn send_video_path(
     )
 }
 
-/// v0.7 video round: the thread twin of `send_video_path`. Routed through
-/// the thread-focused SDK timeline so the m.thread relation and encryption
-/// stay SDK-owned; the poster rides the same AttachmentConfig.
+/// Thread twin of `send_video_path`, via the thread-focused timeline.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_thread_video_path(
     bridge: &RustClient,
@@ -3734,8 +3422,8 @@ pub(crate) fn send_attachment_path(
     if metadata.len() == 0 {
         return Err("attachment file is empty".to_owned());
     }
-    // `animated` marks GIF images; attachment_info re-derives it from the
-    // mime, so the flag stays purely a caller-side hint.
+    // `animated` is only a caller hint; attachment_info re-derives it from the
+    // mime.
     let _ = animated;
     let info = attachment_info(&mime, width, height, metadata.len(), duration_ms);
     let caption = if caption.trim().is_empty() { None } else { Some(caption) };
@@ -3751,8 +3439,8 @@ pub(crate) fn send_attachment_path(
     )
 }
 
-/// Clipboard image path: bytes are handed over directly (bounded by C++),
-/// so no temporary file ever exists on disk.
+/// Clipboard image: bytes are passed directly (bounded by C++), so no
+/// temporary file exists on disk.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_attachment_bytes(
     bridge: &RustClient,
@@ -3786,18 +3474,11 @@ pub(crate) fn send_attachment_bytes(
     )
 }
 
-/// v0.7.x forwarding: send an attachment to a room WITHOUT its live
-/// timeline being open.
-///
-/// `send_attachment_bytes` above routes through the open SDK timeline, which
-/// is right for the composer — the user is looking at that room. Forwarding
-/// is the opposite case by definition: the target is a room the user is not
-/// in yet, so that path refuses every real forward. This one goes straight
-/// to `Room::send_attachment`, which the SDK still encrypts for the target
-/// room when that room is encrypted; nothing about the crypto changes.
-///
-/// It carries the SAME byte validation as the timeline path — a payload
-/// labelled `image/*` whose magic disagrees is refused rather than uploaded.
+/// Send an attachment to a room whose timeline is not open (forwarding).
+/// `send_attachment_bytes` routes through the open timeline, so it refuses
+/// every real forward; this uses `Room::send_attachment`, which still
+/// encrypts for encrypted rooms. Same byte validation: an `image/*` payload
+/// whose magic disagrees is refused.
 pub(crate) fn send_attachment_bytes_to_room(
     bridge: &RustClient,
     room_id: String,
@@ -3839,8 +3520,7 @@ pub(crate) fn send_attachment_bytes_to_room(
                 "type": "attachment_send_result",
                 "op_id": op_id,
                 "room_id": room_id,
-                // Coarse category only; SDK errors may embed server detail
-                // that must not cross the FFI.
+                // Coarse category only; SDK errors may embed server detail.
                 "ok": result.is_ok(),
                 "category": if result.is_ok() { "" } else { "rejected" },
             }),
@@ -3849,9 +3529,9 @@ pub(crate) fn send_attachment_bytes_to_room(
     Ok(())
 }
 
-/// v0.6.1: thread attachment (file) — same validation and info as the room
-/// path, but routed through the thread-focused SDK timeline so the SDK
-/// attaches the m.thread relation and encrypts for encrypted rooms.
+/// Thread attachment (file): same validation and info as the room path,
+/// routed through the thread-focused timeline so the SDK adds the m.thread
+/// relation and encrypts.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_thread_attachment_path(
     bridge: &RustClient,
@@ -3874,8 +3554,8 @@ pub(crate) fn send_thread_attachment_path(
     if metadata.len() == 0 {
         return Err("attachment file is empty".to_owned());
     }
-    // `animated` marks GIF images; attachment_info re-derives it from the
-    // mime, so the flag stays purely a caller-side hint.
+    // `animated` is only a caller hint; attachment_info re-derives it from the
+    // mime.
     let _ = animated;
     let info = attachment_info(&mime, width, height, metadata.len(), duration_ms);
     let caption = if caption.trim().is_empty() { None } else { Some(caption) };
@@ -3896,8 +3576,8 @@ pub(crate) fn send_thread_attachment_path(
     )
 }
 
-/// v0.6.1: thread attachment (clipboard bytes) — no temporary file, routed
-/// through the thread-focused SDK timeline.
+/// Thread attachment (clipboard bytes), via the thread-focused timeline; no
+/// temporary file.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_thread_attachment_bytes(
     bridge: &RustClient,
@@ -3940,12 +3620,10 @@ pub(crate) fn send_thread_attachment_bytes(
 // Media retrieval (the download half of the media bridge)
 // ---------------------------------------------------------------------------
 
-/// v0.7 defense-in-depth: media fetch timeout classes. Each Rust timeout is
-/// STRICTLY below the C++ watchdog class that covers the same operation
-/// (standard 40s < 45s; playable 90s < 100s; save 270s < 300s), so Rust is
-/// the normal terminal emitter and the watchdog stays a last resort.
-/// 0 = standard (thumbnails, avatars, viewer images), 1 = playable
-/// video/audio materialization, 2 = explicit Save As.
+/// Media fetch timeout per class, each strictly below the C++ watchdog for
+/// the same operation (40 < 45 s, 90 < 100 s, 270 < 300 s), so Rust emits
+/// the terminal event. 0 = standard (thumbnails, avatars, viewer images),
+/// 1 = playable video/audio, 2 = explicit Save As.
 pub(crate) fn media_timeout_secs(class: u32) -> u64 {
     match class {
         2 => 270,
@@ -3954,10 +3632,9 @@ pub(crate) fn media_timeout_secs(class: u32) -> u64 {
     }
 }
 
-/// Size policy for full-payload fetches. matrix-sdk 0.18 buffers media
-/// responses whole (no streaming API), so peak memory INSIDE the SDK stays
-/// unbounded until upstream streams — these caps bound what Lightning
-/// accepts, parks, and materializes. Save As is deliberately generous.
+/// Size cap for full-payload fetches. matrix-sdk 0.18 buffers media whole
+/// (no streaming), so these bound what Lightning accepts and parks, not the
+/// SDK's own peak memory. Save As is generous.
 pub(crate) fn media_size_cap(timeout_class: u32) -> u64 {
     match timeout_class {
         2 => 2 * 1024 * 1024 * 1024, // Save As: 2 GiB
@@ -3965,12 +3642,10 @@ pub(crate) fn media_size_cap(timeout_class: u32) -> u64 {
     }
 }
 
-/// Largest payload the SDK media store may cache (the retention policy's
-/// max_file_size, set in build_client). 24 MiB keeps avatars, thumbnails,
-/// stickers, images and the whole 20 MiB animated-GIF class cacheable
-/// across sessions while videos and large audio bypass sqlite entirely —
-/// one giant blob INSERT on the store's single write connection is what
-/// stalled every other media fetch behind it.
+/// Largest payload the SDK media store may cache (retention max_file_size,
+/// set in build_client). Keeps avatars, thumbnails, stickers, images and
+/// 20 MiB GIFs cacheable; videos and large audio bypass sqlite, since one
+/// huge blob INSERT stalls every other fetch on the single write connection.
 pub(crate) const MEDIA_STORE_MAX_FILE_BYTES: u64 = 24 * 1024 * 1024;
 
 fn emit_media_failed(
@@ -3992,12 +3667,11 @@ fn emit_media_failed(
     }));
 }
 
-/// Fetch (and for encrypted rooms, decrypt) media for a timeline item whose
-/// source was captured by the timeline serializer. `kind`: 0 = full, 1 =
-/// timeline thumbnail (preserves the historical full fallback), 2 = compact
-/// list thumbnail (never fetches an encrypted full payload as a fallback).
-/// Bytes are parked in `media_results` for `mx_rust_media_take`; they never
-/// enter the JSON queue.
+/// Fetch (and decrypt, in encrypted rooms) media for a timeline item whose
+/// source the serializer captured. `kind`: 0 full, 1 timeline thumbnail
+/// (with full fallback), 2 compact list thumbnail (never falls back to an
+/// encrypted full payload). Bytes are parked for `mx_rust_media_take`,
+/// never in the JSON queue.
 pub(crate) fn media_fetch(
     bridge: &RustClient,
     key: String,
@@ -4017,8 +3691,8 @@ pub(crate) fn media_fetch(
     let results = Arc::clone(&bridge.media_results);
     let lifecycle = timelines.lifecycle();
     let cap = media_size_cap(timeout_class);
-    // Pre-flight: refuse a full-payload fetch whose Matrix metadata already
-    // declares an over-cap size — the SDK would buffer it whole.
+    // Refuse a full fetch whose metadata declares an over-cap size; the SDK
+    // would buffer it whole.
     if kind == 0 {
         if let Some(declared) = declared_size {
             if declared > cap {
@@ -4030,45 +3704,26 @@ pub(crate) fn media_fetch(
             }
         }
     }
-    // A payload whose Matrix metadata already declares it larger than the
-    // retention policy's max_file_size can never be served from or admitted
-    // to the sqlite media cache — but use_cache=true would still take the
-    // store's single write connection for the guaranteed-miss read (reads
-    // bump last_access first) and again after the download. Bypass the
-    // cache round-trip entirely for those; everything else keeps the cache.
-    // AN ENCRYPTED ROOM'S MEDIA IS NEVER WRITTEN TO THE SQLITE CACHE.
+    // Skip the cache when the declared size exceeds the retention max: it can
+    // never be cached, and use_cache would still take the store's single write
+    // connection twice.
     //
-    // §6: "Encrypted-room plaintext remains memory-only" and "Never persist
-    // decrypted private-message plaintext in application caches." The media
-    // store was quietly breaking both. `Media::get_media_content` decrypts a
-    // `MediaSource::Encrypted` through `AttachmentDecryptor` and then, when
-    // `use_cache` is set, writes the DECRYPTED buffer to the media store; the
-    // store is opened with no passphrase (`sqlite_store(path, None)`), so
-    // matrix-sdk-sqlite installs no StoreCipher and the blob is plaintext on
-    // disk, held under the default retention of 400 MiB for 60 days. Every
-    // image, sticker, GIF and thumbnail from an encrypted room was landing
-    // there. `MediaBridge.h` stated the opposite as a guarantee.
-    //
-    // WHY NOT A STORE PASSPHRASE INSTEAD, which would keep the cache: the
-    // same `None` opens the CRYPTO store, and handing an existing install a
-    // passphrase changes how that database is read. A wrong move there does
-    // not degrade performance, it orphans every existing user's Megolm keys —
-    // and matrix-sdk 0.18 offers no migration for it. Refusing the write is
-    // local, reversible, and cannot lose anything.
-    //
-    // The cost is a re-download per session for encrypted rooms only.
-    // Lightning's own bounded RAM cache in MediaBridge still serves every
-    // repeat within a session, which is where the repeats actually are.
+    // Encrypted-room media is never written to the sqlite cache.
+    // `get_media_content` stores the decrypted buffer when `use_cache` is set,
+    // and the store is opened without a passphrase, so it would be plaintext on
+    // disk, violating §6. A store passphrase is not the fix: the same setting
+    // opens the crypto store, and changing it would orphan existing installs'
+    // Megolm keys (no migration in 0.18). Cost: a re-download per session;
+    // MediaBridge's RAM cache serves repeats within a session.
     let source_is_encrypted = matches!(&source, MediaSource::Encrypted(_));
     let use_cache = !source_is_encrypted
         && (kind != 0 || declared_size.map_or(true, |s| s <= MEDIA_STORE_MAX_FILE_BYTES));
     if kind == 2 && !has_embedded_thumbnail
         && matches!(&source, MediaSource::Encrypted(_))
     {
-        // A homeserver cannot thumbnail ciphertext and downloading the full
-        // decrypted attachment for a 40px list preview violates the list's
-        // bandwidth/security contract. Encrypted events carrying their
-        // normal encrypted thumbnail still take the SDK decrypt path above.
+        // A server cannot thumbnail ciphertext, and downloading the full decrypted
+        // file for a 40px list preview breaks the list's contract. Encrypted
+        // thumbnails still take the decrypt path above.
         emit_media_failed(
             &terminal, &results, op_id, lifecycle, &key, kind, "unavailable",
         );
@@ -4086,11 +3741,8 @@ pub(crate) fn media_fetch(
             MediaFormat::File
         };
         let request = MediaRequestParameters { source, format };
-        // Bounded await: matrix-sdk 0.18 deliberately disables its own HTTP
-        // timeout for media, so an unresponsive server would otherwise hang
-        // this task forever (and pin its shutdown join). The timeout
-        // consumes the future, so exactly one terminal event can ever be
-        // emitted per op.
+        // Bounded: matrix-sdk 0.18 disables its HTTP timeout for media. The timeout
+        // consumes the future, so exactly one terminal event is emitted per op.
         let outcome = tokio::time::timeout(
             std::time::Duration::from_secs(media_timeout_secs(timeout_class)),
             client.media().get_media_content(&request, use_cache),
@@ -4112,8 +3764,8 @@ pub(crate) fn media_fetch(
             Ok(Ok(bytes)) => {
                 let size = bytes.len() as u64;
                 if size > cap {
-                    // The metadata lied (or was absent): reject post-hoc
-                    // instead of parking an unbounded decrypted payload.
+                    // The metadata lied or was absent: reject rather than park an unbounded
+                    // payload.
                     emit_media_failed(
                         &terminal, &results, op_id, lifecycle, &key, kind,
                         "too_large",
@@ -4145,8 +3797,8 @@ pub(crate) fn media_fetch(
     Ok(())
 }
 
-/// Fetch a server-side thumbnail for a plain (unencrypted) mxc URI — room,
-/// user and space avatars. Encrypted media never routes through here.
+/// Fetch a server-side thumbnail for a plain (unencrypted) mxc URI: room,
+/// user and space avatars. Encrypted media never comes here.
 pub(crate) fn media_fetch_mxc(
     bridge: &RustClient,
     mxc: String,
@@ -4178,8 +3830,7 @@ pub(crate) fn media_fetch_mxc(
             source: matrix_sdk::ruma::events::room::MediaSource::Plain(uri),
             format,
         };
-        // Standard class: avatars/thumbnails are small; 40s stays strictly
-        // below the C++ 45s watchdog so Rust emits the terminal first.
+        // Standard class: 40 s, below the C++ 45 s watchdog.
         let outcome = tokio::time::timeout(
             std::time::Duration::from_secs(media_timeout_secs(0)),
             client.media().get_media_content(&request, true),
@@ -4234,14 +3885,9 @@ pub(crate) fn media_fetch_mxc(
 }
 
 /// Server upload limit (m.upload.size), fetched once per session by C++.
-///
-/// `bytes: 0` means UNKNOWN, not unlimited and not a default: either the
-/// homeserver advertises no maximum or the capability lookup failed. C++
-/// treats 0 as "no preflight is possible" and lets the send path proceed,
-/// so the server itself rejects an oversized upload. Reporting an invented
-/// ceiling here would be worse than reporting nothing — it would refuse
-/// files the server would have accepted, while looking like a real
-/// server-advertised limit to everything downstream.
+/// `bytes: 0` means unknown (none advertised, or lookup failed); C++ then
+/// skips preflight and the server decides. An invented ceiling would refuse
+/// files the server accepts.
 pub(crate) fn fetch_upload_limit(bridge: &RustClient) -> Result<(), String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -4269,10 +3915,8 @@ pub(crate) fn fetch_upload_limit(bridge: &RustClient) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    // v0.7 media defense-in-depth: the Rust timeout for every class stays
-    // STRICTLY below the C++ watchdog class covering the same operation
-    // (45s standard / 100s playable / 300s Save As), so Rust is the normal
-    // terminal emitter and the watchdog is last-resort only.
+    // Each Rust timeout stays strictly below the C++ watchdog for the same
+    // class, so Rust is the normal terminal emitter.
     #[test]
     fn media_timeout_classes_stay_below_watchdog() {
         assert_eq!(media_timeout_secs(0), 40);
@@ -4292,9 +3936,7 @@ mod tests {
         assert_eq!(media_size_cap(2), 2 * 1024 * 1024 * 1024);
     }
 
-    // THE DEFECT: an attached audio file went out with no duration at all,
-    // so a receiver drew "0:00" beside a correct size. The field existed and
-    // was hard-coded `None` on both the audio and the video branch.
+    // Attached audio must carry its duration (receivers drew "0:00").
     #[test]
     fn a_timed_attachment_carries_its_duration() {
         match attachment_info("audio/mpeg", 0, 0, 4096, 185_000) {
@@ -4304,8 +3946,7 @@ mod tests {
                     Some(std::time::Duration::from_millis(185_000)),
                     "an audio attachment lost the duration the sender decoded"
                 );
-                // NOT a voice message: that shape adds the MSC3245 marker
-                // and would label every attached song a voice recording.
+                // Not a voice message: that shape would mark songs as recordings.
                 assert!(info.waveform.is_none());
             }
             other => panic!("expected audio info, got {other:?}"),
@@ -4321,11 +3962,8 @@ mod tests {
         }
     }
 
-    // UNKNOWN IS NOT ZERO. A decoder that could not read a length, an
-    // unsupported codec and a corrupt file all arrive here as 0, and a
-    // literal `duration: 0` is a claim ("no seconds long") rather than an
-    // absence — receivers render it as 0:00, which is the very thing this
-    // fixes.
+    // Unknown is not zero: a duration of 0 is omitted, since receivers render
+    // a literal 0 as 0:00.
     #[test]
     fn an_unknown_duration_is_omitted_rather_than_sent_as_zero() {
         match attachment_info("audio/ogg", 0, 0, 10, 0) {
@@ -4336,18 +3974,15 @@ mod tests {
             Some(AttachmentInfo::Video(info)) => assert!(info.duration.is_none()),
             other => panic!("expected video info, got {other:?}"),
         }
-        // A duration on an untimed medium is ignored, not smuggled into a
-        // shape that has no field for it.
+        // A duration on an untimed medium is ignored.
         match attachment_info("image/png", 2, 2, 10, 999) {
             Some(AttachmentInfo::Image(_)) => {}
             other => panic!("expected image info, got {other:?}"),
         }
     }
 
-    // Every send carries typed metadata with at least the authoritative
-    // size — `info: None` on non-image sends is what shipped every
-    // Lightning-sent video with no declared size, which the receiver-side
-    // prefetch/poster path (deliberately) refuses to work without.
+    // Every send carries typed metadata with at least the size; receivers'
+    // prefetch and poster logic need a declared size.
     #[test]
     fn attachment_info_declares_size_for_every_type() {
         match attachment_info("video/mp4", 1280, 720, 1000, 0) {
@@ -4389,9 +4024,8 @@ mod tests {
         }
     }
 
-    // v0.7 video round: an outgoing video declares its duration alongside
-    // the geometry and size, and omits a duration it does not know rather
-    // than sending zero.
+    // An outgoing video declares its duration with geometry and size, and
+    // omits an unknown duration.
     #[test]
     fn video_info_carries_duration_and_geometry() {
         match video_info(1920, 1080, 5000, 4200) {
@@ -4427,11 +4061,8 @@ mod tests {
         bytes
     }
 
-    // The poster's TYPE comes from its bytes, never from the caller. The
-    // send path hands over what Lightning decoded itself, but the same
-    // magic check that guards saved media guards this: anything that is not
-    // a supported raster is refused, and a refusal means "no thumbnail",
-    // never a video event advertising a type its bytes are not.
+    // The poster's type comes from its bytes, never the caller; a non-raster
+    // is refused, which means "no thumbnail".
     #[test]
     fn poster_is_validated_by_magic_not_by_claim() {
         let thumb = poster(jpeg_bytes(64), 320, 180)
@@ -4453,8 +4084,7 @@ mod tests {
         assert!(poster(vec![0xFF, 0xD8], 320, 180).into_thumbnail().is_none());
     }
 
-    // Bounds and nonsense geometry degrade to "no thumbnail"; the caller
-    // still sends the video.
+    // Bounds and nonsense geometry degrade to "no thumbnail".
     #[test]
     fn poster_bounds_and_geometry_are_enforced() {
         assert!(poster(Vec::new(), 320, 180).into_thumbnail().is_none());
@@ -4468,9 +4098,8 @@ mod tests {
             .is_some());
     }
 
-    // The timeout wrapper emits exactly one outcome: a never-completing
-    // fetch resolves to Elapsed (one "timeout" terminal), a fast fetch
-    // passes its value through untouched.
+    // Exactly one outcome: a never-completing fetch resolves to Elapsed, a fast
+    // one passes through.
     #[tokio::test]
     async fn media_timeout_wrapper_yields_single_outcome() {
         let hung: Result<(), tokio::time::error::Elapsed> = tokio::time::timeout(
@@ -4488,17 +4117,10 @@ mod tests {
         assert_eq!(quick, Ok(7));
     }
 
-    // The server's answer is only USABLE if it actually says something.
-    //
-    // Synapse returns 200 with an empty object for a URL it could not fetch,
-    // so "the request succeeded" is not the same as "there is a preview".
-    // Accepting an empty answer would draw a blank card AND skip the client
-    // fallback that could have produced a real one — the worst of both.
-    //
-    // THIS CALLS THE REAL FUNCTION. An earlier version of this case
-    // re-implemented the predicate as a local closure, which asserts only
-    // that the test agrees with itself and would have passed with
-    // server_preview_fields() deleted entirely.
+    // A server answer is usable only if it says something: Synapse returns 200
+    // with an empty object for a URL it could not fetch, and accepting that
+    // would draw a blank card and skip the client fallback. Calls the real
+    // function.
     #[test]
     fn server_preview_answer_is_usable_only_with_title_or_description() {
         use super::server_preview_fields as f;
@@ -4514,14 +4136,12 @@ mod tests {
         let only_title = f(&json!({ "og:title": "Example" }))
             .expect("a title alone is a usable preview");
         assert_eq!(only_title["title"], "Example");
-        // The route label is what lets the UI drop the IP warning honestly,
-        // so a card without it would be worse than no card.
+        // The route label lets the UI drop the IP warning.
         assert_eq!(only_title["preview_route"], "server");
         let only_desc = f(&json!({ "og:description": "Some page" }))
             .expect("a description alone is a usable preview");
         assert_eq!(only_desc["description"], "Some page");
-        // og:image is an mxc:// URI from a server preview — it must survive
-        // into image_source, or the thumbnail silently disappears.
+        // A server preview's mxc:// og:image must reach image_source.
         let with_image = f(&json!({
             "og:title": "T",
             "og:image": "mxc://example.org/abc",
@@ -4545,23 +4165,18 @@ mod tests {
         assert!(public_ip("93.184.216.34".parse().unwrap()));
         assert!(public_ip("2606:2800:220:1:248:1893:25c8:1946".parse().unwrap()));
 
-        // IPv4-MAPPED V6, which is how every V4 rule above was bypassed. None
-        // of these is loopback, multicast, fc00::/7 or fe80::/10 as a v6
-        // address, so before the unmap they were all judged public and pinned
-        // into the client — and connecting to one on Linux reaches the IPv4
-        // host. An attacker only had to publish an AAAA record.
+        // IPv4-mapped v6 addresses must be judged by their embedded IPv4, or an
+        // AAAA record could aim a preview at loopback or private space.
         assert!(!public_ip("::ffff:127.0.0.1".parse().unwrap()));
         assert!(!public_ip("::ffff:10.0.0.1".parse().unwrap()));
         assert!(!public_ip("::ffff:192.168.1.1".parse().unwrap()));
         assert!(!public_ip("::ffff:169.254.169.254".parse().unwrap()));
         assert!(!public_ip("::ffff:100.64.0.1".parse().unwrap()));
         assert!(!public_ip("::ffff:0.0.0.0".parse().unwrap()));
-        // NAT64 and the deprecated v4-compatible form embed a destination the
-        // v6 masks cannot see either.
+        // NAT64 and the v4-compatible form embed a destination too.
         assert!(!public_ip("64:ff9b::7f00:1".parse().unwrap()));
         assert!(!public_ip("::127.0.0.1".parse().unwrap()));
-        // A mapped PUBLIC address is still public: the unmap must judge the
-        // embedded address, not refuse the whole shape.
+        // A mapped public address stays public.
         assert!(public_ip("::ffff:93.184.216.34".parse().unwrap()));
     }
 
@@ -4608,11 +4223,11 @@ mod tests {
         assert_eq!(classify_preview_payload("image/gif", &gif), Ok(Some("image/gif")));
         assert_eq!(classify_preview_payload("image/jpeg", &jpeg), Ok(Some("image/jpeg")));
         assert_eq!(classify_preview_payload("image/webp", webp), Ok(Some("image/webp")));
-        // Safely recognized bytes may recover a generic or mislabeled CDN response.
+        // Recognised bytes may recover a generic or mislabelled CDN response.
         assert_eq!(classify_preview_payload("application/octet-stream", &gif),
                    Ok(Some("image/gif")));
         assert_eq!(classify_preview_payload("text/html", &gif), Ok(Some("image/gif")));
-        // A .gif-looking request that actually returned HTML remains metadata.
+        // A .gif-looking URL that returned HTML stays metadata.
         assert_eq!(classify_preview_payload("text/html", b"<html><title>Giphy</title></html>"),
                    Ok(None));
         assert_eq!(classify_preview_payload("image/gif", b"<html>not gif</html>"),
@@ -4621,11 +4236,8 @@ mod tests {
                    Err("unsupported_mime"));
     }
 
-    // 0.5.14 checkpoint 4: the original check only handled the "VP8X"
-    // (extended: animation/alpha/exif) chunk — real-world direct WebP
-    // links overwhelmingly use the simple lossy ("VP8 ") or lossless
-    // ("VP8L") chunk instead, which returned None (→ "invalid_image")
-    // before this fix even though the bytes are a perfectly valid image.
+    // Direct WebP links mostly use the simple "VP8 " or lossless "VP8L" chunk,
+    // not only extended "VP8X".
     #[test]
     fn preview_webp_dimensions_cover_all_three_chunk_types() {
         // VP8X (extended): chunk size(4) + flags(4) + width-1 24-bit LE(3)
@@ -4671,19 +4283,15 @@ mod tests {
 
     #[test]
     fn preview_initial_fetch_limit_accommodates_direct_images() {
-        // The redirect loop's shared fetch must use the larger of the two
-        // byte limits — using the smaller MAX_HTML_BYTES here (as 0.5.13
-        // did) silently capped every direct-image preview below its real
-        // ceiling before Content-Type was ever inspected.
+        // The shared first fetch must use the larger (image) limit.
         assert_eq!(MAX_INITIAL_FETCH_BYTES, MAX_IMAGE_BYTES);
         assert!(MAX_INITIAL_FETCH_BYTES >= MAX_HTML_BYTES);
     }
 
     #[test]
     fn preview_image_fields_rejects_unsupported_mime_like_svg() {
-        // SVG is active content and must stay non-previewable regardless of
-        // how it's classified — image_fields() is the final gate even if a
-        // caller ever passed it a non-raster mime by mistake.
+        // SVG is active content and never previewable; image_fields() is the final
+        // gate.
         assert!(image_fields("image/svg+xml".to_owned(), b"<svg></svg>".to_vec()).is_err());
     }
 
@@ -4694,10 +4302,8 @@ mod tests {
         assert_eq!(classify_room_error("M_ROOM_IN_USE: alias taken"), "alias_taken");
         assert_eq!(classify_room_error("M_INVALID_PARAM: bad alias"), "invalid");
         assert_eq!(classify_room_error("M_NOT_FOUND"), "not_found");
-        // An endpoint the homeserver does not implement. Synapse answers
-        // 404 M_UNRECOGNIZED, so this MUST outrank the 404 branch or the two
-        // become the same observable — asserted with the 404 present, which
-        // is the only form that proves the ordering.
+        // Synapse answers an unimplemented endpoint with 404 M_UNRECOGNIZED, so
+        // this must outrank the 404 branch; asserted with the 404 present.
         assert_eq!(
             classify_room_error("the server returned an error: [404 / M_UNRECOGNIZED] Unrecognized request"),
             "unrecognized");
@@ -4722,9 +4328,8 @@ mod tests {
         webp.extend_from_slice(&[0; 4]);
         assert_eq!(sniff_image_mime(&webp), Some("image/webp"));
 
-        // JPEG XL. Both byte strings below are the real first bytes emitted by
-        // `cjxl` (libjxl 0.11) on a 32x32 PNG: the container form, and the
-        // bare codestream form that `cjxl` produces by default and with -d 0.
+        // JPEG XL: the first bytes `cjxl` (libjxl 0.11) emits for the container and
+        // bare codestream forms.
         let mut jxl_box =
             b"\x00\x00\x00\x0cJXL \x0d\x0a\x87\x0a\x00\x00\x00\x14ftypjxl ".to_vec();
         jxl_box.extend_from_slice(&[0; 4]);
@@ -4734,8 +4339,7 @@ mod tests {
         jxl_stream.extend_from_slice(&[0; 8]);
         assert_eq!(sniff_image_mime(&jxl_stream), Some("image/jxl"));
 
-        // A JPEG must not be read as a JPEG XL codestream and vice versa: the
-        // two share only their first byte.
+        // JPEG and JPEG XL codestream share only their first byte.
         let mut not_jxl = vec![0xFF, 0xD8, 0xFF, 0x0A];
         not_jxl.extend_from_slice(&[0; 8]);
         assert_eq!(sniff_image_mime(&not_jxl), Some("image/jpeg"));
@@ -4755,18 +4359,9 @@ mod tests {
     }
 
     #[test]
-    /// A ROOM LIGHTNING CREATES MUST LET ITS MEMBERS JOIN A CALL.
-    ///
-    /// MatrixRTC membership is a STATE event and `state_default` is 50, so
-    /// with stock power levels only moderators can publish one. An ordinary
-    /// member who pressed Join then got a call that looked connected and was
-    /// silently one-directional: their membership never landed, so the other
-    /// side never saw them as a participant, never addressed a media key to
-    /// them, and they could be heard but could not hear. Confirmed live
-    /// 2026-09-16 — promoting the member to moderator fixed it outright.
-    ///
-    /// FAIL-ON-OLD: drop `power_level_content_override` from
-    /// `build_create_room_request` and this reads None.
+    /// A room Lightning creates must let members publish call membership: with
+    /// stock power levels (`state_default` 50) only moderators can, and an
+    /// ordinary member's call is silently one-way.
     #[test]
     fn a_created_room_lets_ordinary_members_publish_call_membership() {
         let opts = CreateRoomOptions {
@@ -4782,14 +4377,13 @@ mod tests {
         for ev in [crate::rtc::EV_MEMBER_LEGACY, crate::rtc::EV_MEMBER_STICKY] {
             assert_eq!(events.get(ev).and_then(|x| x.as_u64()), Some(0), "{ev}");
         }
-        // NOTHING ELSE MOVES. Lowering state_default would let any member
-        // rewrite the room; only these two event types are lowered.
+        // Nothing else moves: `state_default` stays, only these two types are
+        // lowered.
         assert!(v.get("state_default").is_none(),
                 "state_default must be left at the server default");
     }
 
-    /// A Space holds no calls, and widening its state permissions would be a
-    /// real change rather than a fix.
+    /// A Space holds no calls, so its permissions are not widened.
     #[test]
     fn a_space_gets_no_power_level_override() {
         let opts = CreateRoomOptions {
@@ -4817,7 +4411,7 @@ mod tests {
         assert_eq!(request.initial_state.len(), 1);
         assert_eq!(request.invite.len(), 1);
         assert!(!request.is_direct);
-        // Server chooses the room version — never pinned locally.
+        // The server chooses the room version.
         assert!(request.room_version.is_none());
     }
 
@@ -4880,13 +4474,9 @@ mod tests {
 }
 
 // ---------------------------------------------------------------------------
-// v0.9 scheduled send: the ROOM-level send. The timeline sends in
-// timeline.rs go through the open room's live `Timeline` (local echo, send
-// queue), which is right for what the user types into the open room and
-// wrong for a message scheduled for a room that is not open — those were
-// refused. `Room::send` reaches any joined room, encrypts in an encrypted
-// room exactly like the timeline path (the SDK's room-level send is the same
-// machinery), and answers with the server's real acceptance.
+// Scheduled send: a room-level send. The timeline sends need the room's
+// live timeline open, which a scheduled message's room usually is not.
+// `Room::send` reaches any joined room and encrypts like the timeline path.
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
@@ -4917,9 +4507,9 @@ pub(crate) fn send_room_message(
         content = content.add_mentions(mentions);
     }
     content.relates_to = match (root_id, reply_id) {
-        // In a thread: an explicit in-thread reply target when there is one,
-        // otherwise the spec fallback shape (in_reply_to = the root, marked
-        // falling-back so a thread-aware client does not render a quote).
+        // In a thread: an explicit in-thread reply target if given, otherwise the
+        // spec fallback (in_reply_to = root, marked falling-back so thread-aware
+        // clients show no quote).
         (Some(root), Some(reply)) => Some(Relation::Thread(Thread::reply(root, reply))),
         (Some(root), None) => Some(Relation::Thread(Thread::plain(root.clone(), root))),
         (None, Some(reply)) => Some(Relation::Reply(Reply::new(InReplyTo::new(reply)))),
@@ -4951,12 +4541,10 @@ pub(crate) fn send_room_message(
 }
 
 // ---------------------------------------------------------------------------
-// v0.9 (phase 2): the Activity Center's seed. A fresh session has seen no
-// sync yet, so its Activity list would start empty; the homeserver keeps its
-// own list of notifying events, and `only=highlight` narrows it to the ones
-// the push rules highlighted (mentions, keywords). Bounded, one call per
-// session. An encrypted event crosses with NO body (the server only holds
-// ciphertext for those anyway); the event id is enough to navigate.
+// Activity Center seed: a fresh session has seen no sync, so ask the
+// server's notification list (`only=highlight`: mentions and keywords).
+// Bounded, once per session. Encrypted events cross without a body; the
+// event id is enough to navigate.
 // ---------------------------------------------------------------------------
 
 pub(crate) fn request_activity_seed(bridge: &RustClient, limit: u32) -> Result<(), String> {

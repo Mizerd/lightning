@@ -1,34 +1,19 @@
-//! Voice-call signaling pipes (2026-08-18): legacy 1:1 VoIP (MSC2746,
-//! `m.call.*` version 1) plus a narrow read-only MatrixRTC lane
-//! (`m.rtc.notification` in, `m.rtc.decline` out).
+//! Voice-call signalling: legacy 1:1 VoIP (MSC2746, `m.call.*` version 1)
+//! plus a narrow MatrixRTC lane (`m.rtc.notification` in, `m.rtc.decline`
+//! out). Signalling only; media lives in the C++ engine.
 //!
-//! This module is SIGNALING ONLY. There is no media stack in the tree — no
-//! WebRTC, no SDP generation, no ICE — so this layer transports opaque SDP
-//! strings supplied by a future media backend, and the C++ controller can
-//! observe an incoming call and decline or hang it up, never answer it with
-//! real media. `m.call.candidates`, `m.call.negotiate` and
-//! `m.call.sdp_stream_metadata_changed` are deliberately neither sent nor
-//! observed: candidates are raw host IPs with no consumer this round.
+//! Sends go through `Room::send`, which encrypts in encrypted rooms. Inbound
+//! handlers live for the sync loop's lifetime behind
+//! `EventHandlerDropGuard`s so none fires into a later account's queue; C++
+//! `SessionLifecycleGuard` also drops stale entries at dequeue.
 //!
-//! Everything rides the SDK's own event path: `Room::send` encrypts
-//! automatically in an encrypted room (Lightning writes zero crypto), and
-//! inbound events arrive through `Client::add_event_handler` registered for
-//! the sync loop's lifetime behind `EventHandlerDropGuard`s — an orphaned
-//! handler would fire into a later account's queue forever, so the guards
-//! are bound to the loop, and the C++ `SessionLifecycleGuard` drops stale
-//! queue entries at dequeue as the second layer.
-//!
-//! PRIVACY: SDP never crosses the FFI, is never logged, and is never
-//! enqueued — it carries host IP addresses and often the local hostname.
-//! Inbound offers/answers cross as `has_offer`/`has_answer` booleans plus a
-//! sanitized session type. Hangup reasons are a closed set; a sender-chosen
-//! `_Custom` reason collapses to "unknown" (same rule as the tombstone
-//! body). Errors cross only as `classify_room_error` categories.
-//! Inbound `call_id`/`party_id`/`selected_party_id` are SENDER-CHOSEN
-//! opaque text (ruma validates nothing about a VoipId) — they are bounded
-//! here (`wire_id`, length + control characters; an id that fails the
-//! bound drops the whole event) and must still never be logged or
-//! rendered on the C++ side.
+//! Privacy: SDP (host IPs, often the hostname) is never logged and crosses
+//! the FFI only in media-capable mode; otherwise offers and answers cross as
+//! `has_offer`/`has_answer` plus a sanitized type. Hangup reasons are a
+//! closed set (`_Custom` becomes "unknown"), and errors cross only as
+//! `classify_room_error` categories. `call_id`/`party_id`/`selected_party_id`
+//! are sender-chosen (ruma does not validate VoipId), bounded by `wire_id`
+//! (an id failing the bound drops the event), and never logged or rendered.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -69,7 +54,7 @@ use crate::rooms::{classify_room_error, joined_room, require_client};
 use crate::timeline::TimelineRegistry;
 use crate::{enqueue, RustClient};
 
-/// Call sends run on the room-action pool (joined during sign-out): bounded.
+/// Call sends run on the room-action pool (joined at sign-out): bounded.
 const CALL_SEND_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// MSC2746 recommends 60 s; anything outside this window is a caller bug.
@@ -86,10 +71,8 @@ fn parse_voip_id(value: &str, what: &str) -> Result<OwnedVoipId, String> {
     Ok(OwnedVoipId::from(trimmed))
 }
 
-/// Bound for a SENDER-CHOSEN id crossing the FFI. A legitimate call/party
-/// id is a short UUID-like token; anything oversized or carrying control
-/// characters is hostile input and drops the whole event (we cannot be
-/// party to a call whose identifiers we refuse to carry).
+/// Bound for a sender-chosen id. Real ids are short tokens; oversized or
+/// control-laden ids are hostile and drop the whole event.
 const MAX_WIRE_ID_LEN: usize = 255;
 fn wire_id(value: &str) -> Option<&str> {
     if value.is_empty() || value.len() > MAX_WIRE_ID_LEN {
@@ -101,8 +84,8 @@ fn wire_id(value: &str) -> Option<&str> {
     Some(value)
 }
 
-/// An OPTIONAL wire id (v0 events have no party id): absent stays "",
-/// present-but-hostile drops the event.
+/// An optional wire id (v0 events have no party id): absent stays "",
+/// present but hostile drops the event.
 fn optional_wire_id(value: Option<&str>) -> Option<String> {
     match value {
         None => Some(String::new()),
@@ -117,9 +100,8 @@ fn require_sdp(sdp: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Coarse wire representation of a session-description type. "offer" and
-/// "answer" are the spec values; anything else is sender-chosen text and
-/// crosses as "other".
+/// Session-description type: "offer" and "answer" are spec values;
+/// anything else is sender text and crosses as "other".
 fn session_type_str(session_type: &str) -> &'static str {
     match session_type {
         "offer" => "offer",
@@ -136,8 +118,7 @@ fn voip_version_str(version: &VoipVersionId) -> &'static str {
     }
 }
 
-/// Closed inbound set. `_Custom` collapses to "unknown" — sender-chosen
-/// free text never crosses the FFI.
+/// Closed inbound set; `_Custom` collapses to "unknown".
 pub(crate) fn reason_str(reason: &Reason) -> &'static str {
     match reason {
         Reason::IceFailed => "ice_failed",
@@ -152,9 +133,8 @@ pub(crate) fn reason_str(reason: &Reason) -> &'static str {
 }
 
 /// Closed outbound set. "replaced" is what matrix-js-sdk sends for a
-/// glare-replaced call; ruma's `Reason` is a StringEnum, so the `From`
-/// conversion produces the `_Custom` wire value without free text from
-/// anywhere but this match.
+/// glare-replaced call; it becomes ruma's `_Custom` value only from this
+/// match.
 pub(crate) fn reason_from_code(code: &str) -> Result<Reason, String> {
     Ok(match code {
         "user_hangup" => Reason::UserHangup,
@@ -176,9 +156,9 @@ fn intent_str(intent: Option<&CallIntent>) -> &'static str {
     }
 }
 
-/// Shared send tail: run the future on the room-action pool with a bounded
-/// timeout, then report `call_send_result { op_id, ok, category, call_id,
-/// event_id }`. Never logs or forwards SDK error text.
+/// Shared send tail: run on the room-action pool with a bounded timeout,
+/// then report `call_send_result { op_id, ok, category, call_id, event_id }`.
+/// Never logs or forwards SDK error text.
 fn spawn_call_send<F>(bridge: &RustClient, op_id: u64, call_id: String, send: F)
 where
     F: std::future::Future<
@@ -213,9 +193,8 @@ where
     });
 }
 
-/// Send `m.call.invite` (VoIP v1). The SDP is a required opaque parameter —
-/// there is no default and no stub; the pipe simply has no producer until a
-/// media backend exists. An empty SDP is refused synchronously.
+/// Send `m.call.invite` (VoIP v1). The SDP is a required opaque parameter;
+/// an empty one is refused synchronously.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_invite(
     bridge: &RustClient,
@@ -258,9 +237,7 @@ pub(crate) fn send_invite(
     Ok(())
 }
 
-/// Send `m.call.answer` (VoIP v1). Plumbed for completeness of the
-/// signaling layer; unreachable from production C++ until a media backend
-/// can produce an answer SDP.
+/// Send `m.call.answer` (VoIP v1), for signalling completeness.
 pub(crate) fn send_answer(
     bridge: &RustClient,
     room_id: String,
@@ -289,7 +266,7 @@ pub(crate) fn send_answer(
     Ok(())
 }
 
-/// Send `m.call.reject` (VoIP v1 only — v0 peers treat only hangup).
+/// Send `m.call.reject` (VoIP v1 only; v0 peers only understand hangup).
 pub(crate) fn send_reject(
     bridge: &RustClient,
     room_id: String,
@@ -329,7 +306,7 @@ pub(crate) fn send_hangup(
     Ok(())
 }
 
-/// Send `m.call.select_answer` — names the party whose answer the caller
+/// Send `m.call.select_answer`, naming the party whose answer the caller
 /// locked onto (MSC2746 multi-device rule).
 pub(crate) fn send_select_answer(
     bridge: &RustClient,
@@ -351,9 +328,8 @@ pub(crate) fn send_select_answer(
     Ok(())
 }
 
-/// Decline an `m.rtc.notification` ring. The SDK builds the decline content
-/// itself (`Room::make_decline_call_event`) — Lightning constructs no RTC
-/// content.
+/// Decline an `m.rtc.notification` ring. The SDK builds the content
+/// (`Room::make_decline_call_event`).
 pub(crate) fn rtc_decline(
     bridge: &RustClient,
     room_id: String,
@@ -374,24 +350,18 @@ pub(crate) fn rtc_decline(
     Ok(())
 }
 
-/// Keeps every registered call handler alive for exactly the sync loop's
-/// lifetime. Dropping this unregisters them all.
+/// Keeps every call handler registered for the sync loop's lifetime;
+/// dropping it unregisters them.
 pub(crate) struct CallHandlerGuards {
     _guards: Vec<EventHandlerDropGuard>,
 }
 
-/// Register inbound observers for the call-signaling events. These ride the
-/// normal sync dispatch (sliding sync and classic /sync share
-/// `call_sync_response_handlers`), independent of any timeline being open.
-/// The existing timeline "call event" state row is untouched — call STATE
-/// is fed only from here.
-/// Bound the SDP we are willing to carry into C++ memory: a legitimate
-/// session description is a few KB; the homeserver caps events at 64 KiB.
+/// Bound on the SDP carried into C++ memory; real ones are a few KB and
+/// events are capped at 64 KiB.
 const MAX_CARRIED_SDP_LEN: usize = 128 * 1024;
 
-/// The remote SDP for the C++ store — ONLY in media-capable mode, never
-/// oversized, and only when actually present. `None` means the payload
-/// simply omits the field.
+/// The remote SDP for C++, only in media-capable mode, bounded, and only
+/// when present. `None` omits the field.
 fn carried_sdp(media_capable: &AtomicBool, sdp: &str) -> Option<String> {
     if !media_capable.load(Ordering::Relaxed) {
         return None;
@@ -403,14 +373,13 @@ fn carried_sdp(media_capable: &AtomicBool, sdp: &str) -> Option<String> {
     Some(trimmed.to_owned())
 }
 
-/// Bounds for ICE candidates crossing in either direction: a legitimate
-/// call gathers a handful; anything beyond is hostile or broken.
+/// Bounds for ICE candidates in either direction.
 const MAX_CANDIDATES_PER_EVENT: usize = 32;
 const MAX_CANDIDATE_LINE_LEN: usize = 1024;
 const MAX_SDP_MID_LEN: usize = 64;
 
-/// A candidate "a"-line safe to carry: bounded and control-free. Empty is
-/// legal — MSC2746 v1 ends gathering with an empty candidate.
+/// A candidate line safe to carry: bounded and control-free. Empty is legal
+/// (MSC2746 v1 ends gathering with an empty candidate).
 fn carried_candidate_line(line: &str) -> Option<&str> {
     if line.len() > MAX_CANDIDATE_LINE_LEN
         || line.chars().any(char::is_control)
@@ -420,8 +389,8 @@ fn carried_candidate_line(line: &str) -> Option<&str> {
     Some(line)
 }
 
-/// Send `m.call.candidates`. The list arrives from C++ as JSON (our OWN
-/// locally gathered candidates); it is re-validated and bounded anyway.
+/// Send `m.call.candidates`. The JSON list comes from C++ (our own
+/// candidates) and is re-validated and bounded anyway.
 pub(crate) fn send_candidates(
     bridge: &RustClient,
     room_id: String,
@@ -475,11 +444,10 @@ pub(crate) fn send_candidates(
     Ok(())
 }
 
-/// Fetch the homeserver's TURN servers (`/voip/turnServer`). The response
-/// carries short-lived CREDENTIALS: they cross the FFI once, feed the
-/// media engine's ICE config, and are never logged or persisted. Policy:
-/// Lightning contacts ONLY servers the homeserver names — no third-party
-/// STUN fallback that would leak the user's IP elsewhere.
+/// Fetch the homeserver's TURN servers (`/voip/turnServer`). The short-lived
+/// credentials cross once, feed the media engine's ICE config, and are never
+/// logged or persisted. Only servers the homeserver names are used; no
+/// third-party STUN fallback that would leak the user's IP.
 pub(crate) fn fetch_turn_servers(
     bridge: &RustClient,
     op_id: u64,
@@ -526,6 +494,9 @@ pub(crate) fn fetch_turn_servers(
     Ok(())
 }
 
+/// Register inbound observers for call-signalling events. They ride the
+/// normal sync dispatch (sliding and classic), independent of any open
+/// timeline; call state is fed only from here.
 pub(crate) fn register_handlers(
     client: &Client,
     events: &EventQueue,
@@ -556,8 +527,7 @@ pub(crate) fn register_handlers(
                     else {
                         return;
                     };
-                    // The SDP crosses ONLY in media-capable mode (see
-                    // carried_sdp); otherwise has_offer alone.
+                    // SDP crosses only in media-capable mode (see carried_sdp).
                     let mut payload = json!({
                         "type": "call_invite",
                         "lifecycle": timelines.lifecycle(),
@@ -765,9 +735,7 @@ pub(crate) fn register_handlers(
                 let timelines = Arc::clone(&timelines);
                 let media_capable = Arc::clone(&media_capable);
                 async move {
-                    // Candidates are pure ICE (host IPs). Without a media
-                    // engine there is no consumer, so nothing crosses at
-                    // all outside media-capable mode.
+                    // Candidates are host IPs; outside media-capable mode nothing crosses.
                     if !media_capable.load(Ordering::Relaxed) {
                         return;
                     }
@@ -906,7 +874,7 @@ mod tests {
         assert_eq!(reason_str(&Reason::UserHangup), "user_hangup");
         assert_eq!(reason_str(&Reason::InviteTimeout), "invite_timeout");
         assert_eq!(reason_str(&Reason::UserBusy), "user_busy");
-        // Sender-chosen free text must collapse, never cross.
+        // Sender-chosen free text collapses.
         let custom = Reason::from("libwebrtc exploded at 10.0.0.7");
         assert_eq!(reason_str(&custom), "unknown");
     }
@@ -942,18 +910,15 @@ mod tests {
 
     #[test]
     fn invite_payload_shape_carries_no_sdp() {
-        // The poll payload for an invite is built inline in the handler;
-        // this pins the sanitizers it is built FROM, plus the invariant
-        // that a SessionDescription's sdp field itself never appears in
-        // any json! call in this module (asserted by review + the absence
-        // of any "sdp" key above; the sanitizer outputs are closed sets).
+        // Pins the sanitizers the invite payload is built from; the SDP itself is
+        // never a payload field.
         let description = SessionDescription::new(
             "offer".to_owned(),
             "v=0\r\nc=IN IP4 192.168.1.4".to_owned(),
         );
         assert_eq!(session_type_str(&description.session_type), "offer");
         assert!(!description.sdp.is_empty());
-        // Coarse booleans are what crosses.
+        // Only coarse booleans cross.
         assert!(!description.sdp.trim().is_empty());
     }
 
@@ -965,7 +930,7 @@ mod tests {
         assert!(wire_id("evil\ninjection").is_none());
         assert!(wire_id("literal-backslash-\\x07").is_some());
         assert!(wire_id("real\u{7}bell").is_none());
-        // Optional form: absence is honest emptiness, hostile drops.
+        // Optional form: absence is empty, hostile drops.
         assert_eq!(optional_wire_id(None), Some(String::new()));
         assert_eq!(optional_wire_id(Some("ok")), Some("ok".to_owned()));
         assert_eq!(optional_wire_id(Some("bad\nid")), None);

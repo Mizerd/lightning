@@ -1,55 +1,29 @@
-//! OAuth 2.0 / OIDC authentication for Lightning, on matrix-sdk 0.18's
-//! `Client::oauth()` API.
+//! OAuth 2.0 / OIDC authentication on matrix-sdk 0.18's `Client::oauth()`.
 //!
-//! # Why this module exists separately
+//! All protocol primitives are SDK-owned: `OAuth::login()` builds the
+//! authorization URL with PKCE and `state`, `OAuth::finish_login()` validates
+//! the redirect and exchanges the code, and the SDK refreshes tokens. This
+//! module only opens the system browser and receives the loopback redirect
+//! (the SDK's `local-server` helper needs `axum`, which is not vendored in
+//! this offline build).
 //!
-//! Every OAuth protocol primitive is SDK-owned. This module does NOT implement
-//! PKCE, CSRF state generation/validation, the token exchange, or refresh:
-//! `OAuth::login()` builds the authorization URL with a PKCE challenge and a
-//! `state`, `OAuth::finish_login()` parses the redirect, validates the state
-//! against the stored `AuthorizationValidationData` and performs the code
-//! exchange, and the SDK refreshes access tokens internally. Lightning
-//! contributes exactly two things the SDK cannot do for a desktop app: opening
-//! the system browser, and receiving the loopback redirect (matrix-sdk's own
-//! `local-server` helper is behind the `sso-login`/`local-server` features,
-//! which pull in `axum` — not vendored in this offline, `--locked` build).
+//! Two phases, because the account is unknown until `whoami` after
+//! `finish_login()`, and opening a store before that would risk attaching a
+//! device to the wrong account's crypto store:
 //!
-//! # The two-phase store lifecycle
+//!   Phase A (`mx_rust_oauth_bootstrap_create`): a bootstrap client with an
+//!   in-memory store only. Discovery, registration, the authorization URL and
+//!   the code exchange happen here; nothing is written to disk. It must
+//!   never sync, or it would upload throwaway device keys for the device id
+//!   Phase B then uploads again.
 //!
-//! Password login knows the account before it contacts the server, so
-//! `RustSdkMatrixClient::login()` can open the account's sqlite store first.
-//! OAuth cannot: the Matrix user ID is only known after `finish_login()` runs
-//! `whoami`. Opening a persistent store before that would mean guessing which
-//! account's crypto store to attach a not-yet-identified device to — precisely
-//! the store/device ownership bug class Lightning already guards against for
-//! password login (`RustSessionPolicy::passwordLoginBlockReason`).
+//!   Phase B (C++, via `mx_rust_oauth_restore`): once user and device ids are
+//!   known, C++ applies the store-ownership policy, creates the real
+//!   account-scoped handle and restores the session into its sqlite store.
 //!
-//! So authentication runs in two phases:
-//!
-//!   Phase A (this module, `mx_rust_oauth_bootstrap_create`):
-//!     A bootstrap client with an **in-memory store only** — the builder's
-//!     default when `.sqlite_store()` is never called. Discovery, dynamic
-//!     client registration, the authorization URL and the code exchange all
-//!     happen here. Nothing is written to disk, so there is no persistent
-//!     account store to collide, orphan or clean up. **This client must never
-//!     sync**: a sync would upload device keys generated in the throwaway
-//!     in-memory crypto store, and Phase B would then upload a second,
-//!     different set of keys for the same device ID. Nothing in this module
-//!     starts a sync loop.
-//!
-//!   Phase B (C++ `RustSdkMatrixClient`, using `mx_rust_oauth_restore`):
-//!     Only once the canonical user ID and device ID are known does C++ derive
-//!     the normal `AccountIdentity`/store slug, apply the store-ownership
-//!     policy, create the real account-scoped handle, and restore the OAuth
-//!     session into the account's own sqlite store. Sync and E2EE start after
-//!     that, exactly as they do for a restored password session.
-//!
-//! # Secrets
-//!
-//! Access tokens, refresh tokens and the dynamic-registration client ID cross
-//! this boundary once, into the C++ SecretStore. They are never logged here,
-//! never placed in an error string, and never reach QML. The authorization
-//! callback URL carries a `code` and is likewise never logged.
+//! Access tokens, refresh tokens and the registered client id cross once,
+//! into the C++ SecretStore; they are never logged, put in error strings or
+//! sent to QML. The callback URL carries a `code` and is never logged.
 
 use std::collections::VecDeque;
 use std::ffi::{c_char, c_void};
@@ -78,25 +52,21 @@ use crate::{
     install_event_handlers, run_async_on,
 };
 
-/// Client URI advertised during dynamic client registration. Identifies
-/// Lightning to the authorization server's consent screen. Not a secret.
+/// Client URI advertised during dynamic registration (shown on the consent
+/// screen). Not a secret.
 const CLIENT_URI: &str = "https://gitlab.smetonis.net/Mizerd/lightning";
 
-/// Build Lightning's OAuth client metadata for dynamic client registration.
-///
-/// `redirect_uri` is registered as the sole redirect URI, so an authorization
-/// response aimed anywhere else is rejected by the authorization server rather
-/// than by us. It is normally the exact loopback URI the C++ listener is bound
-/// to; on a server that enforces RFC 8252 §7.3 strictly it is that URI with
-/// its ephemeral port removed — see `portless_registration_retry`.
+/// Lightning's OAuth client metadata for dynamic registration.
+/// `redirect_uri` is the sole registered redirect, so the server rejects
+/// responses aimed elsewhere. Normally the exact loopback URI the C++
+/// listener uses; for servers enforcing RFC 8252 §7.3 strictly, the same
+/// URI without its port (see `portless_registration_retry`).
 fn client_metadata(redirect_uri: Url) -> Result<Raw<ClientMetadata>, String> {
     let client_uri = Url::parse(CLIENT_URI)
         .map_err(|err| format!("invalid Lightning client URI: {err}"))?;
 
     let mut metadata = ClientMetadata::new(
-        // A desktop application, not a web client: this is what tells the
-        // authorization server to expect a loopback redirect rather than a
-        // hosted callback endpoint.
+        // A native app, so the server expects a loopback redirect.
         ApplicationType::Native,
         vec![OAuthGrantType::AuthorizationCode { redirect_uris: vec![redirect_uri] }],
         Localized::new(client_uri, []),
@@ -107,27 +77,17 @@ fn client_metadata(redirect_uri: Url) -> Result<Raw<ClientMetadata>, String> {
         .map_err(|err| format!("failed to serialize OAuth client metadata: {err}"))
 }
 
-/// The registration-time form of a loopback redirect URI: the same URI with
-/// its ephemeral port removed.
+/// The registration-time form of a loopback redirect URI: the same URI
+/// without its ephemeral port.
 ///
-/// RFC 8252 §7.3 requires an authorization server to accept ANY port at
-/// request time for a loopback redirect URI, precisely because a native client
-/// takes the port from the operating system when the attempt starts. Some
-/// servers enforce the corollary: registering a PINNED port is invalid client
-/// metadata, because it claims a constraint the server will not honour.
-/// Continuwuity refuses registration outright with `invalid_client_metadata`
-/// ("HTTP redirect URIs for native applications do not need to specify a
-/// port"), which blocks OAuth sign-in on those homeservers entirely.
+/// RFC 8252 §7.3 makes servers accept any port at request time for loopback
+/// redirects, and some (Continuwuity) refuse to register a pinned port with
+/// `invalid_client_metadata`, blocking OAuth sign-in entirely.
 ///
-/// Returns `None` when there is nothing to do or nothing safe to do: a URI
-/// with no explicit port, a non-`http` scheme, or a host that is not loopback.
-/// The loopback list mirrors `mx_rust_oauth_begin`'s own guard — `host_str()`
-/// returns an IPv6 literal in its bracketed form, so `[::1]` is the spelling
-/// that actually occurs.
-///
-/// Only the PORT is removed. The path still carries the per-attempt 128-bit
-/// nonce the C++ listener generates, so the widening is bounded to "any port
-/// on loopback, this exact path" rather than "any loopback URI".
+/// `None` when there is no explicit port, the scheme is not `http`, or the
+/// host is not loopback (`[::1]` is how `host_str()` spells IPv6). Only the
+/// port is removed; the path keeps the per-attempt nonce, so the widening
+/// is "any port on loopback, this path".
 fn portless_loopback_redirect(redirect: &Url) -> Option<Url> {
     if redirect.scheme() != "http" {
         return None;
@@ -136,24 +96,16 @@ fn portless_loopback_redirect(redirect: &Url) -> Option<Url> {
         Some("127.0.0.1") | Some("localhost") | Some("[::1]") | Some("::1") => {}
         _ => return None,
     }
-    // `Url::port()` is None both when no port was given and when it equals the
-    // scheme default, and either way there is nothing to strip.
+    // `port()` is None for no port or the default port; nothing to strip.
     redirect.port()?;
     let mut portless = redirect.clone();
     portless.set_port(None).ok()?;
     Some(portless)
 }
 
-/// Whether an `OAuth::login().build()` failure is the authorization server
-/// REFUSING our client metadata, as opposed to a network error, a missing
-/// registration endpoint, or a failure later in the flow.
-///
-/// Matched structurally on RFC 7591 §3.2.2's error code rather than on the
-/// server's prose: the wording is implementation-specific and localizable,
-/// the code is not.
-/// Returns WHICH code was matched, not merely that one was: the retry reports
-/// it, and a report that conflates the two tells the reader less than it
-/// appears to. Raised in review.
+/// Whether an `OAuth::login().build()` failure is the server refusing our
+/// client metadata (RFC 7591 §3.2.2 error code, matched structurally rather
+/// than on prose). Returns which code matched, for the retry's report.
 fn registration_refused_metadata(err: &OAuthError) -> Option<&'static str> {
     let OAuthError::ClientRegistration(OAuthClientRegistrationError::OAuth(
         RequestTokenError::ServerResponse(response),
@@ -172,28 +124,19 @@ fn registration_refused_metadata(err: &OAuthError) -> Option<&'static str> {
     }
 }
 
-/// Decide how to retry a registration the authorization server refused.
+/// How to retry a refused registration: metadata with the loopback redirect
+/// URI minus its port, plus the redirect URI for the authorization request
+/// (the live listener URI, with port), the split RFC 8252 §7.3 intends.
+/// matrix-sdk 0.18 allows it: `OAuth::login()` takes the request URI
+/// directly, and `finish_login()` sends that same URI in the token exchange.
 ///
-/// Returns the metadata to register (the loopback redirect URI WITHOUT its
-/// port) paired with the redirect URI to put in the authorization REQUEST
-/// (the live listener URI, port and all) — which is exactly the split RFC 8252
-/// §7.3 contemplates, and which matrix-sdk 0.18 permits: `OAuth::login()`
-/// takes the request URI as its own argument and never derives it from the
-/// registration metadata, and `finish_login()` sends that same request URI in
-/// the token exchange (RFC 6749 §4.1.3), so the two stay consistent.
+/// `None` when the failure was not a metadata refusal, there is no port, or
+/// the URI is not loopback `http`.
 ///
-/// `None` means "do not retry": the failure was not a metadata refusal, or
-/// there is no port to remove, or the URI is not a loopback `http` URI.
-///
-/// Retrying rather than registering portless unconditionally is deliberate.
-/// MAS accepts the pinned port today and is the only configuration this flow
-/// has ever been live-validated against; changing what every sign-in sends it
-/// would risk a regression nothing here can catch. This path is reached only
-/// when a server has already said no, so a server that works today is
-/// untouched — and the portless form is what BOTH implementations then match
-/// against: continuwuity strips the port from the authorization request before
-/// comparing it to the registered set (gated on `application_type: native`),
-/// and MAS does the same in `Client::resolve_redirect_uri`.
+/// Retry rather than always registering portless: MAS accepts the pinned
+/// port and is the only server this flow was live-validated against. Both
+/// continuwuity (for `application_type: native`) and MAS
+/// (`Client::resolve_redirect_uri`) strip the port when matching.
 fn portless_registration_retry(
     redirect: &Url,
     err: &OAuthError,
@@ -206,23 +149,16 @@ fn portless_registration_retry(
 
 /// Persist rotated session tokens for the lifetime of this client.
 ///
-/// `ClientBuilder::handle_refresh_tokens()` makes the SDK renew an expired
-/// access token automatically, but the SDK does not persist the result — the
-/// application must. Without this, a refresh rotates the tokens in memory
-/// only, the store keeps the CONSUMED refresh token, and the next start
-/// presents it; an OAuth 2.1 / MAS authorization server treats a replayed
-/// refresh token as compromise and can revoke the whole token family.
+/// With `handle_refresh_tokens()` the SDK renews expired access tokens but
+/// does not persist them. Without this, the store keeps the consumed refresh
+/// token, and an OAuth 2.1 / MAS server treats its replay as compromise and
+/// may revoke the whole token family. Refreshable password sessions rotate
+/// the same way.
 ///
-/// Applies to password sessions too: servers that issue refreshable password
-/// sessions rotate them the same way.
-///
-/// The emitted event carries CREDENTIALS. C++ writes them straight to the
-/// SecretStore; nothing logs them.
-/// The returned handle MUST be stored in `RustClient::token_task` so shutdown
-/// can abort it. The task holds a strong `Client`, and the broadcast sender it
-/// waits on lives inside that same `Client`, so `recv()` never returns
-/// `Closed` by itself — an unowned task here would keep the account's crypto
-/// store open past `mx_rust_destroy`, and sign-out deletes that store.
+/// The emitted event carries credentials; C++ writes them to the
+/// SecretStore and nothing logs them. Store the returned handle in
+/// `RustClient::token_task` so shutdown can abort it: it holds a strong
+/// Client whose own broadcast sender keeps `recv()` from ever closing.
 #[must_use]
 pub(crate) fn spawn_token_persistence(
     client: &Client,
@@ -244,9 +180,8 @@ pub(crate) fn spawn_token_persistence(
                         }),
                     );
                 }
-                // The server rejected the token and the SDK could not renew
-                // it. Report it as the existing revoked-credential state
-                // rather than letting sync fail in a loop.
+                // The server rejected the token and the SDK could not renew it: report the
+                // revoked-credential state instead of letting sync fail in a loop.
                 Ok(SessionChange::UnknownToken(_)) => {
                     enqueue(
                         &events,
@@ -255,8 +190,7 @@ pub(crate) fn spawn_token_persistence(
                         }),
                     );
                 }
-                // Lagged just means we missed intermediate notifications; the
-                // next one still carries the current tokens.
+                // Lagged only means missed notifications; the next carries current tokens.
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(_) => break,
             }
@@ -264,11 +198,9 @@ pub(crate) fn spawn_token_persistence(
     })
 }
 
-/// Phase A bootstrap handle: a `RustClient` whose store path is empty.
-///
-/// `build_client()` skips `.sqlite_store()` for an empty path, leaving the
-/// SDK's in-memory default. Destroy it with the ordinary `mx_rust_destroy`
-/// once the session has been handed to the real account handle.
+/// Phase A bootstrap handle: a `RustClient` with an empty store path, so
+/// `build_client()` uses the in-memory store. Destroy with `mx_rust_destroy`
+/// once the session is handed to the real account handle.
 #[no_mangle]
 pub extern "C" fn mx_rust_oauth_bootstrap_create() -> *mut c_void {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -280,24 +212,18 @@ pub extern "C" fn mx_rust_oauth_bootstrap_create() -> *mut c_void {
     }
 }
 
-/// Discover which authentication methods a homeserver actually offers.
-///
-/// Enqueues one `auth_discovery` event:
+/// Discover which authentication methods a homeserver offers. Enqueues one
+/// `auth_discovery` event:
 ///
 /// ```json
 /// { "type": "auth_discovery", "homeserver": "...", "oauth": true,
 ///   "password": true, "sso": false, "error": null }
 /// ```
 ///
-/// `oauth` is true when the server publishes OAuth 2.0 authorization server
-/// metadata. `password`/`sso` come from the legacy `/login` flow list. Nothing
-/// is hard-coded per provider — the server's own answer decides, and a server
-/// that advertises neither yields all-false rather than a guess.
-///
-/// `sso` is reported for honesty in the UI ("this server offers SSO, Lightning
-/// cannot use it") and is never presented as a usable method: the SDK's SSO
-/// login helper needs the `sso-login`/`local-server` features, whose `axum`
-/// dependency is not vendored in this build.
+/// `oauth` is true when the server publishes OAuth authorization server
+/// metadata; `password`/`sso` come from `/login` flows. Nothing is
+/// hard-coded per provider. `sso` is informational only: the SDK's SSO
+/// helper needs `axum`, which this build lacks.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_oauth_discover(
     ptr: *mut c_void,
@@ -312,7 +238,7 @@ pub unsafe extern "C" fn mx_rust_oauth_discover(
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "oauth_discover", async move {
-                // In-memory client: discovery must not create a store either.
+                // In-memory client: discovery must not create a store.
                 let client = match build_client(&homeserver, &PathBuf::new()).await {
                     Ok(client) => client,
                     Err(err) => {
@@ -331,13 +257,10 @@ pub unsafe extern "C" fn mx_rust_oauth_discover(
                     }
                 };
 
-                // OAuth support: the server either publishes authorization
-                // server metadata or it does not. An error here is a normal
-                // "this server is not an OAuth server" answer, not a failure.
+                // An error here means "not an OAuth server", not a failure.
                 let oauth_supported = client.oauth().server_metadata().await.is_ok();
 
-                // Legacy flows. A failure to read them is not fatal — an OAuth
-                // -only server may not answer /login at all.
+                // Not fatal: an OAuth-only server may not answer /login.
                 let (password, sso) = match client.matrix_auth().get_login_types().await {
                     Ok(response) => {
                         let mut password = false;
@@ -373,16 +296,11 @@ pub unsafe extern "C" fn mx_rust_oauth_discover(
 }
 
 /// Begin an OAuth login: register the client if needed and build the
-/// authorization URL.
-///
-/// Enqueues `{"type": "oauth_url", "url": "..."}` on success, or
-/// `{"type": "oauth_failed", "message": "..."}`. The bootstrap `Client` is
-/// parked in the bridge's client slot because the SDK stores this attempt's
-/// PKCE verifier and CSRF state inside it — `finish_login()` must run on the
-/// same instance.
-///
-/// The URL is opened in the system browser by C++. It contains no credentials:
-/// it is the authorization endpoint plus this attempt's public parameters.
+/// authorization URL. Enqueues `{"type": "oauth_url", "url": "..."}` or
+/// `{"type": "oauth_failed", "message": "..."}`. The bootstrap Client is
+/// parked in the client slot because the SDK stores this attempt's PKCE
+/// verifier and CSRF state in it; `finish_login()` must use the same
+/// instance. The URL (opened by C++) contains no credentials.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_oauth_begin(
     ptr: *mut c_void,
@@ -396,9 +314,7 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
 
         let redirect = Url::parse(&redirect_uri)
             .map_err(|err| format!("invalid OAuth redirect URI: {err}"))?;
-        // Defence in depth: the listener binds loopback, and we refuse to ask
-        // an authorization server to redirect anywhere else even if a caller
-        // passes something odd.
+        // Defence in depth: never ask a server to redirect anywhere but loopback.
         match redirect.host_str() {
             Some("127.0.0.1") | Some("localhost") | Some("[::1]") | Some("::1") => {}
             _ => return Err("OAuth redirect URI must be a loopback address.".to_owned()),
@@ -421,33 +337,24 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
                     }
                 };
 
-                // device_id None: the SDK generates one and encodes it in the
-                // requested scope. It comes back from finish_login() and is
-                // the device the account store in Phase B must belong to.
+                // device_id None: the SDK generates one, encoded in the scope, and returns
+                // it from finish_login(); Phase B's store must belong to it.
                 let mut built = client
                     .oauth()
                     .login(redirect.clone(), None, Some(metadata.into()), None)
                     .build()
                     .await;
 
-                // A server that enforces RFC 8252 §7.3 strictly refuses to
-                // register a loopback redirect URI that pins a port. Retry
-                // ONCE with the port removed from the METADATA only; the
-                // authorization request keeps the live listener port. Safe to
-                // reuse this client: a failed registration leaves the SDK's
-                // client_id unset, so the retry re-registers rather than
-                // panicking on already-set authentication data.
+                // A server enforcing RFC 8252 §7.3 refuses a pinned loopback port: retry
+                // once with the port removed from the metadata only. Reusing this client is
+                // safe: a failed registration leaves client_id unset.
                 let retry = built
                     .as_ref()
                     .err()
                     .and_then(|err| portless_registration_retry(&redirect, err));
                 if let Some((retry_metadata, request_redirect, reason)) = retry {
-                    // SAY THAT IT HAPPENED. This ships to users on servers
-                    // nobody here can reproduce, and without a line the three
-                    // outcomes — the retry never fired, it fired and worked,
-                    // it fired and was refused again — are indistinguishable
-                    // in a report. Carries no URI, no port, no nonce and no
-                    // token: the fact alone is the whole diagnostic.
+                    // Log that the retry happened (no URI, port, nonce or token), so reports
+                    // can tell "never fired", "worked" and "refused again" apart.
                     enqueue(&events, json!({
                         "type": "oauth_registration_retry",
                         "reason": reason,
@@ -491,15 +398,12 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
     })
 }
 
-/// Complete an OAuth login from the callback the loopback listener received.
+/// Complete an OAuth login from the callback the loopback listener got.
+/// `callback` (full redirect URI or query) carries `code` and `state`, so it
+/// is never logged or echoed in errors.
 ///
-/// `callback` is the full redirect URI (or just its query string). It carries
-/// the authorization `code` and `state`, so it is never logged, and it is
-/// never echoed back into an error message.
-///
-/// The SDK validates `state` against this attempt's stored validation data and
-/// performs the PKCE code exchange. On success this enqueues `oauth_ok` with
-/// the identity and session material C++ needs to open the real account store:
+/// The SDK validates `state` and does the PKCE code exchange. On success
+/// this enqueues `oauth_ok` with what C++ needs to open the account store:
 ///
 /// ```json
 /// { "type": "oauth_ok", "homeserver": "...", "user_id": "@u:s",
@@ -517,9 +421,8 @@ pub unsafe extern "C" fn mx_rust_oauth_finish(
         if callback.trim().is_empty() {
             return Err("empty OAuth callback".to_owned());
         }
-        // Parsed here, synchronously, so a malformed redirect fails fast. The
-        // error deliberately does NOT quote the input: it carries the
-        // authorization code.
+        // Parsed synchronously to fail fast; the error never quotes the input (it
+        // carries the authorization code).
         let callback_url = Url::parse(&callback)
             .map_err(|_| "malformed OAuth callback".to_owned())?;
 
@@ -544,14 +447,10 @@ pub unsafe extern "C" fn mx_rust_oauth_finish(
                     }
                 };
 
-                // The SDK parses the redirect, checks `state` against the
-                // validation data stored by build(), and exchanges the code
-                // with the PKCE verifier. A state mismatch, a denied
-                // authorization or a replayed callback all fail here.
+                // The SDK checks `state` and exchanges the code with the PKCE verifier; a
+                // mismatch, denial or replayed callback fails here.
                 if let Err(err) = client.oauth().finish_login(callback_url.into()).await {
-                    // The error may quote the callback; format_matrix_error
-                    // is not applied to it for that reason. Report a fixed,
-                    // safe message and keep the detail out of the event.
+                    // The error may quote the callback, so report a fixed message instead.
                     let _ = err;
                     drop(client);
                     if let Ok(mut guard) = state_slot.lock() {
@@ -598,9 +497,7 @@ pub unsafe extern "C" fn mx_rust_oauth_finish(
                     }),
                 );
 
-                // Phase A is over. Drop the bootstrap client so its in-memory
-                // store — and the tokens held in it — go away; Phase B builds
-                // the real account-scoped client from the event above.
+                // Phase A is over: drop the bootstrap client and its in-memory tokens.
                 drop(client);
                 if let Ok(mut guard) = state_slot.lock() {
                     *guard = None;
@@ -612,11 +509,9 @@ pub unsafe extern "C" fn mx_rust_oauth_finish(
     })
 }
 
-/// Abort an OAuth login in progress (the user cancelled, closed the browser,
-/// or the listener timed out).
-///
-/// Clears the SDK's stored authorization data for this attempt so a late or
-/// replayed callback cannot complete it, and releases the bootstrap client.
+/// Abort an OAuth login in progress. Clears the SDK's stored authorization
+/// data so a late or replayed callback cannot complete it, and releases the
+/// bootstrap client.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_oauth_abort(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -642,15 +537,13 @@ pub unsafe extern "C" fn mx_rust_oauth_abort(ptr: *mut c_void) -> *mut c_char {
     })
 }
 
-/// Phase B: restore an OAuth session into the real, account-scoped store.
+/// Phase B: restore an OAuth session into the real account-scoped store,
+/// like `mx_rust_restore` but via `oauth().restore_session()` so the SDK
+/// owns token refresh. `refresh_token` may be empty.
 ///
-/// Mirrors `mx_rust_restore` for password sessions, but dispatches through
-/// `oauth().restore_session()` so the SDK owns the OAuth session state and its
-/// token refresh. `refresh_token` may be empty when the server issued none.
-///
-/// The caller must already have decided — from the recorded account identity
-/// and the store-ownership policy — that `store_path` belongs to `user_id`
-/// with `device_id`. This function does not and cannot make that judgement.
+/// The caller must already have decided, from the recorded identity and the
+/// store-ownership policy, that `store_path` belongs to `user_id` /
+/// `device_id`; this function cannot judge that.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_oauth_restore(
     ptr: *mut c_void,
@@ -677,7 +570,7 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
         let parsed_user: OwnedUserId = UserId::parse(&user_id)
             .map_err(|err| format!("invalid stored Matrix user id: {err}"))?
             .to_owned();
-        // Server-issued opaque string, not a freshly generated device id.
+        // A server-issued opaque string.
         let parsed_device: OwnedDeviceId = device_id.clone().into();
 
         bridge.stop_sync_and_wait();
@@ -694,11 +587,8 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "oauth_restore", async move {
-                // THE OFFLINE-CAPABLE BUILD, exactly as the password restore
-                // uses: an OAuth session restored from the store is still a
-                // restore, and a homeserver that is down must not put the
-                // user back on the login page with their whole account on
-                // disk. See build_client_for_restore.
+                // The offline-capable build, as for password restores (see
+                // build_client_for_restore).
                 let client = match crate::build_client_for_restore(
                     &homeserver, &store_path, &events).await {
                     Ok(client) => client,
@@ -732,9 +622,8 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
                     .await
                 {
                     Ok(()) => {
-                        // The rooms exist now, and this runs on the SHARED
-                        // runtime — both conditions the send-queue respawn
-                        // needs. See resume_unsent_requests in lib.rs.
+                        // On the shared runtime with rooms loaded, as the send-queue respawn
+                        // requires (see resume_unsent_requests in lib.rs).
                         crate::resume_unsent_requests(&client).await;
                         install_event_handlers(
                             &client,
@@ -743,8 +632,7 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
                             Arc::clone(&active_sas),
                             Arc::clone(&active_qr),
                         );
-                        // OAuth access tokens are short-lived by design, so
-                        // rotated tokens MUST be written back.
+                        // OAuth access tokens are short-lived, so rotations must be persisted.
                         if let Ok(mut guard) = token_task.lock() {
                             if let Some(previous) = guard.replace(
                                 spawn_token_persistence(&client, Arc::clone(&events)))
@@ -784,11 +672,9 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
     })
 }
 
-/// Log out an OAuth session, revoking the tokens at the authorization server.
-///
-/// Password sessions continue to use `mx_rust_logout`. Both leave store
-/// deletion to C++, which is the only layer that knows which account's store
-/// is which.
+/// Log out an OAuth session, revoking its tokens at the authorization
+/// server. Password sessions use `mx_rust_logout`. Store deletion is left
+/// to C++.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_oauth_logout(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -803,19 +689,13 @@ pub unsafe extern "C" fn mx_rust_oauth_logout(ptr: *mut c_void) -> *mut c_char {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "oauth_logout", async move {
                 let client = client_slot.lock().ok().and_then(|mut g| g.take());
-                // THE SAME SHAPE mx_rust_logout USES, because the C++ side
-                // reads "result" and nothing has ever read "warning". With
-                // only a warning field, the dispatcher's default of "ok"
-                // applied and a failed REVOCATION was indistinguishable from
-                // a successful one — on the branch whose entire purpose is
-                // revoking the token.
+                // Same shape as mx_rust_logout: C++ reads "result", so a failed revocation
+                // must not default to "ok".
                 let event = match client.as_ref() {
                     Some(client) => match client.oauth().logout().await {
                         Ok(()) => json!({ "type": "logged_out", "result": "ok" }),
-                        // A revocation failure still ends the local session:
-                        // the caller has already stopped sync and is about to
-                        // drop the client. Reported WITHOUT the SDK detail,
-                        // which can quote endpoint URLs.
+                        // A revocation failure still ends the local session. The SDK detail is
+                        // omitted since it may quote endpoint URLs.
                         Err(_) => json!({
                             "type": "logged_out",
                             "result": "failed",
@@ -837,9 +717,8 @@ pub unsafe extern "C" fn mx_rust_oauth_logout(ptr: *mut c_void) -> *mut c_char {
 mod tests {
     use super::*;
 
-    // ClientMetadata is serialize-only in matrix-sdk 0.18, so these assert on
-    // the JSON actually sent to the registration endpoint — which is the thing
-    // that matters anyway.
+    // ClientMetadata is serialize-only in matrix-sdk 0.18, so assert on the JSON
+    // sent to the registration endpoint.
     fn metadata_json(redirect: &str) -> serde_json::Value {
         let raw = client_metadata(Url::parse(redirect).unwrap()).expect("metadata builds");
         serde_json::from_str(raw.json().get()).expect("metadata is JSON")
@@ -850,17 +729,12 @@ mod tests {
         let redirect = "http://127.0.0.1:51234/callback";
         let json = metadata_json(redirect);
 
-        // A desktop app, so the authorization server expects a loopback
-        // redirect rather than a hosted callback.
+        // A native app: the server expects a loopback redirect.
         assert_eq!(json["application_type"], "native");
-        // Exactly ONE redirect URI is registered: the ephemeral loopback
-        // endpoint this attempt is listening on. Registering anything wider
-        // would let an authorization response be aimed elsewhere.
+        // Exactly one redirect URI: this attempt's loopback endpoint.
         assert_eq!(json["redirect_uris"], serde_json::json!([redirect]));
-        // The SDK adds `refresh_token` to the requested grants itself. That is
-        // required, not incidental: without it the authorization server issues
-        // no refresh token and the SDK cannot renew an expired access token,
-        // which is the failure this whole round exists to prevent.
+        // The SDK adds `refresh_token` to the grants; without it no refresh token
+        // is issued and expired access tokens cannot be renewed.
         assert_eq!(json["grant_types"],
                    serde_json::json!(["authorization_code", "refresh_token"]));
     }
@@ -871,9 +745,8 @@ mod tests {
         assert_eq!(json["client_name"], "Lightning");
     }
 
-    // The device-code grant is what login_with_qr_code uses. Lightning does
-    // not implement QR login, so it must not ask an authorization server for
-    // that capability.
+    // The device-code grant (login_with_qr_code) is not used, so it must not be
+    // requested.
     #[test]
     fn client_metadata_does_not_request_the_device_code_grant() {
         let json = metadata_json("http://127.0.0.1:1/cb");
@@ -883,12 +756,11 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------
-    // RFC 8252 §7.3: a strict authorization server refuses to register a
-    // loopback redirect URI that pins a port.
+    // RFC 8252 §7.3: strict servers refuse to register a pinned loopback port.
     // ---------------------------------------------------------------------
 
-    /// The listener URI the C++ callback server produces: loopback, an
-    /// ephemeral port, and a per-attempt 128-bit nonce in the path.
+    /// The C++ listener URI: loopback, an ephemeral port, and a per-attempt
+    /// 128-bit nonce path.
     const LISTENER: &str = "http://127.0.0.1:51234/lightning-oauth/0a1b2c3d4e5f60718293a4b5c6d7e8f9";
     const LISTENER_PORTLESS: &str =
         "http://127.0.0.1/lightning-oauth/0a1b2c3d4e5f60718293a4b5c6d7e8f9";
@@ -897,8 +769,8 @@ mod tests {
         Url::parse(raw).expect("test URL parses")
     }
 
-    /// The refusal continuwuity actually sends, reduced to what the wire
-    /// carries: RFC 7591 §3.2.2's `invalid_client_metadata` code plus prose.
+    /// continuwuity's refusal, reduced to the wire: RFC 7591 §3.2.2's
+    /// `invalid_client_metadata` code plus prose.
     fn metadata_refusal(description: &str) -> OAuthError {
         use matrix_sdk::authentication::oauth::error::StandardErrorResponse;
         OAuthError::ClientRegistration(OAuthClientRegistrationError::OAuth(
@@ -917,8 +789,7 @@ mod tests {
         )
     }
 
-    // Nothing may re-attach a port on the way into the metadata: the whole
-    // point of the retry is that the REGISTERED URI carries none.
+    // The registered URI must carry no port.
     #[test]
     fn client_metadata_registers_a_portless_loopback_uri_verbatim() {
         let json = metadata_json(LISTENER_PORTLESS);
@@ -929,14 +800,11 @@ mod tests {
     #[test]
     fn portless_loopback_redirect_strips_the_ephemeral_port_and_keeps_the_path() {
         let stripped = portless_loopback_redirect(&url(LISTENER)).expect("a port to strip");
-        // The per-attempt nonce path survives, so the registration is widened
-        // to "any port on loopback, THIS path" and no further.
+        // The nonce path survives: widened to any port on loopback, this path.
         assert_eq!(stripped.as_str(), LISTENER_PORTLESS);
     }
 
-    // mx_rust_oauth_begin's own guard accepts the bracketed IPv6 literal, so
-    // the port stripper has to handle it too or a `[::1]` listener would fall
-    // back to no retry at all.
+    // The oauth_begin guard accepts `[::1]`, so this must handle it too.
     #[test]
     fn portless_loopback_redirect_handles_ipv6_loopback() {
         let stripped =
@@ -951,16 +819,13 @@ mod tests {
         assert_eq!(stripped.as_str(), "http://localhost/cb");
     }
 
-    // Nothing to strip is not an error, but it must not produce a retry
-    // either: re-registering the identical metadata would just fail again.
+    // Nothing to strip: no retry (identical metadata would fail again).
     #[test]
     fn portless_loopback_redirect_declines_when_there_is_no_port() {
         assert!(portless_loopback_redirect(&url(LISTENER_PORTLESS)).is_none());
     }
 
-    // Defence in depth. mx_rust_oauth_begin refuses a non-loopback redirect
-    // before it ever gets here, and the retry must not become a second,
-    // laxer door into registering one.
+    // Defence in depth: the retry must not register a non-loopback redirect.
     #[test]
     fn portless_loopback_redirect_refuses_a_non_loopback_host() {
         assert!(portless_loopback_redirect(&url("http://evil.example:8080/cb")).is_none());
@@ -968,8 +833,7 @@ mod tests {
         assert!(portless_loopback_redirect(&url("http://127.0.0.1.evil.example:8080/cb")).is_none());
     }
 
-    // The port rule is about http loopback URIs specifically; anything else
-    // keeps whatever it was given.
+    // The port rule applies to http loopback URIs only.
     #[test]
     fn portless_loopback_redirect_refuses_a_non_http_scheme() {
         assert!(portless_loopback_redirect(&url("https://127.0.0.1:8443/cb")).is_none());
@@ -978,13 +842,12 @@ mod tests {
 
     #[test]
     fn registration_refused_metadata_recognises_a_metadata_refusal() {
-        // The code is REPORTED, not merely detected: the retry's diagnostic
-        // names which of the two the server actually sent.
+        // The code is reported, not just detected.
         assert_eq!(
             registration_refused_metadata(&continuwuity_refusal()),
             Some("invalid_client_metadata")
         );
-        // The sibling code RFC 7591 defines for the same class of complaint.
+        // The sibling RFC 7591 code for the same complaint.
         assert_eq!(
             registration_refused_metadata(&OAuthError::ClientRegistration(
                 OAuthClientRegistrationError::OAuth(RequestTokenError::ServerResponse(
@@ -999,9 +862,8 @@ mod tests {
         );
     }
 
-    // A retry is only ever correct for a refusal of what we SENT. A transport
-    // failure or a server with no registration endpoint would fail the second
-    // attempt identically, and a later-stage failure has already registered.
+    // Retry only a refusal of what we sent: transport failures and missing
+    // endpoints would fail again, and later-stage failures already registered.
     #[test]
     fn registration_refused_metadata_ignores_everything_else() {
         assert!(registration_refused_metadata(&OAuthError::ClientRegistration(
@@ -1017,10 +879,8 @@ mod tests {
         assert!(registration_refused_metadata(&OAuthError::NotRegistered).is_none());
     }
 
-    // THE RULE THIS ROUND EXISTS FOR: register without the port, request WITH
-    // it. matrix-sdk 0.18 keeps the two separate — OAuth::login() takes the
-    // request URI directly and never reads it back out of the metadata — so
-    // both halves come out of this one function and are asserted together.
+    // Register without the port, request with it; both come from this one
+    // function (matrix-sdk 0.18 keeps them separate).
     #[test]
     fn portless_registration_retry_registers_without_the_port_and_requests_with_it() {
         let listener = url(LISTENER);
@@ -1034,9 +894,8 @@ mod tests {
         assert_eq!(json["redirect_uris"], serde_json::json!([LISTENER_PORTLESS]));
         assert_eq!(json["application_type"], "native");
 
-        // The authorization request keeps the live port: that is the URI the
-        // browser is sent to, the one the listener is actually bound to, and
-        // the one finish_login() replays in the token exchange.
+        // The request keeps the live port: the browser URI, the listener's port,
+        // and what finish_login() replays in the token exchange.
         assert_eq!(request_redirect.as_str(), LISTENER);
         assert_eq!(request_redirect.port(), Some(51234));
         // And the input is untouched.
@@ -1064,8 +923,7 @@ mod tests {
         .is_none());
     }
 
-    // A metadata refusal is not a licence to register a redirect URI pointing
-    // off the machine.
+    // A metadata refusal must not lead to registering an off-machine redirect.
     #[test]
     fn portless_registration_retry_declines_a_non_loopback_redirect() {
         assert!(portless_registration_retry(
@@ -1075,8 +933,7 @@ mod tests {
         .is_none());
     }
 
-    // A server that refuses metadata for some OTHER reason must not put us in
-    // a loop: with no port to strip there is nothing new to send.
+    // A refusal with no port to strip must not loop.
     #[test]
     fn portless_registration_retry_declines_when_the_uri_is_already_portless() {
         assert!(
@@ -1085,13 +942,11 @@ mod tests {
     }
 }
 
-/// v0.7.x session management for MAS/OAuth accounts. Password UIA does not
-/// exist for them — device sign-out happens in the account-management web
-/// console. Answers with the console URL for one action:
-/// `device_id` empty → the sessions list, otherwise the delete page for
-/// that device. Result event: `oauth_management_url { op_id, ok, url }`.
-/// The URL is the user's own account console; it carries no secret, and it
-/// is never logged here.
+/// Session management for MAS/OAuth accounts, which have no password UIA:
+/// device sign-out happens in the account console. Answers with the console
+/// URL (empty `device_id`: the sessions list; otherwise that device's delete
+/// page). Result event: `oauth_management_url { op_id, ok, url }`. Not
+/// logged.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_oauth_management_url(
     ptr: *mut c_void,

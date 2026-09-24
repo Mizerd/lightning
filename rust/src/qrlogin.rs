@@ -1,34 +1,19 @@
-//! MSC4108 — signing ANOTHER device in from this one.
+//! MSC4108: signing another device in from this one.
 //!
-//! # Which direction this is, and why only this one
+//! matrix-sdk 0.18 supports this device being the new one or the signed-in
+//! one, scanning or showing. Lightning implements the signed-in side of
+//! both: showing a QR for a new device to scan, or reading the QR a new
+//! device shows. Signing this device in by QR needs the OAuth device-code
+//! grant, which `oauth.rs` deliberately does not request (a test asserts
+//! it); `login_with_qr_code` takes its own `ClientRegistrationData`, so it
+//! could be added without changing that.
 //!
-//! matrix-sdk 0.18 supports four combinations: this device can be the new one
-//! (scanning or showing), or the already-signed-in one (scanning or showing).
-//! Lightning implements the SIGNED-IN side of both — we show a QR that a new
-//! device scans, or we scan the QR a new device shows.
+//! No camera decoder is bundled, so the scanning leg takes the QR's base64
+//! text, which displaying clients also offer.
 //!
-//! The other direction, signing THIS device in from a QR, is deliberately not
-//! here. It requires the OAuth device-code grant in the client metadata, and
-//! `rust/src/oauth.rs` does not request it — with a test asserting so and a
-//! comment saying the omission is on purpose. Reversing a recorded security
-//! decision is not a mechanical edit. When it is taken, the route is clean:
-//! `login_with_qr_code` accepts its OWN `ClientRegistrationData`, so a
-//! separate metadata can request device_code while the ordinary
-//! authorization-code flow keeps not to, and that test stays true.
-//!
-//! # There is no camera here
-//!
-//! Lightning bundles no camera-frame decoder, and adding one is a dependency
-//! decision rather than a detail. So the scanning leg takes the QR's own
-//! base64 TEXT, which every client that displays a code also offers. The UI
-//! says that plainly instead of implying a camera we do not have.
-//!
-//! # The progress stream is not optional
-//!
-//! Each of these futures only completes if something is consuming its
-//! progress: the check code and the verification URL arrive ONLY through the
-//! stream, and the flow blocks on the user acting on them. So the task is
-//! always spawned as stream-consumer plus future, never the future alone.
+//! The progress stream must be consumed: the check code and verification
+//! URL arrive only through it, and the flow waits on the user acting on
+//! them. Tasks always run the stream consumer alongside the future.
 
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -45,30 +30,22 @@ use serde_json::json;
 use crate::rooms::require_client;
 use crate::{enqueue, RustClient};
 
-/// How long the homeserver is given to create the new device after the user
-/// consents. The SDK's own default is 10 s; a real sign-in over a slow link
-/// can take longer than that, and the cost of waiting is a spinner while the
-/// cost of giving up is a flow the user has to start over.
+/// How long the homeserver gets to create the new device after consent.
+/// The SDK default (10 s) is too short over slow links, and giving up forces
+/// the user to start over.
 const DEVICE_CREATION_TIMEOUT_SECS: u64 = 30;
 
-/// The check code the user must relay, once it exists. Held so the
-/// generate-side flow can be answered by a later FFI call — the SDK hands us
-/// a one-shot `CheckCodeSender` through the stream, and there is nowhere else
-/// to keep it.
+/// Per-flow state. Holds the one-shot `CheckCodeSender` the SDK hands over
+/// through the stream, so a later FFI call can answer the generate-side
+/// flow.
 pub(crate) struct QrLoginState {
-    /// Bumped for every started flow. An answer or a cancel naming an old
-    /// generation is from a flow the user has already left, and applying it
-    /// would drive the current one with the previous one's input.
+    /// Bumped for every started flow; answers or cancels naming an old
+    /// generation are ignored.
     generation: AtomicU64,
-    /// The one-shot sender, WITH the generation it belongs to.
-    ///
-    /// The generation is stored beside it because `abort()` only REQUESTS
-    /// cancellation (§16). An old pump that has already been handed a
-    /// `QrScanned` step runs its arm to completion — the arm has no `.await`
-    /// — so it can re-populate this slot AFTER `cancel()` cleared it. Without
-    /// the pairing, `submit_check_code` would pass its own generation check
-    /// and then take the DEAD flow's sender: the digits go nowhere and the
-    /// live flow hangs until its device-creation timeout.
+    /// The one-shot sender, paired with its generation. `abort()` only requests
+    /// cancellation, so an old pump already handling `QrScanned` can refill this
+    /// slot after `cancel()` cleared it; the pairing stops `submit_check_code`
+    /// from sending the digits to a dead flow.
     sender: Mutex<Option<(u64, matrix_sdk::authentication::oauth::qrcode::CheckCodeSender)>>,
     cancel: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -89,18 +66,13 @@ impl Default for QrLoginState {
     }
 }
 
-/// Classify a failure into something the UI can say. Deliberately COARSE and
-/// deliberately not the error's own text: these errors quote channel state
-/// and URLs, and a category is what a message can be written from.
+/// Coarse failure category for the UI. Never the error text, which quotes
+/// channel state and URLs.
 fn classify(err: &str) -> &'static str {
     let lower = err.to_ascii_lowercase();
-    // THIS ONE FIRST, and it is the case a real attempt actually hits.
-    //
-    // `QRCodeGrantLoginError::MissingSecretsBackup` is what an account with
-    // no cross-signing or key backup gets — the whole point of the flow is to
-    // send the new device those secrets, and there are none to send. Found by
-    // running it: the generic "could not be completed" is true and useless,
-    // because the fix is one button away on the same settings page.
+    // First: `QRCodeGrantLoginError::MissingSecretsBackup`, hit by accounts
+    // without cross-signing or key backup (there are no secrets to send). Its
+    // fix is one button away, so it gets its own category.
     if lower.contains("secrets backup") || lower.contains("secret backup") {
         "no_secrets"
     } else if lower.contains("checkcode") || lower.contains("check code") {
@@ -127,10 +99,8 @@ fn emit(bridge: &Arc<Mutex<std::collections::VecDeque<String>>>, gen: u64, value
     enqueue(bridge, v);
 }
 
-/// Start the flow where THIS device displays a QR code.
-///
-/// The new device scans it and then shows the user two digits, which they
-/// type here — that is what `submit_check_code` answers.
+/// Start the flow where this device displays a QR code. The new device
+/// scans it and shows two digits, which `submit_check_code` answers with.
 pub(crate) fn grant_generate(bridge: &RustClient) -> Result<u64, String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -149,10 +119,8 @@ pub(crate) fn grant_generate(bridge: &RustClient) -> Result<u64, String> {
             .generate();
         let mut progress = grant.subscribe_to_progress();
 
-        // The stream is consumed CONCURRENTLY with the future, never after
-        // it: the QR payload and the check-code sender arrive through the
-        // stream, and the future does not complete until the user has acted
-        // on both.
+        // Consume the stream concurrently with the future: the QR payload and the
+        // check-code sender arrive through it, and the future waits on both.
         let stream_events = Arc::clone(&events);
         let stream_state = Arc::clone(&state);
         let pump = tokio::spawn(async move {
@@ -164,10 +132,8 @@ pub(crate) fn grant_generate(bridge: &RustClient) -> Result<u64, String> {
                     GrantLoginProgress::EstablishingSecureChannel(
                         GeneratedQrProgress::QrReady(data),
                     ) => {
-                        // The payload is rendered to modules HERE rather than
-                        // handed across the FFI as bytes: the encoder lives on
-                        // this side already (verification uses it), and the C++
-                        // side has no QR encoder at all.
+                        // Rendered to modules here: the encoder is already on this side
+                        // (verification), and C++ has none.
                         match crate::render_qr_bytes(&data.to_bytes()) {
                             Some((size, bits)) => emit(
                                 &stream_events,
@@ -176,9 +142,7 @@ pub(crate) fn grant_generate(bridge: &RustClient) -> Result<u64, String> {
                                     "step": "qr_ready",
                                     "qr_size": size,
                                     "qr_bits": bits,
-                                    // The same payload as text, because a
-                                    // camera is not the only way to move it
-                                    // and some devices only offer paste.
+                                    // The payload as text too, for devices that can only paste.
                                     "qr_text": data.to_base64(),
                                 }),
                             ),
@@ -192,8 +156,7 @@ pub(crate) fn grant_generate(bridge: &RustClient) -> Result<u64, String> {
                     GrantLoginProgress::EstablishingSecureChannel(
                         GeneratedQrProgress::QrScanned(sender),
                     ) => {
-                        // Paired with THIS flow's generation, and refused
-                        // outright if the flow is already superseded.
+                        // Paired with this flow's generation; refused if already superseded.
                         if let Ok(mut guard) = stream_state.sender.lock() {
                             if stream_state.generation.load(Ordering::SeqCst) == gen {
                                 *guard = Some((gen, sender));
@@ -202,10 +165,8 @@ pub(crate) fn grant_generate(bridge: &RustClient) -> Result<u64, String> {
                         emit(&stream_events, gen, json!({ "step": "check_code_needed" }));
                     }
                     GrantLoginProgress::WaitingForAuth { verification_uri } => {
-                        // An https URL from the user's OWN homeserver's
-                        // authorization server. It crosses as a string and the
-                        // C++ side opens it through UrlLauncher, whose existing
-                        // allowlist already refuses anything but http/https.
+                        // An https URL from the user's own homeserver's authorization server; C++
+                        // opens it via UrlLauncher, which allows only http/https.
                         emit(
                             &stream_events,
                             gen,
@@ -230,12 +191,8 @@ pub(crate) fn grant_generate(bridge: &RustClient) -> Result<u64, String> {
         }
         match outcome {
             Ok(()) => emit(&events, gen, json!({ "step": "done" })),
-            // The CATEGORY crosses; the error TEXT never does, because these
-            // errors quote channel state and URLs. The C++ side logs the
-            // category (QrLoginController::fail) — without that a failure was
-            // undiagnosable from a user's log, which is how a real attempt
-            // showed only the generic message with no way to tell whether the
-            // server, the account or the code was at fault.
+            // Only the category crosses (the text quotes channel state and URLs); C++
+            // logs it in QrLoginController::fail.
             Err(err) => emit(
                 &events,
                 gen,
@@ -251,11 +208,9 @@ pub(crate) fn grant_generate(bridge: &RustClient) -> Result<u64, String> {
     Ok(gen)
 }
 
-/// Start the flow where THIS device scans (well, is given the text of) the
-/// QR the new device is displaying.
-///
-/// Here the check code is ours to SHOW: the user reads it off this screen and
-/// types it on the new device.
+/// Start the flow where this device reads the QR (as text) the new device
+/// shows. The check code is shown here, and the user types it on the new
+/// device.
 pub(crate) fn grant_scan(bridge: &RustClient, payload: String) -> Result<u64, String> {
     let data = QrCodeData::from_base64(payload.trim())
         .map_err(|_| "that does not look like a sign-in code".to_owned())?;
@@ -290,10 +245,7 @@ pub(crate) fn grant_scan(bridge: &RustClient, payload: String) -> Result<u64, St
                             gen,
                             json!({
                                 "step": "check_code_shown",
-                                // Two digits. It is not a secret — it exists so
-                                // the two devices can prove they are talking to
-                                // each other — but it is short-lived and only
-                                // meaningful for this channel.
+                                // Two digits: not secret, short-lived, specific to this channel.
                                 "check_code": check_code.to_digit(),
                             }),
                         );
@@ -336,9 +288,7 @@ pub(crate) fn grant_scan(bridge: &RustClient, payload: String) -> Result<u64, St
 }
 
 /// Answer the generate-side flow with the two digits the new device showed.
-///
-/// The sender is ONE-SHOT: a second call has nothing to send, which is why it
-/// is taken out of the slot rather than borrowed.
+/// The sender is one-shot, so it is taken from the slot.
 pub(crate) fn submit_check_code(
     bridge: &RustClient,
     generation: u64,
@@ -348,8 +298,8 @@ pub(crate) fn submit_check_code(
     if state.generation.load(Ordering::SeqCst) != generation {
         return Err("that sign-in is no longer running".to_owned());
     }
-    // Taken under the SAME lock that checks the generation, so a pump
-    // writing between the check and the take cannot slip an old sender in.
+    // Taken under the same lock as the generation check, so a pump cannot slip
+    // an old sender in between.
     let sender = state
         .sender
         .lock()
@@ -361,9 +311,7 @@ pub(crate) fn submit_check_code(
             _ => None,
         })
         .ok_or_else(|| "no code is being waited for".to_owned())?;
-    // `send` is ASYNC and one-shot. It is spawned rather than blocked on
-    // because this is called from the GUI thread across the FFI, and the
-    // whole point of the flow is that it is waiting on a person.
+    // `send` is async and one-shot; spawned because this runs on the GUI thread.
     let events = Arc::clone(&bridge.events);
     bridge.runtime.spawn(async move {
         if sender.send(code).await.is_err() {
@@ -377,10 +325,9 @@ pub(crate) fn submit_check_code(
     Ok(())
 }
 
-/// Abandon whatever is running. Safe when nothing is.
+/// Abandon whatever is running; safe when nothing is.
 pub(crate) fn cancel(bridge: &RustClient) {
-    // Bumping FIRST means a late answer for the flow being cancelled is
-    // rejected by generation rather than racing the abort.
+    // Bump first, so a late answer for this flow is rejected by generation.
     bridge.qr_login.generation.fetch_add(1, Ordering::SeqCst);
     if let Ok(mut guard) = bridge.qr_login.sender.lock() {
         *guard = None;
@@ -396,8 +343,7 @@ pub(crate) fn cancel(bridge: &RustClient) {
 mod tests {
     use super::*;
 
-    // The classifier is what the UI's wording is built on, so what matters is
-    // that distinct failures stay distinct — not the exact strings.
+    // Distinct failures must stay distinct; the exact strings do not matter.
     #[test]
     fn failures_are_classified_into_things_a_message_can_be_written_from() {
         assert_eq!(classify("the secure channel expired"), "expired");
@@ -408,30 +354,24 @@ mod tests {
             classify("NoDeviceAuthorizationEndpoint"),
             "unsupported"
         );
-        // The case a real attempt hits: an account with no cross-signing and
-        // no key backup has no secrets to send the new device. Found by
-        // running the flow, not by reading the error list.
+        // An account with no cross-signing or key backup has no secrets to send.
         assert_eq!(classify("Secrets backup not set up"), "no_secrets");
-        // ...and it must WIN over the others, because the SDK's message for
-        // it can also mention a rendezvous session.
+        // It must win over the others: the SDK's message may also mention a
+        // rendezvous session.
         assert_eq!(
             classify("Secrets backup not set up: session not found"),
             "no_secrets"
         );
-        // The rendezvous session going missing is an expiry, not a mystery.
+        // A missing rendezvous session is an expiry.
         assert_eq!(
             classify("The rendezvous session was not found and might have expired"),
             "expired"
         );
-        // Anything unrecognised must NOT be reported as one of the specific
-        // causes — a wrong specific reason is worse than an honest generic
-        // one, because the user acts on it.
+        // Unrecognised errors stay generic; a wrong specific reason misleads.
         assert_eq!(classify("something nobody has seen before"), "failed");
     }
 
-    // A payload that is not a QR code must be refused BEFORE any task is
-    // spawned, so a paste of the wrong thing is an immediate message rather
-    // than a flow that hangs.
+    // A payload that is not a QR code is refused before any task starts.
     #[test]
     fn a_payload_that_is_not_a_sign_in_code_is_refused_up_front() {
         assert!(QrCodeData::from_base64("not a qr code at all").is_err());

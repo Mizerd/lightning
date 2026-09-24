@@ -1,15 +1,12 @@
-//! Ignored users (`m.ignored_user_list`) and event reporting (v0.7.x).
+//! Ignored users (`m.ignored_user_list`) and event reporting.
 //!
-//! Both are SDK-owned Matrix mechanisms — never a Lightning-local database:
-//! ignore/unignore are `Account::ignore_user`/`unignore_user` (an atomic
-//! read-modify-write of the account-data event on the server), the list is
-//! read back from that same account data, and reporting is
-//! `Room::report_content` (the stable /v3 endpoint). Remote changes reach
-//! C++ through the sync loop's subscriber (`ignored_users_changed`), so a
-//! local ignore and one made in Element converge on the same path.
+//! Both are SDK-owned: `Account::ignore_user`/`unignore_user` do an atomic
+//! read-modify-write of the account-data event, and reporting is
+//! `Room::report_content` (stable /v3). Remote changes reach C++ through the
+//! sync loop's `ignored_users_changed` subscriber.
 //!
-//! Only Matrix user IDs cross the FFI here. A report carries exactly what
-//! the API requires: room id, event id, and the user's optional reason.
+//! Only Matrix user IDs cross the FFI. A report carries only the room id,
+//! event id and the user's optional reason.
 
 use std::sync::Arc;
 
@@ -25,9 +22,8 @@ use crate::{enqueue, RustClient};
 const REPORT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// Ignore or unignore one user. Result event: `ignore_user_result
-/// { op_id, lifecycle, user_id, ignored, ok, category }` where `ignored`
-/// echoes the requested direction. Self-ignore is refused synchronously —
-/// the SDK would refuse it too; failing fast keeps the UI honest.
+/// { op_id, lifecycle, user_id, ignored, ok, category }`. Self-ignore is
+/// refused synchronously.
 pub(crate) fn set_user_ignored(
     bridge: &RustClient,
     user_id: String,
@@ -69,9 +65,8 @@ pub(crate) fn set_user_ignored(
     Ok(())
 }
 
-/// Read the authoritative ignored-user list from account data. matrix-sdk
-/// 0.18 has no `ignored_users()` accessor, so this reads the same content
-/// its own helpers use. Result event: `ignored_users_list { op_id,
+/// Read the ignored-user list from account data (matrix-sdk 0.18 has no
+/// `ignored_users()` accessor). Result event: `ignored_users_list { op_id,
 /// lifecycle, ok, users[] }`.
 pub(crate) fn list_ignored_users(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     let client = require_client(bridge)?;
@@ -121,10 +116,9 @@ pub(crate) fn list_ignored_users(bridge: &RustClient, op_id: u64) -> Result<(), 
     Ok(())
 }
 
-/// Report one event to the homeserver's administrator
-/// (`Room::report_content`, stable /v3; requires a joined room). Only the
-/// event reference and the user's own reason are sent — no surrounding
-/// context, no decrypted content. Result event: `report_message_result
+/// Report one event to the homeserver administrator (`Room::report_content`;
+/// requires a joined room). Sends only the event reference and the user's
+/// reason, never decrypted content. Result event: `report_message_result
 /// { op_id, lifecycle, room_id, event_id, ok, category }`.
 pub(crate) fn report_message(
     bridge: &RustClient,

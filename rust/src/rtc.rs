@@ -1,69 +1,27 @@
-//! MatrixRTC (MSC4143) — the Matrix half of modern calling.
+//! MatrixRTC (MSC4143): the Matrix side of modern calling.
 //!
-//! This module owns everything about a MatrixRTC session that lives on the
-//! Matrix wire: who is in a call, which SFU ("transport"/"focus") they
-//! advertise, ring notifications, and declines. It owns NO media. The SFU
-//! client and the frame-level media encryption are a separate concern
-//! layered on top of the facts this module reports.
+//! Owns what a MatrixRTC session puts on the Matrix wire: who is in a call,
+//! which SFU transport ("focus") they advertise, rings, and declines. No
+//! media. The wire is pinned to the reference implementations (matrix-js-sdk
+//! `src/matrixrtc`, element-call), which are ahead of the unmerged MSCs:
 //!
-//! ## Interoperability is the whole point, so the exact wire is pinned here
+//! * Membership is the state event `org.matrix.msc3401.call.member`
+//!   ([`EV_MEMBER_LEGACY`]). The sticky MSC4354 form ([`EV_MEMBER_STICKY`])
+//!   is parsed and tested, but matrix-sdk 0.18 cannot observe sticky events.
+//! * Rings are `org.matrix.msc4075.rtc.notification`, with our own event
+//!   content: ruma 0.34 types it only as stable `m.rtc.notification`, so a
+//!   ruma handler never fires for Element's rings.
 //!
-//! Everything below was read out of the reference implementation
-//! (matrix-js-sdk `src/matrixrtc` @ 84fb28a, 2026-08-19, and element-call
-//! @ b51a33c, 2026-08-21) rather than from an MSC document — the MatrixRTC
-//! MSCs are unmerged PRs and the deployed behaviour is ahead of them.
+//! Transports are discovered, never hardcoded, in element-call's order: the
+//! homeserver's advertisement, then the focus existing participants
+//! advertise (`foci_preferred`, i.e. `oldest_membership`), then a
+//! user-configured URL. Never a vendor default.
 //!
-//! * Membership TODAY is a **state event**, `org.matrix.msc3401.call.member`
-//!   ([`EV_MEMBER_LEGACY`]), carrying `SessionMembershipData`. This is what
-//!   Element ships and what every deployed server supports, so it is what
-//!   Lightning reads and (in a later round) writes.
-//! * Membership NEXT is a **sticky event** (MSC4354),
-//!   `org.matrix.msc4143.rtc.member` ([`EV_MEMBER_STICKY`]). Its parser
-//!   lives here and is tested, but matrix-sdk 0.18 has no sticky-event
-//!   support at all, so such a membership cannot currently be *observed*.
-//!   That is a recorded SDK gap, not a defect here.
-//! * Ring notifications are `org.matrix.msc4075.rtc.notification`
-//!   ([`EV_NOTIFICATION_UNSTABLE`]). **This is why this module defines its
-//!   own event content instead of using ruma's**: ruma 0.34 types that event
-//!   as the stable `m.rtc.notification` with NO unstable alias, so a typed
-//!   ruma handler never fires for a notification sent by a current Element.
-//!   `calls.rs` had exactly that handler and therefore could not ring for
-//!   Element; see [`Msc4075RtcNotificationEventContent`].
-//!
-//! ## Transport discovery is discovered, never assumed
-//!
-//! There is no hardcoded SFU anywhere in Lightning. Order of preference,
-//! matching element-call's own resolution:
-//!
-//! 1. The homeserver's authenticated MSC4143 endpoint,
-//!    `GET /_matrix/client/unstable/org.matrix.msc4143/rtc/transports`.
-//! 2. Failing that, the focus the **existing participants advertise** in
-//!    their own membership events (`foci_preferred`), which is what
-//!    `focus_selection: "oldest_membership"` means and how every
-//!    pre-endpoint deployment works. This is what lets Lightning join a
-//!    call Element started on a server with no MSC4143 endpoint.
-//! 3. Failing that, a URL the *user* configured. Never a default, never a
-//!    vendor's server.
-//!
-//! An earlier MatrixRTC draft advertised foci through
-//! `.well-known/matrix/client`. Current Element does not read it and this
-//! module deliberately does not implement it — it would be a dead path.
-//!
-//! ## Safety rules specific to this surface
-//!
-//! Almost every string here is chosen by a remote sender, and several of
-//! them end up on a control the user is invited to click. So:
-//!
-//! * Every inbound string is bounded and rejected if it carries control
-//!   characters ([`sane`]); every collection is capped. A membership that
-//!   fails validation is DROPPED, never partially trusted.
-//! * `member.user_id` MUST equal the event sender. The reference
-//!   implementation enforces this too, with the same reasoning: nothing
-//!   defines what power level would let one user publish another's
-//!   membership, so accepting it would let anyone forge a participant.
-//! * A transport URL must be `https:`. An `http:` SFU would silently
-//!   downgrade the signalling channel that carries call authorization.
-//! * Nothing here logs a sender-chosen string, a URL, or a member id.
+//! Safety: almost every string here is remote-chosen. Inbound strings are
+//! bounded and control-character free ([`sane`]) and collections capped; an
+//! invalid membership is dropped, never partially trusted. `member.user_id`
+//! must equal the event sender (as in the reference). Transport URLs must be
+//! `https:`. Nothing here logs a sender-chosen string, URL or member id.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -93,15 +51,14 @@ use crate::{enqueue, RustClient};
 
 /// Legacy (and currently the only *deployed*) membership state event.
 pub(crate) const EV_MEMBER_LEGACY: &str = "org.matrix.msc3401.call.member";
-/// MSC4143 sticky membership event. Parsed, not observable on matrix-sdk
-/// 0.18 (no sticky-event support), so unused outside tests by design.
+/// MSC4143 sticky membership event. Parsed but not observable on
+/// matrix-sdk 0.18, so unused outside tests.
 #[allow(dead_code)]
 pub(crate) const EV_MEMBER_STICKY: &str = "org.matrix.msc4143.rtc.member";
 /// MSC4143 slot state event, describing an open/closed session in a room.
 pub(crate) const EV_SLOT: &str = "org.matrix.msc4143.rtc.slot";
-/// The notification event Element actually sends (see module docs). The
-/// string itself lives in the event-content derive; this is the documented
-/// constant for readers and is asserted against the derive in tests.
+/// The notification event Element sends. The string lives in the
+/// event-content derive; this constant is asserted against it in tests.
 #[allow(dead_code)]
 pub(crate) const EV_NOTIFICATION_UNSTABLE: &str =
     "org.matrix.msc4075.rtc.notification";
@@ -109,143 +66,93 @@ pub(crate) const EV_NOTIFICATION_UNSTABLE: &str =
 /// The application every call-shaped session uses.
 const APPLICATION_CALL: &str = "m.call";
 
-/// `call_id: ""` is the room-wide call. The newer slot vocabulary spells the
-/// same thing `"ROOM"`; the reference implementation converts between them
-/// and so must we, or the same call read through the two formats looks like
-/// two different calls.
+/// `call_id: ""` is the room-wide call; the slot vocabulary spells it
+/// `"ROOM"`. Converting between them, as the reference does, keeps one call
+/// from looking like two.
 const SLOT_ID_ROOM: &str = "ROOM";
 
-/// Fallback membership validity when a membership carries no `expires`.
-/// Matches the reference implementation's `DEFAULT_EXPIRE_DURATION`.
+/// Membership validity when `expires` is absent (the reference's
+/// `DEFAULT_EXPIRE_DURATION`).
 const DEFAULT_EXPIRE_MS: u64 = 4 * 60 * 60 * 1000;
-/// Ceiling on how far past the ENVELOPE's origin_server_ts any membership
-/// may claim to live.
+/// Ceiling on how far past the envelope's origin_server_ts a membership may
+/// claim to live.
 ///
-/// `expires` and `created_ts` are CONTENT fields, written by the member
-/// itself. Unclamped, `created_ts: 0` plus `expires: u64::MAX` saturated to
-/// a membership that never aged out and always sorted oldest -- and "oldest"
-/// is what chooses the SFU every later joiner sends its Matrix OpenID token
-/// and device id to. The bound is measured from the EVENT, not from
-/// `created_ts`: the refresh path preserves the original join and writes
-/// `expires = (now - created) + period`, so a bound on `created_ts +
-/// expires` would pin a long call's deadline at `created + 24 h` and every
-/// refresh past that instant would be born expired (the "a constant cannot
-/// refresh it" shape from §16, from the parse side). Each refresh is a new
-/// event, so an event-relative bound keeps a 30-hour call alive and still
-/// leaves nothing immortal.
+/// `expires` and `created_ts` are member-written content; unclamped, a
+/// membership could never expire and always sort oldest, and "oldest" picks
+/// the SFU every later joiner sends its OpenID token to. Measured from the
+/// event rather than `created_ts`, because a refresh keeps the original join
+/// time and writes `expires = (now - created) + period`; each refresh is a
+/// new event, so long calls stay alive and nothing is immortal.
 const MAX_EXPIRE_MS: u64 = 24 * 60 * 60 * 1000;
-/// A `created_ts` may not sit more than this far AHEAD of the envelope's
-/// origin_server_ts. A future join time cannot be legitimate (a refresh
-/// preserves the ORIGINAL join, which is in the past); it would only make
-/// the membership sort last while its expiry saturates.
+/// Max amount a `created_ts` may be ahead of origin_server_ts. A future join
+/// time is never legitimate; it would only make the membership sort last.
 const MAX_CREATED_TS_SKEW_MS: u64 = 5 * 60 * 1000;
-/// ...and not more than this far BEHIND it. A refresh legitimately carries a
-/// join time as old as the call; a claim older than a day is either a call
-/// older than a day (still ordered first, correctly) or the ordering attack,
-/// and clamping makes both sort as "a day old" -- which is what bounds how
-/// far backdating can reach.
+/// Max amount a `created_ts` may be behind origin_server_ts. Refreshes carry
+/// the original join time; clamping to a day bounds how far backdating can
+/// reach while long calls still sort first.
 const MAX_BACKDATE_MS: u64 = 24 * 60 * 60 * 1000;
 
 /// Element caps notification lifetime at 90 s (`parseCallNotificationContent`).
 const MAX_NOTIFICATION_LIFETIME_MS: u64 = 90_000;
 
-// Bounds. Every one of these guards a value a remote party chooses.
+// Bounds on values a remote party chooses.
 const MAX_WIRE_LEN: usize = 255;
-/// How long a raise/lower may take before it is reported as a failure. Short:
-/// the control is a toggle the user is watching, and a hand that silently
-/// never went up is worse than one that says it could not.
+/// Timeout for a raise/lower, short because the user is watching the
+/// toggle.
 const HAND_TIMEOUT: Duration = Duration::from_secs(10);
-/// How many memberships the join-time raised-hand pass will probe.
-///
-/// Each one is a cache-first relations load that may reach the network, and
-/// this runs once per join. Beyond the cap a hand raised before we arrived is
-/// simply not seen — the sync handler still catches every hand raised after,
-/// so the bound costs history rather than function.
+/// How many memberships the join-time raised-hand pass probes (each a
+/// cache-first relations load). Beyond this, earlier hands are missed; the
+/// sync handler still sees every later one.
 const MAX_HAND_PROBES: usize = 24;
 const MAX_URL_LEN: usize = 1024;
 const MAX_MEMBERS: usize = 128;
-/// Bound on how many raw membership state events are PARSED. The 128-member
-/// cap applies after aggregation, so without this a room carrying tens of
-/// thousands of stale membership events would do all that work first.
+/// Bound on raw membership state events parsed, applied before the
+/// 128-member cap so a room with many stale events does not do all the work.
 const MAX_RAW_MEMBER_EVENTS: usize = 512;
-/// The membership fallback must not stall a call's key distribution.
+/// The membership fallback must not stall key distribution.
 const MEMBERSHIP_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
-/// How recent the newest thing in a room's STORED membership view must be
-/// before "the store shows nothing live" stops being an answer we can give
-/// on our own.
+/// How recent the newest event in a room's stored membership view must be
+/// for "the store shows nothing live" to still warrant a `/state` request.
 ///
-/// THE `/state` FALLBACK IN [`read_membership_events`] IS THE MOST EXPENSIVE
-/// THING THIS MODULE DOES AND IT USED TO RUN FOR EVERY IDLE ROOM. Its gate
-/// was "the store holds no LIVE membership", which is the ordinary state of
-/// every room that has ever hosted a call and of every room that never has —
-/// so a startup sync delivering a room's existing (long expired)
-/// `m.call.member` state was enough to spend a full `/state` on a room with
-/// no call in it. Measured by the maintainer on 2026-09-19: ~60 pokes during
-/// initial sync coalesced into 10 session reads and every one of them
-/// reported `participants= 0 source= "server"`. Opening a room cost another,
-/// because `AppController::setCurrentRoomId` refreshes on navigation.
+/// The `/state` fallback in [`read_membership_events`] is this module's
+/// most expensive operation. Gating it only on "no live membership in the
+/// store" spent one per idle room on startup, since every room that ever
+/// hosted a call has expired membership state. A real change is stamped
+/// now, a replay of an old call is stamped then, so the store's newest
+/// instant discriminates. Well over twice `MEMBERSHIP_EXPIRY_NO_DELAYED_MS`,
+/// so a peer whose refresh we have not received still earns one request.
 ///
-/// A poke is raised by sync DELIVERING a membership event, and that event
-/// carries its own `origin_server_ts`: a real change is stamped now, an
-/// initial-sync replay of last week's call is stamped last week. So the
-/// store's newest instant is exactly the discriminator, and this is how far
-/// back it may sit before the store's "nothing is live here" is taken at face
-/// value. Generous on purpose — comfortably more than twice
-/// `MEMBERSHIP_EXPIRY_NO_DELAYED_MS`, so a participant whose refresh we
-/// simply have not received yet still buys the room one request.
-///
-/// CLOCK DOMAINS: compared against `origin_server_ts` and `expires_at_ms`,
-/// which are server-stamped, exactly like the liveness filter this sits
-/// beside. A badly skewed device clock therefore makes this too eager or too
-/// lazy in the same direction it already makes the expiry wrong; noted so the
-/// symptom is not misdiagnosed here.
+/// Compared with server-stamped times, like the liveness filter; a skewed
+/// device clock shifts both the same way.
 const SESSION_SIGNAL_HORIZON_MS: u64 = 15 * 60 * 1000;
-/// Minimum gap between two IMPLICIT `/state` escalations for one room, and
-/// the ceiling the doubling stops at.
-///
-/// The doubling is not decoration. A membership left behind by an unclean
-/// exit sits inside [`SESSION_SIGNAL_HORIZON_MS`] for the whole horizon, so
-/// without a growing gap a single ghost would buy one `/state` per poke for
-/// fifteen minutes — the storm this change removes, in a smaller costume.
-/// With it the same ghost costs a handful of requests and then nothing. Same
-/// shape, and the same reasoning, as `RtcController::m_serverReadStreak` on
-/// the C++ side, which paces the FORCED reads this deliberately does not
-/// touch.
+/// Minimum gap between two implicit `/state` escalations for one room; it
+/// doubles up to the max below. Without the doubling, one ghost membership
+/// (an unclean exit) would buy a request per poke for the whole horizon.
+/// Mirrors `RtcController::m_serverReadStreak` in C++, which paces forced
+/// reads.
 const SERVER_ESCALATION_COOLDOWN_MS: u64 = 15_000;
 const SERVER_ESCALATION_COOLDOWN_MAX_MS: u64 = 300_000;
-/// How long a MatrixRTC ring keeps its room worth one `/state`.
-///
-/// The ring is the strongest evidence a session exists that this process can
-/// have, and it is the one case where the room is deliberately NOT open and
-/// its state may therefore be the least fresh thing we hold: the incoming
-/// call card's Answer button is gated on a session read, so a ring that could
-/// not escalate would be a call with no way to answer it. Comfortably longer
-/// than `MAX_NOTIFICATION_LIFETIME_MS`, which bounds how long the ring is
-/// offered at all.
+/// How long a ring keeps its room worth one `/state`. The room is not open,
+/// so its state may be stale, and the incoming call's Answer button is
+/// gated on a session read. Longer than `MAX_NOTIFICATION_LIFETIME_MS`.
 const RING_ESCALATION_WINDOW_MS: u64 = 3 * 60 * 1000;
-/// Ceiling on the two per-room mark tables below, mirroring
-/// `MAX_REPORT_MARKS` and the cap the C++ side puts on its own cooldown
-/// table. Neither key is attacker-chosen (both are rooms this account is
-/// joined to), but neither may grow without end either.
+/// Ceiling on the per-room mark tables below (like `MAX_REPORT_MARKS`).
+/// Keys are joined rooms, not attacker-chosen, but must stay bounded.
 const MAX_ROOM_MARKS: usize = 256;
 const MAX_TRANSPORTS: usize = 8;
 #[allow(dead_code)]
 const MAX_VERSIONS: usize = 8;
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(15);
-/// Hard bound on the discovery response body. A transport list is a small
-/// JSON object; anything larger is refused rather than buffered.
+/// Bound on the discovery response body; larger answers are refused.
 const MAX_DISCOVERY_BODY: usize = 64 * 1024;
 
 // ---------------------------------------------------------------------------
 // Sanitizers
 // ---------------------------------------------------------------------------
 
-/// Accept a bounded, control-character-free string, or nothing.
-///
-/// A `None` here always means "drop the surrounding thing". There is no
-/// lossy repair: a membership with a mangled device id is not a membership
-/// with a *slightly wrong* device id, it is untrustworthy input.
+/// Accept a bounded, control-character-free string, or nothing. `None`
+/// means "drop the surrounding thing"; there is no lossy repair.
 fn sane(value: &str, max: usize) -> Option<&str> {
     if value.is_empty() || value.len() > max {
         return None;
@@ -260,29 +167,23 @@ fn sane_string(value: Option<&serde_json::Value>, max: usize) -> Option<String> 
     sane(value?.as_str()?, max).map(ToOwned::to_owned)
 }
 
-/// A transport URL must be absolute HTTPS with a host. `http:` is refused:
-/// the URL is where a call's authorization is exchanged.
+/// A transport URL must be absolute HTTPS with a host: it is where call
+/// authorization is exchanged.
 fn sane_https_url(value: &str) -> Option<String> {
     let trimmed = sane(value, MAX_URL_LEN)?;
     let parsed = url::Url::parse(trimmed).ok()?;
     if parsed.scheme() != "https" {
         return None;
     }
-    // Embedded credentials in an advertised URL are never legitimate and
-    // would be carried into a request in phase 2.
+    // Embedded credentials in an advertised URL are never legitimate.
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return None;
     }
     let host = parsed.host()?;
-    // A focus is advertised by REMOTE participants, so it is attacker-
-    // influenced input that phase 2 will connect to. Refuse the obvious
-    // SSRF shapes here; a full DNS-resolution check belongs at the point of
-    // connection, where the resolved address is actually known.
-    // ONE address policy for the whole client: the same `public_ip` the
-    // link-preview fetch uses, which unmaps `::ffff:a.b.c.d` before judging
-    // and refuses CGNAT, multicast and the rest. This lane used to carry its
-    // own shorter copy, and the two had drifted: `https://[::ffff:127.0.0.1]/`
-    // passed here while rooms.rs refused it.
+    // Foci come from remote participants, so refuse the obvious SSRF shapes
+    // here; a DNS-resolution check happens at connection time. Uses the same
+    // `public_ip` policy as link previews (which unmaps `::ffff:a.b.c.d` and
+    // refuses CGNAT, multicast and the rest).
     match host {
         url::Host::Ipv4(addr) => {
             if !public_ip(std::net::IpAddr::V4(addr)) {
@@ -303,9 +204,8 @@ fn sane_https_url(value: &str) -> Option<String> {
     Some(parsed.to_string())
 }
 
-/// Names that can only ever resolve to the local machine or the local link.
-/// `.local` is mDNS, `.localhost` is reserved, `.internal` is the
-/// conventional private zone, and a bare `localhost` is the obvious one.
+/// Names that can only resolve locally: `localhost`, `.local` (mDNS),
+/// `.localhost`, `.internal`.
 pub(crate) fn public_hostname(name: &str) -> bool {
     let lower = name.trim_end_matches('.').to_ascii_lowercase();
     !(lower == "localhost"
@@ -314,37 +214,25 @@ pub(crate) fn public_hostname(name: &str) -> bool {
         || lower.ends_with(".internal"))
 }
 
-/// Why a host could not be turned into an address the policy approves.
-///
-/// THREE DIFFERENT FAILURES USED TO ARRIVE AS ONE `None`, and the sentence
-/// the SFU lane put on that `None` — "this call's service is on a private
-/// network address" — is true for exactly one of them. A name that does not
-/// resolve at all, and a name whose owner refused to answer, were both
-/// reported to the user as a private-address policy refusal, which sends
-/// them to fix a thing that is not broken.
+/// Why a host could not be resolved to an approved address. Distinguished
+/// so the UI does not report an unresolvable name as a private-address
+/// refusal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HostRefusal {
-    /// The NAME itself can only ever mean this machine or this link
-    /// (`localhost`, `.local`, `.internal`), refused before any lookup.
+    /// The name can only mean this machine or link (`localhost`, `.local`,
+    /// `.internal`); refused before any lookup.
     PrivateName,
-    /// The resolver answered with nothing, or did not answer.
+    /// The resolver returned nothing or did not answer.
     Unresolved,
-    /// It resolved, and at least one address is private/loopback/link-local
-    /// or otherwise not public. Policy refuses the whole name (see
-    /// docs/matrixrtc.md): one public A record beside a loopback AAAA is
-    /// exactly the rebinding shape this check exists for.
+    /// At least one resolved address is not public. The whole name is refused
+    /// (see docs/matrixrtc.md): a public A record beside a loopback AAAA is the
+    /// rebinding shape this guards against.
     NonPublicAddress,
 }
 
-/// Every address `host` resolves to, in resolver order, when EVERY one of
-/// them is public.
-///
-/// Resolution is the only way to see what a name actually points at: an
-/// attacker-chosen focus name with a private A record passes every literal
-/// check and still lands on the loopback. The all-or-nothing rule is
-/// deliberate and unchanged — this returns the whole approved list rather
-/// than one address so a caller that CONNECTS can try the next one, which
-/// `resolve_public_host` (single address, unchanged) cannot.
+/// Every address `host` resolves to, in resolver order, if all are public.
+/// Resolution is the only way to see where an attacker-chosen name points.
+/// Returns the whole list so a connecting caller can try the next one.
 pub(crate) async fn resolve_public_hosts(
     host: &str,
     port: u16,
@@ -365,11 +253,8 @@ pub(crate) async fn resolve_public_hosts(
     Ok(addresses)
 }
 
-/// Resolve `host` and require EVERY address to be public, returning the
-/// first so the caller can pin it.
-///
-/// The single-address form, for callers that PIN one address into something
-/// that takes exactly one (reqwest's `.resolve()`). Behaviour is unchanged.
+/// Resolve `host`, require every address to be public, and return the
+/// first, for callers that pin one address (reqwest's `.resolve()`).
 pub(crate) async fn resolve_public_host(
     host: &str,
     port: u16,
@@ -385,16 +270,14 @@ pub(crate) async fn resolve_public_host(
 // ---------------------------------------------------------------------------
 
 /// A LiveKit transport: where to obtain SFU authorization for a session.
-///
-/// `service_url` is the *JWT service*, not the SFU websocket. The SFU URL
-/// comes back from `POST {service_url}/sfu/get`, so nothing here is a media
-/// endpoint and nothing here is a credential.
+/// `service_url` is the JWT service; the SFU URL comes back from
+/// `POST {service_url}/sfu/get`. Nothing here is a media endpoint or a
+/// credential.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LivekitTransport {
     pub service_url: String,
-    /// The SFU-side room alias, when the advertiser pinned one. Optional in
-    /// the schema; the JWT service derives it from the Matrix room id when
-    /// absent.
+    /// SFU room alias, when the advertiser pinned one; otherwise the JWT
+    /// service derives it from the room id.
     pub alias: Option<String>,
 }
 
@@ -411,10 +294,8 @@ impl LivekitTransport {
     }
 }
 
-/// Parse one transport object. Only `type: "livekit"` is understood; any
-/// other transport type is skipped rather than guessed at, because
-/// advertising a transport Lightning cannot speak would make it look
-/// reachable to nobody's benefit.
+/// Parse one transport object. Only `type: "livekit"` is understood; others
+/// are skipped rather than guessed at.
 pub(crate) fn parse_transport(value: &serde_json::Value) -> Option<LivekitTransport> {
     let object = value.as_object()?;
     if object.get("type")?.as_str()? != "livekit" {
@@ -448,14 +329,13 @@ fn parse_transport_list(value: Option<&serde_json::Value>) -> Vec<LivekitTranspo
 // Membership
 // ---------------------------------------------------------------------------
 
-/// Which wire format a membership was read from. Diagnostics only — this
-/// never reaches normal user-facing UI.
+/// Which wire format a membership came from. Diagnostics only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MembershipKind {
     /// `org.matrix.msc3401.call.member` state event.
     Session,
-    /// `org.matrix.msc4143.rtc.member` sticky event. Not constructible from
-    /// sync on matrix-sdk 0.18; produced by the tested parser only.
+    /// `org.matrix.msc4143.rtc.member` sticky event. Only produced by the
+    /// tested parser on matrix-sdk 0.18.
     #[allow(dead_code)]
     Rtc,
 }
@@ -474,10 +354,9 @@ impl MembershipKind {
 pub(crate) struct RtcMember {
     pub user_id: String,
     pub device_id: String,
-    /// The identity this device uses on the SFU. Derived, never invented:
-    /// `"{user_id}:{device_id}"` for session memberships (which is what the
-    /// SFU assigns for that format), or the hashed member id for the sticky
-    /// format.
+    /// The identity this device uses on the SFU, derived, never read:
+    /// `"{user_id}:{device_id}"` for session memberships, or the hashed member
+    /// id for the sticky format.
     pub rtc_identity: String,
     /// `m.call#ROOM` for the room-wide call.
     pub slot_id: String,
@@ -485,9 +364,8 @@ pub(crate) struct RtcMember {
     pub intent: &'static str,
     /// When this device first joined, in ms. Falls back to the event ts.
     pub created_ts: u64,
-    /// Absolute expiry in ms. A membership past this is stale and dropped —
-    /// this is the only defence against a client that died without cleaning
-    /// up, and it is why a stale call does not show phantom participants.
+    /// Absolute expiry in ms. Past this the membership is stale and dropped;
+    /// the only defence against a client that died without cleaning up.
     pub expires_at_ms: u64,
     /// Foci this device advertises, in its own preference order.
     pub foci: Vec<LivekitTransport>,
@@ -495,14 +373,10 @@ pub(crate) struct RtcMember {
     /// Room-resolved profile, filled in after parsing (see `read_session`).
     pub display_name: String,
     pub avatar_mxc: String,
-    /// The `m.call.member` STATE EVENT that declared this membership.
-    ///
-    /// element-call addresses a raised hand to it: the hand is an `m.reaction`
-    /// annotating the raiser's OWN membership event, so this id is the only
-    /// thing that ties one to the other. Filled in by `read_session` from the
-    /// event envelope — `parse_session_membership` sees content alone, and a
-    /// membership read from a source that carries no envelope keeps it empty
-    /// (which reads as "no hand can be matched", never as a wrong match).
+    /// The `m.call.member` state event that declared this membership.
+    /// element-call raises a hand as an `m.reaction` annotating it. Filled in
+    /// by `read_session` from the envelope; empty when there is none, which
+    /// matches no hand rather than a wrong one.
     pub event_id: String,
 }
 
@@ -510,11 +384,8 @@ impl RtcMember {
     fn to_json(&self) -> serde_json::Value {
         json!({
             "user_id": self.user_id,
-            // Resolved from the ROOM, not the membership: an
-            // m.call.member event carries no profile at all, and a
-            // facepile of initials when the real avatar is known is a
-            // quality gap. Empty when the member is not in the state
-            // store, which the UI degrades to initials for.
+            // Resolved from the room state: m.call.member carries no profile. Empty
+            // when the member is not in the store; the UI shows initials.
             "display_name": self.display_name,
             "avatar_mxc": self.avatar_mxc,
             "device_id": self.device_id,
@@ -523,9 +394,7 @@ impl RtcMember {
             "intent": self.intent,
             "created_ts": self.created_ts,
             "expires_at_ms": self.expires_at_ms,
-            // The state event this membership came from. A raised hand is an
-            // m.reaction annotating it, so this is what matches one to a
-            // participant.
+            // A raised hand annotates this state event.
             "event_id": self.event_id,
             "kind": self.kind.as_str(),
             "foci": self.foci.iter().map(LivekitTransport::to_json)
@@ -534,11 +403,9 @@ impl RtcMember {
     }
 }
 
-/// Sender-declared call intent, collapsed to a closed set.
-///
-/// The field is free text in the schema ("may be any string"), and it drives
-/// whether Lightning offers a *video* answer. An unrecognised value must
-/// therefore degrade to audio rather than be forwarded verbatim.
+/// Sender-declared intent, collapsed to a closed set. The field is free
+/// text and decides whether a video answer is offered; unknown values
+/// degrade to audio.
 fn intent_str(value: Option<&serde_json::Value>) -> &'static str {
     match value.and_then(|value| value.as_str()) {
         Some("video") => "video",
@@ -547,19 +414,16 @@ fn intent_str(value: Option<&serde_json::Value>) -> &'static str {
     }
 }
 
-/// Convert a legacy `call_id` to a slot id, applying the reference
-/// implementation's `""` → `"ROOM"` rule so the same call read from either
-/// format compares equal.
+/// Convert a legacy `call_id` to a slot id with the reference's `""` ->
+/// `"ROOM"` rule, so both formats compare equal.
 fn slot_id_for_call_id(application: &str, call_id: &str) -> String {
     let id = if call_id.is_empty() { SLOT_ID_ROOM } else { call_id };
     format!("{application}#{id}")
 }
 
-/// The SFU identity for the sticky membership format:
+/// The SFU identity for the sticky format:
 /// unpadded-base64(sha256(canonical JSON `[user_id, device_id, member_id]`)).
-///
-/// Must match `computeRtcIdentityRaw` byte for byte or Lightning and Element
-/// disagree about which SFU participant is which Matrix device.
+/// Must match `computeRtcIdentityRaw` byte for byte.
 #[allow(dead_code)] // sticky lane only; see EV_MEMBER_STICKY.
 pub(crate) fn rtc_identity(user_id: &str, device_id: &str, member_id: &str) -> String {
     let canonical = serde_json::to_string(&[user_id, device_id, member_id])
@@ -569,10 +433,8 @@ pub(crate) fn rtc_identity(user_id: &str, device_id: &str, member_id: &str) -> S
     base64::engine::general_purpose::STANDARD_NO_PAD.encode(digest)
 }
 
-/// Parse a legacy `org.matrix.msc3401.call.member` content.
-///
-/// `sender` and `event_ts` come from the event envelope, never the content:
-/// a membership may not claim to belong to somebody else.
+/// Parse a legacy `org.matrix.msc3401.call.member` content. `sender` and
+/// `event_ts` come from the envelope, never the content.
 pub(crate) fn parse_session_membership(
     content: &serde_json::Value,
     sender: &str,
@@ -580,8 +442,7 @@ pub(crate) fn parse_session_membership(
 ) -> Option<RtcMember> {
     let object = content.as_object()?;
 
-    // A membership whose content is `{}` is a LEAVE (that is how the state
-    // event is retracted). Not an error, and not a participant.
+    // `{}` content is a leave (the retraction), not a participant.
     if object.is_empty() {
         return None;
     }
@@ -590,8 +451,7 @@ pub(crate) fn parse_session_membership(
         return None;
     }
     let device_id = sane_string(object.get("device_id"), MAX_WIRE_LEN)?;
-    // `call_id` is required but legitimately empty for the room call, so it
-    // cannot go through `sane` (which rejects empty).
+    // `call_id` is required but empty for the room call, so not `sane`.
     let call_id = object.get("call_id")?.as_str()?;
     if call_id.len() > MAX_WIRE_LEN || call_id.chars().any(|c| c.is_control()) {
         return None;
@@ -601,15 +461,10 @@ pub(crate) fn parse_session_membership(
 
     let user_id = sane(sender, MAX_WIRE_LEN)?.to_owned();
 
-    // Both timestamps are CONTENT -- the member's own claim -- and both feed
-    // the oldest-membership focus rule and the liveness filter, so both are
-    // clamped against the envelope's origin_server_ts, in BOTH directions:
-    // created_ts to [event - MAX_BACKDATE_MS, event + MAX_CREATED_TS_SKEW_MS]
-    // and the deadline to event + MAX_EXPIRE_MS. A refresh legitimately
-    // carries a created_ts older than its own event (it preserves the
-    // original join), which the backdate window accommodates; an earlier
-    // version bounded the deadline against created_ts instead and would have
-    // expired every refresh of a call older than a day (see MAX_EXPIRE_MS).
+    // Both timestamps are member claims feeding focus selection and liveness,
+    // so both are clamped against origin_server_ts: created_ts to
+    // [event - MAX_BACKDATE_MS, event + MAX_CREATED_TS_SKEW_MS], the deadline
+    // to event + MAX_EXPIRE_MS (see MAX_EXPIRE_MS for why not created_ts).
     let created_ts = object
         .get("created_ts")
         .and_then(|value| value.as_u64())
@@ -620,22 +475,16 @@ pub(crate) fn parse_session_membership(
         .get("expires")
         .and_then(|value| value.as_u64())
         .unwrap_or(DEFAULT_EXPIRE_MS);
-    // Saturating: a hostile `expires` of u64::MAX must not wrap into the past
-    // -- and the deadline is then bounded against the EVENT, so it cannot be
-    // immortal either. See MAX_EXPIRE_MS for why not against created_ts.
+    // Saturating, so a hostile `expires` cannot wrap into the past.
     let expires_at_ms = created_ts
         .saturating_add(expires)
         .min(event_ts.saturating_add(MAX_EXPIRE_MS));
 
-    // The SFU identity is DERIVED, never read. The JWT service assigns the
-    // LiveKit identity `{user}:{device}` from the OpenID-verified user and
-    // the device id in the request, and the reference treats an absent
-    // `membershipID` as exactly that. Reading the field instead let any
-    // member publish somebody else's `{user}:{device}` as their own
-    // identity: first-match lookups then bound that participant's SFU sid
-    // to the impostor's key ring (every frame they published failed its
-    // tag), addressed our media key to the impostor's device, and drew
-    // their tile with the impostor's name. The content field is ignored.
+    // Derived, never read: the JWT service assigns `{user}:{device}` from the
+    // OpenID-verified user and the requested device, and the reference treats
+    // an absent `membershipID` the same way. Reading the content field would
+    // let a member claim another's identity, stealing their key ring, media
+    // key and tile. The content field is ignored.
     let rtc_identity = format!("{user_id}:{device_id}");
 
     Some(RtcMember {
@@ -650,17 +499,15 @@ pub(crate) fn parse_session_membership(
         kind: MembershipKind::Session,
         display_name: String::new(),
         avatar_mxc: String::new(),
-        // Content alone; the envelope is the caller's. read_session fills it.
+        // Content only; read_session fills in the envelope's id.
         event_id: String::new(),
     })
 }
 
-/// Parse an MSC4143 `org.matrix.msc4143.rtc.member` content.
-///
-/// Kept in step with the reference validator, including its deliberate
-/// `member.user_id == sender` rule. Not reachable from sync on matrix-sdk
-/// 0.18 (no sticky-event support) — exercised by tests so the format is
-/// ready and cannot silently rot.
+/// Parse an MSC4143 `org.matrix.msc4143.rtc.member` content, in step with
+/// the reference validator (including `member.user_id == sender`). Not
+/// reachable from sync on matrix-sdk 0.18; tested so the format does not
+/// rot.
 #[allow(dead_code)] // sticky lane only; see EV_MEMBER_STICKY.
 pub(crate) fn parse_rtc_membership(
     content: &serde_json::Value,
@@ -705,8 +552,7 @@ pub(crate) fn parse_rtc_membership(
         return None;
     }
 
-    // A sticky membership must carry a sticky key under one of the two
-    // spellings; without it the event has no retraction identity.
+    // Without a sticky key the event has no retraction identity.
     let sticky = object
         .get("sticky_key")
         .or_else(|| object.get("msc4354_sticky_key"))
@@ -722,10 +568,8 @@ pub(crate) fn parse_rtc_membership(
         slot_id,
         intent: intent_str(application.get("m.call.intent")),
         created_ts: event_ts,
-        // A sticky membership is RETRACTED, never aged out — the reference
-        // returns no absolute expiry for this kind. Using the session
-        // format's 4h fallback here would silently drop live participants
-        // once this lane becomes observable.
+        // Sticky memberships are retracted, never aged out (the reference gives no
+        // expiry); a 4 h fallback would drop live participants.
         expires_at_ms: u64::MAX,
         foci,
         kind: MembershipKind::Rtc,
@@ -747,34 +591,25 @@ pub(crate) struct RtcSession {
     pub slot_closed: bool,
     /// True when a slot state event was present at all.
     pub slot_present: bool,
-    /// Where the memberships came from -- "store", "store-no-session"
-    /// (nothing live and no reason to ask the homeserver),
-    /// "store-cooling-own"/"-ring"/"-recent" (a reason, named, but inside
-    /// this room's escalation backoff), "server", "server-none"
-    /// (asked, and the room has no membership state) or "store-fallback"
-    /// (asked, and the request did not get through). A
-    /// participant list that is missing somebody who is demonstrably in the
-    /// call is the single hardest thing to diagnose in this lane, and
-    /// without this the two causes -- a stale store, and a room where
-    /// nobody is actually published -- produce identical logs.
+    /// Where the memberships came from: "store", "store-no-session" (nothing
+    /// live, no reason to ask), "store-cooling-own"/"-ring"/"-recent" (a reason,
+    /// but within the room's escalation backoff), "server", "server-none"
+    /// (asked; no membership state) or "store-fallback" (asked; request
+    /// failed). Distinguishes a stale store from a room where nobody is
+    /// published.
     pub source: &'static str,
-    /// How many raw membership state events the read considered, before
-    /// parsing, expiry and dedup. Counted so `participants=0 raw=7` reads
-    /// differently from `participants=0 raw=0`.
+    /// Raw membership events considered before parsing, expiry and dedup, so
+    /// `participants=0 raw=7` differs from `participants=0 raw=0`.
     pub raw_count: usize,
 }
 
 /// Aggregate parsed memberships into a session.
 ///
-/// Two rules that are easy to get wrong and both matter:
-///
-/// * **Expired memberships are dropped.** A client that vanished leaves its
-///   state event behind; counting it would show a call with participants
-///   that are not there, and Element does the same filtering.
-/// * **Dedup is per `(user_id, device_id)`**, keeping the NEWEST
-///   `created_ts`. One device can legitimately hold two membership events
-///   during the state-key migration, and the same user on two devices is two
-///   real participants — collapsing by user would hide one.
+/// * Expired memberships are dropped (as Element does), or vanished
+///   clients show as participants.
+/// * Dedup is per `(user_id, device_id)`, keeping the newest `created_ts`:
+///   one device may briefly hold two events during the state-key migration,
+///   and one user on two devices is two participants.
 pub(crate) fn aggregate_session(
     mut members: Vec<RtcMember>,
     now_ms: u64,
@@ -793,8 +628,8 @@ pub(crate) fn aggregate_session(
     }
 
     let mut out: Vec<RtcMember> = best.into_values().collect();
-    // Oldest first: this ordering IS the `oldest_membership` focus rule, so
-    // it must be stable and it must be by join time.
+    // Oldest first: this ordering is the `oldest_membership` focus rule, so it
+    // must be stable and by join time.
     out.sort_by(|a, b| {
         a.created_ts
             .cmp(&b.created_ts)
@@ -805,21 +640,13 @@ pub(crate) fn aggregate_session(
     out
 }
 
-/// Pick the focus to connect to, following `focus_selection:
-/// "oldest_membership"`: the SFU advertised by whoever joined first.
-///
-/// Everyone must reach the same answer or participants land on different
-/// SFUs and cannot hear each other, which is exactly why this reads the
-/// oldest membership rather than any local preference.
+/// Pick the focus per `focus_selection: "oldest_membership"`: the SFU
+/// advertised by whoever joined first. Everyone must agree, or participants
+/// land on different SFUs.
 pub(crate) fn select_focus(members: &[RtcMember]) -> Option<LivekitTransport> {
-    // The OLDEST membership's own first focus, and nothing else.
-    //
-    // Deliberately NOT "the first member who advertises one": the reference
-    // implementation reads `getOldestMembership()`'s own `foci_preferred[0]`
-    // and yields `undefined` when that member advertises none — it never
-    // walks on. Walking would put Lightning on a different SFU than Element
-    // whenever the oldest member advertises nothing, which is precisely the
-    // disagreement this rule exists to prevent.
+    // The oldest membership's own first focus, and nothing else: the reference
+    // reads `getOldestMembership()`'s `foci_preferred[0]` and yields nothing if
+    // it has none. Walking on would diverge from Element.
     members.first().and_then(|member| member.foci.first().cloned())
 }
 
@@ -827,52 +654,29 @@ pub(crate) fn select_focus(members: &[RtcMember]) -> Option<LivekitTransport> {
 // Transport discovery endpoint (MSC4143)
 // ---------------------------------------------------------------------------
 
-/// `GET https://<server_name>/.well-known/matrix/client`, read for
-/// `org.matrix.msc4143.rtc_foci`.
+/// Read `org.matrix.msc4143.rtc_foci` (or stable `m.rtc_foci`) from
+/// `GET https://<server_name>/.well-known/matrix/client`, which is where
+/// MSC4143 advertises SFUs and Element Call reads them. There is no
+/// client-API transports endpoint.
 ///
-/// This is where MSC4143 actually advertises the SFU, and where Element
-/// Call reads it. It is NOT a client-API endpoint: an earlier version of
-/// this module invented
-/// `/_matrix/client/unstable/org.matrix.msc4143/rtc/transports`, which
-/// exists on no server, so discovery never answered anywhere. Every call
-/// then fell back to the legacy 1:1 lane — which carries no video and no
-/// screen share — and starting a MatrixRTC call was impossible on any
-/// homeserver including matrix.org.
-///
-/// The authority is ruma's own model of the well-known response:
-///   #[serde(rename = "org.matrix.msc4143.rtc_foci", alias = "m.rtc_foci")]
-///   pub rtc_foci: Vec<RtcTransport>
-/// Both spellings are read here, unstable first, because a server that has
-/// moved to the stable key should still work.
-///
-/// Hand-rolled over the SDK's own HTTP client rather than through ruma:
-/// `Client::well_known()` is private, and the field is behind matrix-sdk's
-/// `unstable-msc4143` feature which this build does not enable — turning it
-/// on is a dependency change for one field. `client.http_client()` keeps the
-/// SDK's TLS/proxy configuration and adds nothing, the same trade
-/// `banner.rs` already made for MSC4133 profile fields.
-///
-/// The well-known file is PUBLIC and unauthenticated, so unlike the old
-/// endpoint this sends no access token at all.
-///
-/// Fetched from the MXID's server name, not the resolved homeserver base
-/// URL: under .well-known delegation those differ, and the delegating
-/// domain is the one that serves this file.
+/// Hand-rolled over the SDK's HTTP client: `Client::well_known()` is private
+/// and the typed field needs matrix-sdk's `unstable-msc4143` feature. The
+/// file is public, so no access token is sent. Fetched from the MXID's
+/// server name, not the delegated homeserver URL, since the delegating
+/// domain serves this file.
 mod transports_endpoint {
     use matrix_sdk::Client;
 
-    /// Transport objects are open-ended by design, so the body stays raw
-    /// JSON and `parse_transport` remains the single place that decides what
-    /// Lightning understands.
+    /// Transport objects are open-ended, so the body stays raw JSON and
+    /// `parse_transport` alone decides what is understood.
     pub(super) struct Answer {
         pub status: u16,
         pub transports: Vec<serde_json::Value>,
     }
 
     fn endpoint(client: &Client) -> Result<String, String> {
-        // The server name from the MXID. Bounded and host-shaped before it
-        // is pasted into a URL: this reaches the network, and a hostile
-        // value must not be able to redirect the request elsewhere.
+        // The MXID's server name, checked to be host-shaped before it goes into a
+        // URL, so a hostile value cannot redirect the request.
         let server_name = client
             .user_id()
             .ok_or_else(|| "no session".to_owned())?
@@ -890,12 +694,9 @@ mod transports_endpoint {
         {
             return Err("unusable server name".to_owned());
         }
-        // Always https: the well-known file is the root of MatrixRTC
-        // discovery, and fetching it over cleartext would let anyone on the
-        // path choose the SFU every call is routed through.
+        // Always https: this file chooses the SFU every call is routed through.
         let url = format!("https://{server_name}/.well-known/matrix/client");
-        // Parsed rather than trusted, so a value that slipped the checks
-        // above still cannot produce a request to another host.
+        // Parsed, so a value that slipped the checks cannot target another host.
         let parsed = url::Url::parse(&url).map_err(|_| "bad url".to_owned())?;
         if parsed.scheme() != "https" || parsed.host_str() != Some(&server_name)
         {
@@ -909,9 +710,8 @@ mod transports_endpoint {
         timeout: std::time::Duration,
     ) -> Result<Answer, String> {
         let url = endpoint(client)?;
-        // No Authorization header: .well-known is a public file, and sending
-        // a bearer token to it would leak the session to any host the MXID's
-        // domain resolves to.
+        // No Authorization header: the file is public, and a bearer token would
+        // leak to whatever host the MXID's domain resolves to.
         let response = client
             .http_client()
             .get(url)
@@ -920,17 +720,15 @@ mod transports_endpoint {
             .await
             .map_err(|err| err.to_string())?;
         let status = response.status().as_u16();
-        // Refuse an oversized answer BEFORE reading it. `text()` buffers the
-        // whole body first, so trimming afterwards enforces nothing: a
-        // multi-hundred-megabyte reply would already be resident.
+        // Refuse an oversized answer before reading: `text()` buffers the whole
+        // body first.
         if response
             .content_length()
             .is_some_and(|len| len > super::MAX_DISCOVERY_BODY as u64)
         {
             return Ok(Answer { status, transports: Vec::new() });
         }
-        // A server may omit Content-Length, so also stop reading at the cap
-        // rather than trusting the header.
+        // Content-Length may be absent, so also stop reading at the cap.
         let mut body = Vec::with_capacity(1024);
         let mut stream = response;
         while let Some(chunk) =
@@ -942,8 +740,7 @@ mod transports_endpoint {
             body.extend_from_slice(&chunk);
         }
         let body = String::from_utf8_lossy(&body).into_owned();
-        // Unstable key first, stable alias second — the same pair ruma
-        // reads. A server that has moved on must still work.
+        // Unstable key first, then stable, as ruma reads them.
         let transports = serde_json::from_str::<serde_json::Value>(&body)
             .ok()
             .and_then(|value| {
@@ -962,22 +759,18 @@ mod transports_endpoint {
 // Notification event (MSC4075)
 // ---------------------------------------------------------------------------
 
-/// `org.matrix.msc4075.rtc.notification` — the ring.
-///
-/// Defined here rather than taken from ruma because ruma 0.34 types this
-/// event as the *stable* `m.rtc.notification` with no unstable alias, so a
-/// ruma-typed handler is deaf to every notification current Element sends.
-/// Both are observed (see [`register_rtc_handlers`]); this one is what gets
-/// sent, matching Element.
+/// `org.matrix.msc4075.rtc.notification`, the ring. Defined here because
+/// ruma 0.34 types only the stable `m.rtc.notification`, which is deaf to
+/// Element's rings. Both are observed (see [`register_rtc_handlers`]); this
+/// one is sent, matching Element.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
 #[ruma_event(type = "org.matrix.msc4075.rtc.notification", kind = MessageLike)]
 pub(crate) struct Msc4075RtcNotificationEventContent {
     /// `"ring"` for a DM-style ring, `"notification"` for a group call
-    /// announcement that must not ring every member indefinitely.
+    /// announcement that must not ring everyone.
     pub notification_type: String,
     pub sender_ts: MilliSecondsSinceUnixEpoch,
-    /// Milliseconds. Serialized as a plain integer, which is what the
-    /// reference implementation reads.
+    /// Milliseconds, as a plain integer (what the reference reads).
     pub lifetime: u64,
     #[serde(rename = "m.mentions", default, skip_serializing_if = "Option::is_none")]
     pub mentions: Option<Mentions>,
@@ -987,14 +780,9 @@ pub(crate) struct Msc4075RtcNotificationEventContent {
     pub call_intent: Option<String>,
 }
 
-/// Legacy membership state event, typed only so the SDK will hand us a
-/// change notification for it.
-///
-/// The content is intentionally a passthrough map: this handler's whole job
-/// is to say "membership in this room changed", after which the session is
-/// re-read from the state store through the single parser above. Duplicating
-/// the parse here would give us two places to disagree with Element from —
-/// the same payload-free-poke discipline `room_pinned_changed` already uses.
+/// Legacy membership state event, typed only so the SDK reports changes.
+/// The content is a passthrough: the handler just signals "membership
+/// changed" and the session is re-read through the one parser above.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]
 #[ruma_event(
     type = "org.matrix.msc3401.call.member",
@@ -1007,11 +795,9 @@ pub(crate) struct LegacyRtcMemberEventContent {}
 // Reading a room's session
 // ---------------------------------------------------------------------------
 
-/// Reach the raw JSON of a state event the store handed us.
-///
-/// `RawAnySyncOrStrippedState` is an enum over two `Raw` types (a joined room
-/// versus an invite's stripped state), so there is no single `Raw` to
-/// deserialize; both carry the envelope fields this module needs.
+/// Raw JSON of a state event from the store. `RawAnySyncOrStrippedState`
+/// wraps two `Raw` types (joined vs invite stripped state), both carrying
+/// the envelope fields needed here.
 fn raw_state_json(raw: &RawAnySyncOrStrippedState) -> Option<serde_json::Value> {
     let json = match raw {
         RawAnySyncOrStrippedState::Sync(raw) => raw.json(),
@@ -1020,11 +806,8 @@ fn raw_state_json(raw: &RawAnySyncOrStrippedState) -> Option<serde_json::Value> 
     serde_json::from_str(json.get()).ok()
 }
 
-/// Is this raw membership event a LIVE participant right now?
-///
-/// The same parse the session read itself performs, so "the store has a
-/// usable answer" cannot disagree with "the store's answer contains
-/// somebody".
+/// Is this raw membership event a live participant now? The same parse as
+/// the session read, so the two cannot disagree.
 fn membership_event_is_live(value: &serde_json::Value, now_ms: u64) -> bool {
     let Some(object) = value.as_object() else { return false };
     let Some(sender) = object.get("sender").and_then(|v| v.as_str()) else {
@@ -1039,19 +822,11 @@ fn membership_event_is_live(value: &serde_json::Value, now_ms: u64) -> bool {
         .is_some_and(|member| member.expires_at_ms > now_ms)
 }
 
-/// Does the STORE's own answer stand on its own, or must the server be asked?
-///
-/// "Usable" means at least one membership that PARSES and has not expired.
-///
-/// It used to mean "at least one event whose content is not `{}`", which is
-/// not the same claim and made the fallback unreachable in exactly the room
-/// that needs it. A membership left behind by an unclean exit -- which this
-/// file logs as a known consequence of a homeserver without MSC4140, "an
-/// unclean exit will leave this membership until it expires" -- is non-empty
-/// and dead. One of those in the store answered "the store is fine" for as
-/// long as the ghost survived, so the network read that exists to cover a
-/// lagging store never ran, and the call addressed its media key to whoever
-/// happened to be in the store rather than to whoever is in the call.
+/// Does the store's answer stand on its own, or must the server be asked?
+/// "Usable" means at least one membership that parses and has not expired.
+/// A merely non-empty check would let a dead membership left by an unclean
+/// exit suppress the network read, sending the media key to the wrong
+/// devices.
 pub(crate) fn store_view_is_usable(
     events: &[serde_json::Value],
     now_ms: u64,
@@ -1062,24 +837,15 @@ pub(crate) fn store_view_is_usable(
 }
 
 /// The newest instant in a stored membership view that could belong to a
-/// session still running.
+/// running session, used once we know nothing is live:
 ///
-/// NOT "the newest live membership" — by the time this is consulted we
-/// already know there is none. It is the newest instant at which ANYTHING
-/// happened to this room's call state, so that "nothing has happened here for
-/// a quarter of an hour" can be told apart from "somebody's membership lapsed
-/// a minute ago". Both halves matter and neither alone is enough:
+///  * a parseable membership contributes its deadline (a peer whose refresh
+///    we have not received expired only just now);
+///  * anything else (a `{}` retraction, an unparseable event) contributes
+///    its `origin_server_ts`, since a retraction is itself recent activity.
 ///
-///  * a parseable membership contributes its DEADLINE, because a peer whose
-///    refresh we have not received yet expired only just now;
-///  * anything else — a retraction (content `{}`), or an event this build
-///    cannot parse — contributes its `origin_server_ts`, because a retraction
-///    IS the newest thing that happened and dropping it would make a call
-///    that ended thirty seconds ago look like a room with no history.
-///
-/// An event with no `origin_server_ts` at all reads as NOW, which is the
-/// conservative direction (it buys a request rather than suppressing one) and
-/// matches what `membership_event_is_live` already does with the same field.
+/// A missing `origin_server_ts` reads as now, the conservative direction,
+/// matching `membership_event_is_live`.
 fn newest_session_signal_ms(
     events: &[serde_json::Value],
     now_ms: u64,
@@ -1107,37 +873,25 @@ fn newest_session_signal_ms(
     newest
 }
 
-/// Why a read that found nothing live in the store is nonetheless worth one
-/// `/state`.
+/// Why a store read with nothing live still warrants one `/state`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EscalationReason {
-    /// This process holds a published membership in this room, so we are in
-    /// its call. This is the case the fallback was WRITTEN for, measured
-    /// against a real homeserver: the store held thirteen membership events
-    /// and every one of them was a stale retraction while the server's own
-    /// `/state` had the live memberships, this device's own among them. Media
-    /// keys are addressed to the devices these events name, so an empty read
-    /// there sends the key to nobody and every frame is dropped at both ends
-    /// while the call looks perfectly connected.
+    /// We hold a published membership in this room, so we are in its call. The
+    /// store can hold only stale retractions while the server has the live
+    /// memberships, and media keys go to the devices these name, so an empty
+    /// read would send the key to nobody.
     OwnCall,
-    /// A MatrixRTC ring arrived for this room moments ago. The room is
-    /// deliberately not open in that case, so its state is the least fresh
-    /// thing we hold, and the Answer button is gated on the session read.
+    /// A ring arrived for this room moments ago. The room is not open, so its
+    /// state may be stale, and Answer is gated on the session read.
     Ring,
-    /// The store's own newest call-member event is recent enough that a
-    /// session could still be running behind it.
+    /// The store's newest call-member event is recent enough that a session
+    /// could still be running.
     RecentActivity,
 }
 
 impl EscalationReason {
-    /// The word a read reports when it WANTED the homeserver and the room's
-    /// backoff held it off.
-    ///
-    /// "We did not ask" and "we wanted to ask and were not allowed to, for
-    /// this reason" are different facts with the same observable — an answer
-    /// that came from the store — and §16 is a long list of what that costs.
-    /// The distinction is free here and it is the one a diagnosis of this
-    /// lane needs first.
+    /// The word a read reports when it wanted the homeserver but the room's
+    /// backoff held it off, so "did not ask" and "not allowed to ask" differ.
     fn cooling_word(self) -> &'static str {
         match self {
             EscalationReason::OwnCall => "store-cooling-own",
@@ -1147,25 +901,18 @@ impl EscalationReason {
     }
 }
 
-/// What a NON-FORCED session read should do with the store's own answer.
-///
-/// Pure, and deliberately the WHOLE decision rather than a predicate the
-/// caller then re-interprets: the branch in [`read_membership_events`] is an
-/// exhaustive match on this, so a variant added here cannot be silently left
-/// unhandled there. (§16's recurring lesson is code that exists, looks right
-/// and is never reached; the compiler is the only reviewer that cannot
-/// forget.)
+/// What a non-forced session read does with the store's answer. The whole
+/// decision, matched exhaustively in [`read_membership_events`], so a new
+/// variant cannot be left unhandled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StoreVerdict {
     /// The store holds a live membership. Answer from it; no request.
     Answer,
-    /// The store holds nothing live AND nothing suggests a session it cannot
-    /// see. "There is no call in this room" is a real answer, not a gap —
-    /// and it is the one the old code spent a full `/state` to reach.
+    /// Nothing live and no sign of a session the store cannot see: a real "no
+    /// call in this room" answer.
     AnswerNoSession,
-    /// Nothing live, but something says a session may exist that the store
-    /// has not caught up with. Worth one `/state`, subject to the per-room
-    /// backoff the caller applies.
+    /// Nothing live, but a session may exist that the store has not caught up
+    /// with. Worth one `/state`, subject to the caller's per-room backoff.
     AskServer(EscalationReason),
 }
 
@@ -1178,9 +925,8 @@ pub(crate) fn store_read_verdict(
     if store_view_is_usable(events, now_ms) {
         return StoreVerdict::Answer;
     }
-    // Ordered by how much the reason is worth, not by cost: all three are the
-    // same one request, and naming the strongest one makes the log line say
-    // WHY the request was spent.
+    // Ordered by strength of evidence (all cost one request), so the log names
+    // why the request was spent.
     if in_own_call {
         return StoreVerdict::AskServer(EscalationReason::OwnCall);
     }
@@ -1193,19 +939,16 @@ pub(crate) fn store_read_verdict(
         {
             StoreVerdict::AskServer(EscalationReason::RecentActivity)
         }
-        // Includes the EMPTY store, which is every room that has never hosted
-        // a call — and which the old gate escalated for as eagerly as any
-        // other, so opening any room at all cost one `/state`.
+        // Includes the empty store (rooms that never hosted a call).
         _ => StoreVerdict::AnswerNoSession,
     }
 }
 
-/// The gap owed before this room may be escalated again, after
-/// `consecutive_asks` escalations in a row that have not produced a live
-/// membership. Pure so the backoff is testable without a clock.
+/// The gap owed before this room may escalate again after
+/// `consecutive_asks` escalations that found nothing live. Pure for tests.
 fn escalation_cooldown_ms(consecutive_asks: u32) -> u64 {
     let mut ms = SERVER_ESCALATION_COOLDOWN_MS;
-    // The FIRST ask owes the base gap, not a doubled one.
+    // The first ask owes the base gap.
     for _ in 1..consecutive_asks {
         if ms >= SERVER_ESCALATION_COOLDOWN_MAX_MS {
             break;
@@ -1215,8 +958,8 @@ fn escalation_cooldown_ms(consecutive_asks: u32) -> u64 {
     ms.min(SERVER_ESCALATION_COOLDOWN_MAX_MS)
 }
 
-/// When each room last spent an implicit `/state`, and how many in a row have
-/// not found a live membership.
+/// When each room last spent an implicit `/state`, and how many in a row
+/// found nothing live.
 fn server_escalation_marks() -> &'static std::sync::Mutex<
     std::collections::HashMap<String, (std::time::Instant, u32)>,
 > {
@@ -1242,8 +985,8 @@ fn rtc_ring_marks()
     MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// Record that this room just rang. Monotonic (`Instant`), so a clock step
-/// cannot widen or close the window.
+/// Record that this room just rang. Uses `Instant`, so clock steps cannot
+/// move the window.
 pub(crate) fn note_rtc_ring(room_id: &str) {
     if let Ok(mut marks) = rtc_ring_marks().lock() {
         if marks.len() >= MAX_ROOM_MARKS && !marks.contains_key(room_id) {
@@ -1251,9 +994,8 @@ pub(crate) fn note_rtc_ring(room_id: &str) {
         }
         marks.insert(room_id.to_owned(), std::time::Instant::now());
     }
-    // A ring is fresh evidence that a session exists, so it also cancels any
-    // backoff this room accumulated while it was idle: the very next read
-    // gets its request.
+    // A ring is fresh evidence of a session, so it also clears this room's
+    // backoff: the next read may ask immediately.
     clear_server_escalation_backoff(room_id);
 }
 
@@ -1268,13 +1010,12 @@ fn rtc_ring_is_recent(room_id: &str) -> bool {
         })
 }
 
-/// May this room spend an implicit `/state` now? Records the attempt when it
-/// says yes, so the two halves cannot drift apart.
+/// May this room spend an implicit `/state` now? Records the attempt when
+/// it says yes.
 fn claim_server_escalation(room_id: &str) -> bool {
     let Ok(mut marks) = server_escalation_marks().lock() else {
-        // A poisoned lock must NOT make the fallback unreachable: a live
-        // call's media keys depend on it, and failing open costs at worst the
-        // request rate this whole change exists to bound.
+        // Fail open on a poisoned lock: a live call's media keys depend on this
+        // fallback.
         return true;
     };
     let now = std::time::Instant::now();
@@ -1293,14 +1034,9 @@ fn claim_server_escalation(room_id: &str) -> bool {
     true
 }
 
-/// An escalation that came back with somebody live in it earns the next one
-/// the BASE gap again.
-///
-/// The gap is kept, the streak is not: the escalation answered the question
-/// it was spent on, so the doubling — which exists for the ask that cannot
-/// help — has nothing to describe. Deliberately not a full reset: a store
-/// that stays behind for the length of a call would otherwise escalate on
-/// every poke.
+/// An escalation that found somebody live resets the streak (the next gap
+/// is the base one) but keeps the gap, so a store that lags for a whole call
+/// does not escalate on every poke.
 fn note_server_escalation_found_live(room_id: &str) {
     if let Ok(mut marks) = server_escalation_marks().lock() {
         if let Some(entry) = marks.get_mut(room_id) {
@@ -1316,16 +1052,9 @@ fn clear_server_escalation_backoff(room_id: &str) {
     }
 }
 
-/// Bound a membership list to `cap`, keeping LIVE memberships in preference
-/// to dead ones.
-///
-/// The bound used to be applied BEFORE anything knew which events were live —
-/// `take(512)` over an unordered store query, `truncate(512)` over a map
-/// ordered by state key, i.e. alphabetically. In a room this file's own
-/// comments describe as "carrying tens of thousands of stale membership
-/// events", an alphabetical or arbitrary 512 can be entirely ghosts while the
-/// two people actually in the call sit past the cut. The cap exists to bound
-/// work, not to choose participants, so it must cut the dead ones first.
+/// Bound a membership list to `cap`, keeping live memberships before dead
+/// ones. The cap bounds work; cutting arbitrarily (or alphabetically) could
+/// keep only ghosts and drop the people actually in the call.
 fn bound_membership_events(
     mut events: Vec<serde_json::Value>,
     now_ms: u64,
@@ -1339,12 +1068,9 @@ fn bound_membership_events(
     events
 }
 
-/// The slot one membership event occupies, for merging two views of the same
-/// room state.
-///
-/// The state key is the real identity (it is `{user}_{device}_{application}`),
-/// and the sender plus the claimed device id is the fallback for a source
-/// that did not carry an envelope field.
+/// The slot one membership event occupies, for merging two views. The state
+/// key (`{user}_{device}_{application}`) is the identity; sender plus device
+/// id is the fallback when no envelope field is present.
 fn membership_slot(value: &serde_json::Value) -> Option<String> {
     let object = value.as_object()?;
     if let Some(key) = object.get("state_key").and_then(|v| v.as_str()) {
@@ -1361,18 +1087,10 @@ fn membership_slot(value: &serde_json::Value) -> Option<String> {
     Some(format!("{sender}\u{1f}{device}"))
 }
 
-/// Merge two views of one room's memberships, keeping the NEWER event for
-/// each state key.
-///
-/// MERGED, not chosen, and both directions matter:
-///
-///  * the server's `/state` is a snapshot that can predate our own publish
-///    by a round trip, so taking it wholesale can erase a membership we know
-///    landed -- and the store is where our own echo arrives first;
-///  * the store can hold an event the server has already replaced, so an
-///    older stored copy must never resurrect a participant who left. A
-///    retraction is an ordinary newer event here and wins on its timestamp
-///    like anything else.
+/// Merge two views of a room's memberships, keeping the newer event per
+/// state key. The server's `/state` can predate our own publish, and the
+/// store can hold an event the server already replaced; a retraction wins
+/// on its timestamp like anything else.
 pub(crate) fn merge_membership_events(
     store: Vec<serde_json::Value>,
     server: Vec<serde_json::Value>,
@@ -1403,53 +1121,28 @@ pub(crate) fn merge_membership_events(
     bound_membership_events(out, now_ms, MAX_RAW_MEMBER_EVENTS)
 }
 
-/// Every membership state event for a room, as raw JSON, and where it came
-/// from.
+/// Every membership state event for a room as raw JSON, and its source.
 ///
-/// The STORE is asked first and the HOMESERVER second, and the second half is
-/// not an optimisation — it is what makes the call work at all.
+/// The store is asked first, the homeserver second. Sliding sync delivers
+/// `CallMember` state, but not promptly for rooms we are not subscribed to:
+/// a store can hold only stale retractions while the server has the live
+/// memberships. Media keys go to the devices these events name, so an empty
+/// read sends the key to nobody and every frame is dropped.
 ///
-/// Sliding sync does list `CallMember` in its default `required_state`, so the
-/// store does receive these events; what it does not guarantee is receiving
-/// them PROMPTLY for a room the client is not actively subscribed to. Measured
-/// against a real homeserver: during a live call the store held thirteen
-/// membership events and every one of them was a stale RETRACTION, while the
-/// server's own `/state` had the live memberships — including this device's
-/// own, published seconds earlier and acknowledged.
+/// The network read is a fallback, used only when the store has nothing
+/// live and there is a reason to believe a session exists (see
+/// [`StoreVerdict`]), with a per-room backoff. The store read happens on
+/// every poke, so a call starting is still noticed immediately.
 ///
-/// That is not a cosmetic lag. Media keys are addressed to the devices named
-/// by these events, so an empty read means a key is sent to NOBODY: both ends
-/// encrypt, neither can decrypt, and every frame is dropped for want of a key
-/// while the call otherwise looks perfectly connected. Audio, video and screen
-/// share all fail together, which is exactly how it was reported.
-///
-/// The network read is therefore a FALLBACK, spent only when the store yields
-/// no LIVE membership, so a healthy store still costs nothing. Same trade
-/// `banner.rs` makes, and for the same reason.
-///
-/// AND "NO LIVE MEMBERSHIP" WAS FAR TOO WIDE A TRIGGER ON ITS OWN, because it
-/// is the ordinary state of every idle room: a startup sync replaying a
-/// room's expired `m.call.member` state bought that room a full `/state`, and
-/// so did opening any room at all. The escalation now also needs a REASON to
-/// believe a session exists that the store cannot see — see [`StoreVerdict`]
-/// — and a per-room backoff paces the reasons that are themselves time-bound.
-/// The store read is untouched and still happens on every poke, so a call
-/// starting is noticed exactly as fast as it was: a joining peer's membership
-/// is LIVE, which the store answers for free.
-///
-/// `prefer_server` overrides that and asks the server anyway. It is for the
-/// caller who has independent evidence that the store's answer is wrong --
-/// the SFU naming a participant no membership accounts for -- because "the
-/// store has SOMEBODY live in it" is not evidence that it has EVERYBODY, and
-/// a peer we cannot name is a peer our media key cannot reach.
+/// `prefer_server` asks the server anyway, for a caller with evidence the
+/// store is incomplete (an SFU participant no membership accounts for).
 async fn read_membership_events(
     room: &Room,
     now_ms: u64,
     prefer_server: bool,
 ) -> (Vec<serde_json::Value>, &'static str) {
-    // PARSE FIRST, BOUND SECOND. The store query has no ORDER BY, so a
-    // `take` before the parse cuts an arbitrary 512 of what may be thousands
-    // of stale memberships and can miss every live one.
+    // Parse first, bound second: the store query is unordered, so bounding
+    // first could miss every live membership.
     let from_store = bound_membership_events(
         room.get_state_events(StateEventType::from(EV_MEMBER_LEGACY))
             .await
@@ -1490,12 +1183,9 @@ async fn read_membership_events(
     else {
         return (from_store, "store-fallback");
     };
-    // NO BOUND BEFORE THE FILTER. `/state` returns the WHOLE room state,
-    // dominated by `m.room.member`, so bounding the raw response first put
-    // every `m.call.member` past that position out of reach and reported the
-    // room as having no memberships at all. ruma has already deserialized the
-    // vector, so walking it costs nothing the request did not already pay;
-    // the bound that matters is on what is KEPT, below.
+    // No bound before the filter: `/state` is dominated by `m.room.member`, so
+    // bounding the raw response could hide every `m.call.member`. The bound
+    // that matters is on what is kept.
     let mut from_server = Vec::new();
     for raw in response.room_state.iter() {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(raw.json().get())
@@ -1511,17 +1201,14 @@ async fn read_membership_events(
         }
     }
     if from_server.is_empty() {
-        // The server answered and this room carries no membership state at
-        // all. A real answer, not a failure -- and a different one from "the
-        // request did not get through", which is why it has its own word.
+        // The server answered and the room has no membership state: a real answer,
+        // distinct from a failed request.
         return (from_store, "server-none");
     }
     let merged = merge_membership_events(from_store, from_server, now_ms);
     if !prefer_server && store_view_is_usable(&merged, now_ms) {
-        // The request found what it was spent on, so the doubling has nothing
-        // to describe and the next one starts from the base gap. A FORCED
-        // read is paced by its own caller and deliberately does not touch
-        // this lane: mixing them would let one consume the other's budget.
+        // Found what it was spent on, so the streak resets. Forced reads are paced
+        // by their caller and do not touch this backoff.
         note_server_escalation_found_live(room.room_id().as_str());
     }
     (merged, "server")
@@ -1539,9 +1226,8 @@ async fn read_session(
     let raw_count = raw_members.len();
 
     for value in raw_members.iter() {
-        // Deserialize as loose JSON: the envelope fields we need are
-        // `sender`, `content` and `origin_server_ts`, and a membership we
-        // cannot read must not poison the ones we can.
+        // Loose JSON: only `sender`, `content` and `origin_server_ts` are needed,
+        // and one unreadable membership must not poison the rest.
         let Some(object) = value.as_object() else { continue };
         let Some(sender) = object.get("sender").and_then(|v| v.as_str()) else {
             continue;
@@ -1554,9 +1240,7 @@ async fn read_session(
         if let Some(mut member) =
             parse_session_membership(content, sender, event_ts)
         {
-            // The envelope's own id, which parse_session_membership cannot
-            // see. A raised hand is an m.reaction annotating THIS event, so
-            // without it a hand can never be matched to its participant.
+            // The envelope's event id, which a raised hand annotates.
             member.event_id = object
                 .get("event_id")
                 .and_then(|value| value.as_str())
@@ -1573,10 +1257,8 @@ async fn read_session(
     let (slot_present, slot_closed) = read_slot(room).await;
 
     let mut members = aggregate_session(members, now_ms);
-    // Resolve profiles AFTER aggregation: expired and duplicate memberships
-    // are already gone, so no lookup is spent on a member we will not report.
-    // `_no_sync` deliberately: this must not trigger a network round trip
-    // per participant just to draw a facepile.
+    // Resolve profiles after aggregation, and with `_no_sync` so a facepile
+    // costs no network round trips.
     for member in &mut members {
         let Ok(user_id) = matrix_sdk::ruma::UserId::parse(&member.user_id)
         else {
@@ -1601,11 +1283,8 @@ async fn read_session(
     }
 }
 
-/// Read the MSC4143 slot state, when a room has one.
-///
-/// Absence is NOT "closed": almost no deployment publishes a slot yet, so
-/// treating a missing slot as a closed session would hide every real call.
-/// Only an explicit `status: "closed"` closes one.
+/// Read the MSC4143 slot state, if any. Absence is not "closed" (almost no
+/// deployment publishes slots); only an explicit `status: "closed"` closes.
 async fn read_slot(room: &Room) -> (bool, bool) {
     let Ok(events) = room.get_state_events(StateEventType::from(EV_SLOT)).await else {
         return (false, false);
@@ -1618,9 +1297,8 @@ async fn read_slot(room: &Room) -> (bool, bool) {
         let Some(content) = value.get("content").and_then(|v| v.as_object()) else {
             continue;
         };
-        // EXACT match only. An empty state key is not the room call's slot,
-        // and treating it as one would let anyone who can send this state
-        // type suppress the room's entire call display.
+        // Exact match only: an empty state key is not the room call's slot, and
+        // treating it as one would let anyone able to send this type hide the call.
         let Some(state_key) = value.get("state_key").and_then(|v| v.as_str())
         else {
             continue;
@@ -1629,10 +1307,8 @@ async fn read_slot(room: &Room) -> (bool, bool) {
             continue;
         }
         present = true;
-        // FAIL-CLOSED, matching the reference: the session is open only if
-        // it says so AND the slot is for this application. Anything else —
-        // a missing status, an unknown status, a slot belonging to a
-        // different application — is not an open m.call session.
+        // Fail closed, as the reference does: open only if it says so and the slot
+        // is for this application.
         let status_open =
             content.get("status").and_then(|v| v.as_str()) == Some("open");
         let app_matches = content
@@ -1648,8 +1324,7 @@ async fn read_slot(room: &Room) -> (bool, bool) {
     (present, closed)
 }
 
-/// Coarse, closed-set category for a discovery HTTP status. Never the body:
-/// a server error message is remote text.
+/// Closed-set category for a discovery HTTP status. Never the body.
 fn status_category(status: u16) -> &'static str {
     match status {
         400 | 404 | 405 => "unsupported",
@@ -1660,37 +1335,18 @@ fn status_category(status: u16) -> &'static str {
     }
 }
 
-/// Whether a discovery outcome SETTLES the account-scoped question
-/// "does this homeserver have MatrixRTC?".
-///
-/// Two shapes are definitive and only one of them is a success:
-///
-///   * an EMPTY category — the endpoint answered, whatever it listed;
-///   * `unsupported` — a 400/404/405, which is exactly how a homeserver
-///     with no MSC4143 answers. That is "this homeserver has no
-///     MatrixRTC", not "we could not check".
-///
-/// Everything else (`forbidden`, `rate_limited`, `server_error`,
-/// `network`, `unknown`, …) leaves the question genuinely open, so the UI
-/// must keep saying "couldn't check" and the caller may retry.
-///
-/// This exists because `server_answered` used to be spelled
-/// `category.is_empty()`, which contradicted the comment three lines below
-/// it: a definitive 404 crossed the FFI as "not answered", the join gate
-/// reported `discovery_failed` ("Couldn't check whether calling is
-/// available") for a server that had answered clearly, and
-/// `RtcController::discoveryWorthRetrying()` — which is literally
-/// `!m_serverAnswered` — re-ran discovery on every room change for the
-/// whole session against a constant.
+/// Whether a discovery outcome settles "does this homeserver have
+/// MatrixRTC?". Definitive: an empty category (it answered) and
+/// `unsupported` (400/404/405, no MSC4143). Anything else (`forbidden`,
+/// `rate_limited`, `server_error`, `network`, …) leaves it open, so the UI
+/// says "couldn't check" and the caller may retry.
 fn discovery_answer_is_definitive(category: &str) -> bool {
     category.is_empty() || category == "unsupported"
 }
 
-/// Local wall clock. Compared against server-supplied `created_ts` /
-/// `origin_server_ts` for expiry, so a badly skewed device clock can drop
-/// live participants (or keep dead ones). The reference implementation has
-/// the same property; noted so a skew symptom is not misdiagnosed as a
-/// parsing bug.
+/// Local wall clock, compared with server-supplied timestamps for expiry;
+/// a skewed device clock can drop live participants or keep dead ones (as
+/// in the reference implementation).
 fn now_ms() -> u64 {
     MilliSecondsSinceUnixEpoch::now().get().into()
 }
@@ -1703,8 +1359,7 @@ fn session_payload(room_id: &str, session: &RtcSession) -> serde_json::Value {
         "member_count": session.members.len(),
         "slot_present": session.slot_present,
         "slot_closed": session.slot_closed,
-        // Where the memberships came from, and how many raw events were
-        // considered. Counts and a fixed word only -- no ids, no names.
+        // Source and raw count: a fixed word and a number only.
         "source": session.source,
         "raw_count": session.raw_count,
         "focus": focus.as_ref().map(LivekitTransport::to_json),
@@ -1719,11 +1374,9 @@ fn session_payload(room_id: &str, session: &RtcSession) -> serde_json::Value {
 
 /// Report the current MatrixRTC session for one room.
 ///
-/// `prefer_server` skips the state store and asks the homeserver for the
-/// room's state, then merges the two views. It is for a caller holding
-/// evidence the store is incomplete -- an SFU participant that no membership
-/// accounts for -- and costs one `/state` request, so it is rate limited by
-/// its caller rather than being the default.
+/// `prefer_server` also asks the homeserver and merges the views. It costs
+/// one `/state`, so it is for a caller with evidence the store is
+/// incomplete, rate limited by that caller.
 pub(crate) fn request_session(
     bridge: &RustClient,
     room_id: String,
@@ -1748,12 +1401,9 @@ pub(crate) fn request_session(
     Ok(())
 }
 
-/// Discover the SFU transports this account can use.
-///
-/// Reports the homeserver's own answer plus the focus advertised by the
-/// named room's existing participants, and says which source produced what,
-/// so the C++ side can apply policy (and tell the user *why* calling is
-/// unavailable) instead of receiving one opaque list.
+/// Discover the SFU transports this account can use: the homeserver's
+/// answer plus the focus the room's participants advertise, labelled by
+/// source so C++ can apply policy and explain unavailability.
 pub(crate) fn request_transports(
     bridge: &RustClient,
     room_id: String,
@@ -1763,8 +1413,7 @@ pub(crate) fn request_transports(
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
-    // A room is optional: discovery is account-scoped, the room only adds
-    // the participant-advertised fallback.
+    // Discovery is account-scoped; the room only adds the participant fallback.
     let room = joined_room(&client, &room_id).ok();
 
     bridge.spawn_room_action(async move {
@@ -1777,10 +1426,8 @@ pub(crate) fn request_transports(
                 .filter_map(parse_transport)
                 .take(MAX_TRANSPORTS)
                 .collect::<Vec<_>>()),
-            // A server with no MSC4143 support answers 404/400/M_UNRECOGNIZED.
-            // That is "this homeserver has no MatrixRTC", NOT a transient
-            // failure, and the two must stay distinguishable so the UI can
-            // say which one happened.
+            // 404/400/M_UNRECOGNIZED means "no MatrixRTC on this homeserver", which
+            // must stay distinguishable from a transient failure.
             Ok(answer) => Err(status_category(answer.status).to_owned()),
             Err(err) => Err(classify_room_error(&err).to_owned()),
         };
@@ -1805,15 +1452,8 @@ pub(crate) fn request_transports(
             "op_id": op_id,
             "lifecycle": lifecycle,
             "room_id": room_id,
-            // "The server SETTLED this", not "the server said yes". An
-            // empty category means it answered and advertised whatever it
-            // advertised; `unsupported` (400/404/405) means it answered by
-            // not implementing MSC4143 at all. Both are final facts about
-            // this homeserver and neither is worth re-asking. Only a real
-            // failure — forbidden, rate limited, a 5xx, the network —
-            // leaves the question open, and the UI must keep those apart
-            // (docs/matrixrtc.md, "'No calling here' and 'we could not
-            // check' are different facts").
+            // "The server settled this", not "the server said yes"; see
+            // discovery_answer_is_definitive.
             "server_answered": discovery_answer_is_definitive(&category),
             "category": category,
             "server_transports": server_transports.iter()
@@ -1825,12 +1465,9 @@ pub(crate) fn request_transports(
     Ok(())
 }
 
-/// Send an `org.matrix.msc4075.rtc.notification`.
-///
-/// `notification_type` is clamped to the two values the reference
-/// implementation defines. `lifetime` is clamped to Element's own 90 s cap:
-/// a longer-lived ring would keep other clients ringing past the point they
-/// consider the notification valid.
+/// Send an `org.matrix.msc4075.rtc.notification`. `notification_type` is
+/// clamped to the reference's two values and `lifetime` to Element's 90 s
+/// cap, past which other clients consider the ring invalid.
 pub(crate) fn send_notification(
     bridge: &RustClient,
     room_id: String,
@@ -1854,8 +1491,8 @@ pub(crate) fn send_notification(
     };
     let lifetime = lifetime_ms.clamp(1_000, MAX_NOTIFICATION_LIFETIME_MS);
 
-    // Relating the notification to our own membership event is what lets a
-    // receiver connect the ring to a session (and lets a decline target it).
+    // Relating the ring to our membership event lets receivers connect it to a
+    // session and target a decline at it.
     let relates_to = match sane(&membership_event_id, MAX_WIRE_LEN) {
         Some(id) => match OwnedEventId::try_from(id.to_owned()) {
             Ok(event_id) => Some(Reference::new(event_id)),
@@ -1868,8 +1505,7 @@ pub(crate) fn send_notification(
         notification_type: notification_type.to_owned(),
         sender_ts: MilliSecondsSinceUnixEpoch::now(),
         lifetime,
-        // `room: true` is what makes the notification reach the room's
-        // members through push rules; Element sends exactly this.
+        // `room: true` makes it reach members through push rules, as Element does.
         mentions: Some(Mentions::with_room_mention()),
         relates_to,
         call_intent: Some(intent.to_owned()),
@@ -1909,149 +1545,78 @@ pub(crate) fn send_notification(
 // Publishing our own membership
 // ---------------------------------------------------------------------------
 
-/// How long a published membership claims to be valid WHEN THE SERVER CAN
-/// RETRACT IT FOR US.
-///
-/// 4 h is the reference implementation's `DEFAULT_EXPIRE_DURATION`, and it is
-/// only defensible while an MSC4140 delayed retraction is armed: that is what
-/// actually cleans up after a crash, and `expires` is then a distant backstop
-/// nobody is expected to reach. The comment that used to sit here called this
-/// "deliberately SHORT ... the refresh below runs at a third of it", which was
-/// never true of any code — nothing refreshed the state event at all, so on a
-/// server without delayed events a dead client sat in the call for FOUR HOURS.
-/// That is the maintainer's "multiple same users sit in the call".
+/// Membership validity when the server can retract it for us (an MSC4140
+/// delayed retraction is armed). 4 h is the reference's
+/// `DEFAULT_EXPIRE_DURATION`; the delayed retraction does the real cleanup.
 const MEMBERSHIP_EXPIRY_MS: u64 = 4 * 60 * 60 * 1000;
 
-/// How long a published membership claims to be valid WHEN NOTHING SERVER-SIDE
-/// WILL RETRACT IT.
-///
-/// On a homeserver without MSC4140 (Synapse gates it behind
-/// `experimental_features.msc4140_enabled`, OFF by default) the client is the
-/// only cleanup there is, and a client that is dead cannot send anything. The
-/// only remaining mechanism is `expires` running out — so it must run out in
-/// minutes, not hours, and the client must re-publish often enough that a live
-/// participant never ages out.
-///
-/// 5 minutes against `SfuCallController`'s 60 s re-publish cadence: FIVE
-/// consecutive failed refreshes are survivable before a live participant
-/// disappears from anyone's list. Shortening this without that re-publish
-/// cadence would be strictly WORSE than four hours — it would start removing
-/// people who are still talking.
+/// Membership validity when nothing server-side will retract it (no
+/// MSC4140; Synapse has it off by default). `expires` is then the only
+/// cleanup, so it must run out in minutes, with the client re-publishing
+/// often enough that a live participant never ages out. 5 minutes against
+/// `SfuCallController`'s 60 s re-publish survives five failed refreshes;
+/// shortening it without that cadence would drop people mid-call.
 const MEMBERSHIP_EXPIRY_NO_DELAYED_MS: u64 = 5 * 60 * 1000;
 
-/// The `expires` DURATION to write, given how old this membership already is.
+/// The `expires` duration to write, given the membership's age.
 ///
-/// `expires` is measured from `created_ts`, NOT from now: every client reads
-/// the absolute deadline as `created_ts + expires` — including this file's own
-/// parser, which does `created_ts.saturating_add(expires)`. A refresh
-/// deliberately PRESERVES `created_ts` (so the oldest-membership focus
-/// selection does not reorder), so writing the same constant on every refresh
-/// republishes the very same absolute instant. The membership then dies a
-/// fixed period after the JOIN however often it is refreshed.
+/// Readers compute the deadline as `created_ts + expires`, and a refresh
+/// keeps `created_ts` (so focus selection does not reorder). Writing a
+/// constant would therefore republish the same absolute deadline, and the
+/// membership would expire a fixed period after the join however often it
+/// is refreshed: peers then drop the user and rotate keys without them.
 ///
-/// THAT WAS THE REPORTED DEFECT: a Lightning participant vanished from every
-/// other client's list exactly `MEMBERSHIP_EXPIRY_NO_DELAYED_MS` after joining
-/// and reappeared a few seconds later, over and over. It also explains the
-/// lopsided symptom — the peers aged the membership out and rotated media keys
-/// WITHOUT that user, so they could still be heard (their own media kept
-/// flowing to an SFU that had never disconnected them) while they could hear
-/// nobody. The 60 s re-publish cadence was running correctly the whole time;
-/// it was writing a value that could not extend anything.
-///
-/// Clock domains: `created_ts` comes from the server (the content field, or
-/// `origin_server_ts` when the first publish omitted it) and `now_ms` is
-/// local. The reference implementation mixes them the same way. Skew only
-/// matters at the scale of the refresh slack — five refreshes at 60 s against
-/// a 5 minute period — and a client whose clock runs BEHIND the server merely
-/// re-publishes sooner than it had to.
+/// `created_ts` is server time and `now_ms` local, as in the reference; skew
+/// matters only at the scale of the refresh slack.
 fn expires_for_refresh(period_ms: u64, created_ts: Option<u64>, now_ms: u64)
     -> u64
 {
     match created_ts {
-        // A first publish carries no created_ts, so peers date it from this
-        // event's own origin_server_ts: the duration IS the period.
+        // A first publish has no created_ts, so peers date it from the event's
+        // origin_server_ts: the duration is the period.
         None => period_ms,
-        // Saturating both ways: a created_ts in the FUTURE (skew, or a hostile
-        // value read back from our own state) must not wrap, and yields the
-        // plain period — an absolute deadline still at least a period out.
+        // Saturating both ways: a future created_ts (skew, or hostile) must not
+        // wrap, and yields the plain period.
         Some(created) => now_ms
             .saturating_sub(created)
             .saturating_add(period_ms),
     }
 }
 
-/// The `expires` the no-MSC4140 fallback write must carry.
-///
-/// The fallback is the second write of a publish that ASSUMED the server
-/// would arm a delayed retraction and found that it did not. It replaces our
-/// own state event under the same state key, keeping `created_ts` — and
-/// `created_ts` is the PRESERVED ORIGINAL JOIN, which is the whole trap.
-///
-/// This used to pass `MEMBERSHIP_EXPIRY_NO_DELAYED_MS` directly. On a fresh
-/// join that is harmless, because `created_ts` is `None` and peers date the
-/// membership from the event's own `origin_server_ts`. On anything else it is
-/// a membership BORN EXPIRED: twenty minutes into a call, or on a rejoin that
-/// inherited a still-live membership from a previous session, the deadline it
-/// writes is `created_ts + 5 minutes`, which is already in the past. Every
-/// reader drops it, including our own `read_session`, so the local
-/// participant list can fall to zero WITH OUR OWN DEVICE IN THE CALL, and
-/// peers rotate media keys to a set that no longer contains us.
-///
-/// Reachable on a server that DOES support MSC4140, because
-/// `schedule_delayed_leave` reports every failure the same way — a timeout, a
-/// 429 and a 5xx all arrive as an empty delay id, not just "this server has
-/// no MSC4140". One blip mid-call is enough.
-///
-/// It is the same rule the first write already applies; the two call sites
-/// had drifted apart. See `expires_for_refresh` for why a constant cannot
-/// extend anything.
+/// The `expires` for the no-MSC4140 fallback write, which replaces our state
+/// event while keeping the original `created_ts`. A bare constant there
+/// would publish a membership already expired whenever this is not a fresh
+/// join, dropping our own device from every reader's list. It can run on
+/// MSC4140 servers too, since `schedule_delayed_leave` reports any failure
+/// (timeout, 429, 5xx) as an empty delay id. Same rule as
+/// `expires_for_refresh`.
 fn fallback_expires_ms(created_ts: Option<u64>, now_ms: u64) -> u64 {
     expires_for_refresh(MEMBERSHIP_EXPIRY_NO_DELAYED_MS, created_ts, now_ms)
 }
 
-/// Delayed-event (MSC4140) timeout — the server retracts our membership for
-/// us if we stop restarting it. This is the ONLY cleanup that survives a
-/// crash, a kill, or a lost network.
+/// MSC4140 delayed-event timeout: the server retracts our membership if we
+/// stop restarting it. The only cleanup that survives a crash, kill or lost
+/// network.
 const DELAYED_LEAVE_TIMEOUT_MS: u64 = 8_000;
 
-/// Which homeservers have REFUSED to arm a delayed retraction.
+/// Homeservers that have refused to arm a delayed retraction.
 ///
-/// PER SERVER, and that scoping is the whole point of the type. It decides
-/// which `expires` the FIRST write of a publish carries, so a server known to
-/// lack MSC4140 does not cost two state events on every refresh, and it is
-/// read by the scheduled-send probe.
+/// Per server, because MSC4140 support is a server property: it decides
+/// the `expires` of a publish's first write (saving a second write on every
+/// refresh) and feeds the scheduled-send probe. A process-global flag let
+/// one old server disable crash cleanup for every other account.
 ///
-/// IT USED TO BE A PROCESS-GLOBAL `AtomicBool`, and that was a live defect,
-/// not a simplification. MSC4140 is a property of a HOMESERVER; the flag was a
-/// property of the PROCESS. So signing in to an account on an old Synapse
-/// latched it, and every other account — on servers that implement MSC4140
-/// perfectly — then lost server-side call cleanup for the rest of the session:
-/// a five-minute ghost participant on every unclean exit, and a scheduled-send
-/// probe reporting the feature unsupported so sends silently fell back to the
-/// local queue. Keyed by server, an account switch simply asks a different
-/// question.
-///
-/// Two properties the entries themselves must keep:
-///
-///   * an entry is added ONLY for a category that means THE ENDPOINT IS NOT
-///     THERE (`delayed_refusal_is_permanent`). A timeout, a 429 and a 5xx all
-///     reach that code as an empty delay id too, and latching on one of those
-///     would disable MSC4140 cleanup for a whole server because of a single
-///     blip. It is a crash-safety mechanism, so losing it silently strands
-///     memberships on every unclean exit thereafter.
-///   * a successful arm REMOVES the entry. For one server that is close to
-///     unreachable in practice — once recorded, the gate stops arming, so
-///     nothing calls `schedule_delayed_leave` again — and it is kept because
-///     it costs nothing and makes a server that gains support recoverable the
-///     moment anything does reach it.
+///   * An entry is added only for a category meaning the endpoint is absent
+///     (`delayed_refusal_is_permanent`); a timeout, 429 or 5xx also yields an
+///     empty delay id, and latching on those would disable crash cleanup
+///     for a whole server over one blip.
+///   * A successful arm removes the entry, so a server that gains support
+///     recovers.
 static DELAYED_EVENTS_REFUSED: Mutex<BTreeSet<String>> =
     Mutex::new(BTreeSet::new());
 
-/// Record — or clear — the refusal for ONE homeserver.
-///
-/// Takes the server as a plain string rather than a `Client` so the
-/// per-server behaviour can be tested without one; the `_for_client` wrappers
-/// below are the only callers in production.
+/// Record or clear the refusal for one homeserver. Takes a plain string so
+/// it is testable; the `_for_client` wrappers are the production callers.
 fn mark_delayed_refusal(server: &str, refused: bool) {
     let Ok(mut seen) = DELAYED_EVENTS_REFUSED.lock() else {
         return;
@@ -2063,7 +1628,7 @@ fn mark_delayed_refusal(server: &str, refused: bool) {
     }
 }
 
-/// Has THIS homeserver refused? A different one's answer is not evidence.
+/// Has this homeserver refused? Another server's answer is not evidence.
 fn delayed_refusal_recorded(server: &str) -> bool {
     DELAYED_EVENTS_REFUSED
         .lock()
@@ -2071,8 +1636,7 @@ fn delayed_refusal_recorded(server: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// The key. The homeserver's own URL, because that is what the property
-/// belongs to — not the account, and certainly not the process.
+/// The key: the homeserver URL, since the property belongs to the server.
 fn delayed_refusal_key(client: &Client) -> String {
     client.homeserver().to_string()
 }
@@ -2085,49 +1649,24 @@ fn delayed_refusal_recorded_for_client(client: &Client) -> bool {
     delayed_refusal_recorded(&delayed_refusal_key(client))
 }
 
-/// Which (room, state key) memberships THIS PROCESS has successfully
-/// published during its lifetime.
+/// Which (room, state key) memberships this process has published.
 ///
-/// IT DECIDES WHETHER A PUBLISH IS A JOIN OR A REFRESH, and nothing else
-/// could: `publish_membership` serves both and the FFI carries no flag, so
-/// before this existed every publish read our own state event back and
-/// inherited its `created_ts` — including the very first publish of a fresh
-/// process.
+/// Decides whether a publish is a join or a refresh (the FFI carries no
+/// flag). A refresh must inherit `created_ts`, which orders
+/// `oldest_membership` focus selection and anchors `expires_for_refresh`. A
+/// join must not: after an unclean exit on a server without MSC4140, our old
+/// membership lingers, and inheriting its `created_ts` makes peers see an
+/// unchanged `(userId, deviceId, membershipTs)`. matrix-js-sdk's
+/// `rolloutOutboundKey` then sends no media key to the rejoined device, and
+/// MatrixRTC has no key request, so it never decrypts. element-call's
+/// `makeMyMembership` likewise omits `created_ts` on a join.
 ///
-/// THAT WAS A LIVE, REPRODUCED DEFECT AND IT COST A CALL ITS INCOMING MEDIA.
-/// On a homeserver without MSC4140 an unclean exit (a `^C`, a crash, a lost
-/// network) leaves our membership behind until `expires` runs out. A rejoin
-/// inside that window found the ghost, inherited ITS `created_ts`, and wrote
-/// it explicitly into the new event — so to every other client the
-/// membership's `createdTs()` had not moved. matrix-js-sdk's
-/// `RTCEncryptionManager.rolloutOutboundKey` keys "who already holds my key"
-/// on the triple `(userId, deviceId, membershipTs)` with
-/// `membershipTs: membership.createdTs()`, so an unchanged timestamp means
-/// the rejoining device is NOT a new joiner and **no media key is sent to
-/// it**. MatrixRTC has no key request, so nothing recovers: every frame from
-/// every peer is dropped for want of a key, for the rest of the call.
-///
-/// Measured on 2026-09-15 against Element (app.element.io, Element Call) on a
-/// server advertising `org.matrix.msc4140: false`: a clean hang-up and rejoin
-/// got a rotated key and decrypted; a `kill -9` and rejoin inside the window
-/// got no key at all and dropped 500 frames and counting. The rejoin's state
-/// event carried `created_ts` explicitly set to the killed session's join
-/// time, where the pre-kill event had no `created_ts` in its content.
-///
-/// A REFRESH must still inherit it — that is why the whole mechanism exists:
-/// `created_ts` orders `oldest_membership` focus selection, so moving it
-/// mid-call reshuffles everyone's chosen SFU, and `expires_for_refresh`
-/// measures the deadline from it. A JOIN must not: a new session IS a new
-/// participant, and element-call's own `makeMyMembership` omits `created_ts`
-/// entirely when it has no `ownMembership` of its own to carry forward.
-///
-/// Keyed on (room, state key) rather than room alone, so it is inherently
-/// account-scoped: the state key contains the user and device id.
+/// Keyed on (room, state key), so it is account-scoped (the state key
+/// contains user and device).
 static OWN_MEMBERSHIP_PUBLISHED: Mutex<BTreeSet<String>> =
     Mutex::new(BTreeSet::new());
 
-/// The key both halves use. U+241F is not legal in a room id or a state key,
-/// so the two fields cannot collide.
+/// Key for both halves. U+001F cannot occur in a room id or state key.
 fn membership_publish_key(room_id: &str, state_key: &str) -> String {
     format!("{room_id}\u{1f}{state_key}")
 }
@@ -2136,43 +1675,26 @@ fn mark_membership_published(key: &str) {
     if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
         seen.insert(key.to_owned());
     }
-    // Joining a call is the freshest evidence there is that this room has a
-    // session, so it also cancels whatever escalation backoff the room built
-    // up while it was idle. Without this a room that had been quiet for a
-    // quarter of an hour could carry a five-minute gap into the call it is
-    // about to host, and the media key lane would be reading a store that had
-    // not caught up yet.
+    // Joining a call is fresh evidence of a session, so clear the room's
+    // escalation backoff; otherwise the media key lane could read a stale store.
     if let Some(room_id) = key.split('\u{1f}').next() {
         clear_server_escalation_backoff(room_id);
     }
 }
 
-/// Forget it, so the NEXT publish is a join again.
-///
-/// Called when we retract — an in-process leave and rejoin is two sessions of
-/// the call and the second one must mint its own `created_ts`, exactly like a
-/// restart. Called unconditionally on the intent to leave, not on the
-/// retraction succeeding: a retraction that failed leaves the same ghost a
-/// crash does, and the rejoin after it needs the same treatment.
+/// Forget it, so the next publish is a join. Called on the intent to leave,
+/// not on retraction success: a failed retraction leaves the same ghost a
+/// crash does.
 fn forget_membership_published(key: &str) {
     if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
         seen.remove(key);
     }
 }
 
-/// Has this process already published this membership? Pure over the set so
-/// the join/refresh rule is testable without a homeserver.
-/// Forget every membership this process published in one room, without
-/// needing a client, a session or a joined room to do it.
-///
-/// `forget_membership_published` needs the state key, which needs the user and
-/// device ids, which need a live session — and the leave path runs on sign-out,
-/// where that session is exactly what has gone. Four fallible lookups sat
-/// ahead of the only thing that clears the set, so a torn-down session left
-/// the mark behind and the NEXT join into the same room read as a refresh and
-/// inherited the ghost's `created_ts`: the defect this whole change removes,
-/// surviving an account switch. The room id is a plain parameter and needs
-/// none of that.
+/// Forget every membership this process published in one room, without a
+/// client or session. The sign-out path has no session left to derive the
+/// state key from, and a stale mark would make the next join inherit a
+/// ghost's `created_ts`.
 fn forget_room_memberships_published(room_id: &str) {
     let prefix = format!("{room_id}\u{1f}");
     if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
@@ -2180,22 +1702,16 @@ fn forget_room_memberships_published(room_id: &str) {
     }
 }
 
-/// Drop the whole set. The invariant this static must hold is "only a
-/// membership THIS session published may inherit its `created_ts`", and a
-/// session ending is precisely when that stops being true — so it is cleared
-/// there rather than relying on every leave path being correct. Cheap: the set
-/// holds one short string per room this process has joined a call in.
+/// Drop the whole set. Only a membership this session published may be
+/// inherited, so the set is cleared when a session ends rather than relying
+/// on every leave path.
 pub(crate) fn forget_all_memberships_published() {
     if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
         seen.clear();
     }
-    // The two per-room mark tables belong to the session that is ending for
-    // the same reason this set does, and they are cleared HERE rather than
-    // through a second hook because this is already the one function every
-    // teardown path runs (see its caller in lib.rs). Neither holds anything
-    // secret — a room id and an instant — but both are account state, and
-    // §9's isolation rule is that the next account starts clean rather than
-    // inheriting a gap the previous one earned.
+    // The per-room mark tables are session state too; cleared here because
+    // every teardown path runs this (see lib.rs), so the next account starts
+    // clean.
     if let Ok(mut marks) = server_escalation_marks().lock() {
         marks.clear();
     }
@@ -2204,6 +1720,8 @@ pub(crate) fn forget_all_memberships_published() {
     }
 }
 
+/// Has this process already published this membership? Pure over the set,
+/// so the join/refresh rule is testable without a homeserver.
 fn membership_published_in_this_process(key: &str) -> bool {
     OWN_MEMBERSHIP_PUBLISHED
         .lock()
@@ -2211,13 +1729,8 @@ fn membership_published_in_this_process(key: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Is this process in a call in this room — i.e. does it hold a published
-/// membership for ANY of its own devices there?
-///
-/// The same set, asked room-wide rather than per state key, because the
-/// question the session read needs answered is "is the media key lane
-/// depending on this read?" and that is true for whichever local device
-/// published. Prefix-matched on the same U+241F key, exactly like
+/// Is this process in a call in this room, i.e. does it hold a published
+/// membership for any of its devices there? Prefix match on the same key as
 /// `forget_room_memberships_published`.
 fn room_has_published_membership(room_id: &str) -> bool {
     let prefix = format!("{room_id}\u{1f}");
@@ -2227,40 +1740,21 @@ fn room_has_published_membership(room_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Does this refusal category mean the homeserver simply does not implement
-/// MSC4140, as opposed to something that may work on the next try?
+/// Does this refusal category mean the homeserver does not implement
+/// MSC4140, rather than something that may work next time? Pure for tests.
 ///
-/// Pure, so it can be tested without a homeserver. Three categories mean the
-/// server will never arm one:
+///   * `unrecognized`: Synapse's 404 M_UNRECOGNIZED;
+///   * `not_found`: a plain 404;
+///   * `no_delay_id`: the server ignored the delay parameter, applied the
+///     body and returned 200 without a `delay_id` (GitHub #10);
+///   * `delayed_unsupported`: Synapse with `msc4140_enabled` off answers
+///     `400 M_UNKNOWN` "Delayed events are not supported on this server"
+///     with `org.matrix.msc4140.errcode: M_MAX_DELAY_UNSUPPORTED` (the body
+///     is not applied).
 ///
-///   * `unrecognized` — Synapse's 404 M_UNRECOGNIZED for an endpoint it does
-///     not implement;
-///   * `not_found` — the plain 404;
-///   * `no_delay_id` — **the server ANSWERED and it was not a delayed event.**
-///     A homeserver that ignores `?org.matrix.msc4140.delay=` applies the
-///     body and returns 200 with an `event_id` and no `delay_id`. That is not
-///     a 404 and there is nothing in its message text to match, so it used to
-///     fall through to `network` and be treated as transient — which left the
-///     latch permanently unset on exactly the server class GitHub #10 is
-///     about, and so armed a naked retraction on every single refresh.
-///
-/// Everything else — `network` (which is also where a TIMEOUT lands),
-/// `rate_limited`, `forbidden`, `invalid` — is either transient or specific to
-/// one room, and neither justifies a process-global latch. `forbidden` in
-/// particular is how a room's own power levels refuse a state write, which
-/// says nothing about the server's MSC4140 support.
-///   * `delayed_unsupported` — **the server said so in words.** Synapse with
-///     `msc4140_enabled` off answers the delayed PUT `400 M_UNKNOWN` with
-///     `"Delayed events are not supported on this server"` and its own
-///     `org.matrix.msc4140.errcode: M_MAX_DELAY_UNSUPPORTED`. MEASURED
-///     against `matrix.smetonis.net` on 2026-09-15 — the body did NOT land,
-///     so this server class never sees the naked retraction described in
-///     `publish_membership`. None of that text matches any branch of
-///     `classify_room_error`, so it used to fall through to `network` and be
-///     treated as a passing blip: the latch never set, every publish paid a
-///     doomed arm plus a second state event to correct the expiry, and the
-///     `membership published … delayed_reason= "network"` line said the
-///     opposite of the truth about a permanent property.
+/// Everything else (`network`, including timeouts, `rate_limited`,
+/// `forbidden`, `invalid`) is transient or room-specific. `forbidden` is
+/// how a room's power levels refuse a state write.
 pub(crate) fn delayed_refusal_is_permanent(category: &str) -> bool {
     matches!(
         category,
@@ -2271,23 +1765,14 @@ pub(crate) fn delayed_refusal_is_permanent(category: &str) -> bool {
 /// The `/versions` feature flag for MSC4140.
 const MSC4140_FEATURE: &str = "org.matrix.msc4140";
 
-/// Does the homeserver ADVERTISE delayed events?
+/// Does the homeserver advertise delayed events?
 ///
-/// CONSULTED ONLY AFTER AN ARM HAS ALREADY FAILED, as corroboration — never
-/// as a gate on trying. That ordering matters twice. A server that implements
-/// MSC4140 without advertising it still gets probed and still works; and a
-/// server that advertises it but refuses in practice is still caught by the
-/// category, which is the case `delayed_events_assumed_refused` exists for.
-///
-/// `unstable_features()` carries only the features whose value is TRUE —
-/// ruma's `SupportedVersions::from_parts` drops the false ones — so absence
-/// here means "not advertised", which covers both `"org.matrix.msc4140":
-/// false` (what this maintainer's Synapse answers) and a server too old to
-/// name the feature at all. Both are servers on which the arm cannot work.
-///
-/// An UNANSWERABLE question reads as "advertised", so the corroboration
-/// becomes a no-op and the refusal category alone decides. Never latch on not
-/// knowing: the latch disables the only cleanup that survives a crash.
+/// Consulted only after an arm failed, as corroboration, never as a gate,
+/// so a server that supports MSC4140 without advertising it still works.
+/// `unstable_features()` holds only features set to true, so absence covers
+/// both `false` and a server too old to name it. An unanswerable query
+/// reads as "advertised": never latch on not knowing, since the latch
+/// disables crash cleanup.
 async fn server_advertises_delayed_events(client: &Client) -> bool {
     use matrix_sdk::ruma::api::FeatureFlag;
     match tokio::time::timeout(DISCOVERY_TIMEOUT, client.unstable_features())
@@ -2298,27 +1783,24 @@ async fn server_advertises_delayed_events(client: &Client) -> bool {
     }
 }
 
-/// v0.9 (phase 11): whether this process has seen the homeserver refuse a
-/// delayed event. Read by the scheduled-send probe so a server that
-/// advertises MSC4140 but refuses it in practice is still reported honestly.
+/// Whether this process has seen the homeserver refuse a delayed event,
+/// for the scheduled-send probe.
 pub(crate) fn delayed_events_assumed_refused(client: &Client) -> bool {
     delayed_refusal_recorded_for_client(client)
 }
 
-/// Build the state key Element writes.
-///
-/// `{user}_{device}_{application}{slotId}`, with a LEADING UNDERSCORE except
-/// on room versions that allow a user-scoped state key to be owned by its
-/// user (`org.matrix.msc3757`/`msc3779`). Getting this wrong means the
-/// server refuses the write, or worse, that our membership does not replace
-/// our own previous one and we appear twice.
+/// The state key Element writes:
+/// `{user}_{device}_{application}{slotId}`, with a leading underscore except
+/// on room versions where a user-scoped key is owned by its user
+/// (`org.matrix.msc3757`/`msc3779`). Getting it wrong makes the write fail
+/// or leaves us in the call twice.
 pub(crate) fn membership_state_key(
     user_id: &str,
     device_id: &str,
     room_version: &str,
 ) -> String {
-    // The room call's slot id is "" in a state key (the "ROOM" spelling is
-    // the newer vocabulary and is NOT what goes on the wire here).
+    // The room call's slot id is "" in a state key ("ROOM" is not used on
+    // this wire).
     let key = format!("{user_id}_{device_id}_{APPLICATION_CALL}");
     if room_version.starts_with("org.matrix.msc3757")
         || room_version.starts_with("org.matrix.msc3779")
@@ -2329,11 +1811,9 @@ pub(crate) fn membership_state_key(
     }
 }
 
-/// The membership content Lightning publishes.
-///
-/// Deliberately the LEGACY session format: it is what every deployed server
-/// and every current Element understands. The sticky format is parsed but
-/// not written, because matrix-sdk 0.18 cannot send a sticky event at all.
+/// The membership content we publish, in the legacy session format that
+/// every deployed server and Element understand (matrix-sdk 0.18 cannot
+/// send sticky events).
 fn own_membership_content(
     device_id: &str,
     user_id: &str,
@@ -2348,13 +1828,11 @@ fn own_membership_content(
         "call_id": "",
         "scope": "m.room",
         "device_id": device_id,
-        // The SFU participant identity for this format. The SFU assigns
-        // exactly this, so it must match or our media cannot be attributed
-        // to our membership.
+        // The SFU participant identity for this format; the SFU assigns exactly
+        // this.
         "membershipID": format!("{user_id}:{device_id}"),
-        // NOT a constant. How long this membership claims to live depends on
-        // whether anything but us will ever retract it — see
-        // MEMBERSHIP_EXPIRY_NO_DELAYED_MS.
+        // Not a constant: depends on whether anything else will retract this
+        // membership (see MEMBERSHIP_EXPIRY_NO_DELAYED_MS).
         "expires": expires_ms,
         "m.call.intent": intent,
         "focus_active": {
@@ -2365,27 +1843,22 @@ fn own_membership_content(
             .map(|f| vec![f.to_json()])
             .unwrap_or_default(),
     });
-    // On an UPDATE (a refresh), created_ts must keep pointing at the original
-    // join or every refresh looks like a fresh join and reorders the
-    // oldest-membership focus selection under everyone's feet.
+    // On a refresh, created_ts keeps the original join so focus selection does
+    // not reorder.
     if let Some(created) = created_ts {
         content["created_ts"] = json!(created);
     }
     content
 }
 
-/// Publish (or refresh) our own membership in a room's call.
+/// Publish or refresh our membership in a room's call.
 ///
-/// Two writes, in this order, and the order matters:
-///  1. The membership state event itself.
-///  2. A DELAYED retraction (MSC4140) scheduled a few seconds out, which the
-///     client then restarts periodically. If Lightning dies, the server
-///     fires it and our membership disappears — without this, a crash leaves
-///     a phantom participant in the call until the 4 h expiry.
+///  1. Write the membership state event.
+///  2. Arm an MSC4140 delayed retraction a few seconds out, restarted
+///     periodically, so a crash does not leave a phantom participant.
 ///
-/// A server without MSC4140 simply refuses step 2; that is reported as
-/// `delayed_unsupported`, not as a failure, because the membership itself is
-/// published and the call works — it just relies on `expires` for cleanup.
+/// A server without MSC4140 refuses step 2; that is reported as
+/// `delayed_unsupported`, not a failure, and cleanup relies on `expires`.
 pub(crate) fn publish_membership(
     bridge: &RustClient,
     room_id: String,
@@ -2429,14 +1902,9 @@ pub(crate) fn publish_membership(
         let state_key =
             membership_state_key(&user_id, &device_id, &room_version);
 
-        // Preserve created_ts across a REFRESH — and only across a refresh.
-        //
-        // A JOIN starts its own clock. Inheriting a previous SESSION's join
-        // time makes every peer read our membership as unchanged, so nobody
-        // treats us as a new joiner and nobody sends us a media key; see
-        // OWN_MEMBERSHIP_PUBLISHED for the measurement. `read_own_created_ts`
-        // is not even called on a join, so a ghost left by a crashed session
-        // cannot reach this value by any route.
+        // Preserve created_ts only across a refresh. A join starts its own clock
+        // (see OWN_MEMBERSHIP_PUBLISHED); `read_own_created_ts` is not even called
+        // on a join, so a crashed session's ghost cannot leak in.
         let publish_key =
             membership_publish_key(room.room_id().as_str(), &state_key);
         let is_refresh = membership_published_in_this_process(&publish_key);
@@ -2445,15 +1913,8 @@ pub(crate) fn publish_membership(
         } else {
             None
         };
-        // CARRY THE ROOM AS `livekit_alias`, which is what Element publishes.
-        //
-        // The alias names the SFU room a client should be placed in, and
-        // lk-jwt-service derives that name from it. Advertising a focus
-        // WITHOUT one is not obviously wrong — the service falls back to the
-        // room we send in `/sfu/get` — but it makes our membership a shape no
-        // other client in the ecosystem produces, and a peer comparing the two
-        // transports sees different objects for the same SFU. Matching Element
-        // exactly costs nothing and removes the difference from the question.
+        // Carry the room as `livekit_alias`, as Element publishes it, so our focus
+        // has the same shape as every other client's for the same SFU.
         let focus = focus.map(|transport| LivekitTransport {
             service_url: transport.service_url.clone(),
             alias: transport
@@ -2462,19 +1923,15 @@ pub(crate) fn publish_membership(
                 .or_else(|| Some(room.room_id().to_string())),
         });
 
-        // The expiry we ASSUME is right, from what this process has already
-        // learned about the server. Assumption, not fact — it is checked
-        // against what the server does with the delayed retraction below, and
-        // corrected there.
+        // The expiry assumed from what we know about this server; checked against
+        // what the server does with the delayed retraction below.
         let assumed_no_delayed = delayed_refusal_recorded_for_client(&client);
         let period_ms = if assumed_no_delayed {
             MEMBERSHIP_EXPIRY_NO_DELAYED_MS
         } else {
             MEMBERSHIP_EXPIRY_MS
         };
-        // Measured from created_ts, which a refresh preserves — see
-        // expires_for_refresh. A constant here expires the membership a fixed
-        // period after the JOIN, not after the refresh.
+        // Measured from created_ts (see expires_for_refresh).
         let expires_ms = expires_for_refresh(period_ms, created_ts, now_ms());
         let content = own_membership_content(
             &device_id, &user_id, focus.as_ref(), intent, created_ts,
@@ -2501,55 +1958,24 @@ pub(crate) fn publish_membership(
             Err(_) => (false, "network".to_owned(), String::new()),
         };
 
-        // From here on this process owns that state key, so every later
-        // publish for it is a REFRESH and inherits created_ts. Recorded only
-        // on a write the server accepted: a publish that failed left nothing
-        // of ours behind, and the retry after it is still a join.
+        // From now on this process owns the state key, so later publishes are
+        // refreshes. Only on an accepted write; a failed publish's retry is still a
+        // join.
         if ok {
             mark_membership_published(&publish_key);
         }
 
-        // THE DELAYED RETRACTION IS A NAKED `{}` PUT TO OUR OWN STATE KEY,
-        // AND ON A SERVER THAT DOES NOT KNOW MSC4140 IT RETRACTS US.
+        // The delayed retraction is a `{}` PUT to our own state key, marked delayed
+        // only by a query parameter (`?org.matrix.msc4140.delay=`) on the v3 state
+        // endpoint. A server that ignores the parameter applies the body, which
+        // retracts the membership we just published (GitHub #10: calls dropping to
+        // one participant right after a refresh).
         //
-        // ruma's `delayed_state_event::unstable::Request` uses the STABLE v3
-        // state endpoint and marks the request delayed with nothing but a
-        // query parameter:
-        //
-        //   /_matrix/client/v3/rooms/{room}/state/{type}/{state_key}
-        //       ?org.matrix.msc4140.delay=1234321
-        //
-        // A homeserver that does not recognise that parameter — Synapse
-        // 1.115 and older have no handling for it at all, and anything that
-        // never implemented MSC4140 and does not reject unknown query
-        // parameters — simply applies the body. The body is `{}`, which IS a
-        // retraction. So on those servers this call deletes the membership we
-        // published milliseconds earlier.
-        //
-        // That is the reported defect (GitHub #10, still failing on 0.9.4):
-        // a two-party call that works for about a minute and then, IMMEDIATELY
-        // after `membership refreshed`, drops to `participants= 1` from BOTH
-        // the store and the server, the peer stops being able to address a
-        // media key to us, and we go on being heard while hearing nobody.
-        // Three rounds looked for a peer who had vanished. The participant
-        // that vanished was OURS.
-        //
-        // The asymmetry is what made it survive those rounds: a JOIN is
-        // repaired by the reconciliation below (`!assumed_no_delayed &&
-        // delay_id.is_empty()` re-publishes), so the call comes up healthy —
-        // but a REFRESH takes `assumed_no_delayed`, where neither branch can
-        // fire, so nothing puts the membership back for a full period.
-        //
-        // So: only arm where the repair write can follow. See
-        // `delayed_retraction_is_repairable` for the rule stated on its own.
-        //
-        // element-call does it the other way round and is immune by
-        // ORDERING — `MembershipManager` arms the delayed event FIRST and
-        // writes the membership SECOND, so an ignored `{}` lands on a state
-        // key with no live membership and the write that follows is final.
-        // Reordering here is the better fix and is a bigger change than a
-        // reported-and-waiting defect should carry; this gate makes every
-        // naked retraction a repaired one, which is the property that matters.
+        // A join is repaired by the reconciliation below; a refresh
+        // (`assumed_no_delayed`) is not. So arm only where the repair can follow;
+        // see `delayed_retraction_is_repairable`. element-call avoids this by
+        // ordering (arm first, then write); reordering is the better but larger
+        // fix.
         let mut delay_id = String::new();
         let mut delayed_category = String::new();
         if ok && delayed_retraction_is_repairable(assumed_no_delayed) {
@@ -2557,11 +1983,8 @@ pub(crate) fn publish_membership(
                                          &state_key).await
             {
                 Ok(id) => {
-                    // THE ROUTE BACK for this server. Close to unreachable
-                    // once an entry exists — the gate then stops arming, so
-                    // nothing reaches here — and kept because it costs
-                    // nothing and makes a server that GAINS support
-                    // recoverable the moment anything does.
+                    // A successful arm clears this server's refusal entry, so a server that
+                    // gains support recovers.
                     if !id.is_empty() {
                         mark_delayed_refusal_for_client(&client, false);
                     }
@@ -2571,90 +1994,41 @@ pub(crate) fn publish_membership(
             }
         }
 
-        // RECONCILE THE ASSUMPTION WITH WHAT THE SERVER ACTUALLY DID.
+        // Reconcile the assumption with what the server did. We assumed delayed
+        // events work and they did not: re-publish with the short expiry. There
+        // is provably no armed event to disturb, and otherwise the membership
+        // would claim 4 h that nothing cuts short. (With the gate above we never
+        // arm while assuming refusal, so the opposite case cannot occur.)
         //
-        // Only ONE of the two corrections rewrites the state event, and that
-        // is deliberate. Rewriting a state event while a delayed retraction is
-        // armed is a question nobody here has measured — MSC4140 may or may
-        // not cancel delayed events for the same (room, type, state key) when
-        // a new one is sent, and getting it wrong either strands an armed
-        // retraction that fires mid-call or leaves us with none. So:
-        //
-        //   * assumed delayed events work, they do NOT  -> re-publish SHORT.
-        //     There is provably no armed event to disturb (arming is what
-        //     just failed), and without this the membership would claim four
-        //     hours of validity that nothing will ever cut short.
-        //   * assumed they do NOT work, they DO -> CANCEL the delayed event we
-        //     just armed and report no delay id. This publish then behaves
-        //     exactly like the no-MSC4140 case it was written for (short
-        //     expiry, client re-publishes), which is correct if slower, and
-        //     the NEXT publish carries the long expiry and a real delayed
-        //     retraction. No state event is rewritten under an armed event.
-        // The "assumed they do NOT work, they DO" branch is GONE with the
-        // gate above, because we no longer arm while assuming refusal — so
-        // `delay_id` cannot be non-empty there. The old re-probe cost a NAKED,
-        // UNREPAIRED retraction on every refresh against a server that ignores
-        // the parameter, which is the defect `b146b22` fixed.
-        //
-        // WHAT REPLACES IT is not "wait for the next launch", which is what
-        // this comment claimed while the latch had no way back at all: a
-        // successful arm CLEARS `DELAYED_EVENTS_REFUSED` (see the `Ok` arm
-        // above), and the latch is only set for a category that means the
-        // endpoint is absent. So a server that gains MSC4140 support is
-        // re-probed on the next publish that is allowed to try, and a
-        // transient failure never latches in the first place.
+        // A server that gains MSC4140 is re-probed on the next publish allowed to
+        // try, since a successful arm clears the refusal entry; a transient
+        // failure never latches.
         if ok && !assumed_no_delayed && delay_id.is_empty() {
-            // NOT on every empty delay id — see `delayed_refusal_is_permanent`.
-            // The short re-publish below still happens either way, because the
-            // membership must not claim four hours nothing will cut short.
+            // Latch only for a permanent category (`delayed_refusal_is_permanent`); the
+            // short re-publish happens regardless.
             //
-            // AND THE SERVER'S OWN `/versions` IS THE SECOND WITNESS. The
-            // category is read off an error STRING, which is exactly the
-            // fragile shape this file keeps rediscovering; a homeserver that
-            // does not advertise MSC4140 cannot arm one whatever words it
-            // refuses in. Consulted only here, after an arm has already
-            // failed — see `server_advertises_delayed_events` for why it is
-            // corroboration and never a gate.
-            // AND NOT ON A PLAINLY TRANSIENT REFUSAL. The corroboration
-            // latches for the whole PROCESS and keys on the homeserver URL, so
-            // one 429 on a server that does support delayed events would turn
-            // them off for every room and every account until relaunch.
-            //
-            // `rate_limited` is excluded and `network` deliberately is not:
-            // `network` is the catch-all this very server's wording fell into
-            // ("Delayed events are not supported on this server" matches no
-            // named branch), and the belt exists for servers with yet other
-            // wording. Excluding it would disarm the corroboration on exactly
-            // the case it was added for.
-            //
-            // This also matters forward: `org.matrix.msc4140` is an UNSTABLE
-            // flag, so if delayed events stabilise, conforming servers stop
-            // advertising it while fully supporting the endpoint — and every
-            // one of them would latch off on its first transient arm failure.
+            // The server's `/versions` is a second witness, since the category comes
+            // from an error string: a server that does not advertise MSC4140 cannot
+            // arm one. Consulted only after a failed arm (see
+            // `server_advertises_delayed_events`), and not for `rate_limited`, since
+            // the latch is per server for the whole process. `network` is not excluded:
+            // it is the catch-all where unrecognised wordings land. The flag is
+            // unstable, so conforming servers may stop advertising it once stable.
             let transient_refusal = delayed_category == "rate_limited";
             let unadvertised = !transient_refusal
                 && !server_advertises_delayed_events(&client).await;
             if delayed_refusal_is_permanent(&delayed_category) || unadvertised {
                 mark_delayed_refusal_for_client(&client, true);
-                // SAY SO. `delayed_reason= "network"` on a server that has
-                // published `org.matrix.msc4140: false` is a diagnostic
-                // asserting the opposite of a known fact, and it sent one
-                // release round looking for a transport problem.
+                // Log it: reporting `delayed_reason= "network"` on a server that published
+                // `org.matrix.msc4140: false` would be misleading.
                 if unadvertised && !delayed_refusal_is_permanent(&delayed_category)
                 {
                     delayed_category = "delayed_unsupported".to_owned();
                 }
             }
-            // A SECOND write, with the short expiry. It replaces our own
-            // previous state event under the same state key, so the room sees
-            // one membership, not two — and created_ts is unchanged, so
-            // oldest-membership focus selection does not move.
-            //
-            // MEASURED FROM created_ts, exactly like the first write. This
-            // line used to pass the bare constant, and because created_ts is
-            // the PRESERVED original join it published a membership that was
-            // already dead whenever this branch ran on anything but a fresh
-            // join — see fallback_expires_ms.
+            // A second write with the short expiry, replacing our own state event under
+            // the same key (one membership, created_ts unchanged). Measured from
+            // created_ts like the first write; see fallback_expires_ms.
             let short = own_membership_content(
                 &device_id, &user_id, focus.as_ref(), intent, created_ts,
                 fallback_expires_ms(created_ts, now_ms()));
@@ -2665,11 +2039,9 @@ pub(crate) fn publish_membership(
             .await;
             match retry {
                 Ok(Ok(response)) => event_id = response.event_id.to_string(),
-                // The FIRST write landed, so we are in the call — but with a
-                // four-hour expiry and no server-side cleanup, which is the
-                // exact ghost this whole path exists to prevent. Report the
-                // publish as failed so the caller does not proceed into a call
-                // it cannot clean up after.
+                // The first write landed but with a 4 h expiry and no server-side cleanup,
+                // the ghost this path prevents. Report failure so the caller does not
+                // proceed into a call it cannot clean up after.
                 Ok(Err(err)) => {
                     ok = false;
                     category = classify_room_error(&err.to_string()).to_owned();
@@ -2692,8 +2064,8 @@ pub(crate) fn publish_membership(
             "ok": ok,
             "category": category,
             "event_id": event_id,
-            // Empty means no server-side cleanup is armed; the caller must
-            // then rely on `expires` and say so honestly in diagnostics.
+            // Empty means no server-side cleanup is armed; the caller relies on
+            // `expires`.
             "delay_id": delay_id,
             "delayed_category": delayed_category,
         }));
@@ -2701,19 +2073,10 @@ pub(crate) fn publish_membership(
     Ok(())
 }
 
-/// Read the `created_ts` of our own existing membership, if it is STILL LIVE.
-///
-/// `created_ts` is preserved across a refresh because it orders
-/// oldest-membership focus selection, and resetting it would reshuffle
-/// everyone's chosen SFU. But every reader computes validity as
-/// `created_ts + expires`, so inheriting the timestamp of a membership that
-/// has ALREADY EXPIRED publishes a membership that is born expired: every
-/// other client drops it before it renders, and the person shows up as a
-/// member with no media — element-call's "waiting for media". A ghost left by
-/// a previous session is exactly the case that produces one.
-///
-/// So the timestamp is inherited only while the membership it came from is
-/// still live. A fresh join after an expired ghost starts its own clock.
+/// Read the `created_ts` of our existing membership, only if it is still
+/// live. Inheriting the timestamp of an expired membership would publish
+/// one born expired: others drop it and we appear with no media. A fresh
+/// join after an expired ghost starts its own clock.
 async fn read_own_created_ts(room: &Room, state_key: &str) -> Option<u64> {
     let raw = room
         .get_state_event(StateEventType::from(EV_MEMBER_LEGACY), state_key)
@@ -2728,15 +2091,13 @@ async fn read_own_created_ts(room: &Room, state_key: &str) -> Option<u64> {
     )
 }
 
-/// The pure half of read_own_created_ts, so the rule is testable offline.
-/// Reading a Room needs a live SDK; deciding whether a timestamp may be
-/// inherited does not, and it is the part that was wrong.
+/// The pure half of read_own_created_ts, testable without a live SDK.
 fn inheritable_created_ts(
     content: &serde_json::Value,
     origin_server_ts: Option<u64>,
     now_ms: u64,
 ) -> Option<u64> {
-    // An empty content is a retracted membership: this is a fresh join.
+    // Empty content is a retraction: a fresh join.
     if content.as_object().is_some_and(|o| o.is_empty()) {
         return None;
     }
@@ -2748,20 +2109,16 @@ fn inheritable_created_ts(
         .get("expires")
         .and_then(|v| v.as_u64())
         .unwrap_or(DEFAULT_EXPIRE_MS);
-    // Saturating for the same reason the parser is: a hostile `expires` of
-    // u64::MAX must not wrap into the past and make a live membership look
-    // dead. A timestamp in the FUTURE is also "still live" and is inherited —
-    // clock skew is a real condition and is not this function's to police.
+    // Saturating, so a hostile `expires` cannot make a live membership look
+    // dead. A future timestamp counts as live; skew is not policed here.
     if created.saturating_add(expires) <= now_ms {
         return None;
     }
     Some(created)
 }
 
-/// Cancel one delayed event. Best effort and result-free on purpose: every
-/// caller is already committed to whatever it is doing, and a delayed event
-/// that cannot be cancelled fires a retraction of a membership we are about
-/// to rewrite anyway.
+/// Cancel one delayed event. Best effort: callers are committed, and an
+/// uncancelled event would retract a membership we are about to rewrite.
 async fn cancel_delayed_leave(client: &Client, delay_id: &str) {
     use matrix_sdk::ruma::api::client::delayed_events::update_delayed_event;
     if delay_id.is_empty() {
@@ -2774,22 +2131,15 @@ async fn cancel_delayed_leave(client: &Client, delay_id: &str) {
     let _ = tokio::time::timeout(DISCOVERY_TIMEOUT, client.send(request)).await;
 }
 
-/// Schedule the server-side retraction of our membership.
-/// Whether a delayed retraction may be armed on this publish.
-///
-/// It may be armed only where the reconciliation that follows will put the
-/// membership back if the server ignored the delay and applied the `{}`
-/// outright — which is the `!assumed_no_delayed && delay_id.is_empty()`
-/// branch of `publish_membership`. A refresh (`assumed_no_delayed == true`)
-/// reaches no repair branch at all, so arming there can only delete us.
-///
-/// Split out from `publish_membership` so the rule is testable offline, the
-/// same reason `inheritable_created_ts` is: a test that cannot reach
-/// production's decision proves nothing about it.
+/// Whether a delayed retraction may be armed on this publish: only where
+/// the reconciliation can put the membership back if the server applied the
+/// `{}` outright (the `!assumed_no_delayed && delay_id.is_empty()` branch).
+/// On a refresh no repair branch exists. Separate so the rule is testable.
 pub(crate) fn delayed_retraction_is_repairable(assumed_no_delayed: bool) -> bool {
     !assumed_no_delayed
 }
 
+/// Schedule the server-side (MSC4140) retraction of our membership.
 async fn schedule_delayed_leave(
     client: &Client,
     room_id: &str,
@@ -2800,7 +2150,7 @@ async fn schedule_delayed_leave(
     };
     let room_id = matrix_sdk::ruma::RoomId::parse(room_id)
         .map_err(|_| "invalid".to_owned())?;
-    // An EMPTY content is how a membership is retracted.
+    // Empty content retracts the membership.
     let request = delayed_state_event::unstable::Request::new_raw(
         room_id,
         state_key.to_owned(),
@@ -2815,91 +2165,64 @@ async fn schedule_delayed_leave(
     match tokio::time::timeout(DISCOVERY_TIMEOUT, client.send(request)).await {
         Ok(Ok(response)) => {
             if response.delay_id.is_empty() {
-                // ANSWERED, AND NOT WITH A DELAYED EVENT. A delay id is the
-                // only thing that makes this a delayed event rather than an
-                // ordinary state write, so an empty one means the server
-                // already applied the `{}` body — it retracted us.
+                // No delay id: the server applied the `{}` body as an ordinary state write
+                // and retracted us.
                 Err("no_delay_id".to_owned())
             } else {
                 Ok(response.delay_id)
             }
         }
-        // A server without MSC4140 answers 404/400. That is not a failure of
-        // the call — it only means cleanup falls back to `expires`.
+        // A server without MSC4140 answers 404/400; cleanup falls back to `expires`.
         Ok(Err(err)) => Err(classify_delayed_leave_failure(&err)),
         Err(_) => Err("network".to_owned()),
     }
 }
 
-/// Does this Matrix error say, in so many words, that the server does not do
-/// delayed events? Pure so the wording is pinned by a test rather than by a
-/// homeserver being awake.
+/// Does this error say the server does not do delayed events? Pure so the
+/// wording is pinned by a test.
 pub(crate) fn delayed_failure_says_unsupported(message: &str) -> bool {
     let lc = message.to_lowercase();
-    // The MSC's own errcode, and Synapse's message for the same refusal.
-    // `m_max_delay_exceeded` deliberately does NOT match: that one means the
-    // server supports delayed events and wanted a shorter delay.
+    // The MSC's errcode and Synapse's message. `m_max_delay_exceeded` does not
+    // match: it means delayed events work but the delay was too long.
     lc.contains("m_max_delay_unsupported")
         || lc.contains("delayed events are not supported")
 }
 
-/// Why a delayed retraction could not be armed, in the vocabulary
-/// `delayed_refusal_is_permanent` understands.
+/// Why a delayed retraction could not be armed, in the vocabulary of
+/// `delayed_refusal_is_permanent`.
 ///
-/// THE CASE THIS EXISTS FOR IS THE ONE `classify_room_error` CANNOT SEE. A
-/// homeserver that does not know MSC4140 ignores the `org.matrix.msc4140.delay`
-/// query parameter, applies the `{}` body as an ordinary state event, and
-/// answers **200 with an `event_id` and no `delay_id`** — which is exactly the
-/// server class GitHub #10 is about. ruma cannot read that as the delayed
-/// response, so it arrives as a DESERIALIZATION failure on a status it
-/// accepted: no 404 anywhere, nothing in the message text to match, and a
-/// string ladder therefore files it under `network` and treats a permanent
-/// property as a passing blip.
-///
-/// A SECOND server class answers the same question out loud and was filed the
-/// same wrong way: Synapse with `msc4140_enabled` off returns **400 M_UNKNOWN,
-/// "Delayed events are not supported on this server"** and does NOT apply the
-/// body — measured against `matrix.smetonis.net` on 2026-09-15. That is
-/// `delayed_failure_says_unsupported` above.
+/// Handles two cases `classify_room_error` cannot: a server that ignores the
+/// delay parameter answers 200 with no `delay_id`, which ruma reports as a
+/// deserialization failure on an accepted status (GitHub #10); and Synapse
+/// with `msc4140_enabled` off answers 400 M_UNKNOWN "Delayed events are not
+/// supported on this server" (see `delayed_failure_says_unsupported`).
 fn classify_delayed_leave_failure(err: &matrix_sdk::HttpError) -> String {
     use matrix_sdk::ruma::api::error::FromHttpResponseError;
     use matrix_sdk::HttpError;
 
-    // The server spoke Matrix's own error shape — 404 M_UNRECOGNIZED, 403,
-    // 429 and friends. That is what classify_room_error is for.
+    // The server answered with a Matrix error (404 M_UNRECOGNIZED, 403, 429 …):
+    // classify_room_error handles those.
     if err.as_client_api_error().is_some() {
-        // EXCEPT the one refusal that IS about MSC4140 and looks like
-        // nothing. Synapse without the feature answers 400 M_UNKNOWN,
-        // "Delayed events are not supported on this server", carrying
-        // `org.matrix.msc4140.errcode: M_MAX_DELAY_UNSUPPORTED`. No status,
-        // errcode or word in that reaches a branch of classify_room_error, so
-        // it landed in the `network` catch-all — a permanent property filed
-        // as a blip. Matched on BOTH spellings because the MSC errcode lives
-        // in a non-standard field that a client library may not surface,
-        // while the message is Synapse's own wording; either one alone is a
-        // string ladder of the kind this file warns about, and the
-        // `/versions` corroboration in `publish_membership` is what makes the
-        // decision robust when neither matches.
-        //
-        // NOT `M_MAX_DELAY_EXCEEDED`, which is a different errcode meaning
-        // the server DOES support delayed events and this delay was too long.
-        // Latching on that would disable working server-side cleanup.
+        // Except Synapse's MSC4140 refusal (400 M_UNKNOWN, "Delayed events are not
+        // supported on this server", `org.matrix.msc4140.errcode:
+        // M_MAX_DELAY_UNSUPPORTED`), which classify_room_error would file as
+        // `network`. Matched on both the errcode and the message, since the
+        // errcode lives in a non-standard field; the `/versions` check in
+        // `publish_membership` backs this up. Not `M_MAX_DELAY_EXCEEDED`, which
+        // means delayed events are supported.
         if delayed_failure_says_unsupported(&err.to_string()) {
             return "delayed_unsupported".to_owned();
         }
         return classify_room_error(&err.to_string()).to_owned();
     }
-    // A body ruma could not read on a status it ACCEPTED. Matched on the
-    // error's own variant rather than its text, deliberately: the message of
-    // a serde failure names a missing field, not a status, so no ladder of
-    // string tests can tell this from a transport error.
+    // A body ruma could not read on an accepted status, matched on the error
+    // variant since the serde message names a field, not a status.
     if let HttpError::Api(api) = err {
         if matches!(**api, FromHttpResponseError::Deserialization(_)) {
             return "no_delay_id".to_owned();
         }
     }
-    // Everything else — transport, TLS, a timeout further down — is transient
-    // by default, which is the safe direction: a blip must never latch.
+    // Anything else is transient by default; a blip must never latch.
     "network".to_owned()
 }
 
@@ -2912,19 +2235,16 @@ pub(crate) fn restart_delayed_leave(
     update_delayed(bridge, delay_id, "restart", op_id)
 }
 
-/// Retract our membership immediately: send the empty content ourselves AND
-/// cancel the pending delayed event, so nothing fires later against a
-/// membership we already removed.
+/// Retract our membership now: send the empty content and cancel the
+/// pending delayed event so nothing fires later.
 pub(crate) fn retract_membership(
     bridge: &RustClient,
     room_id: String,
     delay_id: String,
     op_id: u64,
 ) -> Result<(), String> {
-    // FIRST, and before anything that can fail. Everything below needs a live
-    // session, and the sign-out path reaches here with that session already
-    // gone — so a `?` here used to skip the forget entirely and strand the
-    // mark. Leaving is an INTENT; the bookkeeping must follow the intent.
+    // First, before anything that can fail: sign-out reaches here without a
+    // session, and leaving is an intent the bookkeeping must follow.
     forget_room_memberships_published(&room_id);
 
     let client = require_client(bridge)?;
@@ -2951,17 +2271,13 @@ pub(crate) fn retract_membership(
         let state_key =
             membership_state_key(&user_id, &device_id, &room_version);
 
-        // We are leaving, so the next publish for this state key is a JOIN and
-        // must mint its own created_ts. Forgotten BEFORE the retraction is
-        // attempted and regardless of whether it succeeds: a retraction that
-        // failed leaves exactly the ghost a crash leaves, and a rejoin after
-        // it needs the same treatment. See OWN_MEMBERSHIP_PUBLISHED.
+        // The next publish for this state key is a join. Forgotten before and
+        // regardless of the retraction's outcome (see OWN_MEMBERSHIP_PUBLISHED).
         forget_membership_published(&membership_publish_key(
             room.room_id().as_str(), &state_key));
 
-        // Retract FIRST. If the delayed cancel fails afterwards the worst
-        // case is a redundant no-op retraction; doing it the other way round
-        // would leave a window with neither.
+        // Retract first: if the cancel then fails, the worst case is a redundant
+        // retraction; the other order leaves a window with neither.
         let result = tokio::time::timeout(
             DISCOVERY_TIMEOUT,
             room.send_state_event_raw(EV_MEMBER_LEGACY, &state_key, json!({})),
@@ -3042,34 +2358,21 @@ fn update_delayed(
 // Raised hands
 // ---------------------------------------------------------------------------
 
-/// The reaction key element-call uses for a raised hand.
-///
-/// U+1F590 RAISED HAND WITH FINGERS SPLAYED followed by U+FE0F VARIATION
-/// SELECTOR-16. READ OUT OF element-call's own source, not chosen here:
-/// `src/reactions/useReactionsSender.tsx` sends exactly this string and
-/// `src/reactions/ReactionsReader.ts` compares against exactly this string,
-/// so a different hand emoji — or the same one without the variation
-/// selector — is a hand no Element client will ever see.
+/// The reaction key element-call uses for a raised hand: U+1F590 plus
+/// U+FE0F. Taken from element-call (`useReactionsSender.tsx`,
+/// `ReactionsReader.ts`), which compares exactly this string.
 pub(crate) const HAND_RAISED_KEY: &str = "\u{1F590}\u{FE0F}";
 
-/// Raise or lower this device's hand.
+/// Raise or lower this device's hand, in element-call's wire format:
 ///
-/// THE WIRE FORMAT IS element-call's, and there is nothing of Lightning's own
-/// invention in it:
-///
-///   raise  → an `m.reaction` whose `m.relates_to` is
-///            `{ rel_type: "m.annotation", event_id: <MY OWN m.call.member
+///   raise  → an `m.reaction` with `m.relates_to`
+///            `{ rel_type: "m.annotation", event_id: <our own m.call.member
 ///            state event>, key: "🖐️" }`
-///   lower  → a REDACTION of that reaction
+///   lower  → a redaction of that reaction
 ///
-/// The target is the sender's own MEMBERSHIP state event, not a timeline
-/// message, which is what scopes the hand to one call rather than to the
-/// room's history: a new membership (rejoining, refreshing) is a new event,
-/// so an old hand cannot follow the user into the next call.
-///
-/// `reaction_event_id` is required to LOWER and ignored to raise — a hand can
-/// only be lowered by redacting the specific event that raised it, and this
-/// device is the only thing that knows which one that was.
+/// Targeting our membership event scopes the hand to this call: a new
+/// membership is a new event. `reaction_event_id` is required to lower and
+/// ignored to raise.
 pub(crate) fn set_hand_raised(
     bridge: &RustClient,
     room_id: String,
@@ -3121,8 +2424,7 @@ pub(crate) fn set_hand_raised(
                 "ok": ok,
                 "raised": true,
                 "category": category,
-                // The id the redaction will need. Without it a raised hand
-                // can never be lowered by this device.
+                // Needed to redact, i.e. lower, the hand later.
                 "event_id": event_id,
             }));
         });
@@ -3163,22 +2465,13 @@ pub(crate) fn set_hand_raised(
     Ok(())
 }
 
-/// Read the hands already raised in a room's call.
+/// Read the hands already raised in a room's call: a hand raised before we
+/// joined produces no sync event for us. element-call walks each
+/// membership's annotations the same way.
 ///
-/// A hand raised BEFORE this client joined produces no sync event for us, so
-/// without this pass a participant who raised early is invisible for the rest
-/// of the call. element-call solves it the same way, walking the annotations
-/// of each membership event.
-///
-/// BOUNDED, because this is one request per membership in the worst case:
-/// `MAX_HAND_PROBES` memberships, cache-first
-/// (`load_or_fetch_event_with_relations` only reaches the network on a miss),
-/// and the whole pass is spent ONCE per join rather than per poke. A poke is
-/// answered by the sync handler below, which costs nothing.
-///
-/// A membership whose annotations cannot be read contributes NOTHING rather
-/// than a lowered hand: absence of evidence is not evidence that a hand is
-/// down, and reporting one as lowered would clear a hand that is really up.
+/// Bounded: at most `MAX_HAND_PROBES` memberships, cache-first, once per
+/// join (later hands come through the sync handler). A membership whose
+/// annotations cannot be read contributes nothing, never a lowered hand.
 pub(crate) fn read_raised_hands(
     bridge: &RustClient,
     room_id: String,
@@ -3216,10 +2509,8 @@ pub(crate) fn read_raised_hands(
             let Ok((_target, relations)) = loaded else { continue };
             for relation in &relations {
                 let Ok(parsed) = relation.raw().deserialize() else { continue };
-                // THE SENDER MUST BE THE MEMBER THEMSELVES. Anyone may
-                // annotate anyone's membership event; only the owner of that
-                // membership raising their own hand means anything, and
-                // without this check one user could raise everybody's.
+                // The sender must own the membership: anyone may annotate anyone's
+                // membership event, and without this one user could raise everybody's hand.
                 if parsed.sender().as_str() != member.user_id {
                     continue;
                 }
@@ -3233,9 +2524,7 @@ pub(crate) fn read_raised_hands(
                 {
                     continue;
                 }
-                // A redacted reaction keeps its envelope and loses its
-                // content, so the key is simply absent — which reads as "not
-                // a raised hand", exactly as it should.
+                // A redacted reaction has no key, so it reads as not raised.
                 let key = value
                     .get("content")
                     .and_then(|c| c.get("m.relates_to"))
@@ -3274,31 +2563,19 @@ pub(crate) fn read_raised_hands(
 // Transient call reactions (io.element.call.reaction)
 // ---------------------------------------------------------------------------
 
-/// element-call's transient reaction event type.
-///
-/// READ OUT OF element-call's own source, exactly as the raised hand above
-/// was: `src/reactions/index.ts` defines
-/// `ElementCallReactionEventType = "io.element.call.reaction"`,
-/// `useReactionsSender.tsx` sends it and `ReactionsReader.ts` reads it. The
-/// string itself lives in the event-content derive; this is the documented
-/// constant for readers and is asserted against the derive in tests.
+/// element-call's transient reaction event type (`src/reactions/index.ts`
+/// `ElementCallReactionEventType`). The string lives in the event-content
+/// derive; this constant is asserted against it in tests.
 #[allow(dead_code)]
 pub(crate) const EV_CALL_REACTION: &str = "io.element.call.reaction";
 
-/// The reaction pairs element-call knows, `(name, emoji)`.
+/// The reaction pairs element-call knows, `(name, emoji)`, transcribed from
+/// `element-call/src/reactions/index.ts` (`ReactionSet`).
 ///
-/// TRANSCRIBED FROM `element-call/src/reactions/index.ts` (`ReactionSet`),
-/// cross-checked against the bundle element-web ships, and it is a CLOSED
-/// SET FOR SENDING on purpose: element-call looks its sound up by `name`
-/// (`ReactionSet.find((r) => r.name === content.name)`), so a name outside
-/// this table reaches an Element user as a silent generic reaction. Sending
-/// only pairs it knows is the difference between interoperating and merely
-/// being parsed.
-///
-/// It is NOT applied to reactions we RECEIVE: a future element-call may add
-/// an entry, and refusing an unknown emoji on the way in would make this
-/// table a bug the next time theirs grows. What bounds an inbound emoji is
-/// [`reaction_emoji`].
+/// Closed for sending: element-call looks the sound up by `name`, so an
+/// unknown name reaches Element as a silent generic reaction. Not applied
+/// to received reactions, so a new element-call entry is still shown;
+/// inbound emoji are bounded by [`reaction_emoji`].
 const ELEMENT_CALL_REACTIONS: &[(&str, &str)] = &[
     ("thumbsup", "\u{1F44D}"),
     ("party", "\u{1F389}"),
@@ -3318,55 +2595,32 @@ const ELEMENT_CALL_REACTIONS: &[(&str, &str)] = &[
     ("drum", "\u{1F941}"),
 ];
 
-/// How long a send may take before it is reported as a failure. A reaction
-/// is fire-and-forget and nothing waits on the answer except a log line, so
-/// this only bounds the task, not the user.
+/// Send timeout. Reactions are fire-and-forget; this only bounds the task.
 const REACTION_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Bound on an inbound `emoji` field, in BYTES, before anything is done with
-/// it. element-call only ever sends a table entry (4 to 11 bytes); this
-/// leaves room for a longer legitimate sequence and refuses a payload.
+/// Byte bound on an inbound `emoji` field. element-call sends 4 to 11
+/// bytes; this allows longer legitimate sequences and refuses payloads.
 const MAX_REACTION_EMOJI_LEN: usize = 64;
-/// Bound on the cluster [`first_emoji_cluster`] will build, in CODE POINTS.
-/// A family sequence is seven; eight leaves one spare and makes the
-/// continuation loop terminate on hostile input by construction.
+/// Code-point bound on the cluster [`first_emoji_cluster`] builds (a family
+/// sequence is seven), which also guarantees termination on hostile input.
 const MAX_REACTION_CLUSTER_CHARS: usize = 8;
 
-/// element-call's transient reaction, in its own shape.
+/// element-call's transient reaction:
 ///
 ///   `{ "m.relates_to": { "rel_type": "m.reference",
-///                        "event_id": <the SENDER'S OWN m.call.member state
-///                                     event> },
+///                        "event_id": <the sender's own m.call.member
+///                                     state event> },
 ///      "emoji": "\u{1F44D}", "name": "thumbsup" }`
 ///
-/// Referencing the MEMBERSHIP rather than a timeline message is what scopes a
-/// reaction to one call and to one participant — it is also the only thing
-/// that can attribute it, since the annotated event names its owner. Same
-/// property the raised hand relies on, and the same forgery check applies:
-/// the sender must own the membership they reference (enforced on the C++
-/// side by `RtcController::identityForMembership`, which the hand lane
-/// already uses — there is deliberately no second implementation of it).
+/// Referencing the membership scopes the reaction to one call and
+/// participant. The sender must own that membership; that check lives in
+/// C++ (`RtcController::identityForMembership`, shared with hands).
 ///
-/// `relates_to` is REQUIRED and typed as ruma's `Reference`, so a content
-/// with no `m.relates_to`, or one whose relation carries no `event_id`,
-/// never reaches the handler at all: matrix-sdk drops a content it cannot
-/// deserialize. Same for a missing `emoji`.
-///
-/// WHAT THAT DOES *NOT* DO, measured rather than assumed: serde does NOT
-/// verify an internally-tagged struct's tag on the way IN, so a reaction
-/// whose `rel_type` says `m.annotation` still deserializes into a
-/// `Reference` (checked against serde 1 with exactly this shape). The type
-/// pins what we SEND — `rel_type: "m.reference"`, which is what element-call
-/// writes — and it is deliberately liberal inbound, because element-call's
-/// own reader never looks at `rel_type` either: it reads
-/// `content["m.relates_to"].event_id` and then requires the SENDER to own
-/// that membership. That ownership check is the security property here, and
-/// it lives on the C++ side where the hand's already does.
-///
-/// `name` is defaulted rather than required — liberal in what we accept.
-/// Lightning renders the emoji and nothing else (there are no reaction
-/// sounds here), so a nameless reaction from some other client is still a
-/// perfectly good reaction; we always SEND one, because Element uses it.
+/// `relates_to` and `emoji` are required, so malformed content never
+/// reaches the handler. serde does not verify an internally tagged
+/// struct's tag inbound, so `rel_type: m.annotation` still deserializes as
+/// a `Reference`; the type pins what we send, and element-call's reader
+/// ignores `rel_type` too. `name` is optional inbound; we always send it.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
 #[ruma_event(type = "io.element.call.reaction", kind = MessageLike)]
 pub(crate) struct ElementCallReactionEventContent {
@@ -3377,14 +2631,9 @@ pub(crate) struct ElementCallReactionEventContent {
     pub relates_to: Reference,
 }
 
-/// Reduce an inbound `emoji` to something a tile can draw, or nothing.
-///
-/// Bounded first ([`sane`]: non-empty, byte-capped, no control characters),
-/// then reduced to ONE cluster. element-call does the same reduction with
-/// `Intl.Segmenter` and displays only the first grapheme — the field is
-/// documented there as "any excess characters are trimmed from this string"
-/// — so a client that packs a sentence into it gets one glyph on both ends
-/// rather than a line of attacker-chosen text on a call tile.
+/// Reduce an inbound `emoji` to one drawable cluster, or nothing: bounded
+/// by [`sane`], then cut to the first cluster, as element-call does with
+/// `Intl.Segmenter`, so a packed sentence shows as one glyph.
 fn reaction_emoji(raw: &str) -> Option<String> {
     let bounded = sane(raw.trim(), MAX_REACTION_EMOJI_LEN)?;
     let cluster = first_emoji_cluster(bounded);
@@ -3394,27 +2643,19 @@ fn reaction_emoji(raw: &str) -> Option<String> {
     Some(cluster)
 }
 
-/// True for a REGIONAL INDICATOR SYMBOL LETTER, the pair that forms a flag.
+/// True for a regional indicator symbol letter (half of a flag).
 fn is_regional_indicator(value: char) -> bool {
     ('\u{1F1E6}'..='\u{1F1FF}').contains(&value)
 }
 
-/// The first grapheme-ish cluster of `value`.
+/// The first grapheme-like cluster of `value`: the first character plus
+/// following code points that cannot stand alone (variation selectors,
+/// ZWJ and what they join, skin tones, keycap, combining marks, tag
+/// sequences, the second regional indicator). Covers element-call's set.
 ///
-/// AN APPROXIMATION OF `Intl.Segmenter`, and deliberately a small one: it
-/// takes the first character and keeps the code points that cannot stand on
-/// their own after it — variation selectors, zero-width joiners and whatever
-/// they join, skin-tone modifiers, the combining keycap, combining marks,
-/// tag sequences, and the second half of a regional-indicator flag pair.
-/// That covers every shape element-call's own set uses (including the ZWJ
-/// sequence in "dizzy") and every emoji this project draws.
-///
-/// It is NOT a Unicode segmentation implementation and must not be presented
-/// as one; `unicode-segmentation` is in the lock file only transitively and
-/// this crate's dependencies are lock-file controlled. Where it disagrees
-/// with the standard the answer is at worst one code point short, which
-/// renders as a bare base emoji — never as more text than element-call would
-/// have shown.
+/// Not a Unicode segmentation implementation (`unicode-segmentation` is not
+/// a direct dependency); where it differs it returns at most one code point
+/// too few.
 fn first_emoji_cluster(value: &str) -> String {
     let mut out = String::new();
     let mut chars = value.chars().peekable();
@@ -3422,8 +2663,7 @@ fn first_emoji_cluster(value: &str) -> String {
         return out;
     };
     out.push(first);
-    // Set when the previous code point was a ZWJ, which always binds the one
-    // after it into the same cluster.
+    // Set after a ZWJ, which binds the next code point into the cluster.
     let mut after_join = false;
     while out.chars().count() < MAX_REACTION_CLUSTER_CHARS {
         let Some(&next) = chars.peek() else { break };
@@ -3451,23 +2691,13 @@ fn first_emoji_cluster(value: &str) -> String {
 
 /// Send one transient call reaction.
 ///
-/// `membership_event_id` is THIS DEVICE'S OWN `m.call.member` state event,
-/// resolved by the caller from the RtcController's observation so that a
-/// refresh's replacement event is the one referenced — the same rule
-/// `set_hand_raised` follows, and for the same reason: a reference to a
-/// superseded membership is one no client will attribute.
+/// `membership_event_id` is this device's own `m.call.member` event, as
+/// observed by RtcController, so a refresh's replacement is referenced (as
+/// in `set_hand_raised`). The `(name, emoji)` pair must be in
+/// [`ELEMENT_CALL_REACTIONS`].
 ///
-/// The `(name, emoji)` pair must be one element-call knows
-/// ([`ELEMENT_CALL_REACTIONS`]); anything else is refused here rather than
-/// sent, because a pair Element cannot look up is a reaction it renders with
-/// the wrong sound or not at all.
-///
-/// There is NO backlog sweep for reactions, deliberately, and no
-/// `read_call_reactions` to match `read_raised_hands`: a reaction is
-/// transient by construction and one that fired before we joined is over.
-/// Sweeping the relations of every membership at join would resurrect stale
-/// reactions minutes after they were sent. element-call does not do it
-/// either — its `onMembershipsChanged` looks only at hands.
+/// No backlog sweep, unlike hands: reactions are transient, and sweeping at
+/// join would resurrect stale ones. element-call does not either.
 pub(crate) fn send_call_reaction(
     bridge: &RustClient,
     room_id: String,
@@ -3519,10 +2749,8 @@ pub(crate) fn send_call_reaction(
             ),
             Err(_) => (false, "network".to_owned(), String::new()),
         };
-        // The generic RTC send lane, which already carries the notification
-        // send's answer. A reaction needs nothing a result cannot say: there
-        // is no id to keep (nothing redacts a reaction) and nothing local to
-        // put back (the tile is only ever drawn from an event that arrived).
+        // The generic RTC send lane. Nothing to keep: reactions are never redacted
+        // and tiles are drawn only from arrived events.
         enqueue(&events, json!({
             "type": "rtc_send_result",
             "op_id": op_id,
@@ -3539,36 +2767,23 @@ pub(crate) fn send_call_reaction(
 // Media encryption keys (io.element.call.encryption_keys)
 // ---------------------------------------------------------------------------
 
-/// The to-device event type Element uses for call media keys. Unstable and
-/// element-prefixed on the wire; that is what interoperates.
+/// The to-device type Element uses for call media keys.
 pub(crate) const EV_CALL_KEYS: &str = "io.element.call.encryption_keys";
 /// Media keys are 32 raw bytes; LiveKit's HKDF turns them into AES-128-GCM.
 const MEDIA_KEY_BYTES: usize = 32;
-/// The highest index OUR sender stamps: SfuCallController allocates
-/// `(index + 1) % 16`, legal for every receiver whose ring holds at least 16.
+/// Highest key index our sender stamps (SfuCallController allocates
+/// `(index + 1) % 16`).
 ///
-/// RECEIVED keys are NOT held to this. matrix-js-sdk rotates a sender's key
-/// id modulo 256 and element-call's ring holds 256 (`keyringSize: 256`), so
-/// the received index is the whole byte -- `MediaKeyEntry::index` is a `u8`,
-/// which makes 0..=255 the bound by type and a larger value a parse failure.
-/// Holding received keys to 15 discarded every key an Element sender minted
-/// after its sixteenth rotation in a call, and every frame after it failed.
+/// Received keys are not held to this: matrix-js-sdk rotates modulo 256 and
+/// element-call's ring holds 256, so the received index is a whole `u8`.
 const MAX_SEND_KEY_INDEX: u8 = 15;
 
-/// Send our current media key to the devices in the call.
-///
-/// Encrypted per device through Olm (`encrypt_and_send_raw_to_device`), so
-/// the homeserver never sees the key. `targets` are `(user_id, device_id)`
-/// pairs taken from the observed membership — we send only to devices that
-/// have actually declared themselves present in this call.
 /// How long a device-list refresh is trusted before the next media-key
-/// distribution pays for another one.
+/// distribution pays for another.
 pub(crate) const DEVICE_REFRESH_TTL_SECS: u64 = 60;
 
-/// Is a `/keys/query` owed for this user before we encrypt to their devices?
-///
-/// Pure so the policy can be tested without a client, a network or a call.
-/// `None` means never refreshed in this process.
+/// Is a `/keys/query` owed for this user before encrypting to their
+/// devices? `None` means never refreshed in this process. Pure for tests.
 pub(crate) fn device_refresh_due(elapsed_secs: Option<u64>) -> bool {
     match elapsed_secs {
         None => true,
@@ -3576,10 +2791,8 @@ pub(crate) fn device_refresh_due(elapsed_secs: Option<u64>) -> bool {
     }
 }
 
-/// Users whose device list has been refreshed, and when.
-///
-/// Bounded by the number of distinct users this process sends media keys to,
-/// which is the set of people it has been in calls with.
+/// Users whose device list was refreshed, and when. Bounded by the people
+/// this process has been in calls with.
 fn device_refresh_marks()
     -> &'static std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>
 {
@@ -3589,15 +2802,10 @@ fn device_refresh_marks()
     MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// When we last SAID that an Olm to-device message from a peer would not
-/// decrypt.
-///
-/// Separate map, same TTL and the same [`device_refresh_due`] predicate — the
-/// two facts are different ("when did we last re-query their keys" against
-/// "when did we last report a loss"), and sharing one slot would let a
-/// distribution silence the report or the report suppress a real refresh.
-/// Only ever written for a user who is already in [`device_refresh_marks`],
-/// and capped besides, so a homeserver cannot grow it by inventing senders.
+/// When we last reported that an Olm to-device message from a peer would
+/// not decrypt. Kept apart from [`device_refresh_marks`] so reporting and
+/// refreshing cannot suppress each other. Only written for users already
+/// in that map, and capped.
 fn undecryptable_report_marks()
     -> &'static std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>
 {
@@ -3607,22 +2815,13 @@ fn undecryptable_report_marks()
     MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// Ceiling on [`undecryptable_report_marks`], mirroring the cap the C++ side
-/// already puts on its own cooldown table.
+/// Ceiling on [`undecryptable_report_marks`], like the C++ cooldown table.
 const MAX_REPORT_MARKS: usize = 256;
 
-/// Should an Olm to-device message that would not decrypt be reported as a
-/// media key this device lost?
-///
-/// Pure so the policy is testable without a client, a call or a network.
-///
-/// TWO conditions, and the first is what keeps the claim honest. An
-/// undecryptable to-device message carries NO type — that is the whole point
-/// of it — so this code cannot know whether the one that just failed was a
-/// media key, a room key, or a verification step. What it can know is whether
-/// the sender is somebody this process has distributed a media key TO, which
-/// is the set [`device_refresh_marks`] holds; for anybody else the loss is
-/// real but it is not a call fault and must not be announced as one.
+/// Should an undecryptable Olm to-device message be reported as a lost
+/// media key? It carries no type, so this only reports for senders we have
+/// distributed a media key to ([`device_refresh_marks`]); for anyone else
+/// it is not a call fault. Pure for tests.
 pub(crate) fn undecryptable_key_report_due(
     is_media_key_peer: bool,
     since_last_report_secs: Option<u64>,
@@ -3630,6 +2829,10 @@ pub(crate) fn undecryptable_key_report_due(
     is_media_key_peer && device_refresh_due(since_last_report_secs)
 }
 
+/// Send our current media key to the devices in the call, Olm-encrypted per
+/// device (`encrypt_and_send_raw_to_device`), so the homeserver never sees
+/// it. `targets` are `(user_id, device_id)` pairs from the observed
+/// membership: only devices that declared themselves present.
 pub(crate) fn send_media_key(
     bridge: &RustClient,
     room_id: String,
@@ -3643,8 +2846,7 @@ pub(crate) fn send_media_key(
     if key_index > MAX_SEND_KEY_INDEX {
         return Err("key index out of range".to_owned());
     }
-    // Parsed here so a malformed list fails synchronously rather than
-    // half-sending.
+    // Parsed first so a malformed list fails synchronously.
     let targets: Vec<(String, String)> =
         serde_json::from_str::<Vec<serde_json::Value>>(&targets_json)
             .map_err(|_| "invalid targets".to_owned())?
@@ -3692,9 +2894,8 @@ pub(crate) fn send_media_key(
             "sent_ts": u64::from(MilliSecondsSinceUnixEpoch::now().get()),
         });
 
-        // Resolve the target devices. A device we cannot resolve is SKIPPED,
-        // never substituted: sending one participant's key to the wrong
-        // device would be worse than that participant not hearing us.
+        // Resolve target devices. An unresolvable device is skipped, never
+        // substituted: sending a key to the wrong device is worse.
         let mut resolved = Vec::new();
         for (user, device) in &targets {
             // Never send our own device its own key.
@@ -3706,27 +2907,10 @@ pub(crate) fn send_media_key(
             };
             let device_id: matrix_sdk::ruma::OwnedDeviceId =
                 device.as_str().into();
-            // A STALE DEVICE IS WORSE THAN AN ABSENT ONE, AND ONLY THE
-            // ABSENT CASE WAS COVERED.
-            //
-            // The fallback below spends a `/keys/query` when the device is
-            // MISSING from the store. It cannot help when the device is
-            // present with keys that have since changed: `get_device` answers
-            // happily, we encrypt to the old curve25519 identity key, the
-            // send reports success, and the recipient's SDK says
-            //
-            //   Olm event doesn't contain a ciphertext for our key
-            //
-            // and drops it. Neither end can tell: the sender sees
-            // `delivered= 1`, the receiver logs no key receive at all, and
-            // every frame from that participant is dropped for want of a
-            // key while the call looks perfectly connected. Captured live on
-            // 2026-09-07 between two accounts whose stores had drifted.
-            //
-            // So the refresh is owed BEFORE the lookup, not only after it
-            // fails, and it is rate-limited per user rather than skipped:
-            // one `/keys/query` per user per minute is nothing beside a call
-            // that silently carries no audio.
+            // Refresh before the lookup, not only when the device is missing: a
+            // device present with rotated keys makes us encrypt to the old identity
+            // key, the recipient drops it ("Olm event doesn't contain a ciphertext for
+            // our key"), and neither end notices. Rate-limited per user.
             let refresh_due = {
                 let marks = device_refresh_marks().lock().ok();
                 match marks {
@@ -3745,20 +2929,10 @@ pub(crate) fn send_media_key(
             }
             let mut found =
                 client.encryption().get_device(&user_id, &device_id).await;
-            // `get_device` is a STORE lookup and does not fetch anything.
-            //
-            // A peer whose device keys this client has never downloaded is
-            // simply absent from it, and the key was then sent to NOBODY —
-            // reported as `no_devices`, after which both ends encrypt and
-            // neither can decrypt, so audio, video and screen share all fail
-            // together while the call looks connected. That is reachable in
-            // ordinary use: the first call in a room, a device that joined
-            // the call after our last `/keys/query`, or any peer the crypto
-            // store has not caught up on.
-            //
-            // `request_user_identity` performs a real `/keys/query` for that
-            // user, so the store is populated and the SECOND lookup succeeds.
-            // Spent only on a miss, so a warm store costs nothing extra.
+            // `get_device` only reads the store; a peer whose keys were never
+            // downloaded is absent, and the key would go to nobody.
+            // `request_user_identity` does a real `/keys/query`, so the second lookup
+            // succeeds. Only on a miss.
             if !matches!(found, Ok(Some(_))) {
                 let _ = client.encryption().request_user_identity(&user_id).await;
                 found =
@@ -3788,9 +2962,8 @@ pub(crate) fn send_media_key(
                         )
                         .await;
                     match result {
-                        // The SDK answers with the devices it could NOT
-                        // reach, so a partial delivery is visible rather
-                        // than silently successful.
+                        // The SDK returns the devices it could not reach, so partial delivery is
+                        // visible.
                         Ok(failures) => (
                             failures.len() < total,
                             if failures.is_empty() {
@@ -3814,7 +2987,7 @@ pub(crate) fn send_media_key(
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
-        // The KEY ITSELF is never enqueued, never logged. Only counts.
+        // Counts only; the key is never enqueued or logged.
         enqueue(&events, json!({
             "type": "rtc_key_sent",
             "op_id": op_id,
@@ -3829,11 +3002,9 @@ pub(crate) fn send_media_key(
     Ok(())
 }
 
-/// Inbound media key, decrypted by Olm.
-///
-/// `sender` and the Olm-verified device are what we trust; the `member`
-/// block in the content is CLAIMED and is used only to fill in an id, never
-/// to decide who sent it.
+/// Inbound media key, decrypted by Olm. The sender and Olm-verified device
+/// are trusted; the content's `member` block is a claim, used only to fill
+/// in an id.
 #[allow(unexpected_cfgs)]
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
 #[ruma_event(type = "io.element.call.encryption_keys", kind = ToDevice)]
@@ -3860,10 +3031,9 @@ pub(crate) struct ValidatedMediaKey<'a> {
     pub device_id: &'a str,
 }
 
-/// Validate a received media key's fields. Pure, so it can be tested.
-///
-/// The index is bounded by its type (`u8`, 0..=255, the C++ ring size); it
-/// was wrongly held to 15. The claimed device must equal the Olm device.
+/// Validate a received media key's fields. Pure for tests. The index is
+/// bounded by its type (`u8`, the C++ ring size); the claimed device must
+/// equal the Olm device.
 pub(crate) fn validate_media_key<'a>(
     content: &'a CallEncryptionKeysEventContent,
     olm_device_id: &'a str,
@@ -3897,15 +3067,12 @@ pub(crate) struct RtcHandlerGuards {
     _guards: Vec<EventHandlerDropGuard>,
 }
 
-/// Register MatrixRTC observation.
+/// Register MatrixRTC observation. Both handlers are thin:
 ///
-/// Two handlers, both deliberately thin:
-///
-/// * membership changes enqueue a payload-free poke; the C++ side answers by
-///   re-reading the session, so local and remote converge on ONE parse path.
-/// * the MSC4075 notification is decoded into the same `call_rtc_*` lane
-///   `calls.rs` already owns, so the ring policy, the ignore check and the
-///   incoming-call surface need no second implementation.
+/// * membership changes enqueue a payload-free poke, and C++ re-reads the
+///   session, so there is one parse path;
+/// * the MSC4075 notification feeds the `call_rtc_*` lane `calls.rs` owns,
+///   reusing its ring policy, ignore check and incoming-call surface.
 pub(crate) fn register_rtc_handlers(
     client: &Client,
     events: &Arc<std::sync::Mutex<std::collections::VecDeque<String>>>,
@@ -3932,19 +3099,10 @@ pub(crate) fn register_rtc_handlers(
         guards.push(client.event_handler_drop_guard(handle));
     }
 
-    // Raised hands, in both directions.
-    //
-    // element-call represents a raised hand as an `m.reaction` annotating the
-    // raiser's own `m.call.member` state event, and a lowered one as a
-    // REDACTION of that reaction. Both arrive here as ordinary timeline
-    // events, so observing them costs one filter each and no requests.
-    //
-    // DELIBERATELY UNFILTERED BY ROOM. A reaction is cheap to inspect and the
-    // vast majority are ordinary message reactions rejected by the key check
-    // on the first comparison; filtering by "the room we are in a call in"
-    // would need this handler to know about call state it has no business
-    // holding, and would drop a hand raised in the window between joining and
-    // that state being written.
+    // Raised hands: an `m.reaction` annotating the raiser's own
+    // `m.call.member` event, lowered by redacting it. Not filtered by room:
+    // most reactions fail the key check immediately, and a room filter would
+    // need call state and could miss a hand raised right after joining.
     {
         let events = Arc::clone(events);
         let timelines = Arc::clone(timelines);
@@ -3957,11 +3115,7 @@ pub(crate) fn register_rtc_handlers(
                     if ev.content.relates_to.key != HAND_RAISED_KEY {
                         return;
                     }
-                    // The C++ side matches this against the membership it
-                    // already holds, and REQUIRES the sender to be that
-                    // membership's own user — anyone may annotate anyone's
-                    // state event, and without that check one user could
-                    // raise everybody's hand.
+                    // C++ matches this to a membership and requires the sender to own it.
                     enqueue(&events, json!({
                         "type": "rtc_hand_changed",
                         "lifecycle": timelines.lifecycle(),
@@ -3987,11 +3141,8 @@ pub(crate) fn register_rtc_handlers(
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
                 async move {
-                    // A redaction names what it removed, and nothing else
-                    // here can say WHAT was redacted — the event is gone. So
-                    // every redaction is forwarded and the C++ side answers
-                    // "was that one of the reactions I am tracking?", which
-                    // it can, because it holds the reaction ids.
+                    // A redaction only names what it removed, so every one is forwarded and
+                    // C++ checks whether it is a tracked reaction id.
                     let Some(redacts) = ev.as_original()
                         .and_then(|original| original.redacts.as_ref())
                         .or_else(|| ev.as_original().and_then(|o| o.content.redacts.as_ref()))
@@ -4012,18 +3163,9 @@ pub(crate) fn register_rtc_handlers(
         guards.push(client.event_handler_drop_guard(handle));
     }
 
-    // Transient call reactions, element-call's `io.element.call.reaction`.
-    //
-    // UNFILTERED BY ROOM for the same reason the hand handler above is: the
-    // event type is ours alone, so the filter is free, and knowing which
-    // room a call is in is state this handler has no business holding.
-    //
-    // The emoji is bounded and reduced to ONE cluster HERE, before it leaves
-    // this file, so nothing downstream ever holds an unbounded remote
-    // string. Attribution is NOT done here: the C++ side already owns the
-    // "does this sender own the membership they annotate?" check for hands
-    // (`RtcController::identityForMembership`) and a second implementation
-    // of a security check is how the two drift apart.
+    // element-call transient reactions. Not filtered by room (see hands). The
+    // emoji is bounded and cut to one cluster here; attribution is done in C++
+    // (`RtcController::identityForMembership`), not duplicated here.
     {
         let events = Arc::clone(events);
         let timelines = Arc::clone(timelines);
@@ -4032,9 +3174,7 @@ pub(crate) fn register_rtc_handlers(
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
                 async move {
-                    // A reaction with nothing drawable in it is dropped
-                    // whole, exactly as element-call drops one whose emoji
-                    // is empty after segmentation.
+                    // Nothing drawable: dropped, as element-call does.
                     let Some(emoji) = reaction_emoji(&ev.content.emoji) else {
                         return;
                     };
@@ -4064,13 +3204,8 @@ pub(crate) fn register_rtc_handlers(
                 let timelines = Arc::clone(&timelines);
                 async move {
                     let own = client.user_id().is_some_and(|user| user == ev.sender);
-                    // A notification is the strongest statement that a
-                    // session exists in a room this client is deliberately
-                    // NOT looking at, so it licenses the one `/state` the
-                    // session read would otherwise refuse to spend on a room
-                    // whose stored membership view is stale. Recorded for
-                    // our OWN notification too: it costs one map insert and
-                    // the alternative is a rule with two cases.
+                    // A ring is the strongest evidence of a session in a room we are not
+                    // viewing, so it licenses one `/state`. Recorded for our own ring too.
                     note_rtc_ring(room.room_id().as_str());
                     let notification_type = match ev.content.notification_type.as_str()
                     {
@@ -4094,8 +3229,7 @@ pub(crate) fn register_rtc_handlers(
                             .min(MAX_NOTIFICATION_LIFETIME_MS),
                         "call_intent": intent,
                         "notification_type": notification_type,
-                        // Marks this as the MatrixRTC lane rather than a
-                        // legacy m.call.invite, so one call cannot ring twice.
+                        // MatrixRTC lane, not legacy m.call.invite, so one call cannot ring twice.
                         "rtc": true,
                     }));
                 }
@@ -4112,29 +3246,9 @@ pub(crate) fn register_rtc_handlers(
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
                 async move {
-                    // EVERY DISCARD SAYS SO. This handler had SIX silent
-                    // `return`s, and each of them produces the identical
-                    // user-visible symptom -- every remote frame dropped for
-                    // want of a key -- with NOTHING in the log. The C++ side
-                    // already logs before its own early returns for exactly
-                    // this reason ("the key never arrived" and "the key
-                    // arrived and we discarded it" are different faults with
-                    // the same symptom); the Rust side has more discard paths
-                    // than the C++ side and had none of that discipline, so a
-                    // key rejected here was indistinguishable from a key that
-                    // was never sent.
-                    //
-                    // OBSERVED LIVE, 2026-09-07: a two-party encrypted call
-                    // in which A's key reached B and was installed, B sent its
-                    // key three times reporting `delivered= 1` each time, and
-                    // A logged NO key receive of any kind while dropping every
-                    // frame. With this line the next such call names its own
-                    // cause instead of costing a session.
-                    //
-                    // Carries the sender and a fixed reason string, never key
-                    // material. The sender's user id is the same class of
-                    // datum RtcController's own unresolved-identity
-                    // diagnostic already records deliberately.
+                    // Every discard logs its reason: otherwise "the key never arrived" and "the
+                    // key arrived and was discarded" look identical (every frame dropped, no
+                    // log). Sender and a fixed reason only, never key material.
                     macro_rules! discard {
                         ($reason:expr) => {{
                             enqueue(&events, json!({
@@ -4146,22 +3260,13 @@ pub(crate) fn register_rtc_handlers(
                             return;
                         }};
                     }
-                    // OLM OR NOTHING. The SDK hands a to-device event to this
-                    // handler whether or not it was encrypted, and `None`
-                    // here means it arrived in the CLEAR: any Matrix user on
-                    // any server can PUT such an event, and a homeserver can
-                    // write any `sender` on it. Only after Olm decryption is
-                    // the sender AND the sending device vouched for by the
-                    // session's identity key -- which is what the ring name
-                    // below is keyed on. The reference sends these keys
-                    // encrypted; a plaintext one is refused, not degraded.
+                    // Olm or nothing. `None` means the event arrived in the clear, which any
+                    // user can send with any `sender`. Only Olm decryption vouches for sender
+                    // and device, which the key ring is keyed on. Plaintext keys are refused.
                     let Some(encryption) = encryption else {
                         discard!("not encrypted");
                     };
-                    // `None` here means Olm decrypted the message but the SDK
-                    // could not attribute it to a known device of the sender.
-                    // That is the leading suspect for the observed one-way
-                    // failure above, and it was previously invisible.
+                    // Olm decrypted it but the SDK could not attribute it to a known device.
                     let Some(sender_device) = encryption.sender_device.as_ref()
                     else {
                         discard!("sending device not resolved");
@@ -4181,17 +3286,12 @@ pub(crate) fn register_rtc_handlers(
                         "type": "rtc_key_received",
                         "lifecycle": timelines.lifecycle(),
                         "room_id": room_id,
-                        // Both vouched for by Olm decryption (see above).
-                        // The C++ side keys the ring on this pair, so
-                        // `claimed_device_id` carries the VERIFIED device:
-                        // the field keeps its name so the consumer did not
-                        // have to change, and the value is no longer a
-                        // claim.
+                        // Both vouched for by Olm. `claimed_device_id` keeps its name for the
+                        // consumer but carries the verified device.
                         "sender": ev.sender.to_string(),
                         "claimed_device_id": device_id,
                         "key_index": valid.index,
-                        // The key itself: C++ memory only, never QML, never
-                        // logged. It is base64 exactly as it arrived.
+                        // The key: C++ memory only, never QML, never logged. Base64 as received.
                         "key": key,
                     }));
                 }
@@ -4200,61 +3300,26 @@ pub(crate) fn register_rtc_handlers(
         guards.push(client.event_handler_drop_guard(handle));
     }
 
-    // THE DISCARD THAT ACTUALLY HAPPENED IS ONE THIS HANDLER NEVER SEES.
+    // A media key whose Olm message failed never reaches the handler above:
+    // matrix-sdk hands undecryptable to-device events to handlers as the
+    // `m.room.encrypted` envelope (event_handler/mod.rs), so the typed handler
+    // is never called. This reports that loss for peers we sent a media key
+    // to; it does not retry or soften a refusal.
     //
-    // Every `discard!` above requires the handler ABOVE to run, and it only
-    // runs for a to-device event the SDK decrypted. Measured against
-    // matrix-sdk 0.18: `handle_sync_to_device_events` matches
-    // `ProcessedToDeviceEvent::Decrypted` to hand over the DECRYPTED raw
-    // event, and every other variant — `UnableToDecrypt` above all — is
-    // handed over as the `m.room.encrypted` ENVELOPE with no encryption info
-    // (matrix-sdk-0.18.0/src/event_handler/mod.rs:379-384). So a media key
-    // whose Olm message failed is not a discard we can name: the typed
-    // handler for `io.element.call.encryption_keys` is never called at all.
-    //
-    // That is exactly the shape captured live on 2026-09-07 — the sender
-    // reporting `delivered= 1` three times while the receiver logged NO key
-    // receive AND no discard — and it took an opt-in SDK tracing bridge to
-    // say so. An ordinary log, and therefore any tester's report, said
-    // nothing whatsoever.
-    //
-    // This handler is the ordinary-log version of that line. It reports the
-    // loss and nothing more: it does not retry, does not soften a refusal,
-    // and cannot make a key land. It CANNOT, and must not pretend to,
-    // distinguish the reasons, because the SDK's own reason
-    // (`ToDeviceUnableToDecryptInfo`) travels on `SyncResponse.to_device` and
-    // never reaches an event handler. The three that produce this shape are:
+    // It cannot tell the cause apart (`ToDeviceUnableToDecryptInfo` never
+    // reaches handlers):
     //
     //   * the sender encrypted to an identity key we no longer hold
-    //     (`EventError::MissingCiphertext`, olm/account.rs:1239) — the
-    //     2026-09-07 capture. Note the SDK marks a device for a fresh Olm
-    //     session only on `SessionWedged`, so this one does NOT self-heal,
-    //     which is why leaving and rejoining did not recover it;
-    //   * the sending device is not in our store and the message carried no
-    //     MSC4147 `sender_device_keys` (`EventError::MissingSigningKey`,
-    //     olm/account.rs:1606) — a genuine race, and one matrix-sdk senders
-    //     cannot cause because their sessions always attach those keys
-    //     (olm/session.rs:204);
-    //   * the sending device does not meet the configured trust requirement
-    //     (`OlmError::UnverifiedSenderDevice`). That refusal is CORRECT and
-    //     must stay a refusal — this line exists so it stops being a silent
-    //     one.
+    //     (`MissingCiphertext`); the SDK only re-establishes sessions on
+    //     `SessionWedged`, so rejoining does not fix it;
+    //   * the sender device is unknown and the message lacked MSC4147
+    //     `sender_device_keys` (`MissingSigningKey`);
+    //   * the sender device fails the trust requirement
+    //     (`UnverifiedSenderDevice`), a correct refusal.
     //
-    // Sender only, never ciphertext, never key material, and NOTE that on an
-    // undecryptable envelope the sender is server-asserted rather than
-    // Olm-vouched: it names who the homeserver says this came from, which is
-    // the right datum for a diagnostic and would be the wrong one for a
-    // decision.
-    //
-    // THERE IS A SECOND HANDLER ON THIS EXACT EVENT TYPE, in `lib.rs`
-    // (search `ToDeviceRoomEncryptedEvent`), and both are deliberate. That one
-    // is the GENERAL counter: every sender, rate limited to the first, tenth
-    // and every hundredth, and it says only that the Olm channel from that
-    // user is not opening. This one is the CALL-SPECIFIC reading: it fires
-    // only for a peer this client has actually sent a media key to, and says
-    // what the failure costs in the call. Neither subsumes the other, and
-    // deleting one to remove the "duplicate" loses either the general signal
-    // or the actionable one. matrix-sdk supports several handlers per type.
+    // Sender only (server-asserted here, fine for a diagnostic). lib.rs has a
+    // second, general handler on this type (`ToDeviceRoomEncryptedEvent`); both
+    // are intentional.
     {
         let events = Arc::clone(events);
         let timelines = Arc::clone(timelines);
@@ -4267,11 +3332,8 @@ pub(crate) fn register_rtc_handlers(
                     else {
                         return;
                     };
-                    // A POISONED LOCK MUST NOT SILENCE THE DIAGNOSTIC. Both
-                    // fallbacks below fail towards saying too much rather
-                    // than too little; the C++ consumer applies its own
-                    // 60 s per-(sender, reason) cooldown, so the worst case
-                    // is a repeated warning rather than a hidden fault.
+                    // A poisoned lock must not silence the diagnostic; fail towards reporting.
+                    // C++ applies a 60 s per-(sender, reason) cooldown.
                     let is_peer = match device_refresh_marks().lock() {
                         Ok(marks) => marks.contains_key(sender),
                         Err(_) => true,
@@ -4287,9 +3349,7 @@ pub(crate) fn register_rtc_handlers(
                     }
                     if let Ok(mut marks) = undecryptable_report_marks().lock()
                     {
-                        // Refresh an existing mark always; take a new slot
-                        // only while there is room, so the map is bounded
-                        // even if the gate above ever let a stranger past.
+                        // Refresh an existing mark; add one only while there is room.
                         if marks.len() < MAX_REPORT_MARKS
                             || marks.contains_key(sender)
                         {
@@ -4321,14 +3381,8 @@ mod tests {
     use super::*;
     use matrix_sdk::ruma::events::StaticEventContent;
 
-    // A RECEIVED MEDIA KEY'S INDEX IS THE WHOLE BYTE, BOUNDED BY ITS TYPE.
-    //
-    // element-call keys at indices 16..=255 once a sender has rotated sixteen
-    // times; the handler used to discard those after parsing. What remains
-    // is the type bound this pins: 200 parses, 255 parses, 256 and -1 do not
-    // deserialise at all, so nothing outside the C++ ring can reach it.
-    // (The removed `> 15` discard lived inside the event-handler closure and
-    // is covered on the C++ side, where the same bound is enforced again.)
+    // A received key's index is the whole byte, bounded by type: 200 and 255
+    // parse, 256 and -1 do not deserialize. (C++ enforces the same bound.)
     #[test]
     fn received_media_key_index_is_bounded_by_its_type() {
         let content = |index: serde_json::Value| {
@@ -4350,12 +3404,11 @@ mod tests {
                     content(bad.clone())).is_err(),
                 "index {bad} must not deserialise");
         }
-        // OUR sender still stamps 0..=15.
+        // Our sender still stamps 0..=15.
         assert_eq!(MAX_SEND_KEY_INDEX, 15);
     }
 
-    // Indices 16 and 255 pass validation (they were discarded as "out of
-    // range" before 2026-09-23); a device mismatch is still refused.
+    // Indices 16 and 255 pass validation; a device mismatch is refused.
     #[test]
     fn media_key_validation_accepts_the_whole_index_byte() {
         let content = |index: u8, claimed: &str| -> CallEncryptionKeysEventContent {
@@ -4405,8 +3458,7 @@ mod tests {
         assert_eq!(member.user_id, "@a:x");
         assert_eq!(member.device_id, "DEVICE");
         assert_eq!(member.rtc_identity, "@a:x:DEVICE");
-        // `call_id: ""` is the room call and MUST normalise to the slot
-        // vocabulary, or the same call read two ways looks like two calls.
+        // `call_id: ""` normalises to the slot vocabulary.
         assert_eq!(member.slot_id, "m.call#ROOM");
         assert_eq!(member.expires_at_ms, 1_000 + 14_400_000);
         assert_eq!(member.foci.len(), 1);
@@ -4455,8 +3507,7 @@ mod tests {
         content["expires"] = json!(u64::MAX);
         let member =
             parse_session_membership(&content, "@a:x", 5_000).expect("valid");
-        // Neither wrapped into the past NOR immortal: a claimed lifetime is
-        // capped at the ceiling, measured from the EVENT.
+        // Neither wrapped into the past nor immortal: capped relative to the event.
         assert_eq!(member.expires_at_ms, 5_000 + MAX_EXPIRE_MS);
         assert_eq!(aggregate_session(vec![member.clone()], 10_000).len(), 1);
         assert_eq!(
@@ -4465,12 +3516,9 @@ mod tests {
         );
     }
 
-    /// The focus-takeover shape: `created_ts: 0` to sort oldest forever and
-    /// `expires: u64::MAX` to never age out. Both claims are bounded against
-    /// the envelope: the join can be at most a day old (so it cannot sort
-    /// before anyone who joined more than a day earlier than it was sent),
-    /// and the deadline is at most a day past the event (so without a
-    /// refresh -- a NEW event -- it ages out like everyone else).
+    /// The focus-takeover shape: `created_ts: 0` and `expires: u64::MAX`. The
+    /// join is clamped to at most a day old and the deadline to a day past the
+    /// event, so without a refresh it ages out.
     #[test]
     fn a_backdated_immortal_membership_is_bounded_by_its_own_event() {
         let mut content = session_content();
@@ -4485,10 +3533,8 @@ mod tests {
         assert!(aggregate_session(vec![member], now + MAX_EXPIRE_MS + 1).is_empty());
     }
 
-    /// A refresh of a call older than a day: `created_ts` preserved from the
-    /// original join, `expires = (now - created) + period` as
-    /// expires_for_refresh() writes it. Bounding against created_ts would
-    /// have made this membership expired the moment it was sent.
+    /// A refresh of a call older than a day (`created_ts` preserved, `expires`
+    /// as expires_for_refresh() writes it) stays live.
     #[test]
     fn a_refresh_of_a_day_old_call_is_still_live() {
         let created = 1_700_000_000_000u64;
@@ -4505,9 +3551,8 @@ mod tests {
         assert_eq!(ordered[0].user_id, "@a:x");
     }
 
-    /// A join time in the future would sort last (harmless) while pushing
-    /// the expiry out of reach (a phantom that inflates the participant
-    /// count forever). It is pulled back to the envelope's timestamp.
+    /// A future join time is pulled back to the envelope's timestamp, so the
+    /// expiry cannot be pushed out of reach.
     #[test]
     fn a_future_created_ts_is_clamped_to_the_envelope() {
         let mut content = session_content();
@@ -4521,9 +3566,8 @@ mod tests {
         );
     }
 
-    /// `membershipID` is content. Publishing somebody ELSE's `{user}:{device}`
-    /// used to make the impostor the first match for that participant's SFU
-    /// identity. The identity is now derived from the vouched-for sender.
+    /// `membershipID` is content; the identity is derived from the vouched-for
+    /// sender, so an impostor cannot claim another participant's identity.
     #[test]
     fn a_membership_cannot_claim_another_participants_identity() {
         let mut content = session_content();
@@ -4544,19 +3588,9 @@ mod tests {
 
     #[test]
     fn foci_are_read_from_the_well_known_keys_element_uses() {
-        // The discovery LOCATION was wrong for the whole of the MatrixRTC
-        // work: an invented
-        // `/_matrix/client/unstable/org.matrix.msc4143/rtc/transports`
-        // endpoint that exists on no server. Discovery therefore never
-        // answered anywhere, every call fell back to the legacy 1:1 lane
-        // (no video, no screen share), and starting a MatrixRTC call was
-        // impossible on any homeserver.
-        //
-        // The real place is `.well-known/matrix/client`, under
-        // `org.matrix.msc4143.rtc_foci` with `m.rtc_foci` as the stable
-        // alias — exactly what ruma models and what Element Call reads.
-        // Pinned as the literal KEY NAMES, because the mistake was a name,
-        // not a shape: the transport objects parsed correctly all along.
+        // Foci come from `.well-known/matrix/client` under
+        // `org.matrix.msc4143.rtc_foci` (stable alias `m.rtc_foci`), as ruma models
+        // and Element Call reads. Pinned as literal key names.
         let unstable = serde_json::json!({
             "m.homeserver": { "base_url": "https://matrix.example.org" },
             "org.matrix.msc4143.rtc_foci": [
@@ -4588,8 +3622,7 @@ mod tests {
         });
         assert_eq!(pick(&stable).len(), 1);
 
-        // And the key we used to read is NOT a source. A server that
-        // happens to carry it must not resurrect the wrong mechanism.
+        // The old invented key is not a source.
         let wrong = serde_json::json!({
             "rtc_transports": [
                 { "type": "livekit",
@@ -4613,16 +3646,8 @@ mod tests {
         .is_some());
     }
 
-    // A HOMESERVER WITH NO MSC4143 HAS ANSWERED. It answers 404 (or 400 /
-    // 405, or M_UNRECOGNIZED), `status_category` calls that `unsupported`,
-    // and the comment above the discovery call has always said that is
-    // "this homeserver has no MatrixRTC, NOT a transient failure". The
-    // payload contradicted it: `server_answered` was `category.is_empty()`,
-    // so the one definitive negative crossed as "we could not check" —
-    // which the join gate renders as "Couldn't check whether calling is
-    // available", and which makes `discoveryWorthRetrying()` true forever,
-    // re-running account-scoped discovery on every room change for the rest
-    // of the session against a constant.
+    // A 404/400/405 (`unsupported`) is a definitive "no MatrixRTC here", not
+    // "could not check", or discovery re-runs on every room change.
     #[test]
     fn a_homeserver_without_matrixrtc_counts_as_having_answered() {
         for status in [400u16, 404, 405] {
@@ -4633,13 +3658,10 @@ mod tests {
                  not a check that failed"
             );
         }
-        // An endpoint that answered normally is definitive too, whatever
-        // it listed — an empty list is "no MatrixRTC here", not an error.
+        // A normal answer is definitive, even an empty list.
         assert!(discovery_answer_is_definitive(""));
 
-        // ...and everything that is genuinely a FAILURE must stay open, or
-        // the UI claims the homeserver has no calling on the strength of a
-        // 500 and never asks again.
+        // Genuine failures stay open, or a 500 would be read as "no calling".
         for category in [
             "forbidden",
             "rate_limited",
@@ -4655,8 +3677,8 @@ mod tests {
                  settled answer"
             );
         }
-        // The categories a real HTTP status can produce, pinned so a new
-        // status mapping cannot quietly become "definitive".
+        // Pin every status category so a new mapping cannot silently become
+        // definitive.
         for status in [401u16, 403, 429, 500, 503, 418] {
             assert!(!discovery_answer_is_definitive(status_category(status)));
         }
@@ -4700,16 +3722,9 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------
-    // Which view of the room's state a session read may trust
-    //
-    // Reported as GitHub issue #10: a two-party encrypted call in which the
-    // reporter's own participant list fell from 2 to 1 to 0 while the peer
-    // was demonstrably still in the call and still sending audio. The
-    // consequences are all one cause -- the peer drawn as a question mark
-    // (no membership, so no name and no avatar), `media key distributed
-    // index= 3 targets= 0 sfuPeers= 0`, and 1002 frames that decrypted
-    // followed by frames that could not, because the peer had rotated their
-    // key to a target set that no longer contained this device.
+    // Which view of the room's state a session read may trust (GitHub #10:
+    // the participant list dropped while the peer was still in the call, so
+    // media keys went to an empty target set).
     // ---------------------------------------------------------------------
 
     fn membership_event(
@@ -4749,9 +3764,8 @@ mod tests {
         })
     }
 
-    // The no-MSC4140 fallback write. See fallback_expires_ms: this branch
-    // used to pass the bare constant against a PRESERVED created_ts, which
-    // publishes a membership that is already dead.
+    // The no-MSC4140 fallback write must not publish an already-expired
+    // membership (see fallback_expires_ms).
     #[test]
     fn the_fallback_write_is_measured_from_created_ts_not_from_zero() {
         let join = 1_000_000u64;
@@ -4764,15 +3778,13 @@ mod tests {
             "the fallback write published a membership that was already dead: \
              deadline {deadline} is not after now {now}"
         );
-        // ...and it is a full period out, not merely non-negative.
+        // A full period out, not merely non-negative.
         assert_eq!(deadline, now + MEMBERSHIP_EXPIRY_NO_DELAYED_MS);
     }
 
     #[test]
     fn a_fresh_join_still_gets_the_plain_period() {
-        // No created_ts means peers date the membership from the event's own
-        // origin_server_ts, so the duration IS the period. This is the case
-        // the old constant got right, and it must not regress.
+        // No created_ts: the duration is the period.
         assert_eq!(
             fallback_expires_ms(None, 5_000_000),
             MEMBERSHIP_EXPIRY_NO_DELAYED_MS
@@ -4781,8 +3793,7 @@ mod tests {
 
     #[test]
     fn a_membership_the_fallback_wrote_survives_its_own_parser() {
-        // End to end through the real parser, which is what actually decides
-        // whether this device stays in its own participant list.
+        // End to end through the real parser.
         let join = 1_000_000u64;
         let now = join + 20 * 60 * 1000;
         let event_ts = now;
@@ -4818,13 +3829,8 @@ mod tests {
 
     #[test]
     fn a_ghost_membership_does_not_make_the_store_authoritative() {
-        // THE REGRESSION. The predicate used to be "any event whose content
-        // is not {}", and this event satisfies it: it is a membership left
-        // behind by an unclean exit on a homeserver without MSC4140, which
-        // this file logs as a known consequence. It is also long dead. One
-        // of these in the store answered "the store is fine" for as long as
-        // the ghost survived, so the network read that exists to cover a
-        // lagging store could never run.
+        // A dead ghost membership (non-empty content) must not make the store
+        // authoritative, or the network read could never run.
         let ghost = membership_event("@ghost:x", "D9", 1_000, 300_000);
         assert!(!ghost["content"].as_object().unwrap().is_empty());
         assert!(!store_view_is_usable(&[ghost], 1_000 + 300_001));
@@ -4832,8 +3838,7 @@ mod tests {
 
     #[test]
     fn an_unparseable_membership_does_not_make_the_store_authoritative() {
-        // Non-empty content that is not a membership at all: the old
-        // predicate accepted it, the parse does not.
+        // Non-empty content that does not parse as a membership.
         let junk = json!({
             "type": EV_MEMBER_LEGACY,
             "sender": "@a:x",
@@ -4845,24 +3850,12 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // The `/state` escalation, and when it is worth spending one.
+    // The `/state` escalation and when it is worth one request.
     //
-    // FAIL-ON-OLD, for every case below that asserts `AnswerNoSession`: the
-    // code these replace was
-    //
-    //     if !prefer_server && store_view_is_usable(&from_store, now_ms) {
-    //         return (from_store, "store");
-    //     }
-    //     ...ask the homeserver...
-    //
-    // i.e. exactly two outcomes, and everything that is not live went to the
-    // network. Reproduce it by deleting the horizon arm of
-    // `store_read_verdict` — replace the whole tail after the `Answer` return
-    // with `StoreVerdict::AskServer(EscalationReason::RecentActivity)` — and
-    // every `AnswerNoSession` assertion below fails. That mutation IS the old
-    // behaviour, measured by the maintainer on 2026-09-19 as ten full
-    // `/state` requests during initial sync that all reported
-    // `participants= 0`.
+    // Mutation check for the `AnswerNoSession` cases: replace the tail of
+    // `store_read_verdict` after the `Answer` return with
+    // `StoreVerdict::AskServer(EscalationReason::RecentActivity)` (the old
+    // two-outcome behaviour) and they all fail.
     // -----------------------------------------------------------------
 
     /// A week of wall clock, so a "long dead" fixture is unambiguous.
@@ -4870,10 +3863,8 @@ mod tests {
 
     #[test]
     fn an_idle_room_full_of_dead_memberships_costs_no_request() {
-        // THE REPORTED DEFECT. Initial sync replays a room's existing
-        // `m.call.member` state, one poke per event; the store then holds
-        // exactly this and nothing live. There is no call in this room and
-        // `/state` cannot say anything else.
+        // Initial sync replays a room's old `m.call.member` state; with nothing
+        // live and no call, no request is warranted.
         let now = A_WEEK_MS;
         let store = vec![
             membership_event("@a:x", "D1", 1_000, 300_000),
@@ -4888,10 +3879,8 @@ mod tests {
 
     #[test]
     fn a_room_that_has_never_hosted_a_call_costs_no_request() {
-        // The larger half of the same waste, and it is not poke-driven at
-        // all: `AppController::setCurrentRoomId` refreshes the session of
-        // every room the user opens, and an empty store failed the old gate
-        // exactly like a stale one. So opening any room cost one `/state`.
+        // Opening a room refreshes its session (`setCurrentRoomId`); an empty store
+        // must not cost a `/state`.
         assert_eq!(
             store_read_verdict(&[], A_WEEK_MS, false, false),
             StoreVerdict::AnswerNoSession
@@ -4901,9 +3890,8 @@ mod tests {
 
     #[test]
     fn a_live_membership_is_still_answered_by_the_store_alone() {
-        // Unchanged, and it is what keeps a call STARTING prompt: a joining
-        // peer's membership is live the moment sync delivers it, so the poke
-        // it raises is answered from the store for free.
+        // A live membership is answered by the store for free, which keeps a call
+        // starting prompt.
         let now = 60_000u64;
         let store = vec![membership_event("@a:x", "D1", 1_000, 300_000)];
         assert_eq!(
@@ -4914,10 +3902,8 @@ mod tests {
 
     #[test]
     fn a_membership_that_lapsed_moments_ago_still_buys_one_request() {
-        // The other direction, and the one that keeps this honest: a peer
-        // whose refresh we simply have not received yet expired seconds ago,
-        // and the call may well still be running. Half a minute past its
-        // deadline is inside the horizon.
+        // A peer whose refresh we have not received expired seconds ago; inside
+        // the horizon, it still earns a request.
         let now = A_WEEK_MS;
         let store = vec![membership_event("@a:x", "D1", now - 330_000, 300_000)];
         assert!(!store_view_is_usable(&store, now));
@@ -4929,18 +3915,15 @@ mod tests {
 
     #[test]
     fn a_retraction_from_moments_ago_still_buys_one_request() {
-        // A retraction PARSES TO NOTHING, so it contributes no deadline —
-        // and it is nonetheless the newest thing that happened to this
-        // room's call state. Drop the `origin_server_ts` arm of
-        // `newest_session_signal_ms` and a call that ended thirty seconds
-        // ago reads as a room with no history at all.
+        // A retraction parses to nothing but is still the newest activity (the
+        // `origin_server_ts` arm of `newest_session_signal_ms`).
         let now = A_WEEK_MS;
         let fresh = vec![retraction_event("@a:x", "D1", now - 30_000)];
         assert_eq!(
             store_read_verdict(&fresh, now, false, false),
             StoreVerdict::AskServer(EscalationReason::RecentActivity)
         );
-        // ...and an hour later the same room is quiet again.
+        // An hour later the room is quiet again.
         let stale = vec![retraction_event("@a:x", "D1", now - 60 * 60 * 1000)];
         assert_eq!(
             store_read_verdict(&stale, now, false, false),
@@ -4950,9 +3933,8 @@ mod tests {
 
     #[test]
     fn the_deadline_counts_even_when_the_event_itself_is_old() {
-        // A long call refreshes rarely relative to its `expires`, so the
-        // newest EVENT can be much older than the newest DEADLINE. Taking
-        // only origin_server_ts would age such a room out early.
+        // A long call refreshes rarely, so the newest deadline can be much later
+        // than the newest event.
         let now = A_WEEK_MS;
         let event_ts = now - 4 * 60 * 60 * 1000;
         let store = vec![membership_event("@a:x", "D1", event_ts, 4 * 60 * 60 * 1000 - 60_000)];
@@ -4965,13 +3947,9 @@ mod tests {
 
     #[test]
     fn being_in_the_call_always_buys_the_request() {
-        // THE CASE THE FALLBACK WAS WRITTEN FOR, and the one this change must
-        // not take away. Measured against a real homeserver: the store held
-        // thirteen membership events and every one of them was a stale
-        // retraction while the server's own `/state` had the live
-        // memberships. Media keys are addressed to the devices these events
-        // name, so answering "nobody is here" from that store sends the key
-        // to nobody and every frame is dropped at both ends.
+        // Being in the call always buys the request: the store may hold only stale
+        // retractions while the server has the live memberships, and media keys go
+        // to the devices these name.
         let now = A_WEEK_MS;
         let store: Vec<serde_json::Value> = (0..13)
             .map(|i| retraction_event(&format!("@peer{i}:x"), "D", 1_000))
@@ -4991,10 +3969,7 @@ mod tests {
 
     #[test]
     fn a_ring_buys_the_request_for_a_room_nothing_has_looked_at() {
-        // The incoming-call card's Answer button is gated on a session read,
-        // and the room is deliberately not open — so its stored state is the
-        // least fresh thing this client holds. An empty store plus a ring is
-        // the exact shape of "app in the background, room not open".
+        // A ring for a room that is not open: Answer is gated on a session read.
         assert_eq!(
             store_read_verdict(&[], A_WEEK_MS, false, true),
             StoreVerdict::AskServer(EscalationReason::Ring)
@@ -5003,9 +3978,8 @@ mod tests {
 
     #[test]
     fn the_escalation_backoff_doubles_and_stops_at_the_ceiling() {
-        // Without the doubling a single ghost membership — which sits inside
-        // the horizon for the whole horizon — would buy one `/state` per poke
-        // for fifteen minutes: the same storm in a smaller costume.
+        // Without doubling, one ghost membership would buy a request per poke for
+        // the whole horizon.
         assert_eq!(escalation_cooldown_ms(0), SERVER_ESCALATION_COOLDOWN_MS);
         assert_eq!(escalation_cooldown_ms(1), SERVER_ESCALATION_COOLDOWN_MS);
         assert_eq!(escalation_cooldown_ms(2), 2 * SERVER_ESCALATION_COOLDOWN_MS);
@@ -5016,7 +3990,7 @@ mod tests {
             "the gap must stop growing, or a room becomes permanently \
              un-askable"
         );
-        // Monotonic the whole way, and never past the ceiling.
+        // Monotonic and never past the ceiling.
         let mut previous = 0u64;
         for asks in 0..40u32 {
             let gap = escalation_cooldown_ms(asks);
@@ -5028,9 +4002,9 @@ mod tests {
 
     #[test]
     fn the_backoff_is_per_room_and_a_ring_cancels_it() {
-        // Shares the process-global mark tables with the publish-set tests;
-        // see PUBLISH_SET_TEST_LOCK, which now also covers them because
-        // `forget_all_memberships_published` clears all three together.
+        // Shares the global mark tables with the publish-set tests, hence
+        // PUBLISH_SET_TEST_LOCK (`forget_all_memberships_published` clears all
+        // three).
         let _serialised = PUBLISH_SET_TEST_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -5050,7 +4024,7 @@ mod tests {
              gate would make a real call wait on an idle room's ghost"
         );
 
-        // A ring is fresh evidence a session exists, so it cancels the gap.
+        // A ring cancels the gap.
         note_rtc_ring(room);
         assert!(rtc_ring_is_recent(room));
         assert!(!rtc_ring_is_recent(other));
@@ -5060,7 +4034,7 @@ mod tests {
              while it was idle: the Answer button is gated on this read"
         );
 
-        // And a session ending clears every one of them.
+        // A session ending clears them all.
         forget_all_memberships_published();
         assert!(!rtc_ring_is_recent(room));
         assert!(
@@ -5073,9 +4047,8 @@ mod tests {
 
     #[test]
     fn a_bound_cuts_the_dead_memberships_before_the_live_ones() {
-        // The room this file's own comments describe: thousands of stale
-        // memberships, two live ones. An arbitrary or alphabetical cut can
-        // be entirely ghosts, and the read then reports an empty call.
+        // Thousands of stale memberships and two live ones: an arbitrary cut could
+        // keep only ghosts.
         let now = 10_000_000u64;
         let mut events: Vec<serde_json::Value> = (0..600)
             .map(|i| membership_event(&format!("@ghost{i}:x"), "D", 1_000, 300_000))
@@ -5106,8 +4079,7 @@ mod tests {
 
     #[test]
     fn merging_keeps_the_newer_event_for_each_state_key() {
-        // The server's /state snapshot can predate our own publish by a
-        // round trip, and the store is where our own echo lands first.
+        // /state can predate our own publish; the store has our echo first.
         let store = vec![membership_event("@a:x", "D1", 90_000, 360_000)];
         let server = vec![
             membership_event("@a:x", "D1", 30_000, 300_000),
@@ -5124,8 +4096,7 @@ mod tests {
 
     #[test]
     fn a_newer_retraction_wins_over_an_older_join() {
-        // The other direction, and it must hold or a stale stored copy
-        // resurrects a participant who left.
+        // A stale stored copy must not resurrect a participant who left.
         let store = vec![membership_event("@b:x", "D2", 30_000, 300_000)];
         let server = vec![retraction_event("@b:x", "D2", 90_000)];
         let merged = merge_membership_events(store, server, 60_000);
@@ -5180,8 +4151,8 @@ mod tests {
 
     #[test]
     fn focus_comes_from_the_oldest_membership() {
-        // Everyone must independently reach the same SFU, so the rule is
-        // "oldest membership wins" and NOT "first one we happened to parse".
+        // Everyone must reach the same SFU: oldest membership wins, not parse
+        // order.
         let mut newer = member_at("@b:x", "D2", 100, 9_000);
         newer.foci = vec![LivekitTransport {
             service_url: "https://newer.example.org/".to_owned(),
@@ -5200,11 +4171,8 @@ mod tests {
 
     #[test]
     fn focus_does_not_walk_past_a_silent_oldest_member() {
-        // The reference reads the OLDEST membership's own foci and yields
-        // nothing when it advertises none — it never walks on to a later
-        // member. Walking would put Lightning on a different SFU than
-        // Element in exactly this case, which is the disagreement the
-        // oldest-membership rule exists to prevent.
+        // The reference yields nothing when the oldest member advertises no focus;
+        // walking on would diverge from Element.
         let silent = member_at("@a:x", "D1", 10, 9_000);
         let mut advertiser = member_at("@b:x", "D2", 20, 9_000);
         advertiser.foci = vec![LivekitTransport {
@@ -5220,8 +4188,7 @@ mod tests {
 
     #[test]
     fn transport_url_refuses_credentials_and_unroutable_hosts() {
-        // A focus is advertised by REMOTE participants, so it is
-        // attacker-influenced and phase 2 will connect to it.
+        // Foci are advertised by remote participants and will be connected to.
         for bad in [
             "https://user:pw@sfu.example.org",
             "https://127.0.0.1/",
@@ -5232,8 +4199,7 @@ mod tests {
             "https://[::1]/",
             "https://[fe80::1]/",
             "https://[fc00::1]/",
-            // IPv4-mapped IPv6: the loopback and the metadata address in a
-            // costume the plain V6 rules cannot see through.
+            // IPv4-mapped IPv6 loopback and metadata addresses.
             "https://[::ffff:127.0.0.1]/",
             "https://[::ffff:169.254.169.254]/",
             // CGNAT, multicast, and the local-only name suffixes.
@@ -5293,8 +4259,7 @@ mod tests {
 
     #[test]
     fn sticky_membership_for_another_user_is_forgery() {
-        // The sender is who the server vouched for; member.user_id is only a
-        // claim. Accepting a mismatch would let anyone invent participants.
+        // member.user_id is a claim; a mismatch with the sender is forgery.
         assert!(parse_rtc_membership(&rtc_content(), "@attacker:x", 500).is_none());
     }
 
@@ -5338,39 +4303,28 @@ mod tests {
     }
 
     #[test]
-    // A DEVICE LIST THAT IS MERELY STALE MUST STILL BE REFRESHED.
-    //
-    // The media-key path used to spend a `/keys/query` only when the target
-    // device was ABSENT from the store. A device that is present with keys
-    // that have since rotated passes that check, so the key is encrypted to
-    // the old identity key; the recipient's SDK reports "Olm event doesn't
-    // contain a ciphertext for our key" and drops it, while the sender sees a
-    // successful delivery. Captured live on 2026-09-07.
+    // A device that is present but stale must still be refreshed: its rotated
+    // keys would otherwise make the recipient drop the media key while the
+    // sender sees success.
     #[test]
     fn a_device_refresh_is_owed_before_the_first_send_and_then_rate_limited() {
         // Never refreshed in this process: always owed.
         assert!(device_refresh_due(None));
-        // Just refreshed: not owed again immediately, or every key rotation
-        // in a busy call would be a `/keys/query` per participant.
+        // Just refreshed: not owed again, or every key rotation would query every
+        // participant.
         assert!(!device_refresh_due(Some(0)));
         assert!(!device_refresh_due(Some(DEVICE_REFRESH_TTL_SECS - 1)));
-        // Past the window: owed again, so a device that rotates its keys
-        // mid-call is picked up rather than cached forever.
+        // Past the window: owed again, so mid-call key rotations are picked up.
         assert!(device_refresh_due(Some(DEVICE_REFRESH_TTL_SECS)));
         assert!(device_refresh_due(Some(DEVICE_REFRESH_TTL_SECS * 10)));
-        // The window is a real bound, not zero (which would query on every
-        // single distribution) and not enormous.
+        // A real bound: not zero, not enormous.
         assert!(DEVICE_REFRESH_TTL_SECS >= 10 && DEVICE_REFRESH_TTL_SECS <= 600);
     }
 
-    // A LOSS WE CANNOT ATTRIBUTE TO A CALL MUST NOT BE ANNOUNCED AS ONE.
-    //
-    // An undecryptable to-device message carries no type, so the only thing
-    // that makes "a media key from them was discarded" a true sentence is
-    // that we have actually distributed a media key to that user. Without
-    // this gate the same line would fire for a failed room key, a
-    // verification step, or anything a homeserver chose to inject with an
-    // invented `sender` — and it would grow an unbounded table doing it.
+    // A loss not attributable to a call must not be reported as one: an
+    // undecryptable to-device message has no type, so only a sender we sent a
+    // media key to qualifies. Otherwise any failed message (or injected
+    // `sender`) would trigger it and grow the table.
     #[test]
     fn an_undecryptable_message_is_only_a_call_fault_for_a_call_peer() {
         assert!(!undecryptable_key_report_due(false, None));
@@ -5381,13 +4335,9 @@ mod tests {
         ));
     }
 
-    // A WEDGED SESSION RE-SENDS, SO THE REPORT MUST BE PACED.
-    //
-    // The event queue is bounded and drops its OLDEST entry, so an
-    // unthrottled report would evict real events to make room for repeats of
-    // itself. Same window and the same predicate as the device refresh: one
-    // line a minute per peer is enough to name the fault and cheap enough to
-    // leave on.
+    // A wedged session re-sends, so the report is paced: the event queue drops
+    // its oldest entries, and repeats would evict real events. One line a
+    // minute per peer.
     #[test]
     fn a_lost_key_is_reported_once_and_then_paced() {
         // Never said for this peer: say it.
@@ -5398,8 +4348,7 @@ mod tests {
             true,
             Some(DEVICE_REFRESH_TTL_SECS - 1),
         ));
-        // A call that is still broken a minute later says so again, rather
-        // than falling silent for the rest of the session.
+        // Still broken a minute later: report again.
         assert!(undecryptable_key_report_due(
             true,
             Some(DEVICE_REFRESH_TTL_SECS),
@@ -5408,9 +4357,8 @@ mod tests {
 
     #[test]
     fn rtc_identity_is_the_hash_the_reference_implementation_computes() {
-        // unpadded base64 of sha256 over the canonical JSON array. Pinned
-        // because Lightning and Element must agree which SFU participant is
-        // which Matrix device; a different encoding silently mismatches.
+        // Unpadded base64 of sha256 over the canonical JSON array; must match
+        // Element so both agree which SFU participant is which device.
         let identity = rtc_identity("@a:x", "DEVICE", "member-1");
         assert!(!identity.contains('='), "must be unpadded");
         assert_eq!(identity.len(), 43, "sha256 in unpadded base64");
@@ -5423,11 +4371,9 @@ mod tests {
 
     #[test]
     fn membership_state_key_matches_what_element_writes() {
-        // Element writes `_{user}_{device}_{application}` and drops the
-        // leading underscore only on room versions that let a user own a
-        // user-scoped state key. Getting this wrong means either the server
-        // refuses the write, or our refresh does not replace our own
-        // previous membership and we appear TWICE in the call.
+        // Element writes `_{user}_{device}_{application}`, dropping the leading
+        // underscore only on room versions where a user owns user-scoped keys.
+        // Wrong, and the write is refused or we appear twice.
         assert_eq!(
             membership_state_key("@a:x", "DEVICE", "10"),
             "_@a:x_DEVICE_m.call"
@@ -5444,9 +4390,7 @@ mod tests {
 
     #[test]
     fn published_membership_round_trips_through_our_own_parser() {
-        // The strongest interop check available offline: what we WRITE must
-        // parse back as a valid membership under the same rules we apply to
-        // Element's.
+        // What we write must parse under the rules we apply to Element's.
         let focus = LivekitTransport {
             service_url: "https://sfu.example.org/".to_owned(),
             alias: None,
@@ -5468,9 +4412,8 @@ mod tests {
 
     #[test]
     fn a_refresh_preserves_the_original_join_time() {
-        // created_ts is what orders oldest-membership focus selection. If a
-        // refresh reset it, everyone's chosen SFU would reshuffle every few
-        // minutes and participants would drift onto different servers.
+        // created_ts orders focus selection; resetting it on refresh would
+        // reshuffle everyone's SFU.
         let content =
             own_membership_content("DEVICE", "@a:x", None, "audio", Some(111),
                                    MEMBERSHIP_EXPIRY_MS);
@@ -5482,13 +4425,8 @@ mod tests {
 
     #[test]
     fn a_membership_with_no_server_side_cleanup_expires_in_minutes() {
-        // THE FOUR-HOUR GHOST. `expires` is the ONLY cleanup a homeserver
-        // without MSC4140 has, because a client that was killed cannot send a
-        // retraction. Publishing four hours there is what left "multiple same
-        // users sit in the call".
-        //
-        // FAILS ON THE OLD CODE: `expires` was the MEMBERSHIP_EXPIRY_MS
-        // constant unconditionally and this function took no expiry at all.
+        // Without MSC4140, `expires` is the only cleanup (a killed client cannot
+        // retract), so it must be minutes, not hours.
         let content = own_membership_content(
             "DEVICE", "@a:x", None, "audio", None,
             MEMBERSHIP_EXPIRY_NO_DELAYED_MS);
@@ -5498,18 +4436,13 @@ mod tests {
             member.expires_at_ms,
             5_000 + MEMBERSHIP_EXPIRY_NO_DELAYED_MS
         );
-        // And it must be survivable: SfuCallController re-publishes every
-        // 60 s, so the window has to absorb several consecutive failures.
-        // If this ever drops below ~3 refresh intervals it starts removing
-        // people who are still talking, which is worse than the ghost.
+        // And survivable: with a 60 s re-publish, the window must absorb several
+        // failed refreshes, or live participants get dropped.
         assert!(MEMBERSHIP_EXPIRY_NO_DELAYED_MS >= 3 * 60 * 1000);
     }
 
-    /// The reported defect, stated as the peers see it.
-    ///
-    /// A peer's deadline is `created_ts + expires`. Refreshing must MOVE that
-    /// deadline; before the fix it was constant, so the participant dropped
-    /// out exactly one period after joining however many refreshes ran.
+    /// A peer's deadline is `created_ts + expires`; each refresh must move it,
+    /// or the participant drops out one period after joining.
     #[test]
     fn refreshing_a_membership_moves_the_deadline_peers_compute() {
         let period = MEMBERSHIP_EXPIRY_NO_DELAYED_MS;
@@ -5518,8 +4451,7 @@ mod tests {
         // First publish: no created_ts yet, peers date it from this event.
         assert_eq!(expires_for_refresh(period, None, created), period);
 
-        // Refreshes at 60 s. The ABSOLUTE deadline must stay a full period
-        // ahead of the moment of the refresh, every time.
+        // Refreshes every 60 s: the deadline stays a full period ahead each time.
         for elapsed in [60_000_u64, 120_000, 240_000, 299_000, 600_000] {
             let now = created + elapsed;
             let expires = expires_for_refresh(period, Some(created), now);
@@ -5536,8 +4468,7 @@ mod tests {
             );
         }
 
-        // The exact reported case: still live well past the join + period
-        // instant that used to kill it.
+        // Still live past join + period.
         let now = created + period + 1;
         let expires = expires_for_refresh(period, Some(created), now);
         assert!(created + expires > now,
@@ -5563,13 +4494,8 @@ mod tests {
 
     #[test]
     fn an_expired_ghosts_join_time_is_not_inherited() {
-        // A membership left behind by a previous session is EXPIRED. Reusing
-        // its created_ts makes the next join's expires_at land in the past —
-        // the membership is born dead, every other client drops it, and the
-        // person appears in the call with no media ("waiting for media").
-        //
-        // FAILS ON THE OLD CODE: read_own_created_ts returned created_ts for
-        // any non-empty content, with no liveness check at all.
+        // An expired ghost's created_ts must not be inherited, or the new
+        // membership is born expired and the person appears with no media.
         let ghost = json!({
             "created_ts": 1_000u64,
             "expires": 5 * 60 * 1000u64,
@@ -5577,8 +4503,7 @@ mod tests {
         });
         // now is well past created_ts + expires.
         assert_eq!(inheritable_created_ts(&ghost, None, 9_000_000), None);
-        // Still inside its window: inherited, because focus ordering depends
-        // on it and a refresh must not reshuffle everyone's SFU.
+        // Still inside its window: inherited, so a refresh keeps focus ordering.
         assert_eq!(
             inheritable_created_ts(&ghost, None, 200_000),
             Some(1_000)
@@ -5587,23 +4512,11 @@ mod tests {
 
     #[test]
     fn a_naked_retraction_is_only_sent_where_a_repair_write_follows() {
-        // schedule_delayed_leave PUTs an EMPTY content — which IS a
-        // retraction — to our own membership's state key, through ruma's
-        // `delayed_state_event::unstable::Request`. That request uses the
-        // ORDINARY /_matrix/client/v3/rooms/{room}/state/{type}/{state_key}
-        // endpoint and marks itself delayed with nothing but an
-        // `org.matrix.msc4140.delay` query parameter. A homeserver that does
-        // not recognise the parameter applies the body immediately, and we
-        // have just deleted ourselves from the call.
-        //
-        // publish_membership repairs that, but only on the branch where it
-        // had NOT already assumed refusal — so a refresh, which always
-        // assumes it, armed a retraction that nothing would ever put back.
-        // Reported as a two-party call that drops the reporter's OWN
-        // participant about a minute in, immediately after
-        // `membership refreshed`, on 0.9.4 (GitHub #10).
-        //
-        // The invariant: never arm where the repair cannot follow.
+        // `schedule_delayed_leave` PUTs `{}` to our state key via the v3 state
+        // endpoint, marked delayed only by a query parameter; a server that
+        // ignores it retracts us immediately. publish_membership repairs that only
+        // when it did not assume refusal, so a refresh would be unrepaired (GitHub
+        // #10). Never arm where the repair cannot follow.
         for assumed_no_delayed in [false, true] {
             if delayed_retraction_is_repairable(assumed_no_delayed) {
                 assert!(
@@ -5614,23 +4527,19 @@ mod tests {
                 );
             }
         }
-        // And it IS armed somewhere, or the fix is "never use MSC4140" and
-        // an unclean exit strands a phantom participant for four hours.
+        // But it is armed somewhere, or an unclean exit strands a phantom for 4 h.
         assert!(delayed_retraction_is_repairable(false),
                 "nothing arms a delayed retraction at all any more");
     }
 
     #[test]
     fn one_servers_refusal_does_not_disable_msc4140_for_another() {
-        // THIS WAS A PROCESS-GLOBAL `AtomicBool`, and MSC4140 is a property of
-        // a HOMESERVER. Signing in to an account on an old Synapse latched it
-        // and every other account lost server-side call cleanup for the rest
-        // of the session — a five-minute ghost participant on every unclean
-        // exit, and scheduled send silently falling back to the local queue.
+        // MSC4140 support is per homeserver: one old server's refusal must not
+        // disable crash cleanup (and scheduled send) for other accounts.
         let old = "https://old.example.org/";
         let modern = "https://modern.example.org/";
 
-        // Start clean, whatever else in this binary has touched the map.
+        // Start clean, whatever else touched the map.
         mark_delayed_refusal(old, false);
         mark_delayed_refusal(modern, false);
         assert!(!delayed_refusal_recorded(old));
@@ -5645,7 +4554,7 @@ mod tests {
              only crash-safe cleanup"
         );
 
-        // And clearing one leaves the other alone, in both directions.
+        // Clearing one leaves the other alone, both ways.
         mark_delayed_refusal(modern, true);
         mark_delayed_refusal(old, false);
         assert!(!delayed_refusal_recorded(old));
@@ -5656,44 +4565,32 @@ mod tests {
 
     #[test]
     fn only_an_absent_endpoint_disables_msc4140_for_a_server() {
-        // Recording a refusal disables MSC4140 for a whole HOMESERVER, and
-        // MSC4140 is the ONLY cleanup that survives a crash. So the bar for
-        // recording one is "this server does not implement the endpoint", not
-        // "a request failed".
-        //
-        // Every one of these reaches the latch as the same observable — an
-        // empty delay id — which is why the category has to be consulted.
-        // `classify_room_error` maps a TIMEOUT and a 5xx alike to "network".
+        // A refusal disables MSC4140, the only crash-surviving cleanup, for a whole
+        // server, so only "endpoint absent" may record one. Every failure arrives
+        // as an empty delay id, and `classify_room_error` maps a timeout and a 5xx
+        // alike to "network".
         for transient in ["network", "rate_limited", "forbidden", "invalid"] {
             assert!(
                 !delayed_refusal_is_permanent(transient),
                 "a '{transient}' refusal would permanently disable delayed                  retractions for every room in the process, so an unclean                  exit would strand a phantom participant from then on"
             );
         }
-        // AND THE ONE THAT REOPENED #10 WHEN IT WAS MISSING. A homeserver
-        // that ignores `?org.matrix.msc4140.delay=` does not 404: it applies
-        // the `{}` body and answers 200 with an `event_id` and no `delay_id`.
-        // Classified as transient, the latch never sets on that server, the
-        // gate keeps allowing arming, and every refresh sends a naked
-        // retraction that the repair write then has to undo — a leave and a
-        // rejoin every minute, on precisely the server class #10 came from.
+        // A server that ignores the delay parameter answers 200 with no
+        // `delay_id`; treated as transient, every refresh would send a naked
+        // retraction (GitHub #10).
         assert!(
             delayed_refusal_is_permanent("no_delay_id"),
             "a server that ANSWERED without a delay id was treated as a \
              passing blip, so a naked retraction is armed on every refresh"
         );
-        // Synapse answers 404 M_UNRECOGNIZED for an endpoint it does not
-        // implement; a plain 404 is the other spelling.
+        // Synapse's 404 M_UNRECOGNIZED, and a plain 404.
         for absent in ["unrecognized", "not_found"] {
             assert!(
                 delayed_refusal_is_permanent(absent),
                 "'{absent}' means the endpoint is not there, and re-probing                  it on every refresh costs a second state event each time"
             );
         }
-        // AND THE SPELLING THIS SERVER ACTUALLY USES. Synapse with
-        // `msc4140_enabled` off answers 400 M_UNKNOWN, not 404 — MEASURED
-        // against matrix.smetonis.net, 2026-09-15. Filed as "network" it made
-        // the latch unreachable on that whole server class.
+        // Synapse with `msc4140_enabled` off answers 400 M_UNKNOWN, not 404.
         assert!(
             delayed_refusal_is_permanent("delayed_unsupported"),
             "the server said outright that it does not do delayed events; \
@@ -5703,15 +4600,13 @@ mod tests {
 
     #[test]
     fn synapse_says_delayed_events_are_unsupported_and_it_is_not_a_blip() {
-        // THE EXACT BODY, measured 2026-09-15 with curl against
-        // matrix.smetonis.net (Synapse, `org.matrix.msc4140: false` in
-        // /versions):
+        // Synapse's body with `msc4140_enabled` off (`org.matrix.msc4140: false`
+        // in /versions):
         //   HTTP 400
         //   {"errcode":"M_UNKNOWN",
         //    "error":"Delayed events are not supported on this server",
         //    "org.matrix.msc4140.errcode":"M_MAX_DELAY_UNSUPPORTED"}
-        // The state event was NOT applied, so this class never sees the naked
-        // retraction `publish_membership` guards against.
+        // The state event is not applied in this case.
         let synapse = "the server returned an error: [400 / M_UNKNOWN] \
                        Delayed events are not supported on this server";
         assert!(
@@ -5732,10 +4627,8 @@ mod tests {
         assert!(delayed_failure_says_unsupported(
             "org.matrix.msc4140.errcode M_MAX_DELAY_UNSUPPORTED"
         ));
-        // AND THE ONE THAT MUST NOT MATCH. M_MAX_DELAY_EXCEEDED means the
-        // server DOES support delayed events and wanted a shorter delay;
-        // latching on it would disable working server-side cleanup for the
-        // rest of the session.
+        // M_MAX_DELAY_EXCEEDED must not match: delayed events are supported, the
+        // delay was just too long.
         assert!(
             !delayed_failure_says_unsupported(
                 "[400 / M_UNKNOWN] M_MAX_DELAY_EXCEEDED: delay too long"
@@ -5751,37 +4644,16 @@ mod tests {
         }
     }
 
-    /// THE MARK MUST NOT OUTLIVE THE SESSION THAT EARNED IT.
-    ///
-    /// A review found the hole: `retract_membership` was the ONLY thing that
-    /// cleared the set, and four fallible lookups sat ahead of the clear — a
-    /// live client, a joined room, a user id and a device id. Sign-out reaches
-    /// that path with all four already gone, so the mark survived; and because
-    /// a session restore keeps the same device id, the state key matched, the
-    /// next join into a room whose ghost was still inside `expires` read as a
-    /// REFRESH, and it inherited the ghost's `created_ts`. That is the exact
-    /// defect this whole change removes, surviving an account switch.
-    ///
-    /// Two clearers now, and this pins both: by room, needing nothing but the
-    /// room id so no early return can skip it; and wholesale on teardown,
-    /// which is what makes the invariant hold by construction instead of by
-    /// every leave path being correct.
-    ///
-    /// FAIL-ON-OLD: drop either clearer and the matching assertion fails.
-    /// SERIALISES EVERY TEST THAT TOUCHES `OWN_MEMBERSHIP_PUBLISHED` — and,
-    /// since `forget_all_memberships_published()` clears all three of this
-    /// module's process-global tables together, the escalation backoff and
-    /// the ring marks as well.
-    ///
-    /// It is a process-global set, and cargo runs tests in parallel in one
-    /// process — so `forget_all_memberships_published()` in one test wipes the
-    /// marks another has just written. I caught that as a one-in-several
-    /// failure the first time this test ran, which is exactly the shape §16
-    /// warns about: a suite that flakes teaches people to re-run rather than
-    /// to read, and this project already has four load-sensitive suites it
-    /// does not need a fifth of.
+    /// Serialises every test touching the process-global publish set and,
+    /// since `forget_all_memberships_published()` clears them together, the
+    /// escalation and ring tables too. Cargo runs tests in parallel in one
+    /// process, so without it one test's clear wipes another's marks.
     static PUBLISH_SET_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+    /// The published mark must not outlive its session. Two clearers are pinned:
+    /// by room (needs only the room id, so no early return can skip it) and
+    /// wholesale on teardown. Otherwise, after sign-out, the next join would
+    /// read as a refresh and inherit a ghost's `created_ts`.
     #[test]
     fn a_published_mark_does_not_outlive_its_session() {
         let _serialised = PUBLISH_SET_TEST_LOCK
@@ -5798,7 +4670,7 @@ mod tests {
             assert!(membership_published_in_this_process(key));
         }
 
-        // BY ROOM: every state key in that room goes, and only that room.
+        // By room: every state key in that room goes, and only that room.
         forget_room_memberships_published(room);
         assert!(
             !membership_published_in_this_process(&mine),
@@ -5813,8 +4685,7 @@ mod tests {
             "leaving one room must not disturb another room's bookkeeping"
         );
 
-        // WHOLESALE: a session ending is exactly when 'this session published
-        // it' stops being true of everything.
+        // Wholesale: a session ending clears everything.
         forget_all_memberships_published();
         assert!(
             !membership_published_in_this_process(&elsewhere),
@@ -5828,15 +4699,9 @@ mod tests {
         let _serialised = PUBLISH_SET_TEST_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        // THE RULE THIS PINS. `publish_membership` inherits `created_ts` only
-        // when THIS PROCESS has already published the state key. A ghost left
-        // by a killed session is not ours to inherit from: inheriting it
-        // republishes the previous session's join time, every peer reads
-        // `createdTs()` as unchanged, matrix-js-sdk's RTCEncryptionManager
-        // does not see a new joiner, and no media key is ever sent to the
-        // rejoining device. LIVE-REPRODUCED against Element on 2026-09-15 —
-        // the live run is the real regression evidence; this pins the
-        // bookkeeping that decides it.
+        // `created_ts` is inherited only when this process already published the
+        // state key. Inheriting a killed session's join time makes peers see no
+        // new joiner, so matrix-js-sdk sends the rejoined device no media key.
         let room = "!probe:matrix.example";
         let key = membership_publish_key(room, "_@a:example_DEVICE_m.call");
         forget_membership_published(&key);
@@ -5852,14 +4717,12 @@ mod tests {
             "a refresh must inherit created_ts, or the membership's deadline \
              walks forward and oldest-membership focus selection reorders"
         );
-        // A LEAVE ENDS THE SESSION. An in-process rejoin is a new
-        // participant just as much as a restart is, and a retraction that
-        // FAILED leaves exactly the ghost a crash leaves.
+        // A leave ends the session: an in-process rejoin is a new participant, and
+        // a failed retraction leaves the same ghost a crash does.
         forget_membership_published(&key);
         assert!(!membership_published_in_this_process(&key));
 
-        // Scoped to the state key, so another room — and another account,
-        // whose user id is in the state key — is never this one's answer.
+        // Scoped to the state key, so other rooms and accounts are unaffected.
         mark_membership_published(&membership_publish_key(
             "!other:matrix.example",
             "_@a:example_DEVICE_m.call",
@@ -5892,8 +4755,7 @@ mod tests {
         );
         // A retracted membership is empty content: a fresh join.
         assert_eq!(inheritable_created_ts(&json!({}), Some(2_000), 3_000), None);
-        // A hostile expires must not wrap into the past and make a live
-        // membership look dead.
+        // A hostile expires must not wrap and make a live membership look dead.
         let hostile = json!({ "created_ts": 10u64, "expires": u64::MAX });
         assert_eq!(
             inheritable_created_ts(&hostile, None, u64::MAX - 1),
@@ -5903,8 +4765,7 @@ mod tests {
 
     #[test]
     fn a_membership_without_a_focus_is_still_valid() {
-        // Joining a call whose focus came from the server endpoint (rather
-        // than from a peer) publishes no foci_preferred of its own.
+        // A join whose focus came from the server publishes no foci_preferred.
         let content =
             own_membership_content("DEVICE", "@a:x", None, "audio", None,
                                    MEMBERSHIP_EXPIRY_MS);
@@ -5916,8 +4777,7 @@ mod tests {
     fn intent_is_a_closed_set() {
         assert_eq!(intent_str(Some(&json!("video"))), "video");
         assert_eq!(intent_str(Some(&json!("audio"))), "audio");
-        // Free text in the schema, so anything unrecognised must degrade to
-        // audio rather than reach the UI and offer a video answer.
+        // Free text: unknown values degrade to audio.
         assert_eq!(intent_str(Some(&json!("holodeck"))), "audio");
         assert_eq!(intent_str(None), "audio");
     }
@@ -5939,30 +4799,23 @@ mod tests {
         assert_eq!(value["lifetime"], json!(90_000));
         assert_eq!(value["m.call.intent"], json!("video"));
         assert_eq!(value["m.mentions"]["room"], json!(true));
-        // Absent rather than null: Element's validator rejects a malformed
-        // relation, and `null` is malformed.
+        // Absent rather than null: Element rejects a malformed relation.
         assert!(value.get("m.relates_to").is_none());
     }
 
     #[test]
     fn the_notification_event_type_is_the_one_element_sends() {
-        // Regression guard for the actual defect this module fixes: ruma
-        // types this event as the stable `m.rtc.notification`, so a
-        // ruma-typed handler is deaf to every current Element ring.
+        // ruma types this event only as stable `m.rtc.notification`, deaf to
+        // Element's rings.
         assert_eq!(
             Msc4075RtcNotificationEventContent::TYPE,
             "org.matrix.msc4075.rtc.notification"
         );
     }
 
-    /// The one thing about a raised hand that MUST NOT DRIFT.
-    ///
-    /// element-call's `ReactionsReader` compares `m.relates_to.key` against
-    /// this exact string, so a different hand emoji — or the same one without
-    /// the U+FE0F variation selector — is a hand no Element client will ever
-    /// see, and one of theirs is a hand we will never show. Asserted by BYTES
-    /// because that is what goes on the wire and because the two forms are
-    /// visually identical in every editor.
+    /// The raised-hand key must not drift: element-call's `ReactionsReader`
+    /// compares it exactly, including U+FE0F. Asserted by bytes, since the two
+    /// forms look identical.
     #[test]
     fn the_raised_hand_key_is_element_calls_own_bytes() {
         assert_eq!(
@@ -5977,10 +4830,8 @@ mod tests {
 
     // ── Transient call reactions ─────────────────────────────────────────
     //
-    // The same discipline the raised hand is held to: what must not drift is
-    // asserted by BYTES and by the serialized JSON, because that is what
-    // goes on the wire and because two visually identical emoji are a
-    // reaction Element will render with the wrong sound — or not at all.
+    // Asserted by bytes and serialized JSON, since visually identical emoji
+    // can be different reactions.
 
     #[test]
     fn the_call_reaction_event_type_is_element_calls_own() {
@@ -5989,9 +4840,7 @@ mod tests {
             ElementCallReactionEventContent::TYPE,
             "io.element.call.reaction"
         );
-        // The documented constant and the derive must say the same thing:
-        // the derive is what the SDK matches on, the constant is what a
-        // reader greps for.
+        // The derive is what the SDK matches; the constant is what readers grep.
         assert_eq!(ElementCallReactionEventContent::TYPE, EV_CALL_REACTION);
     }
 
@@ -6005,11 +4854,8 @@ mod tests {
             ),
         };
         let value = serde_json::to_value(&content).expect("serializes");
-        // A REFERENCE to the membership, not an annotation. element-call's
-        // ReactionsReader reads `content["m.relates_to"].event_id` and
-        // matches it against a membership event; ruma's `Reference` is what
-        // stamps `rel_type`, and getting it wrong is a reaction no Element
-        // client will attribute to anybody.
+        // A reference to the membership, not an annotation; element-call reads
+        // `m.relates_to.event_id` and matches it to a membership.
         assert_eq!(value["m.relates_to"]["rel_type"], json!("m.reference"));
         assert_eq!(
             value["m.relates_to"]["event_id"],
@@ -6021,19 +4867,14 @@ mod tests {
 
     #[test]
     fn a_malformed_call_reaction_never_reaches_the_handler() {
-        // A content that cannot deserialize is dropped by matrix-sdk before
-        // any handler runs, so these shapes cost nothing downstream: there is
-        // no partially-trusted path for a malformed reaction.
+        // Content that cannot deserialize is dropped by matrix-sdk before any
+        // handler runs.
         //
-        // AND ONE THING THAT IS *NOT* ENFORCED HERE, measured rather than
-        // assumed: serde does not verify an internally-tagged struct's tag on
-        // the way in, so `rel_type: "m.annotation"` still deserializes into a
-        // `Reference`. Deliberately not "fixed": element-call's own reader
-        // never looks at `rel_type` either, and what actually protects the
-        // participant is the sender-owns-the-membership check on the C++
-        // side. Asserted so the next reader does not have to re-derive it —
-        // and so a future serde that DOES check the tag is noticed here
-        // rather than by a reaction quietly disappearing.
+        // Not enforced: serde does not check an internally tagged struct's tag
+        // inbound, so `rel_type: "m.annotation"` still deserializes as a
+        // `Reference`. element-call ignores `rel_type` too; the sender-owns-the-
+        // membership check in C++ is the protection. Asserted so a serde change is
+        // noticed here.
         let annotation = json!({
             "emoji": "\u{1F44D}",
             "name": "thumbsup",
@@ -6066,9 +4907,7 @@ mod tests {
         )
         .is_err());
 
-        // ...and the one thing we are deliberately LIBERAL about: a reaction
-        // with no `name`. Lightning draws the emoji and has no sounds, so a
-        // nameless reaction from another client is still a reaction.
+        // Deliberately liberal: a reaction without `name` is still a reaction.
         let nameless = json!({
             "emoji": "\u{1F44D}",
             "m.relates_to": {
@@ -6084,17 +4923,14 @@ mod tests {
 
     #[test]
     fn the_reaction_set_is_element_calls_own_bytes() {
-        // Asserted by BYTES, exactly as the raised-hand key is, and for the
-        // same reason: element-call looks its sound up by `name` and draws
-        // `emoji`, and two emoji that look identical in an editor are not
-        // the same reaction.
+        // By bytes, like the hand key: element-call keys the sound on `name` and
+        // draws `emoji`.
         let thumbsup = ELEMENT_CALL_REACTIONS
             .iter()
             .find(|(name, _)| *name == "thumbsup")
             .expect("thumbsup is in element-call's set");
         assert_eq!(thumbsup.1.as_bytes(), &[0xF0, 0x9F, 0x91, 0x8D]);
-        // The ZWJ sequence, which is the entry most likely to be mangled by
-        // a copy-paste: U+1F635 ZWJ U+1F4AB.
+        // The ZWJ sequence, easily mangled by copy-paste: U+1F635 ZWJ U+1F4AB.
         let dizzy = ELEMENT_CALL_REACTIONS
             .iter()
             .find(|(name, _)| *name == "dizzy")
@@ -6105,9 +4941,7 @@ mod tests {
         );
         assert_eq!(dizzy.1.chars().count(), 3);
 
-        // No duplicate names: element-call's lookup is `find(r.name === ...)`
-        // and takes the first, so a duplicate would be a silently unreachable
-        // entry here.
+        // No duplicate names: element-call's lookup takes the first match.
         let mut names: Vec<&str> =
             ELEMENT_CALL_REACTIONS.iter().map(|(name, _)| *name).collect();
         names.sort_unstable();
@@ -6115,10 +4949,8 @@ mod tests {
         names.dedup();
         assert_eq!(names.len(), before);
 
-        // EVERY entry must survive our own inbound reduction unchanged, or
-        // Lightning would draw its own reactions differently from the way it
-        // draws Element's. This is what catches a cluster rule that is too
-        // eager as well as one that is too shy.
+        // Every entry must survive our own inbound reduction unchanged, catching a
+        // cluster rule that is too eager or too shy.
         for (_, emoji) in ELEMENT_CALL_REACTIONS {
             assert_eq!(
                 reaction_emoji(emoji).as_deref(),
@@ -6130,8 +4962,7 @@ mod tests {
 
     #[test]
     fn an_inbound_reaction_emoji_is_bounded_and_reduced_to_one_cluster() {
-        // Whole clusters survive, including the shapes a plain "first char"
-        // rule would cut in half.
+        // Whole clusters survive, including shapes a first-char rule would split.
         assert_eq!(reaction_emoji("\u{1F44D}").as_deref(), Some("\u{1F44D}"));
         assert_eq!(
             reaction_emoji("\u{1F590}\u{FE0F}").as_deref(),
@@ -6146,9 +4977,7 @@ mod tests {
             Some("\u{1F1EC}\u{1F1E7}")
         );
 
-        // ...and everything after the first cluster is DROPPED, which is what
-        // element-call's `Intl.Segmenter` does. Without it the field is a
-        // line of attacker-chosen text drawn on a call tile.
+        // Everything after the first cluster is dropped, like `Intl.Segmenter`.
         assert_eq!(
             reaction_emoji("\u{1F44D}\u{1F389}\u{1F44F}").as_deref(),
             Some("\u{1F44D}")
@@ -6166,8 +4995,7 @@ mod tests {
         assert_eq!(reaction_emoji("   "), None);
         assert_eq!(reaction_emoji("\u{1F44D}\u{0007}"), None);
 
-        // A hostile run of continuations terminates at the cap rather than
-        // building an unbounded string out of one field.
+        // A hostile run of continuations stops at the cap.
         let joined = format!("\u{1F44D}{}", "\u{200D}\u{1F44D}".repeat(8));
         assert_eq!(
             reaction_emoji(&joined).map(|value| value.chars().count()),
@@ -6180,10 +5008,8 @@ mod tests {
         );
     }
 
-    /// A membership carries the id of the state event that declared it, and
-    /// that id comes from the ENVELOPE — `parse_session_membership` sees
-    /// content alone. Without it a raised hand can never be matched to a
-    /// participant, because the reaction addresses the event, not the user.
+    /// A membership carries its declaring state event's id, taken from the
+    /// envelope; a raised hand addresses that event, not the user.
     #[test]
     fn a_membership_read_from_content_alone_claims_no_event_id() {
         let content = json!({
@@ -6200,26 +5026,17 @@ mod tests {
             "content alone cannot know its own event id, and a fabricated \
              one would attribute somebody else's hand"
         );
-        // ...and it survives the round trip to the C++ side as an empty
-        // string rather than being dropped from the payload, so the reader
-        // sees "unknown" rather than a missing key.
+        // It crosses to C++ as an empty string rather than a missing key.
         let wire = member.to_json();
         assert_eq!(wire.get("event_id").and_then(|v| v.as_str()), Some(""));
     }
 
-    // ── The SFU resolution guard ─────────────────────────────────────────
+    // ── SFU resolution guard ─────────────────────────────────────────────
     //
-    // `public_ip` is thoroughly covered in rooms.rs and `normalize_sfu_url`
-    // in sfu.rs, but both look at the LITERAL. The case neither can see is
-    // the one that matters most: a perfectly ordinary hostname whose DNS
-    // answer points somewhere private. The focus URL is chosen by another
-    // participant, so that name is attacker-supplied, and every literal
-    // check passes on it.
-    //
-    // These resolve real literals rather than real names, which is exactly
-    // what a hostile A record looks like by the time it reaches this
-    // function — `lookup_host` hands back the same SocketAddr either way —
-    // and it keeps the test offline and deterministic.
+    // Literal checks (rooms.rs `public_ip`, sfu.rs `normalize_sfu_url`) cannot
+    // see an ordinary hostname whose DNS answer is private, and focus names
+    // are attacker-supplied. These resolve literals, which is what a hostile A
+    // record looks like to `lookup_host`, keeping the test offline.
 
     #[tokio::test]
     async fn a_focus_that_resolves_into_private_space_is_refused() {
@@ -6244,9 +5061,7 @@ mod tests {
         }
     }
 
-    // Names that can only ever mean this machine or this link are refused
-    // BEFORE any lookup, so a resolver that has been told otherwise cannot
-    // matter.
+    // Local-only names are refused before any lookup.
     #[tokio::test]
     async fn local_only_names_are_refused_without_resolving() {
         for host in [
@@ -6265,11 +5080,8 @@ mod tests {
         }
     }
 
-    // THE ADDRESS IS PINNED, and that is what closes the rebinding window.
-    // Approving a name and then letting the socket resolve it again would
-    // let a second lookup return something private; the caller connects to
-    // the SocketAddr this returns, so the address that was checked is the
-    // address that is used.
+    // The address is pinned: the caller connects to the SocketAddr that was
+    // checked, so a second lookup cannot rebind it.
     #[tokio::test]
     async fn an_approved_focus_returns_the_address_to_connect_to() {
         let approved = resolve_public_host("93.184.216.34", 8443)

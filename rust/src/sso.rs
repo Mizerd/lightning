@@ -1,52 +1,23 @@
-//! Legacy Matrix SSO (`m.login.sso`) for Lightning, on matrix-sdk 0.18's
-//! `Client::matrix_auth()` API.
+//! Legacy Matrix SSO (`m.login.sso`) on matrix-sdk 0.18's
+//! `Client::matrix_auth()`.
 //!
-//! # This is NOT OAuth
+//! Not OAuth (`crate::oauth`): the homeserver redirects back with a
+//! single-use `loginToken`, exchanged at `/login` (`m.login.token`) for a
+//! normal Matrix session.
 //!
-//! Lightning supports two browser sign-in flows and they are deliberately kept
-//! apart. OAuth 2.0/OIDC (`crate::oauth`) talks to an authorization server,
-//! does PKCE and a code exchange, and yields an OAuth session with a client id
-//! and a rotating refresh token. Legacy Matrix SSO predates all of that: the
-//! homeserver redirects the browser back with a single-use `loginToken`, which
-//! is exchanged through the ordinary `/login` endpoint with
-//! `type: m.login.token` for a normal Matrix session. A server can offer
-//! either, both, or neither.
+//! `MatrixAuth::login_sso()` needs the `sso-login` feature (`axum`, not
+//! vendored), but its primitives are ungated:
+//! `MatrixAuth::get_sso_login_url(redirect_url, idp_id)` and
+//! `MatrixAuth::login_token(token)`. The redirect is received by the same
+//! loopback listener OAuth uses (`src/auth/OAuthCallbackServer`).
 //!
-//! # No new dependency, and no second HTTP server
+//! Same two phases as OAuth: the user id is unknown until the token
+//! exchange, so Phase A uses an in-memory bootstrap client that must never
+//! sync, and Phase B (C++) opens the account's store and restores through
+//! `mx_rust_restore_client`.
 //!
-//! matrix-sdk 0.18 has a convenience wrapper, `MatrixAuth::login_sso()`, that
-//! runs its own local web server — and it is behind the `sso-login` feature,
-//! whose `axum` dependency is not vendored in this offline `--locked` build.
-//! It is not needed. The two primitives underneath it are NOT feature-gated:
-//!
-//!   * `MatrixAuth::get_sso_login_url(redirect_url, idp_id)` builds the
-//!     server's SSO redirect URL (and handles identity-provider selection);
-//!   * `MatrixAuth::login_token(token)` exchanges the returned login token.
-//!
-//! So this module uses those directly and Lightning's EXISTING hardened
-//! loopback listener (`src/auth/OAuthCallbackServer`) receives the redirect —
-//! the same listener OAuth uses, rather than a second unrelated local server.
-//! Every protocol primitive stays SDK-owned; Lightning contributes only the
-//! browser launch and the loopback endpoint.
-//!
-//! # The two-phase store lifecycle applies here too
-//!
-//! Exactly as for OAuth, and for the same reason: the Matrix user id is not
-//! known until the token exchange returns it, so Phase A runs on a bootstrap
-//! client with an **in-memory store only** and must never sync (a sync would
-//! upload device keys from a throwaway crypto store that Phase B would then
-//! contradict). Phase B — in C++ — derives the account identity, applies the
-//! session policy, opens that account's sqlite store and restores the session
-//! through the ordinary `mx_rust_restore_client` path. A device the server
-//! just issued must never adopt a store belonging to a different device.
-//!
-//! # The login token is a credential
-//!
-//! `loginToken` is single-use and short-lived, but it IS a credential: anyone
-//! holding it can complete this sign-in. It is therefore never logged, never
-//! placed in an error message (errors from the exchange are reported as fixed
-//! text rather than formatted, because SDK errors can quote the request), and
-//! never returned across the FFI. It enters this module and is consumed here.
+//! The login token is a credential: never logged, never put in an error
+//! message (SDK errors can quote the request), never returned across the FFI.
 
 use std::ffi::{c_char, c_void};
 use std::path::PathBuf;
@@ -58,16 +29,11 @@ use url::Url;
 
 use crate::{bridge, build_client, cstr_arg, enqueue, ffi_string, run_async_on};
 
-/// Shown to the homeserver as this session's device name, matching the other
-/// login paths so a user's device list reads consistently.
+/// Device name shown to the homeserver, as for the other login paths.
 const DEVICE_DISPLAY_NAME: &str = "Lightning";
 
-/// Reject any redirect that is not loopback.
-///
-/// Defence in depth: the C++ listener only ever binds 127.0.0.1, but we also
-/// refuse to ASK a homeserver to send a login token anywhere else, so a caller
-/// passing something odd cannot turn the server into a token courier for a
-/// remote host.
+/// Reject any non-loopback redirect. The C++ listener binds 127.0.0.1 only;
+/// this also stops us asking a homeserver to send a login token elsewhere.
 fn require_loopback(redirect: &Url) -> Result<(), String> {
     match redirect.host_str() {
         Some("127.0.0.1") | Some("localhost") | Some("[::1]") | Some("::1") => Ok(()),
@@ -76,7 +42,6 @@ fn require_loopback(redirect: &Url) -> Result<(), String> {
 }
 
 /// List the identity providers a homeserver advertises for `m.login.sso`.
-///
 /// Enqueues:
 ///
 /// ```json
@@ -84,14 +49,9 @@ fn require_loopback(redirect: &Url) -> Result<(), String> {
 ///   "providers": [ { "id": "oidc-google", "name": "Google", "icon": "mxc://…" } ] }
 /// ```
 ///
-/// An SSO server that advertises NO providers is normal and common — it means
-/// "one unnamed flow", and the UI offers a single generic action. Provider
-/// names come from the server's own answer; nothing is hard-coded per vendor.
-///
-/// `icon` is passed through only when it is an `mxc:` URI. A provider icon is
-/// remote text from the homeserver, and an `http(s)` value there would make
-/// the login screen fetch an image from a host chosen by that server before
-/// the user has signed in to anything.
+/// No providers is common (one unnamed flow). Names come from the server.
+/// `icon` passes only as an `mxc:` URI, so the login screen never fetches
+/// from a host the server chose.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_sso_providers(
     ptr: *mut c_void,
@@ -163,16 +123,11 @@ pub unsafe extern "C" fn mx_rust_sso_providers(
     })
 }
 
-/// Begin an SSO login: ask the homeserver for its SSO redirect URL.
-///
-/// `idp_id` selects one advertised identity provider; empty means the server's
-/// default single flow. The bootstrap `Client` is parked in the bridge's client
-/// slot because the session produced by `mx_rust_sso_finish` must land on the
-/// same instance.
-///
+/// Begin an SSO login by asking the homeserver for its redirect URL. Empty
+/// `idp_id` means the default flow. The bootstrap Client is parked in the
+/// client slot because `mx_rust_sso_finish` must use the same instance.
 /// Enqueues `{"type": "sso_url", "url": "..."}` or
-/// `{"type": "sso_failed", "message": "..."}`. The URL carries no credentials:
-/// it is the server's SSO endpoint plus our loopback redirect.
+/// `{"type": "sso_failed", "message": "..."}`; the URL holds no credentials.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_sso_begin(
     ptr: *mut c_void,
@@ -213,9 +168,7 @@ pub unsafe extern "C" fn mx_rust_sso_begin(
                         enqueue(&events, json!({ "type": "sso_url", "url": url }));
                     }
                     Err(_) => {
-                        // Not formatted: an SDK error here can quote the
-                        // request, and the request contains our redirect. The
-                        // failure mode is also singular enough to name plainly.
+                        // Not formatted: the SDK error can quote the request.
                         drop(client);
                         enqueue(
                             &events,
@@ -234,12 +187,10 @@ pub unsafe extern "C" fn mx_rust_sso_begin(
     })
 }
 
-/// Complete an SSO login by exchanging the `loginToken` the browser returned.
-///
-/// The token is a CREDENTIAL: it is never logged, never echoed into an error,
-/// and never leaves this module. On success this enqueues the same identity and
-/// session material `oauth_ok` carries, so C++ Phase B opens the account store
-/// through one shared path:
+/// Complete an SSO login by exchanging the `loginToken` from the browser.
+/// The token never leaves this module. On success enqueues the same
+/// identity and session material as `oauth_ok`, so C++ Phase B shares one
+/// path:
 ///
 /// ```json
 /// { "type": "sso_ok", "user_id": "@u:s", "device_id": "ABC",
@@ -254,7 +205,7 @@ pub unsafe extern "C" fn mx_rust_sso_finish(
         let bridge = unsafe { bridge(ptr)? };
         let login_token = unsafe { cstr_arg(login_token) }?;
         if login_token.trim().is_empty() {
-            // Deliberately does not quote the input.
+            // Does not quote the input.
             return Err("empty SSO login token".to_owned());
         }
 
@@ -284,9 +235,8 @@ pub unsafe extern "C" fn mx_rust_sso_finish(
                     .initial_device_display_name(DEVICE_DISPLAY_NAME)
                     .await;
                 if outcome.is_err() {
-                    // A used, expired or forged token all land here. The SDK
-                    // error is NOT formatted in: it can quote the request body,
-                    // which is the token.
+                    // Used, expired or forged tokens land here. The SDK error is not included:
+                    // it can quote the request body, which is the token.
                     drop(client);
                     enqueue(
                         &events,
@@ -327,9 +277,7 @@ pub unsafe extern "C" fn mx_rust_sso_finish(
                     }),
                 );
 
-                // Phase A is over: drop the bootstrap client so its in-memory
-                // store, and the tokens held in it, go away. Phase B builds the
-                // real account-scoped client from the event above.
+                // Phase A is over: drop the bootstrap client and its in-memory tokens.
                 drop(client);
             });
         });
@@ -338,10 +286,8 @@ pub unsafe extern "C" fn mx_rust_sso_finish(
     })
 }
 
-/// Abort an SSO login in progress (cancelled, browser closed, listener timed
-/// out). Releases the bootstrap client so a late callback cannot complete a
-/// sign-in the user has already abandoned, and so the next attempt starts
-/// clean.
+/// Abort an SSO login in progress, releasing the bootstrap client so a late
+/// callback cannot complete an abandoned sign-in.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_sso_abort(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -369,7 +315,7 @@ mod tests {
                 "should accept {good}"
             );
         }
-        // A homeserver must never be asked to deliver a login token off-box.
+        // A login token must never be delivered off-box.
         for bad in [
             "http://example.org/callback",
             "https://127.0.0.1.evil.example/x",

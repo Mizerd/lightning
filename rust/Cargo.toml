@@ -8,143 +8,85 @@ publish = false
 
 [lib]
 name = "matrix_client_rust"
-# staticlib: linked into the C++ executable so we produce a single binary.
-# cdylib would require runtime loader plumbing we do not need here.
+# staticlib: linked into the C++ executable, producing a single binary.
 crate-type = ["staticlib"]
 
 [dependencies]
-# `testing` is required in production here: matrix-sdk 0.18 gates the ONLY
-# public accessor to the OlmMachine (`Client::olm_machine_for_testing`)
-# behind it, and that accessor is the only route to
-# `OlmMachine::query_missing_secrets_from_other_sessions` — the
-# standards-based m.secret.request re-issue API the E2EE recovery
-# coordinator needs (the SDK's own secret-request set fires exactly once at
-# SAS completion and is otherwise unrepeatable). Every `testing`-gated code
-# site in matrix-sdk/-base 0.18.0 was audited: all are additive helpers or
-# mirror fields; none alter runtime behavior.
-# experimental-send-custom-to-device: the ONLY public API for sending a
-# custom event type Olm-encrypted per device
-# (Encryption::encrypt_and_send_raw_to_device). MatrixRTC media keys
-# (io.element.call.encryption_keys) must reach each participant device
-# without the homeserver being able to read them, and there is no stable
-# equivalent in 0.18. The feature gates exactly that one method.
-# qrcode: enables SDK QR verification (QrVerification, generate_qr_code,
-# the QrCodeShowV1/ReciprocateV1 methods). Deliberate dependency addition
-# vendored with network access on 2026-08-05 (matrix-sdk-qrcode 0.18.0 +
-# the qrcode encoder crate); the build remains --offline --locked.
-# bundled-sqlite: Lightning's local message index is SQLite FTS5, and FTS5 is
-# a COMPILE-TIME option of SQLite. Without this feature libsqlite3-sys links
-# whatever libsqlite3 the build host happens to have, so whether search works
-# would be a per-platform lottery decided thirty minutes into a release
-# pipeline — the exact shape of every "a feature assembled at package time"
-# entry in CLAUDE.md §16. The bundled amalgamation sets -DSQLITE_ENABLE_FTS5
-# explicitly (libsqlite3-sys-0.35.0/build.rs:132), so this makes the answer a
-# build-time constant on all six platforms. It also puts the SDK's own stores
-# on the same SQLite, which removes a second variable rather than adding one;
-# the file format is stable, so an existing store opens unchanged.
+# testing: matrix-sdk 0.18 gates the only public OlmMachine accessor
+#   (`Client::olm_machine_for_testing`) behind it, and the E2EE recovery
+#   coordinator needs `OlmMachine::query_missing_secrets_from_other_sessions`
+#   to re-issue m.secret.request. Every `testing`-gated site in
+#   matrix-sdk/-base 0.18.0 was audited as additive only.
+# experimental-send-custom-to-device: gates
+#   `Encryption::encrypt_and_send_raw_to_device`, the only way to send
+#   MatrixRTC media keys (io.element.call.encryption_keys) Olm-encrypted per
+#   device in 0.18.
+# qrcode: SDK QR verification (QrVerification, generate_qr_code,
+#   QrCodeShowV1/ReciprocateV1).
+# bundled-sqlite: the local message index needs FTS5, a compile-time SQLite
+#   option. The bundled amalgamation enables it (libsqlite3-sys build.rs), so
+#   search works on every platform instead of depending on the host's
+#   libsqlite3. The SDK stores share it; the file format is unchanged.
 matrix-sdk = { version = "0.18", default-features = false, features = ["e2e-encryption", "sqlite", "bundled-sqlite", "markdown", "testing", "qrcode", "experimental-send-custom-to-device"] }
-# Same release train as the pinned matrix-sdk. Provides the persistent
-# Timeline (initial items + VectorDiff subscription, retry decryption,
-# pagination, local echoes) used by the live timeline registry.
+# The SDK Timeline (VectorDiff subscription, retry decryption, pagination,
+# local echoes) used by the timeline registry.
 matrix-sdk-ui = { version = "=0.18.0", default-features = false }
-# Direct dep only for UtdCause (safe reason categories); same version the
-# pinned matrix-sdk already pulls in transitively.
+# Direct dependency for UtdCause; same version matrix-sdk already pulls in.
 matrix-sdk-base = { version = "=0.18.0", default-features = false, features = ["e2e-encryption"] }
 futures-util = { version = "0.3", default-features = false }
-# gzip/deflate: without these, reqwest never sends Accept-Encoding and can't
-# decode a compressed response — several ordinary sites' preview fetches
-# were failing for exactly this reason (a request with no Accept-Encoding
-# header reads as distinctly non-browser to some CDN/WAF layers, and a few
-# origins compress regardless of what was requested). brotli would cover
-# more real-world sites but its crate is not available in this offline,
-# --locked build environment; add it when the vendored dependency set can
-# be refreshed with network access.
+# gzip/deflate: without them reqwest sends no Accept-Encoding and cannot
+# decode compressed responses, which breaks some link previews (CDN/WAF
+# layers treat such requests as non-browser). brotli is not in the vendored
+# offline dependency set.
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "stream", "gzip", "deflate"] }
 url = "2"
-# The local message index. Already in Cargo.lock at this version by way of
-# matrix-sdk-sqlite, so this is a direct dependency on a crate the build
-# already compiles — not a new download, and the build stays --offline
-# --locked.
+# The local message index. Already in Cargo.lock via matrix-sdk-sqlite.
 rusqlite = { version = "0.37", default-features = false }
-# Case and diacritic folding for the local index. The `trigram` FTS5 tokenizer
-# matches raw code points and folds nothing, so the folding is Lightning's —
-# applied to both the stored copy and the query so the two always agree.
-# Already in Cargo.lock at this version by way of idna/url.
+# Already in Cargo.lock at this version via idna/url.
 unicode-normalization = "0.1"
 base64 = "0.22"
 html5ever = "0.39.0"
 tendril = "0.5"
-# MIME type values for SDK attachment sending; the exact crate/version the
-# pinned matrix-sdk already uses internally (no new transitive code).
+# MIME values for SDK attachment sending; the version matrix-sdk already uses.
 mime = "0.3"
 once_cell = "1"
 # MSC4143 rtc member identity is unpadded-base64(sha256(canonical JSON)).
-# This exact crate/version is ALREADY pinned transitively by the pinned
-# matrix-sdk (crypto), so declaring it directly adds no new transitive
-# code — the `mime`/`emojis` precedent.
+# Already pinned transitively by matrix-sdk.
 sha2 = "=0.10.9"
-# LiveKit SFU signalling (MatrixRTC phase 2). ONLY the protocol types and a
-# WebSocket: livekit-protocol is pure prost/serde message definitions with no
-# media stack, so this adds NO libwebrtc and no build-time download. The
-# media itself stays on Lightning's existing GStreamer engine.
-# (The full `livekit` client crate pulls webrtc-sys, which downloads a
-# prebuilt libwebrtc at build time and would break the --offline --locked
-# contract; measured at 318 crates and ~1.7 GB of build artifacts.)
+# LiveKit SFU signalling: protocol types and a WebSocket only, no media stack
+# (media stays on the GStreamer engine). The full `livekit` crate pulls
+# webrtc-sys, which downloads libwebrtc at build time and breaks
+# --offline --locked.
 livekit-protocol = "0.7"
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-webpki-roots", "connect"] }
 prost = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
-# Development-time source for the committed local emoji catalogue. This exact
-# crate is already pinned transitively by matrix-sdk-ui 0.18.0; the application
-# never sends catalogue data through FFI and performs no runtime download.
+# Source for the committed emoji catalogue (generate_emoji_catalog); already
+# pinned transitively by matrix-sdk-ui 0.18.0.
 emojis = "=0.8.2"
-# matrix-sdk's own diagnostics, OPT-IN. The SDK logs through `tracing` and the
-# application installed no subscriber, so everything it says about to-device
-# decryption, Olm sessions and key gossip went nowhere. That is the difference
-# between a bug that names itself and one that costs a session; see
-# `install_sdk_tracing` in lib.rs. Same version the lock file already pinned
-# transitively, so this moves a dev-dependency rather than adding a crate.
+# Opt-in forwarding of matrix-sdk's `tracing` diagnostics (to-device
+# decryption, Olm sessions, key gossip); see `install_sdk_tracing` in lib.rs.
+# Same version already in the lock file.
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [lints.rust]
-# ruma's `EventContent` derive expands a `cfg(ruma_unstable_exhaustive_types)`
-# check that only ruma's own build defines. Declaring it here keeps the two
-# custom MatrixRTC event contents (rust/src/rtc.rs) from emitting warnings for
-# a cfg that is not ours and is never set. Scoped to this one cfg name.
+# ruma's `EventContent` derive checks `cfg(ruma_unstable_exhaustive_types)`,
+# which only ruma's build defines; declared so the custom MatrixRTC event
+# contents in rtc.rs do not warn.
 unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(ruma_unstable_exhaustive_types)',
 ] }
 
-# UNWIND, not abort. With `panic = "abort"` a panic anywhere in the Rust
-# side — including inside matrix-sdk — aborts the whole desktop app. On
-# 2026-09-05 matrix-sdk 0.18's event cache hit an `.expect("failed to remove
-# an event")` (InvalidItemIndex { index: 99 } while deduplicating a sync) and
-# took Lightning down mid-chat, although the SDK runs that task under its own
-# TaskMonitor with catch_unwind precisely so a panic there is contained.
-# Every FFI entry point in src/lib.rs is wrapped in catch_unwind (the
-# `ffi_*` helpers), so no panic ever unwinds across the C boundary; tokio
-# tasks and our own threads are contained the same way. Abort bought nothing
-# and cost the session.
+# Panics unwind (the default); do not set `panic = "abort"`. matrix-sdk
+# contains panics in its own tasks with catch_unwind, and every FFI entry
+# point here does the same (the `ffi_*` helpers), so no panic crosses the C
+# boundary. Abort would turn any SDK panic into a crash of the whole app.
 
-# DEBUG INFO STAYS IN ITS OWN FILES, and this is a disk fix with a measured
-# number behind it. Every test binary LINKS the debug staticlib, and with
-# packed debug info each one gets its own copy of that crate's DWARF.
-#
-# Measured 2026-09-10 on this machine: `build` holds 199 test binaries at
-# 10.3 GB; `build-rust` holds 202 of the SAME C++ tests at 59.8 GB. Identical
-# (empty) CMAKE_BUILD_TYPE, so the ~49.5 GB difference is Rust debug info
-# copied 202 times. `readelf -S build-rust/trust-card-test` said 0.79 GB of
-# its 1.1 GB was `.debug_*`.
-#
-# "unpacked" leaves the DWARF beside the objects in target/ instead of copying
-# it into every consumer. Debugging is unaffected — gdb and lldb follow the
-# split files as long as the target directory is still there, which for a
-# local development build it is.
-#
-# ONLY the dev profile. [profile.release] below is what the packaging jobs
-# build, it already strips symbols, and nothing here touches it.
+# Keep dev debug info in split files: every test binary links the debug
+# staticlib, and packed DWARF was copied into each one (tens of GB across
+# the test trees). Debuggers follow the split files. Release is unaffected.
 [profile.dev]
 split-debuginfo = "unpacked"
 
