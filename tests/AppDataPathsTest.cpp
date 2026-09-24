@@ -41,17 +41,15 @@ void AppDataPathsTest::initTestCase()
 {
     QVERIFY(m_dataHome.isValid());
     qputenv("XDG_DATA_HOME", m_dataHome.path().toUtf8());
-    // Isolate every OTHER variable resolveAppDataBase() can reach as well.
-    // Isolating only some of them is how a test in this project once wrote
-    // into the maintainer's real data directory.
+    // Isolate every other variable resolveAppDataBase() can read too, so no
+    // case can write into a real data directory.
     qputenv("HOME", m_dataHome.path().toUtf8());
     qputenv("LOCALAPPDATA", m_dataHome.path().toUtf8() + "/AppData/Local");
     qputenv("USERPROFILE", m_dataHome.path().toUtf8());
     qunsetenv("LIGHTNING_PORTABLE");
 
-    // Pin installed mode for the whole suite. primaryRoot() now consults
-    // lightning::portable, and a stray portable.marker in the build tree would
-    // otherwise silently move every path this suite asserts on.
+    // Pin installed mode: primaryRoot() consults lightning::portable, and a
+    // stray portable.marker in the build tree would move every path.
     lightning::portable::setPortableOverrideForTest(false, QString());
     QVERIFY(!lightning::portable::isPortable());
 }
@@ -63,17 +61,16 @@ void AppDataPathsTest::cleanupTestCase()
 
 void AppDataPathsTest::resolveAppDataBasePortableRootWins()
 {
-    // The portable root is an OVERRIDE, not a fallback: a portable copy must
-    // not be steerable back into AppData by an inherited environment.
-    // PortableModeTest covers the full precedence matrix; this pins the
-    // signature here so the default argument cannot quietly disappear.
+    // The portable root is an override, not a fallback: an inherited
+    // environment cannot steer a portable copy back into AppData.
+    // PortableModeTest covers the full precedence; this pins the signature.
     QCOMPARE(matrix::app_data::resolveAppDataBase(
                  true, QStringLiteral("D:/xdg"),
                  QStringLiteral("C:/Users/X/AppData/Local"),
                  QStringLiteral("C:/Users/X"), QStringLiteral("/home/x"),
                  QStringLiteral("E:/Lightning/data")),
              QStringLiteral("E:/Lightning/data"));
-    // Omitting it keeps the historical five-argument behaviour byte for byte.
+    // Omitting it keeps the five-argument behaviour exactly.
     QCOMPARE(matrix::app_data::resolveAppDataBase(
                  true, QString(), QStringLiteral("C:/Users/X/AppData/Local"),
                  QStringLiteral("C:/Users/X"), QStringLiteral("/home/x")),
@@ -86,23 +83,22 @@ void AppDataPathsTest::composeAppDataRoot_data()
     QTest::addColumn<bool>("portable");
     QTest::addColumn<QString>("expected");
 
-    // Installed: unchanged from every release so far, which is the whole
-    // point — an MSI/Setup install must keep reading the data it already has.
+    // Installed: unchanged, so an MSI/Setup install keeps reading its data.
     QTest::newRow("installed-linux")
         << QStringLiteral("/home/x/.local/share") << false
         << QStringLiteral("/home/x/.local/share/MatrixClient/matrix-client");
     QTest::newRow("installed-windows")
         << QStringLiteral("C:/Users/X/AppData/Local") << false
         << QStringLiteral("C:/Users/X/AppData/Local/MatrixClient/matrix-client");
-    // Portable: no vendor/app segments — inside <program dir>/data the
-    // directory is already unambiguously Lightning's.
+    // Portable: no vendor/app segments; <program dir>/data is already
+    // Lightning's.
     QTest::newRow("portable")
         << QStringLiteral("E:/Lightning/data") << true
         << QStringLiteral("E:/Lightning/data/matrix");
     QTest::newRow("portable-spaces")
         << QStringLiteral("E:/Portable Apps/Lightning/data") << true
         << QStringLiteral("E:/Portable Apps/Lightning/data/matrix");
-    // No base resolvable -> empty, never a bogus root, in either mode.
+    // No resolvable base means empty, never a bogus root, in either mode.
     QTest::newRow("empty-installed") << QString() << false << QString();
     QTest::newRow("empty-portable") << QString() << true << QString();
 }
@@ -133,7 +129,7 @@ void AppDataPathsTest::resolveAppDataBase_data()
         << QString() << QString() << QStringLiteral("D:/xdg");
 
     // Windows: LOCALAPPDATA, then USERPROFILE\AppData\Local. Drive letters,
-    // spaces and Unicode profile names must all survive.
+    // spaces and Unicode profile names must survive.
     QTest::newRow("win-localappdata")
         << true << QString() << QStringLiteral("C:/Users/Test/AppData/Local")
         << QStringLiteral("C:/Users/Test") << QStringLiteral("/ignored")
@@ -147,7 +143,7 @@ void AppDataPathsTest::resolveAppDataBase_data()
         << QStringLiteral("C:/Users/Žmogus") << QString()
         << QStringLiteral("C:/Users/Žmogus/AppData/Local");
 
-    // Windows lookup is NOT consulted on non-Windows even if the vars are set.
+    // The Windows variables are ignored off Windows even when set.
     QTest::newRow("linux-ignores-localappdata")
         << false << QString() << QStringLiteral("C:/Users/X/AppData/Local")
         << QString() << QStringLiteral("/home/y")
@@ -158,7 +154,7 @@ void AppDataPathsTest::resolveAppDataBase_data()
         << false << QString() << QString() << QString()
         << QStringLiteral("/home/z") << QStringLiteral("/home/z/.local/share");
 
-    // Nothing resolvable → empty (never a bogus root).
+    // Nothing resolvable means empty, never a bogus root.
     QTest::newRow("nothing-linux")
         << false << QString() << QString() << QString() << QString() << QString();
     QTest::newRow("nothing-windows")
@@ -195,14 +191,12 @@ void AppDataPathsTest::canonicalIdentity_data()
         << QStringLiteral("test")
         << QStringLiteral("https://matrix.smetonis.net")
         << QStringLiteral("@test:matrix.smetonis.net");
-    // The server name is lowercased; the LOCALPART deliberately is not.
-    // Uppercase localparts are legal Matrix identities, so folding them would
-    // alias two real accounts onto one SDK store. The divergence this creates
-    // between a typed id and the server's canonical one is repaired by
-    // canonicalizing against the saved account records
-    // (SettingsManager::canonicalUserIdForTypedIdentity) and by RECORDING
-    // where the store really is (bindStoreSlug / storeSlugFor) — never by
-    // mangling the id and never by relocating a store.
+    // The server name is lowercased; the localpart is not. Uppercase
+    // localparts are legal, so folding would alias two accounts onto one SDK
+    // store. Typed-vs-canonical differences are handled by
+    // SettingsManager::canonicalUserIdForTypedIdentity and by recording the
+    // store location (bindStoreSlug / storeSlugFor), never by mangling ids or
+    // moving stores.
     QTest::newRow("uppercase-localpart-preserved")
         << QStringLiteral("https://matrix.smetonis.net")
         << QStringLiteral("@Mizerd:Matrix.Smetonis.Net")
@@ -315,18 +309,11 @@ void AppDataPathsTest::removesOnlySelectedRustState()
     QVERIFY(QFileInfo::exists(other.rustStorePath + QStringLiteral("/crypto.db")));
 }
 
-// docs/privacy.md and the README now say, in as many words, that message
-// content is stored decrypted on disk and that removing the account deletes
-// it. That second half is the mitigation the first half leans on, so it is
-// worth a test that names the files rather than trusting a recursive delete
-// to keep covering them.
-//
-// The names are the real ones, measured on a live account 2026-09-04: a
-// message sent into an ENCRYPTED room was found as raw bytes in the SDK's
-// event cache, in its state store, and in Lightning's search index. WAL and
-// SHM sidecars are included deliberately — SQLite writes there first, and the
-// live account had the marker in a -wal file while the main database was
-// still clean, so a cleanup that missed them would leave plaintext behind.
+// Message content is stored decrypted on disk (docs/privacy.md), and removing
+// the account deletes it, so this names every store that holds message text:
+// the SDK event cache, its state store and Lightning's search index,
+// including SQLite WAL/SHM sidecars, which can hold plaintext the main
+// database does not yet.
 void AppDataPathsTest::removalTakesEveryStoreThatHoldsMessageText()
 {
     matrix::app_data::AccountIdentity identity;
@@ -357,9 +344,8 @@ void AppDataPathsTest::removalTakesEveryStoreThatHoldsMessageText()
         QVERIFY2(!QFileInfo::exists(path), qPrintable(path));
     }
 
-    // ...and nothing under the account root still contains the body. A file
-    // this test does not know the name of is exactly the case the enumeration
-    // above cannot catch, and the next store to be added is one of those.
+        // ...and nothing under the account root still contains the body, which
+        // also catches stores this test does not know by name.
     QDirIterator it(identity.accountRoot, QDir::Files,
                     QDirIterator::Subdirectories);
     while (it.hasNext()) {

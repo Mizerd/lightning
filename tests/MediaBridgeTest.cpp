@@ -1,14 +1,8 @@
-// v0.5.11: tests for the shared avatar/media request layer — identical
-// request deduplication, bounded LRU eviction, stale-result rejection after
-// sign-out (account separation), avatar-URI change handling, failure marking
-// with explicit retry, missing-avatar no-op, and concurrency-bounded queue
-// pumping.
-//
-// v0.7.1 avatar reliability: avatars use ONE canonical fetch edge per
-// identity (size-independent cache keys), a reserved avatar-class cache
-// budget, active transient-failure expiry via mediaRetryable, a transient
-// "unavailable" category for opId==0 dispatch failures, and per-key
-// revision-suffixed provider URLs bumped only on actual byte inserts.
+// MediaBridge, the shared avatar/media request layer: request dedup, bounded
+// LRU eviction, stale-result rejection after sign-out, failure marking and
+// retry, bounded concurrency and queue pumping, one canonical fetch edge per
+// avatar identity with its own cache budget, transient-failure expiry via
+// mediaRetryable, and revision-suffixed provider URLs.
 
 #include "matrix/MatrixClient.h"
 #include "media/MediaBridge.h"
@@ -26,11 +20,10 @@
 
 namespace {
 
-// Log capture for cacheHitTraceIsSilentByDefault: a QtMessageHandler is a bare
-// function pointer, so the sink is a file-scope static. qCDebug consults the
-// category's enabled state BEFORE invoking the handler, so a message routed to
-// a default-off category (lightning.media.trace) never reaches this at all —
-// exactly the "hit is silent" property under test.
+// Log capture for cacheHitTraceIsSilentByDefault (a QtMessageHandler is a
+// bare function pointer, so the sink is file-scope). qCDebug checks the
+// category before calling the handler, so a default-off category never
+// reaches it.
 QStringList &capturedLines()
 {
     static QStringList lines;
@@ -55,7 +48,7 @@ public:
         int kind;    // 0 full, 1 thumb, 2 mxc thumb
         int width = 0;
         int height = 0;
-        int timeoutClass = 0; // v0.7: 0 standard / 1 playable / 2 save
+        int timeoutClass = 0; // 0 standard / 1 playable / 2 save
     };
     QList<Fetch> fetches;
     QList<quint64> cancels;
@@ -131,15 +124,9 @@ class MediaBridgeTest : public QObject
 {
     Q_OBJECT
 
-    // 2026-08-20: playable payloads are written on PlayableFileWriter's
-    // worker thread, so materialization is complete when
-    // playableMediaReady lands — NOT when the call that started it
-    // returns. Every playable assertion below waits on the signal.
-    //
-    // Deliberately not "poll playableSource() until it answers": that call
-    // registers a playable interest as a side effect, and a poll loop
-    // would leave a pile of phantom counts behind — which is exactly the
-    // regression ramCacheHitRetiresItsInterestWhenTheWriteLands guards.
+    // Playable payloads are written on PlayableFileWriter's worker thread,
+    // so wait for playableMediaReady. Polling playableSource() instead would
+    // register phantom playable interests as a side effect.
     static bool waitForPlayableCount(QSignalSpy &spy, int expected)
     {
         constexpr int timeoutMs = 5000;
@@ -166,10 +153,8 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 2); // one per distinct key
     }
 
-    // v0.7.1: every requested render size maps onto ONE canonical fetch
-    // edge, so one identity shown at ~10 different sizes across the app is
-    // exactly one network request, one cache entry, one failure mark — and
-    // every surface becomes consistent by construction.
+    // Every requested avatar size maps onto one canonical fetch edge: one
+    // request, one cache entry, one failure mark per identity.
     void allAvatarSizesShareOneCanonicalFetch()
     {
         FakeClient client;
@@ -213,12 +198,9 @@ private Q_SLOTS:
         QCOMPARE(bridge.cachedBytes(cacheKey), QByteArray("pixels"));
     }
 
-    // Touchpad pass: the per-call cache=HIT trace must be silent by default so
-    // scrolling never emits a GUI-thread log storm, while the real media
-    // diagnostics (miss/dispatch/failure on `lightning.media`) stay available.
-    // mediaSource()/avatarSource() run from QML bindings and re-fire on every
-    // pooled-delegate rebind, so a hit logged at debug level flooded the
-    // journal each frame during a scroll.
+    // Per-call cache hits are not logged by default: mediaSource() and
+    // avatarSource() run from QML bindings on every delegate rebind, so a
+    // hit log floods the journal while scrolling.
     void cacheHitTraceIsSilentByDefault()
     {
         FakeClient client;
@@ -232,25 +214,16 @@ private Q_SLOTS:
         auto &captured = capturedLines();
         captured.clear();
         QtMessageHandler prev = qInstallMessageHandler(&captureHandler);
-        // Cache HIT — the hot path that QML bindings re-run on every pooled
-        // delegate rebind while scrolling. Must emit no log on the default
-        // configuration.
+        // Cache hit: the hot path bindings re-run while scrolling.
         const QString hit = bridge.avatarSource(kMxc, 64);
-        // Cache MISS on a fresh identity — a real, bounded diagnostic that
-        // must stay visible on the default-on `lightning.media` category.
+        // Cache miss on a fresh identity.
         bridge.avatarSource(QStringLiteral("mxc://mock.local/second"), 64);
         qInstallMessageHandler(prev);
 
         QVERIFY(hit.startsWith(QStringLiteral("image://lightning-media/")));
-        // NOTHING per-request reaches the default category any more, and that
-        // is the point. A "cache=miss dispatching" line fires once per key, a
-        // "queue" or "fetch opId=" line follows it, a "ready" line follows
-        // that, and "already-pending" fires once per DUPLICATE CALLER — which
-        // in a list is unbounded. One account switch produced several hundred
-        // lines and the maintainer reported the log as unreadable. All of them
-        // moved to lightning.media.trace; what lands here instead is ONE
-        // counts-only burst summary once the activity goes quiet, plus every
-        // FAILURE, which is rare and names a category the user can act on.
+        // No per-request line reaches the default category (they are on
+        // lightning.media.trace); only a counts-only burst summary and
+        // failures land there.
         for (const QString &line : captured) {
             QVERIFY2(!line.contains(QStringLiteral("cache=hit")),
                      qUtf8Printable("unexpected cache=hit storm line: " + line));
@@ -263,10 +236,9 @@ private Q_SLOTS:
         }
     }
 
-    // The other half of the same decision: quieting the per-request lines must
-    // not make a burst of media work invisible. One line, counts and bytes
-    // only — no cache keys, no mxc URIs, no paths — so it stays safe to paste
-    // into a bug report, which the per-key lines never were.
+    // A burst of media work is summarised in one line once it goes quiet:
+    // counts and bytes only, no keys, mxc URIs or paths, so it is safe to
+    // paste into a bug report.
     void aBurstOfMediaWorkIsSummarisedOnceItGoesQuiet()
     {
         FakeClient client;
@@ -281,8 +253,8 @@ private Q_SLOTS:
         QtMessageHandler prev = qInstallMessageHandler(&captureHandler);
         for (const auto &fetch : client.fetches)
             client.succeed(fetch.opId, QByteArray("pixels"));
-        // The summary is deliberately deferred until the activity stops, so
-        // it describes the whole burst rather than each request.
+        // The summary is deferred until activity stops, so it covers the
+        // whole burst.
         bool sawSummary = false;
         QTRY_VERIFY_WITH_TIMEOUT(([&] {
             for (const QString &line : captured) {
@@ -324,8 +296,8 @@ private Q_SLOTS:
         QVERIFY(bridge.cacheBytesUsed() <= 10);
     }
 
-    // v0.7.1: avatar-class entries ("mxc:" keys) evict only against their
-    // own reserved budget.
+    // Avatar-class entries ("mxc:" keys) evict only against their own
+    // reserved budget.
     void avatarClassEvictionIsBoundedLru()
     {
         FakeClient client;
@@ -346,9 +318,8 @@ private Q_SLOTS:
         QVERIFY(bridge.cacheBytesUsed() <= 10);
     }
 
-    // v0.7.1: the long-session degradation fix — churning timeline media
-    // through the main budget can never evict a cached avatar, so avatars
-    // stay reliable no matter how much media scrolls past.
+    // Churning timeline media through the main budget never evicts a cached
+    // avatar.
     void timelineChurnNeverEvictsAvatars()
     {
         FakeClient client;
@@ -389,8 +360,8 @@ private Q_SLOTS:
         const quint64 preLogoutOp = client.fetches.first().opId;
         client.logout();
 
-        // The previous account's bytes complete after sign-out: they must
-        // neither enter the cache nor emit into the new session.
+        // The previous account's bytes complete after sign-out: they neither
+        // enter the cache nor reach the new session.
         client.succeed(preLogoutOp, QByteArray("secret"));
         QCOMPARE(cached.count(), 0);
         QCOMPARE(bridge.cacheBytesUsed(), 0);
@@ -427,8 +398,8 @@ private Q_SLOTS:
         QVERIFY(bridge.avatarFailureCategory(
                     QStringLiteral("mxc://example.org/other")).isEmpty());
 
-        // Repolling the failed source must not hammer the backend, and the
-        // suppressed "" still reports its category synchronously.
+        // Repolling a failed source does not re-dispatch, and the empty
+        // answer still reports its category synchronously.
         QCOMPARE(bridge.avatarSource(kMxc, 64), QString());
         QCOMPARE(client.fetches.size(), 1);
         QCOMPARE(bridge.avatarFailureCategory(kMxc), QStringLiteral("network"));
@@ -490,11 +461,9 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 2);
     }
 
-    // v0.7.1 regression: the backend returns opId==0 while the session is
-    // restoring/switching (or the media item is not known yet). Marking
-    // that PERMANENT poisoned the key for the whole account session — the
-    // "room-header avatar skeleton forever" failure. It is now the
-    // transient "unavailable" category with the normal retry window.
+    // A dispatch rejected with opId==0 (session restoring or switching) is the
+    // transient "unavailable" category with the normal retry window, not a
+    // permanent mark.
     void unavailableDispatchIsTransientAndRecovers()
     {
         FakeClient client;
@@ -516,8 +485,8 @@ private Q_SLOTS:
         QCOMPARE(failed.count(), 1);
         QCOMPARE(client.fetches.size(), 0);
 
-        // The backend becomes usable; the sweep announces the expiry and
-        // the next request dispatches for real.
+        // The backend becomes usable; the sweep announces the expiry and the
+        // next request dispatches.
         client.rejectFetches = false;
         bridge.setFailureRetryMsForTest(0);
         bridge.checkInflightTimeouts();
@@ -530,9 +499,8 @@ private Q_SLOTS:
         QVERIFY(!bridge.avatarSource(kMxc, 64).isEmpty());
     }
 
-    // v0.7.1: active expiry. The watchdog tick sweeps expired TRANSIENT
-    // marks and emits mediaRetryable so a quiesced UI recovers without any
-    // interaction; permanent validation categories are never swept.
+    // The watchdog sweeps expired transient marks and emits mediaRetryable,
+    // so an idle UI recovers; permanent validation marks are never swept.
     void sweepEmitsMediaRetryableForExpiredTransientMarks()
     {
         FakeClient client;
@@ -568,11 +536,9 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 2); // still blocked
     }
 
-    // v0.7.1: provider URLs carry a per-key revision bumped ONLY on an
-    // actual byte insert. Cache hits keep the identical string (QML
-    // pixmap-cache dedup survives); a re-fetch after eviction produces a
-    // new string, so an Image stuck in Error reloads (the cache-hit-then-
-    // evicted race between avatarSource() and the provider's later read).
+    // Provider URLs carry a per-key revision bumped only on an actual byte
+    // insert: cache hits keep the identical string, and a re-fetch after
+    // eviction yields a new one so an Image stuck in Error reloads.
     void revisionChangesExactlyOnByteInsert()
     {
         FakeClient client;
@@ -586,8 +552,7 @@ private Q_SLOTS:
         QVERIFY(url1.contains(QStringLiteral("?r=")));
         QCOMPARE(bridge.avatarSource(kMxc, 64), url1); // hit: identical
 
-        // Eviction race analog: the key was served (cache hit above), then
-        // LRU eviction empties it before the provider read.
+        // The key was served, then LRU-evicted before the provider read.
         bridge.avatarSource(QStringLiteral("mxc://example.org/avatar2"), 64);
         client.succeed(client.fetches.at(1).opId, QByteArray(8, 'b'));
         QCOMPARE(bridge.avatarSource(kMxc, 64), QString()); // miss → dispatch
@@ -598,10 +563,8 @@ private Q_SLOTS:
         QVERIFY2(url2 != url1, "re-cached bytes must yield a NEW source string");
     }
 
-    // v0.7.1 regression: an op the backend never completes must not pin its
-    // concurrency slot forever. Before the watchdog, kMaxConcurrent such
-    // orphans stalled the whole pipeline ("avatars/images stop loading after
-    // a few minutes"). This is the test that would have caught that leak.
+    // An op the backend never completes does not hold its concurrency slot
+    // forever; the watchdog reclaims it.
     void stuckRequestTimesOutAndReclaimsSlot()
     {
         FakeClient client;
@@ -616,7 +579,7 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 8);          // kMaxConcurrent dispatched
         QCOMPARE(bridge.inflightCountForTest(), 8);
 
-        // A fresh request cannot dispatch while the slots are (leaked) held.
+        // A fresh request cannot dispatch while the slots are held.
         bridge.mediaSource(QStringLiteral("$fresh"), QStringLiteral("thumb"));
         QCOMPARE(client.fetches.size(), 8);
         QCOMPARE(bridge.queuedCountForTest(), 1);
@@ -648,16 +611,13 @@ private Q_SLOTS:
         bridge.checkInflightTimeouts();
         QCOMPARE(bridge.inflightCountForTest(), 0);
 
-        // A "timeout" mark is transient, so the next poll re-dispatches once
-        // — never a permanent Loading state.
+        // A timeout mark is transient: the next poll re-dispatches once.
         bridge.avatarSource(kMxc, 64);
         QCOMPARE(client.fetches.size(), 2);
     }
 
-    // Soak: under sustained saturation with a mixed success/failure outcome,
-    // every terminal path must release its slot and the queue must fully
-    // drain — in-flight and queued both return to zero, and memory stays
-    // bounded.
+    // Under sustained saturation with mixed outcomes, every terminal path
+    // releases its slot, the queue drains to zero, and memory stays bounded.
     void saturationDrainsToZeroWithBoundedMemory()
     {
         FakeClient client;
@@ -672,9 +632,8 @@ private Q_SLOTS:
         QCOMPARE(bridge.inflightCountForTest(), 8);
         QCOMPARE(bridge.queuedCountForTest(), kN - 8);
 
-        // Resolve every dispatched op in order with a deterministic mix; each
-        // completion pumps one queued request into the freed slot, so the
-        // fetch list grows to exactly kN (one op per distinct key).
+        // Resolve ops in order with a deterministic mix; each completion pumps
+        // one queued request, so there is exactly one op per distinct key.
         int resolved = 0;
         int guard = 0;
         while (resolved < client.fetches.size() && guard++ < kN * 8) {
@@ -697,8 +656,7 @@ private Q_SLOTS:
                  static_cast<qint64>(kN));
         QVERIFY(bridge.cacheBytesUsed() <= 64);
 
-        // A brand-new request after the storm still dispatches immediately —
-        // no leaked slot, no manual intervention, no click required.
+        // A new request after the storm still dispatches immediately.
         bridge.mediaSource(QStringLiteral("$after"), QStringLiteral("thumb"));
         QCOMPARE(bridge.inflightCountForTest(), 1);
     }
@@ -744,18 +702,9 @@ private Q_SLOTS:
         QCOMPARE(failed.count(), 2);
     }
 
-    // A GIF STICKER CARRIES NO MIMETYPE, AND THE OLD GATE REQUIRED ONE.
-    //
-    // `writeAnimatedFile` used to demand that the DECLARED mimetype be
-    // exactly "image/gif" before it would materialize anything, and that
-    // label comes straight from the event: `MsgLikeKind::Sticker`
-    // (rust/src/timeline.rs) forwards `info.mimetype` only when the sender
-    // supplied one, and MSC2545 makes it optional. So a perfectly ordinary
-    // animated GIF sticker was delivered unlabelled, refused here, and drawn
-    // as a frozen first frame while every other client animated it.
-    //
-    // On the unfixed tree this case fails on the FIRST QCOMPARE: ready is 0
-    // and failed is 1.
+    // Animation is decided by the bytes, not the declared mimetype: a sticker
+    // may omit `mimetype` (MSC2545), and an unlabelled animated GIF must still
+    // materialize.
     void animationIsDecidedByTheBytesNotTheDeclaredMimetype()
     {
         FakeClient client;
@@ -766,8 +715,7 @@ private Q_SLOTS:
         QCOMPARE(bridge.animatedSource(QStringLiteral("$sticker")), QString());
         QByteArray gif("GIF89a");
         gif.append(QByteArray(64, '\0'));
-        // Delivered with NO mimetype at all, which is what an unlabelled
-        // sticker looks like by the time it reaches this layer.
+        // Delivered with no mimetype, as an unlabelled sticker arrives.
         client.succeed(client.fetches.first().opId, gif, QString());
         QCOMPARE(ready.count(), 1);
         QCOMPARE(failed.count(), 0);
@@ -775,9 +723,8 @@ private Q_SLOTS:
                     .startsWith(QStringLiteral("file://")));
     }
 
-    // The magic is the AUTHORITY, not merely an additional check: a payload
-    // LABELLED image/gif whose bytes are something else is still refused, so
-    // dropping the label requirement cannot have widened what is accepted.
+    // The magic bytes are authoritative: a payload labelled image/gif whose
+    // bytes are something else is still refused.
     void aLabelSayingGifCannotMakeNonGifBytesAnimatable()
     {
         FakeClient client;
@@ -792,15 +739,10 @@ private Q_SLOTS:
         QCOMPARE(ready.count(), 0);
     }
 
-    // ASKING MUST BE FREE OF CONSEQUENCE FOR A CALLER THAT DOES NOT KNOW.
-    //
-    // A sticker cannot know whether its payload is an animation, so it asks
-    // speculatively. A "no" must be SILENT: the still Image is already
-    // drawing those exact bytes, and mediaFetchFailed would replace a
-    // perfectly good picture with a retry card on every non-animated
-    // sticker. A caller that DOES know (the timeline's confirmed-GIF image
-    // path) still gets its terminal answer — that half is
-    // fakeAndOversizedGifsNeverReachAnimatedImage above.
+    // A speculative animation ask (a sticker cannot know whether it is
+    // animated) is answered with silence, not mediaFetchFailed, which would
+    // replace a good still image with a retry card. A caller that does know
+    // still gets its terminal answer.
     void aSpeculativeAnimationAskIsAnsweredWithSilenceNotAFailure()
     {
         FakeClient client;
@@ -815,15 +757,13 @@ private Q_SLOTS:
         client.succeed(client.fetches.last().opId, png, QString());
         QCOMPARE(ready.count(), 0);
         QCOMPARE(failed.count(), 0);
-        // And the bytes still reached the ordinary image path, which is what
-        // makes the silence safe rather than merely quiet.
+        // The bytes still reached the ordinary image path.
         QCOMPARE(cached.count(), 1);
         QCOMPARE(bridge.failureCategory(QStringLiteral("full:$still")), QString());
     }
 
     // One demanding asker among speculative ones still gets its answer: the
-    // obligation is the OR of the claimants', exactly as it is for playable
-    // writes.
+    // obligation is the OR of the claimants', as for playable writes.
     void oneDemandingAskerRestoresTheFailureObligation()
     {
         FakeClient client;
@@ -838,12 +778,9 @@ private Q_SLOTS:
         QCOMPARE(failed.count(), 1);
     }
 
-    // The format table, on bytes alone. Animated WebP joins GIF because
-    // Qt's webp handler animates; a STILL WebP deliberately does not, or
-    // every static WebP sticker would be handed to an AnimatedImage for
-    // nothing. APNG is absent because Qt's PNG handler reports no animation
-    // support, so materializing one would suppress the still Image that is
-    // already drawing exactly the frame an AnimatedImage would show.
+    // Animated formats by magic bytes alone: GIF and animated WebP (Qt's webp
+    // handler animates). Still WebP is excluded, and APNG too, since Qt's PNG
+    // handler does not animate.
     void animatedExtensionIsMagicOnlyAndNarrow()
     {
         const auto ext = [](const QByteArray &b) {
@@ -876,28 +813,17 @@ private Q_SLOTS:
         QByteArray png("\x89PNG\r\n\x1a\n", 8);
         png.append(QByteArray(64, '\0'));
         QVERIFY(ext(png).isEmpty());
-        // CLAUDE.md §6: SVG must never reach a media rendering path, and it
-        // cannot enter through this door either.
+        // SVG must never reach a media rendering path.
         QVERIFY(ext(QByteArrayLiteral("<svg xmlns=\"http://www.w3.org/2000/svg\"/>"))
                     .isEmpty());
         QVERIFY(ext(QByteArrayLiteral("GIF")).isEmpty());
         QVERIFY(ext(QByteArray()).isEmpty());
     }
 
-    // ── The sticker PICKER's tiles ───────────────────────────────────────
-    //
-    // An animated sticker played in the timeline and sat frozen in the grid
-    // it was chosen from. The timeline plays a MATERIALISED file (AnimatedImage
-    // is QMovie-backed and cannot read an `image://` provider at all); the
-    // picker had only `mxcImageSource`, which asks for a SERVER THUMBNAIL —
-    // one frame by construction. A pack entry is not an event, so it has no
-    // media key and `animatedSource` could not be pointed at it.
+    // Sticker picker tiles ask for the original bytes (both edges 0), not a
+    // server thumbnail, which is one frame by construction:
+    // `media_fetch_mxc` selects MediaFormat::File only when an edge is 0.
 
-    // THE ZERO EDGE IS THE ENTIRE FIX. rust/src/rooms.rs `media_fetch_mxc`
-    // selects MediaFormat::File when either edge is 0 and MediaFormat::Thumbnail
-    // otherwise, so asking with a size is asking for a still frame — the
-    // defect, restated. On a tree where mxcAnimatedSource passes an edge this
-    // case fails on the width QCOMPARE with the edge it passed.
     void stickerPickerAsksForTheOriginalBytesNotAServerThumbnail()
     {
         FakeClient client;
@@ -908,8 +834,8 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 1);
         const FakeClient::Fetch fetch = client.fetches.first();
         QCOMPARE(fetch.key, kMxc);
-        // Zero on BOTH edges: media_fetch_mxc tests `width == 0 || height == 0`,
-        // so a single non-zero edge would still be a thumbnail request.
+        // Zero on both edges: a single non-zero edge is still a thumbnail
+        // request.
         QCOMPARE(fetch.width, 0);
         QCOMPARE(fetch.height, 0);
 
@@ -923,25 +849,22 @@ private Q_SLOTS:
         QVERIFY(source.startsWith(QStringLiteral("file://")));
         const QString path = QUrl(source).toLocalFile();
         QVERIFY(QFileInfo::exists(path));
-        // Materialised bytes are 0600, like every other payload written out
-        // of an encrypted room (CLAUDE.md §6).
+        // Materialised bytes are 0600, like every payload from an encrypted
+        // room.
         QCOMPARE(QFileInfo(path).permissions()
                      & (QFileDevice::ReadGroup | QFileDevice::WriteGroup
                         | QFileDevice::ReadOther | QFileDevice::WriteOther),
                  QFileDevice::Permissions());
         client.logout();
         QVERIFY(!QFileInfo::exists(path));
-        // Not an mxc URI: refused without a fetch. Pack entries are sanitised
-        // in Rust, so this is depth, not the only guard.
+        // Not an mxc URI: refused without a fetch (Rust also sanitises pack
+        // entries).
         QVERIFY(bridge.mxcAnimatedSource(QStringLiteral("https://evil.example/x.gif"))
                     .isEmpty());
     }
 
-    // The still tile and the animation are DIFFERENT BYTES for the same mxc —
-    // a scaled server thumbnail and the original upload. Sharing one cache key
-    // would let whichever landed first answer the other, which for the
-    // thumbnail means materialising a single frame and calling it the
-    // animation. On a tree that shares the key this fails at the fetch count.
+    // The still tile (a scaled thumbnail) and the animation (the original)
+    // are different bytes for one mxc and use separate cache keys.
     void theStillTileAndTheAnimatedPickerTileAreSeparateFetches()
     {
         FakeClient client;
@@ -954,8 +877,8 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.at(0).width, 160); // still: a thumbnail
         QCOMPARE(client.fetches.at(1).width, 0);   // animation: the original
 
-        // The thumbnail answers FIRST and is a still PNG. It must not satisfy
-        // the animated ask, and must not mark it failed either.
+        // The still PNG thumbnail answers first; it must neither satisfy nor
+        // fail the animated ask.
         QByteArray png("\x89PNG\r\n\x1a\n", 8);
         png.append(QByteArray(64, '\0'));
         client.succeed(client.fetches.at(0).opId, png, QStringLiteral("image/png"));
@@ -969,14 +892,9 @@ private Q_SLOTS:
         QVERIFY(bridge.mxcAnimatedSource(kMxc).startsWith(QStringLiteral("file://")));
     }
 
-    // ASKING MUST BE FREE OF CONSEQUENCE — the picker's half of the contract
-    // `aSpeculativeAnimationAskIsAnsweredWithSilenceNotAFailure` pins for the
-    // timeline. A pack entry's mimetype is optional under MSC2545 and the pack
-    // is room state any member can write, so no caller can KNOW; and the still
-    // tile is already drawing these exact bytes, so a failure mark would put
-    // an "Unavailable" card on every non-animated sticker in the grid.
-    // On a tree where mxcAnimatedSource joins m_animatedDemanded, this fails
-    // with failed.count() == 1.
+    // A non-animated picker tile is answered with silence, not a failure: a
+    // pack's mimetype is optional and attacker-writable, and the still tile is
+    // already drawing these bytes.
     void aNonAnimatedPickerTileIsAnsweredWithSilenceNotAFailure()
     {
         FakeClient client;
@@ -994,12 +912,8 @@ private Q_SLOTS:
                  QString());
     }
 
-    // CLAUDE.md §6: SVG is never rendered as active content, and the DECLARED
-    // type cannot carry that rule — `im.ponies.room_emotes` is room state any
-    // member can write and MSC2545 lets `mimetype` be omitted. The bytes
-    // decide, on this new door exactly as on every other one. SVGZ too: Qt's
-    // SVG handler decompresses gzip, so refusing only the plain spelling
-    // would leave the same file reachable under another name.
+    // A picker tile refuses SVG and gzip (SVGZ) by bytes before any decode;
+    // the declared type is attacker-controlled room state and may be absent.
     void aPickerTileRefusesMarkupAndGzipBeforeAnyDecode()
     {
         FakeClient client;
@@ -1025,12 +939,9 @@ private Q_SLOTS:
         QCOMPARE(cached.count(), 0);
     }
 
-    // A picker tile is an IMAGE. The mxc request is classified kind 2 so the
-    // thumbnail-class A/V refusal applies: a pack entry pointing at an MP4 (or
-    // a homeserver answering with one) must not enter the image cache, and
-    // must not be mistaken for timeline A/V media either — kind 0 would emit
-    // playableSizeLearned with an mxc URI in the media-key argument.
-    // On a tree that classifies this kind 0, both QCOMPAREs below fail.
+    // A picker tile is an image request (kind 2), so the A/V refusal applies
+    // and an MP4 answer never enters the image cache or registers as timeline
+    // A/V (kind 0 would emit playableSizeLearned with an mxc URI).
     void anAvContainerNeverEntersThePickerImagePath()
     {
         FakeClient client;
@@ -1087,11 +998,10 @@ private Q_SLOTS:
                     QStringLiteral("image/gif")).isEmpty());
     }
 
-    // ── v0.7: playable (video/audio) materialization ────────────────────
+    // Playable (video/audio) materialization.
 
-    // Container sniffing is fail-closed: only known audio/video magic
-    // passes, mislabeled bytes never materialize, and raw ADTS needs the
-    // metadata to actually claim AAC.
+    // Container sniffing is fail-closed: only known audio/video magic passes,
+    // mislabelled bytes never materialize, and raw ADTS needs an AAC claim.
     void playableSniffingIsFailClosed()
     {
         auto ext = [](const QByteArray &bytes, const char *mime) {
@@ -1136,10 +1046,10 @@ private Q_SLOTS:
         QVERIFY(ext(QByteArrayLiteral("sh"), "video/mp4").isEmpty());
     }
 
-    // The playable flow materializes a validated payload as a session temp
-    // file (correct suffix, restrictive permissions, unguessable name) and
-    // reports it via playableMediaReady; invalid payloads fail closed with
-    // the permanent "rejected" category.
+    // A validated playable payload is materialized as a session temp file
+    // (correct suffix, restrictive permissions, unguessable name) and
+    // reported via playableMediaReady; invalid payloads fail closed as
+    // "rejected".
     void playableSourceMaterializesValidatedFile()
     {
         FakeClient client;
@@ -1172,9 +1082,8 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 2);
         client.succeed(client.fetches.at(1).opId, QByteArray(2048, 'x'),
                        QStringLiteral("video/mp4"));
-        // The refusal is SYNCHRONOUS by contract — an unknown container is
-        // rejected before any file is created, so nothing was ever handed
-        // to the worker and no completion can arrive later.
+        // The refusal is synchronous: an unknown container is rejected before
+        // any file or worker job exists.
         QCOMPARE(bridge.pendingPlayableWritesForTest(), 0);
         QTest::qWait(50);
         QCOMPARE(ready.count(), 1); // no new materialization
@@ -1193,8 +1102,8 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 3); // re-dispatch, no stale reuse
     }
 
-    // Large playable payloads bypass the RAM LRU — one video must not
-    // evict the entire image cache — while small ones still cache.
+    // Large playable payloads bypass the RAM LRU (one video must not evict the
+    // image cache); small ones still cache.
     void largePlayablePayloadSkipsRamCache()
     {
         FakeClient client;
@@ -1220,12 +1129,8 @@ private Q_SLOTS:
         QVERIFY(bridge.cacheBytesUsed() >= small.size());
     }
 
-    // ── 2026-08-20 (contract C8): the write is off the GUI thread ──────
-
-    // The payload is NOT written by the call that receives it. On the
-    // unfixed tree writePlayableFile ran inline inside onMediaReady, so
-    // the file existed and playableSource() answered a URL the instant
-    // succeed() returned — both assertions below fail there.
+    // A fetched playable payload is written on the worker thread, not by the
+    // call that receives it.
     void aFetchedPayloadIsNotWrittenByTheThreadThatReceivesIt()
     {
         FakeClient client;
@@ -1247,11 +1152,8 @@ private Q_SLOTS:
         QVERIFY(!bridge.playableSource(QStringLiteral("$vid")).isEmpty());
     }
 
-    // The documented "keyed dedup must service all claimants" rule — the
-    // one a star and a copy racing on the same image once broke by
-    // stranding the star forever. A speculative prefetch and a pressed-play
-    // card can land on the same key: ONE write runs, and the single
-    // broadcast answers both.
+    // A speculative prefetch and a pressed-play card on the same key share
+    // one write, and its single broadcast services both.
     void twoClaimantsShareOneWriteAndBothAreServiced()
     {
         FakeClient client;
@@ -1265,7 +1167,7 @@ private Q_SLOTS:
         client.succeed(client.fetches.at(0).opId, mp4,
                        QStringLiteral("video/mp4"));
         QCOMPARE(bridge.pendingPlayableWritesForTest(), 1);
-        // The user presses Play while the prefetch's write is still going.
+        // Play is pressed while the prefetch's write is still running.
         QVERIFY(bridge.playableSource(QStringLiteral("$dual")).isEmpty());
         QCOMPARE(bridge.pendingPlayableWritesForTest(), 1); // still ONE
         QCOMPARE(client.fetches.size(), 1);                 // and ONE fetch
@@ -1275,11 +1177,9 @@ private Q_SLOTS:
         QVERIFY(!bridge.playableSource(QStringLiteral("$dual")).isEmpty());
     }
 
-    // Lifecycle isolation: a write handed to the worker thread by one
-    // account must never publish into the next. clear() empties the
-    // tracking hash — the authority, because the completion is a QUEUED
-    // call that can outlive any disconnect — bumps the generation, and
-    // cancels the job.
+    // A write started before sign-out publishes nothing: clear() empties the
+    // tracking hash (the authority, since the completion is a queued call),
+    // bumps the generation and cancels the job.
     void aWriteStartedBeforeSignOutPublishesNothing()
     {
         FakeClient client;
@@ -1301,10 +1201,8 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 2);
     }
 
-    // A card closed mid-materialization abandons the write too: the bytes
-    // are already downloaded, but writing hundreds of megabytes for a card
-    // that is gone is pure disk churn. Nothing is published, nothing is
-    // left under the final name, and a fresh Play re-fetches cleanly.
+    // A card closed mid-materialization abandons the write: nothing is
+    // published or left under the final name, and a fresh Play re-fetches.
     void cancelDuringAWriteAbandonsIt()
     {
         FakeClient client;
@@ -1312,8 +1210,8 @@ private Q_SLOTS:
         bridge.setClient(&client);
         QSignalSpy ready(&bridge, &MediaBridge::playableMediaReady);
         bridge.playableSource(QStringLiteral("$vid"));
-        // Above kLargeCacheSkipBytes, so the payload leaves no RAM copy
-        // behind and a re-ask can only be answered by a real fetch.
+        // Above kLargeCacheSkipBytes, so no RAM copy remains and a re-ask
+        // needs a real fetch.
         QByteArray ogg = QByteArrayLiteral("OggS");
         ogg.resize(9 * 1024 * 1024, '\1');
         client.succeed(client.fetches.at(0).opId, ogg,
@@ -1327,9 +1225,8 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 2);
     }
 
-    // The size bound and the container sniff still fail CLOSED — and they
-    // do it before a single byte reaches the worker thread, so a refused
-    // payload can never have created a file.
+    // The size bound and container sniff fail closed before any byte reaches
+    // the worker thread.
     void anOverBoundPayloadIsRefusedBeforeAnyWriteStarts()
     {
         FakeClient client;
@@ -1355,10 +1252,8 @@ private Q_SLOTS:
         QVERIFY(sawRejected);
     }
 
-    // ── v0.7 defense-in-depth: timeout classes + terminal coordination ──
-
-    // Each dispatch advertises its backend timeout class so the Rust bound
-    // stays strictly below the covering C++ watchdog deadline.
+    // Each dispatch carries its backend timeout class, so the Rust bound stays
+    // below the covering C++ watchdog deadline.
     void dispatchCarriesTimeoutClasses()
     {
         FakeClient client;
@@ -1376,8 +1271,8 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.at(2).timeoutClass, 2);
     }
 
-    // A duplicated terminal for the same op releases exactly one slot and
-    // emits exactly one mediaCached; the duplicate counts as stale.
+    // A duplicated terminal for one op releases one slot and emits one
+    // mediaCached; the duplicate counts as stale.
     void duplicateTerminalIsCountedStale()
     {
         FakeClient client;
@@ -1397,9 +1292,8 @@ private Q_SLOTS:
                  1);
     }
 
-    // Watchdog fires first, the real completion lands later: the late
-    // success is silently discarded (no duplicate signal, no cache entry
-    // resurrection) and the pipeline stays fully drained.
+    // A completion landing after the watchdog fired is discarded: no duplicate
+    // signal, no cache entry, and the pipeline stays drained.
     void lateSuccessAfterWatchdogIsDiscarded()
     {
         FakeClient client;
@@ -1424,9 +1318,8 @@ private Q_SLOTS:
                  1);
     }
 
-    // v0.6.6: "star a chat GIF" fetch trigger — mirrors saveAs()'s
-    // dispatch/cache/failure shape but relays raw bytes via
-    // mediaBytesForStar() instead of writing a user-chosen file.
+    // fetchFullForStar dispatches like saveAs() (save timeout class) and
+    // relays raw bytes via mediaBytesForStar().
     void fetchFullForStarDispatchesAtSaveTimeoutClassAndDeliversBytes()
     {
         FakeClient client;
@@ -1443,8 +1336,7 @@ private Q_SLOTS:
         QCOMPARE(starred.count(), 1);
         QVERIFY(starred.first().at(1).toBool());
         QCOMPARE(starred.first().at(2).toByteArray(), QByteArray("GIF89a..."));
-        // Never inserted into the shared RAM cache — an "export" fetch,
-        // exactly like saveAs.
+        // Never inserted into the shared RAM cache, like saveAs.
         QCOMPARE(bridge.cacheBytesUsed(), 0);
     }
 
@@ -1453,7 +1345,7 @@ private Q_SLOTS:
         FakeClient client;
         MediaBridge bridge;
         bridge.setClient(&client);
-        // Prime the cache the way an inline preview (animatedSource) would.
+        // Prime the cache as an inline preview (animatedSource) would.
         bridge.mediaSource(QStringLiteral("$gif"), QStringLiteral("full"));
         client.succeed(client.fetches.first().opId, QByteArray("cached-bytes"));
         QCOMPARE(client.fetches.size(), 1);
@@ -1466,8 +1358,7 @@ private Q_SLOTS:
         QCOMPARE(starred.first().at(2).toByteArray(), QByteArray("cached-bytes"));
     }
 
-    // L10: a rapid double-activation of "Star GIF" for the SAME row must
-    // not dispatch two identical fetches.
+    // A rapid double "Star GIF" on the same row dispatches one fetch.
     void fetchFullForStarDedupsInFlightRequestsForSameMediaKey()
     {
         FakeClient client;
@@ -1488,10 +1379,9 @@ private Q_SLOTS:
         QCOMPARE(starred.count(), 2); // both real requests still resolve
     }
 
-    // L11: a save/star dispatch failure must be reported ONLY through its
-    // own signal — never through mediaFetchFailed(cacheKey), which an
-    // ordinary consumer of the SAME cache key (an inline preview already on
-    // screen) would otherwise misread as ITS OWN fetch having failed.
+    // A save/star dispatch failure is reported only through its own signal,
+    // never mediaFetchFailed(cacheKey), which an inline preview on the same
+    // key would take as its own failure.
     void starDispatchFailureNeverEmitsMediaFetchFailed()
     {
         FakeClient client;
@@ -1508,11 +1398,9 @@ private Q_SLOTS:
         QCOMPARE(fetchFailed.count(), 0); // the ordinary-consumer signal
     }
 
-    // An ordinary fetch for the SAME media key as an in-flight star request
-    // must dispatch its own real fetch rather than being treated as
-    // "already pending" — onMediaReady's star branch returns before ever
-    // emitting mediaCached(), so an ordinary caller folded into that
-    // dedup would wait forever.
+    // An ordinary fetch for a key with an in-flight star request dispatches
+    // its own fetch: the star branch never emits mediaCached, so folding the
+    // ordinary caller into it would strand it.
     void ordinaryFetchNotDedupedAgainstInFlightStarRequest()
     {
         FakeClient client;
@@ -1530,16 +1418,14 @@ private Q_SLOTS:
         QCOMPARE(cached.count(), 1); // the ordinary fetch resolved normally
     }
 
-    // v0.6.6 fix: GifStarredStore's durable "is this GIF already starred?"
-    // check (AppController::isChatGifStarred/unstarChatGif) reads the
-    // content hash of whatever full payload is ALREADY cached for a
-    // mediaKey — never dispatching a fetch of its own.
+    // cachedFullContentHash() hashes the full payload already cached for a
+    // mediaKey without dispatching a fetch (used by the starred-GIF check).
     void cachedFullContentHashMatchesSha256OfCachedFullPayloadWithoutDispatching()
     {
         FakeClient client;
         MediaBridge bridge;
         bridge.setClient(&client);
-        // Prime the cache the way an inline preview (animatedSource) would.
+        // Prime the cache as an inline preview (animatedSource) would.
         bridge.mediaSource(QStringLiteral("$gif"), QStringLiteral("full"));
         const QByteArray bytes("GIF89a-cached-full-bytes");
         client.succeed(client.fetches.first().opId, bytes);
@@ -1551,11 +1437,8 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 1); // no new dispatch — read-only
     }
 
-    // M2: the silent-always-false failure mode this guards against is
-    // hashing mediaCacheKey(key, 1) ("thumb:") instead of mediaCacheKey(key,
-    // 0) ("full:") — that bug would pass every other test in this file (an
-    // empty/uncached/unknown key all correctly answer "") but silently never
-    // answer true for a real GIF whose only cached entry is its thumbnail.
+    // The hash is empty unless the full payload itself is cached: hashing
+    // the "thumb:" entry would silently never match a real GIF.
     void cachedFullContentHashIsEmptyUnlessTheFullPayloadItselfIsCached()
     {
         FakeClient client;
@@ -1567,19 +1450,15 @@ private Q_SLOTS:
         // Never requested at all.
         QVERIFY(bridge.cachedFullContentHash(QStringLiteral("$never-fetched")).isEmpty());
 
-        // Only a THUMBNAIL is cached for this key — the full payload was
-        // never fetched. Must still answer "", not the thumbnail's hash.
+        // Only a thumbnail is cached for this key: still "".
         bridge.mediaSource(QStringLiteral("$thumb-only"), QStringLiteral("thumb"));
         client.succeed(client.fetches.first().opId, QByteArray("thumbnail-bytes"));
         QVERIFY(bridge.cachedFullContentHash(QStringLiteral("$thumb-only")).isEmpty());
     }
 
-    // H1b: pins the memoization itself with a deterministic, timing-
-    // independent observable (a computation counter — see
-    // MediaBridge::healthSnapshot's new "contentHashComputed" entry) rather
-    // than a wall-clock assertion. Also proves the three documented
-    // invalidation points: an actual byte re-insert (revision bump), LRU
-    // eviction, and clear().
+    // The hash is memoized per cache key (observed through the
+    // "contentHashComputed" counter in healthSnapshot) and invalidated by a
+    // byte re-insert, LRU eviction and clear().
     void cachedFullContentHashIsMemoizedPerCacheKey()
     {
         FakeClient client;
@@ -1588,13 +1467,8 @@ private Q_SLOTS:
         bridge.mediaSource(QStringLiteral("$gif"), QStringLiteral("full"));
         client.succeed(client.fetches.first().opId, QByteArray(4096, 'x'));
 
-        // Every one of the (up to eight, per MessageDelegate.qml) triggers
-        // this query is fired from must cost ONE real hash, not eight.
-        // mediaSource() itself is a cache HIT for an already-cached key (it
-        // never re-dispatches, so there is no public way to force a second
-        // insert for the SAME key without first evicting it — see below),
-        // which is exactly the "no NOTIFY, refresh from several signals"
-        // shape MessageDelegate.qml's own repeated querying has.
+        // Repeated queries (MessageDelegate asks from several signals) cost
+        // one real hash.
         for (int i = 0; i < 8; ++i)
             bridge.cachedFullContentHash(QStringLiteral("$gif"));
         QCOMPARE(bridge.healthSnapshot()
@@ -1604,10 +1478,8 @@ private Q_SLOTS:
                  QString::fromLatin1(QCryptographicHash::hash(
                      QByteArray(4096, 'x'), QCryptographicHash::Sha256).toHex()));
 
-        // LRU eviction invalidates the memo: a tiny cache limit forces
-        // "$gif" out the moment a second key is inserted, so a subsequent
-        // query for "$gif" (now uncached) answers "" without touching the
-        // stale memo entry, and does NOT count as a new computation.
+        // Eviction invalidates the memo: querying the now-uncached key
+        // answers "" without computing.
         bridge.setCacheLimitBytes(1); // smaller than either payload
         bridge.mediaSource(QStringLiteral("$other"), QStringLiteral("full"));
         client.succeed(client.fetches.last().opId, QByteArray(4096, 'z'));
@@ -1616,10 +1488,8 @@ private Q_SLOTS:
                      .value(QStringLiteral("contentHashComputed")).toLongLong(),
                  qint64(1)); // unchanged — a cache miss never hashes
 
-        // A genuine RE-fetch of "$gif" (now actually uncached, so
-        // mediaSource() dispatches for real) is a fresh byte insert — a
-        // revision bump — and must be re-hashed exactly once, with the NEW
-        // bytes' digest, never the stale pre-eviction one.
+        // A real re-fetch is a new byte insert and is hashed once, with the
+        // new digest.
         bridge.setCacheLimitBytes(64 * 1024 * 1024);
         bridge.mediaSource(QStringLiteral("$gif"), QStringLiteral("full"));
         client.succeed(client.fetches.last().opId, QByteArray(4096, 'y'));
@@ -1632,9 +1502,7 @@ private Q_SLOTS:
                  QString::fromLatin1(QCryptographicHash::hash(
                      QByteArray(4096, 'y'), QCryptographicHash::Sha256).toHex()));
 
-        // clear() (sign-out/account switch) drops every memo entry along
-        // with the cache itself — a post-clear re-fetch of the SAME key
-        // must compute again, not reuse a stale pre-clear memo entry.
+        // clear() drops the memo: a post-clear re-fetch computes again.
         bridge.clear();
         bridge.mediaSource(QStringLiteral("$gif"), QStringLiteral("full"));
         client.succeed(client.fetches.last().opId, QByteArray(4096, 'y'));
@@ -1643,14 +1511,9 @@ private Q_SLOTS:
                      .value(QStringLiteral("contentHashComputed")).toLongLong(),
                  qint64(3));
 
-        // review L-c: the clear() assertion above is NOT mutation-detecting
-        // on its own — "$gif" reached revision 2 before the clear and only
-        // revision 1 after it, so the revision guard would have caught a
-        // missing memo-clear anyway. This case isolates the memo clear
-        // properly: a key inserted EXACTLY ONCE (revision 1), cleared, then
-        // re-inserted with DIFFERENT bytes (revision 1 again, so the guard
-        // cannot help). Drop m_contentHashCache.clear() from clear() and
-        // this returns the stale 'p' digest for 'q' bytes.
+        // Isolate the memo clear: a key inserted once (revision 1), cleared,
+        // then re-inserted with different bytes (revision 1 again), so the
+        // revision guard cannot mask a missing memo clear.
         const QByteArray first(2048, 'p');
         const QByteArray second(2048, 'q');
         bridge.mediaSource(QStringLiteral("$once"), QStringLiteral("full"));
@@ -1668,9 +1531,8 @@ private Q_SLOTS:
                      second, QCryptographicHash::Sha256).toHex()));
     }
 
-    // v0.7 media round: request priority. The old single FIFO dispatched
-    // strictly in arrival order, so a pressed-play track waited behind a
-    // page of speculative full-GIF prefetches.
+    // Request priority: a pressed-play track jumps ahead of queued
+    // speculative prefetches.
     void playbackClassJumpsQueueAheadOfSpeculative()
     {
         FakeClient client;
@@ -1690,9 +1552,8 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.last().timeoutClass, 1);
     }
 
-    // Heavy classes (full static media, speculative prefetch) never occupy
-    // every slot: interactive chrome keeps reserved headroom, so eight
-    // multi-megabyte GIF prefetches cannot make the room's avatars wait.
+    // Heavy classes (full media, speculative prefetch) never take every slot,
+    // leaving headroom for interactive chrome such as avatars.
     void heavySlotsLeaveHeadroomForInteractive()
     {
         FakeClient client;
@@ -1712,9 +1573,9 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 8);
     }
 
-    // Bounded starvation: strict priority yields to the oldest entry once
-    // it has waited past the guard, so speculative work is delayed, never
-    // parked forever.
+    // Bounded starvation: once the oldest entry has waited past the guard it
+    // wins over higher priorities, so speculative work is never parked
+    // forever.
     void starvedSpeculativeEventuallyDispatches()
     {
         FakeClient client;
@@ -1728,27 +1589,25 @@ private Q_SLOTS:
         bridge.mediaSource(QStringLiteral("$late"), QStringLiteral("thumb"));
         QCOMPARE(bridge.queuedCountForTest(), 2);
         client.succeed(client.fetches.at(0).opId, QByteArray("img"));
-        // With the guard at 0 the OLDEST queued entry wins even though the
-        // newer thumbnail has the higher priority.
+        // With the guard at 0 the oldest queued entry wins over the newer,
+        // higher-priority thumbnail.
         QCOMPARE(client.fetches.last().key, QStringLiteral("$gif"));
     }
 
     // A live player's materialized file is never deleted under it: pinned
-    // entries are skipped by the LRU and become evictable again on unpin.
+    // entries are skipped by the LRU until unpinned.
     void pinnedPlayableSurvivesEviction()
     {
         FakeClient client;
         MediaBridge bridge;
         bridge.setClient(&client);
         bridge.setPlayableCapsForTest(2, 64 * 1024 * 1024);
-        // Above kLargeCacheSkipBytes so the payload lives ONLY as the
-        // materialized file — a small payload would silently re-materialize
-        // from the RAM cache and hide the eviction under test.
+        // Above kLargeCacheSkipBytes, so the payload exists only as the file;
+        // a small one would re-materialize from RAM and hide the eviction.
         const auto flac = [](char fill) {
             return QByteArray("fLaC") + QByteArray(9 * 1024 * 1024, fill);
         };
-        // The write is off-thread now, so every materialization below has
-        // to be awaited before the eviction it triggers can be asserted.
+        // Writes are off-thread, so await each materialization.
         QSignalSpy ready(&bridge, &MediaBridge::playableMediaReady);
         int materialized = 0;
 
@@ -1769,16 +1628,15 @@ private Q_SLOTS:
                        QStringLiteral("audio/flac"));
         QVERIFY(waitForPlayableCount(ready, ++materialized));
 
-        // Cap 2 with three files: the unpinned $b was the victim, the
-        // pinned $a survives on disk.
+        // Cap 2 with three files: unpinned $b was evicted, pinned $a survives.
         QVERIFY(QFileInfo::exists(QUrl(urlA).toLocalFile()));
         QVERIFY(!bridge.playableSource(QStringLiteral("$a")).isEmpty());
         const int fetchesBefore = client.fetches.size();
         QVERIFY(bridge.playableSource(QStringLiteral("$b")).isEmpty());
         QCOMPARE(client.fetches.size(), fetchesBefore + 1); // re-dispatch
 
-        // review L1: pins are REFCOUNTED — a second card pinning the same
-        // event keeps the file protected after the first card resets.
+        // Pins are refcounted: a second card's pin keeps the file after the
+        // first card releases.
         bridge.pinPlayable(QStringLiteral("$a"));   // second holder
         bridge.unpinPlayable(QStringLiteral("$a")); // first releases
         bridge.playableSource(QStringLiteral("$x1"));
@@ -1791,8 +1649,7 @@ private Q_SLOTS:
         QVERIFY(waitForPlayableCount(ready, ++materialized));
         QVERIFY(QFileInfo::exists(QUrl(urlA).toLocalFile()));
 
-        // Unpinned by the LAST holder, $a becomes an ordinary victim again
-        // — further inserts walk the LRU past it.
+        // Unpinned by its last holder, $a is an ordinary LRU victim again.
         bridge.unpinPlayable(QStringLiteral("$a"));
         bridge.playableSource(QStringLiteral("$d"));
         client.succeed(client.fetches.last().opId, flac('d'),
@@ -1805,11 +1662,10 @@ private Q_SLOTS:
         QVERIFY(!QFileInfo::exists(QUrl(urlA).toLocalFile()));
     }
 
-    // The observed live failure: a "thumb" result can arrive labelled with
-    // the parent video's MIME — and a homeserver that cannot thumbnail may
-    // even answer with the original A/V payload. The bytes decide: A/V
-    // containers never enter the image path; genuine image bytes pass
-    // regardless of the mislabeled MIME; full-media fetches are untouched.
+    // A "thumb" result may carry the video's MIME or even be the original A/V
+    // payload; the bytes decide. A/V containers never enter the image path,
+    // real image bytes pass despite a wrong MIME, and full fetches are
+    // untouched.
     void thumbPayloadSniffingRejectsAvContainers()
     {
         FakeClient client;
@@ -1846,22 +1702,9 @@ private Q_SLOTS:
         QCOMPARE(cached.count(), 2);
     }
 
-    // CLAUDE.md §6: SVG must not reach an inline preview/media path.
-    //
-    // THE HOLE THIS CLOSES: a sticker pack is ROOM STATE any member can
-    // write, and MSC2545 lets an entry omit `mimetype` — which stickers.rs
-    // allows on purpose so a pack from a future client stays visible. The
-    // declared type therefore cannot carry the rule, and the existing sniff
-    // refused A/V containers ONLY, so SVG bytes under an absent (or lying)
-    // mimetype reached the image decode path.
-    // THE SAME SNIFF, ON THE FULL-PAYLOAD CLASS. It used to run only for
-    // request kinds 1 and 2 (the thumbnail classes), so the entire `full:`
-    // class walked past it into the cache and then into QImageReader. Three
-    // live ways in: an image row takes the "full" branch whenever the SENDER
-    // omits info.thumbnail_url, the full-screen viewer always asks for
-    // "full", and profile/space banners are fetched as kind 0.
-    //
-    // On the unfixed bridge every one of these caches successfully.
+    // The full-payload class is sniffed for SVG exactly as thumbnails are:
+    // image rows without a sender thumbnail, the full-screen viewer and
+    // profile/space banners all fetch "full".
     void fullPayloadSniffingRejectsSvgTheSameWayAThumbnailDoes()
     {
         const QByteArray plainSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\"/>";
@@ -1880,7 +1723,7 @@ private Q_SLOTS:
 
             bridge.mediaSource(ev, QStringLiteral("full"));
             QCOMPARE(client.fetches.size(), 1);
-            // image/png is a LIE, exactly as a hostile sender would send it.
+            // The image/png label is a lie, as a hostile sender would send it.
             client.succeed(client.fetches.at(0).opId, payload,
                            QStringLiteral("image/png"));
             QCOMPARE(cached.count(), 0);
@@ -1890,18 +1733,14 @@ private Q_SLOTS:
         }
     }
 
-    // A sender-chosen attachment name may not act like a path, and the
-    // resolved parent must be the directory the dialog reported. The old code
-    // built `chosen.dir().filePath(sanitized(leaf))`, which absorbs any `../`
-    // into the DIRECTORY before the leaf is sanitized — so its comment
-    // claiming a hostile name "can never traverse out of it" was false.
+    // A sender-chosen attachment name cannot act as a path when suggested
+    // for saving.
     void aHostileAttachmentNameCannotEscapeTheChosenDirectory()
     {
         MediaBridge bridge;
-        // Separators of both spellings, traversal, control characters and a
-        // Windows device name are all neutralised. A SINGLE leading dot is
-        // kept: this same helper runs over the name the user typed into the
-        // save dialog, where `.hidden.png` is a deliberate choice.
+        // Separators, traversal, control characters and Windows device names
+        // are neutralised. A single leading dot is kept: the helper also
+        // sanitises what the user typed, where `.hidden.png` is deliberate.
         QCOMPARE(bridge.suggestedSaveName(QStringLiteral("../../.bashrc")),
                  QStringLiteral(".bashrc"));
         QCOMPARE(bridge.suggestedSaveName(QStringLiteral("..\\..\\evil.exe")),
@@ -1914,13 +1753,11 @@ private Q_SLOTS:
                      .contains(QLatin1Char('/')));
         QCOMPARE(bridge.suggestedSaveName(QStringLiteral("ok.png")),
                  QStringLiteral("ok.png"));
-        // Nothing to suggest is an EMPTY answer, so the caller can let the
-        // dialog choose rather than seeding it with a placeholder.
+        // Nothing to suggest is an empty answer, so the dialog chooses.
         QVERIFY(bridge.suggestedSaveName(QString()).isEmpty());
         QVERIFY(bridge.suggestedSaveName(QStringLiteral("   ")).isEmpty());
         QVERIFY(bridge.suggestedSaveName(QStringLiteral("..")).isEmpty());
-        // Bounded: a component cap exists on real filesystems, and the
-        // suffix survives the cut so a truncated name is still a .png.
+        // Bounded length, keeping the suffix.
         const QString longName =
             bridge.suggestedSaveName(QString(400, QLatin1Char('x'))
                                      + QStringLiteral(".png"));
@@ -1928,11 +1765,8 @@ private Q_SLOTS:
         QVERIFY(longName.endsWith(QStringLiteral(".png")));
     }
 
-    // The C++ half must stand on its own even if a caller forgets to seed the
-    // dialog with suggestedSaveName: writeSaveFile resolves the PARENT
-    // directory first and reattaches a sanitized leaf to THAT. The old code
-    // built chosen.dir().filePath(...), which absorbs any `../` into the
-    // directory BEFORE the leaf is sanitized.
+    // writeSaveFile resolves the parent directory first and attaches a
+    // sanitised leaf to it, so a `../` in the leaf cannot escape.
     void savingWithATraversingLeafStaysInTheReportedDirectory()
     {
         QTemporaryDir dir;
@@ -1954,12 +1788,13 @@ private Q_SLOTS:
                        QStringLiteral("text/plain"));
         QVERIFY(saved.wait(3000) || saved.count() > 0);
 
-        // Whatever was written, it is inside the directory the URL resolved
-        // to and is never a file the leaf invented above it.
+        // The file is inside the resolved directory, never above it.
         QVERIFY2(!QFileInfo::exists(outside + QStringLiteral(".escaped")),
                  "the leaf escaped the resolved directory");
     }
 
+    // Thumbnail payloads that are SVG markup or gzip (SVGZ) are refused by
+    // their bytes, whatever the declared type.
     void thumbPayloadSniffingRejectsSvgAndItsCompressedSpelling()
     {
         const QByteArray plainSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\"/>";
@@ -1982,7 +1817,7 @@ private Q_SLOTS:
             const QString ev = QStringLiteral("$svg%1").arg(n++);
 
             bridge.mediaSource(ev, QStringLiteral("thumb"));
-            // image/png is a LIE, which is the point: the bytes decide.
+            // The image/png label is a lie: the bytes decide.
             client.succeed(client.fetches.at(0).opId, payload,
                            QStringLiteral("image/png"));
             QCOMPARE(cached.count(), 0);
@@ -1991,8 +1826,8 @@ private Q_SLOTS:
             QVERIFY(bridge.cachedBytes(QStringLiteral("thumb:") + ev).isEmpty());
         }
 
-        // A real raster still passes, or the guard is just an outage. PNG
-        // magic is binary and cannot collide with the markup test.
+        // A real raster still passes (PNG magic cannot collide with the
+        // markup test).
         FakeClient client;
         MediaBridge bridge;
         bridge.setClient(&client);
@@ -2004,8 +1839,8 @@ private Q_SLOTS:
         QCOMPARE(cached.count(), 1);
     }
 
-    // Room switch drops QUEUED speculative prefetches (their delegates are
-    // gone); queued interactive work and in-flight ops are untouched.
+    // A room switch drops queued speculative prefetches; queued interactive
+    // work and in-flight ops are untouched.
     void droppedSpeculativeQueueEntriesNeverDispatch()
     {
         FakeClient client;
@@ -2025,11 +1860,8 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 9); // 8 + $keep; the GIF never ran
     }
 
-    // ── v0.7 perf round: cancellation + bounded playable prefetch ──
-
-    // Cancelling an in-flight playable fetch aborts the backend op, frees
-    // the slot, and leaves NO failure mark — a fresh Play must re-dispatch
-    // immediately.
+    // Cancelling an in-flight playable fetch aborts the backend op, frees the
+    // slot and leaves no failure mark, so a fresh Play re-dispatches.
     void cancelPlayableAbortsBackendAndFreesSlot()
     {
         FakeClient client;
@@ -2048,8 +1880,8 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.last().timeoutClass, 1);
     }
 
-    // A late completion for a cancelled op is stale — it must not populate
-    // the cache or emit playableMediaReady.
+    // A late completion for a cancelled op is stale: no cache entry, no
+    // playableMediaReady.
     void lateCompletionAfterCancelIsDropped()
     {
         FakeClient client;
@@ -2061,16 +1893,15 @@ private Q_SLOTS:
         bridge.cancelPlayable(QStringLiteral("$video"));
         client.succeed(opId, QByteArray("GIF89a-not-really"),
                        QStringLiteral("video/mp4"));
-        // The op is stale, so no write is ever started — and no late
-        // worker completion can arrive to contradict that.
+        // Stale, so no write starts and no worker completion can arrive.
         QCOMPARE(bridge.pendingPlayableWritesForTest(), 0);
         QTest::qWait(50);
         QCOMPARE(ready.count(), 0);
         QVERIFY(bridge.cachedSource(QStringLiteral("full:$video")).isEmpty());
     }
 
-    // Another interest class on the same bytes keeps the fetch alive: a
-    // GIF row wants the payload too, so cancel must not abort the op.
+    // Another interest in the same bytes (a GIF row) keeps the fetch alive
+    // through a playable cancel.
     void cancelKeepsFetchAliveForOtherConsumers()
     {
         FakeClient client;
@@ -2084,8 +1915,8 @@ private Q_SLOTS:
         QCOMPARE(bridge.inflightCountForTest(), 1);
     }
 
-    // Prefetch is bounded: declared in-cap sizes dispatch speculatively at
-    // the playable timeout class; unknown or over-cap sizes never dispatch.
+    // Playable prefetch is bounded: declared in-cap sizes dispatch at the
+    // playable timeout class; unknown or over-cap sizes never dispatch.
     void prefetchPlayableHonorsSizeCap()
     {
         FakeClient client;
@@ -2098,8 +1929,7 @@ private Q_SLOTS:
         bridge.prefetchPlayable(QStringLiteral("$small"), 4 * 1024 * 1024);
         QCOMPARE(client.fetches.size(), 1);
         QCOMPARE(client.fetches.first().timeoutClass, 1);
-        // A prefetched payload materializes and signals playableMediaReady
-        // so a waiting card can start instantly.
+        // A prefetched payload materializes and signals playableMediaReady.
         QSignalSpy ready(&bridge, &MediaBridge::playableMediaReady);
         QByteArray mp4(1024, 'x');
         mp4.replace(4, 4, "ftyp");
@@ -2111,8 +1941,8 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 1);
     }
 
-    // Queued prefetches are speculative: a room switch drops them exactly
-    // like GIF autoplay prefetches.
+    // Queued playable prefetches are dropped on room switch like other
+    // speculative work.
     void queuedPrefetchDroppedOnRoomSwitch()
     {
         FakeClient client;
@@ -2127,9 +1957,8 @@ private Q_SLOTS:
         QCOMPARE(bridge.queuedCountForTest(), 0);
     }
 
-    // review M1: playable interest is refcounted — two cards on the same
-    // media (main timeline + thread panel) share one fetch, and the first
-    // card's cancel must not strand the second.
+    // Playable interest is refcounted: two cards share one fetch, and the
+    // first card's cancel does not strand the second.
     void cancelWithTwoPlayableConsumersKeepsFetch()
     {
         FakeClient client;
@@ -2146,15 +1975,15 @@ private Q_SLOTS:
         QCOMPARE(bridge.inflightCountForTest(), 0);
     }
 
-    // review H1: a poster hook left behind by an over-cap video (whose
-    // prefetch declined) must not veto a later user cancel.
+    // A poster hook left by an over-cap video (prefetch declined) does not veto
+    // a later cancel.
     void posterHookForOverCapVideoDoesNotBlockCancel()
     {
         FakeClient client;
         MediaBridge bridge;
         bridge.setClient(&client);
-        // No Matrix thumbnail, 500 MB declared: the poster path declines
-        // the prefetch and must not leak its hook.
+        // No thumbnail, 500 MB declared: the poster path declines the prefetch
+        // and must not leak its hook.
         bridge.videoPosterSource(QStringLiteral("$huge"),
                                  500.0 * 1024 * 1024);
         QCOMPARE(client.fetches.size(), 0);
@@ -2167,21 +1996,9 @@ private Q_SLOTS:
         QCOMPARE(bridge.inflightCountForTest(), 0);
     }
 
-    // AN INTEREST SET RECORDS AN OUTSTANDING FETCH, AND A CACHE HIT HAS
-    // NONE.
-    //
-    // animatedSource() used to insert into m_animatedWanted (and
-    // m_animatedDemanded) BEFORE the failure-mark and RAM-cache checks, and
-    // the cached branch returns the file it just wrote without draining
-    // either. Only onMediaReady drains them, and for a cache hit no
-    // completion is ever coming — so the key stayed "wanted" for the life of
-    // the session. cancelPlayable() reads exactly that set to decide whether
-    // another consumer still needs the bytes, so from then on every cancel
-    // for that key returned at its first branch: no queue purge, no backend
-    // abort, no writer cancel. The transfer the user just dismissed keeps
-    // running, which is the whole thing the cancel exists to stop.
-    //
-    // FAIL-ON-OLD: on the unfixed tree cancels is empty and inflight is 1.
+    // An interest set records an outstanding fetch, and a cache hit has none.
+    // A cached animatedSource() answer must not leave the key "wanted", or
+    // every later cancelPlayable() for it would be vetoed.
     void aCachedAnimationLeavesNoInterestBehindToVetoACancel()
     {
         FakeClient client;
@@ -2189,21 +2006,20 @@ private Q_SLOTS:
         bridge.setClient(&client);
         QByteArray gif("GIF89a");
         gif.append(QByteArray(64, '\0'));
-        // The still image path fetched these bytes first, which is how the
-        // GIF row below finds them in RAM with no animated file on disk.
+        // The still image path fetched these bytes, so the animation is served
+        // from RAM with no fetch.
         bridge.mediaSource(QStringLiteral("$gif"), QStringLiteral("full"));
         client.succeed(client.fetches.first().opId, gif,
                        QStringLiteral("image/gif"));
         QCOMPARE(client.fetches.size(), 1);
 
-        // Served straight from the cache: no fetch, so no interest either.
+        // Served from the cache: no fetch, so no interest.
         QVERIFY(bridge.animatedSource(QStringLiteral("$gif"))
                     .startsWith(QStringLiteral("file://")));
         QCOMPARE(client.fetches.size(), 1);
 
-        // The user presses Play on the same media (a GIF is not a playable
-        // container, so the cached bytes cannot satisfy it and a real
-        // transfer starts) and then closes the card.
+        // Play on the same media (a GIF is not playable, so a real transfer
+        // starts), then close the card.
         bridge.playableSource(QStringLiteral("$gif"));
         QCOMPARE(bridge.inflightCountForTest(), 1);
         const quint64 opId = client.fetches.last().opId;
@@ -2212,13 +2028,8 @@ private Q_SLOTS:
         QCOMPARE(bridge.inflightCountForTest(), 0);
     }
 
-    // The other half of the same branch: a DEMANDING caller whose cached
-    // bytes turn out not to be an animation renders nothing else, so it is
-    // owed the terminal answer onMediaReady would have given it. The cached
-    // branch returned a null string and emitted nothing at all, leaving the
-    // card waiting on a fetch that was never going to run.
-    //
-    // FAIL-ON-OLD: on the unfixed tree failed.count() is 0.
+    // A demanding caller whose cached bytes are not an animation gets the
+    // terminal answer instead of waiting on a fetch that never runs.
     void aCachedPayloadThatIsNotAnAnimationAnswersTheDemandingCaller()
     {
         FakeClient client;
@@ -2239,12 +2050,10 @@ private Q_SLOTS:
                  QStringLiteral("full:$png"));
         QCOMPARE(failed.first().at(1).toString(),
                  QStringLiteral("invalid_gif"));
-        // No failure mark: the bytes are fine, they are simply not an
-        // animation, and the still Image is drawing them.
+        // No failure mark: the bytes are fine, just not animated.
         QVERIFY(bridge.failureCategory(QStringLiteral("full:$png")).isEmpty());
 
-        // A SPECULATIVE asker on the same branch still gets silence — the
-        // sticker's still frame must not be replaced by a retry card.
+        // A speculative asker on the same branch still gets silence.
         bridge.mediaSource(QStringLiteral("$sticker"), QStringLiteral("full"));
         client.succeed(client.fetches.last().opId, png, QString());
         QCOMPARE(bridge.animatedSource(QStringLiteral("$sticker"),
@@ -2253,8 +2062,8 @@ private Q_SLOTS:
         QCOMPARE(failed.count(), 1);
     }
 
-    // review M3: a terminal failure voids every interest class for the key
-    // — a later cancel finds nothing to veto it, and the sets stay bounded.
+    // A terminal failure voids every interest class for the key, so a later
+    // cancel is not vetoed and the sets stay bounded.
     void terminalFailureClearsInterestSets()
     {
         FakeClient client;
@@ -2263,8 +2072,8 @@ private Q_SLOTS:
         bridge.prefetchPlayable(QStringLiteral("$flaky"), 1024 * 1024);
         QCOMPARE(client.fetches.size(), 1);
         client.fail(client.fetches.first().opId, QStringLiteral("network"));
-        // A pressed-play fetch for the same key after the transient mark
-        // clears must dispatch and be cancellable.
+        // After the transient mark clears, a pressed-play fetch dispatches and
+        // is cancellable.
         bridge.retry(QStringLiteral("full:$flaky"));
         bridge.playableSource(QStringLiteral("$flaky"));
         QCOMPARE(client.fetches.size(), 2);
@@ -2273,13 +2082,9 @@ private Q_SLOTS:
         QCOMPARE(bridge.inflightCountForTest(), 0);
     }
 
-    // review-recheck LOW, reworked 2026-08-20: a playableSource call served
-    // from the RAM cache no longer materializes inline — it starts a write
-    // on the worker thread and answers "". Its interest count therefore has
-    // to SURVIVE the call (it is what a cancel aborts) and be retired by
-    // the completion. A count still standing afterwards would silently veto
-    // a later cancel of a REAL fetch for the same key, which is the
-    // original defect this case exists for.
+    // A playableSource() served from the RAM cache starts a worker write and
+    // answers ""; its interest survives the call and is retired by the
+    // completion, so it cannot veto a later cancel of a real fetch.
     void ramCacheHitRetiresItsInterestWhenTheWriteLands()
     {
         FakeClient client;
@@ -2299,26 +2104,25 @@ private Q_SLOTS:
         client.succeed(client.fetches.at(1).opId, mp4,
                        QStringLiteral("video/mp4"));
         QVERIFY(waitForPlayableCount(ready, 2));
-        // ...then re-ask $track, whose BYTES are still in RAM. The answer
-        // is "" and a worker write is under way — no second fetch.
+        // Re-ask $track, whose bytes are still in RAM: "" and a worker write,
+        // no second fetch.
         QVERIFY(bridge.playableSource(QStringLiteral("$track")).isEmpty());
         QCOMPARE(bridge.pendingPlayableWritesForTest(), 1);
         QCOMPARE(client.fetches.size(), 2);
         QVERIFY(waitForPlayableCount(ready, 3));
         QCOMPARE(bridge.pendingPlayableWritesForTest(), 0);
         QVERIFY(!bridge.playableSource(QStringLiteral("$track")).isEmpty());
-        // Drop the RAM copies (limit forces eviction on the next insert)…
+        // Drop the RAM copies (the limit forces eviction on the next insert)...
         bridge.setCacheLimitBytes(1);
         bridge.mediaSource(QStringLiteral("$bump"), QStringLiteral("full"));
         client.succeed(client.fetches.at(2).opId, QByteArray("img"));
-        // …and $track's file again (via $other, itself now a real fetch).
+        // ...and $track's file again (via $other, now a real fetch).
         bridge.playableSource(QStringLiteral("$other"));
         client.succeed(client.fetches.at(3).opId, mp4,
                        QStringLiteral("video/mp4"));
         QVERIFY(waitForPlayableCount(ready, 4));
-        // A REAL fetch for $track now carries exactly one press-play
-        // interest; a count retained from the cache hit above would make
-        // this cancel a silent no-op.
+        // A real fetch for $track carries exactly one press-play interest; a
+        // count left over from the cache hit would make this cancel a no-op.
         bridge.playableSource(QStringLiteral("$track"));
         QCOMPARE(bridge.inflightCountForTest(), 1);
         bridge.cancelPlayable(QStringLiteral("$track"));
@@ -2326,8 +2130,8 @@ private Q_SLOTS:
         QCOMPARE(bridge.inflightCountForTest(), 0);
     }
 
-    // cancelPlayable with no playable interest registered is a no-op (an
-    // unrelated ordinary fetch for the same key must survive).
+    // cancelPlayable with no playable interest is a no-op, so an unrelated
+    // ordinary fetch for the key survives.
     void cancelWithoutPlayableInterestIsNoop()
     {
         FakeClient client;
@@ -2340,20 +2144,13 @@ private Q_SLOTS:
         QCOMPARE(client.cancels.size(), 0);
     }
 
-    // v0.7.2 PERF — this is why scrolling up through a media-heavy room
-    // spiked. QML's documented idiom for "scale to this width and keep the
-    // aspect" is to set sourceSize.width and leave the height 0, which is
-    // exactly what every timeline image asks for. But QSize::isEmpty() is
-    // true when EITHER axis is below 1, so the provider's
-    // `isValid() && !isEmpty()` guard rejected that request as "no size
-    // asked for" and decoded at the source's FULL resolution — a 2400x1600
-    // screenshot became 15 MB of pixels for a 348px-wide box, dozens of
-    // times per gesture.
+    // A width-only sourceSize (QML's "scale to this width" idiom) bounds the
+    // decode. QSize::isEmpty() is true when either axis is 0, so an
+    // `isValid() && !isEmpty()` guard decoded at full resolution.
     void aWidthOnlySourceSizeBoundsTheDecode()
     {
         FakeClient client;
-        // NOT MediaBridge(&client): that ctor parameter is the QObject
-        // PARENT, so it compiles and silently leaves the client unset.
+        // Not MediaBridge(&client): that argument is the QObject parent.
         MediaBridge bridge;
         bridge.setClient(&client);
         MediaImageProvider provider(&bridge);
@@ -2382,13 +2179,11 @@ private Q_SLOTS:
         QCOMPARE(bounded.height(), 427);
     }
 
-    // Asking for nothing still decodes naturally — the save path and the
-    // full-size viewer depend on that.
+    // Asking for no size decodes naturally (save path, full-size viewer).
     void noSourceSizeDecodesNaturally()
     {
         FakeClient client;
-        // NOT MediaBridge(&client): that ctor parameter is the QObject
-        // PARENT, so it compiles and silently leaves the client unset.
+        // Not MediaBridge(&client): that argument is the QObject parent.
         MediaBridge bridge;
         bridge.setClient(&client);
         MediaImageProvider provider(&bridge);
@@ -2411,8 +2206,8 @@ private Q_SLOTS:
         QSize reported;
         QCOMPARE(provider.requestImage(id, &reported, QSize()).size(),
                  QSize(1200, 900));
-        // And a request LARGER than the source must not inflate it: a small
-        // image in a big box is scaled by the scene graph, not in memory.
+        // A request larger than the source does not upscale; the scene graph
+        // scales small images.
         QCOMPARE(provider.requestImage(id, &reported, QSize(4000, 0)).size(),
                  QSize(1200, 900));
         // A height-only request is the same idiom on the other axis.
@@ -2420,11 +2215,9 @@ private Q_SLOTS:
                  QSize(400, 300));
     }
 
-    // The never-upscale rule must NOT apply when a shape is baked into the
-    // bitmap. An avatar mask is rasterized once, at whatever size it is baked
-    // at, so refusing the upscale would bake a circle at the source's size
-    // and its edge would visibly alias when shown larger. Plain images are
-    // the opposite case (above) — this asymmetry is deliberate.
+    // A baked shape (avatar mask) still honours an upscale: the mask is
+    // rasterized at the baked size, so baking at the source size would alias
+    // when shown larger. Deliberately unlike plain images.
     void aBakedShapeStillHonoursAnUpscale()
     {
         FakeClient client;

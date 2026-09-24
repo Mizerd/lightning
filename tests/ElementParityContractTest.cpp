@@ -1,8 +1,7 @@
-// 2026-08-19 Element-parity round — contract pins for the three surfaces:
-// the unified Space Home "Rooms and spaces" list (Joined badges +
-// selection UI), the rail's inline space expansion, and the reader-list
-// popover's Element look (per-reader timestamps). Whitespace-normalized
-// scans (the VerificationCardContractTest convention).
+// Contract pins for the Space Home lobby (badges and selection UI), the
+// rail's inline space expansion, and the reader-list popover (per-reader
+// timestamps). Whitespace-normalized scans, as in
+// VerificationCardContractTest.
 #include <QFile>
 #include <QRegularExpression>
 #include <QtTest>
@@ -29,9 +28,8 @@ private:
 private Q_SLOTS:
     void unifiedListShowsMembershipAndSelection()
     {
-        // 2026-09-23: the list moved into SpaceLobby.qml and became Sable's
-        // sectioned lobby (SpaceManager::lobbySections). What the flat list
-        // could do, the lobby still does — pinned here against the new home.
+        // The list lives in SpaceLobby.qml as a sectioned lobby
+        // (SpaceManager::lobbySections); it keeps everything the flat list did.
         const QString lobby = normalized(
             read(QStringLiteral(QML_DIR "/SpaceLobby.qml")));
         const QString pane = normalized(
@@ -44,15 +42,13 @@ private Q_SLOTS:
         const int row = lobby.indexOf(
             QStringLiteral("objectName: \"spaceUnifiedChildRow\""));
         QVERIFY(row >= 0);
-        // Suggested is still a badge on the row. "Joined" is NOT any more:
-        // beside every room it read as the user's ROLE (Portuguese renders it
-        // "Membro"), and the row's own action — Join, or the open arrow —
-        // already says which it is. The accessible name carries it instead.
+        // Suggested is a badge on the row. "Joined" is not: it read as the
+        // user's role, and the row's action (Join or the open arrow) already
+        // says it. The accessible name carries it instead.
         QVERIFY(lobby.indexOf(QStringLiteral("SuggestedChip {"), row) > row);
         QVERIFY(!lobby.contains(QStringLiteral("\"Joined\")")));
         QVERIFY(lobby.contains(QStringLiteral("qsTr(\"%1, not joined\")")));
-        // Selection UI gated on the REAL m.space.child capability, never
-        // offered optimistically.
+        // Selection UI is gated on the real m.space.child capability.
         QVERIFY(lobby.contains(
             QStringLiteral("objectName: \"spaceChildSelectBox\"")));
         QVERIFY(pane.contains(
@@ -65,12 +61,12 @@ private Q_SLOTS:
             QStringLiteral("objectName: \"spaceChildSuggestToggleButton\"")));
         QVERIFY(pane.contains(
             QStringLiteral("app.spaces.setSpaceChildSuggested(")));
-        // Search over names and descriptions, and the grouping, ordering and
-        // dedup live in C++ (SpaceChildSuggestTest proves them).
+        // Search, grouping, ordering and dedup live in C++
+        // (SpaceChildSuggestTest).
         QVERIFY(lobby.contains(
             QStringLiteral("objectName: \"spaceChildFilterField\"")));
         QVERIFY(pane.contains(QStringLiteral("app.spaces.lobbySections(")));
-        // A topic is server text: plain, always.
+        // A topic is server text: always plain.
         const int topic = lobby.indexOf(
             QStringLiteral("objectName: \"spaceLobbyRowTopic\""));
         QVERIFY(topic > 0);
@@ -78,13 +74,8 @@ private Q_SLOTS:
             QStringLiteral("textFormat: Text.PlainText")));
     }
 
-    // The banner's view controls must drive something that EXISTS.
-    //
-    // They shipped once toggling a setting nothing read: the crop/expand
-    // property was lost from an edit that aborted before writing, so the
-    // banner stayed full-size and the button did nothing — which is exactly
-    // how it was reported. Nothing in a build or a test suite noticed,
-    // because a QML binding to a missing property is a runtime warning in a
+    // The banner's view controls must drive settings the banner actually
+    // reads; a binding to a missing property is only a runtime warning in a
     // view no headless suite opens.
     void theBannerViewControlsDriveSomethingThatExists()
     {
@@ -97,12 +88,11 @@ private Q_SLOTS:
             QStringLiteral("objectName: \"spaceBannerExpandButton\"")));
         QVERIFY(pane.contains(
             QStringLiteral("objectName: \"spaceBannerHideButton\"")));
-        // ...hiding has a way back, or it is a trap...
+        // ...hiding has a way back...
         QVERIFY(pane.contains(
             QStringLiteral("objectName: \"spaceBannerShowButton\"")));
 
-        // ...and each one's setting is actually READ by the banner, not
-        // merely written by the button.
+        // ...and each setting is read by the banner, not only written.
         QVERIFY2(pane.contains(
                      QStringLiteral("readonly property bool expanded: "
                                     "app.settings.spaceBannerExpanded")),
@@ -111,12 +101,9 @@ private Q_SLOTS:
                      "visible: app.settings.spaceBannersVisible")),
                  "the banner does not read spaceBannersVisible");
 
-        // The control cluster's visibility must come from the CONDITIONS,
-        // never from summing its children's `visible`. QQuickItem::visible is
-        // EFFECTIVE visibility, so a parent hidden at startup makes every
-        // child report false however its own binding evaluates, the sum stays
-        // zero, and nothing ever notifies it back on. That shipped once and
-        // took every banner control with it.
+        // The control cluster's visibility comes from the conditions, never
+        // from summing children's `visible`: that is effective visibility, so
+        // a parent hidden at startup would keep the sum at zero forever.
         QVERIFY2(!pane.contains(QStringLiteral("visibleCount")),
                  "the banner controls sum their children's visible again");
         QVERIFY2(pane.contains(QStringLiteral(
@@ -124,8 +111,8 @@ private Q_SLOTS:
                      "|| spaceBannerCard.canEdit")),
                  "the banner control cluster does not gate on its conditions");
 
-        // Cropped is the DEFAULT presentation: the fixed strip is the
-        // else-branch, and expanding is what takes the picture's own shape.
+        // Cropped is the default: the fixed strip is the else-branch, and
+        // expanding takes the picture's own shape.
         QVERIFY2(pane.contains(QStringLiteral(
                      "height: Math.round(expanded && bannerAspect > 0")),
                  "the banner height does not branch on expanded");
@@ -137,9 +124,8 @@ private Q_SLOTS:
 
     void unifiedRowGuardsItsCheckboxBand()
     {
-        // TapHandlers are non-exclusive across subtrees: a select tap
-        // must not ALSO open the row (the same class as the emoji-picker
-        // and facepile fixes).
+        // TapHandlers are non-exclusive across subtrees: a select tap must not
+        // also open the row.
         const QString lobby = normalized(
             read(QStringLiteral(QML_DIR "/SpaceLobby.qml")));
         const int row = lobby.indexOf(
@@ -147,10 +133,10 @@ private Q_SLOTS:
         QVERIFY(row >= 0);
         const QString scope = lobby.mid(row, 2500);
         QVERIFY(scope.contains(QStringLiteral("row.mapToItem(selectBox,")));
-        // And the box itself takes the exclusive grab.
+        // The box itself takes the exclusive grab.
         QVERIFY(lobby.contains(
             QStringLiteral("gesturePolicy: TapHandler.WithinBounds")));
-        // Same rule on the section header: its menu and box are excluded.
+        // Same on the section header: its menu and box are excluded.
         QVERIFY(lobby.contains(
             QStringLiteral("var bands = [sectionMenuButton, sectionSelectBox]")));
         // ChannelRowGeometryQmlTest::lobbyTapsReachTheRightTarget clicks it.
@@ -165,23 +151,20 @@ private Q_SLOTS:
             QStringLiteral("objectName: \"railSpaceExpandChevron\"")));
         QVERIFY(rail.contains(
             QStringLiteral("objectName: \"railSpaceMoreButton\"")));
-        // The expander became the HIERARCHY expander in 2026-08-25: it reveals
-        // the Space's joined subspaces (as real rows, inserted by the model)
-        // as well as its top rooms, and the flag it toggles is PERSISTED in
-        // RailLayoutStore, as Element persists its own Space-panel expansion.
+        // The expander reveals the Space's joined subspaces (real model rows)
+        // and top rooms, and its state persists in RailLayoutStore, as Element
+        // persists Space-panel expansion.
         QVERIFY(rail.contains(QStringLiteral(
             "app.railLayout.toggleSpaceExpanded( spaceItem.spaceId)")));
         QVERIFY(rail.contains(QStringLiteral("showMoreRooms(")));
-        // Opening a room from the expansion activates its space first —
-        // the room-list column filters by activeSpaceId, and openRoom
-        // itself never touches it.
+        // Opening a room from the expansion activates its space first: the
+        // room list filters by activeSpaceId and openRoom never sets it.
         const int open = rail.indexOf(
             QStringLiteral("app.spaces.activeSpaceId = spaceItem.spaceId"));
         QVERIFY(open >= 0);
         QVERIFY(rail.indexOf(QStringLiteral("app.openRoom("), open) > open);
-        // The reveal COUNT ("+5 more") stays session state on the rail root,
-        // not on the delegate, so ListView recycling and model resets never
-        // forget it; it is cleared on an account switch.
+        // The reveal count ("+5 more") is session state on the rail root, so
+        // ListView recycling and resets keep it; an account switch clears it.
         QVERIFY(rail.contains(QStringLiteral("property var railReveal")));
         QVERIFY(rail.contains(
             QStringLiteral("root.railReveal = ({})")));
@@ -189,13 +172,10 @@ private Q_SLOTS:
 
     void railTileHandlersAreScopedToTheTileBand()
     {
-        // The tile's tap must not fire for taps in the expansion rows
-        // below the tile, NOR for taps on the chevron badge —
-        // TapHandlers are non-exclusive across subtrees, and without the
-        // chevron exclusion a chevron click would also navigate. There
-        // is deliberately NO double-tap (2026-08-19 maintainer request:
-        // the arrow is the one expansion trigger; a single tap on a real
-        // space opens its overview, replacing the chat view).
+        // The tile's tap must not fire for taps in the expansion rows or on
+        // the chevron badge (TapHandlers are non-exclusive). No double-tap: the
+        // arrow is the one expansion trigger, and a tap on a real space opens
+        // its overview.
         const QString rail = normalized(
             read(QStringLiteral(QML_DIR "/SpacesRail.qml")));
         QVERIFY(rail.contains(QStringLiteral(
@@ -208,27 +188,24 @@ private Q_SLOTS:
         // A real space's tap opens the overview; pseudo tiles only filter.
         QVERIFY(rail.contains(QStringLiteral(
             "if (spaceItem.isRealSpace) app.openSpaceHome(spaceItem.spaceId)")));
-        // And no tile handler fires while a drag is live: a release is a drop,
-        // never also a navigation.
+        // No tile handler fires during a drag: a release is a drop only.
         QVERIFY(rail.contains(QStringLiteral("enabled: !root.dragging")));
     }
 
-    // 2026-08-19: the jump-to-live history trim is Element's
-    // jumpToLiveTimeline() policy — rebuild at the live edge instead of
-    // scrolling a huge backlog. It is an EXPLICIT user action and must be
-    // reachable from exactly one place: the far branch of goToLatest().
-    // Wiring it to scrolling or pagination would reset a reader's timeline
-    // out from under them, so this pins the single call site.
+    // The history trim (Element's jumpToLiveTimeline() policy: rebuild at the
+    // live edge rather than scroll a huge backlog) is an explicit action
+    // reachable only from goToLatest()'s far branch; wiring it to scrolling
+    // or pagination would reset the reader's timeline.
     void historyTrimFiresOnlyFromTheFarJumpToLatest()
     {
         const QString pane = normalized(
             read(QStringLiteral(QML_DIR "/TimelinePane.qml")));
         QVERIFY(!pane.isEmpty());
-        // Exactly ONE call site in the whole pane.
+        // Exactly one call site in the pane.
         QCOMPARE(pane.count(QStringLiteral("app.trimHistoryAndJumpToLive()")),
                  1);
-        // ...and it sits inside goToLatest(), AFTER the near-glide branch
-        // returns — i.e. it is the far case only.
+        // ...inside goToLatest(), after the near-glide branch returns: the far
+        // case only.
         const int jump = pane.indexOf(QStringLiteral("function goToLatest()"));
         QVERIFY(jump >= 0);
         const int call =
@@ -247,11 +224,9 @@ private Q_SLOTS:
         QVERIFY(wheel > call);
     }
 
-    // 2026-08-19: speculative media (full-payload prefetch, and the poster
-    // extraction that materializes one) must gate on the view having
-    // SETTLED, not merely on a row being on screen — a live capture showed
-    // ~120 MB pulled by one 15-second gesture because every row that swept
-    // past armed a prefetch. Thumbnails stay ungated on purpose.
+    // Speculative media (full-payload prefetch and poster extraction) waits
+    // for the view to settle, not merely for a row to be on screen, or a fast
+    // gesture pulls every payload it sweeps past. Thumbnails stay ungated.
     void speculativeMediaGatesOnSettleNotMerelyOnScreen()
     {
         const QString pane = normalized(
@@ -262,8 +237,7 @@ private Q_SLOTS:
             read(QStringLiteral(QML_DIR "/AudioPlayerCard.qml")));
         QVERIFY(!pane.isEmpty() && !delegate.isEmpty() && !audio.isEmpty());
 
-        // The pane owns the one definition, derived from the existing
-        // scroll-session state rather than a second notion of "busy".
+        // The pane owns one definition, derived from the scroll-session state.
         QVERIFY(pane.contains(QStringLiteral(
             "readonly property bool speculativeMediaAllowed: !userScrollActive")));
         // Both speculative call sites in the delegate consult it...
@@ -271,10 +245,10 @@ private Q_SLOTS:
             "} else if (root.speculativeMediaAllowed) {")));
         QVERIFY(delegate.contains(QStringLiteral(
             "if (root.speculativeMediaAllowed && playbackAvailable")));
-        // ...and neither gates the PAYLOAD on bare on-screen-ness any more.
+        // ...and neither gates the payload on on-screen alone.
         QVERIFY(!delegate.contains(QStringLiteral(
             "if (root.rowOnScreen && playbackAvailable")));
-        // The thumbnail branch is deliberately still ungated.
+        // The thumbnail branch is deliberately ungated.
         QVERIFY(delegate.contains(QStringLiteral(
             "if (model.mediaThumbAvailable === true) {")));
         // The audio card's prefetch is gated the same way, and retries.
@@ -286,10 +260,9 @@ private Q_SLOTS:
             "prefetchAllowed: root.speculativeMediaAllowed")));
     }
 
-    // 2026-08-19: with a row window active, a jump must restore the LIVE
-    // EDGE before addressing a row by id. releaseAll() only lifts the pacing
-    // cap — it leaves the window's skip — so a jump to a recent message
-    // would resolve to "no such row" and silently do nothing.
+    // With a row window active, a jump restores the live edge before
+    // addressing a row by id: releaseAll() only lifts the pacing cap and
+    // keeps the window's skip, so the target would not resolve.
     void jumpPathsRestoreTheLiveEdgeNotJustThePacedBacklog()
     {
         const QString pane = normalized(
@@ -301,12 +274,10 @@ private Q_SLOTS:
         const QString scope = pane.mid(fn, 600);
         QVERIFY(scope.contains(
             QStringLiteral("app.timelineView.clearWindow()")));
-        // The window must never claim "at bottom" while it hides the newest
-        // message, or follow-latest latches onto a false latest.
+        // The window never claims "at bottom" while hiding the newest message.
         QVERIFY(pane.contains(
             QStringLiteral("if (rowWindowSkip > 0) return false")));
-        // And the row mapping must account for the skip, or every
-        // id-addressed navigation silently resolves to nothing.
+        // The row mapping accounts for the skip.
         QVERIFY(pane.contains(QStringLiteral(
             "app.timeline.count - 1 - rowWindowSkip - row")));
     }
@@ -321,12 +292,12 @@ private Q_SLOTS:
         const QString scope = pane.mid(pop, 7000);
         QVERIFY(scope.contains(QStringLiteral("Seen by 1 person")));
         QVERIFY(scope.contains(QStringLiteral("Seen by %1 people")));
-        // Per-reader read time comes ONLY from the receipt's own tsMs;
-        // absence renders nothing, never a fabricated time.
+        // Per-reader read time comes only from the receipt's tsMs; absence
+        // renders nothing.
         QVERIFY(scope.contains(QStringLiteral("formatReadTime(")));
         QVERIFY(scope.contains(QStringLiteral("modelData.tsMs")));
         QVERIFY(scope.contains(QStringLiteral("if (!tsMs || tsMs <= 0)")));
-        // The honest "+N" tail survives the restyle.
+        // The "+N" tail survives.
         QVERIFY(scope.contains(QStringLiteral("names not loaded")));
     }
 };

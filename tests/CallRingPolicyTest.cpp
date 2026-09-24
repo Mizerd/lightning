@@ -1,10 +1,7 @@
-// 2026-08-18 round 2: the voice-call ring policy wired to its REAL owners
-// on a full AppController (mock backend) — ignored senders, muted rooms,
-// backlog suppression from the sync lifecycle, and the ringForCalls
-// setting's plumbing. The prior round proved these gates inside
-// CallController with hand-injected functors; this suite proves the
-// production wiring exists (the review lesson: a policy hook nobody wires
-// is dead code covered by a passing test).
+// The call ring policy wired to its real owners on a full AppController (mock
+// backend): ignored senders, muted rooms, backlog suppression from the sync
+// lifecycle, and the ringForCalls setting. CallController's own tests use
+// injected functors; this proves the production wiring exists.
 #include <QtTest/QtTest>
 
 #include <QSignalSpy>
@@ -63,19 +60,11 @@ private:
     }
 
 private Q_SLOTS:
-    // A NOTIFICATION ACTION MUST NOT ACT UNDER THE WRONG ACCOUNT.
-    //
-    // This is the round's headline safety property and it rests on four
-    // lines. A notification card outlives the account that raised it: the
-    // user can switch accounts, or sign out, while it is on screen, and the
-    // desktop delivers the action minutes later. Acting under whichever
-    // account is current would mark ANOTHER account's room read, or send a
-    // reply from the wrong identity into a room the current account may not
-    // even be in — and it would SUCCEED, so nothing would report it.
-    //
-    // Lives here rather than in NotificationManagerTest because the guard is
-    // AppController's: that suite proves the payload carries the raising
-    // account, which is a different claim from the guard consulting it.
+    // A notification action must not act under the wrong account: a card can
+    // outlive the account that raised it, and acting under the current account
+    // would mark another account's room read or reply as the wrong identity.
+    // The guard is AppController's; NotificationManagerTest proves the payload
+    // carries the raising account.
     void aNotificationActionUnderTheWrongAccountIsRefused()
     {
         AppController controller(AppController::MockBackend);
@@ -85,14 +74,13 @@ private Q_SLOTS:
 
         const int noticesBefore = notifications->genericNoticeCountForTest();
 
-        // A card raised for an account that is NOT the one signed in.
+        // A card raised for an account that is not signed in.
         Q_EMIT notifications->replyRequested(
             QStringLiteral("@someone-else:other.example"),
             QStringLiteral("!general:mock.local"), QString(),
             QStringLiteral("this must not be sent"));
 
-        // Refused, and SAID SO — a button that does nothing and explains
-        // nothing is worse, because the user believes they have replied.
+        // Refused, and the user is told.
         QCOMPARE(notifications->genericNoticeCountForTest(), noticesBefore + 1);
 
         Q_EMIT notifications->markReadRequested(
@@ -100,17 +88,13 @@ private Q_SLOTS:
             QStringLiteral("!general:mock.local"), QString());
         QCOMPARE(notifications->genericNoticeCountForTest(), noticesBefore + 2);
 
-        // An EMPTY account on the payload is refused too. That is the state
-        // a card raised before the account was known would carry, and
-        // fail-open there would be the same defect with no attacker needed.
+        // An empty account on the payload is refused too (fail closed).
         Q_EMIT notifications->replyRequested(
             QString(), QStringLiteral("!general:mock.local"), QString(),
             QStringLiteral("nor this"));
         QCOMPARE(notifications->genericNoticeCountForTest(), noticesBefore + 3);
 
-        // ...and the MATCHING account is not refused: the guard must not be
-        // vacuously true, which is how it would pass while blocking
-        // everything.
+        // The matching account is not refused, so the guard is not vacuous.
         const QString own = controller.auth()->currentUserId();
         QVERIFY(!own.isEmpty());
         Q_EMIT notifications->markReadRequested(
@@ -120,20 +104,16 @@ private Q_SLOTS:
 
     void callLanePrefersMatrixRtcAndFallsBackToDmOnlyLegacy()
     {
-        // Lane selection is ONE policy question and it lives here, not in
-        // QML. Two rules it must never lose:
-        //
-        //  * MatrixRTC is PRIMARY where it can carry a call — it is what
-        //    current Element speaks, and it is the only lane with video,
-        //    screen share and groups.
-        //  * The legacy fallback is 1:1 DMs ONLY, because a legacy
-        //    m.call.invite rings EVERY member of a room. Offering it in a
-        //    group room would ring everyone.
+        // Lane selection lives here, not in QML:
+        //  * MatrixRTC is primary where it can carry a call (video, screen
+        //    share, groups; what current Element speaks);
+        //  * the legacy fallback is 1:1 DMs only, since m.call.invite rings
+        //    every room member.
         AppController controller(AppController::MockBackend);
         QVERIFY(login(controller));
 
-        // The mock backend has no MatrixRTC and registers no media engine,
-        // so neither lane can carry a call: no button, and no pretending.
+        // The mock has no MatrixRTC and no media engine, so neither lane is
+        // available: no button.
         QVERIFY(!controller.canStartCall(QStringLiteral("!general:mock.local")));
         QCOMPARE(controller.preferredCallLane(
                      QStringLiteral("!general:mock.local")),
@@ -142,7 +122,7 @@ private Q_SLOTS:
         // An empty room id is never callable.
         QVERIFY(!controller.canStartCall(QString()));
 
-        // Refusing must SAY why rather than failing silently.
+        // Refusing says why.
         QSignalSpy refused(&controller, &AppController::callStartRefused);
         QVERIFY(!controller.startCall(QStringLiteral("!general:mock.local")));
         QCOMPARE(refused.count(), 1);
@@ -175,9 +155,8 @@ private Q_SLOTS:
         client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
         QCOMPARE(controller.calls()->state(),
                  CallController::State::Ringing);
-        // The mock reports initialSyncDone true after login, so the wired
-        // backlog gate must be OPEN — the prior round's default-closed
-        // behavior would keep shouldRing false forever here.
+        // The mock reports initialSyncDone after login, so the wired backlog
+        // gate is open.
         QVERIFY(controller.calls()->shouldRing());
     }
 
@@ -192,7 +171,7 @@ private Q_SLOTS:
         QCOMPARE(controller.calls()->state(),
                  CallController::State::Ringing);
         QVERIFY(!controller.calls()->shouldRing());
-        // Un-muting reopens the gate live (functor reads current state).
+        // Un-muting reopens the gate live (the functor reads current state).
         controller.settings()->setRoomNotificationMode(kRoom, 0);
         QVERIFY(controller.calls()->shouldRing());
     }
@@ -203,7 +182,7 @@ private Q_SLOTS:
         QVERIFY(login(controller));
         auto *client = mock(controller);
         QVERIFY(client);
-        // Seed the moderation cache the way the SDK list arrival does.
+        // Seed the moderation cache as the SDK list arrival does.
         Q_EMIT client->ignoredUsersChanged(
             QStringList{ QStringLiteral("@peer:mock.local") });
         QTRY_VERIFY_WITH_TIMEOUT(
@@ -211,8 +190,7 @@ private Q_SLOTS:
                 QStringLiteral("@peer:mock.local")),
             kSignalTimeoutMs);
         client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
-        // Dropped before any state: the wired ignore check reached
-        // CallController.
+        // Dropped before any state: the ignore check reached CallController.
         QCOMPARE(controller.calls()->state(), CallController::State::Idle);
     }
 
@@ -229,9 +207,7 @@ private Q_SLOTS:
         QCOMPARE(changed.count(), 1);
     }
 
-    // 2026-09-05: the automatic pop-out shipped ON and fired on every
-    // minimise — a window appearing on its own for a reader who only wanted
-    // the app out of the way. It is the opt-in now; the call bar's manual
+    // The automatic pop-out on minimise is opt-in; the call bar's manual
     // pop-out is unaffected.
     void theAutomaticPopOutIsOptIn()
     {
@@ -257,9 +233,8 @@ private Q_SLOTS:
         QVERIFY(!CallController::isMissedCallReason(ER::MediaFailed));
     }
 
-    // Missed-call notices require the ring to have been ANNOUNCED: a call
-    // suppressed by mute (or backlog/ignore) must never resurface later
-    // as "missed" (review round 2).
+    // Missed-call notices require the ring to have been announced: a call
+    // suppressed by mute, backlog or ignore never resurfaces as "missed".
     void missedNoticeOnlyForAnnouncedRings()
     {
         AppController controller(AppController::MockBackend);
@@ -284,11 +259,10 @@ private Q_SLOTS:
         client->emitCallSignalForTest(hangup);
         QCOMPARE(notices->genericNoticeCountForTest(), before + 1);
 
-        // Muted room: the ring is never announced, so its end must raise
-        // NO missed notice.
+        // Muted room: never announced, so no missed notice.
         controller.settings()->setRoomNotificationMode(kRoom, 2 /*Muted*/);
-        // Fresh sender, so the ring cooldown cannot be the reason the
-        // announcement is absent — only the mute is.
+        // A fresh sender, so only the mute can explain the missing
+        // announcement.
         client->emitCallSignalForTest(
             invite(QStringLiteral("call-2"),
                    QStringLiteral("@peer2:mock.local")));
@@ -303,9 +277,8 @@ private Q_SLOTS:
         QCOMPARE(notices->genericNoticeCountForTest(), muted);
     }
 
-    // The per-sender ring cooldown bounds OS-level announcements: a
-    // sender re-ringing within the window still produces call STATE, but
-    // no second notification and therefore no later missed notice.
+    // The per-sender ring cooldown bounds OS announcements: a quick re-ring
+    // still produces call state but no second notification or missed notice.
     void senderRingCooldownBoundsAnnouncements()
     {
         AppController controller(AppController::MockBackend);
@@ -318,9 +291,8 @@ private Q_SLOTS:
         QVERIFY(controller.calls()->rejectIncoming());
         const int before = notices->genericNoticeCountForTest();
 
-        // Same sender rings again immediately: state rings, announcement
-        // suppressed by the cooldown, so an abandoned ring raises no
-        // missed notice either.
+        // Same sender again: state rings, the announcement is suppressed, so
+        // no missed notice either.
         client->emitCallSignalForTest(invite(QStringLiteral("call-2")));
         QCOMPARE(controller.calls()->state(),
                  CallController::State::Ringing);
@@ -345,9 +317,8 @@ private Q_SLOTS:
         client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
         QCOMPARE(controller.calls()->state(),
                  CallController::State::Ringing);
-        // The DBus daemon is absent under offscreen tests, so drive the
-        // decline signal directly: the AppController glue must route it to
-        // rejectIncoming for the MATCHING call only.
+        // No D-Bus daemon offscreen, so emit the decline signal directly: the
+        // glue must route it to rejectIncoming for the matching call only.
         Q_EMIT controller.notificationsForTest()->callDeclineRequested(
             QStringLiteral("some-other-call"));
         QCOMPARE(controller.calls()->state(),
@@ -359,15 +330,9 @@ private Q_SLOTS:
                  CallController::EndReason::LocalReject);
     }
 
-    // ── 2026-09-18: the call button's gate had no dependency ────────────
-    //
-    // `canStartCall()` is a Q_INVOKABLE, so a QML binding on it records no
-    // dependency, and its answer rides RtcController state that arrives
-    // asynchronously — transport discovery, the room's own observed session,
-    // the membership capability. The binding gates `visible:` rather than
-    // `enabled:`, so a stale "no" leaves the call button ABSENT until the
-    // user navigates away and back. `callGateRevision` is what both gates
-    // read; this pins that it actually moves.
+    // `canStartCall()` is a Q_INVOKABLE, so a binding on it records no
+    // dependency, and its answer rides asynchronous RtcController state. Both
+    // call gates read `callGateRevision`; this pins that it moves.
     void theCallGateRevisionMovesWithTheStateItsAnswerDependsOn()
     {
         AppController controller(AppController::MockBackend);
@@ -377,7 +342,7 @@ private Q_SLOTS:
                           &AppController::callGateRevisionChanged);
         const int before = controller.callGateRevision();
 
-        // Transport availability: the first thing `canStartCall` consults.
+        // Transport availability, the first thing canStartCall consults.
         controller.rtc()->setMediaAvailable(
             !controller.rtc()->mediaAvailable());
         QVERIFY2(controller.callGateRevision() > before,
@@ -386,7 +351,7 @@ private Q_SLOTS:
                  "answer it had at room-open");
         QVERIFY(bumped.count() >= 1);
 
-        // ...and one room's session, which is per-room and arrives later.
+        // ...and one room's session, which arrives later.
         const int afterAvailability = controller.callGateRevision();
         controller.rtc()->setRoomEncrypted(QStringLiteral("!sess:mock.local"),
                                            true);
@@ -395,33 +360,17 @@ private Q_SLOTS:
                  "not move");
     }
 
-    // ── 2026-09-18: the call lane learned a room's encryption only from
-    //    surfaces that OPEN the room ─────────────────────────────────────
-    //
-    // `RtcController::roomEncrypted()` read a map whose only writers were
-    // `startCall()` and `setCurrentRoomId()`. Three of the four surfaces
-    // that reach `SfuCallController::join()` are in-room and happened to
-    // satisfy that; the fourth — IncomingCallPrompt, a global overlay —
-    // opens nothing, so its join found no entry and took the fail-closed
-    // "encrypted" default.
-    //
-    // Live 2026-09-18, two instances of this build in a room with no
-    // `m.room.encryption` at all: the answerer published encrypted and
-    // required encryption inbound, the caller correctly published in the
-    // clear, and the answerer dropped every frame of their audio while its
-    // only diagnostic said "the sender's key never reached this device".
-    // One-way audio, and the evidence pointed at key distribution.
-    //
-    // This case NEVER opens the room and never starts a call, which is the
-    // whole point: it is the state the ring card's Join actually runs in.
+    // The call lane must know a room's encryption without the room being
+    // opened: IncomingCallPrompt's Join opens nothing, and a missing entry
+    // falls back to "encrypted", so an unencrypted call gets one-way audio.
+    // This case never opens the room.
     void theCallLaneSeesARoomsEncryptionWithoutOpeningIt()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(login(controller));
         QVERIFY(controller.rtc());
-        // A room the mock reports as known-unencrypted. Asserted rather than
-        // assumed: if the fixture ever ships it as unknown, this case would
-        // pass on broken code.
+        // The mock reports this room as known-unencrypted; asserted so the
+        // case cannot pass on broken code if the fixture changes.
         const QVariantMap room = controller.roomList()->findRoom(kRoom);
         QVERIFY2(!room.isEmpty(), "the fixture room is not in the room list");
         QVERIFY2(room.value(QStringLiteral("encryptionKnown")).toBool(),
@@ -437,27 +386,17 @@ private Q_SLOTS:
                  "the caller is not using, and drops all of their media");
     }
 
-    // ...AND THE FAIL-CLOSED ASSUMPTION MUST NOT MAKE ITSELF PERMANENT.
-    //
-    // Both push sites passed `!known || encrypted`, which fabricates a
-    // KNOWN "encrypted" out of an UNKNOWN room. `setRoomEncrypted`'s
-    // downgrade guard — right in itself, encryption cannot be removed in
-    // Matrix — then refused the correct answer for the rest of the session.
-    // A room opened BEFORE its `m.room.encryption` has synced is the common
-    // way in, and the resolver cannot rescue it: a stored Yes outranks a
-    // resolver No by design.
-    //
-    // This is the half of the production change that the RtcController
-    // cases cannot reach, because the defect is in what AppController
-    // CHOOSES to record.
+    // Opening a room before its encryption state has synced must not pin it
+    // as encrypted. Recording `!known || encrypted` turns unknown into a
+    // known "encrypted", and setRoomEncrypted's downgrade guard (encryption
+    // cannot be removed in Matrix) then refuses the real answer.
     void openingARoomBeforeItsEncryptionIsKnownDoesNotPinItEncrypted()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(login(controller));
         auto *client = mock(controller);
         QVERIFY(client);
-        // The mock gives a freshly joined room `encryptionKnown = false` —
-        // exactly the unsynced window.
+        // The mock gives a freshly joined room `encryptionKnown = false`.
         const QString fresh = QStringLiteral("!fresh:mock.local");
         QVERIFY(client->joinRoomByIdOrAlias(fresh, {}) != 0);
         QTRY_VERIFY(!controller.roomList()->findRoom(fresh).isEmpty());
@@ -470,12 +409,12 @@ private Q_SLOTS:
 
         controller.openRoom(fresh);
         QTRY_COMPARE(controller.currentRoomId(), fresh);
-        // Unknown still fails CLOSED. That part must not change.
+        // Unknown still fails closed.
         QVERIFY2(controller.rtc()->roomEncrypted(fresh),
                  "an unknown room stopped failing closed, which is the "
                  "silent downgrade §6 forbids");
 
-        // ...and now the first KNOWN answer arrives.
+        // ...and then the first known answer arrives.
         controller.rtc()->setRoomEncrypted(fresh, false);
         QVERIFY2(!controller.rtc()->roomEncrypted(fresh),
                  "opening the room while its encryption was unknown pinned "
@@ -483,18 +422,9 @@ private Q_SLOTS:
                  "required encryption no peer was using");
     }
 
-    // 2026-09-17: the Answer action's own wiring had no coverage anywhere.
-    //
-    // `callDeclineRequested` has had the case above since it was written;
-    // `callAcceptRequested` arrived with the Answer button and its
-    // AppController lambda — lane selection, the room open, both return
-    // values — was tested at no layer. The NotificationManager suite proves
-    // the button is OFFERED; nothing proved pressing it reaches the call.
-    //
-    // Starts with NO room open, for the reason
-    // aTimelineIdIsNeverHandedToTheRoomOpener states: with the call's room
-    // already current, "it opened the right room" and "it did nothing" are
-    // the same observation.
+    // The notification's Answer action reaches the call and opens its room.
+    // Starts with no room open, so "opened the right room" and "did nothing"
+    // are distinguishable.
     void acceptFromNotificationOpensTheCallsRoom()
     {
         AppController controller(AppController::MockBackend);
@@ -521,23 +451,10 @@ private Q_SLOTS:
                  controller.calls()->activeRoomId());
     }
 
-    // A REFUSAL THAT WAS WITHDRAWN MUST STOP BEING SHOWN.
-    //
-    // `errorReported` reaches Main.qml as `statusBar.lastError = msg`, a
-    // one-shot copy that nothing ever takes back. So the sentence a refused
-    // join put on the strip outlived the later join that SUCCEEDED: the user
-    // was in the call while being told they had no permission to be.
-    //
-    // SfuCallController withdraws it by emitting `callFailed` with an EMPTY
-    // reason once a retry reaches Authorizing or later (proven in
-    // CallControllerTest). AppController used to drop that empty string on
-    // the floor, which made the withdrawal invisible and is the half of the
-    // defect that lives here. An empty `errorReported` is already how four
-    // other paths in AppController clear the strip.
-    //
-    // Driven through the real signal rather than a functor: the claim is
-    // about the PRODUCTION connection, and a test that calls the lambda
-    // directly would pass with the connection deleted.
+    // A withdrawn call refusal clears the status strip. SfuCallController
+    // withdraws by emitting `callFailed` with an empty reason, and an empty
+    // `errorReported` is how AppController clears the strip. Driven through
+    // the real signal so the production connection is what is tested.
     void aWithdrawnCallRefusalReachesTheStatusStrip()
     {
         AppController controller(AppController::MockBackend);
@@ -566,34 +483,12 @@ private Q_SLOTS:
                  "one stale sentence with another instead of clearing it");
     }
 
-    // ── A NOTIFICATION CLICK MUST *OPEN* THE ROOM, NOT MERELY SELECT IT ──
-    //
-    // Reported from Windows on 0.9.3, where the tray balloon is the only
-    // delivery and therefore the only way most people ever reach this path:
-    // "when i click it, it sends me to this. and just doesnt load anything
-    // on that room", and yes, "from notification only".
-    //
-    // `qml/Main.qml`'s notification handler did `app.currentRoomId = roomId`
-    // — the property WRITE, i.e. setCurrentRoomId(). It is the ONLY place in
-    // the application that writes currentRoomId directly; every other way
-    // into a room (room list, quick switcher, search, links, the rail, Home)
-    // calls app.openRoom(). And openRoom() is the sole caller of
-    // RustSdkMatrixClient::openRoomTimeline(), the sole caller of
-    // mx_rust_timeline_open. So a room entered from a notification never got
-    // a live SDK timeline: the navigation succeeds, and the room shows only
-    // what the bounded background sync mirror happens to hold, with
-    // paginationReady() false forever so no history can ever arrive.
-    //
-    // WHAT THIS ASSERTS, AND WHY IT IS THE RIGHT PROXY. The SDK open itself
-    // is behind ENABLE_RUST_SDK_BACKEND and a qobject_cast to the Rust
-    // client, so no mock-backend test can observe it directly. What CAN be
-    // observed is the one other thing openRoom() does and setCurrentRoomId()
-    // does not: return from the Settings screen to the chat. Since openRoom()
-    // is the only caller of openRoomTimeline(), proving openRoom() is on the
-    // path IS proving the timeline is opened on a Rust build.
-    //
-    // Both routes are covered because both land on the same C++ handler: the
-    // desktop notification, and an Activity Center ("bell") row.
+    // A notification click must open the room (app.openRoom()), not merely set
+    // currentRoomId: openRoom() is the only caller of openRoomTimeline(), so
+    // otherwise the room never gets a live SDK timeline or history. The SDK
+    // open is not observable on the mock, so this checks openRoom()'s other
+    // effect: leaving the Settings screen. Covers the desktop notification and
+    // the Activity Center row, which share the handler.
     void aNotificationClickOpensTheRoomRatherThanJustSelectingIt()
     {
         AppController controller(AppController::MockBackend);
@@ -601,9 +496,8 @@ private Q_SLOTS:
         NotificationManager *notifications = controller.notificationsForTest();
         QVERIFY(notifications);
 
-        // Somewhere that is NOT the room, and on a screen only openRoom()
-        // leaves. (Main.qml calls showMain() before the assignment, but that
-        // is the QML half; this case is about the C++ routing.)
+        // Start away from the room, on a screen only openRoom() leaves.
+        // (Main.qml calls showMain() first; this case is about C++ routing.)
         controller.setCurrentRoomId(QString());
         controller.showSettings();
         QCOMPARE(controller.currentScreen(), AppController::SettingsScreen);
@@ -618,7 +512,7 @@ private Q_SLOTS:
                  "SDK timeline is subscribed for it, the room shows only the "
                  "background sync mirror and can never paginate");
 
-        // ...and the Activity Center row is the same click by another name.
+        // The Activity Center row takes the same route.
         controller.setCurrentRoomId(QString());
         controller.showSettings();
         auto *activity = controller.activity();
@@ -634,25 +528,10 @@ private Q_SLOTS:
                  "produced");
     }
 
-    // A THREAD NOTIFICATION MUST NOT HAND A TIMELINE ID TO openRoom().
-    //
-    // CLAUDE.md §8: the composite `room + US + thread + US + root` must never
-    // leave the app layer. NotificationManager reduces it before it emits, so
-    // this should be unreachable — and it is asserted anyway because the cost
-    // of it getting through is not "nothing happens".
-    //
-    // Adding the room open is exactly what turns a composite from inert into
-    // destructive, which is why the reduction and the open landed together.
-    // openRoomTimeline() has
-    // no composite guard and the Rust side CLOSES the previous room's
-    // timeline BEFORE it discovers the id will not parse, so routing a
-    // composite here would tear down the live subscription of the room the
-    // reader is actually sitting in.
-    //
-    // This case fails on all three broken forms: the pre-fix tree (nothing
-    // opens, currentRoomId stays empty), the skip-and-re-emit form (same,
-    // plus the composite arrives at the signal), and an unguarded open
-    // (currentRoomId becomes the composite).
+    // A thread notification must not hand the composite timeline id to
+    // openRoom(). openRoomTimeline() has no composite guard, and the Rust side
+    // closes the current room's timeline before failing to parse the id.
+    // Fails on no open, on re-emitting the composite, and on an unguarded open.
     void aTimelineIdIsNeverHandedToTheRoomOpener()
     {
         AppController controller(AppController::MockBackend);
@@ -660,12 +539,7 @@ private Q_SLOTS:
         NotificationManager *notifications = controller.notificationsForTest();
         QVERIFY(notifications);
 
-        // START WITH NO ROOM OPEN. Raised in review: with kRoom already
-        // open, "reduced the composite and reopened kRoom" and "did nothing
-        // at all" are the same observation, so the case passed on a version
-        // that skipped the open and re-emitted the composite — which is the
-        // very form this reduction replaced. Starting empty makes the
-        // reduction positively observable instead of merely non-destructive.
+        // Start with no room open, so the reduction is positively observable.
         controller.setCurrentRoomId(QString{});
         QVERIFY(controller.currentRoomId().isEmpty());
 
@@ -674,9 +548,8 @@ private Q_SLOTS:
         const QString root = QStringLiteral("$root:mock.local");
         const QString composite = MatrixClient::threadTimelineId(kRoom, root);
         QVERIFY(MatrixClient::isThreadTimelineId(composite));
-        // No root argument: the composite is the only place it exists. That
-        // is routeNotificationOpen()'s recovery branch, which nothing else
-        // drives at either layer.
+        // No root argument: the composite is the only place it exists
+        // (routeNotificationOpen()'s recovery branch).
         Q_EMIT notifications->openRequested(composite, QStringLiteral("$ev:mock"),
                                             QString{});
 

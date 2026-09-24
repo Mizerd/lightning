@@ -1,4 +1,4 @@
-// v0.7 outgoing @-mentions: the current-room member suggestion model. Requests
+// Outgoing @-mentions: the current-room member suggestion model. Requests
 // members on activation, filters/ranks/dedups against the typed query, excludes
 // the signed-in user, rejects stale op ids, clears on room switch + logout, and
 // re-requests on an authoritative membership change. No network, no homeserver.
@@ -45,8 +45,8 @@ public:
     }
     void emitMembersChanged(const QString &roomId)
     {
-        // The model re-requests on the sync poke since review H1;
-        // membersChanged now only drives presentation consumers.
+        // The model re-requests on the sync poke; membersChanged only drives
+        // presentation consumers.
         Q_EMIT roomMemberEventSeen(roomId);
     }
     void emitLoggedOut() { Q_EMIT loggedOut(); }
@@ -150,10 +150,9 @@ private slots:
                  QStringLiteral("@bob:hs"));
     }
 
-    // 2026-08-14 (unban round): the snapshot now carries banned members
-    // and the filter is an ALLOW-list — only joined/invited (either
-    // spelling) are suggestable; a banned row and any unknown label fail
-    // closed instead of being suggested.
+    // The snapshot carries banned members and the filter is an allow-list:
+    // only joined/invited (either spelling) are suggestable; banned and
+    // unknown labels fail closed.
     void excludesBannedAndUnknownMemberships()
     {
         MemberMock mock;
@@ -287,10 +286,8 @@ private slots:
         QCOMPARE(mock.m_requestCount, before + 1);
     }
 
-    // The permission still NARROWS — the fix must not be "always offer".
-    // A roster snapshot that positively says this account cannot notify the
-    // room removes @room; one that says it can keeps it; and one that says
-    // NOTHING leaves it offered, because a backend's silence is not a denial.
+    // The roster decides @room: "cannot notify" removes it, "can" keeps it,
+    // and no statement leaves it offered (silence is not a denial).
     void theRosterSnapshotDecidesWhetherRoomIsOffered()
     {
         MemberMock client;

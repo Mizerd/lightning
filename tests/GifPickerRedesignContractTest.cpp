@@ -1,20 +1,11 @@
-// v0.6.5 (SPEC §1n): source-scan contract for the redesigned GifPicker —
-// width 330 with a dynamically-sized 3-column grid (replacing the fixed
-// 132px cell that assumed the previous 460px width), the picker's own "GIF"
-// header badge (the composer's own mono keycap was retired 2026-09-03), the
-// tile badges, and the "return to send" footer hint. This is a
-// belt-and-suspenders re-pin alongside tests/QmlBindingContractTest.cpp's
-// gifPickerWiredIntoBothComposers (which owns the authoritative nine-invariant
-// literals); this suite adds the redesign-specific structure without loosening
-// any of those.
-//
-// v0.6.7 UX rework — ONE star, ONE saved list. The suite now pins the
-// collapsed navigation (two SOURCE tabs and, past a divider, the two LISTS
-// that were always cross-provider), the single `tab` state property that
-// replaced the contradictory `section` + `starredTabActive` pair, the one
-// save/unsave vocabulary shared with the chat-timeline star, and the per-tile
-// source tag that keeps provider credit attached to the exact tiles it belongs
-// to inside a merged Saved list.
+// Source-scan contract for GifPicker's layout: a picker that takes a share of
+// its anchor with a dynamically sized 3-column grid, its own "GIF" header
+// badge, per-tile source tags, and the "return to send" footer hint.
+// Navigation is one row: two source tabs and, past a divider, the two
+// cross-provider lists; one `tab` state property; one save/unsave vocabulary
+// shared with the timeline star. Complements
+// QmlBindingContractTest::gifPickerWiredIntoBothComposers without loosening
+// it.
 
 #include <QFile>
 #include <QtTest>
@@ -37,18 +28,16 @@ private Q_SLOTS:
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
         QVERIFY(!picker.isEmpty());
-        // v0.6.7: no fixed width — the picker takes a SHARE of the space it
-        // has, so it scales with the window rather than sitting at 330 until
-        // the window got too small for it. The key is shared with the emoji
-        // picker so resizing either resizes both.
+        // No fixed width: the picker takes a share of the available space. The
+        // key is shared with the emoji picker so resizing one resizes both.
         QVERIFY(picker.contains(QStringLiteral("widthFraction:")));
         QVERIFY(picker.contains(QStringLiteral("heightFraction:")));
         QVERIFY(picker.contains(QStringLiteral("sizeSettingsKey: \"picker\"")));
         QVERIFY(!picker.contains(QStringLiteral("width: Math.min(330,")));
         QVERIFY(!picker.contains(QStringLiteral("defaultWidth:")));
-        // A minimum that still fits three grid columns and the footer.
+        // The minimum still fits three grid columns and the footer.
         QVERIFY(picker.contains(QStringLiteral("minWidth: 300")));
-        // No more fixed 132px cell tied to the old 460px width.
+        // No fixed 132px cell.
         QVERIFY(!picker.contains(QStringLiteral("readonly property int cell: 132")));
         QVERIFY(picker.contains(QStringLiteral("cellWidth: Math.floor(width / 3)")));
         QVERIFY(picker.contains(QStringLiteral("cellHeight: cellWidth")));
@@ -58,37 +47,28 @@ private Q_SLOTS:
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
         QVERIFY(picker.contains(QStringLiteral("objectName: \"gifPickerHeaderBadge\"")));
-        // Never reuses the composer's old pinned objectName. That keycap was
-        // retired on 2026-09-03 when GIFs and stickers became one composer
-        // button; the assertion stays because the badge must keep its OWN
-        // identity, and reviving a name that no longer exists anywhere would
-        // be a copy-paste, not a decision.
+        // The header badge keeps its own identity rather than reviving the
+        // retired composer keycap's objectName.
         QVERIFY(!picker.contains(QStringLiteral("objectName: \"composerGifKeycap\"")));
         QVERIFY(picker.contains(QStringLiteral("radius: AppTheme.radiusMd")));
     }
 
-    // v0.6.7: the two nav strips became one row of peers. The maintainer's
-    // report was that a star meant two different things in two places; a large
-    // part of why is that the navigation itself lied — "Favorites" and
-    // "Recent" were CROSS-provider lists rendered as chips *underneath* a
-    // provider tab, so selecting KLIPY and then Favorites showed GIPHY
-    // favorites. Both lists are now peers of the providers, and the old
-    // section-chip row is gone entirely.
+    // Sources and lists are peers in one nav row. "Saved" and "Recent" are
+    // cross-provider, so rendering them as chips under a provider tab
+    // misrepresented them; the section-chip row is gone.
     void navigationIsOneRowOfSourcesAndLists()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
         QVERIFY(picker.contains(QStringLiteral("objectName: \"gifProviderTabs\"")));
         QVERIFY(picker.contains(QStringLiteral("objectName: \"gifListTabs\"")));
-        // The section chips are GONE — not merely hidden. Nothing may still
-        // set a `section`, and no Favorites chip may survive anywhere.
+        // The section chips are gone, not hidden: nothing sets a `section`.
         QVERIFY(!picker.contains(QStringLiteral("gifSectionTabs")));
         QVERIFY(!picker.contains(QStringLiteral("picker.section")));
         QVERIFY(!picker.contains(QStringLiteral("property string section")));
         QVERIFY(!picker.contains(QStringLiteral("starredTabActive")));
         QVERIFY(!picker.contains(QStringLiteral("qsTr(\"Favorites\")")));
-        // Both lists live in the second control, and both are always enabled:
-        // neither needs a key and neither ever issues a request, so they work
-        // even with no provider configured at all.
+        // Both lists live in the second control and are always enabled: neither
+        // needs a key or issues a request.
         const int start = picker.indexOf(QStringLiteral("objectName: \"gifListTabs\""));
         QVERIFY(start >= 0);
         const int end = picker.indexOf(QStringLiteral("// ── Category chips"), start);
@@ -98,8 +78,7 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("value: \"recent\",")));
         QVERIFY(block.contains(QStringLiteral("qsTr(\"Saved\")")));
         QVERIFY(block.contains(QStringLiteral("qsTr(\"Recent\")")));
-        // The provider strip is still derived from the real provider list,
-        // never a hand-maintained duplicate, and it is the only strip that
+        // The provider strip derives from the real provider list and alone
         // carries the not-configured explanation.
         const int provStart =
             picker.indexOf(QStringLiteral("objectName: \"gifProviderTabs\""));
@@ -110,10 +89,9 @@ private Q_SLOTS:
         QVERIFY(!provBlock.contains(QStringLiteral("value: \"saved\"")));
     }
 
-    // Exactly one state property drives the whole picker, and only a real
-    // provider id may reach setActiveProvider() — the one network-triggering
-    // entry point. "saved"/"recent" return before it, so neither list can make
-    // a provider request.
+    // One state property drives the picker, and only a real provider id
+    // reaches setActiveProvider(), the one network-triggering entry point;
+    // "saved"/"recent" return before it.
     void oneTabPropertyAndNoRequestFromALocalList()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
@@ -139,13 +117,12 @@ private Q_SLOTS:
         // Both strips route through this one function.
         QCOMPARE(picker.count(QStringLiteral("onActivated: (value) => picker.selectTab(value)")),
                  2);
-        // Exactly ONE call site for the whole file. Counted in its qualified
-        // call form so prose mentioning setActiveProvider() by name does not
-        // inflate it — the point is that no second code path can reach it.
+        // Exactly one call site, counted in its qualified call form so prose
+        // naming it does not count.
         QCOMPARE(picker.count(QStringLiteral("picker.gif.setActiveProvider(")), 1);
     }
 
-    // The whole point of the rework: one glyph, one verb, one destination.
+    // One star glyph, one verb, one destination.
     void oneStarWithOneSaveVocabulary()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
@@ -156,12 +133,9 @@ private Q_SLOTS:
         QVERIFY(!picker.contains(QStringLiteral("Add to favorites")));
         QVERIFY(!picker.contains(QStringLiteral("Remove from favorites")));
         QVERIFY(!picker.contains(QStringLiteral("Remove from starred GIFs")));
-        // v0.6.7 review (H1): saved state is asked of the STORE, never read
-        // from the row's FavoriteRole. GifStoredModel answers that role with
-        // a constant `true`, so reading it made every Recent tile claim to be
-        // saved and made its star insert while announcing "Remove". The
-        // revision counter is what re-evaluates the binding, since isSaved()
-        // is a plain call that establishes no dependency.
+        // Saved state is asked of the store, never read from FavoriteRole
+        // (GifStoredModel answers it with a constant true). A revision counter
+        // re-evaluates the binding, since isSaved() is a plain call.
         QVERIFY(picker.contains(QStringLiteral("function isSaved(provider, gifId)")));
         QVERIFY(picker.contains(QStringLiteral(
             "return gif.favorites.isFavorite(provider, gifId)")));
@@ -171,14 +145,13 @@ private Q_SLOTS:
             "                    var rev = picker.savedRevision\n"
             "                    return picker.isSaved(tile.provider, tile.gifId)")));
         QVERIFY(!picker.contains(QStringLiteral("|| tile.favorite")));
-        // Saved is rendered as a FILL, not only a tint — the bundled Material
-        // Symbols subset is a static FILL=0 instance, so there is no filled
-        // star glyph to switch to.
+        // Saved renders as a fill, not only a tint: the bundled Material
+        // Symbols subset is FILL=0, with no filled star glyph.
         QVERIFY(picker.contains(QStringLiteral(
             "color: tile.saved ? AppTheme.bolt")));
         QVERIFY(picker.contains(QStringLiteral(
             "color: tile.saved ? AppTheme.boltInk")));
-        // Routing is by the snapshot's own provider field, never a row index.
+        // Routing uses the snapshot's own provider field, never a row index.
         const int start = picker.indexOf(QStringLiteral("function toggleSaved(result)"));
         QVERIFY(start >= 0);
         const int end = picker.indexOf(QStringLiteral("background: Rectangle {"), start);
@@ -191,17 +164,15 @@ private Q_SLOTS:
         QVERIFY(!picker.contains(QStringLiteral("function toggleFavorite(result)")));
     }
 
-    // A merged Saved list must still say where each GIF came from — the
-    // maintainer's follow-up ("add a tag on the gif like where it says size of
-    // the gif, write klpy giphy or local"). It also keeps provider credit
-    // attached to the exact tiles it belongs to (ruling R15).
+    // Every tile in a merged Saved list says where it came from, which also
+    // keeps provider credit on the right tiles.
     void everyTileCarriesItsSourceTag()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
         QVERIFY(picker.contains(QStringLiteral("objectName: \"gifTileSourceBadge\"")));
         QVERIFY(picker.contains(QStringLiteral("text: picker.sourceLabel(tile.provider)")));
-        // The tag is real text, resolved from the provider registry — never a
-        // hardcoded brand string, which is how a wrong brand gets shown.
+        // The tag is resolved from the provider registry, never a hardcoded
+        // brand string.
         const int start = picker.indexOf(QStringLiteral("function sourceLabel(provider)"));
         QVERIFY(start >= 0);
         const int end = picker.indexOf(QStringLiteral("widthFraction:"), start);
@@ -211,8 +182,8 @@ private Q_SLOTS:
         QVERIFY(body.contains(QStringLiteral("qsTr(\"Local\")")));
         QVERIFY(body.contains(QStringLiteral("gif.providerDisplayName(provider)")));
         QVERIFY(!picker.contains(QStringLiteral("Tenor")));
-        // It replaced the old "GIF" tile badge, which said nothing new inside
-        // a GIF picker; the header badge is a different, surviving element.
+        // It replaced the uninformative "GIF" tile badge; the header badge is a
+        // separate element.
         QVERIFY(!picker.contains(QStringLiteral("gifTileBadgeLabel")));
         QVERIFY(picker.contains(QStringLiteral("gifPickerHeaderBadge")));
     }
@@ -220,14 +191,12 @@ private Q_SLOTS:
     void tileBadgesAreLabelsAndOptionalSizeOverlay()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
-        // Both badges are Label text, never an Icon-name string
-        // (IconChromeTest bans the ★ character but a badge must still never
-        // masquerade as an icon).
+        // Badges are Label text, never Icon-name strings.
         QVERIFY(picker.contains(QStringLiteral("sourceBadgeLabel")));
         QVERIFY(picker.contains(QStringLiteral("gifSizeBadgeLabel")));
         QVERIFY(picker.contains(QStringLiteral("picker.formatBytes(tile.gifBytes)")));
-        // Badge/star scrims reuse the semantic overlayScrim token — no new
-        // hex or Qt.rgba literal was introduced for them.
+        // Badge and star scrims reuse the overlayScrim token; no new colour
+        // literals.
         QVERIFY(picker.contains(QStringLiteral("AppTheme.overlayScrim")));
         QVERIFY(!picker.contains(QStringLiteral("Qt.rgba(0, 0, 0, 0.35)")));
         // Keyboard-selected thumb border unchanged.
@@ -238,9 +207,8 @@ private Q_SLOTS:
     void gifBytesRoleIsAdditiveAndRequiredWithoutADefaultInitializer()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
-        // `required property real gifBytes` — NOT `... : 0` (a required
-        // property cannot take an initializer; the role is always present
-        // on both GifResultModel and GifStoredModel so this is safe).
+        // `required property real gifBytes` with no initializer (required
+        // properties cannot have one); both models always supply the role.
         QVERIFY(picker.contains(QStringLiteral("required property real gifBytes")));
         QVERIFY(!picker.contains(QStringLiteral("required property real gifBytes: 0")));
         QVERIFY(picker.contains(QStringLiteral("gifBytes: tile.gifBytes")));
@@ -249,17 +217,15 @@ private Q_SLOTS:
     void footerKeepsRealAttributionAndAddsSendHintOnly()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
-        // The footer is the RowLayout after the "── Footer:" comment through
-        // the end of the popup's contentItem: exactly one keycap ("↵ send"),
-        // never a second "⇧↵ preview" hint — no preview action exists.
+        // The footer is the RowLayout after the "── Footer:" comment through the
+        // end of the contentItem: exactly one keycap ("↵ send"), no preview
+        // hint (there is no preview action).
         const int footerStart = picker.indexOf(QStringLiteral("── Footer:"));
         QVERIFY(footerStart >= 0);
         const QString footer = picker.mid(footerStart);
-        // A provider tab shows that provider's required credit; a local list
-        // can hold rows from EITHER provider, so it credits every provider
-        // rather than whichever one happens to be active. Both branches are
-        // pinned with their leading punctuation so a bare substring match in a
-        // comment cannot satisfy them.
+        // A provider tab shows that provider's credit; a local list can hold
+        // rows from either provider, so it credits all of them. Pinned with
+        // leading punctuation so a comment cannot satisfy it.
         QVERIFY(footer.contains(QStringLiteral("text: picker.providerTab ? picker.gif.attribution")));
         QVERIFY(footer.contains(QStringLiteral(": picker.allProviderAttribution")));
         QVERIFY(!footer.contains(QStringLiteral("Tenor")));
@@ -268,15 +234,13 @@ private Q_SLOTS:
         QVERIFY(footer.contains(QStringLiteral("qsTr(\"send\")")));
         QVERIFY(!footer.contains(QStringLiteral("qsTr(\"preview\")")));
         QVERIFY(!footer.contains(QStringLiteral("ShiftModifier")));
-        // The credit for a local list is derived from the provider registry,
-        // never a literal brand list that could drift out of date.
+        // The local-list credit derives from the provider registry.
         QVERIFY(picker.contains(QStringLiteral(
             "return gif.providerIds.map(function(id) {")));
         QVERIFY(picker.contains(QStringLiteral("gif.providerAttribution(id)")));
     }
 
-    // Belt-and-suspenders re-pin of the nine invariants QmlBindingContractTest
-    // already owns — neither redesign moved any of these literals.
+    // Re-pin of the nine invariants QmlBindingContractTest owns.
     void nineInvariantsSurviveTheRedesign()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
@@ -300,11 +264,9 @@ private Q_SLOTS:
         QVERIFY(picker.contains(QStringLiteral("gif.toggleFavorite(")));
         QVERIFY(picker.contains(QStringLiteral("playing: picker.visible")));
         {
-            // A locally-saved tile has no provider previewUrl/stillUrl — both
-            // the static Image and the AnimatedImage branch on tile.provider,
-            // but the non-local fallback is still exactly tile.stillUrl /
-            // tile.previewUrl. Bounded to the tile delegate block so the
-            // negative check below cannot false-positive on anything outside.
+            // A locally saved tile has no provider URLs; both image branches
+            // switch on tile.provider, and the non-local fallback is exactly
+            // tile.stillUrl / tile.previewUrl. Bounded to the tile delegate.
             const int tileStart =
                 picker.indexOf(QStringLiteral("delegate: Item {"));
             const int tileEnd = picker.indexOf(
@@ -314,20 +276,17 @@ private Q_SLOTS:
             QVERIFY(tileBlock.contains(QStringLiteral(
                 "source: tile.provider === \"local\"\n"
                 "                                ? tile.localSource : tile.stillUrl")));
-            // review L7: a local STILL (png/jpg/webp) never feeds the
-            // movie backend — the local branch narrows to GIF-or-legacy
-            // rows; the non-local fallback stays exactly tile.previewUrl.
+            // A local still (png/jpg/webp) never feeds the movie backend: the
+            // local branch narrows to GIF or legacy rows.
             QVERIFY(tileBlock.contains(QStringLiteral(
                 "source: tile.provider === \"local\"\n"
                 "                                ? (tile.localExt.length === 0\n"
                 "                                   || tile.localExt === \"gif\"\n"
                 "                                   ? tile.localSource : \"\")\n"
                 "                                : tile.previewUrl")));
-            // The sendable original is NEVER rendered as a live image
-            // source anywhere in the tile. tile.gifUrl DOES legitimately
-            // appear once, in snapshot()'s "gifUrl: tile.gifUrl," field
-            // capture (send-time identity, not a rendered source) — the
-            // check is deliberately scoped to an actual `source:` binding.
+            // The sendable original is never a live image source. tile.gifUrl
+            // appears legitimately in snapshot()'s field capture, so the check
+            // is scoped to a `source:` binding.
             QVERIFY(!tileBlock.contains(QStringLiteral("source: tile.gifUrl")));
         }
         QVERIFY(picker.contains(QStringLiteral("GifSearchController.MissingKey")));
@@ -349,12 +308,9 @@ private Q_SLOTS:
         QVERIFY(!picker.contains(QStringLiteral("sendTextMessage")));
     }
 
-    // The Saved tab binds the merged model as a real Q_PROPERTY. A text scan
-    // alone cannot prove the binding does not throw at runtime — see
-    // GifPickerSelectionQmlTest::savedTabBindsTheMergedModelNotResults for the
-    // real-engine assertion. (The v0.6.6 live bug was exactly this: a
-    // non-invokable `.model()` call threw and Qt silently left activeModel at
-    // its previous value.)
+    // The Saved tab binds the merged model as a real Q_PROPERTY. Whether the
+    // binding throws at runtime is covered by
+    // GifPickerSelectionQmlTest::savedTabBindsTheMergedModelNotResults.
     void savedTabBindsTheMergedModelProperty()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
@@ -368,7 +324,7 @@ private Q_SLOTS:
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
         // No network on a local list: pagination, the busy spinner and the
-        // search field are all gated on providerTab.
+        // search field are gated on providerTab.
         QVERIFY(picker.contains(QStringLiteral(
             "if (!picker.providerTab || contentHeight <= 0)")));
         QVERIFY(picker.contains(QStringLiteral(
@@ -376,20 +332,18 @@ private Q_SLOTS:
             "                     && picker.gif.state === GifSearchController.Loading")));
         QVERIFY(picker.contains(QStringLiteral("visible: picker.providerTab")));
         QVERIFY(picker.contains(QStringLiteral("visible: !picker.providerTab")));
-        // Its own empty-state copy names the one place a star ever leads.
+        // The empty-state copy names where a star leads.
         QVERIFY(picker.contains(QStringLiteral(
             "No saved GIFs yet. Press the star on any GIF — ")));
         QVERIFY(picker.contains(QStringLiteral("qsTr(\"No recent GIFs yet.\")")));
-        // The old copy pointed at a separate destination and must be gone.
+        // The old copy pointing elsewhere is gone.
         QVERIFY(!picker.contains(QStringLiteral("No favorites yet")));
         QVERIFY(!picker.contains(QStringLiteral("save it here")));
     }
 
-    // A local list hides searchField — the component that hands focus to the
-    // grid on every provider tab — along with the category chips, so without
-    // these two entry points the grid would be entirely keyboard-unreachable
-    // there. (This was a real, reviewed a11y regression when the Starred tab
-    // first landed; the same hazard applies to both lists now.)
+    // A local list hides searchField (which hands focus to the grid on
+    // provider tabs) and the category chips, so the grid needs its own
+    // keyboard entry points there.
     void localListGridIsKeyboardReachable()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
@@ -407,27 +361,24 @@ private Q_SLOTS:
                 "                    currentIndex = 0\n"
                 "            }")));
         }
-        // v0.6.7 review (M1): the tile's save button is a focusable control,
-        // so Tab lands on it — it must reveal itself on focus and carry a
-        // ring, exactly as the chat star does. Without this, Tab focused a
-        // fully transparent button.
+        // The tile's save button is focusable, so it reveals itself on focus
+        // and draws a ring, like the chat star.
         QVERIFY(picker.contains(QStringLiteral(
             "opacity: tileHover.hovered || tile.current\n"
             "                                 || saveButton.visualFocus ? 1 : 0")));
         QVERIFY(picker.contains(QStringLiteral(
             "visible: saveButton.visualFocus")));
 
-        // v0.6.7 review (L2): deleting the section-chip row removed the
-        // "Trending" chip and with it the only in-session route back from a
-        // category. The selected category chip toggles off instead.
+        // The selected category chip toggles off, the in-session route back
+        // from a category.
         QVERIFY(picker.contains(QStringLiteral(
             "picker.gif.mode === GifSearchController.Category")));
         QVERIFY(picker.contains(QStringLiteral(
             "if (categoryChip.selected)\n"
             "                            picker.gif.showTrending()")));
 
-        // Down on the nav row hands off exactly like searchField's own
-        // Down/Return handlers do for a provider tab, and is a no-op there.
+        // Down on the nav row hands off to the grid like searchField's
+        // Down/Return do on a provider tab.
         QVERIFY(picker.contains(QStringLiteral(
             "Keys.onDownPressed: picker.focusGridFromTabs()")));
         const int start = picker.indexOf(QStringLiteral("function focusGridFromTabs"));
@@ -439,51 +390,33 @@ private Q_SLOTS:
         QVERIFY(body.contains(QStringLiteral("grid.forceActiveFocus()")));
     }
 
-    // Moved here from QmlBindingContractTest::gifPickerWiredIntoBothComposers,
-    // which had grown 170 lines of GifPicker INTERNALS under a name that
-    // promises only the composer wiring. Twenty-six of its forty-one needles
-    // were already asserted in this file — its own comments pointed here and
-    // at GifPickerSelectionQmlTest for the real-engine version — so the
-    // duplicates are gone and these, the ones with no other home, live here
-    // with the rest of the picker's contract.
-    //
-    // Every provider-facing action goes through the CONTROLLER. The picker
-    // holds no endpoint, no key and no pagination cursor of its own (§10),
-    // so a text scan of who it calls is exactly the right shape of proof.
+    // Every provider-facing action goes through the controller: the picker
+    // holds no endpoint, key or pagination cursor of its own, so a text scan
+    // of what it calls is the right proof.
     void providerTabsSearchAndPaginationRunThroughTheController()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
         QVERIFY(!picker.isEmpty());
-        // Provider tabs and attribution follow the ACTIVE provider — nothing
-        // is hard-coded per vendor.
+        // Provider tabs and attribution follow the active provider.
         QVERIFY(picker.contains(QStringLiteral("picker.gif.providerIds")));
         QVERIFY(picker.contains(QStringLiteral("picker.gif.attribution")));
         // Debounced search, categories and pagination, all via the controller.
         QVERIFY(picker.contains(QStringLiteral("gif.setQueryText(text)")));
         QVERIFY(picker.contains(QStringLiteral("gif.openCategory(modelData)")));
         QVERIFY(picker.contains(QStringLiteral("picker.gif.loadMore()")));
-        // The grid renders the ACTIVE tab's model, never one tab's model with
-        // another tab's chrome.
+        // The grid renders the active tab's model.
         QVERIFY(picker.contains(QStringLiteral("model: picker.activeModel")));
         QVERIFY(picker.contains(QStringLiteral("gif.saved")));
         QVERIFY(picker.contains(QStringLiteral("gif.recent")));
-        // v0.6.6 live bug: calling a plain C++ method (not Q_INVOKABLE, not a
-        // property) from a QML binding THROWS, Qt swallows it in
-        // QQmlBinding::update, and the tab silently keeps rendering whatever
-        // the binding held before — GIPHY trending, with every other element
-        // correctly switched. Every model reached from a binding is a real
-        // Q_PROPERTY read as a property. `gif.saved()` and
-        // `gif.starredStore.model()` are pinned in savedTabBindsTheMerged-
-        // ModelProperty above; these two complete the set.
+        // Calling a non-invokable C++ method from a binding throws, Qt swallows
+        // it, and the tab keeps its previous model. Every model reached from a
+        // binding is a Q_PROPERTY read; savedTabBindsTheMergedModelProperty
+        // pins `gif.saved()` and `gif.starredStore.model()`, these the rest.
         QVERIFY(!picker.contains(QStringLiteral("gif.recent()")));
         QVERIFY(!picker.contains(QStringLiteral("favoritesAndStarred")));
-        // v0.7 live bug: sending must resolve the clicked row against the
-        // model the user is looking at. Reading gif.results in choose() sent
-        // the first Trending item when a favorite was clicked. The mouse path
-        // hands over the delegate's own captured snapshot, so it cannot drift,
-        // and the snapshot carries provider-qualified identity — an
-        // unidentifiable row is dropped by choose()'s guard, never
-        // substituted.
+        // Sending resolves the clicked row against the model on screen: the
+        // mouse path hands over the delegate's captured, provider-qualified
+        // snapshot, and an unidentifiable row is dropped, never substituted.
         {
             const int snapStart =
                 picker.indexOf(QStringLiteral("function snapshot()"));

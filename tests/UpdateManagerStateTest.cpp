@@ -1,15 +1,10 @@
-// Lightning secure update system: the UpdateManager state machine.
+// The UpdateManager state machine: decision policy (newer / same / older /
+// prerelease / tampered), managed-install refusals, the argv contract handed
+// to the updater helper, privacy defaults, and account-independent update
+// settings. The signing key is generated at runtime; no network access.
 //
-// Covers the decision policy (newer / same / older / prerelease / tampered),
-// the managed-install refusals, the argv contract handed to the updater
-// helper, the privacy defaults, and the account-independence of the update
-// settings. The signing key is generated at runtime; no key material and no
-// network access are involved.
-//
-// Cross-account safety is proven twice here: the link set of this test
-// binary contains no Matrix, account or SDK code at all — an UpdateManager
-// has no way to reach one — and the settings assertions pin every persisted
-// key under the non-account-scoped "update/" group.
+// This binary links no Matrix, account or SDK code, and the settings
+// assertions pin every persisted key under the non-account "update/" group.
 
 #include "update/InstallType.h"
 #include "update/UpdateDownloader.h"
@@ -139,9 +134,8 @@ QJsonObject manifestObject(const QString &version, bool withDebArtifact = true,
     manifest.insert(QStringLiteral("version"), version);
     manifest.insert(QStringLiteral("channel"), QStringLiteral("stable"));
     manifest.insert(QStringLiteral("tag"), QStringLiteral("v") + version);
-    // Informational: a manifest past its expiry (or without one) still
-    // works and merely says so. A far-future value keeps that line out of
-    // every other case.
+    // Expiry is informational; a far-future value keeps the stale notice out
+    // of every other case.
     manifest.insert(QStringLiteral("expires"), QStringLiteral("2099-01-01T00:00:00Z"));
     manifest.insert(QStringLiteral("release_notes"), QStringLiteral("Notes for ") + version);
     if (withDebArtifact) {
@@ -181,11 +175,8 @@ QJsonObject manifestWithArtifact(const QString &version, const QString &installT
     return manifest;
 }
 
-// --- mirror-first download fixtures ---------------------------------------
-//
-// These use REAL bytes and their REAL SHA-256, because the whole point of the
-// mirror path is that both sources are verified against the one hash in the
-// signed manifest.
+// Mirror-first download fixtures, with real bytes and their real SHA-256: both
+// sources are verified against the one hash in the signed manifest.
 
 const QByteArray &payloadBytes()
 {
@@ -193,7 +184,7 @@ const QByteArray &payloadBytes()
     return bytes;
 }
 
-// Same LENGTH, different content: a pure integrity failure, not a size one.
+// Same length, different content: a pure integrity failure.
 const QByteArray &tamperedBytes()
 {
     static const QByteArray bytes = QByteArray(4096, 'X');
@@ -244,10 +235,9 @@ QJsonObject mirroredManifest(const QString &version)
         version, mirrorArtifactUrl(version, QStringLiteral("lightning_%1_amd64.deb").arg(version)));
 }
 
-// Records every address a download attempt asks for, and answers each with
-// canned bytes (or a transport failure). Nothing here can weaken verification:
-// the manager streams whatever this returns through the real downloader, and
-// the manifest's size and SHA-256 still decide the outcome.
+// Records every address a download asks for and answers with canned bytes or
+// a transport failure. The real downloader still verifies against the
+// manifest's size and SHA-256.
 class ByteSourceRecorder
 {
 public:
@@ -352,9 +342,8 @@ private:
         manager->ingestCheckDocuments(bytes, sign(bytes));
     }
 
-    // A manager with its OWN staging directory (so what a download left
-    // behind can be asserted) and a recorded byte source instead of a
-    // network. Verification is untouched by the seam.
+    // A manager with its own staging directory and a recorded byte source
+    // instead of a network; verification is untouched.
     std::unique_ptr<UpdateManager> makeDownloadManager(const QString &stagingRoot,
                                                        ByteSourceRecorder *source)
     {
@@ -423,7 +412,7 @@ private slots:
     void requestsCarryOnlyTheLightningVersion();
     void managedHelpOffersACopyableCommand();
 
-    // --- regressions found by review ---
+    // Regressions.
     void stagedArtifactTakesTheManifestFilename_data();
     void stagedArtifactTakesTheManifestFilename();
     void portableInstallTargetsTheApplicationDirectory();
@@ -437,7 +426,7 @@ private slots:
     void staleStagedArtifactsAreSweptAtStartup();
     void aRedirectThatCannotTruncateReportsAFailure();
 
-    // --- GitHub bandwidth mirror (mirror-first, one canonical fallback) ---
+    // GitHub bandwidth mirror (mirror first, one canonical fallback).
     void usesTheMirrorFirstWhenTheManifestNamesOne();
     void fallsBackToTheCanonicalSourceWhenTheMirrorIsUnreachable();
     void fallsBackWhenTheMirrorServesModifiedBytes();
@@ -447,7 +436,7 @@ private slots:
     void cancellingBetweenAttemptsStopsTheFallback();
     void updateSourcesNeverUseTheGitHubApi();
 
-    // --- freshness, prerelease policy, and the hand-over digest ---
+    // Freshness, prerelease policy, and the hand-over digest.
     void anExpiredManifestStillOffersTheUpdateAndSaysSo();
     void theFallbackFetcherHopsOnlyWithinTheMirror();
     void aCanonicalAnswerThatDoesNotVerifyFallsBackToTheMirror();
@@ -492,11 +481,8 @@ void UpdateManagerStateTest::startsIdleWithAutomaticChecksOff()
 {
     const auto manager = makeManager(InstallType::LinuxDeb);
     QCOMPARE(manager->state(), UpdateManager::Idle);
-    // v0.7.3: automatic checking is ON by default (maintainer decision) —
-    // an installation that never learns a newer version exists is the worse
-    // outcome. What the privacy work protects is unchanged and asserted
-    // elsewhere: the check is anonymous, rate limited, never during startup,
-    // and switchable off, which is verified here rather than assumed.
+    // Automatic checking is on by default; the check is anonymous, rate
+    // limited, never during startup, and can be switched off.
     QVERIFY(manager->automaticChecksEnabled());
     manager->setAutomaticChecksEnabled(false);
     QVERIFY(!manager->automaticChecksEnabled());
@@ -540,7 +526,7 @@ void UpdateManagerStateTest::refusesToDowngrade()
     ingest(manager.get(), manifestObject(QStringLiteral("0.8.0")));
     QCOMPARE(manager->state(), UpdateManager::UpToDate);
     QVERIFY(!manager->updateAvailable());
-    // The situation is disclosed rather than silently ignored.
+    // The situation is disclosed, not silently ignored.
     QVERIFY(manager->statusDetail().contains(QStringLiteral("0.8.0")));
     QVERIFY(manager->statusDetail().contains(QStringLiteral("downgrade")));
 }
@@ -562,15 +548,14 @@ void UpdateManagerStateTest::failsOnATamperedManifest()
     const QByteArray envelope = sign(bytes);
     bytes.replace("0.8.0", "0.9.0");
     // Through the real entry point, so the check is in the state production
-    // reaches (the network seam is disabled, so nothing is fetched).
+    // reaches (the network seam fetches nothing).
     manager->checkForUpdates();
     QCOMPARE(manager->state(), UpdateManager::Checking);
     manager->ingestCheckDocuments(bytes, envelope);
     if (!lightning::update::mirrorLatestManifestUrl().isEmpty()) {
-        // A canonical answer that does not verify is retried from the
-        // mirror once, so the FIRST tampered pair chooses the mirror and a
-        // tampered mirror pair is terminal. A build with no fallback
-        // compiled in (supported) fails on the first.
+        // A canonical answer that does not verify is retried from the mirror
+        // once; a tampered mirror answer is terminal. Without a compiled-in
+        // fallback (supported) the first failure is terminal.
         QCOMPARE(manager->state(), UpdateManager::Checking);
         QVERIFY(manager->metadataFromMirrorForTest());
         manager->ingestCheckDocuments(bytes, envelope);
@@ -595,8 +580,8 @@ void UpdateManagerStateTest::failsOnAnUnknownKey()
     manager->checkForUpdates();
     manager->ingestCheckDocuments(bytes, rogue);
     if (!lightning::update::mirrorLatestManifestUrl().isEmpty()) {
-        // Unknown key on the canonical answer: the mirror is tried once; the
-        // same unknown key from the mirror is terminal.
+        // Unknown key on the canonical answer: try the mirror once; the same
+        // key from the mirror is terminal.
         QCOMPARE(manager->state(), UpdateManager::Checking);
         QVERIFY(manager->metadataFromMirrorForTest());
         manager->ingestCheckDocuments(bytes, rogue);
@@ -609,7 +594,7 @@ void UpdateManagerStateTest::failsOnAnUnparseableLocalVersion()
 {
     const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("nightly"));
     ingest(manager.get(), manifestObject(QStringLiteral("0.8.0")));
-    // Never "assume newer": an incomparable local version is a failure.
+    // Never assume newer: an incomparable local version is a failure.
     QCOMPARE(manager->state(), UpdateManager::Failed);
     QVERIFY(!manager->updateAvailable());
 }
@@ -622,7 +607,7 @@ void UpdateManagerStateTest::reportsAReleaseWithoutADownloadForThisInstallType()
     QVERIFY(manager->updateAvailable());
     QVERIFY(manager->statusDetail().contains(QStringLiteral("manually")));
 
-    // Downloading is refused: there is nothing verified to download.
+    // Downloading is refused: nothing verified to download.
     manager->downloadUpdate();
     QCOMPARE(manager->state(), UpdateManager::Failed);
 }
@@ -638,7 +623,7 @@ void UpdateManagerStateTest::developmentBuildsDoNotCheckWithoutOptIn()
                                      /*diagnosticOverride=*/false,
                                      /*developmentCheckAllowed=*/true);
     optedIn->checkForUpdates();
-    // The check is allowed to start (the network is stubbed out here).
+    // The check may start (the network is stubbed out).
     QCOMPARE(optedIn->state(), UpdateManager::Checking);
     ingest(optedIn.get(), manifestObject(QStringLiteral("0.8.0")));
     QCOMPARE(optedIn->state(), UpdateManager::UpdateAvailable);
@@ -691,7 +676,7 @@ void UpdateManagerStateTest::flatpakInstallIsRefusedWithoutRunningAnything()
     QCOMPARE(refusedSpy.count(), 1);
     QVERIFY(!launched);
     QVERIFY(refusedSpy.at(0).at(0).toString().contains(QStringLiteral("managed")));
-    // No hidden state change, and certainly no "install anyway" path.
+    // No hidden state change and no "install anyway" path.
     QCOMPARE(manager->state(), UpdateManager::ReadyToInstall);
 }
 
@@ -742,8 +727,8 @@ void UpdateManagerStateTest::installLaunchesTheHelperWithAnArgumentVector()
     manager->setStagedArtifactForTest(m_artifactPath);
 
     manager->installUpdate();
-    // installUpdate() hands over at QUIT, not at the click (the helper's wait
-    // for our PID is bounded). Drive that here so the argument vector exists.
+    // installUpdate() hands over at quit, not at the click (the helper waits
+    // for our PID for a bounded time), so trigger aboutToQuit.
     QMetaObject::invokeMethod(QCoreApplication::instance(), "aboutToQuit");
     QCOMPARE(manager->state(), UpdateManager::RestartRequired);
     QCOMPARE(program, m_helperPath);
@@ -758,8 +743,7 @@ void UpdateManagerStateTest::installLaunchesTheHelperWithAnArgumentVector()
     QVERIFY(arguments.contains(QStringLiteral("--pid")));
     QVERIFY(arguments.contains(QStringLiteral("--target")));
     QVERIFY(arguments.contains(QStringLiteral("--status")));
-    // installUpdate() is "apply this when I quit". It must NOT ask the helper
-    // to start Lightning again afterwards.
+    // "Apply when I quit" must not ask the helper to relaunch Lightning.
     QVERIFY(!arguments.contains(QStringLiteral("--relaunch")));
 
     // The program is the compiled-in helper, not an interpreter, and no
@@ -820,13 +804,13 @@ void UpdateManagerStateTest::dismissingAVersionPersists()
         QCOMPARE(manager->dismissedVersion(), QStringLiteral("0.8.0"));
         QCOMPARE(dismissedSpy.count(), 1);
     }
-    // A new manager (a later launch) reads the same non-account-scoped key.
+    // A later launch reads the same non-account-scoped key.
     const auto reopened = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
     QCOMPARE(reopened->dismissedVersion(), QStringLiteral("0.8.0"));
 }
 
-// v0.7.3: the rail badge and the corner prompt both read this one property.
-// It must be per-VERSION, so dismissing one release cannot silence the next.
+// The update badge and corner prompt read updateAvailableWarning, which is
+// per version: dismissing one release does not silence the next.
 void UpdateManagerStateTest::updateAvailableWarningTracksDismissalPerVersion()
 {
     const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
@@ -840,12 +824,11 @@ void UpdateManagerStateTest::updateAvailableWarningTracksDismissalPerVersion()
     QVERIFY(manager->updateAvailableWarning());
     QVERIFY(warningSpy.count() > 0);
 
-    // Dismissing is a real, persisted answer for THIS version.
+    // Dismissing is a persisted answer for this version.
     manager->dismissVersion();
     QVERIFY(!manager->updateAvailableWarning());
 
-    // A later release asks again — the whole point of dismissing by version
-    // rather than setting a "don't tell me" flag.
+    // A later release asks again.
     ingest(manager.get(), manifestObject(QStringLiteral("0.9.0")));
     QCOMPARE(manager->state(), UpdateManager::UpdateAvailable);
     QVERIFY(manager->updateAvailableWarning());
@@ -890,10 +873,9 @@ void UpdateManagerStateTest::settingsAreApplicationWideNotAccountScoped()
 {
     {
         const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
-        // Toggled OFF, which since v0.7.3 is the change that actually writes
-        // the key: the setter is a no-op when the value already matches, and
-        // the default is now true. Writing it is what this test needs — the
-        // point is WHERE it is stored, not which way it is set.
+        // Toggle off so the key is actually written (the setter is a no-op on
+        // an unchanged value and the default is on); what matters is where it
+        // is stored.
         manager->setAutomaticChecksEnabled(false);
         ingest(manager.get(), manifestObject(QStringLiteral("0.8.0")));
         manager->dismissVersion();
@@ -904,8 +886,8 @@ void UpdateManagerStateTest::settingsAreApplicationWideNotAccountScoped()
     const QStringList keys = settings.allKeys();
     QVERIFY(!keys.isEmpty());
     for (const QString &key : keys) {
-        // Everything the update system persists lives under "update/", and
-        // nothing is scoped to an account, user id, or homeserver.
+        // Everything persisted lives under "update/", scoped to no account,
+        // user id or homeserver.
         QVERIFY2(key.startsWith(QStringLiteral("update/")), qPrintable(key));
         QVERIFY2(!key.contains(QStringLiteral("accounts")), qPrintable(key));
         QVERIFY2(!key.contains(QLatin1Char('@')), qPrintable(key));
@@ -923,10 +905,9 @@ void UpdateManagerStateTest::requestsCarryOnlyTheLightningVersion()
 {
     const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
     const QString agent = manager->userAgentString();
-    // Version ONLY — byte for byte the string rust/src/lib.rs USER_AGENT and
-    // CppHttpMatrixClient already send. No platform, architecture, build id
-    // or locale token: an update check must not be more identifying than
-    // ordinary Lightning traffic.
+    // Version only, identical to the Lightning user agent elsewhere
+    // (rust/src/lib.rs, CppHttpMatrixClient): no platform, architecture, build
+    // id or locale.
     QCOMPARE(agent, QStringLiteral("Lightning/0.7.0"));
     QVERIFY(!agent.contains(QLatin1Char('@')));
     QVERIFY(!agent.contains(QLatin1Char('(')));
@@ -948,9 +929,7 @@ void UpdateManagerStateTest::managedHelpOffersACopyableCommand()
     QVERIFY(deb->managedUpdateCommand().isEmpty());
 }
 
-// ---------------------------------------------------------------------------
-// Regressions found by the independent review of the update system.
-// ---------------------------------------------------------------------------
+// Regressions.
 
 void UpdateManagerStateTest::stagedArtifactTakesTheManifestFilename_data()
 {
@@ -975,8 +954,8 @@ void UpdateManagerStateTest::stagedArtifactTakesTheManifestFilename()
     ingest(manager.get(), manifestWithArtifact(QStringLiteral("0.8.0"), typeId, filename));
     QCOMPARE(manager->state(), UpdateManager::UpdateAvailable);
 
-    // A download streams into an unpredictable "*.part" name, exactly as the
-    // real path does.
+    // A download streams into an unpredictable "*.part" name, as the real
+    // path does.
     const QString partPath =
         QDir(m_staging.path()).absoluteFilePath(QStringLiteral("lightning-update-a7Xk21.part"));
     {
@@ -995,23 +974,21 @@ void UpdateManagerStateTest::stagedArtifactTakesTheManifestFilename()
     QCOMPARE(manager->state(), UpdateManager::ReadyToInstall);
 
     manager->installUpdate();
-    // installUpdate() hands over at QUIT, not at the click (the helper's wait
-    // for our PID is bounded). Drive that here so the argument vector exists.
+    // The hand-over happens at quit; trigger aboutToQuit.
     QMetaObject::invokeMethod(QCoreApplication::instance(), "aboutToQuit");
     const int artifactIndex = arguments.indexOf(QStringLiteral("--artifact"));
     QVERIFY(artifactIndex >= 0);
     const QString staged = arguments.at(artifactIndex + 1);
 
-    // This is the whole defect: `apt-get install <path>` only treats an
-    // argument as a LOCAL package when it contains '/' AND ends in ".deb";
-    // dnf/dnf5 key on ".rpm" and `msiexec /i` on ".msi". A "*.part" name
-    // reaches the package manager as an unknown package NAME, so the install
-    // fails after the user has already answered a PolicyKit prompt.
+    // The staged file takes the manifest's filename: apt-get only treats an
+    // argument containing '/' and ending in ".deb" as a local package (dnf on
+    // ".rpm", msiexec on ".msi"), so a "*.part" name fails after the PolicyKit
+    // prompt.
     QCOMPARE(QFileInfo(staged).fileName(), filename);
     QVERIFY(!staged.endsWith(QStringLiteral(".part")));
     QVERIFY(QFileInfo(staged).isAbsolute());
     QVERIFY(staged.contains(QLatin1Char('/')));
-    // Renamed inside the private staging directory; nothing left the root.
+    // Renamed inside the private staging directory.
     QCOMPARE(QDir::cleanPath(QFileInfo(staged).absolutePath()),
              QDir::cleanPath(m_staging.path()));
     QVERIFY(QFileInfo::exists(staged));
@@ -1032,15 +1009,13 @@ void UpdateManagerStateTest::portableInstallTargetsTheApplicationDirectory()
     });
     manager->setStagedArtifactForTest(m_artifactPath);
     manager->installUpdate();
-    // installUpdate() hands over at QUIT, not at the click (the helper's wait
-    // for our PID is bounded). Drive that here so the argument vector exists.
+    // The hand-over happens at quit; trigger aboutToQuit.
     QMetaObject::invokeMethod(QCoreApplication::instance(), "aboutToQuit");
 
     const int targetIndex = arguments.indexOf(QStringLiteral("--target"));
     QVERIFY(targetIndex >= 0);
-    // UpdaterArgs refuses a non-directory --target for windows-portable
-    // (swapDirectory replaces the whole install directory), so passing the
-    // executable path killed every portable update at argument parsing.
+    // windows-portable targets the install directory: UpdaterArgs refuses a
+    // non-directory --target for that mode (the whole directory is swapped).
     QCOMPARE(arguments.at(targetIndex + 1), QCoreApplication::applicationDirPath());
     QVERIFY(QFileInfo(arguments.at(targetIndex + 1)).isDir());
 
@@ -1070,9 +1045,8 @@ void UpdateManagerStateTest::onlyInstallAndRestartAsksTheHelperToRelaunch()
     });
     quiet->setStagedArtifactForTest(m_artifactPath);
     quiet->installUpdate();
-    // installUpdate() defers the launch to quit, so drive that here —
-    // otherwise quietArguments stays empty and "does not contain --relaunch"
-    // would be trivially true no matter what the code did.
+    // The launch is deferred to quit; trigger it, or "does not contain
+    // --relaunch" would be trivially true.
     QMetaObject::invokeMethod(QCoreApplication::instance(), "aboutToQuit");
     QVERIFY(!quietArguments.isEmpty());
     QVERIFY(!quietArguments.contains(QStringLiteral("--relaunch")));
@@ -1090,12 +1064,9 @@ void UpdateManagerStateTest::onlyInstallAndRestartAsksTheHelperToRelaunch()
     QCOMPARE(restartArguments.at(index + 1), QCoreApplication::applicationFilePath());
 }
 
-// The helper waits for our PID for a BOUNDED time (two minutes, see
-// src/updater/ProcessWaiter.h). Launching it at the click for the
-// "apply when I quit" path promised something it could not keep: a user who
-// kept working for twenty minutes would find it had long since timed out,
-// while the UI still said the update was queued. The launch therefore happens
-// at aboutToQuit, which is the only moment the wait can succeed.
+// The helper waits for our PID for a bounded time (ProcessWaiter.h), so the
+// "apply when I quit" hand-over launches at aboutToQuit, the only moment the
+// wait can succeed.
 void UpdateManagerStateTest::installWithoutRestartDefersTheHandoffUntilQuit()
 {
     const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
@@ -1109,7 +1080,7 @@ void UpdateManagerStateTest::installWithoutRestartDefersTheHandoffUntilQuit()
     manager->installUpdate();
     QCOMPARE(launches, 0);
     QCOMPARE(manager->state(), UpdateManager::RestartRequired);
-    // And it must not promise a deadline it does not enforce.
+    // It must not promise a deadline it does not enforce.
     QVERIFY(!manager->handoffSummary().contains(QStringLiteral("minute")));
 
     QMetaObject::invokeMethod(QCoreApplication::instance(), "aboutToQuit");
@@ -1128,15 +1099,15 @@ void UpdateManagerStateTest::handoffNeverClaimsTheUpdateWasInstalled()
     manager->installUpdate();
 
     QCOMPARE(manager->state(), UpdateManager::RestartRequired);
-    // RestartRequired means "handed off"; the helper is still waiting for
-    // this PID and has installed nothing.
+    // RestartRequired means "handed off"; the helper is still waiting and has
+    // installed nothing.
     const QString summary = manager->handoffSummary();
     QVERIFY(!summary.isEmpty());
     QCOMPARE(manager->statusDetail(), summary);
     QVERIFY(summary.contains(QStringLiteral("Nothing has been installed yet")));
     QVERIFY(!summary.contains(QStringLiteral("installed successfully")));
     QVERIFY(!summary.contains(QStringLiteral("updated")));
-    // And the outcome is genuinely not known yet.
+    // The outcome is not known yet.
     QCOMPARE(manager->lastUpdateResult(), UpdateManager::NoResult);
 
     const auto restarting = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
@@ -1182,9 +1153,8 @@ void UpdateManagerStateTest::helperFailureStatusIsSurfacedWithItsError()
 {
     QTemporaryDir root;
     QVERIFY(root.isValid());
-    // Exactly what src/updater/main.cpp writes when the package manager
-    // returns non-zero. Without this being read, every post-handoff failure
-    // was invisible to the user.
+    // What src/updater/main.cpp writes when the package manager returns
+    // non-zero, so post-handoff failures are shown to the user.
     QVERIFY(writeHelperStatus(root.path(), false, QStringLiteral("linux-deb"),
                               QStringLiteral("installer-exit-100")));
 
@@ -1234,12 +1204,12 @@ void UpdateManagerStateTest::unusableStatusFileIsSimplyNoResult()
 
     UpdateManager manager;
     manager.setStagingRootForTest(root.path());
-    // Never a crash, never a fabricated success, never a fabricated failure.
+    // Never a crash, a fabricated success, or a fabricated failure.
     QCOMPARE(manager.lastUpdateResult(), UpdateManager::NoResult);
     QVERIFY(manager.lastUpdateError().isEmpty());
     QVERIFY(manager.lastUpdateMode().isEmpty());
     QCOMPARE(manager.state(), UpdateManager::Idle);
-    // Unreadable rubbish is consumed too, so it cannot be re-examined forever.
+    // Unreadable content is consumed too, so it is not re-examined forever.
     QVERIFY(!QFileInfo::exists(statusPath));
 }
 
@@ -1275,15 +1245,15 @@ void UpdateManagerStateTest::staleStagedArtifactsAreSweptAtStartup()
     UpdateManager manager;
     manager.setStagingRootForTest(root.path());
 
-    // A verified-but-never-installed package is potentially a hundred
-    // megabytes; it must not live in the cache forever.
+    // A verified but never-installed package can be large; it must not stay in
+    // the cache forever.
     QVERIFY(!QFileInfo::exists(stale));
     QVERIFY(!QFileInfo::exists(stalePart));
     // Recent work and the single-instance lock are untouched.
     QVERIFY(QFileInfo::exists(fresh));
     QVERIFY(QFileInfo::exists(lock));
 
-    // And nothing outside the staging root is reachable: the sweep lists one
+    // Nothing outside the staging root is reachable: the sweep lists one
     // directory, non-recursively, excluding symlinks.
     QTemporaryDir elsewhere;
     QVERIFY(elsewhere.isValid());
@@ -1319,8 +1289,8 @@ void UpdateManagerStateTest::aRedirectThatCannotTruncateReportsAFailure()
         file.close();
     }
 
-    // Read-only handle: truncating it genuinely fails. Asserted, so the case
-    // cannot silently stop testing anything.
+    // A read-only handle, so truncation genuinely fails; asserted so the case
+    // cannot silently stop testing.
     QFile readOnly(path);
     QVERIFY(readOnly.open(QIODevice::ReadOnly));
     QVERIFY(!readOnly.resize(0));
@@ -1338,16 +1308,14 @@ void UpdateManagerStateTest::aRedirectThatCannotTruncateReportsAFailure()
     downloader.prepareForTest(&readOnly, 4096, kHash);
     downloader.restartForTest();
 
-    // Before the fix this set an internal flag and returned quietly:
-    // onCompleted() then returned false without ever calling fail(), so
-    // finished() was never emitted, the stall timer was already stopped, and
-    // UpdateManager sat in Downloading forever holding the lock.
+    // A failed restart reports through fail(), so finished() is emitted and
+    // UpdateManager does not sit in Downloading holding the lock.
     QCOMPARE(calls, 1);
     QVERIFY(!ok);
     QCOMPARE(seen, TransferError::FileError);
     readOnly.close();
 
-    // A restart that CAN truncate resets the file and reports nothing.
+    // A restart that can truncate resets the file and reports nothing.
     QFile writable(path);
     QVERIFY(writable.open(QIODevice::WriteOnly));
     writable.write("partial");
@@ -1365,13 +1333,9 @@ void UpdateManagerStateTest::aRedirectThatCannotTruncateReportsAFailure()
     QFile::remove(path);
 }
 
-// ---------------------------------------------------------------------------
-// GitHub bandwidth mirror.
-//
-// GitLab decides WHAT may be installed; GitHub is only a faster place to get
-// the bytes that decision already named, sized and hashed. Every case below
-// exists to keep that asymmetry true.
-// ---------------------------------------------------------------------------
+// GitHub bandwidth mirror. GitLab decides what may be installed; GitHub is
+// only a faster source for bytes the signed manifest already named, sized and
+// hashed.
 
 void UpdateManagerStateTest::usesTheMirrorFirstWhenTheManifestNamesOne()
 {
@@ -1394,8 +1358,8 @@ void UpdateManagerStateTest::usesTheMirrorFirstWhenTheManifestNamesOne()
     manager->downloadUpdate();
     QTRY_COMPARE(manager->state(), UpdateManager::ReadyToInstall);
 
-    // The mirror was asked FIRST, and once it answered correctly the
-    // canonical address was never contacted at all.
+    // The mirror was asked first, and after it answered correctly the
+    // canonical address was never contacted.
     QCOMPARE(source.requests.size(), 1);
     QCOMPARE(source.requests.first().host(), mirrorHost());
     QCOMPARE(manager->artifactSource(), QStringLiteral("mirror"));
@@ -1420,8 +1384,8 @@ void UpdateManagerStateTest::fallsBackToTheCanonicalSourceWhenTheMirrorIsUnreach
     const QString version = QStringLiteral("0.8.0");
     const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
 
-    // The mirror is simply not there (DNS failure / 404 / 500 — all the same
-    // from here). Only the canonical address answers.
+    // The mirror is unreachable (DNS failure / 404 / 500); only the canonical
+    // address answers.
     ByteSourceRecorder source;
     source.serve(artifactUrl(version, filename), payloadBytes());
 
@@ -1434,15 +1398,15 @@ void UpdateManagerStateTest::fallsBackToTheCanonicalSourceWhenTheMirrorIsUnreach
              (QStringList{ mirrorHost(), lightning::update::canonicalUpdateHost() }));
     QCOMPARE(manager->artifactSource(), QStringLiteral("canonical"));
     QVERIFY(manager->errorMessage().isEmpty());
-    // A persistently useless mirror must be visible, not silent.
+    // A persistently useless mirror is reported, not silent.
     QVERIFY(manager->statusDetail().contains(QStringLiteral("mirror")));
 
     QCOMPARE(manager->totalBytes(), qint64(payloadBytes().size()));
     QCOMPARE(manager->downloadedBytes(), qint64(payloadBytes().size()));
     QCOMPARE(manager->downloadProgress(), 1.0);
 
-    // Exactly one file is left: the verified artifact. The mirror attempt's
-    // partial file was removed before the fallback wrote a single byte.
+    // Only the verified artifact is left: the mirror attempt's partial file
+    // was removed before the fallback wrote anything.
     QCOMPARE(stagedFiles(root.path()), QStringList{ filename });
     QFile file(manager->stagedArtifactPathForTest());
     QVERIFY(file.open(QIODevice::ReadOnly));
@@ -1459,9 +1423,8 @@ void UpdateManagerStateTest::fallsBackWhenTheMirrorServesModifiedBytes()
     const QString version = QStringLiteral("0.8.0");
     const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
 
-    // A compromised or corrupt mirror serving the RIGHT length and the WRONG
-    // content: a pure integrity failure. Falling back preserves availability,
-    // and the installed bytes are still the ones the signed manifest hashed.
+    // A mirror serving the right length and wrong content: falling back keeps
+    // availability, and the installed bytes are still the manifest's.
     ByteSourceRecorder source;
     source.serve(mirrorArtifactUrl(version, filename), tamperedBytes());
     source.serve(artifactUrl(version, filename), payloadBytes());
@@ -1481,9 +1444,8 @@ void UpdateManagerStateTest::fallsBackWhenTheMirrorServesModifiedBytes()
     QCOMPARE(manager->artifactSource(), QStringLiteral("canonical"));
     QVERIFY(manager->statusDetail().contains(QStringLiteral("mirror")));
 
-    // The mirror streamed a full 4096 bytes before failing its hash, so this
-    // is where double-counting would show: progress must have gone back to
-    // ZERO for the fallback rather than continuing from the failed attempt.
+    // The mirror streamed 4096 bytes before failing its hash, so progress must
+    // restart from zero for the fallback, not continue.
     const qint64 size = payloadBytes().size();
     QString trace;
     for (const qint64 value : observed)
@@ -1493,8 +1455,8 @@ void UpdateManagerStateTest::fallsBackWhenTheMirrorServesModifiedBytes()
     QCOMPARE(manager->downloadedBytes(), size);
     QCOMPARE(manager->totalBytes(), size);
 
-    // The tampered bytes reached nothing: they were discarded, and the file
-    // that exists is byte-for-byte the manifest's payload.
+    // The tampered bytes were discarded; the file on disk is the manifest's
+    // payload.
     QCOMPARE(stagedFiles(root.path()), QStringList{ filename });
     QFile file(manager->stagedArtifactPathForTest());
     QVERIFY(file.open(QIODevice::ReadOnly));
@@ -1523,16 +1485,16 @@ void UpdateManagerStateTest::bothSourcesFailingIsOneCleanTerminalFailure()
     manager->downloadUpdate();
     QTRY_COMPARE(manager->state(), UpdateManager::Failed);
 
-    // Two attempts, in that order, and NO third — the mirror is never
-    // retried after the canonical address fails.
+    // Two attempts in that order and no third: the mirror is never retried
+    // after the canonical address fails.
     QCOMPARE(source.requestedHosts(),
              (QStringList{ mirrorHost(), lightning::update::canonicalUpdateHost() }));
     QCoreApplication::processEvents();
     QCOMPARE(source.requests.size(), 2);
     QCOMPARE(manager->state(), UpdateManager::Failed);
 
-    // One clean terminal failure: nothing partial on disk, the
-    // single-instance lock released, and no address in the message.
+    // One clean terminal failure: nothing partial on disk, the lock released,
+    // and no address in the message.
     QCOMPARE(stagedFiles(root.path()), QStringList{});
     QVERIFY(updateLockIsFree(root.path()));
     QVERIFY(!manager->errorMessage().isEmpty());
@@ -1560,7 +1522,7 @@ void UpdateManagerStateTest::anArtifactWithoutAMirrorDownloadsExactlyAsBefore()
     manager->downloadUpdate();
     QTRY_COMPARE(manager->state(), UpdateManager::ReadyToInstall);
 
-    // One request, to the canonical address, and no mirror talk anywhere.
+    // One request, to the canonical address, and no mirror mention.
     QCOMPARE(source.requestedHosts(),
              QStringList{ lightning::update::canonicalUpdateHost() });
     QCOMPARE(manager->artifactSource(), QStringLiteral("canonical"));
@@ -1568,10 +1530,9 @@ void UpdateManagerStateTest::anArtifactWithoutAMirrorDownloadsExactlyAsBefore()
     QCOMPARE(stagedFiles(root.path()), QStringList{ filename });
 }
 
-// GitHub can advertise whatever it likes: nothing it returns is read as
-// metadata. The mirror body here is a plausible GitHub release-API document
-// naming a much newer version; it is treated as bytes, hashed, rejected, and
-// the version decision stays exactly where the signed manifest put it.
+// Nothing a mirror returns is read as metadata: a GitHub release-API document
+// naming a newer version is just bytes, hashed and rejected, and the version
+// decision stays with the signed manifest.
 void UpdateManagerStateTest::aMirrorResponseIsNeverReadAsMetadata()
 {
     if (mirrorHost().isEmpty())
@@ -1582,8 +1543,8 @@ void UpdateManagerStateTest::aMirrorResponseIsNeverReadAsMetadata()
     const QString version = QStringLiteral("0.8.0");
     const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
 
-    // Deliberately NOT a raw string literal: moc's preprocessor ends the
-    // macro argument at the first ')' inside R"(...)".
+    // Not a raw string literal: moc's preprocessor ends the macro argument at
+    // the first ')' inside R"(...)".
     QByteArray githubish = QByteArrayLiteral(
         "{\"tag_name\":\"v99.0.0\",\"name\":\"Lightning 99.0.0\",\"draft\":false,"
         "\"assets\":[{\"browser_download_url\":\"https://evil.example/payload.deb\"}]}");
@@ -1599,8 +1560,7 @@ void UpdateManagerStateTest::aMirrorResponseIsNeverReadAsMetadata()
     manager->downloadUpdate();
     QTRY_COMPARE(manager->state(), UpdateManager::ReadyToInstall);
 
-    // The version, the notes and the staged bytes all still come from the
-    // signed manifest alone.
+    // Version, notes and staged bytes all come from the signed manifest.
     QCOMPARE(manager->latestVersion(), version);
     QCOMPARE(manager->releaseNotes(), QStringLiteral("Notes for ") + version);
     QVERIFY(!manager->releaseNotes().contains(QStringLiteral("99.0.0")));
@@ -1616,10 +1576,8 @@ void UpdateManagerStateTest::aMirrorResponseIsNeverReadAsMetadata()
     QVERIFY(!installed.contains("evil.example"));
 }
 
-// The fallback is queued rather than run inside the failed attempt's own
-// signal, so there is a window between the two attempts. Cancelling in it
-// must still cancel — otherwise the canonical download would start after the
-// user said stop.
+// The fallback is queued, so there is a window between the two attempts;
+// cancelling in it must stop the canonical download from starting.
 void UpdateManagerStateTest::cancellingBetweenAttemptsStopsTheFallback()
 {
     if (mirrorHost().isEmpty())
@@ -1637,7 +1595,7 @@ void UpdateManagerStateTest::cancellingBetweenAttemptsStopsTheFallback()
     ingest(manager.get(), mirroredManifest(version));
     manager->downloadUpdate();
 
-    // The mirror has failed and the fallback is queued but has not run.
+    // The mirror has failed and the fallback is queued but not run.
     QCOMPARE(source.requests.size(), 1);
     QCOMPARE(manager->state(), UpdateManager::Downloading);
 
@@ -1646,8 +1604,7 @@ void UpdateManagerStateTest::cancellingBetweenAttemptsStopsTheFallback()
     QVERIFY(manager->statusDetail().contains(QStringLiteral("cancelled")));
 
     QCoreApplication::processEvents();
-    // The queued fallback did not fire, nothing was staged, and the lock is
-    // free again.
+    // The fallback did not fire, nothing was staged, and the lock is free.
     QCOMPARE(source.requests.size(), 1);
     QCOMPARE(manager->state(), UpdateManager::UpdateAvailable);
     QVERIFY(manager->artifactSource().isEmpty());
@@ -1655,11 +1612,9 @@ void UpdateManagerStateTest::cancellingBetweenAttemptsStopsTheFallback()
     QVERIFY(updateLockIsFree(root.path()));
 }
 
-// The absolute rule of the mirror design, asserted against the sources
-// themselves: Lightning never talks to a GitHub API, never reads
-// /releases/latest, and never derives a download address from a GitHub
-// response. A mirror response can only ever be artifact bytes that are then
-// hashed.
+// Checked against the sources: Lightning never talks to a GitHub API, never
+// reads /releases/latest, and never derives a download address from a GitHub
+// response.
 void UpdateManagerStateTest::updateSourcesNeverUseTheGitHubApi()
 {
     QString sourceDir;
@@ -1669,8 +1624,8 @@ void UpdateManagerStateTest::updateSourcesNeverUseTheGitHubApi()
         sourceDir = QString::fromLatin1(LIGHTNING_UPDATE_SOURCE_DIR);
     }
 #endif
-    // Otherwise walk up from the test binary (and the working directory):
-    // both build trees live inside the source tree.
+    // Otherwise walk up from the test binary and the working directory: both
+    // build trees live inside the source tree.
     for (const QString &start :
          { QCoreApplication::applicationDirPath(), QDir::currentPath() }) {
         if (!sourceDir.isEmpty())
@@ -1693,8 +1648,8 @@ void UpdateManagerStateTest::updateSourcesNeverUseTheGitHubApi()
                                       QDir::Files);
     QVERIFY(files.size() >= 8);
 
-    // Concrete GitHub-API tokens. A comment may say the words "GitHub API";
-    // what must not exist is a way to CALL one.
+    // Concrete GitHub API endpoints. A comment may mention the API; code must
+    // not be able to call one.
     const QStringList forbidden{
         QStringLiteral("api.github.com"), QStringLiteral("uploads.github.com"),
         QStringLiteral("releases/latest"), QStringLiteral("vnd.github"),
@@ -1714,21 +1669,15 @@ void UpdateManagerStateTest::updateSourcesNeverUseTheGitHubApi()
 }
 
 
-// ---------------------------------------------------------------------------
-// Freshness is INFORMATION. A signature proves who produced the document,
-// never that it is the current one, and a replayed old-but-valid pair can keep
-// a client on an old release; the expiry names that staleness in the UI. It
-// is deliberately not a failure: the maintainer's servers may be gone for
-// good, and the client must keep updating from the GitHub mirror regardless.
-// ---------------------------------------------------------------------------
+// Freshness is information, not a failure: a signature proves who produced the
+// document, not that it is current, so the expiry names possible staleness in
+// the UI. The client must keep updating from the mirror even if the
+// project's own servers are gone.
 
 void UpdateManagerStateTest::anExpiredManifestStillOffersTheUpdateAndSaysSo()
 {
-    // The maintainer's servers may be gone for good. A manifest past its
-    // expiry -- or with none -- keeps working: the update it names is still
-    // offered, and a status line says the information may be stale. It was
-    // a failure for one day; that would have stranded every client on the
-    // day the project went dark.
+    // A manifest past its expiry, or with none, keeps working: the update is
+    // offered and a status line says the information may be stale.
     const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
     manager->setNowForTest(QDateTime::fromString(QStringLiteral("2026-09-02T12:00:00Z"),
                                                  Qt::ISODate));
@@ -1749,7 +1698,7 @@ void UpdateManagerStateTest::anExpiredManifestStillOffersTheUpdateAndSaysSo()
     QCOMPARE(current->state(), UpdateManager::UpToDate);
     QVERIFY(current->statusDetail().contains(QStringLiteral("expected to be refreshed")));
 
-    // Before the expiry, or with no expiry at all: nothing to say.
+    // Before the expiry, or with no expiry: nothing to say.
     const auto fresh = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
     fresh->setNowForTest(QDateTime::fromString(QStringLiteral("2026-08-31T12:00:00Z"),
                                                Qt::ISODate));
@@ -1762,8 +1711,8 @@ void UpdateManagerStateTest::anExpiredManifestStillOffersTheUpdateAndSaysSo()
     QCOMPARE(undated->state(), UpdateManager::UpdateAvailable);
     QVERIFY(!undated->statusDetail().contains(QStringLiteral("expected to be refreshed")));
 
-    // An UNREADABLE expiry is not "no expiry": the line shows (as stale),
-    // and the update is still offered.
+    // An unreadable expiry is not "no expiry": the line shows and the update
+    // is still offered.
     const auto garbled = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
     manifest.insert(QStringLiteral("expires"), QStringLiteral("soon"));
     ingest(garbled.get(), manifest);
@@ -1774,13 +1723,12 @@ void UpdateManagerStateTest::anExpiredManifestStillOffersTheUpdateAndSaysSo()
 
 void UpdateManagerStateTest::aCanonicalAnswerThatDoesNotVerifyFallsBackToTheMirror()
 {
-    // A lapsed domain or a hijacking proxy answers 200 with the wrong bytes.
-    // That is not "unreachable", so the old code failed the check there and
-    // never read the working mirror copy. Now it retries the mirror once.
+    // A lapsed domain or hijacking proxy answers 200 with the wrong bytes;
+    // that is not "unreachable", but the mirror is still tried once.
     const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
-    // Through the real entry point: startCheck() is the one place that
-    // enters Checking and resets the mirror flag; the disabled network seam
-    // then fetches nothing, so the documents are injected by hand.
+    // Through the real entry point: startCheck() enters Checking and resets
+    // the mirror flag; the network seam fetches nothing, so documents are
+    // injected by hand.
     manager->checkForUpdates();
     QCOMPARE(manager->state(), UpdateManager::Checking);
     QVERIFY(!manager->metadataFromMirrorForTest());
@@ -1789,24 +1737,23 @@ void UpdateManagerStateTest::aCanonicalAnswerThatDoesNotVerifyFallsBackToTheMirr
     QByteArray tampered = bytes;
     tampered.replace("0.8.0", "0.8.1"); // signed bytes, edited after signing
     manager->ingestCheckDocuments(tampered, sign(bytes));
-    // The retry parks in Checking (nothing is fetched); what matters is
-    // that it CHOSE the mirror and did not fail.
+    // The retry parks in Checking (nothing is fetched); it chose the mirror
+    // instead of failing.
     if (lightning::update::mirrorLatestManifestUrl().isEmpty()) {
         QCOMPARE(manager->state(), UpdateManager::Failed);
         return;
     }
     QCOMPARE(manager->state(), UpdateManager::Checking);
     QVERIFY(manager->metadataFromMirrorForTest());
-    // A mirror answer that does not verify is the end of the road.
+    // A mirror answer that does not verify is terminal.
     manager->ingestCheckDocuments(tampered, sign(bytes));
     QCOMPARE(manager->state(), UpdateManager::Failed);
 }
 
 void UpdateManagerStateTest::aPrereleaseIsRefusedWhateverChannelTheManifestClaims()
 {
-    // The old rule read the manifest's OWN `channel`: a document calling
-    // itself "beta" walked straight past "the stable channel never offers a
-    // prerelease". The build decides, not the document.
+    // The build's channel decides whether prereleases are offered, not the
+    // manifest's own `channel` field.
     const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
     QJsonObject manifest = manifestObject(QStringLiteral("0.8.0-rc1"));
     manifest.insert(QStringLiteral("channel"), QStringLiteral("beta"));
@@ -1816,11 +1763,9 @@ void UpdateManagerStateTest::aPrereleaseIsRefusedWhateverChannelTheManifestClaim
     QVERIFY(manager->statusDetail().contains(QStringLiteral("pre-release")));
 }
 
-// ---------------------------------------------------------------------------
-// The hand-over digest. The download verified the bytes as they streamed in;
-// everything after that trusted the PATH, and for deb/rpm that path is read
-// by a root process after a PolicyKit prompt the user was expecting anyway.
-// ---------------------------------------------------------------------------
+// The hand-over digest: install hands the helper the verified SHA-256, since
+// the path is later read by a root process (deb/rpm) and the file could change
+// between download and install.
 
 void UpdateManagerStateTest::installHandsTheHelperTheVerifiedDigest()
 {
@@ -1859,7 +1804,7 @@ void UpdateManagerStateTest::installRefusesAnArtifactModifiedAfterVerification()
     manager->setStagedArtifactForTest(artifact);
     QCOMPARE(manager->state(), UpdateManager::ReadyToInstall);
 
-    // Same length, different bytes: exactly what a swap looks like.
+    // Same length, different bytes: what a swap looks like.
     {
         QFile file(artifact);
         QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
@@ -1870,7 +1815,7 @@ void UpdateManagerStateTest::installRefusesAnArtifactModifiedAfterVerification()
     QCOMPARE(manager->state(), UpdateManager::Failed);
     QVERIFY2(manager->errorMessage().contains(QStringLiteral("no longer matches")),
              qPrintable(manager->errorMessage()));
-    // The bytes that failed are gone; nothing can pick them up later.
+    // The failing bytes are removed.
     QVERIFY(!QFileInfo::exists(artifact));
 }
 
@@ -1906,8 +1851,8 @@ void UpdateManagerStateTest::aDeferredInstallReHashesAtQuitAndRecordsTheRefusal(
         QCOMPARE(launches, 0);
         QVERIFY(!QFileInfo::exists(artifact));
     }
-    // The UI was gone when the refusal happened, so it is reported the only
-    // way it can be: through the status document the next launch consumes.
+    // The UI was gone when the refusal happened, so it is reported through the
+    // status document the next launch consumes.
     const auto next = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
     next->setStagingRootForTest(staging.path());
     QCOMPARE(next->lastUpdateResult(), UpdateManager::InstallFailed);
@@ -1935,9 +1880,8 @@ void UpdateManagerStateTest::aNewDownloadDisarmsAPendingDeferredInstall()
     manager->installUpdate();
     QCOMPARE(manager->state(), UpdateManager::RestartRequired);
 
-    // Check again and download again: the armed install named a file this
-    // attempt deletes, so it must be disarmed rather than fire at quit
-    // against a path that no longer exists.
+    // Checking and downloading again deletes the file the armed install
+    // named, so the install is disarmed rather than firing at quit.
     ingest(manager.get(), downloadableManifest(version));
     manager->downloadUpdate();
     QTRY_COMPARE(manager->state(), UpdateManager::ReadyToInstall);
@@ -1949,10 +1893,9 @@ void UpdateManagerStateTest::aNewDownloadDisarmsAPendingDeferredInstall()
 
 void UpdateManagerStateTest::theFallbackFetcherHopsOnlyWithinTheMirror()
 {
-    // The GitHub fallback pair is served through a redirect from github.com
-    // to an object host. The fetcher used to gate EVERY metadata transfer on
-    // the canonical predicate, so the fallback was refused before its first
-    // request and had never once worked.
+    // The GitHub fallback pair is served via a redirect from github.com to an
+    // object host, so the fetcher must allow the mirror's hosts for a transfer
+    // that started at the fallback.
     lightning::update::UpdateDocumentFetcher fetcher(nullptr);
     const QUrl canonical = lightning::update::latestManifestUrl();
     const QUrl fallback = lightning::update::mirrorLatestManifestUrl();
@@ -1960,9 +1903,8 @@ void UpdateManagerStateTest::theFallbackFetcherHopsOnlyWithinTheMirror()
         "https://objects.githubusercontent.com/github-production-release-asset/x/y"));
     const QUrl third(QStringLiteral("https://evil.example/update-manifest-v1.json"));
 
-    // Started at the fallback: the mirror's own hosts, and nothing else. A
-    // build with no fallback compiled in has no such start and skips this
-    // half (an empty base is a supported configuration).
+    // Started at the fallback: the mirror's hosts only. A build with no
+    // compiled-in fallback skips this half.
     if (!fallback.isEmpty()) {
         QVERIFY(fetcher.permitsForTest(fallback, fallback));
         QVERIFY(fetcher.permitsForTest(fallback, objectHost));
@@ -1970,47 +1912,20 @@ void UpdateManagerStateTest::theFallbackFetcherHopsOnlyWithinTheMirror()
         QVERIFY(!fetcher.permitsForTest(fallback, canonical));
         QVERIFY(!fetcher.permitsForTest(canonical, fallback));
     }
-    // Started at the canonical host: never a mirror, never a third party.
+    // Started at the canonical host: never a mirror or third party.
     QVERIFY(fetcher.permitsForTest(canonical, canonical));
     QVERIFY(!fetcher.permitsForTest(canonical, objectHost));
     QVERIFY(!fetcher.permitsForTest(canonical, third));
     // A third-party start is neither role and is refused everywhere.
     QVERIFY(!fetcher.permitsForTest(third, third));
 }
-// ── The helper must not run from the directory the installer rewrites ────
-//
-// The MSI and the NSIS setup replace every file in the installation. The
-// helper that starts them lived in there and was running, with its libraries
-// mapped, and Windows will not overwrite a mapped image: the installer failed
-// on the helper's own files and the update silently did not happen. Reported
-// against 0.9.1 on windows-setup as an unknown error after the restart.
-//
-// Path logic only, which is the part that was wrong and the part that can be
-// checked anywhere. Whether the installer then succeeds is a Windows
-// question and is NOT covered here.
-// ── The arguments the app builds must be ones the helper accepts ────────
-//
-// THE HIGHEST-VALUE TEST IN THIS FILE, because it closes the seam that let
-// both shipped update bugs through. UpdateManager builds an argument vector;
-// the helper parses one. Until now those two met ONLY in the field: the
-// parser suite built its own vectors by hand and this suite never fed a real
-// one to the parser. A vector production could not get accepted, or a mode
-// the helper does not handle, would ship and fail silently on a user's
-// machine, which is exactly what happened twice.
-//
-// So: for every install type, drive the REAL startInstall path, take the
-// vector it actually launched with, and put it through the helper's own
-// parser. No hand-built arguments anywhere.
+// For every install type, the argument vector the real startInstall path
+// builds is accepted by the helper's own parser, closing the seam between
+// UpdateManager and the updater.
 void UpdateManagerStateTest::everyInstallTypeBuildsArgumentsTheHelperAccepts()
 {
-    // THE SET IS DERIVED, NOT LISTED. This case said "for every install
-    // type" and then listed five, omitting linux-rpm -- one of the six that
-    // canInstallAutomatically() answers true for. A hand-written table is
-    // exactly how the omission happened, and the seam it guards is the one
-    // that shipped two broken updaters. So: walk EVERY enum value, keep the
-    // ones the product claims it can install automatically, and require the
-    // kept set to be non-empty. Adding an installable type without adding it
-    // here is no longer possible.
+    // Derived, not listed: walk every enum value and keep the ones
+    // canInstallAutomatically() claims, requiring the set to be non-empty.
     struct Case { InstallType type; const char *name; };
     const QVector<Case> everyType{
         { InstallType::WindowsMsi, "windows-msi" },
@@ -2027,8 +1942,8 @@ void UpdateManagerStateTest::everyInstallTypeBuildsArgumentsTheHelperAccepts()
     };
     QVector<Case> cases;
     for (const Case &c : everyType) {
-        // The wire id and the enum must already agree, or the filter below
-        // is testing a name nobody uses.
+        // The wire id and the enum agree, or the filter tests a name nobody
+        // uses.
         QCOMPARE(lightning::update::installTypeId(c.type),
                  QString::fromLatin1(c.name));
         if (lightning::update::canInstallAutomatically(c.type))
@@ -2038,8 +1953,7 @@ void UpdateManagerStateTest::everyInstallTypeBuildsArgumentsTheHelperAccepts()
              "fewer install types claim automatic installation than this "
              "product ships; either a type lost the claim or the enum list "
              "above went stale");
-    // macOS must NOT be in there: the helper has no strategy for it and
-    // advertising one would be a promise the product cannot keep.
+    // macOS is excluded: the helper has no strategy for it.
     for (const Case &c : cases)
         QVERIFY(c.type != InstallType::MacosDmg);
 
@@ -2054,8 +1968,8 @@ void UpdateManagerStateTest::everyInstallTypeBuildsArgumentsTheHelperAccepts()
         QVERIFY2(!arguments.isEmpty(),
                  qPrintable(QStringLiteral("%1 launched nothing").arg(c.name)));
 
-        // parseUpdaterArgs takes the vector WITHOUT the program name, which
-        // is exactly what UpdateManager builds.
+        // parseUpdaterArgs takes the vector without the program name, as
+        // UpdateManager builds it.
         const updater::ArgsParseResult parsed =
             updater::parseUpdaterArgs(arguments);
         QVERIFY2(parsed.ok(),
@@ -2065,10 +1979,10 @@ void UpdateManagerStateTest::everyInstallTypeBuildsArgumentsTheHelperAccepts()
                                 .arg(QLatin1String(c.name),
                                      updater::parseErrorName(parsed.error),
                                      parsed.message)));
-        // And it understood them as the mode that was meant.
+        // It understood the intended mode.
         QCOMPARE(updater::modeToString(parsed.args.mode),
                  QString::fromLatin1(c.name));
-        // The paths it will act on are the ones production intended.
+        // The paths are the ones production intended.
         QCOMPARE(parsed.args.targetPath,
                  QFileInfo(parsed.args.targetPath).canonicalFilePath());
         QVERIFY(!parsed.args.artifactPath.isEmpty());
@@ -2076,13 +1990,10 @@ void UpdateManagerStateTest::everyInstallTypeBuildsArgumentsTheHelperAccepts()
     }
 }
 
-// ISSUE #14. A per-machine ("for all users") MSI or setup installation must be
-// upgraded per-machine and elevated, and a per-user one exactly as before. The
-// application is the only side that knows which (the scope marker beside the
-// executable), so the scope has to cross into the helper's argument vector --
-// and the helper must accept what the application actually builds. Same seam,
-// same method as the case above: drive the real startInstall, parse the real
-// vector.
+// A per-machine MSI or setup installation is upgraded per-machine and
+// elevated, a per-user one as before. Only the app knows the scope
+// (the marker beside the executable), so it must reach the helper's argument
+// vector in a form the helper accepts.
 void UpdateManagerStateTest::windowsInstallersHandTheHelperTheirInstallScope()
 {
     using lightning::update::InstallScope;
@@ -2112,14 +2023,14 @@ void UpdateManagerStateTest::windowsInstallersHandTheHelperTheirInstallScope()
             QCOMPARE(parsed.args.installScope,
                      machine ? updater::InstallScope::Machine : updater::InstallScope::User);
 
-            // The person is told, before Windows asks, why it is asking.
+            // The user is told why Windows will ask before it does.
             QCOMPARE(manager->handoffSummary().contains(QStringLiteral("administrator")),
                      machine);
         }
     }
 
-    // Every other installable type never carries the option -- the helper
-    // would refuse it -- even if a detection claimed Machine.
+    // Other installable types never carry the option (the helper would refuse
+    // it), even if detection claimed Machine.
     for (const InstallType type : {InstallType::WindowsPortable, InstallType::LinuxAppImage,
                                    InstallType::LinuxDeb, InstallType::LinuxRpm}) {
         const auto manager = makeManager(type, QStringLiteral("0.7.0"));
@@ -2140,10 +2051,9 @@ void UpdateManagerStateTest::windowsInstallersHandTheHelperTheirInstallScope()
 
 void UpdateManagerStateTest::declinedElevationIsExplainedNotCalledARefusal()
 {
-    // Declining the UAC prompt -- the helper's own (elevation-declined) or the
-    // one the setup EXE raises for itself (exit 1223, ERROR_CANCELLED) -- is
-    // not the installer refusing the update, and the generic installer-exit
-    // wording says exactly that. Both must get the administrator explanation.
+    // Declining UAC (the helper's elevation-declined, or the setup EXE's exit
+    // 1223) gets the administrator explanation, not the generic installer
+    // failure.
     const QString declined = UpdateManager::explainInstallError(QStringLiteral("elevation-declined"));
     const QString cancelled = UpdateManager::explainInstallError(QStringLiteral("installer-exit-1223"));
     const QString refused = UpdateManager::explainInstallError(QStringLiteral("installer-exit-1603"));
@@ -2154,6 +2064,9 @@ void UpdateManagerStateTest::declinedElevationIsExplainedNotCalledARefusal()
     QVERIFY(refused.contains(QStringLiteral("1603")));
 }
 
+// The MSI/NSIS installers rewrite the installation directory, and Windows
+// will not overwrite a running image, so the helper is staged (with its
+// libraries) outside it. Path logic only; the installer run is not covered.
 void UpdateManagerStateTest::theStagedHelperLandsOutsideTheInstallationWithItsLibraries()
 {
     QTemporaryDir installRoot;
@@ -2182,14 +2095,14 @@ void UpdateManagerStateTest::theStagedHelperLandsOutsideTheInstallationWithItsLi
     QVERIFY2(!staged.isEmpty(), qPrintable(error));
     QVERIFY(error.isEmpty());
 
-    // THE POINT: not in the directory about to be rewritten.
+    // Not in the directory about to be rewritten.
     const QString cleanInstall = QDir::cleanPath(QDir(installDir).absolutePath());
     const QString cleanStaged = QDir::cleanPath(QFileInfo(staged).absolutePath());
     QVERIFY2(cleanStaged != cleanInstall
                  && !cleanStaged.startsWith(cleanInstall + QLatin1Char('/')),
              qPrintable(QStringLiteral("staged inside the installation: %1").arg(staged)));
 
-    // And it is a usable copy: the helper, and every library beside it.
+    // A usable copy: the helper and every library beside it.
     QVERIFY(QFileInfo::exists(staged));
     QFile copied(staged);
     QVERIFY(copied.open(QIODevice::ReadOnly));
@@ -2200,12 +2113,12 @@ void UpdateManagerStateTest::theStagedHelperLandsOutsideTheInstallationWithItsLi
                  qPrintable(QStringLiteral("library not staged: %1").arg(library)));
     }
 
-    // Running it twice must not fail on its own leftovers.
+    // Running it twice does not fail on its own leftovers.
     const QString again = UpdateManager::stageHelperOutsideInstallation(
         helper, installDir, &error);
     QVERIFY2(!again.isEmpty(), qPrintable(error));
 
-    // A missing helper is reported, not papered over.
+    // A missing helper is reported.
     const QString absent =
         QDir(installDir).absoluteFilePath(QStringLiteral("not-here.exe"));
     QVERIFY(UpdateManager::stageHelperOutsideInstallation(absent, installDir, &error)

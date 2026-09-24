@@ -1,13 +1,6 @@
-// Gap test G1 (0.6.5 design round, Wave 2): pins the MemberProfilePopover
-// single-instance convention that the 8a77ce8 performance fix established but
-// never had a dedicated test for. MemberProfilePopover is deliberately
-// instantiated exactly ONCE per view (TimelinePane, ThreadPanel,
-// RoomInfoPanel) rather than once per delegate row — a per-row popover was
-// the performance regression 8a77ce8 fixed (hundreds of Popup instances for
-// a long timeline). Delegates must never instantiate their own copy; they
-// route the click through their ListView's `openSenderProfile` function
-// instead, so there is still exactly one popover instance backing every
-// profile click in a given view.
+// MemberProfilePopover is instantiated exactly once per view (TimelinePane,
+// ThreadPanel, RoomInfoPanel), never once per delegate row. Delegates route
+// the click through their ListView's `openSenderProfile` function instead.
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -47,11 +40,9 @@ private Q_SLOTS:
         }
     }
 
-    // No delegate (a per-row item, potentially instantiated hundreds of
-    // times by a ListView) may instantiate its own MemberProfilePopover —
-    // that is exactly the regression 8a77ce8 fixed. Scan every *Delegate*.qml
-    // file under qml/ so a future delegate is covered automatically, not just
-    // the ones known today.
+    // No delegate may instantiate its own MemberProfilePopover. Scans every
+    // *Delegate*.qml under qml/, so a future delegate is covered
+    // automatically.
     void zeroInstancesInAnyDelegate()
     {
         QDir dir(QStringLiteral(QML_DIR));

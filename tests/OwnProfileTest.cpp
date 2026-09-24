@@ -1,21 +1,13 @@
-// v0.7.4 own display name (contract C7), end to end against the mock
-// backend: AppController's policy, the caller-owned op id, and the account
-// registry's cached copy.
+// Own display name, end to end against the mock backend: AppController's
+// policy, the caller-owned op id, and the account registry's cached copy.
 //
-// This surface had NO coverage at all before this file, and it had a real
-// structural trap: the only own-profile fetch in the tree runs ONCE per
-// login (AppController's userProfileFinished wiring), sync never carries
-// the account's own profile, and SettingsManager::updateAccountProfile
-// emits accountsChanged ONLY when the value changed. So a UI that waited
-// for the registry to change would hang on exactly the rename that
-// succeeded, and a controller that did not re-fetch after a confirmed
-// write would leave every identity surface showing the old name forever.
-// Both are pinned below.
+// The own-profile fetch runs once per login, sync never carries the own
+// profile, and SettingsManager::updateAccountProfile emits accountsChanged
+// only on a real change. So the UI must confirm from the op, not wait for the
+// registry, and the controller must re-fetch after a confirmed write.
 //
-// HONEST SCOPE: policy, wiring and the mock backend only. The real
-// Account::set_display_name request, the MSC4133 delete-profile-field
-// clear, and how any homeserver bounds or normalises a name are NOT
-// exercised here and are NOT TESTED.
+// Policy, wiring and the mock backend only: the real set_display_name
+// request and the MSC4133 field clear are not exercised here.
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
@@ -97,10 +89,8 @@ private:
             .toString();
     }
 
-    // Boot a signed-in AppController on the mock backend. The mock's own
-    // profile lookup answers with the localpart for a never-set name, so
-    // the registry settles on "alice" — deterministic, and non-empty, so
-    // the "unchanged" and "Clear is offered" branches are both reachable.
+    // Boot a signed-in AppController on the mock backend. The mock answers a
+    // never-set name with the localpart, so the registry settles on "alice".
     static void signIn(AppController &app, FakeSecretStore &secrets)
     {
         app.settings()->setSecretStore(&secrets);
@@ -130,10 +120,9 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // The mock knows its OWN account and the rows a test seeds, and
-    // deliberately nothing else — confirming arbitrary user ids would
-    // quietly change what every other mock-backed surface believes about
-    // strangers (UserSearchModel's bare-localpart confirmation above all).
+    // The mock knows its own account and seeded rows, and nothing else;
+    // confirming arbitrary ids would change what other mock-backed surfaces
+    // believe about strangers.
     void theMockResolvesItsOwnProfileAndNotFoundForStrangers()
     {
         MockMatrixClient client;
@@ -157,10 +146,8 @@ private Q_SLOTS:
                  QStringLiteral("not_found"));
     }
 
-    // The core round trip. The assertion that fails without the
-    // completion handler's re-fetch is the LAST one: the write reaches the
-    // backend either way, but nothing else in the tree ever asks the
-    // server what it stored, so the registry would still read "alice".
+    // The round trip. The last assertion is the one that needs the
+    // completion handler's re-fetch.
     void aConfirmedRenameRefreshesTheCachedName()
     {
         AppController app(AppController::MockBackend);
@@ -182,11 +169,8 @@ private Q_SLOTS:
         QTRY_COMPARE(cachedName(app), QStringLiteral("Rokas Smetonis"));
     }
 
-    // Confirmation comes from the OP, and it arrives BEFORE the registry
-    // catches up — so a UI that waited for accountsChanged would be
-    // waiting on something that has not happened yet. (And in the case
-    // where the server already holds the submitted name, it never happens
-    // at all: updateAccountProfile writes only on a real change.)
+    // Confirmation comes from the op and arrives before the registry catches
+    // up (and never, if the server already held the name).
     void confirmationArrivesBeforeTheRegistryCatchesUp()
     {
         AppController app(AppController::MockBackend);
@@ -207,10 +191,8 @@ private Q_SLOTS:
         QTRY_COMPARE(cachedName(app), QStringLiteral("Bravo"));
     }
 
-    // A refusal keeps the write un-confirmed: no saved signal (so the
-    // editor stays open), the server's own sentence is shown verbatim, and
-    // the backend's stored name is untouched — a cache must never hold a
-    // value the server rejected.
+    // A refusal keeps the write unconfirmed: no saved signal, the server's
+    // message shown verbatim, and the stored name untouched.
     void aRefusalReportsTheServerMessageAndCachesNothing()
     {
         AppController app(AppController::MockBackend);
@@ -260,9 +242,7 @@ private Q_SLOTS:
         QVERIFY(!app.ownDisplayNameError().isEmpty());
     }
 
-    // Single-flight. A second Save while one is in flight would leave two
-    // ops racing for one editor, and the loser's answer would be reported
-    // over the winner's.
+    // Single-flight: a second Save while one is in flight is suppressed.
     void aSecondSubmitWhileBusyIsSuppressed()
     {
         AppController app(AppController::MockBackend);
@@ -280,10 +260,8 @@ private Q_SLOTS:
         QTRY_VERIFY(!app.ownDisplayNameBusy());
     }
 
-    // An emptied editor must never silently erase the name. Clearing is a
-    // separate, deliberate action — and it reaches the backend as an EMPTY
-    // string, which Rust maps to None (remove the field), not to "store an
-    // empty name".
+    // An emptied editor never erases the name; Clear is a separate action and
+    // reaches the backend as an empty string (Rust maps it to None).
     void anEmptyNameIsRefusedButAnExplicitClearIsDispatched()
     {
         AppController app(AppController::MockBackend);
@@ -332,10 +310,8 @@ private Q_SLOTS:
         QVERIFY(app.ownDisplayNameError().isEmpty());
     }
 
-    // Length is counted in Unicode CODE POINTS. Counting UTF-16 units
-    // would make every emoji cost two and refuse names the server accepts;
-    // truncating in UTF-16 units would cut one in half between its
-    // surrogates.
+    // Length is counted in code points: UTF-16 units would make every emoji
+    // cost two and could truncate between surrogates.
     void lengthIsCountedInCodePointsNotUtf16Units()
     {
         AppController app(AppController::MockBackend);

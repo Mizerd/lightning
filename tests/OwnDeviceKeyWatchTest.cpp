@@ -1,23 +1,17 @@
-// B011: the two decisions around "this device can never decrypt anything".
+// The decisions around "this device can never decrypt anything": a device
+// that publishes a curve25519 identity key its own Olm account does not hold
+// receives nothing decryptable, while sending keeps working.
 //
-// The fault (audit B006, diagnosed on a real account 2026-09-07): a device
-// published a curve25519 identity key its own local Olm account did not hold,
-// so every peer encrypted to a key it could not read. Nothing arrived
-// decryptable, ever, while sending kept working.
+// The check costs a /keys/query and may not answer, so:
 //
-// The check that names it costs a /keys/query and can fail to answer at all.
-// Two properties therefore have to hold, and both are cheap to get wrong:
+//   * Unknown is neither a fault nor a clearance: an offline user is not told
+//     their encryption is broken, and a broken device is not declared healthy
+//     because a later check timed out.
+//   * The re-check is rate limited: the fault can appear after login, but the
+//     four event-driven callers fire in one burst.
 //
-//   * UNKNOWN IS NEITHER A FAULT NOR A CLEARANCE. Telling a user who is
-//     merely offline that their encryption is destroyed is worse than saying
-//     nothing; silently declaring a broken device healthy because a later
-//     check timed out is worse still.
-//   * THE RE-CHECK IS RATE LIMITED. The fault can appear after login, so one
-//     check at sign-in is not enough — but a /keys/query per minute is not
-//     acceptable, and the four event-driven callers fire in one burst.
-//
-// No key material appears anywhere in this suite; the tri-state carries only
-// whether two keys agree.
+// No key material appears here; the tri-state carries only whether two keys
+// agree.
 
 #include "crypto/OwnDeviceKeyWatch.h"
 
@@ -39,8 +33,8 @@ private Q_SLOTS:
         QVERIFY(!watch.answered());
     }
 
-    // THE CASE THAT MUST NEVER REGRESS: an unanswerable check (offline, keys
-    // not uploaded yet, a 5xx on /keys/query) leaves a healthy user alone.
+    // An unanswerable check (offline, keys not uploaded yet, a 5xx on
+    // /keys/query) leaves a healthy user alone.
     void unknownNeverRaisesAFault()
     {
         OwnDeviceKeyWatch watch;
@@ -68,8 +62,8 @@ private Q_SLOTS:
         QVERIFY(watch.broken());
     }
 
-    // AND THE OTHER HALF OF THE TRI-STATE: once broken, a later "could not
-    // establish" must not quietly report the device healthy again.
+    // Once broken, a later "could not establish" does not report the device
+    // healthy again.
     void unknownAfterAFaultDoesNotClearIt()
     {
         OwnDeviceKeyWatch watch;
@@ -125,8 +119,8 @@ private Q_SLOTS:
                  "previous session's dispatch time");
     }
 
-    // THE BURST GATE. Sign-in, first sync, a verification and an explicit
-    // refresh can all land inside one second; they share one minimum gap.
+    // The burst gate: sign-in, first sync, a verification and an explicit
+    // refresh can land in one second and share one minimum gap.
     void checksInsideTheMinimumGapAreRefused()
     {
         OwnDeviceKeyWatch watch;
@@ -143,10 +137,8 @@ private Q_SLOTS:
                  "and open exactly at it");
     }
 
-    // The periodic backstop must actually be able to fire: its interval has
-    // to clear the burst gate, or the timer would be a permanent no-op — the
-    // recorded failure mode of the row window (§16), where a policy shipped
-    // guarded on a condition its only call site could never satisfy.
+    // The periodic backstop's interval must clear the burst gate, or the
+    // timer could never fire.
     void theBackstopIntervalClearsTheBurstGate()
     {
         QVERIFY2(OwnDeviceKeyWatch::kRecheckIntervalMs

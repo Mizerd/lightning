@@ -1,11 +1,8 @@
-// v0.7.x Matrix presence: PresenceManager policy tests.
-//
-// The manager owns the entire client-side presence policy (Sliding Sync
-// delivers no presence events, so everything rests on this polling loop):
-// watch-set bookkeeping, batch application, honest unknown-vs-offline
-// handling, the disabled-server latch, session clearing, and own-presence
-// publication gating. These tests drive it against a fake client — network
-// behavior and real homeserver semantics are live-validation, not this.
+// PresenceManager policy. The manager owns all client-side presence policy
+// (sliding sync delivers no presence events, so everything rests on polling):
+// watch-set bookkeeping, batch application, unknown-vs-offline, the
+// disabled-server latch, session clearing and own-presence publishing. Driven
+// against a fake client; real homeserver behaviour needs live validation.
 
 #include <QDir>
 #include <QFile>
@@ -73,11 +70,9 @@ QString readText(const QString &path)
     return QString::fromUtf8(file.readAll());
 }
 
-// Both build trees live inside the source tree, so walking up from the test
-// binary locates the repository without a compile definition (the
-// UpdateManagerStateTest idiom). Returns an empty string when the scan
-// cannot find the tree, which the caller treats as a failure rather than a
-// pass.
+// Both build trees live inside the source tree, so walk up from the test
+// binary to find the repository. Empty on failure, which callers treat as a
+// failure.
 QString repositoryRoot()
 {
     for (const QString &start :
@@ -129,10 +124,9 @@ private Q_SLOTS:
     void pendingFinalOfflineFlushesOnSyncEdge();
     void unsupportedBackendStaysInactive();
 
-    // 2026-08-20 correctness round (contract C10). The `unavailable`
-    // property the profile popover reads, the latch's distinct-user
-    // minimum, watch ref-counting, connection-state gating, cross-session
-    // isolation, and the platform-independence build contract.
+    // The `unavailable` property the profile popover reads, the latch's
+    // distinct-user minimum, watch ref-counting, connection-state gating,
+    // cross-session isolation, and the platform-independence build contract.
     void unknownPresenceIsNotUnavailable();
     void unavailableIsFalseWithoutAClient();
     void unsupportedBackendReportsUnavailable();
@@ -149,13 +143,13 @@ private Q_SLOTS:
     void switchingAccountDropsTheWatchedSetAndBumpsTheEpoch();
     void presenceIsCompiledInWithNoPlatformConditional();
 
-    // 2026-08-22: the local user reads its own presence from what this
-    // client publishes, never from the server's echo.
+    // The local user's own presence comes from what this client publishes,
+    // not the server's echo.
     void ownPresenceComesFromWhatThisClientPublishes();
 
-    // 2026-08-28: a live typing notification WITHDRAWS a contradicted
-    // "offline". Presence and typing come from different sources and can
-    // legitimately disagree; when they do, the poll is the unreliable half.
+    // A live typing notification withdraws a contradicted "offline": presence
+    // and typing come from different sources, and the poll is the unreliable
+    // half.
     void typingWithdrawsAContradictedOfflineWithoutFabricatingOnline();
     void typingNeverTouchesOnlineAwayOrAnUnknownUser();
     void typingEvidenceExpiresAndTheDotComesBackOnItsOwn();
@@ -163,17 +157,14 @@ private Q_SLOTS:
 
 private:
     // Drives the manager to a live session and returns the fake's baseline
-    // request count (the edge may or may not have polled, depending on the
-    // watched set).
+    // request count.
     void goSyncing(FakePresenceClient &client)
     {
         Q_EMIT client.connectionStateChanged(MatrixClient::Syncing);
     }
 
-    // Ask for one more authoritative round. The scheduled timer is 30 s, so
-    // a reconnect EDGE is how a test drives the next round without waiting
-    // for it; callers assert the resulting request count themselves rather
-    // than have this helper swallow a failure.
+    // Request another authoritative round. The scheduled timer is 30 s, so a
+    // reconnect edge drives it; callers assert the resulting request count.
     void reconnect(FakePresenceClient &client)
     {
         Q_EMIT client.connectionStateChanged(MatrixClient::Error);
@@ -233,8 +224,8 @@ void PresenceManagerTest::incomingActivityRepollsWatchedCachedSender()
     QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
              QStringLiteral("offline"));
 
-    // A message from a watched sender is only a freshness hint: it queues
-    // another authoritative server read instead of fabricating online state.
+    // A message from a watched sender is only a freshness hint: it queues a
+    // server read instead of fabricating online.
     presence.noteActivity(QStringLiteral("@alice:example.org"));
     QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
              QStringLiteral("offline"));
@@ -266,7 +257,7 @@ void PresenceManagerTest::batchUpdatesCacheAndRevision()
     QCOMPARE(info.value(QStringLiteral("state")).toString(),
              QStringLiteral("online"));
     QCOMPARE(info.value(QStringLiteral("currentlyActive")).toBool(), true);
-    // The reported age is the server age advanced by local elapsed time —
+    // The reported age is the server age advanced by local elapsed time,
     // never less than what the server sent.
     QVERIFY(info.value(QStringLiteral("lastActiveAgoMs")).toLongLong()
             >= 5000);
@@ -278,9 +269,8 @@ void PresenceManagerTest::batchUpdatesCacheAndRevision()
 
 void PresenceManagerTest::absentLastActiveStaysUnknown()
 {
-    // Review H1 contract, manager level: a "server sent none" age (-1,
-    // the decode default for an absent key) must stay -1 — never advanced
-    // by local elapsed time into a fabricated "active just now".
+    // A "server sent none" age (-1, the decode default) stays -1, never
+    // advanced into a fabricated "active just now".
     FakePresenceClient client;
     PresenceManager presence;
     presence.setClient(&client);
@@ -331,7 +321,7 @@ void PresenceManagerTest::transientFailureKeepsLastKnownState()
         { okEntry(QStringLiteral("@alice:example.org"),
                   QStringLiteral("online")) });
 
-    // A network blip on the next round must not erase the known state.
+    // A network error on the next round must not erase the known state.
     Q_EMIT client.connectionStateChanged(MatrixClient::Error);
     goSyncing(client);
     QTRY_COMPARE(client.requests.size(), 2);
@@ -396,7 +386,7 @@ void PresenceManagerTest::allForbiddenBatchesLatchServerRefusal()
                                    bothForbidden);
     QVERIFY(!presence.active());
     QCOMPARE(activeSpy.count(), 1);
-    QVERIFY(presence.supported()); // capability is not the latch (M1)
+    QVERIFY(presence.supported()); // capability is not the latch
 
     // A latched manager stops polling entirely.
     const int before = client.requests.size();
@@ -408,8 +398,8 @@ void PresenceManagerTest::allForbiddenBatchesLatchServerRefusal()
 
 void PresenceManagerTest::singleUserForbiddenNeverLatches()
 {
-    // One user's 403 (a federation edge, an invited-not-joined member)
-    // must not blind presence for the whole session (review L1).
+    // One user's 403 (federation edge, invited-not-joined member) must not
+    // disable presence for the whole session.
     FakePresenceClient client;
     PresenceManager presence;
     presence.setClient(&client);
@@ -451,15 +441,15 @@ void PresenceManagerTest::loggedOutClearsSessionAndResetsLatch()
     // The account's presence must not leak into the next session.
     QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
              QString());
-    // The latch is per session: the next account may be on a server that
-    // supports presence.
+    // The latch is per session: the next account's server may support
+    // presence.
     QVERIFY(presence.active());
 }
 
 void PresenceManagerTest::loggedOutDropsWatchedSet()
 {
-    // Review M2: the previous account's watch list must never be polled
-    // against the next account's homeserver.
+    // The previous account's watch list is never polled against the next
+    // account's homeserver.
     FakePresenceClient client;
     PresenceManager presence;
     presence.setClient(&client);
@@ -472,7 +462,7 @@ void PresenceManagerTest::loggedOutDropsWatchedSet()
     Q_EMIT client.loggedOut();
     QCOMPARE(epochs.count(), 1); // PresenceDot re-registers on this edge
 
-    // The next session's Syncing edge polls nothing: the watched set died
+    // The next session's Syncing edge polls nothing: the watched set ended
     // with the previous session.
     goSyncing(client);
     QTest::qWait(500); // outlives the burst debounce too
@@ -481,10 +471,8 @@ void PresenceManagerTest::loggedOutDropsWatchedSet()
 
 void PresenceManagerTest::backgroundGraceKeepsOnlineUntilIdleDwell()
 {
-    // Review H2: the idle clock measures CONTINUOUS background dwell.
-    // The regression measured time since focus was GAINED, so any session
-    // focused longer than the threshold published Away the instant the
-    // user switched windows.
+    // The idle clock measures continuous background dwell, not time since
+    // focus was gained.
     FakePresenceClient client;
     SettingsManager settings;
     PresenceManager presence;
@@ -496,36 +484,23 @@ void PresenceManagerTest::backgroundGraceKeepsOnlineUntilIdleDwell()
 
     presence.setIdleThresholdForTest(200);
     presence.setPublishIntervalForTest(50);
-    // Hold focus well past the threshold: staying active must never decay
-    // toward Away, whatever the keep-alive publishes.
+    // Holding focus past the threshold never decays towards Away.
     QTest::qWait(400);
     QVERIFY(!client.published.contains(1));
 
-    // Losing focus NOW must not publish Away immediately — the dwell
-    // clock starts at this moment (the old code compared against focus
-    // GAIN, ~600ms ago > 200ms, and failed exactly here).
+    // Losing focus does not publish Away immediately: the dwell clock starts
+    // now.
     presence.setApplicationActive(false);
     QVERIFY(!client.published.contains(1));
 
-    // After the background dwell exceeds the threshold, the keep-alive
-    // honestly reports Away.
+    // Once the background dwell exceeds the threshold, the keep-alive reports
+    // Away.
     QTRY_VERIFY(client.published.contains(1));
 }
 
-// THE START OF A SESSION PUBLISHED TWICE AND THE SERVER REFUSED THE SECOND.
-//
-// `handleConnectionState` forces a publish on every edge into Syncing, and a
-// real session start flaps `starting -> offline -> retrying -> starting ->
-// running`, so two identical PUTs went out within about three seconds of
-// launch. Synapse's `rc_presence` burst is 1, so it rejected the second, and
-// the Rust side sends with `.disable_retry()` — which is the
-// `own-presence publish failed: "rate_limited"` an interop audit reproduced
-// in both instances it ran, once per session.
-//
-// The guard drops a FORCED republish only while the state is UNCHANGED and
-// only inside the rate window; the case below pins both halves, because a
-// guard that also swallowed a real change would silently stop the app
-// reporting Away.
+// A repeated Syncing edge (session start flaps through it) does not republish
+// an unchanged state inside the rate window: Synapse's `rc_presence` burst is
+// 1 and would reject the duplicate. A real state change is never dropped.
 void PresenceManagerTest::aRepeatedSyncingEdgeDoesNotRepublishTheSameState()
 {
     FakePresenceClient client;
@@ -534,16 +509,16 @@ void PresenceManagerTest::aRepeatedSyncingEdgeDoesNotRepublishTheSameState()
     presence.setSettings(&settings);
     presence.setClient(&client);
     presence.setApplicationActive(true);
-    // A window long enough that the whole case runs inside it, so the drop
-    // is decided by the guard and never by the clock running out.
+    // A window longer than the case, so the drop is decided by the guard, not
+    // the clock.
     presence.setMinPublishGapForTest(5000);
     presence.setPublishIntervalForTest(1000 * 1000);
 
     goSyncing(client);
     QCOMPARE(client.published, (QList<int>{ 0 }));
 
-    // The flap: leave Syncing and come back, twice, exactly as a starting
-    // session does. Nothing changed about our state, so nothing is owed.
+    // Leave Syncing and come back twice, as a starting session does; nothing
+    // changed, so nothing is owed.
     for (int i = 0; i < 2; ++i) {
         Q_EMIT client.connectionStateChanged(MatrixClient::Connecting);
         goSyncing(client);
@@ -552,7 +527,7 @@ void PresenceManagerTest::aRepeatedSyncingEdgeDoesNotRepublishTheSameState()
              "a repeated syncing edge re-sent an unchanged presence, which "
              "is the PUT the server rate-limits");
 
-    // A REAL CHANGE IS NEVER DROPPED, inside the same window.
+    // A real change is never dropped, inside the same window.
     presence.setIdleThresholdForTest(50);
     presence.setApplicationActive(false);
     QTest::qWait(150);
@@ -562,20 +537,10 @@ void PresenceManagerTest::aRepeatedSyncingEdgeDoesNotRepublishTheSameState()
              "the guard swallowed a genuine change to Away");
 }
 
-// A REJECTED PUBLISH IS NOT A PUBLISH, and waiting a full period after one
-// is how an account goes dark while its process is healthy.
-//
-// Measured live against this project's own Synapse with several devices on
-// one account: 62% of publishes rejected and a run of TWENTY-NINE
-// consecutive rejections — about eleven minutes reading offline to everyone,
-// against a server expiry of 33 to 63 seconds. `rc_presence` is per USER, so
-// jitter spreads a user's devices apart without reducing the aggregate rate
-// the limiter actually counts.
-//
-// The two halves that must BOTH hold, because either alone leaves the hole:
-// the retry has to happen, and it has to get past `kMinPublishGapMs` — a
-// guard written to suppress a duplicate PUT of an ACCEPTED state, which
-// after a rejection would be suppressing the only thing that can help.
+// A rate-limited publish is retried inside the server's expiry window
+// (33-63 s) rather than a full period later, and the retry bypasses
+// `kMinPublishGapMs`, which only suppresses duplicates of an accepted state.
+// `rc_presence` is per user, so jitter alone cannot reduce the aggregate rate.
 void PresenceManagerTest::aRateLimitedPublishRetriesInsideTheExpiryWindow()
 {
     FakePresenceClient client;
@@ -584,11 +549,9 @@ void PresenceManagerTest::aRateLimitedPublishRetriesInsideTheExpiryWindow()
     presence.setSettings(&settings);
     presence.setClient(&client);
     presence.setApplicationActive(true);
-    // A gap window longer than the whole case: if the retry is suppressed by
-    // it, this case fails, which is exactly the bypass under test.
+    // A gap window longer than the case: the retry must bypass it.
     presence.setMinPublishGapForTest(60 * 1000);
-    // And a keep-alive period longer still, so nothing here can be the
-    // ordinary tick arriving — the retry is the only thing that can publish.
+    // A keep-alive period longer still, so only the retry can publish.
     presence.setPublishIntervalForTest(120 * 1000);
 
     goSyncing(client);
@@ -596,39 +559,28 @@ void PresenceManagerTest::aRateLimitedPublishRetriesInsideTheExpiryWindow()
     QCOMPARE(presence.publishAttempts(), 1);
     QCOMPARE(presence.publishRejections(), 0);
 
-    // The server rejects it and says when it will accept. 1 ms is below the
-    // floor on purpose: a hint of zero or near-zero must not become a busy
-    // loop, so the floor is what should be used.
+    // The server rejects it with a 1 ms hint, below the floor: a near-zero
+    // hint must not become a busy loop.
     Q_EMIT client.presencePublishFailed(QStringLiteral("rate_limited"), 1);
     QCOMPARE(presence.publishRejections(), 1);
     QCOMPARE(presence.retryChainForTest(), 1);
-    // THE WAIT IS THE ASSERTION. Checking `published` straight after the
-    // emit proves nothing: the connection is direct and same-thread, so
-    // nothing has spun the event loop and the timer cannot have fired for
-    // ANY interval, zero included. 300 ms is comfortably under the 1500 ms
-    // floor and far over the 1 ms the server asked for, so this fails the
-    // moment the floor stops bounding a near-zero hint.
+    // The wait is the assertion: the emit is direct and same-thread, so no
+    // timer could have fired yet. 300 ms is under the 1500 ms floor and over
+    // the 1 ms hint.
     QTest::qWait(300);
     QVERIFY2(client.published == (QList<int>{ 0 }),
              "the retry fired inside 300 ms — the floor did not bound a "
              "near-zero server hint");
 
-    // It retries on its own, well inside the 33 s the server would keep the
-    // last accepted publish alive for.
+    // It retries on its own, well inside the 33 s the server keeps the last
+    // accepted publish alive.
     QTRY_VERIFY_WITH_TIMEOUT(client.published.size() == 2, 12 * 1000);
     QCOMPARE(presence.publishAttempts(), 2);
     QCOMPARE(client.published.last(), 0);
 
-    // AND THE CHAIN IS BOUNDED — ASSERTED ON THE CHAIN ITSELF.
-    //
-    // Counting publishes cannot see this. `m_publishRetryTimer` is ONE
-    // single-shot timer and `start()` RESTARTS it, so at most one retry is
-    // ever pending however many rejections arrive: the publish count in any
-    // window is bounded by one per wait whether the cap exists or not.
-    // Derived and confirmed in review — removing `kMaxRetryChain` entirely,
-    // and removing the backoff with it, both left the old count-based
-    // assertion green. It was decoration over the one property that makes
-    // this safe against a rate limiter.
+    // The chain is bounded, asserted on the chain itself: `m_publishRetryTimer`
+    // is one single-shot timer that start() restarts, so counting publishes
+    // cannot show whether `kMaxRetryChain` exists.
     QCOMPARE(presence.retryChainForTest(), 1);
     for (int i = 0; i < 10; ++i) {
         Q_EMIT client.presencePublishFailed(QStringLiteral("rate_limited"), 1);
@@ -639,10 +591,9 @@ void PresenceManagerTest::aRateLimitedPublishRetriesInsideTheExpiryWindow()
                                 .arg(presence.retryChainForTest())));
     }
     QCOMPARE(presence.retryChainForTest(), PresenceManager::maxRetryChain());
-    // At the cap a further rejection must not move anything: same chain, and
-    // no new retry armed. Waiting past the longest interval the chain can
-    // have asked for (4 x 1500 ms, plus margin) leaves exactly the one
-    // publish the last armed retry was already owed.
+    // At the cap a further rejection changes nothing: after waiting past the
+    // longest interval (4 x 1500 ms plus margin), only the publish already
+    // owed has happened.
     const int owed = client.published.size();
     Q_EMIT client.presencePublishFailed(QStringLiteral("rate_limited"), 1);
     QCOMPARE(presence.retryChainForTest(), PresenceManager::maxRetryChain());
@@ -654,9 +605,8 @@ void PresenceManagerTest::aRateLimitedPublishRetriesInsideTheExpiryWindow()
     QVERIFY(presence.publishRejections() >= 12);
 }
 
-// Only rate limiting is retryable on this timescale. A `forbidden` is a
-// server that does not do presence, and asking a closed door more often is
-// not a fix — the polling side has its own latch for that.
+// Only rate limiting is retried on this timescale; `forbidden` means the
+// server does not do presence (the polling side has its own latch).
 void PresenceManagerTest::anUnretryableRejectionDoesNotArmARetry()
 {
     FakePresenceClient client;
@@ -672,16 +622,13 @@ void PresenceManagerTest::anUnretryableRejectionDoesNotArmARetry()
     QCOMPARE(client.published, (QList<int>{ 0 }));
 
     Q_EMIT client.presencePublishFailed(QStringLiteral("forbidden"), 0);
-    // ON THE CHAIN, NOT ON THE CLOCK. Deleting the category guard sends a
-    // `forbidden` down the retry path with no server hint, which arms
-    // kRetryAfterUnknownMs = 4000 ms — so the 1200 ms wait this case used to
-    // do was green on the broken code. The chain is exact and immediate.
+    // Asserted on the chain, not the clock: an unhinted retry would wait
+    // 4000 ms, longer than any short wait here.
     QCOMPARE(presence.retryChainForTest(), 0);
     QTest::qWait(1200);
     QVERIFY2(client.published == (QList<int>{ 0 }),
              "a forbidden rejection armed a retry");
-    // Counted even so: the rate is the diagnostic, and a server refusing
-    // every publish is exactly what it should make visible.
+    // Still counted: the rejection rate is the diagnostic.
     QCOMPARE(presence.publishRejections(), 1);
 }
 
@@ -703,18 +650,15 @@ void PresenceManagerTest::syncingEdgePublishesAndPolls()
     goSyncing(client);
     QCOMPARE(client.published.size(), 1);
 
-    // A RECONNECT REPUBLISHES — but not inside the rate window, and this
-    // case asserted the opposite until 2026-09-19. An unchanged state
-    // re-sent seconds after the last one is the PUT Synapse's `rc_presence`
-    // refuses, and a session start produces exactly that by flapping through
-    // Syncing more than once. Inside the window the server still holds our
-    // state anyway: a published "online" was measured to survive 33-63 s.
+    // A reconnect republishes, but not inside the rate window: the server still
+    // holds our state then, and a quick duplicate PUT is what `rc_presence`
+    // refuses.
     Q_EMIT client.connectionStateChanged(MatrixClient::Error);
     goSyncing(client);
     QCOMPARE(client.published.size(), 1);
 
-    // Past the window the same reconnect does republish, because by then the
-    // server's copy can have expired.
+    // Past the window the reconnect republishes, since the server's copy may
+    // have expired.
     presence.setMinPublishGapForTest(50);
     QTest::qWait(80);
     Q_EMIT client.connectionStateChanged(MatrixClient::Error);
@@ -740,8 +684,8 @@ void PresenceManagerTest::batchRotationCoversWatchedSetBeyondCap()
     QTRY_COMPARE(client.requests.size(), 1);
     QCOMPARE(client.requests.first().userIds.size(), 40);
 
-    // Two scheduled rounds (driven via the Syncing edge) rotate through
-    // everyone: together they must cover all 45 watched users.
+    // Two scheduled rounds (driven via the Syncing edge) cover all 45 watched
+    // users.
     Q_EMIT client.connectionStateChanged(MatrixClient::Error);
     goSyncing(client);
     QTRY_COMPARE(client.requests.size(), 2);
@@ -785,9 +729,8 @@ void PresenceManagerTest::disablingShareSettingPublishesOfflineOnce()
 
 void PresenceManagerTest::pendingFinalOfflineFlushesOnSyncEdge()
 {
-    // Review M3: sharing disabled while the session is not live — the
-    // promised final offline is owed, and flushes on the Syncing edge
-    // instead of being silently skipped.
+    // Sharing disabled while the session is not live: the final offline is
+    // owed and flushes on the Syncing edge.
     FakePresenceClient client;
     SettingsManager settings;
     PresenceManager presence;
@@ -800,7 +743,7 @@ void PresenceManagerTest::pendingFinalOfflineFlushesOnSyncEdge()
     goSyncing(client);
     QCOMPARE(client.published, (QList<int>{ 2 })); // the owed offline, only
 
-    // And it is owed ONCE: a reconnect publishes nothing further.
+    // Owed once: a reconnect publishes nothing further.
     Q_EMIT client.connectionStateChanged(MatrixClient::Error);
     goSyncing(client);
     QCOMPARE(client.published, (QList<int>{ 2 }));
@@ -822,19 +765,14 @@ void PresenceManagerTest::unsupportedBackendStaysInactive()
     QCOMPARE(client.published.size(), 0);
 }
 
-// --- 2026-08-20 correctness round (contract C10) -------------------------
-//
-// The round's UI change is one line of prose in the member profile popover,
-// and the whole risk is that it appears when the client does not actually
-// KNOW anything. So most of what follows discriminates "unknown" (render
-// nothing) from "the server or backend will not answer" (say so once).
+// The member profile popover shows "Presence unavailable" only when the client
+// actually knows something; these cases separate "unknown" (render nothing)
+// from "the server or backend will not answer" (say so once).
 
 void PresenceManagerTest::unknownPresenceIsNotUnavailable()
 {
-    // Unknown is the default state of the world: nobody has answered yet, a
-    // lookup failed transiently, one user is forbidden. None of those is a
-    // finding about the server, and none may reach the popover's
-    // "Presence unavailable" line.
+    // Unknown is the default (no answer yet, a transient failure, one
+    // forbidden user); none of those reaches "Presence unavailable".
     FakePresenceClient client;
     PresenceManager presence;
     QSignalSpy unavailableSpy(&presence, &PresenceManager::unavailableChanged);
@@ -855,15 +793,14 @@ void PresenceManagerTest::unknownPresenceIsNotUnavailable()
     QVERIFY(presence.infoFor(QStringLiteral("@alice:example.org")).isEmpty());
     QVERIFY(!presence.unavailable());
 
-    // A network blip says nothing about whether the server offers presence.
+    // A network error says nothing about whether the server offers presence.
     Q_EMIT client.presenceReceived(
         client.requests.last().opId,
         { failEntry(QStringLiteral("@alice:example.org"),
                     QStringLiteral("network")) });
     QVERIFY(!presence.unavailable());
 
-    // Neither does ONE user's 403 — that is a federation or
-    // invited-not-joined edge, and it deliberately does not latch.
+    // Nor does one user's 403, which deliberately does not latch.
     reconnect(client);
     QTRY_COMPARE(client.requests.size(), 2);
     Q_EMIT client.presenceReceived(
@@ -877,9 +814,8 @@ void PresenceManagerTest::unknownPresenceIsNotUnavailable()
 
 void PresenceManagerTest::unavailableIsFalseWithoutAClient()
 {
-    // Having no client is not a finding either: nothing has been asked of
-    // any server. An implementation deriving the flag from !supported()
-    // would claim "Presence unavailable" on the login screen.
+    // No client is not a finding either; deriving the flag from !supported()
+    // would show "Presence unavailable" on the login screen.
     PresenceManager presence;
     QVERIFY(!presence.supported());
     QVERIFY(!presence.active());
@@ -888,8 +824,7 @@ void PresenceManagerTest::unavailableIsFalseWithoutAClient()
 
 void PresenceManagerTest::unsupportedBackendReportsUnavailable()
 {
-    // The first of exactly two honest disclosures: this backend cannot do
-    // presence at all, which the client knows without asking anyone.
+    // The first honest disclosure: this backend cannot do presence at all.
     FakePresenceClient client;
     client.supports = false;
     PresenceManager presence;
@@ -903,9 +838,8 @@ void PresenceManagerTest::unsupportedBackendReportsUnavailable()
 
 void PresenceManagerTest::latchArmingReportsUnavailableAndSessionEndClearsIt()
 {
-    // The second disclosure: this session's server refused presence for
-    // every user. It is SESSION scoped — the next account may be on a
-    // server that answers — so signing out must retract it.
+    // The second: this session's server refused presence for every user.
+    // Session-scoped, so signing out retracts it.
     FakePresenceClient client;
     PresenceManager presence;
     presence.setClient(&client);
@@ -931,12 +865,12 @@ void PresenceManagerTest::latchArmingReportsUnavailableAndSessionEndClearsIt()
                                    bothForbidden);
     QVERIFY(presence.unavailable());
     QCOMPARE(unavailableSpy.count(), 1);
-    // The capability is not the latch (review M1): publication may still
-    // run, so the Settings card must not disappear.
+    // The capability is not the latch: publishing may still work, so the
+    // Settings card stays.
     QVERIFY(presence.supported());
 
-    // A latched session accepts no new polling at all — a fresh watch must
-    // not restart it.
+    // A latched session accepts no new polling; a fresh watch does not
+    // restart it.
     presence.watch(QStringLiteral("@carol:example.org"));
     QTest::qWait(500); // outlives the burst debounce
     QCOMPARE(client.requests.size(), 2);
@@ -948,12 +882,9 @@ void PresenceManagerTest::latchArmingReportsUnavailableAndSessionEndClearsIt()
 
 void PresenceManagerTest::forbiddenBatchBelowMinimumNeitherAdvancesNorResetsTheLatch()
 {
-    // The subtle half of review L1. A batch too small to be evidence is
-    // evidence for NEITHER side: it must not advance the streak, and it
-    // must not throw the streak away. The tempting shape —
-    // `latchEligible ? ++streak : streak = 0` — passes every other latch
-    // test in this file and lets one interleaved single-user 403 mask a
-    // genuinely presence-disabled server for the whole session.
+    // A batch too small to be evidence neither advances nor resets the
+    // streak; `latchEligible ? ++streak : streak = 0` would let one
+    // interleaved single-user 403 mask a presence-disabled server.
     FakePresenceClient client;
     PresenceManager presence;
     presence.setClient(&client);
@@ -974,7 +905,7 @@ void PresenceManagerTest::forbiddenBatchBelowMinimumNeitherAdvancesNorResetsTheL
                                    broadForbidden);
     QVERIFY(presence.active());
 
-    // A one-user refusal in between: neither advances nor resets.
+    // A one-user refusal in between neither advances nor resets.
     reconnect(client);
     QTRY_COMPARE(client.requests.size(), 2);
     Q_EMIT client.presenceReceived(
@@ -983,7 +914,7 @@ void PresenceManagerTest::forbiddenBatchBelowMinimumNeitherAdvancesNorResetsTheL
                     QStringLiteral("forbidden")) });
     QVERIFY(presence.active());
 
-    // Streak 2: the server has now refused two broad batches in a row.
+    // Streak 2: two broad batches refused in a row.
     reconnect(client);
     QTRY_COMPARE(client.requests.size(), 3);
     Q_EMIT client.presenceReceived(client.requests.last().opId,
@@ -994,9 +925,8 @@ void PresenceManagerTest::forbiddenBatchBelowMinimumNeitherAdvancesNorResetsTheL
 
 void PresenceManagerTest::repeatedForbiddenEntriesForOneUserNeverLatch()
 {
-    // The minimum counts DISTINCT user ids, not entries. One user's
-    // repeated 403 inside a single batch must not read as a broad refusal —
-    // entries.size() is 2 here and the distinct count is 1.
+    // The minimum counts distinct user ids, not entries: one user's repeated
+    // 403 in a batch (2 entries, 1 user) is not a broad refusal.
     FakePresenceClient client;
     PresenceManager presence;
     presence.setClient(&client);
@@ -1024,10 +954,8 @@ void PresenceManagerTest::repeatedForbiddenEntriesForOneUserNeverLatch()
 
 void PresenceManagerTest::flatOfflineServerNeverLatchesOrReportsUnavailable()
 {
-    // A server answering 200 with offline for everyone is not refusing
-    // anything: those grey dots are honest, and the popover must keep
-    // showing the real state rather than "Presence unavailable". Only
-    // refusals feed the latch.
+    // A server answering 200 with offline for everyone refuses nothing: those
+    // dots are honest. Only refusals feed the latch.
     FakePresenceClient client;
     PresenceManager presence;
     presence.setClient(&client);
@@ -1055,10 +983,8 @@ void PresenceManagerTest::flatOfflineServerNeverLatchesOrReportsUnavailable()
 
 void PresenceManagerTest::singleForbiddenErasesTheCachedState()
 {
-    // forbidden and not_found are both authoritative "no presence for this
-    // user": the last known dot has to go, even though a single 403 never
-    // latches. Treating forbidden as transient would leave a stale online
-    // dot on a user the server has stopped answering for.
+    // forbidden and not_found both mean "no presence for this user": the last
+    // known dot is cleared, although a single 403 never latches.
     FakePresenceClient client;
     PresenceManager presence;
     presence.setClient(&client);
@@ -1081,17 +1007,15 @@ void PresenceManagerTest::singleForbiddenErasesTheCachedState()
     QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
              QString());
     QVERIFY(presence.infoFor(QStringLiteral("@alice:example.org")).isEmpty());
-    // Erasing one user is not a statement about the server.
+    // Clearing one user is not a statement about the server.
     QVERIFY(presence.active());
     QVERIFY(!presence.unavailable());
 }
 
 void PresenceManagerTest::watchIsRefCountedPerHolder()
 {
-    // Two surfaces routinely show the same user at once (a DM row and an
-    // open profile popover). The first holder going away must not stop
-    // polling for the one still on screen — an unwatch that erased the
-    // entry outright would blank the dot under the open popover.
+    // Watches are ref-counted: with two surfaces showing a user, the first
+    // unwatch must not stop polling for the one still on screen.
     FakePresenceClient client;
     PresenceManager presence;
     presence.setClient(&client);
@@ -1100,7 +1024,7 @@ void PresenceManagerTest::watchIsRefCountedPerHolder()
     presence.watch(QStringLiteral("@alice:example.org")); // second holder
     presence.watch(QStringLiteral("@bob:example.org"));
     QTRY_COMPARE(client.requests.size(), 1);
-    // One request entry per USER, not per holder.
+    // One request entry per user, not per holder.
     QCOMPARE(client.requests.first().userIds.size(), 2);
 
     presence.unwatch(QStringLiteral("@alice:example.org"));
@@ -1111,8 +1035,7 @@ void PresenceManagerTest::watchIsRefCountedPerHolder()
 
     presence.unwatch(QStringLiteral("@alice:example.org"));
     presence.unwatch(QStringLiteral("@bob:example.org"));
-    // An unwatch with no matching watch is a no-op — never a negative count
-    // that a later watch would have to climb back out of.
+    // An unmatched unwatch is a no-op, never a negative count.
     presence.unwatch(QStringLiteral("@alice:example.org"));
     presence.unwatch(QStringLiteral("@nobody:example.org"));
     reconnect(client);
@@ -1122,10 +1045,8 @@ void PresenceManagerTest::watchIsRefCountedPerHolder()
 
 void PresenceManagerTest::watchesQueuedBeforeSyncingWaitForTheSyncingEdge()
 {
-    // Connection gating. A watch registered before the session is live must
-    // not poll a server we are not synced with; the queued burst is
-    // DISCARDED rather than deferred, and the Syncing edge is the recovery
-    // that re-polls the whole watched set.
+    // A watch registered before the session is live does not poll; the queued
+    // burst is discarded, and the Syncing edge re-polls the whole set.
     FakePresenceClient client;
     PresenceManager presence;
     presence.setClient(&client);
@@ -1145,9 +1066,8 @@ void PresenceManagerTest::watchesQueuedBeforeSyncingWaitForTheSyncingEdge()
 
 void PresenceManagerTest::stayingInSyncingDoesNotRepoll()
 {
-    // Only the EDGE into Syncing polls. The sync loop reports its state
-    // more than once, and turning every status callback into a round of
-    // GETs is how a bounded poller stops being bounded.
+    // Only the edge into Syncing polls; repeated Syncing status callbacks do
+    // not each start a round.
     FakePresenceClient client;
     PresenceManager presence;
     presence.setClient(&client);
@@ -1160,8 +1080,8 @@ void PresenceManagerTest::stayingInSyncingDoesNotRepoll()
     QTest::qWait(50);
     QCOMPARE(client.requests.size(), 1);
 
-    // A real reconnect is an edge, and it refreshes every watched dot
-    // without waiting out the 30 s scheduled round.
+    // A real reconnect is an edge and refreshes every watched dot without
+    // waiting for the 30 s round.
     reconnect(client);
     QTRY_COMPARE(client.requests.size(), 2);
     QCOMPARE(client.requests.last().userIds,
@@ -1170,9 +1090,8 @@ void PresenceManagerTest::stayingInSyncingDoesNotRepoll()
 
 void PresenceManagerTest::replayedAnswerForTheSameRoundIsDropped()
 {
-    // Op ids are single-use: the answer is consumed, not merely matched. A
-    // re-delivered batch is by definition older than what is already
-    // cached, so applying it would roll a dot backwards.
+    // Op ids are single-use: a re-delivered batch is older than the cache and
+    // would roll a dot backwards.
     FakePresenceClient client;
     PresenceManager presence;
     presence.setClient(&client);
@@ -1197,9 +1116,8 @@ void PresenceManagerTest::replayedAnswerForTheSameRoundIsDropped()
 
 void PresenceManagerTest::answerArrivingAfterSignOutIsDropped()
 {
-    // Generation isolation, presence edition (review M2). A round dispatched
-    // for the previous account can still be in flight when the session ends;
-    // its answer must never populate the next session's cache.
+    // A round dispatched for the previous account may still be in flight when
+    // the session ends; its answer never reaches the next session's cache.
     FakePresenceClient client;
     PresenceManager presence;
     presence.setClient(&client);
@@ -1220,10 +1138,9 @@ void PresenceManagerTest::answerArrivingAfterSignOutIsDropped()
 
 void PresenceManagerTest::switchingAccountDropsTheWatchedSetAndBumpsTheEpoch()
 {
-    // Account switching goes through setClient, not loggedOut. It must end
-    // the session just as completely: polling the previous account's watch
-    // list against the next account's homeserver would disclose who that
-    // account was looking at.
+    // Account switching via setClient ends the session as completely as
+    // loggedOut, so the previous watch list is never polled on the new
+    // homeserver.
     FakePresenceClient first;
     FakePresenceClient second;
     PresenceManager presence;
@@ -1238,8 +1155,8 @@ void PresenceManagerTest::switchingAccountDropsTheWatchedSetAndBumpsTheEpoch()
 
     QSignalSpy epochs(&presence, &PresenceManager::sessionEpochChanged);
     presence.setClient(&second);
-    // PresenceDot re-registers on this edge; without the bump the surviving
-    // dots would hold watches the manager no longer has.
+    // PresenceDot re-registers on this edge; without it, dots would hold
+    // watches the manager no longer has.
     QCOMPARE(epochs.count(), 1);
     QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
              QString());
@@ -1252,12 +1169,9 @@ void PresenceManagerTest::switchingAccountDropsTheWatchedSetAndBumpsTheEpoch()
 
 void PresenceManagerTest::presenceIsCompiledInWithNoPlatformConditional()
 {
-    // Contract C10's build assertion. The reported "no presence on macOS"
-    // was hypothesised to be a packaging omission; reading refuted that, and
-    // this pins the refutation so a future platform guard has to be a
-    // deliberate decision rather than a silent regression that presents to
-    // the user as "the dots are gone". A source scan, because the presence
-    // suite deliberately does not link the Rust backend.
+    // Presence is not platform-gated: the Rust module and the C++ policy owner
+    // build everywhere. A source scan, since this suite does not link the Rust
+    // backend.
     const QString root = repositoryRoot();
     QVERIFY2(!root.isEmpty(), "could not locate the repository to scan");
 
@@ -1270,7 +1184,7 @@ void PresenceManagerTest::presenceIsCompiledInWithNoPlatformConditional()
     QVERIFY(!header.contains(QStringLiteral("__APPLE__")));
     QVERIFY(!header.contains(QStringLiteral("Q_OS_MAC")));
 
-    // The Rust module itself, and nothing gating it.
+    // The Rust module, with nothing gating it.
     const QStringList libLines =
         readText(root + QStringLiteral("/rust/src/lib.rs"))
             .split(QLatin1Char('\n'));
@@ -1280,7 +1194,7 @@ void PresenceManagerTest::presenceIsCompiledInWithNoPlatformConditional()
                  QStringLiteral("#[")),
              "no attribute may gate the presence module");
 
-    // And the C++ policy owner is an unconditional source of the app.
+    // The C++ policy owner is an unconditional source of the app.
     const QString cmake = readText(root + QStringLiteral("/CMakeLists.txt"));
     QVERIFY(cmake.contains(QStringLiteral("src/presence/PresenceManager.cpp")));
     const QStringList cmakeLines = cmake.split(QLatin1Char('\n'));
@@ -1301,8 +1215,8 @@ void PresenceManagerTest::ownPresenceComesFromWhatThisClientPublishes()
     presence.setClient(&client);
 
     const QString me = client.self;
-    // Before the session is live nothing has been published, so there is
-    // nothing to claim — unknown, which renders as no indicator at all.
+    // Before the session is live nothing has been published: unknown, which
+    // renders no indicator.
     QCOMPARE(presence.stateFor(me), QString());
 
     goSyncing(client);
@@ -1313,10 +1227,9 @@ void PresenceManagerTest::ownPresenceComesFromWhatThisClientPublishes()
              QStringLiteral("online"));
     QCOMPARE(info.value(QStringLiteral("lastActiveAgoMs")).toLongLong(), 0LL);
 
-    // The reported case: a homeserver with presence switched off answers 200
-    // with "offline" for everybody, including the account that is sitting in
-    // a live session looking at its own card. That answer must not overwrite
-    // what this client knows about itself.
+    // A homeserver with presence off answers 200 "offline" for everyone,
+    // including the local user; that must not override what this client
+    // knows about itself.
     presence.watch(me);
     QTRY_VERIFY(!client.requests.isEmpty());
     Q_EMIT client.presenceReceived(
@@ -1324,27 +1237,20 @@ void PresenceManagerTest::ownPresenceComesFromWhatThisClientPublishes()
         { okEntry(me, QStringLiteral("offline")) });
     QCOMPARE(presence.stateFor(me), QStringLiteral("online"));
 
-    // With sharing turned OFF this client is deliberately not publishing, so
-    // the server's answer IS the truth about what everyone else sees and the
-    // override steps aside rather than papering over it.
+    // With sharing off, the server's answer is what everyone else sees, so the
+    // override steps aside.
     settings.setSharePresence(false);
     QCOMPARE(presence.stateFor(me), QStringLiteral("offline"));
 
-    // Somebody else is never answered from the local publication.
+    // Other users are never answered from the local publication.
     QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
              QString());
 }
 
-// A homeserver with presence switched off answers 200 with "offline" for
-// EVERY user rather than refusing, so the give-up latch never fires (a
-// successful answer is not a refusal) and every remote contact reads as a
-// confident "Offline" forever. A typing notification is the one live,
-// present-tense, server-forwarded fact about that user this client receives,
-// and it says the offline is wrong.
-//
-// The claim is WITHDRAWN, never replaced: the state becomes unknown, and
-// unknown renders nothing — the rule this class has followed from the start.
-// Reporting "online" would be the same fabrication in the other direction.
+// A presence-disabled homeserver answers "offline" for everyone (never a
+// refusal, so the latch never fires). A typing notification contradicts that
+// offline, and the claim is withdrawn to unknown (renders nothing), never
+// replaced with a fabricated "online".
 void PresenceManagerTest::typingWithdrawsAContradictedOfflineWithoutFabricatingOnline()
 {
     FakePresenceClient client;
@@ -1365,14 +1271,13 @@ void PresenceManagerTest::typingWithdrawsAContradictedOfflineWithoutFabricatingO
     QSignalSpy revisions(&presence, &PresenceManager::revisionChanged);
     presence.noteTyping(alice);
 
-    // Withdrawn, not overwritten, and not promoted.
+    // Withdrawn, not overwritten and not promoted.
     QCOMPARE(presence.stateFor(alice), QString());
     QVERIFY2(presence.stateFor(alice) != QStringLiteral("online"),
              "typing proves activity, never a presence state");
-    // infoFor is what a card formats its sentence from, so the withdrawal
-    // has to reach it too — an empty map is how this class says "unknown".
+    // infoFor, which cards format from, is empty too (unknown).
     QVERIFY(presence.infoFor(alice).isEmpty());
-    // ...and the surfaces are told, or a dot already drawn never repaints.
+    // ...and surfaces are told, so a drawn dot repaints.
     QCOMPARE(revisions.count(), 1);
 }
 
@@ -1400,18 +1305,16 @@ void PresenceManagerTest::typingNeverTouchesOnlineAwayOrAnUnknownUser()
     presence.noteTyping(bob);
     presence.noteTyping(carol);
 
-    // A server that says "online" is not contradicted by anything.
+    // A server saying "online" is not contradicted.
     QCOMPARE(presence.stateFor(alice), QStringLiteral("online"));
-    // "unavailable" is a soft state a server sets on its own idle
-    // heuristics; someone typing while marked away is ordinary, not a
-    // contradiction, and demoting it to unknown would lose information.
+    // "unavailable" is a soft, server-side idle state; typing while away is
+    // not a contradiction.
     QCOMPARE(presence.stateFor(bob), QStringLiteral("unavailable"));
-    // A user with no cached answer renders nothing either way — typing must
-    // not invent a state for somebody nobody has asked about.
+    // A user with no cached answer stays unknown; typing invents nothing.
     QCOMPARE(presence.stateFor(carol), QString());
 
-    // The local user is answered from what THIS client publishes, so its own
-    // typing says nothing new and must not disturb it.
+    // The local user is answered from this client's own publication, so its
+    // typing changes nothing.
     Q_EMIT client.presenceReceived(client.requests.last().opId,
                                    { okEntry(client.self,
                                              QStringLiteral("offline")) });
@@ -1419,10 +1322,9 @@ void PresenceManagerTest::typingNeverTouchesOnlineAwayOrAnUnknownUser()
     QCOMPARE(presence.stateFor(client.self), QStringLiteral("online"));
 }
 
-// The evidence has to expire and ANNOUNCE that it expired: applyBatch only
-// bumps the revision when a polled VALUE changes, and on a presence-disabled
-// server the cached value is "offline" throughout — so nothing else would
-// ever repaint the dot that was withheld.
+// Typing evidence expires and announces it: applyBatch only bumps the revision
+// when a polled value changes, and on a presence-disabled server the cached
+// value stays "offline", so nothing else would repaint the dot.
 void PresenceManagerTest::typingEvidenceExpiresAndTheDotComesBackOnItsOwn()
 {
     FakePresenceClient client;
@@ -1430,8 +1332,7 @@ void PresenceManagerTest::typingEvidenceExpiresAndTheDotComesBackOnItsOwn()
     PresenceManager presence;
     presence.setSettings(&settings);
     presence.setClient(&client);
-    // The real window is 35 s; the CONTRACT that it expires is untestable at
-    // that scale.
+    // The real window is 35 s; shortened for the test.
     presence.setTypingEvidenceWindowForTest(60);
     presence.setClient(&client);
     goSyncing(client);
@@ -1469,14 +1370,13 @@ void PresenceManagerTest::typingRepollsTheUserAndSignsOutWithTheSession()
                                    { okEntry(alice, QStringLiteral("offline")) });
     const int before = client.requests.size();
 
-    // Typing is the strongest hint available that a poll answer is about to
-    // change, so it asks — which is what makes the withheld dot a brief gap
-    // on a healthy server rather than a lasting absence.
+    // Typing also requests a poll, so on a healthy server the withheld dot is
+    // only a brief gap.
     presence.noteTyping(alice);
     QTRY_VERIFY(client.requests.size() > before);
     QVERIFY(client.requests.last().userIds.contains(alice));
 
-    // Typing evidence names the previous account's contacts, exactly like
+    // Typing evidence names contacts, so it is cleared with the session like
     // the watched set.
     QCOMPARE(presence.stateFor(alice), QString());
     Q_EMIT client.loggedOut();

@@ -1,9 +1,8 @@
-// v0.5.7: live-timeline diff translation and generation tracking.
-//
-// Exercises matrix::rust_timeline without cargo, a Rust handle, or a
-// homeserver: every VectorDiff envelope the Rust bridge can emit, index
-// validation, malformed-diff rejection, undecryptable → decrypted
-// replacement payloads, and stale room/lifecycle generation rejection.
+// Live-timeline diff translation and generation tracking in
+// matrix::rust_timeline, without cargo, a Rust handle or a homeserver: every
+// VectorDiff envelope the bridge can emit, index validation, malformed-diff
+// rejection, undecryptable -> decrypted replacement, and stale room/lifecycle
+// generation rejection.
 
 #include "matrix/RustTimelineIngest.h"
 
@@ -62,7 +61,7 @@ class RustTimelineIngestTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    // ── Item conversion ─────────────────────────────────────────────
+    // Item conversion.
     void parsesEventItem();
     void parsesFormattedBody();
     void parsesUndecryptableItem();
@@ -84,17 +83,17 @@ private Q_SLOTS:
     void parsesTypedProfileChange();
     void profileChangeAbsentFieldsKeepDefaults();
     void profileNameIsBoundedWithoutSplittingSurrogatePairs();
-    // v0.7: typed media rows with type-correct reserved-geometry metadata.
+    // Typed media rows with reserved-geometry metadata.
     void parsesTypedMediaItems();
-    // 2026-09-23: MSC4274 galleries (Sable) and the reply target's kind.
+    // MSC4274 galleries and the reply target's kind.
     void parsesGalleryItemsBoundedAndClosed();
     void parsesReplyTargetKindAndCount();
-    // v0.7: MSC3381 polls.
+    // MSC3381 polls.
     void parsesPollItem();
     void pollAbsentFieldsKeepDefaults();
     void pollVoteUpdatesInPlaceViaSet();
 
-    // ── Diff application: every VectorDiff variant ──────────────────
+    // Diff application: every VectorDiff variant.
     void appendAppends();
     void emptyAppendIsNoOp();
     void pushBackAppendsOne();
@@ -109,7 +108,7 @@ private Q_SLOTS:
     void truncateShortens();
     void resetReplacesAll();
 
-    // ── Validation ──────────────────────────────────────────────────
+    // Validation.
     void insertBeyondEndRejected();
     void setOutOfRangeRejected();
     void removeOutOfRangeRejected();
@@ -118,27 +117,27 @@ private Q_SLOTS:
     void unknownOpRejected();
     void missingItemRejected();
 
-    // ── Undecryptable → decrypted in place ──────────────────────────
+    // Undecryptable -> decrypted in place.
     void undecryptableBecomesDecryptedViaSet();
 
-    // ── Local echo reconciliation via Set ───────────────────────────
+    // Local echo reconciliation via Set.
     void localEchoReconciledViaSet();
 
-    // ── Generation tracking ─────────────────────────────────────────
+    // Generation tracking.
     void trackerAdoptsRequestedRoomOnly();
     void trackerRejectsStaleGenerations();
     void trackerRejectsAfterNewRequest();
     void trackerResetClearsEverything();
 
-    // ── Phase 2: cold-cache thread loads empty then populates ───────
+    // Cold-cache thread loads: empty, then populated.
     void emptyThreadResetThenAppendPopulates();
 
-    // ── Phase 5/7: thread-root summary live updates via set diffs ───
+    // Thread-root summary live updates via Set diffs.
     void threadSummaryUpdatesInPlaceViaSet();
     void encryptedThreadSummaryDecryptsInPlace();
 
-    // v0.6.5: room_members payload → per-room member cache translation
-    // (the cache behind displayNameFor / avatarMxcFor).
+    // room_members payload -> per-room member cache (behind displayNameFor /
+    // avatarMxcFor).
     void membersFromPayloadBuildsCacheEntries();
     void aSnapshotDropsALocalEchoTheRemoteEventAlreadyCovers();
 };
@@ -187,9 +186,8 @@ void RustTimelineIngestTest::parsesEventItem()
 
 void RustTimelineIngestTest::parsesFormattedBody()
 {
-    // The live-timeline ingest must carry formatted_body through: it feeds
-    // the sanitized rich rendering (mention pills). Dropping it regresses
-    // every mention send to raw markdown in the timeline.
+    // formatted_body is carried through: it feeds the sanitized rich
+    // rendering (mention pills).
     QJsonObject item = itemJson(QStringLiteral("uid1"), QStringLiteral("$ev1"),
                                 QStringLiteral("[@t](https://matrix.to/#/%40t%3Ax)"));
     item.insert(QStringLiteral("formatted_body"),
@@ -198,7 +196,7 @@ void RustTimelineIngestTest::parsesFormattedBody()
     QCOMPARE(e.formattedBody,
              QStringLiteral("<a href=\"https://matrix.to/#/%40t%3Ax\">@t</a>"));
 
-    // Absent field keeps the empty default (plain-body fallback contract).
+    // An absent field keeps the empty default (plain-body fallback).
     const TimelineEvent plain = eventFromItemJson(
         itemJson(QStringLiteral("uid2"), QStringLiteral("$ev2"),
                  QStringLiteral("plain")), kRoom);
@@ -224,10 +222,10 @@ void RustTimelineIngestTest::parsesUndecryptableItem()
 }
 
 // The shape rust/src/timeline.rs `fill_message_media` produces for a
-// two-picture Sable gallery: an image row describing the PRIMARY picture, an
-// empty caption, and every item with its own key. Items this side cannot fetch
-// (no key) or draw (a kind outside the closed set) are dropped, the list is
-// bounded, and a single survivor is not a gallery.
+// two-picture gallery: an image row describing the primary picture, an empty
+// caption, and every item with its own key. Items without a key or with a
+// kind outside the closed set are dropped, the list is bounded, and a single
+// survivor is not a gallery.
 void RustTimelineIngestTest::parsesGalleryItemsBoundedAndClosed()
 {
     QJsonObject row = itemJson(QStringLiteral("uidG"), QStringLiteral("$g"),
@@ -251,9 +249,9 @@ void RustTimelineIngestTest::parsesGalleryItemsBoundedAndClosed()
                      { QStringLiteral("width"), 640 },
                      { QStringLiteral("height"), 480 },
                      { QStringLiteral("thumb_available"), true } },
-        // No key: unfetchable. Dropped.
+        // No key: unfetchable, dropped.
         QJsonObject{ { QStringLiteral("kind"), QStringLiteral("image") } },
-        // A kind nobody agreed to. Dropped.
+        // An unknown kind: dropped.
         QJsonObject{ { QStringLiteral("media_key"), QStringLiteral("$g#item3") },
                      { QStringLiteral("kind"), QStringLiteral("m.text") } },
         QStringLiteral("not an object"),
@@ -270,7 +268,8 @@ void RustTimelineIngestTest::parsesGalleryItemsBoundedAndClosed()
     QCOMPARE(e.galleryItems.at(1).width, 640);
     QVERIFY(e.galleryItems.at(1).thumbAvailable);
 
-    // One survivor is a single attachment, which the row fields already are.
+    // One survivor is a single attachment, which the row fields already
+    // describe.
     QJsonObject lone = row;
     lone.insert(QStringLiteral("gallery_items"), QJsonArray{
         QJsonObject{ { QStringLiteral("media_key"), QStringLiteral("$g") },
@@ -288,7 +287,7 @@ void RustTimelineIngestTest::parsesGalleryItemsBoundedAndClosed()
     QCOMPARE(eventFromItemJson(flood, kRoom).galleryItems.size(), 32);
 
     // Sender-chosen names and types are bounded in code points, per item and
-    // on the row, the way profile names are.
+    // on the row.
     const QString longName(400, QLatin1Char('n'));
     const QString longMime(300, QLatin1Char('m'));
     QJsonObject named = row;
@@ -306,8 +305,8 @@ void RustTimelineIngestTest::parsesGalleryItemsBoundedAndClosed()
     QCOMPARE(bounded.mediaMimetype.size(), 127);
     QCOMPARE(bounded.galleryItems.at(0).filename.size(), 255);
     QCOMPARE(bounded.galleryItems.at(0).mimetype.size(), 127);
-    // A body that is just the (over-long) name stays equal to the bounded
-    // name, so the cap cannot invent a caption.
+    // A body equal to the over-long name stays equal to the bounded name, so
+    // the cap cannot invent a caption.
     named.insert(QStringLiteral("body"), longName);
     const TimelineEvent echoed = eventFromItemJson(named, kRoom);
     QCOMPARE(echoed.body, echoed.mediaFilename);
@@ -328,8 +327,8 @@ void RustTimelineIngestTest::parsesReplyTargetKindAndCount()
     QCOMPARE(e.replyToKind, QStringLiteral("image"));
     QCOMPARE(e.replyToCount, 2);
 
-    // A closed set and a bounded count: a spelling this side never agreed to
-    // picks no label, and no count exceeds what one row can carry.
+    // A closed set and a bounded count: an unknown spelling picks no label,
+    // and the count cannot exceed what a row carries.
     reply.insert(QStringLiteral("reply_to_kind"), QStringLiteral("<b>x</b>"));
     reply.insert(QStringLiteral("reply_to_count"), 100000);
     const TimelineEvent bad = eventFromItemJson(reply, kRoom);
@@ -369,9 +368,8 @@ void RustTimelineIngestTest::parsesTypedMediaItems()
     QCOMPARE(a.mediaDurationMs, qint64(4000));
     QVERIFY(!a.mediaIsVoice);
 
-    // Voice: the MSC3245 marker flows through, and the real waveform
-    // envelope arrives bounded and range-checked (out-of-range or
-    // malformed entries are dropped, never clamped into fake data).
+    // Voice: the MSC3245 marker flows through, and the waveform arrives
+    // bounded and range-checked (bad entries are dropped, never clamped).
     QJsonObject voice = audio;
     voice.insert(QStringLiteral("media_voice"), true);
     voice.insert(QStringLiteral("media_waveform"),
@@ -448,8 +446,8 @@ void RustTimelineIngestTest::parsesPollItem()
 
 void RustTimelineIngestTest::pollAbsentFieldsKeepDefaults()
 {
-    // A poll payload with only the msgtype: defaults must be safe, and an
-    // answer without a stable id is dropped rather than rendered.
+    // A poll with only the msgtype: safe defaults, and an answer without a
+    // stable id is dropped.
     QJsonObject item = itemJson(QStringLiteral("uidP"), QStringLiteral("$p"),
                                 QString());
     item.insert(QStringLiteral("msgtype"), QStringLiteral("poll"));
@@ -468,8 +466,8 @@ void RustTimelineIngestTest::pollAbsentFieldsKeepDefaults()
 
 void RustTimelineIngestTest::pollVoteUpdatesInPlaceViaSet()
 {
-    // A poll renders, then a vote arrives: the SDK aggregates into the SAME
-    // timeline item and emits a Set diff — identity must be preserved.
+    // A vote aggregates into the same timeline item via a Set diff; identity
+    // is preserved.
     QJsonArray items;
     items.append(pollItemJson(QStringLiteral("uidP"), QStringLiteral("$poll")));
     auto mirror = eventsFromItemArray(items, kRoom);
@@ -528,11 +526,10 @@ void RustTimelineIngestTest::parsesLocalEchoStates()
     QCOMPARE(e.status, TimelineEvent::Sent);
 }
 
-// Media-upload progress is present only while the SDK send queue is really
-// uploading. ABSENT is a distinct state from zero: a text send never gets a
-// report at all, and a media send's first timeline diff routinely lands
-// before its first progress report. Both must stay 0/0 so the model can
-// answer -1 ("uploading, extent unknown") rather than a fabricated 0%.
+// Media-upload progress is present only while the SDK send queue is
+// uploading. Absent is distinct from zero: text sends never report, and a
+// media send's first diff often precedes its first report. Both stay 0/0 so
+// the model can answer -1 (extent unknown) rather than a fake 0%.
 void RustTimelineIngestTest::parsesMediaUploadProgress()
 {
     QJsonObject item = itemJson(QStringLiteral("uid-upload"), QString(),
@@ -550,8 +547,8 @@ void RustTimelineIngestTest::parsesMediaUploadProgress()
     QCOMPARE(e.uploadedBytes, 512);
     QCOMPARE(e.uploadTotalBytes, 2048);
 
-    // A finished upload still reports, and the row is still Sending until
-    // the event itself is accepted.
+    // A finished upload still reports, and the row stays Sending until the
+    // event is accepted.
     item.insert(QStringLiteral("send_upload_current"), 2048);
     e = eventFromItemJson(item, kRoom);
     QCOMPARE(e.uploadedBytes, 2048);
@@ -609,9 +606,8 @@ void RustTimelineIngestTest::parsesReactionsAndReply()
     QCOMPARE(e.replyToSender, QStringLiteral("@bob:example.org"));
     QCOMPARE(e.replyToPreview, QStringLiteral("original"));
 
-    // The SDK's embedded preview is the PLAIN body: a Lightning-sent
-    // mention arrives as raw matrix.to markdown, and the quote must show
-    // the label, not the link (live-feedback screenshot).
+    // The SDK's embedded preview is the plain body: a mention arrives as raw
+    // matrix.to markdown, and the quote shows the label, not the link.
     item.insert(QStringLiteral("reply_to_preview"),
                 QStringLiteral("[Grok AI](https://matrix.to/#/"
                                "@brotato:example.org) tai jo"));
@@ -619,10 +615,8 @@ void RustTimelineIngestTest::parsesReactionsAndReply()
     QCOMPARE(m.replyToPreview, QStringLiteral("Grok AI tai jo"));
 }
 
-// Reaction tooltips need identities, not just a number. The Rust bridge
-// sends a bounded window (16) with the local user first while `count` stays
-// the uncapped total, so the tooltip can say "You, Bob and 234 others"
-// without the model guessing at either half.
+// Reaction tooltips need identities: the bridge sends a bounded window (16)
+// with the local user first, while `count` stays the uncapped total.
 void RustTimelineIngestTest::parsesReactionSenders()
 {
     QJsonObject item = itemJson(QStringLiteral("uid1"), QStringLiteral("$ev1"),
@@ -630,15 +624,14 @@ void RustTimelineIngestTest::parsesReactionSenders()
     QJsonArray senders;
     senders.append(QStringLiteral("@me:example.org"));
     senders.append(QStringLiteral("@bob:example.org"));
-    // Malformed entries: an empty id and a non-string. Both are dropped
-    // rather than becoming a blank name in the tooltip.
+    // Malformed entries (empty id, non-string) are dropped.
     senders.append(QString());
     senders.append(QJsonValue(7));
     senders.append(QStringLiteral("@carol:example.org"));
 
     QJsonObject up;
     up.insert(QStringLiteral("key"), QStringLiteral("👍"));
-    // The uncapped total: far more people reacted than crossed the FFI.
+    // The uncapped total: far more reactors than crossed the FFI.
     up.insert(QStringLiteral("count"), 250);
     up.insert(QStringLiteral("by_me"), true);
     up.insert(QStringLiteral("senders"), senders);
@@ -652,16 +645,14 @@ void RustTimelineIngestTest::parsesReactionSenders()
     // The window is a window, never the count.
     QCOMPARE(r.count, 250);
     QCOMPARE(r.senders.size(), 3);
-    // Order is preserved exactly: the bridge already put the local user
-    // first, and re-sorting here would lose that.
+    // Order is preserved: the bridge already put the local user first.
     QCOMPARE(r.senders.at(0), QStringLiteral("@me:example.org"));
     QCOMPARE(r.senders.at(1), QStringLiteral("@bob:example.org"));
     QCOMPARE(r.senders.at(2), QStringLiteral("@carol:example.org"));
 }
 
-// Mock and HTTP backends report no reactor identities at all, and an older
-// Rust build would send none either. That must read as "unknown", i.e. an
-// empty list beside a real count — never as "nobody reacted".
+// Backends without reactor identities (mock, HTTP, older Rust) give an empty
+// list beside a real count, meaning "unknown", never "nobody".
 void RustTimelineIngestTest::reactionSendersAbsentLeavesEmptyList()
 {
     QJsonObject item = itemJson(QStringLiteral("uid1"), QStringLiteral("$ev1"),
@@ -689,14 +680,13 @@ void RustTimelineIngestTest::parsesReadReceipts()
     bob.insert(QStringLiteral("user_id"), QStringLiteral("@bob:example.org"));
     bob.insert(QStringLiteral("ts"), 1700000123000.0);
     readBy.append(bob);
-    // A receipt without a timestamp serializes ts as null → tsMs stays 0.
+    // A receipt without a timestamp serializes ts as null: tsMs stays 0.
     QJsonObject carol;
     carol.insert(QStringLiteral("user_id"),
                  QStringLiteral("@carol:example.org"));
     carol.insert(QStringLiteral("ts"), QJsonValue::Null);
     readBy.append(carol);
-    // Malformed entries: no user id, or not an object at all — dropped,
-    // never an empty-identity chip.
+    // Malformed entries (no user id, not an object) are dropped.
     QJsonObject noUser;
     noUser.insert(QStringLiteral("ts"), 1700000000000.0);
     readBy.append(noUser);
@@ -709,19 +699,19 @@ void RustTimelineIngestTest::parsesReadReceipts()
     QCOMPARE(e.readBy.at(0).tsMs, Q_INT64_C(1700000123000));
     QCOMPARE(e.readBy.at(1).userId, QStringLiteral("@carol:example.org"));
     QCOMPARE(e.readBy.at(1).tsMs, Q_INT64_C(0));
-    // No read_by_total → clamps to the delivered list size.
+    // No read_by_total: clamps to the delivered list size.
     QCOMPARE(e.readByTotal, 2);
 
-    // The uncapped total rides along when present (capped-window shape)…
+    // The uncapped total rides along when present...
     item.insert(QStringLiteral("read_by_total"), 40);
     QCOMPARE(eventFromItemJson(item, kRoom).readByTotal, 40);
-    // …and an inconsistent lower-than-list total clamps up so "+N" can
-    // never undercount what is visibly delivered.
+    // ...and a total lower than the list clamps up, so "+N" never undercounts
+    // what is delivered.
     item.insert(QStringLiteral("read_by_total"), 1);
     QCOMPARE(eventFromItemJson(item, kRoom).readByTotal, 2);
 
-    // Absent fields keep the empty defaults (thread timelines and every
-    // pre-receipt payload).
+    // Absent fields keep empty defaults (thread timelines, pre-receipt
+    // payloads).
     const TimelineEvent plain = eventFromItemJson(
         itemJson(QStringLiteral("uid2"), QStringLiteral("$ev2"),
                  QStringLiteral("plain")), kRoom);
@@ -729,9 +719,9 @@ void RustTimelineIngestTest::parsesReadReceipts()
     QCOMPARE(plain.readByTotal, 0);
 }
 
-// The SDK attaches each user's receipt to the LATEST item it applies to, so
-// a receipt advancing arrives as two Set diffs: the old row loses the entry,
-// the new row gains it. Full-row replacement must carry the field both ways.
+// The SDK attaches a receipt to the latest item it applies to, so an
+// advancing receipt arrives as two Set diffs (old row loses it, new row gains
+// it); full-row replacement carries the field both ways.
 void RustTimelineIngestTest::readReceiptsMoveBetweenRowsViaSet()
 {
     QJsonObject older = itemJson(QStringLiteral("uidA"), QStringLiteral("$a"),
@@ -776,7 +766,7 @@ void RustTimelineIngestTest::readReceiptsMoveBetweenRowsViaSet()
     QCOMPARE(mirror.at(1).readBy.first().tsMs, Q_INT64_C(1700000002000));
 }
 
-// v0.6.0: SDK thread-summary fields on a thread root item.
+// SDK thread-summary fields on a thread root item.
 void RustTimelineIngestTest::parsesThreadSummary()
 {
     QJsonObject item = itemJson(QStringLiteral("uid-root"),
@@ -809,9 +799,8 @@ void RustTimelineIngestTest::parsesThreadSummary()
              Q_INT64_C(1700000123000));
     QVERIFY(e.threadUnread);
 
-    // Same plain-body provenance as reply_to_preview: a mention-bearing
-    // latest reply must show its label in the summary card, never the raw
-    // matrix.to markdown.
+    // Same plain-body provenance as reply_to_preview: the summary card shows
+    // the mention label, not raw markdown.
     item.insert(QStringLiteral("thread_latest_preview"),
                 QStringLiteral("[Grok AI](https://matrix.to/#/"
                                "@brotato:example.org) ok"));
@@ -819,9 +808,8 @@ void RustTimelineIngestTest::parsesThreadSummary()
     QCOMPARE(m.threadLatestPreview, QStringLiteral("Grok AI ok"));
 }
 
-// Events without a summary keep the -1 "unknown" contract so non-SDK
-// backends fall back to local reply counting, and a plain thread reply
-// stays a reply — never a root.
+// Events without a summary keep the -1 "unknown" contract (non-SDK backends
+// count replies locally), and a plain thread reply is never a root.
 void RustTimelineIngestTest::threadSummaryAbsentKeepsFallbackContract()
 {
     QJsonObject reply = itemJson(QStringLiteral("uid-reply"),
@@ -838,24 +826,20 @@ void RustTimelineIngestTest::threadSummaryAbsentKeepsFallbackContract()
     QVERIFY(!e.threadLatestTimestamp.isValid());
 }
 
-// Phase 1 split-responsibility guard. The main room timeline excludes
-// m.thread replies at the SDK layer (TimelineFocus::Live hide_threaded_events);
-// the identical ingest translation is reused for the thread panel, where those
-// same replies MUST be preserved. This proves the C++ ingest is not a filter —
-// it faithfully keeps every thread reply (with its thread_root_id) when the
-// thread-focused SDK timeline delivers them, so hiding replies from main never
-// means losing them.
+// The main timeline hides m.thread replies at the SDK layer
+// (hide_threaded_events); the same ingest serves the thread panel, where it
+// must keep every reply with its thread_root_id. The ingest is not a filter.
 void RustTimelineIngestTest::threadPanelIngestPreservesReplies()
 {
     const QString root = QStringLiteral("$root");
     QJsonArray items;
-    // Pinned root the panel shows above the replies.
+    // The pinned root the panel shows above the replies.
     QJsonObject rootItem = itemJson(QStringLiteral("uid-root"), root,
                                     QStringLiteral("root message"));
     rootItem.insert(QStringLiteral("is_thread_root"), true);
     rootItem.insert(QStringLiteral("thread_reply_count"), 3);
     items.append(rootItem);
-    // Three real m.thread replies, each carrying the authoritative relation.
+    // Three m.thread replies, each carrying the relation.
     for (int i = 1; i <= 3; ++i) {
         QJsonObject reply =
             itemJson(QStringLiteral("uid-r%1").arg(i),
@@ -894,9 +878,9 @@ void RustTimelineIngestTest::parsesTypedStateActivity()
     QCOMPARE(event.body, QStringLiteral("Alice changed the room topic."));
 }
 
-// A member profile change crosses as TYPED fields with an empty body. The
-// bridge used to build an English sentence addressing the member by raw
-// MXID — untranslatable, and it swallowed the avatar whenever both moved.
+// A member profile change crosses as typed fields with an empty body; the
+// sentence is built in the presentation layer (translatable, and able to
+// report a name and avatar change together).
 void RustTimelineIngestTest::parsesTypedProfileChange()
 {
     QJsonObject item = itemJson(QStringLiteral("profile-1"),
@@ -919,10 +903,10 @@ void RustTimelineIngestTest::parsesTypedProfileChange()
     QCOMPARE(changed.profileNameOld, QStringLiteral("Alice"));
     QCOMPARE(changed.profileNameNew, QStringLiteral("Alice A."));
     QVERIFY(changed.profileAvatarChanged);
-    // The sentence belongs to the presentation layer; the row carries none.
+    // The row carries no sentence.
     QVERIFY(changed.body.isEmpty());
 
-    // "set": no old name, so the field is omitted entirely.
+    // "set": no old name, so the field is omitted.
     item.remove(QStringLiteral("profile_name_old"));
     item.insert(QStringLiteral("profile_name_change"), QStringLiteral("set"));
     item.insert(QStringLiteral("profile_avatar_changed"), false);
@@ -932,7 +916,7 @@ void RustTimelineIngestTest::parsesTypedProfileChange()
     QCOMPARE(set.profileNameNew, QStringLiteral("Alice A."));
     QVERIFY(!set.profileAvatarChanged);
 
-    // "cleared": the new name is the omitted half.
+    // "cleared": the new name is omitted.
     item.remove(QStringLiteral("profile_name_new"));
     item.insert(QStringLiteral("profile_name_old"), QStringLiteral("Alice"));
     item.insert(QStringLiteral("profile_name_change"),
@@ -942,9 +926,8 @@ void RustTimelineIngestTest::parsesTypedProfileChange()
     QCOMPARE(cleared.profileNameOld, QStringLiteral("Alice"));
     QVERIFY(cleared.profileNameNew.isEmpty());
 
-    // Avatar only: Rust sends a JSON null for the name kind, which must map
-    // to the same empty "no name change" the absent field maps to — not to
-    // the string "null" and not to a claimed rename.
+    // Avatar only: a JSON null name kind maps to "no name change", not the
+    // string "null" or a rename.
     item.remove(QStringLiteral("profile_name_old"));
     item.insert(QStringLiteral("profile_name_change"), QJsonValue::Null);
     item.insert(QStringLiteral("profile_avatar_changed"), true);
@@ -955,9 +938,8 @@ void RustTimelineIngestTest::parsesTypedProfileChange()
     QVERIFY(avatarOnly.profileAvatarChanged);
 }
 
-// Every other row kind, and the mock/HTTP backends, send none of these
-// fields. They must keep the struct defaults rather than reading as a
-// profile change that never happened.
+// Other row kinds and the mock/HTTP backends send none of these fields; the
+// struct defaults are kept.
 void RustTimelineIngestTest::profileChangeAbsentFieldsKeepDefaults()
 {
     const QJsonObject item = itemJson(QStringLiteral("uid1"),
@@ -970,10 +952,8 @@ void RustTimelineIngestTest::profileChangeAbsentFieldsKeepDefaults()
     QVERIFY(!e.profileAvatarChanged);
 }
 
-// Display names are untrusted text. The bridge bounds them at 255 code
-// points and so does this layer, counting CODE POINTS: a name of emoji is
-// two QChars per character, and a plain left(255) would cut a surrogate
-// pair in half and yield an invalid string, not a short one.
+// Display names are untrusted and bounded at 255 code points, not UTF-16
+// units, so an emoji name is never cut mid-surrogate-pair.
 void RustTimelineIngestTest::profileNameIsBoundedWithoutSplittingSurrogatePairs()
 {
     QString cloud;
@@ -992,25 +972,24 @@ void RustTimelineIngestTest::profileNameIsBoundedWithoutSplittingSurrogatePairs(
     item.insert(QStringLiteral("profile_name_new"), overlong);
 
     const TimelineEvent e = eventFromItemJson(item, kRoom);
-    // 255 code points, i.e. 510 UTF-16 units — not 255 units.
+    // 255 code points, i.e. 510 UTF-16 units.
     QCOMPARE(e.profileNameNew.toUcs4().size(), 255);
     QCOMPARE(e.profileNameNew.size(), 510);
     QCOMPARE(e.profileNameOld.toUcs4().size(), 255);
-    // Nothing was cut mid-pair: the tail is a low surrogate, and every
-    // code point survived as the original character.
+    // Nothing was cut mid-pair: the tail is a low surrogate and every code
+    // point is intact.
     QVERIFY(e.profileNameNew.at(e.profileNameNew.size() - 1).isLowSurrogate());
     const auto points = e.profileNameNew.toUcs4();
     QCOMPARE(points.first(), 0x1F329u);
     QCOMPARE(points.last(), 0x1F329u);
 
-    // A name already at the bound is passed through untouched, so a
-    // bridge-bounded name is never truncated a second time.
+    // A name already at the bound passes through untouched.
     const QString exact = cloud.repeated(255);
     item.insert(QStringLiteral("profile_name_new"), exact);
     const TimelineEvent atBound = eventFromItemJson(item, kRoom);
     QCOMPARE(atBound.profileNameNew, exact);
 
-    // ASCII is bounded by the same count, and a short name is untouched.
+    // ASCII is bounded by the same count; a short name is untouched.
     item.insert(QStringLiteral("profile_name_new"),
                 QString(300, QLatin1Char('a')));
     const TimelineEvent ascii = eventFromItemJson(item, kRoom);
@@ -1275,8 +1254,8 @@ void RustTimelineIngestTest::missingItemRejected()
 
 void RustTimelineIngestTest::undecryptableBecomesDecryptedViaSet()
 {
-    // Start with one undecryptable row (as after opening an encrypted room
-    // without keys)…
+    // Start with one undecryptable row (an encrypted room opened without
+    // keys)...
     QJsonObject utd = itemJson(QStringLiteral("uid1"), QStringLiteral("$enc"),
                                QString());
     utd.insert(QStringLiteral("msgtype"), QStringLiteral("encrypted"));
@@ -1288,7 +1267,7 @@ void RustTimelineIngestTest::undecryptableBecomesDecryptedViaSet()
     auto mirror = eventsFromItemArray(items, kRoom);
     QVERIFY(mirror.first().undecryptable);
 
-    // …then the SDK emits a Set for the same index after key import.
+    // ...then the SDK emits a Set for the same index after key import.
     QJsonObject decrypted = itemJson(QStringLiteral("uid1"),
                                      QStringLiteral("$enc"),
                                      QStringLiteral("now readable"));
@@ -1310,7 +1289,7 @@ void RustTimelineIngestTest::undecryptableBecomesDecryptedViaSet()
 
 void RustTimelineIngestTest::localEchoReconciledViaSet()
 {
-    // Local echo appears via push_back…
+    // A local echo appears via push_back...
     QJsonObject echo = itemJson(QStringLiteral("uid-local"), QString(),
                                 QStringLiteral("outgoing"));
     echo.insert(QStringLiteral("transaction_id"), QStringLiteral("txn1"));
@@ -1323,7 +1302,7 @@ void RustTimelineIngestTest::localEchoReconciledViaSet()
     QCOMPARE(mirror.size(), 1);
     QCOMPARE(mirror.first().status, TimelineEvent::Sending);
 
-    // …and the remote echo reconciles it in place — same row count.
+    // ...and the remote echo reconciles it in place.
     QJsonObject remote = itemJson(QStringLiteral("uid-local"),
                                   QStringLiteral("$server"),
                                   QStringLiteral("outgoing"));
@@ -1342,8 +1321,8 @@ void RustTimelineIngestTest::trackerAdoptsRequestedRoomOnly()
     TimelineGenerationTracker tracker;
     tracker.request(kRoom);
     QVERIFY(!tracker.readyForPagination(kRoom));
-    // A reset for a different room (stale from the previous selection)
-    // must not be adopted.
+    // A reset for another room (stale from the previous selection) is not
+    // adopted.
     QVERIFY(!tracker.adoptReset(QStringLiteral("!other:example.org"), 4));
     QVERIFY(!tracker.hasActiveTimeline());
     // The matching reset is adopted.
@@ -1377,8 +1356,7 @@ void RustTimelineIngestTest::trackerRejectsAfterNewRequest()
     TimelineGenerationTracker tracker;
     tracker.request(kRoom);
     QVERIFY(tracker.adoptReset(kRoom, 3));
-    // Switching rooms invalidates the previous adoption immediately: no
-    // diff for the old room may land in the new one.
+    // Switching rooms invalidates the previous adoption immediately.
     tracker.request(QStringLiteral("!other:example.org"));
     QVERIFY(!tracker.readyForPagination(kRoom));
     QVERIFY(!tracker.readyForPagination(QStringLiteral("!other:example.org")));
@@ -1400,22 +1378,20 @@ void RustTimelineIngestTest::trackerResetClearsEverything()
     QVERIFY(!tracker.adoptReset(kRoom, 3)); // nothing requested anymore
 }
 
-// Phase 2: a cold-cache thread subscribes with an empty snapshot (items=0)
-// and the auto-pagination then delivers the replies as an append diff. This
-// proves the generation the empty reset adopts stays valid for the follow-up
-// diff, so the panel populates in place rather than staying permanently empty.
+// A cold-cache thread subscribes with an empty snapshot, then pagination
+// delivers the replies as an append; the empty reset's generation stays valid
+// for that diff, so the panel populates.
 void RustTimelineIngestTest::emptyThreadResetThenAppendPopulates()
 {
     const QString threadId = QStringLiteral("!room:example.org|$root");
     TimelineGenerationTracker tracker;
     tracker.request(threadId);
-    // Empty initial snapshot — the exact items=0 subscription start.
+    // Empty initial snapshot (items=0).
     QVERIFY(tracker.adoptReset(threadId, 3));
     QList<TimelineEvent> mirror; // reset installed an empty mirror
     QVERIFY(mirror.isEmpty());
 
-    // The auto-pagination's /relations fetch arrives as an append for the
-    // same still-current generation and must be accepted.
+    // The pagination's append for the same current generation is accepted.
     QVERIFY(tracker.accepts(threadId, 3));
     QJsonObject diff;
     diff.insert(QStringLiteral("type"), QStringLiteral("thread_diff"));
@@ -1434,17 +1410,13 @@ void RustTimelineIngestTest::emptyThreadResetThenAppendPopulates()
     QCOMPARE(outcome.kind, DiffOutcome::Appended);
     QCOMPARE(mirror.size(), 3);
 
-    // A stale-generation append (an older open of the same thread) is rejected
-    // — it can never repopulate a superseded panel.
+    // A stale-generation append is rejected.
     QVERIFY(!tracker.accepts(threadId, 2));
 }
 
-// Phase 5: a thread root's summary is carried on the root event item, so any
-// thread activity (new reply, edit of the latest, redaction, receipt) arrives
-// as a `set` diff on the root. This proves the diff updates the summary IN
-// PLACE — the same row, new count/preview/kind — which is what drives the
-// bound ThreadSummaryCard roles to refresh incrementally (no rescan, no extra
-// row). An idempotent duplicate set is a no-op change on the same row.
+// A thread root's summary lives on the root item, so thread activity arrives
+// as a Set on the root and updates the summary in place (same row, new
+// count/preview/kind). A duplicate Set changes nothing.
 void RustTimelineIngestTest::threadSummaryUpdatesInPlaceViaSet()
 {
     const QString root = QStringLiteral("$root");
@@ -1457,7 +1429,7 @@ void RustTimelineIngestTest::threadSummaryUpdatesInPlaceViaSet()
     QCOMPARE(mirror.first().threadReplyCount, 1);
     QCOMPARE(mirror.first().threadLatestPreview, QStringLiteral("first reply"));
 
-    // A newer reply: count rises, latest preview/sender change.
+    // A newer reply: the count rises and the latest preview/sender change.
     QJsonObject set = diffJson(QStringLiteral("set"));
     set.insert(QStringLiteral("index"), 0);
     set.insert(QStringLiteral("item"),
@@ -1473,7 +1445,7 @@ void RustTimelineIngestTest::threadSummaryUpdatesInPlaceViaSet()
     QCOMPARE(mirror.first().threadLatestSender,
              QStringLiteral("@carol:example.org"));
 
-    // Redaction of the latest reply: kind falls back safely, row unchanged.
+    // Redaction of the latest reply: the kind falls back safely, same row.
     QJsonObject redact = diffJson(QStringLiteral("set"));
     redact.insert(QStringLiteral("index"), 0);
     redact.insert(QStringLiteral("item"),
@@ -1485,11 +1457,9 @@ void RustTimelineIngestTest::threadSummaryUpdatesInPlaceViaSet()
     QCOMPARE(mirror.first().threadLatestKind, QStringLiteral("redacted"));
 }
 
-// Phase 7: an encrypted latest reply surfaces as kind "encrypted" (the card
-// shows a safe placeholder). When the key arrives the SDK re-sends the root
-// summary as a `set` with the decrypted preview — the summary updates in the
-// same row (no duplicate, no flashed main-timeline reply), and a stale
-// generation can never apply the decrypted update to a superseded panel.
+// An encrypted latest reply surfaces as kind "encrypted"; when the key
+// arrives the root summary is re-sent as a Set with the decrypted preview and
+// updates in the same row. A stale generation cannot apply it.
 void RustTimelineIngestTest::encryptedThreadSummaryDecryptsInPlace()
 {
     const QString root = QStringLiteral("$root");
@@ -1511,8 +1481,8 @@ void RustTimelineIngestTest::encryptedThreadSummaryDecryptsInPlace()
     QCOMPARE(mirror.first().threadLatestKind, QStringLiteral("text"));
     QCOMPARE(mirror.first().threadLatestPreview, QStringLiteral("now readable"));
 
-    // Generation isolation: a stale-generation set for the same thread id is
-    // rejected by the tracker before it can rewrite a newer account's summary.
+    // A stale-generation Set for the same thread id is rejected by the
+    // tracker.
     TimelineGenerationTracker tracker;
     tracker.request(kRoom);
     QVERIFY(tracker.adoptReset(kRoom, 5));
@@ -1543,25 +1513,17 @@ void RustTimelineIngestTest::membersFromPayloadBuildsCacheEntries()
              QStringLiteral("Maya Chen"));
     QCOMPARE(members.value(QStringLiteral("@maya:example.org")).avatarMxcUrl,
              QStringLiteral("mxc://example.org/maya"));
-    // Known-but-unnamed stays an entry with an empty name: "known,
-    // unnamed" and "unknown" are different lookup answers.
+    // Known-but-unnamed stays an entry with an empty name ("known, unnamed"
+    // differs from "unknown").
     QVERIFY(members.contains(QStringLiteral("@ghost:example.org")));
     QVERIFY(members.value(QStringLiteral("@ghost:example.org"))
                 .displayName.isEmpty());
 }
 
-// THE DUPLICATE SEND. Reported 2026-09-20: "a message got duplicated on my
-// end even though only one went out."
-//
-// On a timeline REBUILD matrix-sdk-ui loads the remote events first
-// (`init_focus`) and only then replays the send queue's still-queued local
-// echoes, through a `Flow::Local` arm that pushes unconditionally. The dedup
-// that would catch it is reachable only from the `Flow::Remote` arms, so with
-// the order inverted it never runs, and the snapshot contains the same
-// message twice. Lightning forwarded that verbatim.
-//
-// Matched on EVENT ID, because `transaction_id()` is `Some` only for a local
-// echo — the remote half is always empty and the obvious pairing cannot fire.
+// A rebuild snapshot drops a local echo that the remote event already covers:
+// matrix-sdk-ui loads remote events first and then replays still-queued local
+// echoes without dedup, producing the same message twice. Matched on event id,
+// since `transaction_id()` is only set on the echo.
 void RustTimelineIngestTest::aSnapshotDropsALocalEchoTheRemoteEventAlreadyCovers()
 {
     const QString room = QStringLiteral("!r:example.org");
@@ -1582,8 +1544,8 @@ void RustTimelineIngestTest::aSnapshotDropsALocalEchoTheRemoteEventAlreadyCovers
         return o;
     };
 
-    // The rebuild's snapshot: an older remote message, then the duplicated
-    // pair (remote first, as init_focus loads it, then the replayed echo).
+    // The snapshot: an older remote message, then the duplicate pair (remote
+    // first, then the replayed echo).
     QJsonArray items;
     items.append(item(QStringLiteral("$old"), QString(), false,
                       QStringLiteral("earlier")));
@@ -1596,16 +1558,14 @@ void RustTimelineIngestTest::aSnapshotDropsALocalEchoTheRemoteEventAlreadyCovers
         matrix::rust_timeline::eventsFromItemArray(items, room);
 
     QCOMPARE(out.size(), 2);
-    // The REMOTE row is the one kept — it is authoritative.
+    // The remote row is kept; it is authoritative.
     QCOMPARE(out.at(1).eventId, QStringLiteral("$dup"));
     QVERIFY2(!out.at(1).isLocalEcho,
              "the echo was kept and the remote row dropped; the remote row "
              "carries the server timestamp and the authoritative state");
     QCOMPARE(out.at(0).eventId, QStringLiteral("$old"));
 
-    // A PENDING echo — one the server has not acknowledged, so it has no
-    // event id yet — is a genuine row and must survive. Without this the
-    // "fix" would delete every message the moment it was typed.
+    // A pending echo (no event id yet) is a genuine row and survives.
     QJsonArray pending;
     pending.append(item(QStringLiteral("$old"), QString(), false,
                         QStringLiteral("earlier")));
@@ -1616,7 +1576,7 @@ void RustTimelineIngestTest::aSnapshotDropsALocalEchoTheRemoteEventAlreadyCovers
     QCOMPARE(kept.size(), 2);
     QVERIFY(kept.at(1).isLocalEcho);
 
-    // And an echo whose id matches NOTHING is also a genuine row.
+    // An echo whose id matches nothing also survives.
     QJsonArray lone;
     lone.append(item(QStringLiteral("$other"), QString(), false,
                      QStringLiteral("earlier")));

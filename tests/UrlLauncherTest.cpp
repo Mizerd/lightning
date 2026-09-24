@@ -2,18 +2,12 @@
 
 #include "app/UrlLauncher.h"
 
-// THE ENVIRONMENT A SPAWNED BROWSER GETS.
+// The environment a spawned browser gets.
 //
-// QDesktopServices::openUrl() spawns xdg-open, and a spawned child inherits
-// this process's environment. Inside an AppImage that environment points at the
-// bundle — LD_LIBRARY_PATH puts $APPDIR/usr/lib first so Lightning's own Qt and
-// GStreamer resolve — so the browser loads the bundle's glib/gio ahead of the
-// host's and never starts. Reported against the 0.8.1 AppImage as "clicking
-// links doesn't open them in browser", with no error surfaced anywhere.
-//
-// Asserted on the environment rather than by launching a browser: what a
-// browser does with it is not observable in a test, and the environment IS the
-// defect.
+// QDesktopServices::openUrl() spawns xdg-open, which inherits this process's
+// environment. Inside an AppImage LD_LIBRARY_PATH puts $APPDIR/usr/lib first,
+// so a browser would load the bundle's glib/gio and never start. Asserted on
+// the environment rather than by launching a browser.
 class UrlLauncherTest : public QObject
 {
     Q_OBJECT
@@ -69,9 +63,8 @@ private Q_SLOTS:
                  "an empty LD_LIBRARY_PATH entry means the current directory");
     }
 
-    // Every variable that points into the mount must go: the mount does not
-    // outlive Lightning, so a child holding one is looking at a path that will
-    // vanish.
+    // Every variable that points into the mount is stripped: the mount does
+    // not outlive Lightning.
     void bundleOnlyVariablesAreStripped()
     {
         EnvGuard guard;
@@ -119,10 +112,9 @@ private Q_SLOTS:
         QVERIFY(!lightning::urls::openExternally(QUrl(QStringLiteral(""))));
     }
 
-    // The one exit to ShellExecute / xdg-open allows web and mail links and
-    // nothing else, whatever the caller checked. file:, javascript:, data:
-    // and the Windows protocol handlers that have been RCE vectors are all
-    // refused here, not at whichever call site remembered.
+    // The one exit to ShellExecute / xdg-open allows web and mail links only,
+    // whatever the caller checked: file:, javascript:, data: and risky Windows
+    // protocol handlers are refused here.
     void onlyWebAndMailSchemesAreOpenable_data()
     {
         QTest::addColumn<QString>("url");

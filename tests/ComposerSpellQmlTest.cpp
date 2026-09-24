@@ -1,18 +1,8 @@
-// The spell underline, proven against the PRODUCTION composer rather than
-// against the policy behind it.
-//
-// This suite exists because of a lesson this repository has recorded three
-// times: a test that invokes a policy function directly proves nothing about
-// whether production ever reaches it. The row window shipped as a permanent
-// no-op with the policy covered six ways; the rail's drop gesture passed
-// fifteen model cases through two successive broken rules. So the case below
-// loads the real MessageComposerBar.qml, puts a real misspelling in the real
-// TextArea, and asks the real item tree what got drawn and where.
-//
-// What is deliberately NOT here: whether a real dictionary agrees. That is
-// `--spell-status`, which runs the shipped binary against the machine's own
-// checker; a fake backend is installed here so the geometry is the only
-// variable.
+// The spell underline, proven against the production composer: loads the real
+// MessageComposerBar.qml, puts a misspelling in the real TextArea and asks the
+// item tree what was drawn and where. Calling the policy directly would not
+// show whether production reaches it. Whether a real dictionary agrees is
+// `--spell-status`'s job; a fake backend keeps geometry the only variable.
 
 #include <QtTest/QtTest>
 
@@ -103,9 +93,8 @@ private:
         return findItem(m_window->contentItem(), name);
     }
 
-    // Repeater delegates live only in the VISUAL tree — findChild cannot see
-    // them, which this repository has proven with a constant objectName that
-    // never appeared in a full findChildren dump. Walk childItems().
+    // Repeater delegates live only in the visual tree, which findChild cannot
+    // see; walk childItems().
     QList<QQuickItem *> underlines() const
     {
         QList<QQuickItem *> out;
@@ -120,8 +109,8 @@ private:
         return out;
     }
 
-    // Puts `text` in the real field with the caret out of the way, then runs
-    // the composer's own refresh and lets the delegates be created.
+    // Puts `text` in the real field with the caret out of the way, runs the
+    // composer's refresh and lets the delegates be created.
     void typeAndSettle(const QString &text, int cursor = 0)
     {
         QQuickItem *input = item(QStringLiteral("composerInput"));
@@ -137,8 +126,8 @@ private slots:
     void initTestCase()
     {
         m_controller = new AppController(AppController::MockBackend);
-        // A dictionary that knows "hello" and "world" and nothing else, so
-        // every case below has exactly one predictable misspelling.
+        // A dictionary that knows only "hello" and "world", so each case has
+        // one predictable misspelling.
         auto *checker = qobject_cast<SpellChecker *>(
             m_controller->property("spell").value<QObject *>());
         QVERIFY2(checker, "app.spell is not a SpellChecker");
@@ -171,18 +160,16 @@ private slots:
         delete m_controller;
     }
 
-    // 2026-09-02, reported twice with a screenshot: the rich-only toolbar
-    // chips sat in 72px-wide boxes (AppButton's minimum, meant for a button
-    // with a word on it), which reads as two holes in a row of 28px icon
-    // buttons. Measured against the REAL bar rather than its source text.
+    // The rich-only toolbar chips are no wider than the icon buttons beside
+    // them (not AppButton's 72px minimum), measured on the real bar.
     void theRichToolbarChipsAreNoWiderThanTheIconButtonsBesideThem()
     {
         auto *bar = item(QStringLiteral("composerBar"));
         QVERIFY(bar);
         m_controller->settings()->setComposerMode(QStringLiteral("rich"));
         bar->setProperty("toolbarExpanded", true);
-        // Layouts settle on the polish pass, which an offscreen window runs
-        // only when it updates: processEvents alone reads the old frame.
+        // Layouts settle on the polish pass, which offscreen runs only on
+        // update; processEvents alone reads the old frame.
         QTest::qWait(60);
         QCoreApplication::processEvents();
 
@@ -194,9 +181,8 @@ private slots:
         QVERIFY(ordered);
         QVERIFY2(underline->isVisible() && ordered->isVisible(),
                  "the rich-only chips are not shown in rich mode");
-        // The chips carry two characters; the icon buttons beside them are
-        // 28px. A chip wider than one and a half of those is the 72px
-        // button box coming back.
+        // The icon buttons are 28px; a chip wider than 1.5x that is the 72px
+        // box returning.
         const qreal ceiling = bold->width() * 1.5;
         QVERIFY2(underline->width() <= ceiling,
                  qPrintable(QStringLiteral("underline chip is %1px beside a %2px "
@@ -211,10 +197,8 @@ private slots:
         QTest::qWait(60);
     }
 
-    // ...and the other half of that report: pressing the numbered-list chip
-    // put "1." in the rich editor while the placeholder stayed drawn
-    // underneath it, because an empty list item has no characters and the
-    // field's own emptiness test counts characters.
+    // A list marker in the rich editor clears the placeholder: an empty list
+    // item has no characters, so a character count alone is not enough.
     void aListMarkerInTheRichEditorClearsThePlaceholder()
     {
         auto *bar = item(QStringLiteral("composerBar"));
@@ -244,7 +228,7 @@ private slots:
                      "still shown under it")
                      .arg(rich->property("placeholderText").toString())));
 
-        // Removing the list gives the placeholder back.
+        // Removing the list restores the placeholder.
         QMetaObject::invokeMethod(bar, "applyRichFormat",
                                   Q_ARG(QVariant, QStringLiteral("orderedlist")),
                                   Q_ARG(QVariant, QString()));
@@ -267,9 +251,8 @@ private slots:
         const QList<QQuickItem *> marks = underlines();
         QCOMPARE(marks.size(), 1);
 
-        // The mark must sit under THAT word: same left edge as the word's
-        // first character, and as wide as the word. Nothing here is a
-        // constant — it is read back out of the same TextArea that drew it.
+        // The mark sits under that word: same left edge as its first character
+        // and as wide as the word, read back from the TextArea that drew it.
         QQuickItem *input = item(QStringLiteral("composerInput"));
         QRectF head;
         QRectF tail;
@@ -294,16 +277,13 @@ private slots:
 
     void twoMisspellingsGetTwoSeparateMarks()
     {
-        // LEADING SPACE, and it is not cosmetic. Caret 0 sits at the leading
-        // edge of a word that starts at 0, which the caret rule correctly
-        // treats as "still being typed" — so a draft beginning with a
-        // misspelling shows one mark, not two. The space puts the caret in
-        // whitespace, which is the state this case means to measure.
+        // Leading space on purpose: caret 0 at the start of a word counts as
+        // still typing, which would hide the first mark. The space puts the
+        // caret in whitespace.
         typeAndSettle(QStringLiteral(" hallo wrold"));
         const QList<QQuickItem *> marks = underlines();
         QCOMPARE(marks.size(), 2);
-        // Left to right and not overlapping: two marks on one line sitting on
-        // top of each other would read as one.
+        // Left to right and not overlapping.
         const qreal firstEnd = marks.at(0)->x() + marks.at(0)->width();
         QVERIFY(marks.at(0)->x() < marks.at(1)->x());
         QVERIFY(marks.at(1)->x() >= firstEnd);
@@ -311,9 +291,8 @@ private slots:
 
     void theWordUnderTheCaretIsNotMarkedInTheRealField()
     {
-        // The suppression is policy, but THIS asserts the production path
-        // actually passes the caret through: the same text, the same field,
-        // only the caret moved.
+        // The production path passes the caret through: same text, same
+        // field, only the caret moved.
         typeAndSettle(QStringLiteral("hello wrold"), 11);
         QCOMPARE(underlines().size(), 0);
         typeAndSettle(QStringLiteral("hello wrold"), 0);
@@ -337,7 +316,7 @@ private slots:
         QVERIFY(!checker->available());
         typeAndSettle(QStringLiteral("hello wrold"));
         QCOMPARE(underlines().size(), 0);
-        // Restored for any case that runs after this one.
+        // Restored for later cases.
         checker->setBackendForTest(std::make_unique<FakeBackend>());
     }
 };

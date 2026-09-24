@@ -1,10 +1,8 @@
-// v0.6.0 checkpoint 2: SDK-backed thread foundation, exercised through the
-// deterministic mock backend. The mock serves thread timelines under the
-// same composite timeline-id contract as the Rust backend (root first,
-// replies in room order, live reply propagation), so these tests pin the
-// lifecycle rules — open/close, root/reply identity, thread and room
-// switches, failure states, and the thread-only send path — without a
-// homeserver.
+// Thread lifecycle through the deterministic mock backend, which serves thread
+// timelines under the same composite timeline-id contract as the Rust backend
+// (root first, replies in room order, live reply propagation): open/close,
+// root/reply identity, thread and room switches, failure states, and the
+// thread-only send path.
 
 #include "matrix/MockMatrixClient.h"
 #include "models/AttachmentQueueModel.h"
@@ -68,8 +66,8 @@ private:
         return out;
     }
 
-    // Opens a room's first fixture thread. Deliberately a plain private
-    // helper, not a slot: anything in the Q_SLOTS block below is a test case.
+    // Opens a room's first fixture thread. A private helper, not a slot:
+    // everything in the Q_SLOTS block is a test case.
     static bool openFixtureThread(MockMatrixClient &client,
                                   ThreadController &controller,
                                   const QString &roomId, QString *rootOut)
@@ -84,23 +82,10 @@ private:
     }
 
 private Q_SLOTS:
-    // AN EDIT ADDRESSED TO THE OPEN THREAD MUST LAND IN THE THREAD'S OWN
-    // LIST, because that is the list the panel reads back.
-    //
-    // The mock keeps TWO lists while a thread panel is open: the room's, and
-    // a list of COPIES under the §8 composite that rebuildOpenThreadTimeline()
-    // writes and closeThread() removes. Only the second is what
-    // TimelineModel::onEventEdited re-reads (it asks for
-    // client->timeline(m_roomId), and a thread model's m_roomId IS the
-    // composite). So an edit that mutated the ROOM copy would be applied,
-    // announced, and then overwritten by the stale thread copy — the panel
-    // would show the pre-edit body.
-    //
-    // That is not hypothetical: findEvent() was changed on 2026-09-11 to
-    // reduce a composite to its room, on the false premise that the mock has
-    // no thread timeline of its own, and reverted the same day. Nothing
-    // failed, because no test opened a thread and then edited through it.
-    // This is that test.
+    // An edit addressed to the open thread lands in the thread's own list: the
+    // mock keeps a separate copy under the composite thread id, which is what
+    // TimelineModel::onEventEdited re-reads for a thread model. Editing only
+    // the room copy would be overwritten by the stale thread copy.
     void anEditThroughTheOpenThreadLandsInTheThreadsOwnList()
     {
         MockMatrixClient client;
@@ -115,8 +100,8 @@ private Q_SLOTS:
         const auto before = client.timeline(composite);
         QVERIFY2(before.size() > 1,
                  "fixture assumption: the thread holds the root and a reply");
-        // A REPLY, never the root: the root also lives in the room list, so
-        // editing it could pass on the reduced lookup by coincidence.
+        // A reply, not the root: the root also lives in the room list, so
+        // editing it could pass by coincidence.
         const QString replyId = before.at(1).eventId;
         QVERIFY(!replyId.isEmpty());
 
@@ -133,12 +118,8 @@ private Q_SLOTS:
         QCOMPARE(row->body, edited);
     }
 
-    // THE DIVIDER'S NUMBER MUST BE REPLIES, NOT ROWS.
-    //
-    // The panel derived it from `model.count - 1` — the ROW count minus the
-    // thread root — and rows include date dividers, the read marker and the
-    // timeline-start row. Live on 2026-09-11 that showed "3 replies" beside
-    // two replies while the room's own summary card said 2.
+    // The divider's number counts replies, not rows (rows include date
+    // dividers, the read marker and the timeline-start row).
     void replyCountIsRepliesNotRows()
     {
         MockMatrixClient client;
@@ -148,8 +129,7 @@ private Q_SLOTS:
         QString rootId;
         QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
 
-        // What the ROOM says the thread holds, computed independently of
-        // anything the panel or the thread model does.
+        // What the room says the thread holds, computed independently.
         int repliesInRoom = 0;
         for (const auto &e : client.timeline(kGeneral))
             if (e.threadRootId == rootId)
@@ -157,8 +137,8 @@ private Q_SLOTS:
         QVERIFY2(repliesInRoom > 0, "fixture assumption: the thread has replies");
         QCOMPARE(controller.replyCount(), repliesInRoom);
 
-        // Now make the row count and the reply count disagree, which is the
-        // whole defect: a virtual row is a row and is not a reply.
+        // Make the row count and reply count disagree: a virtual row is not a
+        // reply.
         const int rowsBefore = controller.model()->property("count").toInt();
         const int realBefore = controller.model()->property("realCount").toInt();
         QCOMPARE(controller.replyCount(), realBefore - 1);
@@ -176,16 +156,9 @@ private Q_SLOTS:
         QCOMPARE(controller.replyCount(), repliesInRoom);
     }
 
-    // THE SDK'S NUMBER WINS, AND ITS ARRIVAL MUST BE ANNOUNCED.
-    //
-    // A loaded count cannot agree with the room's summary card for a thread
-    // longer than its first page: the thread timeline is windowed and
-    // paginates lazily, so the card (which reads num_replies) and a loaded
-    // count diverge by LENGTH. And the summary arrives as an in-place Set on
-    // the root row, which does NOT reach countChanged — onEventChangedAt
-    // emits that only when a row's virtualness flips — so without a
-    // dataChanged path the divider would keep showing the loaded count
-    // forever. Both halves are the point of this case.
+    // The SDK's reply count wins over a loaded count (thread timelines are
+    // windowed), and its arrival is announced: the summary lands as an
+    // in-place Set on the root, which does not emit countChanged.
     void theSdkSummaryWinsAndItsArrivalIsAnnounced()
     {
         MockMatrixClient client;
@@ -198,7 +171,7 @@ private Q_SLOTS:
         const int loaded = controller.replyCount();
         QVERIFY2(loaded > 0, "fixture assumption: the thread has loaded replies");
 
-        // A windowed thread: the server knows about far more than are here.
+        // A windowed thread: the server knows about far more replies.
         const int serverSays = loaded + 40;
         QSignalSpy spy(&controller, &ThreadController::replyCountChanged);
         const QString composite =
@@ -220,20 +193,13 @@ private Q_SLOTS:
         QCOMPARE(controller.replyCount(), serverSays);
         QCOMPARE(spy.count(), 1);
 
-        // A second identical Set must NOT re-announce: the ANSWER is the
-        // signal, not the write.
+        // An identical second Set does not re-announce.
         client.changeEventAtForTest(composite, rootIndex, updated);
         QCOMPARE(spy.count(), 1);
     }
 
-    // A LABEL DIRECTLY ABOVE THE REPLIES MUST NEVER SAY FEWER THAN THEY ARE.
-    //
-    // Preferring the SDK's num_replies outright FAILED LIVE on 2026-09-11:
-    // sending a third reply left the divider reading "2 replies" above three
-    // visible ones, and it had not corrected itself 45 seconds later — the
-    // server's thread summary had simply not been re-delivered. A stale
-    // summary is stale LOW as readily as high, and low is the direction the
-    // reader can see.
+    // The divider never shows fewer replies than are on screen: a stale server
+    // summary can lag behind the loaded replies.
     void aStaleSummaryNeverUndercutsTheRepliesOnScreen()
     {
         MockMatrixClient client;
@@ -257,30 +223,23 @@ private Q_SLOTS:
         const int loaded = controller.replyCount();
         QVERIFY2(loaded >= 2, "fixture assumption: at least two replies");
 
-        // The server is BEHIND what is loaded — exactly the live shape.
+        // The server is behind what is loaded.
         TimelineEvent stale = thread.at(rootIndex);
         stale.threadReplyCount = loaded - 1;
         client.changeEventAtForTest(composite, rootIndex, stale);
 
         QCOMPARE(controller.replyCount(), loaded);
 
-        // And it still yields to a summary that is AHEAD, which is the case
-        // a loaded count can never know about: a windowed thread.
+        // It still yields to a summary that is ahead (a windowed thread).
         TimelineEvent ahead = stale;
         ahead.threadReplyCount = loaded + 40;
         client.changeEventAtForTest(composite, rootIndex, ahead);
         QCOMPARE(controller.replyCount(), loaded + 40);
     }
 
-    // A LATE DECRYPTION MUST REACH THE ROOT CARD, NOT ONLY THE REPLIES.
-    //
-    // ThreadPanel renders the root from a SNAPSHOT (`rootInfo()`), refreshed
-    // only on a lifecycle change and on the model's countChanged. A late key,
-    // an edit, a redaction and a sender-name resolution all arrive as
-    // in-place Sets, which change no row count — so the card kept showing
-    // "Unable to decrypt this message" over a thread whose replies had
-    // decrypted fine, and §9 is explicit that a late key updates the event in
-    // place with no restart and no room switch.
+    // An in-place change to the root row (late decryption, edit, redaction,
+    // name resolution) is announced, so the panel's root card snapshot
+    // refreshes; such Sets change no row count.
     void aRootRowChangedInPlaceAnnouncesItself()
     {
         MockMatrixClient client;
@@ -304,7 +263,7 @@ private Q_SLOTS:
         QSignalSpy rootSpy(&controller, &ThreadController::rootInfoChanged);
         QSignalSpy countSpy(controller.model(), &TimelineModel::countChanged);
 
-        // The shape of a late decryption: same row, new body, no row added.
+        // A late decryption: same row, new body, no row added.
         TimelineEvent decrypted = thread.at(rootIndex);
         decrypted.body = QStringLiteral("the key finally arrived");
         client.changeEventAtForTest(composite, rootIndex, decrypted);
@@ -312,11 +271,11 @@ private Q_SLOTS:
         QCOMPARE(rootSpy.count(), 1);
         QCOMPARE(controller.rootInfo().value(QStringLiteral("body")).toString(),
                  decrypted.body);
-        // And the fixture is honest: countChanged did NOT fire, which is why
-        // the panel's existing trigger could never have caught this.
+        // countChanged did not fire, so the panel's old trigger could not
+        // have caught this.
         QCOMPARE(countSpy.count(), 0);
 
-        // A Set on a REPLY must not masquerade as a root change.
+        // A Set on a reply is not a root change.
         const int replyIndex = rootIndex == 0 ? 1 : 0;
         TimelineEvent reply = thread.at(replyIndex);
         QVERIFY(reply.eventId != rootId);
@@ -334,9 +293,8 @@ private Q_SLOTS:
         QVERIFY(controller.supported());
     }
 
-    // Opening a fixture thread promotes Closed → Opening → Ready and loads
-    // exactly the root (pinned first, never duplicated) plus its replies —
-    // no unrelated room events.
+    // Opening a fixture thread goes Closed -> Opening -> Ready and loads
+    // exactly the root (pinned first, never duplicated) plus its replies.
     void openThreadLoadsRootFirstAndRepliesOnly()
     {
         MockMatrixClient client;
@@ -375,8 +333,7 @@ private Q_SLOTS:
         QCOMPARE(rootRows, 1);            // present exactly once
     }
 
-    // The ROOM timeline model reports thread roles for the same fixtures:
-    // the root is recognized and the reply count matches the loaded replies.
+    // The room timeline model reports thread roles for the same fixtures.
     void roomModelReportsThreadRoles()
     {
         MockMatrixClient client;
@@ -415,8 +372,7 @@ private Q_SLOTS:
         QCOMPARE(controller.model()->rowCount(), 0);
     }
 
-    // Switching to another thread replaces the panel: the model holds only
-    // the new thread's events; nothing from the old thread leaks through.
+    // Switching threads replaces the panel's content entirely.
     void threadSwitchReplacesContent()
     {
         MockMatrixClient client;
@@ -453,8 +409,7 @@ private Q_SLOTS:
         }
     }
 
-    // A room switch always closes the panel; switching "to" the same room
-    // does not.
+    // A room switch closes the panel; switching to the same room does not.
     void roomSwitchClosesThread()
     {
         MockMatrixClient client;
@@ -476,9 +431,9 @@ private Q_SLOTS:
         QVERIFY(controller.roomId().isEmpty());
     }
 
-    // sendText goes through the backend's THREAD send path: the reply lands
-    // in the open thread timeline AND the room timeline with the correct
-    // thread root, exactly once each — never as an ordinary room message.
+    // sendText uses the backend's thread send path: the reply lands in the
+    // thread and room timelines with the thread root, once each, never as an
+    // ordinary room message.
     void sendTextCreatesThreadReplyOnly()
     {
         MockMatrixClient client;
@@ -520,9 +475,8 @@ private Q_SLOTS:
         QCOMPARE(controller.model()->rowCount(), rows);
     }
 
-    // Encrypted-thread fixtures: the decrypted root and reply load with
-    // their encryption metadata, and the undecryptable reply stays a safe
-    // placeholder inside the thread.
+    // Encrypted-thread fixtures: the decrypted root and reply keep their
+    // encryption metadata, and the undecryptable reply stays a placeholder.
     void encryptedThreadLoadsWithUndecryptableReply()
     {
         MockMatrixClient client;
@@ -574,7 +528,7 @@ private Q_SLOTS:
             QCOMPARE(participants.count(p), 1);
     }
 
-    // ── v0.6.0 checkpoint 4: reply-within-thread compose state ──────────
+    // Reply-within-thread compose state.
     void replyStateTargetsLoadedThreadEventsOnly()
     {
         MockMatrixClient client;
@@ -613,9 +567,8 @@ private Q_SLOTS:
         QCOMPARE(replySpy.count(), 2);
     }
 
-    // Sending with an active reply target produces a rich reply WITHIN the
-    // thread (both threadRootId and replyToEventId set) and clears the
-    // target; the next send is a plain thread message again.
+    // Sending with a reply target produces a rich reply within the thread
+    // (threadRootId and replyToEventId set) and clears the target.
     void sendWithReplyTargetCreatesRichThreadReply()
     {
         MockMatrixClient client;
@@ -692,8 +645,8 @@ private Q_SLOTS:
         QVERIFY(!controller.inReply());
     }
 
-    // ── v0.6.0 checkpoint 5: follow state, thread list, threaded read ───
-
+    // Follow state, thread list, threaded read receipts.
+    //
     // Follow state round-trips through the backend; stale answers for other
     // threads are ignored; unfollow works; close resets it.
     void followStateTracksSubscription()
@@ -726,8 +679,8 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(controller.followed(), false,
                                   kSignalTimeoutMs);
 
-        // Persistence across reopen (mock's map is the stand-in for the
-        // MSC4306 server state).
+        // Persists across reopen (the mock's map stands in for MSC4306 server
+        // state).
         controller.setFollowed(true);
         QTRY_COMPARE_WITH_TIMEOUT(controller.followed(), true,
                                   kSignalTimeoutMs);
@@ -738,8 +691,8 @@ private Q_SLOTS:
                                   kSignalTimeoutMs);
     }
 
-    // The Threads view lists the room's threads sorted by latest activity,
-    // updates live on new replies, and closes on room switch.
+    // The Threads view lists threads by latest activity, updates live, and
+    // closes on room switch.
     void threadListListsAndFollowsActivity()
     {
         MockMatrixClient client;
@@ -776,8 +729,8 @@ private Q_SLOTS:
         QVERIFY(controller.threadList().isEmpty());
     }
 
-    // markRead sends exactly one threaded receipt per new latest reply —
-    // repeated calls (delegate churn, repeated settle events) deduplicate.
+    // markRead sends one threaded receipt per new latest reply; repeated calls
+    // deduplicate.
     void markReadDeduplicatesPerLatestReply()
     {
         MockMatrixClient client;
@@ -790,8 +743,8 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
                                   kSignalTimeoutMs);
 
-        // Repeated calls with an unchanged latest reply send exactly ONE
-        // threaded receipt; a new reply re-arms exactly one more.
+        // Repeated calls with an unchanged latest reply send one receipt; a new
+        // reply re-arms one more.
         controller.markRead();
         controller.markRead();
         controller.markRead();
@@ -806,10 +759,9 @@ private Q_SLOTS:
         QCOMPARE(controller.state(), ThreadController::Ready);
     }
 
-    // ── v0.6.0 checkpoint 8: manual decryption retry dispatch ───────────
-    // Both the room model and the thread model dispatch retryDecryption to
-    // the backend with their own timeline id (the Rust backend maps a
-    // composite thread id onto its parent room and retries both timelines).
+    // Manual decryption retry: both the room and thread models dispatch
+    // retryDecryption with their own timeline id (the Rust backend maps a
+    // composite thread id onto its room and retries both).
     void retryDecryptionDispatchesFromBothModels()
     {
         MockMatrixClient client;
@@ -840,10 +792,8 @@ private Q_SLOTS:
         QCOMPARE(client.decryptionRetryRoomsForTest().size(), 2);
     }
 
-    // v0.6.1: Copy message link / message details on a thread reply must use
-    // the REAL room id, never the internal composite thread-timeline id (which
-    // embeds a unit separator + "thread" marker and would break the permalink
-    // and leak the internal scheme into the details dialog).
+    // A thread reply's permalink and details use the real room id, never the
+    // composite thread-timeline id.
     void threadReplyPermalinkUsesRealRoomId()
     {
         MockMatrixClient client;
@@ -856,10 +806,10 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
                                   kSignalTimeoutMs);
         auto *model = controller.model();
-        // The model is bound to the composite thread timeline id …
+        // The model is bound to the composite thread timeline id...
         QVERIFY(MatrixClient::isThreadTimelineId(model->roomId()));
 
-        // … but a reply's permalink and details resolve the real room.
+        // ...but a reply's permalink and details resolve the real room.
         const QString replyId =
             model->data(model->index(1, 0), TimelineModel::EventIdRole)
                 .toString();
@@ -876,12 +826,11 @@ private Q_SLOTS:
         QCOMPARE(details.value(QStringLiteral("roomId")).toString(), kGeneral);
     }
 
-    // ── v0.6.1: thread attachment sending ───────────────────────────────
-
-    // A queued file attachment sends into the OPEN thread: it lands in the
-    // thread timeline AND the room timeline with the correct thread root, as
-    // an Image/File (never an ordinary room message), and the tray clears once
-    // the SDK send queue accepts it.
+    // Thread attachments.
+    //
+    // A queued attachment sends into the open thread (thread and room
+    // timelines, with the thread root, as Image/File), and the tray clears
+    // once the SDK send queue accepts it.
     void threadAttachmentSendsIntoThread()
     {
         MockMatrixClient client;
@@ -909,7 +858,7 @@ private Q_SLOTS:
         controller.sendText(QString{});   // attachment-only send
         QCOMPARE(client.threadAttachmentCallsForTest(), 1);
 
-        // Local echo appears in the thread with the correct root and an image.
+        // The local echo appears in the thread with the root and an image.
         QTRY_COMPARE_WITH_TIMEOUT(controller.model()->rowCount(),
                                   threadRowsBefore + 1, kSignalTimeoutMs);
         const QModelIndex last =
@@ -920,7 +869,7 @@ private Q_SLOTS:
         QVERIFY(controller.model()->data(last, TimelineModel::IsImageRole)
                     .toBool());
 
-        // The room timeline saw exactly one copy, threaded (never a room msg).
+        // The room timeline has exactly one threaded copy.
         int roomImages = 0;
         for (const auto &e : client.timeline(kGeneral)) {
             if (e.type == TimelineEvent::Image
@@ -937,8 +886,8 @@ private Q_SLOTS:
         QVERIFY(!controller.hasAttachments());
     }
 
-    // A failed queue attempt leaves the entry as a retryable "failed" tray
-    // item — never an immortal spinner, never a room-timeline fallback.
+    // A failed queue attempt leaves a retryable "failed" tray item, never a
+    // permanent spinner or a room-timeline fallback.
     void threadAttachmentFailureIsRetryable()
     {
         MockMatrixClient client;
@@ -970,8 +919,7 @@ private Q_SLOTS:
                  QStringLiteral("failed"));
     }
 
-    // Switching threads or closing the panel before sending discards queued
-    // attachments so they can never reach the new thread or the room.
+    // Switching threads or closing the panel discards queued attachments.
     void threadSwitchDiscardsQueuedAttachments()
     {
         MockMatrixClient client;
@@ -991,7 +939,7 @@ private Q_SLOTS:
         controller.addAttachment(QUrl::fromLocalFile(file.fileName()));
         QCOMPARE(controller.attachments()->rowCount(), 1);
 
-        // Open a different thread — queued attachment is dropped, not resent.
+        // Open a different thread: the queued attachment is dropped.
         const QString secondRoot = client.timeline(kGeneral).first().eventId;
         client.sendThreadReply(kGeneral, secondRoot, QStringLiteral("seed"));
         controller.openThread(kGeneral, secondRoot);
@@ -1007,11 +955,9 @@ private Q_SLOTS:
         QCOMPARE(controller.attachments()->rowCount(), 0);
     }
 
-    // v0.6.1 (E2EE): an undecryptable thread reply recovers IN PLACE when the
-    // key arrives — the SDK emits an item update (eventChangedAt) on the
-    // thread timeline, and the same row becomes decrypted with no duplicate,
-    // stable identity, and its thread root preserved. No room-timeline
-    // fallback, no reopen.
+    // An undecryptable thread reply recovers in place when the key arrives
+    // (eventChangedAt on the thread timeline): same row, same identity, root
+    // preserved, no duplicate and no reopen.
     void threadUndecryptableReplyRecoversInPlace()
     {
         MockMatrixClient client;
@@ -1041,8 +987,8 @@ private Q_SLOTS:
             model->data(model->index(utdRow, 0),
                         TimelineModel::EventIdRole).toString();
 
-        // The key arrives: the SDK replaces the item in place. Build the
-        // decrypted event from the mock's thread copy, same identity.
+        // The key arrives: the item is replaced in place with the decrypted
+        // event (same identity).
         const auto threadEvents = client.timeline(timelineId);
         TimelineEvent decrypted;
         for (const auto &e : threadEvents) {
@@ -1055,8 +1001,7 @@ private Q_SLOTS:
         decrypted.type = TimelineEvent::TextMessage;
         Q_EMIT client.eventChangedAt(timelineId, utdRow, decrypted);
 
-        // Same row, decrypted in place — no duplicate, identity preserved,
-        // thread root intact.
+        // Same row, decrypted: no duplicate, identity and root intact.
         QCOMPARE(model->rowCount(), rowsBefore);
         const QModelIndex idx = model->index(utdRow, 0);
         QVERIFY(!model->data(idx, TimelineModel::UndecryptableRole).toBool());
@@ -1086,11 +1031,9 @@ private Q_SLOTS:
         QCOMPARE(controller.model()->rowCount(), 0);
     }
 
-    // v0.7 facepiles. ThreadManager's participant cache is what makes it
-    // safe for every visible summary card to ask on every appearance: the
-    // request is idempotent per (room, root), an unknown thread reads back
-    // empty rather than inventing anyone, and the whole cache is dropped on
-    // sign-out so one account's faces can never surface under another's.
+    // ThreadManager's participant cache: requests are idempotent per (room,
+    // root), an unknown thread reads empty, and sign-out drops the cache so
+    // faces never cross accounts.
     void threadParticipantsAreCachedDedupedAndAccountScoped()
     {
         MockMatrixClient client;
@@ -1099,7 +1042,7 @@ private Q_SLOTS:
 
         const QString root = QStringLiteral("$root:example.org");
 
-        // Unknown thread: empty means UNKNOWN, never "nobody".
+        // Unknown thread: empty means unknown, not "nobody".
         QVERIFY(threads.participants(kGeneral, root).isEmpty());
 
         QSignalSpy changed(&threads, &ThreadManager::participantsChanged);
@@ -1120,33 +1063,26 @@ private Q_SLOTS:
         QCOMPARE(changed.count(), 1);
         QCOMPARE(threads.participants(kGeneral, root).size(), 2);
 
-        // Scoped by BOTH room and root: a different root in the same room is
-        // a different thread and must not inherit these faces.
+        // Scoped by room and root.
         QVERIFY(threads.participants(
                     kGeneral, QStringLiteral("$other:example.org")).isEmpty());
 
-        // A failed lookup arrives empty and must NOT be cached as an answer
-        // — caching it would make a transient failure permanent for the
-        // session and suppress every later retry.
+        // A failed lookup is not cached, so a transient failure can retry.
         const QString root2 = QStringLiteral("$second:example.org");
         Q_EMIT client.threadParticipantsReceived(kGeneral, root2, {}, 0, false);
         QCOMPARE(changed.count(), 1);          // no "changed" for a failure
         QVERIFY(threads.participants(kGeneral, root2).isEmpty());
 
-        // Sign-out drops everything: no cross-account face leakage.
+        // Sign-out drops everything.
         client.logout();
         QVERIFY(threads.participants(kGeneral, root).isEmpty());
     }
 
-    // ── Reply navigation inside the thread panel (contract C5) ──────────
+    // Reply navigation inside the thread panel resolves against this thread's
+    // timeline, never the room history loader.
     //
-    // These pin the whole point of the round's thread half: a reply preview
-    // in a thread panel resolves against THIS thread's timeline, never
-    // against the room history loader.
-
-    // A target already in the loaded thread timeline resolves synchronously:
-    // one located signal carrying its row, and a highlight that is a PULSE,
-    // not a permanent state.
+    // A loaded target resolves synchronously: one located signal with its row,
+    // and a highlight that pulses rather than staying on.
     void navigateToLoadedThreadReplyLocatesItsRowAndPulses()
     {
         MockMatrixClient client;
@@ -1178,14 +1114,13 @@ private Q_SLOTS:
         QCOMPARE(controller.navigationHighlightEventId(), targetId);
         QVERIFY(controller.navigationMessage().isEmpty());
         QVERIFY(!controller.navigating());
-        // The pulse expires on its own; a permanent highlight would leave the
-        // row looking selected forever.
+        // The pulse expires on its own.
         QTRY_VERIFY_WITH_TIMEOUT(
             controller.navigationHighlightEventId().isEmpty(), kSignalTimeoutMs);
     }
 
-    // The highlight is observably ON before it clears — the assertion above
-    // would also pass if it had never been set at all.
+    // The highlight is observably on before it clears (the case above would
+    // pass if it were never set).
     void theReplyHighlightIsVisibleBeforeItExpires()
     {
         MockMatrixClient client;
@@ -1213,9 +1148,8 @@ private Q_SLOTS:
             controller.navigationHighlightEventId().isEmpty(), kSignalTimeoutMs);
     }
 
-    // The thread ROOT is not a row of the reply list (the panel suppresses it
-    // and pins it as a card), so navigating to it pulses that card: no row
-    // landing, no thread close, and above all no room jump.
+    // The thread root is pinned as a card, not a list row, so navigating to it
+    // pulses the card: no row landing, no close, no room jump.
     void navigateToThreadRootPulsesTheCardWithoutLeavingTheThread()
     {
         MockMatrixClient client;
@@ -1243,13 +1177,13 @@ private Q_SLOTS:
         QCOMPARE(controller.roomId(), kGeneral);
         QCOMPARE(controller.rootEventId(), rootId);
         QVERIFY(controller.navigationMessage().isEmpty());
-        // Nothing asked the ROOM for history.
+        // Nothing asked the room for history.
         QCOMPARE(client.timeline(kGeneral).size(), roomRowsBefore);
         QVERIFY(!client.paginating(kGeneral));
     }
 
-    // A target only reachable through this thread's own backward pagination
-    // is found by the bounded search and located at its landed row.
+    // A target reachable only through the thread's own backward pagination is
+    // found by the bounded search.
     void navigateToAnUnloadedReplyPaginatesTheThreadTimeline()
     {
         MockMatrixClient client;
@@ -1257,8 +1191,7 @@ private Q_SLOTS:
         client.setPaginationDelayForTest(10);
         ThreadController controller;
         controller.setClient(&client);
-        // A generous highlight lifetime: this case waits on an async page,
-        // and the pulse must still be observable when it lands.
+        // A long highlight lifetime, since this waits on an async page.
         controller.setNavigationPolicyForTest(4, 1500, 3000);
 
         QString rootId;
@@ -1266,10 +1199,9 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
                                   kSignalTimeoutMs);
 
-        // Give the OPEN thread timeline paginable history. The mock keys
-        // pagination by timeline id, and a thread timeline it assembled
-        // itself has none — so seed it with exactly the rows it already has
-        // plus a page budget, and stage the page that carries the target.
+        // Give the open thread timeline paginable history: the mock keys
+        // pagination by timeline id, so seed it with its current rows plus a
+        // page budget, and stage the page carrying the target.
         const QString threadId = MatrixClient::threadTimelineId(kGeneral,
                                                                rootId);
         TimelineEvent older;
@@ -1302,8 +1234,8 @@ private Q_SLOTS:
         QVERIFY(!controller.navigating());
     }
 
-    // A thread with no reachable history refuses immediately and honestly —
-    // and, critically, does NOT fall back to the room history loader.
+    // With no reachable history the search refuses immediately and never
+    // falls back to the room history loader.
     void navigationForAnUnreachableTargetFailsHonestlyAndNeverJumpsToTheRoom()
     {
         MockMatrixClient client;
@@ -1324,7 +1256,7 @@ private Q_SLOTS:
 
         QTRY_VERIFY_WITH_TIMEOUT(!controller.navigationMessage().isEmpty(),
                                  kSignalTimeoutMs);
-        // The SAME sentence the room timeline shows, not a second wording.
+        // The same message the room timeline shows.
         QCOMPARE(controller.navigationMessage(),
                  PaginationController::unavailableTargetMessage());
         QCOMPARE(located.count(), 0);
@@ -1334,9 +1266,8 @@ private Q_SLOTS:
         QVERIFY(!client.paginating(kGeneral));
     }
 
-    // With history available but the target not in it, the search stops at
-    // its own bounded budget — not at the end of the thread — and reports the
-    // honest message rather than paginating the whole thread away.
+    // With history available but no target, the search stops at its own
+    // budget, not the end of the thread, and reports the message.
     void navigationStopsAtItsBoundedBudgetAndReportsHonestly()
     {
         MockMatrixClient client;
@@ -1353,7 +1284,7 @@ private Q_SLOTS:
 
         const QString threadId = MatrixClient::threadTimelineId(kGeneral,
                                                                rootId);
-        // Far more pages than the budget, and none of them carry the target.
+        // Far more pages than the budget, none carrying the target.
         client.resetTimelineForTest(threadId, client.timeline(threadId), 20);
 
         auto *model = controller.model();
@@ -1367,16 +1298,15 @@ private Q_SLOTS:
         QCOMPARE(controller.navigationMessage(),
                  PaginationController::unavailableTargetMessage());
         QCOMPARE(located.count(), 0);
-        // Exactly three pages of three synthetic rows each: the stop was the
-        // budget, not the end of history (the mock still has pages left).
+        // Exactly three pages of three rows: the budget stopped it, not the
+        // end of history.
         QCOMPARE(model->rowCount(), rowsBefore + 9);
         QVERIFY(client.canPaginate(threadId));
         QVERIFY(!controller.navigating());
     }
 
-    // A reader who moves on must never be pulled back. Both lifecycle
-    // changes that can happen mid-search abandon it SILENTLY: no honest
-    // message about a thread they left, and no landing in the new one.
+    // A thread or room change abandons an in-flight search silently: no
+    // message about a thread the reader left, no landing in the new one.
     void aThreadOrRoomChangeAbandonsAnInFlightReplySearch()
     {
         MockMatrixClient client;

@@ -1,19 +1,15 @@
 // lightning-updater: archive path safety and the hardened ZIP reader.
 //
-// This is the highest-risk code in the helper: a single accepted traversal
-// entry writes attacker-chosen bytes to an attacker-chosen path with the
-// user's privileges. The verdict function is therefore pure and is exercised
-// here against an exhaustive hostile matrix, and the reader itself is driven
-// with real archives built byte-by-byte in this file.
+// One accepted traversal entry writes attacker-chosen bytes to an
+// attacker-chosen path, so the pure verdict function is run against an
+// exhaustive hostile matrix and the reader against archives built
+// byte-by-byte here.
 //
-// The path, symlink, cap and CRC refusals are proved with STORED entries, so
-// they hold regardless of whether the build has zlib. The deflate half of the
-// suite builds REAL method-8 members (raw deflate, no zlib wrapper — exactly
-// what a ZIP member carries), because that is what `zip -X` produces and
-// therefore what the shipped portable archive actually is: it exercises the
-// inflate loop, the streaming per-chunk caps, the compression-ratio guard,
-// truncated and corrupt streams, and the CRC-32 taken over INFLATED output.
-// Those cases QSKIP — never silently pass — in a build without zlib.
+// Path, symlink, cap and CRC refusals use stored entries, so they hold
+// without zlib. The deflate half builds real method-8 members (what `zip -X`
+// produces) to exercise the inflate loop, per-chunk caps, the ratio guard,
+// truncated/corrupt streams and the CRC over inflated output; those cases
+// QSKIP without zlib.
 
 #include "updater/SafeArchive.h"
 
@@ -111,11 +107,9 @@ QByteArray deflateRaw(const QByteArray &plain)
 #endif
 }
 
-// Deterministic, genuinely compressible bytes: one pseudo-random block
-// repeated, which is roughly what a real bundle's padding and string tables
-// look like to deflate — compressible, but nothing like a zip bomb. The LCG
-// keeps the fixture identical on every platform, so the achieved compressed
-// size (which two tests derive their limits from) is stable.
+// Deterministic, compressible bytes: one pseudo-random block repeated. The
+// LCG keeps the achieved compressed size (two tests derive limits from it)
+// stable across platforms.
 QByteArray compressibleBlob(int blockSize, int repeats, quint32 seed)
 {
     QByteArray block(blockSize, '\0');
@@ -177,11 +171,9 @@ ZipEntry symlinkEntry(const char *name, const QByteArray &target)
     return entry;
 }
 
-// Writes a real, minimal, valid ZIP. Members are stored (method 0) unless the
-// entry asks for deflate (method 8), in which case the payload is a genuine
-// raw deflate stream. The CRC always covers the ORIGINAL bytes, which is what
-// makes the truncation case honest: the archive declares the checksum the
-// complete entry would have had.
+// Writes a real, minimal, valid ZIP. Members are stored unless the entry asks
+// for deflate. The CRC always covers the original bytes, so a truncated entry
+// still declares the checksum the complete one would have had.
 bool writeZip(const QString &path, const QList<ZipEntry> &entries)
 {
     QByteArray body;
@@ -753,13 +745,9 @@ void UpdaterZipSafetyTest::listingAppliesTheSameVerdicts()
 }
 
 // ---------------------------------------------------------------------------
-// The reader, deflated (method 8) entries
-//
-// This is the shape the shipped portable ZIP actually has: `zip -X` deflates.
-// Everything below therefore drives the inflate loop rather than the stored
-// fast path — including the two guards that only exist there (the per-chunk
-// output cap and the compression-ratio refusal) and the CRC-32, which on this
-// path is taken over INFLATED bytes, not over what the archive supplied.
+// The reader, deflated (method 8) entries: the shape of the shipped portable
+// ZIP. These drive the inflate loop, its per-chunk output cap, the
+// compression-ratio refusal, and the CRC-32 over inflated bytes.
 // ---------------------------------------------------------------------------
 
 // Skips, rather than passing vacuously, when either this test binary or
@@ -786,10 +774,8 @@ void UpdaterZipSafetyTest::extractsADeflatedArchive()
                     .toUtf8();
     }
 
-    // Every payload here must be ORDINARY content, not a bomb: a fixture that
-    // happened to exceed maxCompressionRatio would be refused and this test
-    // would then be asserting nothing about the inflate path. (An earlier
-    // draft used one repeated line, which deflate crushed 263:1.)
+    // Every payload here must be ordinary content, not a bomb, or the ratio
+    // guard would refuse it and nothing about the inflate path is tested.
     const auto isOrdinarilyCompressible = [](const QByteArray &plain) {
         const QByteArray compressed = deflateRaw(plain);
         return !compressed.isEmpty()
@@ -891,10 +877,9 @@ void UpdaterZipSafetyTest::refusesDeflateOutputBeyondTheDeclaredSize()
 {
     SKIP_WITHOUT_DEFLATE();
 
-    // THE bypass of the compression-ratio guard: that guard only ever sees the
-    // DECLARED sizes, so an archive that understates uncompressedSize sails
-    // past it. The streaming per-chunk cap is what actually stops the write,
-    // mid-stream, before the declared budget is exceeded.
+    // The ratio guard sees only declared sizes, so an archive understating
+    // uncompressedSize passes it; the streaming per-chunk cap must stop the
+    // write mid-stream.
     const QByteArray real = compressibleBlob(4096, 64, 0xD0D0u); // 256 KiB
     const qint64 lie = 96 * 1024;                                // < one quarter
 
@@ -1001,11 +986,8 @@ void UpdaterZipSafetyTest::refusesADeflateBombAtTheDefaultRatioCap()
 {
     SKIP_WITHOUT_DEFLATE();
 
-    // 2 MiB of nothing: the classic highly-compressible member. The refusal
-    // must come from the SHIPPED limit, so the test asserts the fixture really
-    // does exceed ArchiveLimits::maxCompressionRatio before extracting with
-    // the defaults — otherwise a future zlib that compresses worse would let
-    // this pass for the wrong reason.
+    // 2 MiB of zeros. The fixture is asserted to exceed the shipped
+    // maxCompressionRatio first, so the refusal comes from the default limit.
     const ArchiveLimits defaults;
     const QByteArray bomb(2 * 1024 * 1024, '\0');
     const QByteArray compressed = deflateRaw(bomb);

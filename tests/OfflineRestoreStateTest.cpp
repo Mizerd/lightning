@@ -1,27 +1,11 @@
-// A SESSION RESTORED FROM THE LOCAL STORE MUST READ AS OFFLINE, AND SAYING
-// SO ONCE WAS NOT ENOUGH.
+// A session restored from the local store must read as Offline, and keep
+// reading so: `loginSucceeded` runs synchronously into startSync(), which
+// sets Syncing, and the sync lane then reports "starting" (Syncing again),
+// which AppController shows as "Loading rooms…". Only a sync response may
+// release the override.
 //
-// 2026-09-14: a homeserver went down and Lightning put the user back on the
-// login page with a complete local store on disk. `build_client_for_restore`
-// fixed the restore itself; this covers the other half, which is what the
-// user actually sees afterwards.
-//
-// The first cut set `Offline` when `login_ok` arrived and believed it was
-// done. It was not: `loginSucceeded` is a synchronous chain of direct
-// connections ending in AppController::onLoginSucceeded -> startSync(), which
-// sets `Syncing` unconditionally, and the sync lane then reports "starting",
-// which is `Syncing` again. AppController maps `Syncing` to "Loading rooms…"
-// — precisely the sentence an offline restore must not show over a room list
-// that is already complete and will never load anything. No event-loop
-// iteration separates any of it, so the Offline state was never rendered.
-//
-// FAIL-ON-OLD: with the `m_restoredOffline && state == Syncing` override
-// removed from `setState`, `theOfflineStateSurvivesTheSyncLaneStarting` reads
-// Syncing.
-//
-// Everything here drives the REAL event dispatcher with the REAL payload
-// names. No FFI handle, no store, no network: the events are the contract
-// between the Rust lane and this class, and they are what a test can hold.
+// Drives the real event dispatcher with the real payload names; no FFI
+// handle, store or network.
 
 #include "app/SettingsManager.h"
 
@@ -113,9 +97,8 @@ private slots:
 #endif
     }
 
-    // THE CASE THE FIRST CUT FAILED. Everything that runs between login_ok
-    // and the first sync failure reports Syncing on its way to a server that
-    // is not there.
+    // Everything between login_ok and the first sync failure reports Syncing;
+    // the state must stay Offline.
     void theOfflineStateSurvivesTheSyncLaneStarting()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -127,10 +110,8 @@ private slots:
             event(QStringLiteral("session_restored_offline")));
         client.handleRustEventForTest(restoredLoginOk());
 
-        // `startSync()` is unreachable without an FFI handle, but it does the
-        // same single thing this does: setState(Syncing). The lane's own
-        // "starting" and "retrying" are the other two, and they arrive as
-        // these events verbatim.
+        // `startSync()` needs an FFI handle but only does setState(Syncing);
+        // the lane's "starting" and "retrying" arrive as these events.
         QJsonObject syncing = event(QStringLiteral("status"));
         syncing.insert(QStringLiteral("state"), QStringLiteral("syncing"));
         client.handleRustEventForTest(syncing);
@@ -150,9 +131,8 @@ private slots:
 #endif
     }
 
-    // AND IT MUST NOT STRAND A SESSION THAT RECONNECTS. A sync response is
-    // the only thing that proves the server was reached, so it — and nothing
-    // else — releases the override.
+    // And a session that reconnects is not stranded: a sync response proves
+    // the server was reached and releases the override.
     void aSyncResponseReleasesTheOverride()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND

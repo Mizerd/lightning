@@ -1,9 +1,8 @@
 // Lightning secure update system: semantic version parsing and ordering.
 //
-// Update decisions ride on these comparisons, so the suite pins the three
-// behaviours that a lexicographic compare would get wrong (0.10 above 0.9,
-// prerelease below release, build metadata irrelevant) and proves that
-// malformed input is REPORTED rather than guessed.
+// Pins the three behaviours a lexicographic compare gets wrong (0.10 above
+// 0.9, prerelease below release, build metadata irrelevant), and that
+// malformed input is reported rather than guessed.
 
 #include "update/Version.h"
 

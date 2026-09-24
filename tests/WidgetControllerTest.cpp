@@ -1,15 +1,13 @@
 // Widgets: the list, the consent data, and the one path out to the desktop.
 //
-// Lightning LISTS widgets and opens them in the user's browser rather than
-// embedding them (docs/widgets.md). That makes this controller small, and it
-// puts almost all of its weight on one property: no QML path may hand the
-// desktop a URL that did not come from this model's own validated list.
+// Lightning lists widgets and opens them in the user's browser rather than
+// embedding them (docs/widgets.md), so no QML path may hand the desktop a URL
+// that did not come from this model's own validated list.
 //
-// The URL rules themselves — https only, no userinfo, no templated authority,
-// percent-encoded substitution — live in Rust and are tested there. What is
-// tested here is the boundary: op-id and room matching, that a refused widget
-// still appears with its reason, and that opening is BY ROW so an address can
-// never be named from QML.
+// The URL rules (https only, no userinfo, no templated authority,
+// percent-encoded substitution) are tested in Rust. Tested here: op-id and
+// room matching, that a refused widget still appears with its reason, and
+// that opening is by row so an address can never be named from QML.
 
 #include "matrix/MockMatrixClient.h"
 #include "models/WidgetController.h"
@@ -78,9 +76,8 @@ private Q_SLOTS:
 
     // ── A refused widget still appears ───────────────────────────────────
     //
-    // Dropping it would make "Lightning will not open this" and "this room has
-    // no widgets" the same observable — the shape §16 records over and over
-    // as graceful absence being indistinguishable from success.
+    // Dropping it would make "Lightning will not open this" look the same as
+    // "this room has no widgets".
     void aRefusedWidgetIsShownWithItsReasonRatherThanDropped()
     {
         MockMatrixClient client;
@@ -146,7 +143,7 @@ private Q_SLOTS:
         QCOMPARE(model.state(), QStringLiteral("idle"));
 
         // A hand-delivered answer naming the wrong room is ignored even with a
-        // matching op id — the id is unique per REQUEST, not per room.
+        // matching op id.
         Q_EMIT client.roomWidgetsReceived(999, QStringLiteral("!elsewhere:x"),
                                           true, true, client.mockWidgets);
         QTest::qWait(30);
@@ -188,10 +185,8 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("%1 renders as a single word")
                                     .arg(QLatin1String(key))));
         }
-        // An unknown key is disclosed HONESTLY. A widget API that grows a
-        // variable this build does not know must not make the notice quietly
-        // shorter — that would be the notice understating, which is the one
-        // failure mode a consent screen may not have.
+        // An unknown key is still disclosed, so the notice never understates
+        // what the widget will receive.
         const QString unknown = model.disclosureText(
             QStringLiteral("org.example.something_new"));
         QVERIFY(!unknown.isEmpty());
@@ -221,12 +216,11 @@ private Q_SLOTS:
         QCOMPARE(model.openWidget(0), false);
     }
 
-    // ── Adding and removing (v0.9.0) ────────────────────────────────────
+    // ── Adding and removing ─────────────────────────────────────────────
     //
-    // The controller writes the same state event Element writes; what is
-    // pinned is the GATE (the room's power level, as the read reported it),
-    // the SHAPE of what is published, that removal is by row, and that the
-    // address rule is the one UrlLauncher applies at the exit to the browser.
+    // The controller writes the same state event Element writes. Pinned: the
+    // gate (the room's power level as read), the shape of what is published,
+    // removal by row, and that the address rule is UrlLauncher's.
 
     void addingIsRefusedWhenTheRoomDidNotGrantIt()
     {
@@ -335,10 +329,9 @@ private Q_SLOTS:
         QCOMPARE(client.widgetWrites.size(), 1);
     }
 
-    // Found in review: an answer arriving after a room switch used to be
-    // dropped WITH the op id still set, so `writing` stayed true and every
-    // Add/Remove button was disabled for the rest of the session. And the
-    // permission claim must not survive the switch either.
+    // An answer arriving after a room switch must clear the op id (or
+    // `writing` stays true and Add/Remove stay disabled), and the permission
+    // claim must not survive the switch.
     void aWriteAnsweredAfterARoomSwitchDoesNotWedgeTheController()
     {
         MockMatrixClient client;

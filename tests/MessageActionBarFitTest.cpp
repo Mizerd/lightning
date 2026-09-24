@@ -1,26 +1,8 @@
-// v0.7.2: the message hover action bar must fit a thin/one-line row.
+// The message hover action bar must fit a thin one-line row.
 //
-// User report: "if a message is thin, the box with settings and stuff doesnt
-// fit". The bar is anchored inside the row with a -3px top overhang, and the
-// delegate root used to clip (`clip: ListView.view === null`), so a row
-// shorter than the bar chopped it.
-//
-// TWO fixes were tried. The first replaced the per-row bar with ONE shared
-// instance parented to Overlay.overlay, positioned from a mapToItem anchor.
-// That shipped and was reverted: rows carry `rotation: 180`, so the mapped
-// point landed at the row's visual BOTTOM ("the ui appears at the bottom and
-// cant even be clicked"), the anchor binding had no dependency to
-// re-evaluate on when the view scrolled, and the claim/release handshake let
-// two rows show state at once ("sometimes its possible to select two
-// messages").
-//
-// What ships now is the ORIGINAL per-row Loader — plain anchors against the
-// row, no coordinate mapping, and hover is naturally exclusive so two rows
-// can never both show a bar. The clipping is fixed at its source instead:
-// the row no longer clips. That clip dated from the TableView era ("while a
-// recycled row is being remeasured"); rows are not recycled now and size to
-// their content exactly, and the thread panel has always run the same
-// delegate and the same bar unclipped.
+// The bar is a per-row Loader anchored inside the row with a -3px top
+// overhang, so the row must not clip. Rows are not recycled and size to
+// their content, and the thread panel runs the same delegate unclipped.
 
 #include <QtTest/QtTest>
 
@@ -38,8 +20,8 @@ class MessageActionBarFitTest : public QObject
     }
 
 private Q_SLOTS:
-    // The row must NOT clip, or the bar is chopped on any row shorter than
-    // it — the reported defect.
+    // The row must not clip, or the bar is chopped on any row shorter than
+    // it.
     void theRowDoesNotClipItsHoverBar()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
@@ -84,16 +66,11 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("visible: root.actionsVisible")));
     }
 
-    // Exactly ONE row may show a bar. Reported: "sometimes its possible to
-    // select two messages and only one gets ui".
-    //
-    // Per-row hover is not self-exclusive in practice. A pinned row (its
-    // context menu was opened, or it is the reply/edit target) keeps its bar
-    // while the pointer moves onto a different row, and both then satisfy
-    // their own local condition. The rows must therefore agree through ONE
-    // shared value rather than each deciding alone: the view publishes the
-    // hovered row's key, a row shows its bar when that key is its own, and a
-    // pinned row yields as soon as any row is hovered.
+    // Exactly one row may show a bar. A pinned row (context menu open, or the
+    // reply/edit target) keeps its bar while the pointer moves elsewhere, so
+    // rows agree through one shared value: the view publishes the hovered
+    // row's key, a row shows its bar when that key is its own, and a pinned
+    // row yields as soon as any row is hovered.
     void onlyOneRowCanShowTheBar()
     {
         const QString pane = read(QStringLiteral("TimelinePane.qml"));

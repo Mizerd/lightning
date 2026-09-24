@@ -1,18 +1,10 @@
-// v0.7.2: poster extraction must not run on the thread that asks for it.
+// Poster extraction must not run on the thread that asks for it: the first
+// QVideoSink in a process costs close to a second of backend initialization,
+// so the decoder lives on a private worker thread.
 //
-// Measured cause (2026-08-17, maintainer's clip: 1254x1254, 59.94 fps,
-// 3.0 s): the FIRST QVideoSink constructed in a process costs ~931 ms —
-// lazy Qt Multimedia backend initialization including a hardware-decoder
-// probe — and VideoPosterExtractor built it inline, on the GUI thread, the
-// moment a video scrolled into view. A heartbeat timer on the GUI thread
-// measured a 937 ms stall at t+0 of the request plus ~185 ms more, against
-// a 1 ms idle baseline. Moving the decoder to a private worker thread took
-// the worst GUI-thread stall to 1 ms.
-//
-// These cases pin the three properties that fix depends on, all of which
-// are invisible to a source scan: the call returns immediately, the reply
-// still arrives on the caller's thread, and the worker's watchdog timer is
-// not silently disarmed by wrong thread affinity.
+// Pinned, all invisible to a source scan: the call returns immediately, the
+// reply arrives on the caller's thread, and the worker's watchdog timer is
+// not disarmed by wrong thread affinity.
 
 #include "media/VideoPosterExtractor.h"
 
@@ -31,11 +23,10 @@
 
 namespace {
 
-// Captured so the cross-thread timer warning ("Timers cannot be started
-// from another thread") can be asserted absent. A worker whose QTimer keeps
-// the creating thread's affinity still extracts posters — it just loses the
-// watchdog that stops a hostile file wedging the single extraction slot,
-// which no functional assertion would notice.
+// Captured so the cross-thread timer warning ("Timers cannot be started from
+// another thread") can be asserted absent. With the wrong affinity posters
+// still extract but the watchdog that stops a hostile file wedging the
+// extraction slot is lost.
 QtMessageHandler g_previousHandler = nullptr;
 QStringList g_messages;
 QMutex g_messagesMutex;
@@ -100,22 +91,9 @@ private Q_SLOTS:
         QVERIFY(spy.wait(15000));
     }
 
-    // Both call sites (MediaBridge's cache, AttachmentQueueModel's send
-    // queue) touch objects owned by their own thread inside this slot.
-    // AN AUDIO FILE HAS NO VIDEO TRACK, SO IT HAS NO POSTER — AND IT STILL
-    // HAS A LENGTH.
-    //
-    // `bf3893a` shipped "an attached audio file carries its duration" and was
-    // a no-op on the real path: the branch that reports an EMPTY poster
-    // passed a literal 0 and threw the duration away, so an attached song
-    // still went out as "0:00". The header states the contract in as many
-    // words — when `jpeg` is empty, `durationMs` IS NOT invalid.
-    //
-    // Nothing caught it because both existing C++ cases call `applyPoster`
-    // directly through the send queue's test hook, bypassing the extractor
-    // entirely, and this suite's other cases ignore the duration argument.
-    // That is CLAUDE.md §16's recorded lesson verbatim, so this drives the
-    // real extractor against a real decodable file.
+    // An audio file has no poster but still has a length: when `jpeg` is
+    // empty, `durationMs` is still valid. Drives the real extractor against a
+    // real decodable file.
     void anAudioFileReportsItsLengthWithNoPoster()
     {
         const QString wav = writeSilentWav(
@@ -144,6 +122,8 @@ private Q_SLOTS:
                                 .arg(duration)));
     }
 
+    // Both call sites (MediaBridge, AttachmentQueueModel) touch objects owned
+    // by their own thread in the slot, so the reply must arrive there.
     void posterReadyArrivesOnTheCallersThread()
     {
         VideoPosterExtractor extractor;
@@ -190,13 +170,9 @@ private Q_SLOTS:
     }
 
 private:
-    // A REAL, DECODABLE AUDIO FILE, written by hand.
-    //
-    // The repository ships no audio fixture and adding a binary one to pin a
-    // duration would be its own problem. A PCM WAV needs no encoder: a
-    // 44-byte canonical header plus silence, and Qt Multimedia decodes it.
-    // Sizing it from the sample count is what makes the expected duration a
-    // fact rather than a guess.
+    // A real, decodable audio file written by hand: a 44-byte canonical PCM
+    // WAV header plus silence, sized from the sample count so the expected
+    // duration is exact.
     static QString writeSilentWav(const QString &path, int milliseconds)
     {
         const int rate = 8000;

@@ -1,12 +1,10 @@
 // Development-only screenshot-demo dataset contract.
 //
-// MockMatrixClient::setScreenshotDemoMode(true) serves a richer, fully
-// deterministic scene for promotional screenshots. This locks its structure
-// (Spaces, required room types, a poll, a thread), its determinism (stable
-// event ids + fixed timestamps across launches), and its safety (only
-// fictional *.example identities — no real homeserver, no mock.local, no
-// network). Tests never enable this mode elsewhere, so the shared fixtures the
-// other mock tests assert on stay unchanged.
+// MockMatrixClient::setScreenshotDemoMode(true) serves a deterministic scene
+// for screenshots. This pins its structure (Spaces, required room types, a
+// poll, a thread), determinism (stable event ids and fixed timestamps) and
+// safety (only fictional *.example identities, no network). Other tests never
+// enable this mode.
 #include "matrix/MockMatrixClient.h"
 #include "matrix/RoomInfo.h"
 #include "matrix/TimelineEvent.h"
@@ -152,10 +150,8 @@ private Q_SLOTS:
         QCOMPARE(ta.first().timestamp.date(), QDate(2026, 7, 23));
     }
 
-    // v0.6.5 (Wave 2): the new `mention-popup` scenario seeds the composer
-    // with the prefix "ma" and expects it to resolve to a real Design Lounge
-    // member (Maya Chen) rather than an assumption baked into the scenario
-    // controller — pin that the fixture actually backs it.
+    // The `mention-popup` scenario seeds the composer with "ma" and expects a
+    // real Design Lounge member (Maya Chen); pin that the fixture backs it.
     void designLoungeHasAMemberMatchingTheMentionPopupPrefix()
     {
         MockMatrixClient c;

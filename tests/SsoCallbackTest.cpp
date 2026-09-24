@@ -1,16 +1,11 @@
-// Legacy Matrix SSO (m.login.sso), at the two boundaries that can actually go
-// wrong on this side of the FFI: the loopback callback listener, and the
-// login-flow policy in AuthManager.
+// Legacy Matrix SSO (m.login.sso) at the two boundaries on this side of the
+// FFI: the loopback callback listener, and the login-flow policy in
+// AuthManager.
 //
-// The listener is driven over REAL loopback sockets rather than by calling its
-// parser directly — the socket handling (single-shot consumption, bounded
-// reads, teardown) is the part with the security properties, and a test that
-// bypasses it would prove nothing about them.
-//
-// The SDK half — get_sso_login_url() and login_token() — is not reachable
-// here: it needs a homeserver. Those are covered by rust/src/sso.rs's own
-// tests and, ultimately, by a live server. Nothing in this file pretends
-// otherwise.
+// The listener is driven over real loopback sockets, since its socket
+// handling (single-shot consumption, bounded reads, teardown) carries the
+// security properties. The SDK half (get_sso_login_url(), login_token()) needs
+// a homeserver and is covered by rust/src/sso.rs.
 
 #include "auth/AuthManager.h"
 #include "auth/OAuthCallbackServer.h"
@@ -83,23 +78,11 @@ bool deliver(quint16 port, const QString &target)
     socket.write(request);
     if (!socket.waitForBytesWritten(3000))
         return false;
-    // Deliberately NOT waiting for the reply here.
-    //
-    // This used to end in socket.waitForReadyRead(3000), which could never
-    // make progress: the listener lives on this same thread, so blocking the
-    // caller is exactly what stops the server accepting the connection. Every
-    // delivery therefore burned the whole 3 s bound and the request was only
-    // handled once the CALLER started spinning the event loop — about 33 s of
-    // this suite's 34 s spent waiting for something that could not happen
-    // until the wait gave up.
-    //
-    // Pumping the loop here instead is worse than useless: it lets the server
-    // answer BEFORE the caller arms its QSignalSpy, and QSignalSpy::wait()
-    // waits for a NEW signal, so seven cases started failing. The bytes are
-    // already in the kernel buffer (waitForBytesWritten above) and the close
-    // is a graceful FIN, so the server still reads the full request when it
-    // accepts — the caller's own wait is what drives that, which is where the
-    // waiting belongs.
+    // Deliberately not waiting for the reply: the listener lives on this
+    // thread, so blocking here stops it accepting. Pumping the loop here would
+    // let the server answer before the caller arms its QSignalSpy. The bytes
+    // are already written and the close is a graceful FIN, so the caller's
+    // own wait drives the server.
     socket.close();
     return true;
 }
@@ -132,18 +115,9 @@ class SsoCallbackTest : public QObject
 
 private Q_SLOTS:
     // ── The listener, in SSO mode ────────────────────────────────────────
-    // LOGIN CSRF. The legacy m.login.sso flow has no `state` of its own: the
-    // homeserver echoes back only `loginToken`, so nothing in the protocol
-    // binds the answer to the attempt that asked for it. This endpoint used
-    // to accept any token that landed on a FIXED `/callback` for the whole
-    // five-minute window, which meant any other local process — and,
-    // depending on the browser's private-network rules, a web page sweeping
-    // the ephemeral port range — could sign the user into the ATTACKER'S
-    // account. Everything typed afterwards would go to an identity someone
-    // else controls.
-    //
-    // The redirect URI now carries 128 bits of system entropy in its path.
-    // On the unfixed server this case fails: the bare path was the callback.
+    // Login CSRF: m.login.sso has no `state`, so nothing binds the returned
+    // `loginToken` to this attempt. The redirect URI carries 128 bits of
+    // entropy in its path, and a token delivered to the bare path is refused.
     void aTokenDeliveredWithoutThisAttemptsSecretIsRefused()
     {
         OAuthCallbackServer server;
@@ -305,17 +279,9 @@ private Q_SLOTS:
         QCOMPARE(received.count(), 0);
     }
 
-    // A POST CARRYING THE RIGHT SECRET MUST STILL BE REFUSED.
-    //
-    // The nonce lives in the PATH, and a path is not a secret from a page
-    // that can guess or observe it — but more to the point, a cross-origin
-    // form can POST to a loopback URL without reading anything back. If the
-    // listener took the method for granted, that is a login-CSRF route which
-    // the nonce does not close on its own: the browser would happily deliver
-    // an attacker's loginToken to the exact advertised URL.
-    //
-    // So the method is checked BEFORE the path, and this proves the check is
-    // load-bearing by using a request that is correct in every other respect.
+    // A POST carrying the right secret must still be refused: a cross-origin
+    // form can POST to a loopback URL blind. The method is checked before the
+    // path, proven here with a request correct in every other respect.
     void aPostToTheRealCallbackPathIsRefused()
     {
         OAuthCallbackServer server;
@@ -340,19 +306,15 @@ private Q_SLOTS:
         QCOMPARE(received.count(), 0);
         QCOMPARE(failed.count(), 0);
 
-        // ...and it did not burn the single shot either: the real callback,
-        // arriving afterwards on the same listener, still works. A refusal
-        // that disarmed the attempt would be a denial of service on every
-        // sign-in a stray request touched.
+        // ...and it did not burn the single shot: the real callback arriving
+        // afterwards still works.
         QVERIFY(deliver(port, path + QStringLiteral("?loginToken=syt_real")));
         QTRY_COMPARE_WITH_TIMEOUT(received.count(), 1, 3000);
     }
 
-    // LOOPBACK ONLY. The listener speaks plain HTTP and carries a credential,
-    // so it must never be reachable from off the machine. QTcpServer binds
-    // every interface by default, which is exactly the mistake to guard
-    // against — and it is invisible in every other test here, because they
-    // all connect to 127.0.0.1 and would pass either way.
+    // Loopback only: the listener speaks plain HTTP and carries a credential,
+    // and QTcpServer binds every interface by default. Every other test here
+    // connects to 127.0.0.1 and would pass either way.
     void theListenerBindsLoopbackOnlyAndAnEphemeralPort()
     {
         OAuthCallbackServer server;
@@ -406,10 +368,8 @@ private Q_SLOTS:
 
     void aStaleCallbackFromAnEarlierAttemptCannotCompleteTheNewOne()
     {
-        // Attempt 1 starts, then is abandoned. Attempt 2 starts on its own
-        // port. The token from attempt 1 must not complete attempt 2 — which
-        // is guaranteed structurally: each attempt owns its own listener, and
-        // the abandoned one is closed.
+        // A token from an abandoned attempt must not complete the next one:
+        // each attempt owns its own listener, and the abandoned one is closed.
         OAuthCallbackServer first;
         first.setFlow(OAuthCallbackServer::Flow::Sso);
         QVERIFY(first.listen());

@@ -1,9 +1,8 @@
-// v0.7: authenticated startup lifecycle. A launch with a saved account is
-// an explicit restoration state (BootScreen): the login form must never be
-// instantiated — let alone flash — while the outcome is unknown. Only a
-// genuine unauthenticated state (no account, or the restore actually
-// failed) shows Login. The suite drives the real AppController and the
-// real Main.qml window on the mock backend.
+// Authenticated startup lifecycle. A launch with a saved account is an
+// explicit restoration state (BootScreen): the login form must never be
+// instantiated, let alone flash, while the outcome is unknown. Only a genuine
+// unauthenticated state (no account, or the restore failed) shows Login.
+// Drives the real AppController and Main.qml window on the mock backend.
 #include <QtTest/QtTest>
 
 #include <QQmlApplicationEngine>
@@ -187,10 +186,7 @@ private Q_SLOTS:
     }
 
     // The login homeserver field prefills from the account-independent login
-    // prefill and is FREELY EDITABLE — a typed value must not be reverted.
-    // The previous live binding to homeserverUrl (the active account's server)
-    // re-asserted itself and made the field impossible to point at a
-    // different homeserver.
+    // prefill and stays freely editable: a typed value is never reverted.
     void loginHomeserverFieldPrefillsAndStaysEditable()
     {
         // No saved account: the app lands on the login screen.
@@ -222,8 +218,8 @@ private Q_SLOTS:
         QCOMPARE(field->property("text").toString(),
                  app.settings()->loginHomeserverPrefill());
 
-        // Typing a new server sticks — and a settings change (which the old
-        // live binding reacted to) must not revert it.
+        // Typing a new server sticks, and a settings change does not revert
+        // it.
         QVERIFY(field->setProperty("text",
                                    QStringLiteral("https://typed.example")));
         Q_EMIT app.settings()->homeserverUrlChanged();

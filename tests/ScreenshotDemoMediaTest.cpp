@@ -1,12 +1,11 @@
 // Development-only screenshot-demo media contract.
 //
-// Locks that every image/video/GIF row and every avatar in the three demo
-// accounts resolves to bundled local fixture bytes through the SAME media path
-// the real UI uses (MockMatrixClient::supportsMediaBridge + fetchMedia /
-// fetchMxcThumbnail → mediaReady), with the correct MIME and no network. This is
-// what makes the demo media rows render as pictures instead of skeletons.
+// Every image/video/GIF row and avatar in the three demo accounts resolves to
+// bundled local fixture bytes through the same media path the real UI uses
+// (MockMatrixClient::supportsMediaBridge + fetchMedia / fetchMxcThumbnail ->
+// mediaReady), with the correct MIME and no network.
 //
-// The demo media fixtures are QRC resources bundled only in a
+// The fixtures are QRC resources bundled only in a
 // LIGHTNING_ENABLE_SCREENSHOT_DEMO build (see CMake DEMO_MEDIA_RESOURCES), so
 // this test is built only when the demo option is on.
 

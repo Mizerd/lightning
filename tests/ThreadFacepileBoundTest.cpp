@@ -1,22 +1,16 @@
-// v0.7.x: thread-participant fetches are BOUNDED. The room timeline is not
+// Thread-participant fetches are bounded. The room timeline is not
 // virtualized, so every loaded thread root's summary card calls
-// requestParticipants on the same frame; before this, opening a
-// thread-heavy room dispatched one cache-first `/relations` chain per root
-// at once. Pins:
+// requestParticipants on the same frame. Pins:
 //   * at most kMaxConcurrentParticipantFetches are ever in flight, and the
 //     remainder wait rather than being dropped;
 //   * an answer frees a slot and the queue advances;
-//   * a FAILED (empty) answer frees its slot too — otherwise one failure
-//     would permanently shrink the pool;
-//   * requests are deduplicated against cached, in-flight AND queued roots,
-//     so a card that becomes visible repeatedly costs nothing;
-//   * a room switch discards QUEUED work for other rooms but leaves
-//     in-flight work alone (its answer is keyed by room and cannot
-//     contaminate the new room's cache);
+//   * a failed (empty) answer frees its slot too;
+//   * requests are deduplicated against cached, in-flight and queued roots;
+//   * a room switch discards queued work for other rooms but leaves
+//     in-flight work alone (its answer is keyed by room);
 //   * a late answer for the previous room populates only that room.
 //
-// HONEST SCOPE: the C++ bound and its bookkeeping. Real `/relations` cost on
-// a live account is NOT exercised here and is NOT TESTED.
+// Covers the C++ bound and its bookkeeping, not real `/relations` cost.
 
 #include "matrix/MatrixClient.h"
 #include "threads/ThreadManager.h"
@@ -168,19 +162,16 @@ private Q_SLOTS:
             mgr.requestParticipants(kRoom, root(i));
         QCOMPARE(client.dispatched.size(), kMaxInFlight);
 
-        // A failed lookup arrives EMPTY and is deliberately not cached. It
-        // must still release the concurrency slot, or one failure per round
-        // would shrink the pool until nothing could run.
+        // A failed lookup arrives empty and is not cached, but must still
+        // release its concurrency slot.
         answer(client, kRoom, root(0), QVariantList{});
         QCOMPARE(client.dispatched.size(), kMaxInFlight + 1);
         QCOMPARE(mgr.participantFetchesInFlightForTest(), kMaxInFlight);
         QVERIFY(mgr.participants(kRoom, root(0)).isEmpty());
 
-        // Not cached, so it is genuinely retryable — but retrying must
-        // respect the cap, not slip past it. (This re-dispatch is also what
-        // makes the per-dispatch generation matter: root(0) now has a
-        // SECOND in-flight identity, and its first 60 s timeout timer is
-        // still pending. That stale timer must not release this one's slot.)
+        // Retrying must respect the cap. root(0) now has a second in-flight
+        // identity, and the first one's pending 60 s timeout must not release
+        // this one's slot.
         mgr.requestParticipants(kRoom, root(0));
         QCOMPARE(client.dispatched.size(), kMaxInFlight + 1);
         QCOMPARE(mgr.participantFetchesInFlightForTest(), kMaxInFlight);
@@ -229,8 +220,8 @@ private Q_SLOTS:
         // Those cards are gone; their answers would only make the new
         // room's facepiles wait behind work nothing will read.
         QCOMPARE(mgr.participantFetchesQueuedForTest(), 0);
-        // In-flight work is deliberately LEFT RUNNING: it is already paid
-        // for and its answer is keyed by room.
+        // In-flight work is left running: it is already paid for and its
+        // answer is keyed by room.
         QCOMPARE(mgr.participantFetchesInFlightForTest(), kMaxInFlight);
 
         // The new room's own requests still queue behind those in-flight

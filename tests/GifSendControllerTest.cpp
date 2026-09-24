@@ -1,8 +1,8 @@
-// v0.6.1: GIF send pipeline. Drives GifSendController with a fake client
-// (subclassing MockMatrixClient) so the download → validate → attachment
-// handoff is exercised without network: destination capture/isolation,
-// room vs thread routing (real m.thread reply, never a room fallback),
-// recents-only-on-success, failure categories, cancel, and mime enforcement.
+// GIF send pipeline, driven with a fake client (a MockMatrixClient subclass)
+// so download -> validate -> attachment runs without network: destination
+// capture and isolation, room vs thread routing (a real m.thread reply,
+// never a room fallback), recents only on success, failure categories,
+// cancel, and MIME enforcement.
 
 #include "gif/GifSendController.h"
 #include "gif/GifRecentModel.h"
@@ -74,10 +74,8 @@ public:
 
 QByteArray realGif() { return QByteArray("GIF89a\x10\x00\x10\x00", 10); }
 
-// 2026-08 media round: a REAL, Qt-encoded PNG (this test target links Qt6::Gui — see
-// CMakeLists.txt — unlike gif-starred-store-test, which hand-builds a
-// minimal header instead). Proves gif::validateRasterBytes' PNG parser
-// against actual encoder output, not only a synthetic fixture.
+// A real Qt-encoded PNG (this target links Qt6::Gui), so
+// gif::validateRasterBytes' PNG parser is tested against encoder output.
 QByteArray realPng(int w, int h)
 {
     QImage img(w, h, QImage::Format_RGB32);
@@ -114,8 +112,8 @@ class GifSendControllerTest : public QObject
     GifSendController *send = nullptr;
     GifRecentModel *recent = nullptr;
     QSettings *store = nullptr;
-    // v0.6.6: fake local-starred-file store, keyed by content hash — stands
-    // in for GifStarredStore::readBytes without any disk I/O.
+    // Fake local-starred store keyed by content hash, standing in for
+    // GifStarredStore::readBytes without disk I/O.
     QHash<QString, QByteArray> localFiles;
 
     void setup()
@@ -161,8 +159,7 @@ private Q_SLOTS:
     void cancelAllDropsPending();
     void logoutCancels();
 
-    // v0.6.6: local-favorite (client-starred) sends bypass the network
-    // download entirely — the "GIF" is a stored file, read by content hash.
+    // Local-favorite sends skip the network: the file is read by content hash.
     void localFavoriteSendsStoredBytesWithoutDownloading();
     void localFavoriteThreadSendUsesThreadPath();
     void localFavoriteMissingBytesRefusesRatherThanSendingEmpty();
@@ -170,10 +167,9 @@ private Q_SLOTS:
     void localFavoriteNotRecordedIntoRecents();
     void localFavoriteThreadSendWithEmptyRootIdReportsUnavailable();
 
-    // 2026-08 media round: a saved chat image can be PNG/JPEG/WebP now, not only GIF —
-    // the local send path must carry the TRUE mime/extension/dimensions the
-    // bytes decided (gif::validateRasterBytes), never a hardcoded
-    // "image/gif" — while an actual GIF keeps sending exactly as before.
+    // A saved image may be PNG/JPEG/WebP: the local send carries the mime,
+    // extension and dimensions the bytes decided, never a hardcoded
+    // "image/gif", while GIFs send as before.
     void localFavoritePngSendCarriesTruthfulMimeAndFilename();
     void localFavoriteGifSendStillCarriesImageGifMime();
 };
@@ -228,10 +224,10 @@ void GifSendControllerTest::destinationIsolationSurvivesRoomSwitch()
     send->sendToRoom(QStringLiteral("!original:hs"),
                      gifMap("giphy", "c", "media.giphy.com"));
     const quint64 op = client->dlOp;
-    // A second send to a different room starts before the first completes.
+    // A second send to another room starts before the first completes.
     send->sendToRoom(QStringLiteral("!other:hs"),
                      gifMap("giphy", "d", "media.giphy.com"));
-    // The first download completes: it must go to its ORIGINAL captured room.
+    // The first download completes and goes to its originally captured room.
     client->finishDownload(op, true, realGif(), QStringLiteral("image/gif"),
                            200, 150, QString());
     QCOMPARE(client->sends.size(), 1);
@@ -289,7 +285,7 @@ void GifSendControllerTest::nonGifMimeRejected()
     QSignalSpy fail(send, &GifSendController::sendFailed);
     send->sendToRoom(QStringLiteral("!room:hs"),
                      gifMap("giphy", "x", "media.giphy.com"));
-    // A defensively-wrong mime from the bridge is refused.
+    // A wrong mime from the bridge is refused.
     client->finishDownload(client->dlOp, true, QByteArray("RIFFxxxxWEBP"),
                            QStringLiteral("image/webp"), 200, 150, QString());
     QCOMPARE(fail.count(), 1);
@@ -372,8 +368,7 @@ void GifSendControllerTest::localFavoriteMissingBytesRefusesRatherThanSendingEmp
 {
     setup();
     QSignalSpy fail(send, &GifSendController::sendFailed);
-    // Never populated in localFiles — e.g. unstarred/removed between
-    // activation and send.
+    // Never in localFiles: e.g. unstarred between activation and send.
     send->sendToRoom(QStringLiteral("!room:hs"),
                      localGifMap(QString(64, QLatin1Char('c'))));
     QCOMPARE(fail.count(), 1);
@@ -399,15 +394,14 @@ void GifSendControllerTest::localFavoriteNotRecordedIntoRecents()
     send->sendToRoom(QStringLiteral("!room:hs"), localGifMap(hash));
     QCOMPARE(client->sends.size(), 1);
     // Recents is a global (not account-scoped) store; a local-starred
-    // reference must never cross into it — see GifSendController::startLocal.
+    // reference never enters it (see GifSendController::startLocal).
     QCOMPARE(recent->count(), 0);
 }
 
 void GifSendControllerTest::localFavoriteThreadSendWithEmptyRootIdReportsUnavailable()
 {
-    // NIT 17: a captured thread destination with no root id was never
-    // actually attempted — "unavailable", not "send_failed" (which implies
-    // a real send was tried against the SDK and failed).
+    // A captured thread destination with no root id was never attempted:
+    // "unavailable", not "send_failed".
     setup();
     const QString hash = QString(64, QLatin1Char('f'));
     localFiles.insert(hash, realGif());
@@ -442,8 +436,8 @@ void GifSendControllerTest::localFavoritePngSendCarriesTruthfulMimeAndFilename()
 
 void GifSendControllerTest::localFavoriteGifSendStillCarriesImageGifMime()
 {
-    // Belt-and-suspenders alongside localFavoriteSendsStoredBytesWithoutDownloading:
-    // the generalized validator must not have changed GIF's own outcome.
+    // Alongside localFavoriteSendsStoredBytesWithoutDownloading: the general
+    // validator did not change GIF's outcome.
     setup();
     const QString hash = QString(64, QLatin1Char('8'));
     localFiles.insert(hash, realGif());

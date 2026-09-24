@@ -1,10 +1,6 @@
-// Sharing a PLACE: `m.location` (MSC3488) and live beacons (MSC3672).
-//
-// The one rule everything else rests on: a geo URI is a field of a message
-// ANYONE can send, so a point that does not parse — or is not on Earth —
-// must leave the coordinates ABSENT rather than at 0,0. Zero is a real spot
-// in the Atlantic, and a UI reading it would draw a confident link to the
-// wrong place, which is worse than showing nothing.
+// Shared places: `m.location` (MSC3488) and live beacons (MSC3672). A geo URI
+// is sender-controlled, so a point that does not parse or is not on Earth
+// leaves the coordinates absent, never 0,0 (a real spot in the Atlantic).
 
 #include "matrix/MockMatrixClient.h"
 #include "matrix/RustTimelineIngest.h"
@@ -40,7 +36,7 @@ class LocationMessageTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    // A location arrives as its OWN row kind, not as text or a file.
+    // A location arrives as its own row kind, not text or a file.
     void aLocationIsItsOwnRowKind()
     {
         const TimelineEvent e = matrix::rust_timeline::eventFromItemJson(
@@ -49,13 +45,12 @@ private Q_SLOTS:
         QVERIFY(e.locationHasPoint);
         QVERIFY(qAbs(e.locationLat - 51.5008) < 1e-9);
         QVERIFY(qAbs(e.locationLon - (-0.1247)) < 1e-9);
-        // The body survives: it is what every surface that does not know
-        // what a location is — search, notifications, the room-list preview
-        // — shows instead.
+        // The body survives: surfaces that do not know locations (search,
+        // notifications, room-list preview) show it instead.
         QCOMPARE(e.body, QStringLiteral("Big Ben"));
     }
 
-    // THE RULE. Absent coordinates must not become 0,0.
+    // Absent coordinates must not become 0,0.
     void anUnreadablePointLeavesTheCoordinatesAbsentRatherThanAtZero()
     {
         const TimelineEvent e = matrix::rust_timeline::eventFromItemJson(
@@ -65,9 +60,8 @@ private Q_SLOTS:
                  "an absent point must not read as a valid one");
     }
 
-    // ...and a genuine 0,0 is a real place: the equator at the prime
-    // meridian. It must NOT be mistaken for the absent case, which is why
-    // the flag exists rather than a magic-value check.
+    // A genuine 0,0 (equator at the prime meridian) is a real place and not
+    // the absent case, which is why a flag is used rather than a magic value.
     void aGenuineZeroPointIsARealPlace()
     {
         const TimelineEvent e = matrix::rust_timeline::eventFromItemJson(
@@ -88,9 +82,8 @@ private Q_SLOTS:
         QVERIFY(a.locationLive);
         QVERIFY(a.locationLiveActive);
 
-        // An EXPIRED live share is a different thing from a current one:
-        // rendering the second as the first tells the reader somebody is
-        // somewhere they may have left an hour ago.
+        // An expired live share is not a current one; showing it as current
+        // would place someone where they may have left long ago.
         live.insert(QStringLiteral("locationLiveActive"), false);
         const TimelineEvent b = matrix::rust_timeline::eventFromItemJson(live, kRoom);
         QVERIFY(b.locationLive);

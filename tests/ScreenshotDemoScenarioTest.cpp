@@ -47,12 +47,8 @@ private Q_SLOTS:
         QSettings s; s.clear(); s.sync();
     }
 
-    // THE CHANNELS SCENARIOS MUST ACTUALLY SWITCH THE LAYOUT.
-    //
-    // Naming a rail scope proves nothing on its own: with the layout left at
-    // Classic there is no rail scope to honour, and all three would
-    // photograph the same conversation list under three different names —
-    // which is the failure this catalogue exists to prevent.
+    // The Channels scenarios must actually switch the layout; otherwise all
+    // three would photograph the same Classic list.
     void theChannelsScenariosSelectTheChannelsLayoutAndDistinctViews()
     {
         QFile file(QStringLiteral(
@@ -86,11 +82,8 @@ private Q_SLOTS:
         }
     }
 
-    // THE DEMO CALL MUST NOT FOLLOW THE USER THROUGH THE CATALOGUE.
-    //
-    // It is process-local state, so a scenario that does not ask for a call
-    // has to END one — otherwise every screenshot taken after `call-grid`
-    // carries a call panel over the top of whatever it was meant to show.
+    // A scenario that does not ask for a call must end the (process-local)
+    // demo call, or every later screenshot carries a call panel.
     void aScenarioWithoutACallEndsOne()
     {
         QFile file(QStringLiteral(
@@ -126,9 +119,9 @@ private Q_SLOTS:
             QStringLiteral("account-switching"), QStringLiteral("security"),
             QStringLiteral("invite"), QStringLiteral("work-overview"),
             QStringLiteral("community-overview"), QStringLiteral("responsive-chat"),
-            // v0.6.5 (Wave 2): menu/popup/dialog surface scenarios.
+            // Menu/popup/dialog surface scenarios.
             QStringLiteral("menu-message"), QStringLiteral("menu-room"),
-            // v0.6.5 (Storm round, C7): the floating find-in-room card.
+            // The floating find-in-room card.
             QStringLiteral("find-in-room"),
             QStringLiteral("quick-switcher"), QStringLiteral("quick-switcher-command"),
             QStringLiteral("emoji-picker"), QStringLiteral("gif-picker"),
@@ -136,10 +129,8 @@ private Q_SLOTS:
             QStringLiteral("trust-card"), QStringLiteral("new-conversation"),
             QStringLiteral("settings-search"), QStringLiteral("invite-people"),
             QStringLiteral("create-poll"),
-            // 0.8.0: the Channels navigation layout is THREE views, and one
-            // screenshot of it would show a third of the feature. Classic is
-            // stated explicitly beside them so a release pair can be shot
-            // without depending on what the demo profile was left in.
+            // The three Channels views, plus Classic stated explicitly so a
+            // pair can be shot regardless of the demo profile's last layout.
             QStringLiteral("channels-home"), QStringLiteral("channels-space"),
             QStringLiteral("channels-people"), QStringLiteral("classic-home"),
             QStringLiteral("call-grid"), QStringLiteral("call-screen-share"),
@@ -172,9 +163,8 @@ private Q_SLOTS:
         QVERIFY(d);
 
         struct Case { const char *id; const char *room; const char *account; int theme; int w; int h; };
-        // v0.6.7: Storm (11) is the demo default — the 0.6.5 brand theme — so
-        // a release gallery is coherent. Only the two scenarios that exist to
-        // show a DIFFERENT theme keep their own (settings-themes 9,
+        // Storm (11) is the demo default; only the two scenarios that show a
+        // different theme keep their own (settings-themes 9,
         // quick-switcher-command 10).
         const Case cases[] = {
             { "main-chat", "!design-lounge:lightning.example", "@alex:lightning.example", 11, 1440, 900 },
@@ -238,7 +228,7 @@ private Q_SLOTS:
         QVERIFY(!app.thread()->rootEventId().isEmpty());
     }
 
-    // ── v0.6.5 (Wave 2): menu/popup/dialog surface scenarios ─────────────
+    // ── Menu/popup/dialog surface scenarios ──────────────────────────────
 
     void menuScenariosNavigateAndEmitTheirContextMenuSignal()
     {
@@ -302,14 +292,10 @@ private Q_SLOTS:
             QStringLiteral("\U0001F389"),
         };
         QCOMPARE(app.settings()->recentEmoji(), expected);
-        // Also assert through EmojiCatalog::recentEmoji() — the actual
-        // property the picker's GridView and the message-menu quick-react
-        // strip bind to. Seeding through SettingsManager directly leaves
-        // this stale (no rebuild(), no recentEmojiChanged()) even though
-        // the underlying settings value is identical; a live capture caught
-        // exactly that gap, which is why this must go through
-        // EmojiCatalog::recordUse(), never SettingsManager::
-        // recordRecentEmoji() directly.
+        // Also assert through EmojiCatalog::recentEmoji(), which the picker
+        // and quick-react strip bind to: seeding must go through
+        // EmojiCatalog::recordUse(), since SettingsManager alone leaves it
+        // stale.
         QVERIFY(app.emojiCatalog());
         QCOMPARE(app.emojiCatalog()->recentEmoji(), expected);
 
@@ -321,12 +307,8 @@ private Q_SLOTS:
         QCOMPARE(app.emojiCatalog()->recentEmoji(), expected);
     }
 
-    // v0.6.7: the picker used to be the one surface the demo could not
-    // photograph — no network, no key, and a mock transport reporting
-    // available() == false meant it could only ever render "GIFs are
-    // unavailable on this backend". The seed is now a browsable catalogue of
-    // BUNDLED animated fixtures plus a real locally-saved GIF for the Saved
-    // tab, so every tile renders a real moving picture.
+    // The GIF picker scenario seeds a browsable catalogue of bundled animated
+    // fixtures plus a locally saved GIF for the Saved tab.
     void gifPickerScenarioSeedsABrowsableLocalCatalogue()
     {
         AppController app(AppController::MockBackend, true);
@@ -354,10 +336,8 @@ private Q_SLOTS:
         QVERIFY2(count >= 12, "catalogue must overfill one screenful so the "
                               "bottom grid row photographs too");
 
-        // Every tile points at a BUNDLED resource — never a provider CDN, and
-        // never the fictional *.example host whose broken thumbnail this
-        // replaces. Both providers appear so the tab strip and the per-tile
-        // source tags photograph with real variety.
+        // Every tile points at a bundled resource, never a provider CDN, and
+        // both providers appear.
         bool sawGiphy = false, sawKlipy = false;
         for (int i = 0; i < count; ++i) {
             const QVariantMap row = results->get(i);

@@ -1,23 +1,11 @@
-// B011: A DEVICE THAT CAN NEVER DECRYPT ANYTHING NOW SAYS SO.
-//
-// THE DEFECT (audit B006, diagnosed on a real account 2026-09-07). A device
-// had published a curve25519 identity key that its own local Olm account did
-// not hold. Peers encrypt to the key the SERVER publishes, so every room key
-// and every call media key addressed to that device was unreadable,
-// permanently: encrypted messages sit on "Waiting for keys…" forever, and an
-// encrypted call is silent one way while the other side hears you perfectly,
-// because SENDING is unaffected. Only matrix-sdk's own tracing could see it;
-// a fresh sign-in repaired it instantly.
-//
-// Detection shipped in 0d4578d and STOPPED at one qCCritical into a log the
-// user never reads. This suite covers the half that was missing: the answer
-// reaching the application layer as durable state, the tri-state that keeps
-// "could not be established" from ever reading as "your encryption is
-// destroyed", the surface that explains it and offers the repair, and the
-// timeline row that stops promising a wait that will never end.
-//
-// Drives the REAL RustSdkMatrixClient signal the poll dispatcher emits, on a
-// real AppController — no session, no network, no key material anywhere.
+// A device whose published curve25519 identity key differs from its local
+// Olm account can never decrypt anything addressed to it (peers encrypt to
+// the server-published key), while sending still works. Detection must
+// become durable application state; the tri-state keeps "could not be
+// established" from reading as broken; a prompt explains it and offers the
+// repair (a fresh sign-in); and undecryptable rows stop promising a wait.
+// Drives the real RustSdkMatrixClient signal on a real AppController, with no
+// session, network or key material.
 
 #include "app/AppController.h"
 #include "models/TimelineModel.h"
@@ -47,14 +35,12 @@ class EncryptionIdentityFaultTest : public QObject
 private:
     static RustSdkMatrixClient *rustClient(AppController &app)
     {
-        // Parented to the AppController by makeClient, exactly as
-        // VerificationFlowTest locates it.
+        // Parented to the AppController by makeClient, as VerificationFlowTest
+        // locates it.
         return app.findChild<RustSdkMatrixClient *>();
     }
 
-    // The prompt only shows in the chat shell, so every UI case puts the
-    // controller there first (a sign-out is not an action you can offer on
-    // the login screen).
+    // The prompt only shows in the chat shell, so UI cases go there first.
     static void reachChatShell(AppController &app) { app.showMain(); }
 
     struct Loaded {
@@ -94,8 +80,8 @@ private:
         return true;
     }
 
-    // A complete role map so the production delegate binds without
-    // undefined-property warnings (same shape MediaPlaceholderQmlTest uses).
+    // A complete role map so the production delegate binds without warnings
+    // (same shape as MediaPlaceholderQmlTest).
     static QVariantMap undecryptableRow(AppController &controller)
     {
         QVariantMap fixture;
@@ -123,8 +109,8 @@ private:
         fixture.insert(QStringLiteral("edited"), false);
         fixture.insert(QStringLiteral("isEncrypted"), true);
         fixture.insert(QStringLiteral("isDecrypted"), false);
-        // The reported state: an encrypted event with no deterministic
-        // reason, which is what "Waiting for keys…" is the label for.
+        // An encrypted event with no deterministic reason: the "Waiting for
+        // keys…" case.
         fixture.insert(QStringLiteral("undecryptable"), true);
         fixture.insert(QStringLiteral("errorKind"), QString{});
         fixture.insert(QStringLiteral("isImage"), false);
@@ -153,7 +139,7 @@ private:
         return fixture;
     }
 
-    // Walk the delegate for the label the undecryptable action row shows.
+    // The label the undecryptable action row shows.
     static QString undecryptableLabelText(QQuickItem *root)
     {
         const auto items = root->findChildren<QQuickItem *>();
@@ -168,9 +154,8 @@ private:
 #endif
 
 private Q_SLOTS:
-    // Isolate the settings store: AppController builds a real
-    // SettingsManager, which is a default QSettings resolved from the
-    // application identity.
+    // Isolate the settings store: AppController builds a real SettingsManager
+    // over the default QSettings.
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());
@@ -190,9 +175,8 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // THE CASE THAT MUST NEVER REGRESS. An unanswerable check — offline, keys
-    // not uploaded yet, a 5xx on /keys/query — must not tell a healthy user
-    // that their encryption is destroyed.
+    // An unanswerable check (offline, keys not uploaded, a 5xx on /keys/query)
+    // must not tell a healthy user their encryption is broken.
     void anUnestablishedAnswerIsNotAFault()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -214,8 +198,8 @@ private Q_SLOTS:
 #endif
     }
 
-    // The real fault reaches the application layer as durable state, and is
-    // announced exactly once however often the backstop re-checks.
+    // A real mismatch becomes durable state and is announced once, however
+    // often the backstop re-checks.
     void anExplicitMismatchBecomesDurableApplicationState()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -233,15 +217,15 @@ private Q_SLOTS:
                  "line — the whole of B011");
         QCOMPARE(changed.count(), 1);
 
-        // The 15-minute backstop must not re-announce the same fault.
+        // The 15-minute backstop does not re-announce.
         Q_EMIT rust->ownDeviceIdentityKeyChecked(true, false);
         QVERIFY(app.encryptionIdentityBroken());
         QCOMPARE(changed.count(), 1);
 #endif
     }
 
-    // And the other half of the tri-state: once broken, a check that cannot
-    // run must not quietly report the device healthy again.
+    // Once broken, a check that cannot run does not report the device healthy
+    // again.
     void anUnestablishedAnswerNeverClearsARealFault()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -257,15 +241,14 @@ private Q_SLOTS:
         QVERIFY2(app.encryptionIdentityBroken(),
                  "an unanswerable check cleared a permanent fault");
 
-        // A genuine agreement does clear it — a repaired session on the same
-        // controller must not stay accused.
+        // A genuine agreement clears it: a repaired session is not accused.
         Q_EMIT rust->ownDeviceIdentityKeyChecked(true, true);
         QVERIFY(!app.encryptionIdentityBroken());
 #endif
     }
 
-    // Signing out IS the repair, so the fault must not survive into the next
-    // session. Account switching detaches through the same signal.
+    // Signing out is the repair, so the fault does not survive into the next
+    // session; account switching detaches through the same signal.
     void signingOutForgetsTheFault()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -287,8 +270,8 @@ private Q_SLOTS:
 #endif
     }
 
-    // THE SURFACE. Hidden while nothing is known, shown the moment the fault
-    // is real — and it names the repair rather than only the symptom.
+    // The prompt is hidden while nothing is known, shown for a real fault,
+    // and names the repair.
     void thePromptAppearsOnlyForARealFaultAndOffersTheRepair()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -306,7 +289,7 @@ private Q_SLOTS:
         QVERIFY2(!ui.root->property("shouldShow").toBool(),
                  "the card is showing before anything has been established");
 
-        // An unanswerable check must not raise the card either.
+        // An unanswerable check does not raise it either.
         Q_EMIT rust->ownDeviceIdentityKeyChecked(false, false);
         QCoreApplication::processEvents();
         QVERIFY2(!ui.root->property("shouldShow").toBool(),
@@ -320,8 +303,7 @@ private Q_SLOTS:
                  "the user is left with \"Waiting for keys…\" and no "
                  "explanation — B011");
 
-        // The repair is offered, and the honest cost is stated on the
-        // confirmation the user has to pass through.
+        // The repair is offered, with its cost stated on the confirmation.
         auto *fix = ui.root->findChild<QQuickItem *>(
             QStringLiteral("encryptionBrokenPromptFix"));
         QVERIFY(fix != nullptr);
@@ -331,12 +313,8 @@ private Q_SLOTS:
             QStringLiteral("encryptionBrokenSignOutConsequences"));
         QVERIFY(consequences != nullptr);
         const QString cost = consequences->property("text").toString();
-        // NAMED FOR THIS ACCOUNT, not in general. "only if it is in your key
-        // backup" is true either way and useless when the answer is already
-        // no, and §6 asks for honest consequences on a destructive
-        // account-scoped action. This fixture has no usable backup, so the
-        // confirmation must say so outright rather than hedge. Raised in
-        // review of the round that added this prompt.
+        // Stated for this account: with no usable backup the confirmation says
+        // so outright rather than hedging.
         QVERIFY2(cost.contains(QStringLiteral("KEY BACKUP IS NOT SET UP")),
                  "the sign-out confirmation hedged about key backup on an "
                  "account that demonstrably has none: the user is deciding "
@@ -348,8 +326,8 @@ private Q_SLOTS:
         QVERIFY2(cost.contains(QStringLiteral("NEW session")),
                  "the confirmation does not say this creates a new session");
 
-        // Session-only dismissal: it stops nagging, and nothing is
-        // persisted that could silence a permanent fault on a later launch.
+        // Dismissal is per session: nothing persisted can silence a permanent
+        // fault on a later launch.
         auto *dismiss = ui.root->findChild<QQuickItem *>(
             QStringLiteral("encryptionBrokenPromptDismiss"));
         QVERIFY(dismiss != nullptr);
@@ -361,9 +339,8 @@ private Q_SLOTS:
 #endif
     }
 
-    // "Waiting for keys…" IS A LIE WHEN THE KEYS CAN NEVER ARRIVE. The row
-    // that the reader is actually looking at stops promising a wait that has
-    // no end, and points at the explanation the card carries.
+    // With the fault established, an undecryptable row stops saying
+    // "Waiting for keys…" and points at the explanation.
     void theUndecryptableRowStopsPromisingAWaitThatCannotEnd()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -380,7 +357,7 @@ private Q_SLOTS:
         QCOMPARE(undecryptableLabelText(healthy.root),
                  QStringLiteral("Waiting for keys…"));
 
-        // With the fault established the same row says what is true.
+        // With the fault established the row says what is true.
         Q_EMIT rust->ownDeviceIdentityKeyChecked(true, false);
         QCoreApplication::processEvents();
         const QString broken = undecryptableLabelText(healthy.root);

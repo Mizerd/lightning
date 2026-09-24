@@ -1,4 +1,4 @@
-// v0.7 outgoing @-mentions: pure tokenizer behaviour. Trigger boundaries,
+// Outgoing @-mentions: pure tokenizer behaviour. Trigger boundaries,
 // user@host / mid-word rejection, inline-code and fenced-block suppression,
 // query capture (spaces included) and the 40-char cap, cursor-outside
 // inactivity, single-edit ref reconciliation, and matrix.to link expansion.
@@ -70,10 +70,8 @@ private slots:
         QVERIFY(t.active);
         QCOMPARE(t.query, QStringLiteral("John Sm"));
 
-        // A SECOND space ends the token: the reader has moved on to the
-        // sentence, and the popup must not follow them through it
-        // (2026-09-05: "@SpongeMan as a true profes…" matched against
-        // nobody, over the composer, for the whole message).
+        // A second space ends the token: the reader has moved on to the
+        // sentence, and the popup must not follow them through it.
         QVERIFY(!activeToken(QStringLiteral("@SpongeMan as a"), 15).active);
         QVERIFY(!activeToken(QStringLiteral("@SpongeMan as a true profesional"), 32).active);
         // Up to the second space it is still a name.

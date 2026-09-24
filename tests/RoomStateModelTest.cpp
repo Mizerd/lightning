@@ -21,8 +21,8 @@ RoomInfo room(const QString &id, bool direct = false, int members = 0)
     return value;
 }
 
-/// `n` seconds before a fixed instant, so "newer" is unambiguous and no case
-/// depends on wall-clock timing.
+/// `n` seconds before a fixed instant, so "newer" is unambiguous and nothing
+/// depends on wall-clock time.
 QDateTime ago(int seconds)
 {
     static const QDateTime base =
@@ -37,7 +37,7 @@ RoomInfo at(const QString &id, bool direct, int secondsAgo)
     return value;
 }
 
-/// Row order as room ids — what the user sees, top to bottom.
+/// Row order as room ids, top to bottom.
 QStringList orderOf(const RoomListModel &model)
 {
     QStringList out;
@@ -103,9 +103,8 @@ public:
         if (unread) marked = id;
     }
     bool supportsRoomFavourites() const override { return favouritesSupported; }
-    // Deliberately does NOT touch `mirror`: a real backend only reflects the
-    // tag back once the server accepted it, and these tests assert that the
-    // model shows nothing until that happens.
+    // Does not touch `mirror`: a real backend reflects the tag only once the
+    // server accepts it, and the tests assert the model shows nothing before.
     void setRoomFavourite(const QString &id, bool favourite) override
     {
         favouriteRoom = id;
@@ -166,10 +165,8 @@ void RoomStateModelTest::directClassificationUsesMDirectOnly()
     QCOMPARE(model.rowCount(), 2);
     QCOMPARE(model.data(model.index(0), RoomListModel::RoomIdRole).toString(),
              QStringLiteral("!large:example.org"));
-    // Direct-ness is IsDirectRole, not the section. The category role no
-    // longer tells a DM from a room: they share one activity feed, so it
-    // reports only which of the two SECTIONS a row is in (invite or
-    // conversation).
+    // Direct-ness is IsDirectRole. The category role only reports the section
+    // (invite or conversation), since DMs and rooms share one feed.
     QVERIFY(model.data(model.index(0), RoomListModel::IsDirectRole).toBool());
     QVERIFY(!model.data(model.index(1), RoomListModel::IsDirectRole).toBool());
 }
@@ -183,8 +180,7 @@ void RoomStateModelTest::liveDirectUpdateChangesCategory()
     QVERIFY(!model.data(model.index(0), RoomListModel::IsDirectRole).toBool());
     client.mirror[0].isDirect = true;
     Q_EMIT client.roomUpdated(client.mirror[0].id);
-    // v0.7 perf round: per-room updates coalesce onto a zero-timer
-    // reconcile; settle it before asserting.
+    // Per-room updates coalesce onto a zero-timer reconcile; settle it first.
     QCoreApplication::processEvents();
     QVERIFY(model.data(model.index(0), RoomListModel::IsDirectRole).toBool());
 }
@@ -225,8 +221,8 @@ void RoomStateModelTest::explicitDiffOperationsValidateIndexesAndIdentity()
 
 void RoomStateModelTest::directMappingRemovalReturnsToRoom()
 {
-    // A room dropped from m.direct returns to the ROOMS group; member count
-    // is never consulted for classification.
+    // A room dropped from m.direct returns to rooms; member count is never
+    // consulted for classification.
     FakeClient client;
     RoomListModel model;
     auto dm = room(QStringLiteral("!dm:example.org"), true, 5);
@@ -342,16 +338,9 @@ void RoomStateModelTest::missingDirectAvatarResolvesWithoutSearch()
     QVERIFY(changed.count() > 0);
 }
 
-// 0.5.14 checkpoint 3: the real (Rust) backend never populates
-// RoomInfo::members at all — it is fetched separately, on demand, only for
-// the Room Information "People" tab, and that result never flows back into
-// RoomListModel. The 0.5.13 test above (missingDirectAvatarResolvesWithoutSearch)
-// artificially inserts member entries, which is exactly why it passed while
-// the feature was still broken live: effectiveAvatarUrl() required a
-// populated member snapshot to identify "the other participant" before it
-// would ever consult the profile-fetch cache. This test reproduces the real
-// backend's shape — isDirect + directUserId(s) set, members left entirely
-// empty — end to end.
+// The real backend never populates RoomInfo::members (it is fetched on demand
+// for the Room Information People tab only), so a DM's avatar must resolve
+// from isDirect + directUserId(s) with an empty member snapshot, end to end.
 void RoomStateModelTest::missingDirectAvatarResolvesWithoutMemberSnapshot()
 {
     FakeClient client;
@@ -379,12 +368,9 @@ void RoomStateModelTest::missingDirectAvatarResolvesWithoutMemberSnapshot()
     QVERIFY(dm.members.isEmpty()); // never required
 }
 
-// A self-DM ("notes to self") has the direct target equal to our OWN user id,
-// no room avatar and no member snapshot (the real backend shape). The room
-// list never sees the per-event room-member avatar the timeline uses, so it
-// must adopt the signed-in account's own avatar — even when that profile was
-// fetched by another consumer (the account switcher) via an op the room list
-// did not start. Otherwise the entry is stuck on an "M" initial forever.
+// A self-DM (direct target is our own user id, no room avatar, no member
+// snapshot) adopts the signed-in account's own avatar, even when that profile
+// was fetched by another consumer via an op the room list did not start.
 void RoomStateModelTest::selfDirectMessageAdoptsOwnAvatar()
 {
     FakeClient client;
@@ -398,8 +384,8 @@ void RoomStateModelTest::selfDirectMessageAdoptsOwnAvatar()
     QVERIFY(model.data(model.index(0), RoomListModel::AvatarUrlRole)
                 .toString().isEmpty());
 
-    // Own profile resolved for the account switcher: an op the model never
-    // started (opId not in its map). It must still be adopted for the self-DM.
+    // Own profile resolved via an op the model never started (e.g. the account
+    // switcher); still adopted for the self-DM.
     QSignalSpy changed(&model, &RoomListModel::dataChanged);
     Q_EMIT client.userProfileFinished(/*opId=*/9999, true, client.selfUserId,
                                       QStringLiteral("Me"),
@@ -409,22 +395,11 @@ void RoomStateModelTest::selfDirectMessageAdoptsOwnAvatar()
     QVERIFY(changed.count() > 0);
 }
 
-// A profile result whose returned user id differs from the requested string
-// (SDK id normalization) must release the pending marker for BOTH ids.
-//
-// The original defect was an early return on the mismatch, which wedged the
-// target permanently pending so the DM avatar could never resolve. The fix
-// released pending and let the next reconcile re-fetch — and THAT became the
-// account-switch defect of 2026-08-26: an answer carrying no avatar was
-// released but never remembered, so every rebuild asked again, forever, once
-// something rebuilt on the answer. One /profile request and one full model
-// rebuild per network round trip, per avatarless peer, for the whole session.
-//
-// So the rule now has two halves and this pins both: the target is not
-// WEDGED (a definite answer is recorded), and it is not RE-ASKED (an
-// avatarless answer is a fact, not a gap). A face arriving later on a member
-// event still wins — avatarFor() consults the room's own member snapshot
-// before the resolver cache — and a sign-out clears the lot.
+// A profile result whose user id differs from the requested string (SDK
+// normalization) releases the pending marker for both ids and records the
+// answer, so the target is neither wedged pending nor re-asked on every
+// rebuild. A face arriving later on a member event still wins, and sign-out
+// clears the cache.
 void RoomStateModelTest::mismatchedProfileResultDoesNotWedgePending()
 {
     FakeClient client;
@@ -437,14 +412,12 @@ void RoomStateModelTest::mismatchedProfileResultDoesNotWedgePending()
     QCOMPARE(client.profileUser, dm.directUserId);
     const quint64 firstOp = client.profileOp;
 
-    // Mismatched id, no avatar. Both ids are released from pending AND both
-    // are recorded as "asked, no picture".
+    // Mismatched id, no avatar: both ids are released from pending and recorded
+    // as "asked, no picture".
     Q_EMIT client.userProfileFinished(firstOp, true,
                                       QStringLiteral("@BOB:example.org"),
                                       QStringLiteral("Bob"), {}, {});
-    // NOT re-asked. On the pre-2026-08-26 tree this line fails: the reconcile
-    // re-dispatched, and with an owner that rebuilds on the answer it did so
-    // without end.
+    // Not re-asked.
     client.profileUser.clear();
     Q_EMIT client.roomUpdated(dm.id);
     QCoreApplication::processEvents();
@@ -452,8 +425,7 @@ void RoomStateModelTest::mismatchedProfileResultDoesNotWedgePending()
              "an avatarless answer was re-asked on the next reconcile — that "
              "is the unbounded loop, not a recovery");
 
-    // And not WEDGED either: a face that turns up later still lands. This is
-    // the half the original defect broke, and it must keep working.
+    // Not wedged: a face that turns up later still lands.
     Q_EMIT client.userProfileFinished(firstOp + 1, true, dm.directUserId,
                                       QStringLiteral("Bob"),
                                       QStringLiteral("mxc://example.org/bob"),
@@ -462,10 +434,9 @@ void RoomStateModelTest::mismatchedProfileResultDoesNotWedgePending()
              QStringLiteral("mxc://example.org/bob"));
 }
 
-// A room m.direct maps against more than one target user is a group DM (or
-// an ambiguous mapping) and must never get an arbitrary member's avatar —
-// verified via the authoritative directUserIds list (the Rust backend's
-// signal), independent of any member snapshot.
+// A room m.direct maps to more than one user (group DM or ambiguous mapping)
+// never gets an arbitrary member's avatar; decided from directUserIds, not
+// any member snapshot.
 void RoomStateModelTest::groupDirectMappingDoesNotResolveMemberAvatar()
 {
     FakeClient client;
@@ -494,7 +465,7 @@ void RoomStateModelTest::replaceValidatesIdentityAndReset()
     QCOMPARE(model.data(model.index(0), RoomListModel::NameRole).toString(),
              QStringLiteral("renamed"));
     // Replacing with a different id at that index is rejected (no silent
-    // identity swap that could duplicate another row).
+    // identity swap that could duplicate a row).
     QVERIFY(!model.replaceRoom(0, b));
     QVERIFY(!model.replaceRoom(5, a2));
     // removeRange / truncate bounds.
@@ -575,10 +546,8 @@ void RoomStateModelTest::searchFiltersNameAndAliasAndFindsInvites()
     model.setClient(&client);
     QCOMPARE(model.rowCount(), 3);
 
-    // Debounced search over name AND canonical alias. Synchronize on the
-    // debounced searchQuery property before asserting the filtered rows so
-    // the check never races a stale previous result. "invite" narrows to
-    // the invitation alone — invites are findable, not hidden.
+    // Debounced search over name and canonical alias; wait for the debounced
+    // searchQuery before asserting. Invites are findable, not hidden.
     model.setSearchQuery(QStringLiteral("invite"));
     QTRY_COMPARE(model.searchQuery(), QStringLiteral("invite"));
     QCOMPARE(model.rowCount(), 1);
@@ -602,15 +571,10 @@ void RoomStateModelTest::searchFiltersNameAndAliasAndFindsInvites()
     QCOMPARE(model.rowCount(), 3);
 }
 
-// A direct message is not a room in a Space: Matrix has no notion of one
-// belonging to a Space unless somebody adds it as an m.space.child, which
-// essentially nobody does. Scoping DMs by the selected Space therefore hid
-// every one of them in every Space — reported as "the people tab in
-// spaces/rooms isnt populated".
-//
-// Exempting only the People CHIP fixed that list and broke a bigger one: All
-// then showed fewer rooms than People did, reported as "in all tab people are
-// not shown". The exemption belongs to the DM, not to the chip.
+// A DM is never scoped by the selected Space (Matrix DMs are not Space
+// children), so it shows under All and People inside a Space. The exemption
+// belongs to the DM, not to the People chip, or All would show fewer rows
+// than People.
 void RoomStateModelTest::aDirectMessageIsNeverScopedByTheSelectedSpace()
 {
     FakeClient client;
@@ -629,33 +593,28 @@ void RoomStateModelTest::aDirectMessageIsNeverScopedByTheSelectedSpace()
     model.setClient(&client);
     spaces.setActiveSpaceId(space.id);
 
-    // All: the Space's rooms AND the DM. "All" showing fewer rows than
-    // "People" is the bug this half exists to prevent.
+    // All: the Space's rooms and the DM.
     model.setFilterMode(0);
     QCOMPARE(model.rowCount(), 2);
 
-    // People: the DM, even though it is not a child of this Space. Without
-    // this the list is empty and there is no way to reach a DM from inside
-    // a Space at all.
+    // People: the DM, although it is not a child of this Space.
     model.setFilterMode(1);
     QCOMPARE(model.rowCount(), 1);
     QCOMPARE(model.data(model.index(0), RoomListModel::RoomIdRole).toString(), dm.id);
 
-    // Rooms stays scoped — a DM must not leak into it, and a room outside
-    // the Space must not either.
+    // Rooms stays scoped: no DM and no room outside the Space.
     model.setFilterMode(2);
     QCOMPARE(model.rowCount(), 1);
     QCOMPARE(model.data(model.index(0), RoomListModel::RoomIdRole).toString(),
              inSpace.id);
 
-    // ...and All is exactly People plus Rooms, which is what the word means.
+    // All is exactly People plus Rooms.
     model.setFilterMode(0);
     QCOMPARE(model.rowCount(), 2);
 }
 
-// 2026-08-14: Element-style filter chips. People/Rooms split on m.direct;
-// Unreads keeps unread rooms, the pinned (open) room, and — like every
-// mode — invites, which always need action.
+// Filter chips: People/Rooms split on m.direct; Unreads keeps unread rooms,
+// the pinned (open) room and, like every mode, invites.
 void RoomStateModelTest::filterModeSplitsPeopleRoomsUnreads()
 {
     FakeClient client;
@@ -690,8 +649,8 @@ void RoomStateModelTest::filterModeSplitsPeopleRoomsUnreads()
     QCOMPARE(ids(), (QStringList{busy.id, invite.id, quiet.id}));
     model.setPinnedRoomId(QString{});
     QCOMPARE(ids(), (QStringList{busy.id, invite.id}));
-    // Out-of-range modes fall back to All (both directions — never
-    // edge-snapped).
+    // Out-of-range modes fall back to All in both directions, never
+    // edge-snapped.
     model.setFilterMode(7);
     QCOMPARE(model.filterMode(), 0);
     QCOMPARE(model.rowCount(), 4);
@@ -706,10 +665,8 @@ void RoomStateModelTest::filterModeSplitsPeopleRoomsUnreads()
     QCOMPARE(recents.size(), 3); // dm + quiet + busy; the invite is not joined
 }
 
-// 2026-08-14: one fallback-colour policy — an unambiguous 1:1 DM is
-// coloured as the person (their MXID); group DMs and plain rooms as the
-// room (live report: the same user rendered in different colours across
-// surfaces).
+// One fallback-colour policy: an unambiguous 1:1 DM is coloured as the person
+// (their MXID); group DMs and plain rooms as the room.
 void RoomStateModelTest::identityColorKeyPolicyForDms()
 {
     FakeClient client;
@@ -743,18 +700,8 @@ void RoomStateModelTest::identityColorKeyPolicyForDms()
              QStringLiteral("@ga:example.org"));
 }
 
-// ── One activity feed (2026-08-31) ───────────────────────────────────────
-//
-// REPLACES favouritesFormTheirOwnSectionAboveEverythingButInvites, which
-// pinned the OLD rule: invites, then favourites, then DMs, then rooms, with
-// recency applied only INSIDE each of those. That is why a room which had
-// just received a message sat below every person the user had ever spoken
-// to, and why starring a conversation froze it above live traffic for good.
-//
-// The rule now is two ranks. Invitations need action and stay on top;
-// everything joined below them is ONE feed ordered purely by when somebody
-// last spoke, DMs and rooms interleaved. A favourite keeps its star and its
-// filter behaviour and loses only its rank.
+// Invitations need action and stay on top; everything joined below them is one
+// feed ordered by last activity, DMs and rooms interleaved.
 
 void RoomStateModelTest::invitesStayOnTopAndEverythingElseIsOneActivityFeed()
 {
@@ -766,18 +713,18 @@ void RoomStateModelTest::invitesStayOnTopAndEverythingElseIsOneActivityFeed()
     const auto oldDm   = at(QStringLiteral("!olddm:example.org"), true, 600);
     const auto newDm   = at(QStringLiteral("!newdm:example.org"), true, 30);
     const auto oldRoom = at(QStringLiteral("!oldroom:example.org"), false, 900);
-    // Shuffled: the order must come from the sort, not from the backend.
+    // Shuffled: the order must come from the sort, not the backend.
     client.mirror = { oldRoom, newDm, invite, oldDm, newRoom };
     model.setClient(&client);
 
-    // The invite is the STALEST thing here and still leads, because it needs
-    // action. Everything below it is strictly by recency, alternating kinds.
+    // The invite is the stalest and still leads. Everything below is by
+    // recency, alternating kinds.
     QCOMPARE(orderOf(model),
              (QStringList{ invite.id, newDm.id, newRoom.id, oldDm.id,
                            oldRoom.id }));
 
-    // The section role collapses to two values, so the presenter cannot draw
-    // a second "People" header halfway down a list that alternates.
+    // The section role has two values here, so the presenter cannot draw a
+    // second header halfway down an alternating list.
     QStringList categories;
     for (int i = 0; i < model.rowCount(); ++i) {
         categories << model.data(model.index(i), RoomListModel::CategoryRole)
@@ -799,8 +746,8 @@ void RoomStateModelTest::invitesStayOnTopAndEverythingElseIsOneActivityFeed()
 
 void RoomStateModelTest::aNewerRoomOutranksAnOlderDirectMessage()
 {
-    // The report, stated exactly: a room with a message from 13:05 must be
-    // above a DM whose latest was 12:40.
+    // A room with a message from 13:05 sorts above a DM whose latest was
+    // 12:40.
     FakeClient client;
     RoomListModel model;
     const auto dm = at(QStringLiteral("!dm:example.org"), true, 25 * 60);
@@ -812,7 +759,7 @@ void RoomStateModelTest::aNewerRoomOutranksAnOlderDirectMessage()
 
 void RoomStateModelTest::aNewerDirectMessageOutranksAnOlderRoom()
 {
-    // The converse, so the fix cannot be "rooms now win".
+    // The converse, so the fix cannot be "rooms always win".
     FakeClient client;
     RoomListModel model;
     const auto room1305 = at(QStringLiteral("!room:example.org"), false, 60);
@@ -822,17 +769,7 @@ void RoomStateModelTest::aNewerDirectMessageOutranksAnOlderRoom()
     QCOMPARE(orderOf(model), (QStringList{ dm1306.id, room1305.id }));
 }
 
-// A FAVOURITE OUTRANKS RECENCY, and this case used to assert the opposite.
-//
-// The 2026-08 decision was that a star should not buy rank, on the reasoning
-// that a starred room would sit frozen above live traffic. The maintainer
-// reversed it on 2026-09-05 ("favoriting a room should raise it to the top in
-// channels mode", and no Favourites section in Classic), because a section
-// frozen above live traffic is precisely what a Favourites section IS. The
-// model changed in 87a6a41 and this case did not, so it shipped red in 0.9.1.
-//
-// What survives the reversal is the part that was never about rank: the star
-// means the same thing, and recency still decides the order WITHIN a group.
+// A favourite outranks recency; among favourites, recency still decides.
 void RoomStateModelTest::aFavouriteOutranksRecencyButNotEachOther()
 {
     FakeClient client;
@@ -843,7 +780,7 @@ void RoomStateModelTest::aFavouriteOutranksRecencyButNotEachOther()
     client.mirror = { staleFavourite, fresh };
     model.setClient(&client);
 
-    // The star wins the rank even though the other room is a day fresher.
+    // The star wins rank even though the other room is a day fresher.
     QCOMPARE(orderOf(model), (QStringList{ staleFavourite.id, fresh.id }));
     QVERIFY(model.data(model.index(0), RoomListModel::IsFavouriteRole).toBool());
     QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
@@ -851,9 +788,8 @@ void RoomStateModelTest::aFavouriteOutranksRecencyButNotEachOther()
     QCOMPARE(model.data(model.index(1), RoomListModel::CategoryRole).toString(),
              QStringLiteral("conversation"));
 
-    // But rank is the ONLY thing the star buys: among favourites the more
-    // recent one still comes first, so the list never freezes into the order
-    // rooms happened to be starred in.
+    // Among favourites the more recent comes first, so the list never freezes
+    // into the order rooms were starred in.
     auto secondFavourite = at(QStringLiteral("!fav2:example.org"), false, 60);
     secondFavourite.isFavourite = true;
     client.mirror = { staleFavourite, fresh, secondFavourite };
@@ -904,8 +840,8 @@ void RoomStateModelTest::incomingActivityMovesOneRowAndKeepsTheSelection()
     model.setClient(&client);
     QCOMPARE(orderOf(model), (QStringList{ a.id, b.id, c.id }));
 
-    // A message arrives in the OLDEST room. It must MOVE, not reset the
-    // model: a reset destroys every delegate and drops the reader's place.
+    // A message in the oldest room moves it rather than resetting the model,
+    // which would destroy every delegate and lose the reader's place.
     QSignalSpy reset(&model, &QAbstractItemModel::modelReset);
     client.mirror[2].lastActivity = ago(0);
     Q_EMIT client.roomsChanged();
@@ -916,9 +852,7 @@ void RoomStateModelTest::incomingActivityMovesOneRowAndKeepsTheSelection()
 
 void RoomStateModelTest::aSpaceScopedListUsesTheSameRecencyRule()
 {
-    // Space scoping narrows WHICH rooms are listed; it must not change how
-    // they are ordered. This is the case behind "inside a Space all the
-    // People sit at the top and the rooms are buried far below".
+    // Space scoping narrows which rooms are listed, not how they are ordered.
     FakeClient client;
     RoomListModel model;
     SpaceManager spaces;
@@ -932,7 +866,7 @@ void RoomStateModelTest::aSpaceScopedListUsesTheSameRecencyRule()
     spaces.setClient(&client);
     model.setClient(&client);
     model.setSpaceManager(&spaces);
-    // Scope comes from the manager's selection, which is what the rail sets.
+    // Scope comes from the manager's selection, which the rail sets.
     spaces.setActiveSpaceId(space.id);
 
     QCOMPARE(orderOf(model), (QStringList{ inRoom.id, inOlder.id }));
@@ -940,9 +874,8 @@ void RoomStateModelTest::aSpaceScopedListUsesTheSameRecencyRule()
 
 void RoomStateModelTest::roomsWithNoActivityYetSortLastAndDeterministically()
 {
-    // A room that has never had a message carries an invalid timestamp.
-    // Without an explicit rule those compare unpredictably and the list
-    // reshuffles itself between syncs from nothing but backend order.
+    // A room that has never had a message has an invalid timestamp; an
+    // explicit rule keeps such rooms from reshuffling between syncs.
     FakeClient client;
     RoomListModel model;
     auto quietB = room(QStringLiteral("!q2:example.org"));
@@ -960,9 +893,9 @@ void RoomStateModelTest::roomsWithNoActivityYetSortLastAndDeterministically()
              (QStringList{ active.id, quietA.id, quietB.id }));
 }
 
-// The tag is ACCOUNT state. Flipping the row locally would show a favourite
-// the account does not have whenever the server refuses the write — and
-// worse, would park the row under a Favourites header it does not belong in.
+// The favourite tag is account state and is never flipped locally: if the
+// server refuses the write, the row would show a favourite the account does
+// not have.
 void RoomStateModelTest::favouriteToggleIsNeverAppliedLocally()
 {
     FakeClient client;
@@ -981,12 +914,8 @@ void RoomStateModelTest::favouriteToggleIsNeverAppliedLocally()
              QStringLiteral("conversation"));
     QVERIFY(!model.data(model.index(0), RoomListModel::IsFavouriteRole).toBool());
 
-    // Only the backend reflecting the tag back changes the row — and when it
-    // does, the row moves into the favourites section. The old expectation
-    // here was "still a conversation", from the period when a star bought no
-    // rank; see aFavouriteOutranksRecencyButNotEachOther for the reversal.
-    // The invariant this case is actually named for is the one above: nothing
-    // moved until the server confirmed.
+    // Only the backend reflecting the tag back changes the row, moving it into
+    // the favourites section.
     client.mirror[0].isFavourite = true;
     Q_EMIT client.roomsChanged();
     QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
@@ -997,35 +926,25 @@ void RoomStateModelTest::favouriteToggleIsNeverAppliedLocally()
     QVERIFY(!model.roomFavouritesSupported());
 }
 
-// categoryOf() is read by RoomsPanel's `section.property`, and its section
-// delegate ends in a bare `: qsTr("Rooms")` fallback — so a category added
-// here without a label there does not fail, it renders "Rooms" over a
-// section that is not rooms. That is exactly how the Favourites section
-// would have shipped mislabelled.
+// Every category categoryOf() emits has a section label in the Classic
+// presenter; its section delegate falls back to "Rooms", so a missing label
+// would mislabel a section rather than fail.
 void RoomStateModelTest::everyCategoryTheModelEmitsHasASectionLabel()
 {
-    // 2026-08-23: the Classic list moved out of RoomsPanel.qml when that
-    // became a host with two interchangeable presenters. Repointed rather
-    // than deleted — the invariant is unchanged, only the file is.
     QFile file(QStringLiteral(QML_DIR "/RoomListClassicPresenter.qml"));
     QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text),
              qPrintable(file.fileName()));
     const QString source = QString::fromUtf8(file.readAll());
 
-    // THREE categories since 2026-09-05, not two. The 2026-08-31 note here
-    // said DMs, rooms and favourites share one activity feed and a finer
-    // split would repeat its header every time the kinds alternate. That
-    // still holds for DMs against rooms, which is why they remain one
-    // section — but favourites were given their own again at the
-    // maintainer's request, and a favourites section does not alternate
-    // because every favourite sorts above everything else.
+    // Three categories: invite, favourite and conversation. DMs and rooms share
+    // one section (a split would repeat headers as kinds alternate), while
+    // favourites sort above everything and form their own.
     RoomInfo probe;
     probe.membership = RoomInfo::Invited;
     QStringList emitted{ RoomListModel::categoryOf(probe) };
     probe.membership = RoomInfo::Joined;
-    // A favourite and a favourited DM are both "favourite"; a plain DM and a
-    // plain room are both "conversation". The star is what splits the list,
-    // not the kind of room.
+    // A favourite (DM or room) is "favourite"; a plain DM or room is
+    // "conversation".
     probe.isFavourite = true;
     emitted << RoomListModel::categoryOf(probe);
     probe.isDirect = true;
@@ -1041,18 +960,15 @@ void RoomStateModelTest::everyCategoryTheModelEmitsHasASectionLabel()
                            QStringLiteral("conversation"),
                            QStringLiteral("conversation") }));
 
-    // The invite section is still matched by name in the delegate; the
-    // conversation section takes its label from the active filter, so what
-    // must exist there is the fallback property rather than a second
-    // `section ===` branch.
+    // The invite section is matched by name; the conversation section takes
+    // its label from the active filter, so a fallback property is required
+    // rather than another `section ===` branch.
     QVERIFY2(source.contains(QStringLiteral("section === \"invite\"")),
              "the Classic presenter has no section label for invites");
     QVERIFY2(source.contains(QStringLiteral("conversationSectionLabel")),
              "the Classic presenter has no label for the conversation "
              "section");
-    // Every category the model emits needs a label, which is this case's
-    // whole point: a third category with no branch would render an unnamed
-    // section header.
+    // Every emitted category needs a label.
     QVERIFY2(source.contains(QStringLiteral("section === \"favourite\"")),
              "the Classic presenter has no section label for favourites");
     // One label per filter mode, so no mode falls through to a wrong name.
@@ -1065,19 +981,10 @@ void RoomStateModelTest::everyCategoryTheModelEmitsHasASectionLabel()
 }
 
 
-// The Favourites group is pinned above People and Rooms, but the section
-// labels sit on the bare sidebar with no fill, so a short favourites block
-// ran straight into the next group. The rule closing it off is scoped by
-// THREE clauses and each one is load-bearing:
-//   * it draws only on a favourite row;
-//   * only on the LAST one (nextSection differs);
-//   * and not when that row is the last in the whole view, where
-//     ListView.nextSection is "" — without that clause a list whose only
-//     group is favourites hangs a rule off its bottom edge.
-// A source scan is the honest level here: this is a pure presentation
-// binding with no C++ side, and the alternative (loading the panel
-// offscreen with a seeded model) would assert Qt's section machinery
-// rather than Lightning's use of it.
+// The favourites divider binding asks the model (favouritesBoundaryRoomId)
+// rather than ListView.section/nextSection, is anchored rather than laid out,
+// and is drawn off the selection chip. A source scan: a pure presentation
+// binding with no C++ side.
 void RoomStateModelTest::theFavouritesSectionIsClosedOffByADivider()
 {
     QFile panel(
@@ -1090,9 +997,8 @@ void RoomStateModelTest::theFavouritesSectionIsClosedOffByADivider()
     QVERIFY2(bindingAt >= 0,
              "the Classic presenter never binds showGroupDivider");
     const QString binding = panelSource.mid(bindingAt, 260);
-    // The view must ASK THE MODEL. ListView.section / ListView.nextSection
-    // go stale under reuseItems and row moves — selecting a room re-sorts
-    // the list, and the rule then vanished until something else redrew it.
+        // The view asks the model: ListView.section / nextSection go stale
+        // under reuseItems and row moves.
     QVERIFY2(binding.contains(QStringLiteral("favouritesBoundaryRoomId")),
              "the divider is not driven by the model's boundary property");
     QVERIFY2(!binding.contains(QStringLiteral("ListView.nextSection")),
@@ -1112,13 +1018,12 @@ void RoomStateModelTest::theFavouritesSectionIsClosedOffByADivider()
     const QString divider = rowSource.mid(dividerAt, 420);
     QVERIFY2(divider.contains(QStringLiteral("anchors.bottom: parent.bottom")),
              "the rule must anchor to the row's own bottom edge");
-    // Anchored, never laid out: a rule that added height would move every
-    // row below it the moment a room was favourited.
+        // Anchored, never laid out: a rule adding height would move every row
+        // below it.
     QVERIFY2(!divider.contains(QStringLiteral("Layout.")),
              "the rule must not participate in the row's layout");
-    // Drawn OFF the selection chip, not over it: `border` on a `selected`
-    // fill is very nearly invisible, and that is what "the divider gets
-    // hidden when the room is selected" looked like.
+        // Drawn off the selection chip: a border on a `selected` fill is nearly
+        // invisible.
     QVERIFY2(rowSource.contains(
                  QStringLiteral("anchors.bottomMargin: root.showGroupDivider ? 1 : 0")),
              "the selection chip must yield the row's last pixel line to the rule");
@@ -1126,16 +1031,9 @@ void RoomStateModelTest::theFavouritesSectionIsClosedOffByADivider()
 
 void RoomStateModelTest::theFavouritesBoundaryIsRetiredWithTheGroup()
 {
-    // WAS theFavouritesBoundaryIsOwnedByTheModel, which pinned the rule under
-    // the last favourite. There is no favourites GROUP to close off any more:
-    // favourites are interleaved with everything else by recency, so the rows
-    // the rule separated are no longer adjacent and a line drawn anywhere in
-    // the feed would divide nothing.
-    //
-    // Kept as a case rather than deleted, because "the model reports no
-    // boundary" is exactly what the surviving QML binding depends on — the
-    // property is still bound, and a future non-empty value would silently
-    // start ruling a random row.
+    // Favourites form their own group, newest first, followed by everything
+    // else; the model reports no divider boundary, because the section header
+    // now separates the groups.
     FakeClient client;
     RoomListModel model;
     auto favA = at(QStringLiteral("!favA:example.org"), false, 500);
@@ -1147,8 +1045,8 @@ void RoomStateModelTest::theFavouritesBoundaryIsRetiredWithTheGroup()
     model.setClient(&client);
 
     QCOMPARE(model.rowCount(), 3);
-    // The favourites lead, newest first among themselves, and the plain room
-    // follows however fresh it is.
+    // Favourites lead, newest first among themselves; the plain room follows
+    // however fresh.
     QCOMPARE(orderOf(model), (QStringList{ favB.id, favA.id, plain.id }));
     QVERIFY(model.data(model.index(0), RoomListModel::IsFavouriteRole).toBool());
     QVERIFY(model.data(model.index(1), RoomListModel::IsFavouriteRole).toBool());
@@ -1158,11 +1056,8 @@ void RoomStateModelTest::theFavouritesBoundaryIsRetiredWithTheGroup()
              QStringLiteral("favourite"));
     QCOMPARE(model.data(model.index(2), RoomListModel::CategoryRole).toString(),
              QStringLiteral("conversation"));
-    // The separate rule stays retired even though the group is back: the
-    // section HEADER divides the list now, so a second line under the last
-    // favourite would draw a rule immediately above a header. The property is
-    // still bound in QML, so a future non-empty value would silently start
-    // ruling a random row, which is what this keeps watch on.
+    // No boundary rule: the section header divides the groups. The property is
+    // still bound in QML, so a non-empty value would start ruling a random row.
     QVERIFY2(model.favouritesBoundaryRoomId().isEmpty(),
              "the section header divides the groups, not a boundary rule");
 
@@ -1181,10 +1076,8 @@ void RoomStateModelTest::theFavouritesBoundaryIsRetiredWithTheGroup()
 
 void RoomStateModelTest::roomActivityOnlyEverMovesForward()
 {
-    // The room list sorts on RoomInfo::lastActivity, and four separate places
-    // used to assign it. When any two disagreed a room jumped and fell back —
-    // reported three times as "clicking an older room moves it upwards in the
-    // room order, then it drops back down to where it was".
+    // Every writer of RoomInfo::lastActivity goes through raiseActivity(), so
+    // disagreeing sources cannot make a room jump and fall back.
     RoomInfo room;
     const QDateTime older = QDateTime::fromMSecsSinceEpoch(1'700'000'000'000);
     const QDateTime newer = older.addSecs(600);
@@ -1196,11 +1089,11 @@ void RoomStateModelTest::roomActivityOnlyEverMovesForward()
     QVERIFY(room.raiseActivity(newer));
     QCOMPARE(room.lastActivity, newer);
 
-    // A stale answer — a summary that has not caught up, or a timeline that
-    // was loaded and then unloaded — must not pull the room back down.
+    // A stale answer (a lagging summary, an unloaded timeline) must not pull
+    // the room back down.
     QVERIFY(!room.raiseActivity(older));
     QCOMPARE(room.lastActivity, newer);
-    // Nor may an identical one report a change and churn the list.
+    // An identical stamp reports no change.
     QVERIFY(!room.raiseActivity(newer));
     QCOMPARE(room.lastActivity, newer);
     // Genuinely newer still moves.

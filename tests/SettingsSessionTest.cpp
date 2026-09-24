@@ -94,17 +94,14 @@ private Q_SLOTS:
     void reportsSecretCleanupFailureButClearsMetadata();
     void migratesInsecureSecretsGroupIntoSecureStore();
     void keepsPlaintextWhenSecureMigrationFails();
-    // 2026-09-08 audit: the insecure->secure migration passed a MANGLED
-    // QSettings group name back as the user id, verified the write against
-    // that same mangled key, and then deleted the plaintext AND the two
-    // OAuth secrets it never carried.
+    // The insecure-to-secure migration uses the real user id (not the folded
+    // QSettings group name) and moves every secret of the account.
     void migratesEverySecretOfAnAccountWhoseIdContainsASlash();
     void leavesPlaintextWhenNoSavedAccountOwnsTheGroup();
     void insecureSecretsGroupFoldingIsStillTwoCharacters();
-    // Same audit: device-global keys carrying room and Space ids outlived
-    // "remove this account from this computer" indefinitely.
+    // Device-global keys naming rooms and Spaces are removed with the last
+    // account.
     void clearingTheLastAccountSweepsTheDeviceGlobalRoomKeys();
-    // v0.5.11.
     void validThemeIdsRoundTripAndPersist();
     void unknownStoredThemeFallsBackToSystem();
     void themeChangeEmitsSignal();
@@ -122,30 +119,27 @@ private Q_SLOTS:
     void uiFontPersistsPerAccountAndValidates();
     void loginHomeserverPrefillIsAccountIndependent();
     void hiddenImagesPersistPerAccountAndSurviveSigningOut();
-    // v0.6.7.
     void pickerSizeIsWhitelistedBoundedAndForgettable();
     void freshProfileDefaultsToMatrixOrg();
-    // 2026-08-23 tester report: window geometry was not saved at all.
     void windowGeometryRoundTripsAndRefusesAnUnrestorableSize();
-    // 2026-09-03: composer buttons the user switched off.
+    // Composer buttons the user switched off.
     void hiddenComposerButtonsDefaultToNoneAndNormalize();
-    // 2026-09-05: what this device discloses while merely reading and typing.
+    // What this device discloses while reading and typing.
     void readReceiptModeDefaultsToPublicPersistsAndClamps();
     void typingNotificationsDefaultOnAndPersist();
     void theEncryptedPreviewLevelDefaultsToFollowingTheGeneralOne();
     void anUnknownEncryptionStateTakesTheStricterLevel();
     void strictDeviceTrustDefaultsOffAndPersists();
-    // 2026-09-08 audit: five account-scoped values were never re-announced.
+    // Every account-scoped value is re-announced on an account switch.
     void switchingAccountsReAnnouncesEveryAccountScopedAppearanceValue();
     void everyAccountScopedGetterHasItsSignalInTheAccountSwitch();
     void theSoundSectionsScopeSentenceMatchesWhereThingsActuallyLive();
     void turningOffCloseToTrayAnnouncesTheStartInTrayItDerives();
 
 private:
-    // Writes the QSettings shape SettingsManager::upsertAccountRecord
-    // produces, without needing a SecretStore: the migration cases have to
-    // start from an account record that exists and a token that is ONLY in
-    // plaintext, which saveSession() cannot express.
+    // Writes the QSettings shape SettingsManager::upsertAccountRecord produces
+    // without a SecretStore: the migration cases need an existing account
+    // record with a token only in plaintext, which saveSession() cannot make.
     static void seedAccountRecord(const QString &userId,
                                   const QString &homeserver);
 
@@ -182,24 +176,10 @@ void SettingsSessionTest::init()
     settings.sync();
 }
 
-// A PREFERENCE THAT IS ONLY IN MEMORY IS NOT SAVED, HOWEVER CORRECT THE
-// READ-BACK LOOKS.
-//
-// Reported by a user: set another person's volume in a call, restart the
-// client, and it is back to 100. Every layer above this one is right — the
-// controller records it, the tile reads it back from the store, and
-// applyStoredVolumes() re-applies it — so within one session the value
-// behaves perfectly, which is exactly why the defect survived.
-//
-// QSettings writes lazily. Without an explicit sync() the value lives in
-// QSettings' own cache until the object is destroyed, and a call is the one
-// situation where this client is most likely NOT to exit cleanly. This file
-// already syncs for the cases whose comments say the value "must not be the
-// thing that is lost in a crash"; a volume is another.
-//
-// So the assertion is against the FILE, not the API: reading it back through
-// the same QSettings instance would pass on the broken code, because the
-// cache answers.
+// A participant volume reaches the settings file immediately (explicit
+// sync()): QSettings writes lazily, and calls are when the client is least
+// likely to exit cleanly. Asserted against the file, since reading back
+// through QSettings would be answered from its cache.
 void SettingsSessionTest::aParticipantVolumeReachesTheDiskImmediately()
 {
     FakeSecretStore secrets;
@@ -216,46 +196,29 @@ void SettingsSessionTest::aParticipantVolumeReachesTheDiskImmediately()
     settings.setCallParticipantVolume(other, 47);
     QCOMPARE(settings.callParticipantVolume(other), 47);
 
-    // RESOLVE THE PATH BEFORE THE WRITE, never after. Constructing a
-    // QSettings runs initAccess(), which syncs — and Qt shares one
-    // ref-counted QConfFile per absolute path — so asking for the filename
-    // AFTERWARDS flushes the very write this test is trying to observe, and
-    // the case would pass on a build where the value only ever reached the
-    // cache. That is how the first version of this test could not fail.
+    // Resolve the path before the write: constructing a QSettings syncs the
+    // shared per-path QConfFile, so asking afterwards would flush the very
+    // write under test.
     QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
     const QString onDisk = QString::fromUtf8(file.readAll());
-    // The VALUE, under the right account, not merely the group name.
+    // The value, under the right account, not merely the group name.
     QVERIFY2(onDisk.contains(QStringLiteral("=47")),
              qPrintable(QStringLiteral("volume not on disk; file said:\n%1")
                             .arg(onDisk)));
     QVERIFY(onDisk.contains(QStringLiteral("callVolumes")));
 }
 
-// A WINDOWS CAMERA PREFERENCE COULD NEVER BE STORED, AND THE PICKER SAID IT
-// HAD BEEN.
-//
-// QMediaDevices ids are device paths on Windows, so they open with two
-// backslashes -- and the storage sanitizer refused any id containing one,
-// returning the empty string. Empty means "system default", so choosing a
-// camera appeared to work, survived until the page was left, and read back as
-// System default on the next visit. Measured on the Windows guest on
-// 2026-09-15: the device was listed, selectable, and never remembered.
-//
-// The rule it came from was about a GStreamer pipeline description, where a
-// backslash really would be unsafe -- but nothing interpolates these ids on
-// Windows (the 1:1 helper returns early there, and the SFU engine sets the
-// property on the parsed element). It could only ever have fired on the
-// platform it was not written for.
-//
-// FAIL-ON-OLD: restore the `contains('\\')` refusal in sanitizedDeviceId and
-// this reads empty.
+// A Windows device id (a device path starting with backslashes) can be
+// stored. Nothing interpolates these ids into a pipeline string on Windows,
+// so refusing backslashes there only made the choice silently read back as
+// "System default".
 void SettingsSessionTest::aWindowsDeviceIdSurvivesBeingStored()
 {
     FakeSecretStore secrets;
     SettingsManager settings;
     settings.setSecretStore(&secrets);
 
-    // The real shape, from the guest's own device: a symbolic link name.
+    // The real shape: a Windows symbolic link name.
     const QString windowsId = QStringLiteral(
         "\\\\?\\usb#vid_322e&pid_233a&mi_00#7&1f2e3d4c&0&0000#"
         "{65e8773d-8f56-11d0-a3b9-00a0c9223196}\\global");
@@ -265,13 +228,12 @@ void SettingsSessionTest::aWindowsDeviceIdSurvivesBeingStored()
     settings.setPreferredMicrophoneId(windowsId);
     QCOMPARE(settings.preferredMicrophoneId(), windowsId);
 
-    // A Linux id is unaffected -- this widened the rule, it did not replace it.
+    // A Linux id is unaffected.
     settings.setPreferredCameraId(QStringLiteral("/dev/video0"));
     QCOMPARE(settings.preferredCameraId(), QStringLiteral("/dev/video0"));
 
-    // What the sanitizer is actually for still holds: a control character and
-    // an over-long value are still refused, because this value is written to a
-    // config file a human can edit.
+    // Control characters and over-long values are still refused: the value
+    // lives in a hand-editable config file.
     settings.setPreferredCameraId(QStringLiteral("bad\u0007id"));
     QVERIFY(settings.preferredCameraId().isEmpty());
     settings.setPreferredCameraId(QString(257, QLatin1Char('x')));
@@ -355,10 +317,9 @@ void SettingsSessionTest::reportsSecretCleanupFailureButClearsMetadata()
 
 void SettingsSessionTest::migratesInsecureSecretsGroupIntoSecureStore()
 {
-    // Simulate a prior InsecureFallback run: a plaintext token under
-    // secrets/<user>/accessToken in QSettings, belonging to a real saved
-    // account (the app never writes one without the other, and the
-    // migration now refuses to move a credential it cannot attribute).
+    // A plaintext token under secrets/<user>/accessToken from a previous
+    // InsecureFallback run, belonging to a real saved account (the migration
+    // refuses credentials it cannot attribute).
     const QString user = QStringLiteral("@alice:matrix.example");
     const QString token = QStringLiteral("plaintext-token-fixture");
     seedAccountRecord(user, QStringLiteral("https://matrix.example"));
@@ -402,17 +363,11 @@ void SettingsSessionTest::keepsPlaintextWhenSecureMigrationFails()
              token);
 }
 
-// THE GROUP NAME IS NOT THE USER ID. InsecureFallbackSecretStore folds '/'
-// and '\\' to '_' so a Matrix id can be a QSettings group, and the Matrix
-// localpart grammar DOES include '/' — an appservice or bridge id is the
-// realistic case. The migration passed the folded group name back as the
-// user id, so its read-back compared the mangled key against itself, always
-// "succeeded", and deleted the plaintext; every runtime read
-// (accessTokenFor -> readSecret(<real mxid>, ...)) then missed, and the
-// surviving keyring entry was one clearAccountSecrets(<real mxid>) could
-// never name. It also migrated the access token ALONE and then removed the
-// whole group, so an OAuth account came out with a token, no refresh token
-// and no client id — restoreSession reports MissingSessionMetadata.
+// The group name is not the user id: InsecureFallbackSecretStore folds '/'
+// and '\\' to '_', and Matrix localparts may contain '/' (appservice and
+// bridge ids). The migration must store every secret (access token, refresh
+// token, client id) under the real id, so runtime reads and
+// clearAccountSecrets() find them.
 void SettingsSessionTest::migratesEverySecretOfAnAccountWhoseIdContainsASlash()
 {
     const QString user = QStringLiteral("@a/b:matrix.example");
@@ -437,20 +392,19 @@ void SettingsSessionTest::migratesEverySecretOfAnAccountWhoseIdContainsASlash()
     SettingsManager settings;
     settings.setSecretStore(&secrets);   // triggers the migration
 
-    // All three, under the REAL user id.
+    // All three, under the real user id.
     QCOMPARE(secrets.readSecret(user, QStringLiteral("accessToken")), token);
     QCOMPARE(secrets.readSecret(user, QStringLiteral("refreshToken")), refresh);
     QCOMPARE(secrets.readSecret(user, QStringLiteral("oauthClientId")),
              clientId);
-    // And nothing under the mangled one, which nothing would ever read and
-    // clearAccountSecrets() could never remove.
+    // Nothing under the folded id, which nothing would read or remove.
     QVERIFY2(!secrets.hasSecret(group, QStringLiteral("accessToken")),
              "the token was stored under the folded QSettings group name");
 
-    // The runtime path agrees — this is the read that used to miss.
+    // The runtime read finds it.
     QCOMPARE(settings.accessTokenFor(user), token);
 
-    // Plaintext gone, all of it.
+    // All plaintext is gone.
     QSettings check;
     QVERIFY(!check.contains(
         QStringLiteral("secrets/%1/accessToken").arg(group)));
@@ -459,18 +413,16 @@ void SettingsSessionTest::migratesEverySecretOfAnAccountWhoseIdContainsASlash()
     QVERIFY(!check.contains(
         QStringLiteral("secrets/%1/oauthClientId").arg(group)));
 
-    // Sign-out can reach what the migration wrote (CLAUDE.md section 6:
-    // sign-out must delete the credential that was actually in use).
+    // Sign-out removes what the migration wrote.
     QVERIFY(settings.clearSessionForAccount(user));
     QVERIFY(!secrets.hasSecret(user, QStringLiteral("accessToken")));
     QVERIFY(!secrets.hasSecret(user, QStringLiteral("refreshToken")));
     QVERIFY(!secrets.hasSecret(user, QStringLiteral("oauthClientId")));
 }
 
-// The folding is not injective, so a group that no single saved account
-// resolves to cannot be attributed. Moving a credential to a guess and
-// deleting the readable copy is strictly worse than leaving it where the
-// user can still sign in from it.
+// The folding is not injective, so a group no single saved account resolves
+// to cannot be attributed: leave the readable plaintext rather than moving it
+// to a guess.
 void SettingsSessionTest::leavesPlaintextWhenNoSavedAccountOwnsTheGroup()
 {
     const QString ghost = QStringLiteral("@ghost:matrix.example");
@@ -495,11 +447,8 @@ void SettingsSessionTest::leavesPlaintextWhenNoSavedAccountOwnsTheGroup()
 }
 
 // SettingsManager mirrors InsecureFallbackSecretStore's group-name folding
-// in its own anonymous namespace, because including that class's header
-// would emit its vtable into every target that compiles SettingsManager.cpp
-// without linking its .cpp. A mirror can drift, so read the real thing: if
-// the folding there ever grows a third substitution, this fails and names
-// the copy that has to learn it too.
+// (including that header would pull its vtable into every target). A mirror can
+// drift, so this reads the real implementation and fails if it changes.
 void SettingsSessionTest::insecureSecretsGroupFoldingIsStillTwoCharacters()
 {
     QFile source(QStringLiteral(
@@ -530,12 +479,9 @@ void SettingsSessionTest::insecureSecretsGroupFoldingIsStillTwoCharacters()
                             .arg(substituted.size())));
 }
 
-// Device-global keys that name Matrix objects rather than describe this
-// computer: the Spaces rail's arrangement (Space room ids plus the folder
-// names the user typed) and notifications/room-mode/<roomId>. Both exist as
-// read fallbacks for accounts that still have no scoped value; with the last
-// account gone they are just a record of the rooms and Spaces somebody was
-// in, outliving "remove this account from this computer".
+// Device-global keys that name Matrix objects (the rail arrangement and
+// notifications/room-mode/<roomId>) are read fallbacks for accounts without a
+// scoped value; with the last account removed they are swept.
 void SettingsSessionTest::clearingTheLastAccountSweepsTheDeviceGlobalRoomKeys()
 {
     const QString alice = QStringLiteral("@alice:matrix.example");
@@ -546,10 +492,8 @@ void SettingsSessionTest::clearingTheLastAccountSweepsTheDeviceGlobalRoomKeys()
         QString::fromLatin1(SettingsManager::kChannelCollapsedKey);
     const QString roomModeKey =
         QStringLiteral("notifications/room-mode/!secret:matrix.example");
-    // The on-disk names, pinned: these keys exist in users' settings files
-    // already, so the constants are a single spelling of an EXISTING name
-    // and not a free choice. (They are also what makes this case runnable
-    // against the unfixed tree — substitute the literals.)
+        // The on-disk key names are pinned: they already exist in users'
+        // settings files.
     QCOMPARE(railKey, QStringLiteral("shell/railLayout"));
     QCOMPARE(collapsedKey, QStringLiteral("shell/channelCollapsed"));
 
@@ -575,7 +519,7 @@ void SettingsSessionTest::clearingTheLastAccountSweepsTheDeviceGlobalRoomKeys()
         seed.sync();
     }
 
-    // One account left: they are still that account's read fallback.
+    // One account left: they are still its read fallback.
     QVERIFY(settings.clearSessionForAccount(bob));
     {
         QSettings check;
@@ -656,28 +600,8 @@ void SettingsSessionTest::themeChangeEmitsSignal()
     QCOMPARE(spy.count(), 1);
 }
 
-// THE RAIL'S WIDTH DEFAULTS TO WHAT IT WAS FIXED AT, AND IS CLAMPED ON READ.
-//
-// The Spaces rail became resizable on 2026-09-17; before that it was pinned
-// to 68px on every platform. Two properties matter and neither is obvious
-// from the setter:
-//
-//   * the DEFAULT is the old fixed width, so an install that has never
-//     touched the divider looks exactly as it did — a panel that silently
-//     changed size on upgrade would be a regression dressed as a feature;
-//   * the clamp is applied on READ as well as on write, because the store is
-//     a file a person can edit, and the rail's width decides how far a
-//     nested Space can be indented. An out-of-range value would hand the
-//     shell either a sliver with no room for a 40px tile or an icon strip
-//     wide enough to crowd out the room list.
-// ── THE RAIL'S DEPTH STYLE ───────────────────────────────────────────────
-//
-// Clamped on READ, and the reason is not only the hand-edited config that
-// every other clamp here guards against. This value can arrive from a NEWER
-// build that shipped a third style: a person who runs a beta, picks it, and
-// goes back to a release must not land on a rail with NO depth cue at all,
-// which is what an unhandled 2 would draw — no regions (style != 0) and no
-// flat model (style != 1). It reads back as Regions instead.
+// The rail's depth style is clamped on read: a value from a newer build with a
+// third style reads back as Regions, not as a style this build cannot draw.
 void SettingsSessionTest::spacesRailDepthStyleDefaultsToRegionsAndClamps()
 {
     SettingsManager settings;
@@ -685,7 +609,7 @@ void SettingsSessionTest::spacesRailDepthStyleDefaultsToRegionsAndClamps()
              SettingsManager::kRailDepthRegions);
 
     QSettings raw;
-    // The future-build case, which is the one a user can actually reach.
+    // A value written by a newer build.
     raw.setValue(QStringLiteral("shell/spacesRailDepthStyle"), 2);
     raw.sync();
     SettingsManager fromTheFuture;
@@ -706,29 +630,26 @@ void SettingsSessionTest::spacesRailDepthStyleDefaultsToRegionsAndClamps()
     QCOMPARE(fresh.spacesRailDepthStyle(),
              SettingsManager::kRailDepthClassic);
     QCOMPARE(spy.count(), 1);
-    // Idempotent, and an out-of-range WRITE lands on the same clamp the read
-    // uses rather than on whatever the caller passed.
+    // An out-of-range write lands on the same fallback as a read.
     fresh.setSpacesRailDepthStyle(SettingsManager::kRailDepthClassic);
     QCOMPARE(spy.count(), 1);
-    // 99 is not "as far towards Classic as we can go", it is a style this
-    // build does not have — so it reads as Regions, and that IS a change
-    // from Classic, so the signal fires. This assertion caught a real
-    // defect: the first implementation used std::clamp, and clamp(2, 0, 1)
-    // is 1, which would have switched a returning beta user's rail to a
-    // look they never picked.
+    // 99 is an unknown style, so it reads as Regions (not std::clamp's 1,
+    // Classic), and that is a change from Classic.
     fresh.setSpacesRailDepthStyle(99);
     QCOMPARE(fresh.spacesRailDepthStyle(),
              SettingsManager::kRailDepthRegions);
     QCOMPARE(spy.count(), 2);
 }
 
+// The rail width defaults to its former fixed 68 px, so an untouched install
+// looks unchanged, and is clamped on read: the file is hand-editable and the
+// width decides how far nested Spaces can be indented.
 void SettingsSessionTest::spacesRailWidthDefaultsToTheOldFixedWidthAndClamps()
 {
     SettingsManager settings;
     QCOMPARE(settings.spacesRailWidth(), 68);
 
-    // Hand-edited nonsense, both directions, snapped on read by a FRESH
-    // manager — the same shape shareQuality uses above.
+    // Hand-edited out-of-range values, snapped on read by a fresh manager.
     QSettings raw;
     raw.setValue(QStringLiteral("shell/spacesRailWidth"), 4000);
     raw.sync();
@@ -740,10 +661,8 @@ void SettingsSessionTest::spacesRailWidthDefaultsToTheOldFixedWidthAndClamps()
     SettingsManager tooNarrow;
     QCOMPARE(tooNarrow.spacesRailWidth(), 68);
 
-    // Round trip, and the signal fires once per real change. Started from a
-    // known stored value rather than from whatever the writes above left
-    // behind: asserting a change to a value already held asserts a no-op,
-    // which is how a test comes to blame the code for its own setup.
+    // Round trip, from a known stored value: a change to a value already held
+    // would be a no-op.
     raw.setValue(QStringLiteral("shell/spacesRailWidth"), 68);
     raw.sync();
     SettingsManager fresh;
@@ -754,8 +673,7 @@ void SettingsSessionTest::spacesRailWidthDefaultsToTheOldFixedWidthAndClamps()
     // Writing the value it already holds announces nothing.
     fresh.setSpacesRailWidth(180);
     QCOMPARE(spy.count(), 1);
-    // ...and an out-of-range value that CLAMPS to the value already held is
-    // also a no-op, which is the case a naive guard misses.
+    // ...nor does a value that clamps to the one already held.
     fresh.setSpacesRailWidth(300);
     QCOMPARE(fresh.spacesRailWidth(), 260);
     QCOMPARE(spy.count(), 2);
@@ -768,15 +686,12 @@ void SettingsSessionTest::shareQualityDefaultsPersistAndSnap()
 {
     SettingsManager settings;
 
-    // The defaults are what the share has always sent, so an existing user
-    // sees no change until they choose something.
+    // The defaults are what the share always sent.
     QCOMPARE(settings.shareMaxHeight(), 1080);
     QCOMPARE(settings.shareFps(), 30);
 
-    // SNAPPED ON READ as well as on write. The store is a file a user can
-    // edit, and an out-of-range value would reach a GStreamer caps string --
-    // 4320 would ask the encoder for 8K on every frame, 0 would negotiate
-    // nothing at all.
+    // Snapped on read as well as write: an out-of-range value would reach a
+    // GStreamer caps string.
     QSettings raw;
     raw.setValue(QStringLiteral("calls/shareMaxHeight"), 4320);
     raw.setValue(QStringLiteral("calls/shareFps"), 240);
@@ -792,13 +707,8 @@ void SettingsSessionTest::shareQualityDefaultsPersistAndSnap()
     QCOMPARE(rereadLow.shareMaxHeight(), 720);
     QCOMPARE(rereadLow.shareFps(), 15);
 
-    // Round trip, and the signal fires once per real change.
-    //
-    // A FRESH manager on a KNOWN value: the raw writes above went into the
-    // same store this test's first `settings` reads, so it is already
-    // holding 720 by now and asserting a change to 720 would be asserting a
-    // correct no-op. Getting that wrong is how a test comes to blame the
-    // code for its own setup.
+    // Round trip on a fresh manager from a known value: the raw writes above
+    // already left 720 in the store.
     raw.setValue(QStringLiteral("calls/shareMaxHeight"), 1080);
     raw.setValue(QStringLiteral("calls/shareFps"), 30);
     raw.sync();
@@ -811,8 +721,7 @@ void SettingsSessionTest::shareQualityDefaultsPersistAndSnap()
     // Writing the value it already holds announces nothing.
     settingsRt.setShareMaxHeight(720);
     QCOMPARE(spy.count(), 1);
-    // ...and an out-of-set value that SNAPS to the value already held is
-    // also a no-op, which is the case a naive guard misses.
+    // ...nor does a value that snaps to the one already held.
     settingsRt.setShareMaxHeight(800);
     QCOMPARE(settingsRt.shareMaxHeight(), 720);
     QCOMPARE(spy.count(), 1);
@@ -825,29 +734,16 @@ void SettingsSessionTest::shareQualityDefaultsPersistAndSnap()
 void SettingsSessionTest::previewDefaultsAndEncryptedOff()
 {
     SettingsManager settings;
-    // BOTH preview defaults are OFF. The fetch is client-side — not through
-    // the homeserver's proxy — so an automatic preview hands the reader's IP
-    // and read timing to a host the SENDER chose, with no action by the
-    // reader. In an encrypted room it additionally leaks that a link was
-    // followed at all, which the room was otherwise keeping.
-    //
-    // THIS TEST FAILED TO DO ITS JOB ONCE and the failure mode is worth
-    // naming: the default was flipped to ON and these assertions were edited
-    // to match, leaving the case still called ...EncryptedOff with a comment
-    // saying previews stay off. A test edited to agree with a change defends
-    // nothing. Hence the docs coupling below — a source file and a published
-    // promise now have to be changed together.
-    //
-    // GIF animation of already-received media is a different question (no
-    // third party is contacted) and stays ON.
+    // Both preview defaults are off: previews are fetched client-side, handing
+    // the reader's IP and timing to a host the sender chose (and, in encrypted
+    // rooms, revealing that a link was followed). GIF animation of received
+    // media contacts no third party and stays on.
     QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
     QCOMPARE(settings.autoLoadLinkPreviews(), false);
     QCOMPARE(settings.animateGifPreviews(), true);
 
-    // docs/privacy.md documents this default in its own heading and in a
-    // defaults table, and the code-signing argument in that file rests on
-    // it. If the default ever changes deliberately, that document changes in
-    // the same commit -- and this assertion is what forces the pairing.
+    // docs/privacy.md documents this default; if it changes deliberately, the
+    // document must change in the same commit.
     QFile privacyDoc(QStringLiteral(REPO_ROOT "/docs/privacy.md"));
     QVERIFY2(privacyDoc.open(QIODevice::ReadOnly | QIODevice::Text),
              "docs/privacy.md is unreadable");
@@ -860,8 +756,8 @@ void SettingsSessionTest::previewDefaultsAndEncryptedOff()
              "default, but the code still defaults them off -- one of the "
              "two moved without the other");
 
-    // Driven AWAY from the default and back: writing the value it already
-    // holds is a correct no-op that emits nothing.
+    // Driven away from the default and back, since writing the held value
+    // emits nothing.
     QSignalSpy spy(&settings,
                    &SettingsManager::loadPreviewsInEncryptedRoomsChanged);
     settings.setLoadPreviewsInEncryptedRooms(true);
@@ -928,8 +824,8 @@ void SettingsSessionTest::gifPolicyDefaultsPersistAndClamp()
 {
     {
         SettingsManager s;
-        // Defaults: autoplay Always (0, follows animateGifPreviews=true),
-        // safe-search PG-13 (2), recents on, provider giphy.
+        // Defaults: autoplay Always (0), safe-search PG-13 (2), recents on,
+        // provider giphy.
         QCOMPARE(s.gifAutoplay(), 0);
         QCOMPARE(s.gifSafeSearch(), 2);
         QCOMPARE(s.storeRecentGifs(), true);
@@ -1007,8 +903,8 @@ void SettingsSessionTest::messageLayoutAndTextScalePersistAndClamp()
     QCOMPARE(reopened.textScale(), 130);
 }
 
-// 2026-08-14: interface zoom (global, startup-applied via QT_SCALE_FACTOR)
-// and the room-list filter chips (per-account appearance state).
+// Interface zoom (global, applied at startup via QT_SCALE_FACTOR) and the
+// room-list filter chips (per-account appearance state).
 void SettingsSessionTest::interfaceZoomAndRoomFilterPersistAndClamp()
 {
     {
@@ -1065,8 +961,8 @@ void SettingsSessionTest::appearanceIsPerAccountWithGlobalFallback()
     QSignalSpy themeSpy(&settings, &SettingsManager::themeChanged);
     settings.setActiveAccountUserId(bob);
     QVERIFY(themeSpy.count() >= 1);
-    // Bob has no explicit choice yet: he inherits the global fallback
-    // (the most recent selection), not a stale per-account value.
+    // Bob has no explicit choice yet: he inherits the global fallback (the
+    // most recent selection), not a stale per-account value.
     QCOMPARE(settings.theme(), SettingsManager::MossLightTheme);
 
     // Bob's own choices must not leak back into Alice's account.
@@ -1083,15 +979,10 @@ void SettingsSessionTest::appearanceIsPerAccountWithGlobalFallback()
     QCOMPARE(settings.textScale(), 140);
 }
 
-// The room-list filter is account-scoped appearance state like the theme, and
-// it was the ONE such value missing from the switch's re-announcement. That is
-// not cosmetic: the chips write this setting and the model follows it through a
-// binding, so without the notify the switched-to account's list keeps
-// filtering by the previous account's choice while the chips report it as
-// current — and clicking the chip whose stored value already matches is then a
-// silent no-op, because the setter returns early on an unchanged value. Which
-// is exactly "sometimes you can't click All, sometimes the filter shows
-// nothing, especially if the account is switched".
+// The room-list filter is re-announced on an account switch: the model
+// follows it through a binding, and without the notify it keeps the previous
+// account's filter while the chips show the new one (and a click on the
+// matching chip is a no-op).
 void SettingsSessionTest::switchingAccountsReAnnouncesTheRoomListFilter()
 {
     FakeSecretStore secrets;
@@ -1112,8 +1003,8 @@ void SettingsSessionTest::switchingAccountsReAnnouncesTheRoomListFilter()
     settings.setRoomFilterMode(0);   // All
     QCOMPARE(settings.roomFilterMode(), 0);
 
-    // Back to Alice, whose stored answer differs. The signal is what makes
-    // the model re-read; without it the model keeps Bob's filter.
+    // Back to Alice, whose stored value differs: the signal makes the model
+    // re-read.
     QSignalSpy filterSpy(&settings, &SettingsManager::roomFilterModeChanged);
     settings.setActiveAccountUserId(alice);
     QCOMPARE(settings.roomFilterMode(), 1);
@@ -1121,9 +1012,8 @@ void SettingsSessionTest::switchingAccountsReAnnouncesTheRoomListFilter()
              "an account switch did not re-announce roomFilterMode, so the "
              "room list keeps the previous account's filter");
 
-    // And the other direction, which is the case that made a chip click a
-    // no-op: Bob's stored value is 0, so a click on All can only work if the
-    // switch already told the model to go back to 0.
+    // And the other direction: Bob's stored value is 0, so a click on All only
+    // works if the switch already announced it.
     filterSpy.clear();
     settings.setActiveAccountUserId(bob);
     QCOMPARE(settings.roomFilterMode(), 0);
@@ -1158,20 +1048,19 @@ void SettingsSessionTest::uiFontPersistsPerAccountAndValidates()
     QCOMPARE(settings.uiFont(), QStringLiteral("Inter"));
     QCOMPARE(fontSpy.count(), 1);
 
-    // A family this build does not bundle DOES persist now: fonts became
-    // user-selectable from everything the host has installed, and this class
-    // (Qt6::Core only, by ~20 test targets) cannot ask whether a font exists.
-    // FontManager resolves the name and falls back without rewriting it.
+    // A family this build does not bundle persists: fonts come from the host,
+    // and this class (Qt6::Core only) cannot ask whether one exists.
+    // FontManager resolves and falls back without rewriting it.
     settings.setUiFont(QStringLiteral("Comic Sans MS"));
     QCOMPARE(settings.uiFont(), QStringLiteral("Comic Sans MS"));
-    // What still never persists is a name that is not a name.
+    // A value that is not a font name never persists.
     settings.setUiFont(QStringLiteral("evil\"; color:red }"));
     QCOMPARE(settings.uiFont(), QStringLiteral("Manrope"));
 
     settings.setUiFont(QStringLiteral("Plus Jakarta Sans"));
 
-    // Per-account: Bob keeps his own selection; switching re-announces so
-    // the UI re-reads, and Alice's choice survives the round trip.
+    // Per-account: switching re-announces, and each account's choice
+    // survives the round trip.
     settings.setActiveAccountUserId(bob);
     settings.setUiFont(QStringLiteral("IBM Plex Sans"));
     QCOMPARE(settings.uiFont(), QStringLiteral("IBM Plex Sans"));
@@ -1188,12 +1077,9 @@ void SettingsSessionTest::uiFontPersistsPerAccountAndValidates()
     QCOMPARE(reopened.uiFont(), QStringLiteral("IBM Plex Sans"));
 }
 
-// The login-screen homeserver field must be freely editable during the
-// add-account flow (which keeps the current account active). homeserverUrl()
-// follows the ACTIVE account, so binding the field to it reverted every
-// keystroke back to "your own" server. loginHomeserverPrefill reads/writes
-// the account-independent global key, so the typed value sticks and the
-// active account's stored server is left untouched.
+// The login-screen homeserver field is account-independent: it reads and
+// writes the global key, so typing in it during add-account does not revert
+// to (or overwrite) the active account's server.
 void SettingsSessionTest::loginHomeserverPrefillIsAccountIndependent()
 {
     FakeSecretStore secrets;
@@ -1213,8 +1099,7 @@ void SettingsSessionTest::loginHomeserverPrefillIsAccountIndependent()
     QCOMPARE(settings.homeserverUrl(),
              QStringLiteral("https://matrix.example"));
 
-    // ...but the login field can be pointed at a different homeserver and it
-    // STICKS (getter/setter share the global key) rather than reverting.
+    // ...but the login field can point elsewhere and the value sticks.
     QSignalSpy spy(&settings,
                    &SettingsManager::loginHomeserverPrefillChanged);
     settings.setLoginHomeserverPrefill(
@@ -1227,28 +1112,22 @@ void SettingsSessionTest::loginHomeserverPrefillIsAccountIndependent()
              QStringLiteral("https://matrix.example"));
 }
 
-// A brand-new profile (fresh QSettings; init() clears it before each test)
-// must present matrix.org as the homeserver — never a developer/personal
-// server — for BOTH the account-independent login prefill and the effective
-// homeserverUrl(). This is independent of environment variables and any local
-// key file: SettingsManager seeds the neutral default in its constructor.
+// A fresh profile shows matrix.org for both the login prefill and
+// homeserverUrl(), independent of environment variables or local key files.
 void SettingsSessionTest::freshProfileDefaultsToMatrixOrg()
 {
     SettingsManager settings;
     QCOMPARE(settings.homeserverUrl(), QStringLiteral("https://matrix.org"));
     QCOMPARE(settings.loginHomeserverPrefill(),
              QStringLiteral("https://matrix.org"));
-    // No personal/developer server ever leaks in as a first-run default.
+    // No personal or developer server leaks in as a default.
     QVERIFY(!settings.homeserverUrl().contains(QStringLiteral("smetonis")));
     QVERIFY(!settings.loginHomeserverPrefill()
                  .contains(QStringLiteral("smetonis")));
 }
 
-// v0.6.7: the remembered size of a user-resizable overlay picker, stored as a
-// SHARE of the space available to it rather than as pixels — which is what
-// makes the picker track the window, keeps a size sensible across displays,
-// and lets both pickers remember ONE value under the shared "picker" id.
-// This is the whole QML-reachable surface of that feature.
+// The remembered size of a resizable overlay picker, stored as a share of the
+// available space (so it tracks the window) under the shared "picker" id.
 void SettingsSessionTest::pickerSizeIsWhitelistedBoundedAndForgettable()
 {
     SettingsManager s;
@@ -1257,21 +1136,18 @@ void SettingsSessionTest::pickerSizeIsWhitelistedBoundedAndForgettable()
     QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 0);
     QCOMPARE(s.pickerHeightShare(QStringLiteral("picker")), 0);
 
-    // A normal round trip. Both pickers pass the same id, so this IS the
-    // sync between them — there is no second value to keep in step.
+    // A round trip. Both pickers use the same id, so this is their sync.
     s.setPickerShare(QStringLiteral("picker"), 420, 640);
     QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 420);
     QCOMPARE(s.pickerHeightShare(QStringLiteral("picker")), 640);
 
-    // Per-picker ids stay accepted and independent, so a future surface can
-    // opt out of the shared value.
+    // Per-picker ids stay accepted and independent.
     s.setPickerShare(QStringLiteral("gif"), 300, 500);
     QCOMPARE(s.pickerWidthShare(QStringLiteral("gif")), 300);
     QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 420);
 
-    // The id is a WHITELIST, not a sanitizer: an unknown id reads 0 and
-    // writes nothing at all, so a QML caller cannot compose a settings key
-    // out of text it controls.
+    // The id is a whitelist, not a sanitizer: an unknown id reads 0 and writes
+    // nothing, so QML cannot compose a settings key from text it controls.
     s.setPickerShare(QStringLiteral("../../secret"), 500, 500);
     s.setPickerShare(QStringLiteral("picker/../gif"), 500, 500);
     s.setPickerShare(QStringLiteral("PICKER"), 500, 500);
@@ -1282,16 +1158,14 @@ void SettingsSessionTest::pickerSizeIsWhitelistedBoundedAndForgettable()
     // ...and none of those disturbed a real entry.
     QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 420);
 
-    // Out of range is FORGOTTEN, never stored: a share below the floor would
-    // be unusable and one above 1000 would exceed the room the picker has.
-    // "Forget" restores the component default rather than clamping to
-    // something the user never chose.
+    // Out of range is forgotten (restoring the component default), never
+    // clamped or stored.
     s.setPickerShare(QStringLiteral("picker"), 49, 640);
     QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 0);
     QCOMPARE(s.pickerHeightShare(QStringLiteral("picker")), 0);
     s.setPickerShare(QStringLiteral("picker"), 420, 1001);
     QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 0);
-    // The other id is untouched by its neighbour being forgotten.
+    // The other id is untouched.
     QCOMPARE(s.pickerWidthShare(QStringLiteral("gif")), 300);
 
     // Exact bounds are accepted.
@@ -1299,7 +1173,7 @@ void SettingsSessionTest::pickerSizeIsWhitelistedBoundedAndForgettable()
     QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 50);
     QCOMPARE(s.pickerHeightShare(QStringLiteral("picker")), 1000);
 
-    // And it survives a restart — the "saved for later sessions" guarantee.
+    // It survives a restart.
     {
         SettingsManager reloaded;
         QCOMPARE(reloaded.pickerWidthShare(QStringLiteral("picker")), 50);
@@ -1307,16 +1181,10 @@ void SettingsSessionTest::pickerSizeIsWhitelistedBoundedAndForgettable()
     }
 }
 
-// 2026-08-23 tester report: "Window geometry and position is not saved."
-//
-// Two invariants beyond the round trip, both of which cost a user their window
-// if they slip. An UNSET geometry must read back INVALID, not (0,0,0,0)
-// treated as a real position — that is how the window knows to use its own
-// default. And a size below the window's own minimum must be REFUSED on
-// write, because Qt reports transient 0x0 and 1x1 geometry while a window is
-// being shown, hidden into the tray or restored from minimized: storing one of
-// those would overwrite the last good value with one that can never be
-// restored, and the close-to-tray path fires at exactly that moment.
+// Window geometry round-trips. An unset geometry reads back invalid, not
+// (0,0,0,0), and a size below the window minimum is refused on write: Qt
+// reports transient 0x0/1x1 geometry while showing, hiding to tray or
+// restoring, which would overwrite the last good value.
 void SettingsSessionTest::windowGeometryRoundTripsAndRefusesAnUnrestorableSize()
 {
     {
@@ -1349,9 +1217,8 @@ void SettingsSessionTest::windowGeometryRoundTripsAndRefusesAnUnrestorableSize()
         QCOMPARE(reopened.initialWindowGeometry(), QRect(140, 90, 1280, 800));
     }
 
-    // A negative position is legitimate — a monitor left of the primary one —
-    // and must survive. Whether it is still reachable is judged later, against
-    // the live display layout (AppController::restorableWindowGeometry).
+    // A negative position (a monitor left of the primary) survives; whether it
+    // is reachable is judged later against the live display layout.
     {
         SettingsManager settings;
         settings.saveWindowGeometry(-1920, -120, 900, 700);
@@ -1364,21 +1231,15 @@ void SettingsSessionTest::windowGeometryRoundTripsAndRefusesAnUnrestorableSize()
     }
 }
 
-// Hidden images survive a restart, are scoped to the ACCOUNT, and — the part
-// that is easy to get catastrophically wrong — are NOT erased by signing out.
-//
-// clear() is the user's "Show all hidden images" and it persists an empty
-// list. The sign-out path called it back when this state was session-only;
-// leaving that call in place after adding persistence would have wiped the
-// account's hidden images on its own sign-out. resetForSession() exists as a
-// separate verb for exactly that reason.
+// Hidden images persist per account and are not erased by signing out:
+// sign-out calls resetForSession(), while clear() is the user's "Show all
+// hidden images" and persists an empty list.
 void SettingsSessionTest::hiddenImagesPersistPerAccountAndSurviveSigningOut()
 {
     const QString key = QStringLiteral("$evt-persist:example.org");
 
-    // No account resolves yet, so the storage is inert BY DESIGN — asserted
-    // rather than assumed, because a fixture that silently persists nothing
-    // would make everything below pass for the wrong reason.
+    // With no account resolved, storage is inert by design; asserted so the
+    // cases below cannot pass by persisting nothing.
     {
         SettingsManager settings;
         QVERIFY(settings.activeAccountUserId().isEmpty());
@@ -1410,7 +1271,7 @@ void SettingsSessionTest::hiddenImagesPersistPerAccountAndSurviveSigningOut()
         QVERIFY2(settings.hiddenMediaKeys().contains(key),
                  "hiding did not persist");
 
-        // Sign-out drops it from THIS session and keeps it on disk.
+        // Sign-out drops it from this session but keeps it on disk.
         store.resetForSession();
         QVERIFY(!store.isHidden(key));
         QVERIFY2(settings.hiddenMediaKeys().contains(key),
@@ -1425,7 +1286,7 @@ void SettingsSessionTest::hiddenImagesPersistPerAccountAndSurviveSigningOut()
         QVERIFY2(store.isHidden(key),
                  "the image did not stay hidden across a restart");
 
-        // "Show all hidden images" is a real reset that leaves no row behind.
+        // "Show all hidden images" is a real reset.
         store.clear();
         QVERIFY(!store.isHidden(key));
         QVERIFY2(settings.hiddenMediaKeys().isEmpty(),
@@ -1433,10 +1294,8 @@ void SettingsSessionTest::hiddenImagesPersistPerAccountAndSurviveSigningOut()
     }
 }
 
-// A tester asked for a plainer send bar. The stored value is what is HIDDEN,
-// never what is shown, so a button added in a later release appears for
-// everyone instead of being hidden from every existing user — this pins the
-// default and the normalization the notify depends on.
+// The stored value is the set of hidden composer buttons, so a button added
+// later is shown to everyone. Pins the default and the normalisation.
 void SettingsSessionTest::hiddenComposerButtonsDefaultToNoneAndNormalize()
 {
     SettingsManager settings;
@@ -1453,8 +1312,8 @@ void SettingsSessionTest::hiddenComposerButtonsDefaultToNoneAndNormalize()
     settings.setComposerButtonShown(QStringLiteral("emoji"), false);
     QCOMPARE(spy.count(), 1);
 
-    // Order and duplicates are normalized, so a write that changes nothing
-    // cannot fire the notify every binding in both composers listens to.
+    // Order and duplicates are normalised, so a no-op write does not fire the
+    // notify every composer binding listens to.
     settings.setHiddenComposerButtons({ QStringLiteral("emoji"),
                                         QStringLiteral("emoji"),
                                         QString() });
@@ -1481,20 +1340,16 @@ void SettingsSessionTest::hiddenComposerButtonsDefaultToNoneAndNormalize()
 }
 
 
-// ── Reading and typing privacy ──────────────────────────────────────────
-//
-// Three settings that decide what leaves this device while the user is only
-// looking at a room. Their DEFAULTS are the load-bearing part: an upgrade
-// must not change what an existing install discloses, in either direction.
+// Reading and typing privacy: settings deciding what leaves this device while
+// the user is only looking at a room. Their defaults must not change what an
+// existing install discloses.
 
 void SettingsSessionTest::strictDeviceTrustDefaultsOffAndPersists()
 {
     {
         SettingsManager settings;
-        // OFF, and the default is the load-bearing part. Enabling MSC4153
-        // makes anyone who has not cross-signed their own devices
-        // unreadable — doing that to an existing install without being asked
-        // would read as the client breaking, not as a privacy improvement.
+        // Off by default: MSC4153 makes users who have not cross-signed their
+        // devices unreadable.
         QVERIFY(!settings.strictDeviceTrust());
 
         QSignalSpy spy(&settings, &SettingsManager::strictDeviceTrustChanged);
@@ -1504,10 +1359,8 @@ void SettingsSessionTest::strictDeviceTrustDefaultsOffAndPersists()
         settings.setStrictDeviceTrust(true);
         QCOMPARE(spy.count(), 1);
     }
-    // It has to SURVIVE a restart, because a restart is when it applies:
-    // the SDK reads it while building a client and offers no runtime setter.
-    // A setting that reset on restart would therefore never take effect at
-    // all, and the UI's "takes effect next start" would be a lie.
+    // It survives a restart, which is when it applies: the SDK reads it at
+    // client build and has no runtime setter.
     SettingsManager reopened;
     QVERIFY(reopened.strictDeviceTrust());
 }
@@ -1516,9 +1369,7 @@ void SettingsSessionTest::readReceiptModeDefaultsToPublicPersistsAndClamps()
 {
     {
         SettingsManager settings;
-        // Public, which is what every previous version sent. Making this
-        // default to private would be a behaviour change disguised as a
-        // privacy improvement.
+        // Public, as every previous version sent.
         QCOMPARE(settings.readReceiptMode(), 0);
 
         QSignalSpy spy(&settings, &SettingsManager::readReceiptModeChanged);
@@ -1531,9 +1382,8 @@ void SettingsSessionTest::readReceiptModeDefaultsToPublicPersistsAndClamps()
 
         settings.setReadReceiptMode(2);
         QCOMPARE(settings.readReceiptMode(), 2);
-        // Out of range falls back to the safe, previous-behaviour value
-        // rather than to the strictest one — a corrupt store must not
-        // silently stop a user's receipts.
+        // Out of range falls back to the previous behaviour (public), so a
+        // corrupt store does not silently stop receipts.
         settings.setReadReceiptMode(9);
         QCOMPARE(settings.readReceiptMode(), 0);
     }
@@ -1568,8 +1418,8 @@ void SettingsSessionTest::theEncryptedPreviewLevelDefaultsToFollowingTheGeneralO
     QCOMPARE(settings.notificationPreviewEncrypted(), 3);   // follow
     settings.setNotificationPreview(0);                     // sender+message
 
-    // Following: an encrypted room is treated exactly like any other, which
-    // is the pre-0.9.0 behaviour and must survive the upgrade untouched.
+    // Following: an encrypted room is treated like any other (the behaviour
+    // before the split existed).
     QCOMPARE(settings.effectiveNotificationPreview(true, true), 0);
     QCOMPARE(settings.effectiveNotificationPreview(false, true), 0);
 
@@ -1585,15 +1435,13 @@ void SettingsSessionTest::anUnknownEncryptionStateTakesTheStricterLevel()
     settings.setNotificationPreview(0);                     // sender+message
     settings.setNotificationPreviewEncrypted(2);            // private
 
-    // Encryption not yet known — during hydration, this is a real state.
-    // Guessing "unencrypted" would put a body on the desktop that the user
-    // asked an encrypted room to withhold, and nobody would ever learn it
-    // had happened. The stricter of the two wins.
+    // Encryption not yet known (during hydration): the stricter of the two
+    // levels wins, so a body is never shown that an encrypted room withholds.
     QCOMPARE(settings.effectiveNotificationPreview(false, false), 2);
     QCOMPARE(settings.effectiveNotificationPreview(true, false), 2);
 
-    // And the reverse arrangement is respected too: when the general level
-    // is the stricter one, unknown must not RELAX to the encrypted level.
+    // When the general level is stricter, unknown does not relax to the
+    // encrypted level.
     settings.setNotificationPreview(2);
     settings.setNotificationPreviewEncrypted(0);
     QCOMPARE(settings.effectiveNotificationPreview(false, false), 2);
@@ -1601,19 +1449,10 @@ void SettingsSessionTest::anUnknownEncryptionStateTakesTheStricterLevel()
     QCOMPARE(settings.effectiveNotificationPreview(true, true), 0);
 }
 
-// ── Every account-scoped value must be re-announced on a switch ─────────
-//
-// `switchingAccountsReAnnouncesTheRoomListFilter` above is written around a
-// comment calling roomFilterMode "the ONE such value missing". That claim was
-// wrong when it was made: FIVE more properties resolve through
-// appearanceValue() and none of their NOTIFY signals was emitted by the
-// switch. Each of their signals is emitted from its own setter and nowhere
-// else, so a switch changed the resolved value and told nobody — and every
-// consumer kept the previous account's answer for the rest of the session.
-//
-// reducedMotion is the worst of them: Main.qml pushes it into AppTheme through
-// a one-way Binding read by ~50 QML sites, so an accessibility preference set
-// under one account governed the next one silently.
+// Every account-scoped appearance value (resolved through appearanceValue())
+// is re-announced on an account switch, or consumers keep the previous
+// account's value; e.g. reducedMotion feeds AppTheme through a one-way
+// Binding.
 void SettingsSessionTest::switchingAccountsReAnnouncesEveryAccountScopedAppearanceValue()
 {
     FakeSecretStore secrets;
@@ -1636,7 +1475,7 @@ void SettingsSessionTest::switchingAccountsReAnnouncesEveryAccountScopedAppearan
     settings.setClockFormat(2);
     settings.setMicrophoneGain(140);
 
-    // Bob's, so that switching back to Alice genuinely moves every value.
+    // Bob's, so switching back to Alice moves every value.
     settings.setActiveAccountUserId(bob);
     settings.setReducedMotion(false);
     settings.setSmoothScrolling(true);
@@ -1653,8 +1492,7 @@ void SettingsSessionTest::switchingAccountsReAnnouncesEveryAccountScopedAppearan
 
     settings.setActiveAccountUserId(alice);
 
-    // The values really did move — otherwise the notify assertions below
-    // would be asserting nothing.
+    // The values really moved, or the notify assertions assert nothing.
     QCOMPARE(settings.reducedMotion(), true);
     QCOMPARE(settings.smoothScrolling(), false);
     QCOMPARE(settings.hiddenComposerButtons(),
@@ -1679,12 +1517,9 @@ void SettingsSessionTest::switchingAccountsReAnnouncesEveryAccountScopedAppearan
              "call keeps the previous account's gain");
 }
 
-// A HAND-WRITTEN LIST IS WHAT WAS WRONG, so this one is derived. It reads
-// SettingsManager.cpp, collects the getter that encloses every
-// appearanceValue() call — those, and only those, resolve per account — and
-// requires setActiveAccountUserId() to emit each one's `<getter>Changed`.
-// Adding a new account-scoped getter without its notify fails here rather
-// than in a user's session six weeks later.
+// Derived rather than hand-listed: every getter that calls appearanceValue()
+// resolves per account, and setActiveAccountUserId() must emit its
+// `<getter>Changed`.
 void SettingsSessionTest::everyAccountScopedGetterHasItsSignalInTheAccountSwitch()
 {
     QFile file(QStringLiteral(REPO_ROOT "/src/app/SettingsManager.cpp"));
@@ -1693,8 +1528,7 @@ void SettingsSessionTest::everyAccountScopedGetterHasItsSignalInTheAccountSwitch
     const QStringList lines =
         QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'));
 
-    // The body of setActiveAccountUserId, so the search is scoped to the
-    // switch itself rather than to the whole file.
+    // The body of setActiveAccountUserId, to scope the search.
     QString switchBody;
     bool inSwitch = false;
     int depth = 0;
@@ -1715,9 +1549,8 @@ void SettingsSessionTest::everyAccountScopedGetterHasItsSignalInTheAccountSwitch
             if (depth == 0 && switchBody.contains(QLatin1Char('}')))
                 inSwitch = false;
         }
-        // A comment mentioning appearanceValue() is not a call site — and
-        // setActiveAccountUserId's own comment names it, which would
-        // otherwise make the switch demand a signal for itself.
+        // A comment mentioning appearanceValue() is not a call site (the
+        // switch's own comment names it).
         const QString code = line.trimmed();
         if (code.startsWith(QLatin1String("//")))
             continue;
@@ -1729,7 +1562,7 @@ void SettingsSessionTest::everyAccountScopedGetterHasItsSignalInTheAccountSwitch
         }
     }
 
-    // The scan must have found something, or it would pass on any tree.
+    // The scan must have found something.
     QVERIFY2(scopedGetters.size() >= 10,
              qPrintable(QStringLiteral("the appearanceValue() scan found only "
                                        "%1 account-scoped getters — the scan "
@@ -1753,9 +1586,8 @@ void SettingsSessionTest::everyAccountScopedGetterHasItsSignalInTheAccountSwitch
                             .arg(missing.join(QStringLiteral(", ")))));
 }
 
-// startInTray() is `closeToTray() && stored`, so setCloseToTray changes it —
-// and emitted only closeToTrayChanged. The checkbox bound to startInTray
-// therefore stayed TICKED (greyed out) while the setting it draws read false.
+// startInTray() is `closeToTray() && stored`, so setCloseToTray must also
+// announce startInTrayChanged.
 void SettingsSessionTest::turningOffCloseToTrayAnnouncesTheStartInTrayItDerives()
 {
     SettingsManager settings;
@@ -1770,27 +1602,16 @@ void SettingsSessionTest::turningOffCloseToTrayAnnouncesTheStartInTrayItDerives(
              "turning close-to-tray off silently changed startInTray, so its "
              "checkbox still draws ticked for a setting that reads false");
 
-    // And back on: the stored preference returns, and is announced.
+    // Back on: the stored preference returns and is announced.
     startSpy.clear();
     settings.setCloseToTray(true);
     QCOMPARE(settings.startInTray(), true);
     QVERIFY(startSpy.count() >= 1);
 }
 
-// THE SENTENCE UNDER THE SOUND CARD MAKES A CLAIM ABOUT STORAGE, so the
-// claim is pinned to the storage.
-//
-// `CallDeviceSettings.qml` ends with an explainer that said "These devices
-// belong to this computer, not to your account" while sitting directly under
-// the microphone LEVEL — which is account-scoped. A reader takes "these" to
-// cover the card, so one of the two kinds of setting above it was described
-// backwards. Verified live 2026-09-12 by switching accounts inside one
-// client: the level read 151% for one account and 60% for the other, while
-// the global fallback key held 60.
-//
-// Three assertions, because the sentence can go wrong from either end: the
-// gain could be made global, the device could be made account-scoped, or the
-// words could drift away from both.
+// The sound card's explainer about where settings live matches storage: the
+// microphone level is account-scoped and the devices belong to this
+// computer. Checked from both ends and against the text.
 void SettingsSessionTest::theSoundSectionsScopeSentenceMatchesWhereThingsActuallyLive()
 {
     QFile cpp(QStringLiteral(REPO_ROOT "/src/app/SettingsManager.cpp"));
@@ -1806,8 +1627,8 @@ void SettingsSessionTest::theSoundSectionsScopeSentenceMatchesWhereThingsActuall
         return end > at ? src.mid(at, end - at) : QString();
     };
 
-    // 1. The LEVEL is account-scoped. `setAppearanceValue` is the account
-    //    key plus a global fallback; a bare `m_store->setValue` is not.
+    // 1. The level is account-scoped (`setAppearanceValue`: account key plus
+    //    global fallback), not a bare `m_store->setValue`.
     const QString gain =
         body(QStringLiteral("void SettingsManager::setMicrophoneGain("));
     QVERIFY2(!gain.isEmpty(), "setMicrophoneGain is gone or was renamed");
@@ -1815,8 +1636,7 @@ void SettingsSessionTest::theSoundSectionsScopeSentenceMatchesWhereThingsActuall
              "the microphone level is no longer account-scoped, so the Sound "
              "card's sentence now says the wrong thing about it");
 
-    // 2. The DEVICE is not. If this ever becomes account-scoped the sentence
-    //    is wrong in the other direction.
+    // 2. The device is not account-scoped.
     const QString device =
         body(QStringLiteral("void SettingsManager::setPreferredMicrophoneId("));
     QVERIFY2(!device.isEmpty(),
@@ -1825,8 +1645,7 @@ void SettingsSessionTest::theSoundSectionsScopeSentenceMatchesWhereThingsActuall
              "the microphone DEVICE became account-scoped, so the Sound "
              "card's sentence now says the wrong thing about it");
 
-    // 3. The words still say both. Not a style check — this is the only
-    //    place a user is told which of the two they are changing.
+    // 3. The text still says both.
     QFile qml(QStringLiteral(REPO_ROOT "/qml/CallDeviceSettings.qml"));
     QVERIFY2(qml.open(QIODevice::ReadOnly | QIODevice::Text),
              qPrintable(qml.errorString()));

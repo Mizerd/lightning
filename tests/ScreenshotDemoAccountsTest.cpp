@@ -1,15 +1,14 @@
 // Development-only screenshot-demo multi-account contract.
 //
-// Locks the three fictional accounts (Alex / Taylor / Nova), their deterministic
-// order and *.example identities, the account-local dataset isolation (switching
-// swaps the whole room/timeline scene and preserves each account's local
-// mutations across a round trip), deterministic reset, and the SecretStore
-// isolation (a screenshot-demo AppController runs on an in-memory store — never a
-// production secure/libsecret store — and stores no token).
+// The three fictional accounts (Alex / Taylor / Nova), their order and
+// *.example identities, account-local dataset isolation (switching swaps the
+// whole scene and keeps each account's local mutations across a round trip),
+// deterministic reset, and SecretStore isolation (an in-memory store, never a
+// production secure store, and no token stored).
 //
-// Two layers are exercised: the MockMatrixClient dataset directly, and a real
-// AppController(MockBackend, screenshotDemo=true) driving beginScreenshotDemo and
-// the real switchToAccount path.
+// Exercised through MockMatrixClient directly and through a real
+// AppController(MockBackend, screenshotDemo=true) using beginScreenshotDemo
+// and the real switchToAccount path.
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"

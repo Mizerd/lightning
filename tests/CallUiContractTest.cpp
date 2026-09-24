@@ -1,9 +1,7 @@
-// 2026-08-18 round 2: contract scans for the incoming-call corner card,
-// its Main.qml hosting, and the ring settings toggle — plus a REAL
-// offscreen instantiation of IncomingCallPrompt against a live
-// AppController, which catches unresolved theme tokens and property typos
-// that string scans cannot. Predicates are matched whitespace-normalized
-// so reflows don't break them.
+// Contract scans for the incoming-call card, its Main.qml hosting and the ring
+// settings toggle, plus a real offscreen IncomingCallPrompt instantiation that
+// catches unresolved theme tokens and property typos. Predicates are matched
+// whitespace-normalized so reflows don't break them.
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
@@ -43,18 +41,12 @@
 #include "calls/SfuVideoRouter.h"
 #endif
 
-/// The smallest thing that makes `mediaBackendAvailable` true.
-///
-/// It exists for ONE assertion: with no engine registered the legacy Accept
-/// is hidden for BOTH lanes, so a test that only checks "Accept is absent on
-/// an RTC ring" would pass on the broken tree and prove nothing. Registering
-/// this is what makes the two lanes tell each other apart. It answers
-/// nothing — no offer is ever produced — which is all these cases need.
-// A STAND-IN FOR `app` FOR THE THREE SURFACES THAT DECIDE "am I in this
-// call?". Small on purpose: these surfaces call exactly the handful of things
-// below, and a stub lets a test put ROOM STATE and the LOCAL CALL CONTROLLER
-// into deliberate disagreement — which is the whole defect and is not
-// reachable through AppController without a homeserver and a real call.
+/// The smallest thing that makes `mediaBackendAvailable` true. Without an
+/// engine the legacy Accept is hidden on both lanes, so registering this is
+/// what lets the tests tell the lanes apart. It never produces an offer.
+// Stand-in for `app` for the surfaces that decide "am I in this call?". Lets a
+// test put room state and the local call controller into disagreement, which
+// is not reachable through AppController without a homeserver.
 class StubRtc : public QObject
 {
     Q_OBJECT
@@ -69,10 +61,8 @@ public:
     Q_INVOKABLE int participantCount(const QString &) const { return count; }
     Q_INVOKABLE bool hasLiveSession(const QString &) const { return count > 0; }
     Q_INVOKABLE bool ownUserInSession(const QString &) const { return ownUser; }
-    // KEPT DELIBERATELY, THOUGH PRODUCTION NO LONGER CALLS IT. Without it the
-    // pre-fix expression fails on a MISSING METHOD rather than on the
-    // assertion, and a test that fails for the wrong reason proves nothing
-    // about the fix.
+    // Production no longer calls this; kept so the pre-fix expression fails on
+    // the assertion rather than on a missing method.
     Q_INVOKABLE bool ownDeviceInSession(const QString &) const
     { return ownDevice; }
     Q_INVOKABLE QString joinBlockReason(const QString &) const { return block; }
@@ -95,8 +85,8 @@ public:
 
     bool active() const { return m_active; }
     QString roomId() const { return m_roomId; }
-    // The NOTIFY signals are load-bearing: toggling mid-test and re-reading
-    // proves `visible` is a live binding rather than a one-shot evaluation.
+    // NOTIFY signals let a test toggle mid-test and prove `visible` is a live
+    // binding.
     void setActive(bool v) { if (m_active != v) { m_active = v; Q_EMIT activeChanged(); } }
     void setRoomId(const QString &v)
     { if (m_roomId != v) { m_roomId = v; Q_EMIT roomIdChanged(); } }
@@ -151,14 +141,9 @@ public:
     void close(const QString &callId) override { Q_UNUSED(callId); }
 };
 
-/// Find a named item by walking the VISUAL tree.
-///
-/// `QObject::findChild` cannot reach a `Repeater`'s delegates: they belong to
-/// the delegate model, not to the item they are laid out inside. Every
-/// segment of a SegmentedControl is created that way, so a tab is invisible
-/// to findChild — measured, with a segment carrying a CONSTANT objectName and
-/// still absent from a full `findChildren` dump, so this is not a binding
-/// that failed to evaluate. `childItems()` does list them.
+/// Find a named item by walking the visual tree. `findChild` cannot reach a
+/// Repeater's delegates (they belong to the delegate model), so segments of a
+/// SegmentedControl are invisible to it; `childItems()` lists them.
 static QQuickItem *findVisualChild(QObject *root, const QString &name)
 {
     auto *item = qobject_cast<QQuickItem *>(root);
@@ -193,17 +178,11 @@ private:
         return QString::fromUtf8(f.readAll());
     }
 
-    /// Source with WHOLE-LINE `//` comments removed, for BAN assertions.
-    ///
-    /// Several bans below forbid a token that their own rationale comment
-    /// names, one line above — a ban read off the raw file would then always
-    /// "find" it and always fail. 2026-08-25 taught the other half of this:
-    /// a comment stripper is a parser, and the one in
-    /// NavigationLayoutContractTest silently weakened every assertion that
-    /// followed it because `[^"\']*` crossed newlines. So this one is
-    /// deliberately the simplest thing that can work — whole lines only,
-    /// which is where every mention in these files lives — and the ban tests
-    /// each assert a token they KNOW is present to prove it still parses.
+    /// Source with whole-line `//` comments removed, for ban assertions whose
+    /// own rationale comment names the banned token. Deliberately whole lines
+    /// only: a smarter comment stripper is a parser and can silently weaken
+    /// every assertion after it. Ban tests assert a known-present token to
+    /// prove this still parses.
     static QString code(const QString &s)
     {
         QString out = s;
@@ -211,13 +190,9 @@ private:
         return out;
     }
 
-    /// Run queued work AND the DEFERRED DELETIONS.
-    ///
-    /// `deleteLater()` is the whole reason the tests below exist: Qt destroys
-    /// a replaced Loader's content and a regenerated Repeater's delegates
-    /// with it, while building the replacements synchronously. A test that
-    /// only calls processEvents() is measuring the moment BEFORE the
-    /// interesting thing happens, and would pass on the broken tree.
+    /// Run queued work and deferred deletions. A replaced Loader's content and
+    /// a regenerated Repeater's delegates die via deleteLater(), so
+    /// processEvents() alone measures the moment before the interesting part.
     static void settle(int rounds = 3)
     {
         for (int i = 0; i < rounds; ++i) {
@@ -227,21 +202,11 @@ private:
     }
 
     // Build a standalone RoomCallBanner against a stub `app`.
-    //
-    // The stub is installed on a context of the component's OWN, not on the
-    // engine root: a root context property named `app` reads back null inside
-    // this module's components, and every case then fails on
-    // "Cannot read property 'rtc' of null" for a reason that has nothing to do
-    // with what it tests. Creating with an explicit QQmlContext is the
-    // reliable form and says plainly which object the component is seeing.
     QQuickItem *buildBanner(QQmlEngine &engine, StubApp &stub,
                             const QString &room)
     {
-        // ON THE ROOT CONTEXT. A component loaded from a module resolves the
-        // unqualified names in its OWN file against the engine root, not
-        // against whatever context it happens to be created with — so a stub
-        // installed on a child context is visible to an expression evaluated
-        // there and invisible to the component's own bindings.
+        // On the root context: a module component resolves unqualified names in
+        // its own file against the engine root, not the creation context.
         engine.rootContext()->setContextProperty(
             QStringLiteral("app"), static_cast<QObject *>(&stub));
         auto *ctx = new QQmlContext(engine.rootContext(), this);
@@ -255,12 +220,8 @@ private:
         auto *item = qobject_cast<QQuickItem *>(component->create(ctx));
         if (item) {
             item->setParent(component);
-            // INTO A WINDOW, or `visible` answers the wrong question. It is
-            // EFFECTIVE visibility: an item with no visual parent reads false
-            // however its own binding evaluates, so every case here would fail
-            // while the property under test was in fact correct. Verified
-            // during the writing of these tests — the binding reported
-            // hasCall=true, locallyInCall=false and visible=false together.
+            // Into a window: `visible` is effective visibility, and an item with
+            // no visual parent reads false whatever its binding says.
             item->setParentItem(m_fixtureWindow.contentItem());
             item->setProperty("roomId", room);
         }
@@ -314,8 +275,7 @@ private:
     }
 
     /// Press the delegate at `viewIndex` of a real item view, resolved from
-    /// the item's OWN geometry — a test that assumes a row height measures
-    /// something else the moment the delegate changes shape.
+    /// the item's own geometry rather than an assumed row height.
     static void clickItem(QQuickWindow *window, QQuickItem *view, int viewIndex)
     {
         QQuickItem *item = nullptr;
@@ -327,25 +287,9 @@ private:
     }
 
 private Q_SLOTS:
-    /// THE VOLUME FEATURE IS INERT WITHOUT THIS ONE LINE, and silently so.
-    ///
-    /// SfuCallController reads the stored microphone gain and every stored
-    /// per-participant level through its SettingsManager, and subscribes to
-    /// their change signals through it. AppController built the controller
-    /// and handed it a client and an RTC controller but never handed it
-    /// settings — so the pointer stayed null, every connect() in setSettings
-    /// was never made, applyStoredVolumes() returned at its first guard, and
-    /// applyAudioState() fell back to unity on every join.
-    ///
-    /// Nothing failed. The sliders moved, the values persisted into
-    /// QSettings, and none of it reached the engine. Reported as three
-    /// separate faults at once: "sound amplifier does nothing", "i cant make
-    /// myself louder and i cant make other louder", and "it doesnt remeber my
-    /// volumnes set on user".
-    ///
-    /// A source scan rather than a behavioural check because m_settings is
-    /// private with no getter, and adding one purely to observe the wiring
-    /// would be a worse trade than reading the line that must exist.
+    /// SfuCallController reads the microphone gain and per-participant levels
+    /// through its SettingsManager; without setSettings() the volume feature
+    /// silently does nothing. Source scan because m_settings has no getter.
     void theGroupCallIsHandedItsSettings()
     {
         const QString app = normalized(
@@ -357,36 +301,14 @@ private Q_SLOTS:
                  "volume are inert and nothing is remembered");
     }
 
-    // A CALL MUST LEAVE BEFORE THE SESSION IT RUNS ON GOES AWAY, on every
-    // path that takes a session away. A membership RETRACTION is a Matrix
-    // send and a Leave is an SFU command, and both need the client.
-    //
-    // A live session log said the account switch got this wrong:
-    //
-    //   account switch begin from= … to= …
-    //   detaching local session …
-    //   rust client released …
-    //   teardown state= 6
-    //   retraction could not be dispatched — this device will remain in the
-    //   room's call membership until it expires
-    //
-    // The teardown ran AFTER the release, so rtcRetractMembership had no
-    // handle and returned 0. With no MSC4140 delayed retraction on that
-    // homeserver either, the membership then sat in the room until `expires`
-    // — a phantom participant every other client in the call had to see.
-    //
-    // prepareForShutdown() had this fix and switchToAccount() never got it,
-    // which is why the ORDER is asserted here rather than the mere presence
-    // of a leave() call: both are calls to the same function and only one
-    // ordering works.
+    // A call must leave before its session goes away, on every path that takes
+    // the session away: the membership retraction and the SFU Leave both need
+    // the client, and a retraction after release leaves a phantom participant
+    // until `expires`. The order is asserted, not just the presence of leave().
     void everyPathThatTakesTheSessionAwayLeavesTheCallFirst()
     {
-        // COMMENTS STRIPPED FIRST, and that is load-bearing here rather
-        // than tidy: prepareForShutdown's own rationale comment names
-        // `stopSync()` twelve lines ABOVE the call it describes, so an
-        // ordering check over the raw file finds the comment, decides the
-        // teardown comes first, and fails on correct code. (`code()` removes
-        // whole-line `//` only, which is where these mentions live.)
+        // Comments stripped first: prepareForShutdown's rationale comment names
+        // `stopSync()` above the call, which would fool the ordering check.
         const QString app = normalized(
             code(read(QStringLiteral(QML_DIR "/../src/app/AppController.cpp"))));
         QVERIFY2(!app.isEmpty(), "AppController.cpp did not read");
@@ -402,9 +324,7 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("%1 is gone, so this test is "
                                                "pinning nothing")
                                     .arg(QLatin1String(path.fn))));
-            // Bounded to this function: the next one starts at the next
-            // top-level definition, and scanning past it would find another
-            // path's calls and pass for the wrong reason.
+            // Bounded to this function so another path's calls cannot satisfy it.
             const int next = app.indexOf(QStringLiteral("\nvoid AppController::"),
                                          at + 1);
             const QString body =
@@ -430,17 +350,12 @@ private Q_SLOTS:
 
     void inCallControlsLiveAtTheTopOfTheConversation()
     {
-        // 2026-08-23 (maintainer request, with a reference screenshot): the
-        // in-call controls moved from the corner card to a bar directly
-        // under the room header. Three things must hold.
+        // The in-call controls live in a bar under the room header.
         const QString bar = normalized(
             read(QStringLiteral(QML_DIR "/CallHeaderBar.qml")));
         QVERIFY(!bar.isEmpty());
 
-        // 1. Mute, deafen, camera, screen share and leave are all there —
-        //    the gaps the maintainer reported were the missing device
-        //    chooser and screen share, so their absence is the regression
-        //    this pins.
+        // 1. Mute, deafen, camera, screen share and leave are all present.
         for (const auto &name : {"callBarMicButton", "callBarDeafenButton",
                                  "callBarCameraButton",
                                  "callBarScreenShareButton",
@@ -450,40 +365,33 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("missing %1")
                                     .arg(QLatin1String(name))));
         }
-        // 2. Device choosers exist for microphone and output. Without these
-        //    a user with several microphones cannot pick one, which is
-        //    exactly what was reported.
+        // 2. Device choosers exist for microphone and output.
         QVERIFY(bar.contains(QStringLiteral("objectName: \"callBarMicChevron\"")));
         QVERIFY(bar.contains(
             QStringLiteral("objectName: \"callBarSpeakerChevron\"")));
-        // 3. It only shows for the room the call is IN. A bar in the wrong
+        // 3. It shows only for the room the call is in; a bar in the wrong
         //    room would hang up a call the user is not looking at.
         QVERIFY(bar.contains(QStringLiteral("callRoomId === app.currentRoomId")));
-        // Screen share goes through the portal entry point, never a
-        // hardcoded node id.
+        // Screen share goes through the portal, never a hardcoded node id.
         QVERIFY(bar.contains(QStringLiteral("app.groupCall.requestScreenShare()")));
     }
 
     void theCornerCardNoLongerOwnsALiveCall()
     {
-        // Two surfaces offering mute, with nothing to say they are the same
-        // state, is worse than either alone. The card keeps the RING and the
-        // dialing states — the cases where the user may not be looking at
-        // the call's room — and hands an ACTIVE call to the top bar.
+        // The card keeps the ringing and dialing states (the user may not be
+        // looking at the call's room) and hands an active call to the bar.
         const QString card = normalized(
             read(QStringLiteral(QML_DIR "/IncomingCallPrompt.qml")));
         QVERIFY(!card.isEmpty());
         QVERIFY2(!card.contains(QStringLiteral("inCallMuteButton")),
                  "mute moved to the top bar and must not be duplicated here");
-        // EXACTLY ONE surface at a time. Gating on call STATE was wrong —
-        // during Inviting/Connecting both the bar and the card were visible,
-        // which is what the maintainer reported. The card now appears only
-        // where the bar cannot reach: another room, or another screen.
+        // Exactly one surface at a time: the card appears only where the bar
+        // cannot reach (another room or another screen).
         QVERIFY(card.contains(QStringLiteral("(inCall && !barCovers)")));
         QVERIFY(card.contains(QStringLiteral(
             "app.calls.activeRoomId === app.currentRoomId")));
-        // Hang Up must still be reachable from the card, so leaving a call
-        // works from Settings or another room.
+        // Hang Up stays reachable from the card, e.g. from Settings or
+        // another room.
         QVERIFY(card.contains(QStringLiteral("incomingCallPromptHangup")));
     }
 
@@ -512,9 +420,8 @@ private Q_SLOTS:
             QStringLiteral("objectName: \"incomingCallPromptHangup\"")));
         QVERIFY(norm.contains(
             QStringLiteral("onClicked: app.calls.hangup()")));
-        // Accept exists ONLY behind the media-engine gate (round 3) AND only
-        // on the lane it can actually answer (2026-08-26), and the no-engine
-        // honesty line survives for engineless builds.
+        // Accept exists only behind the media-engine gate and only on the lane
+        // it can answer; engineless builds keep the honesty line.
         QVERIFY(norm.contains(QStringLiteral(
             "readonly property bool legacyAcceptOffered: root.ringing && "
             "!root.rtcRing && app.calls.mediaBackendAvailable")));
@@ -523,7 +430,7 @@ private Q_SLOTS:
         QVERIFY(norm.contains(
             QStringLiteral("if (!app.calls.answer())")));
         QVERIFY(norm.contains(QStringLiteral("isn't supported yet")));
-        // And nothing SDP-shaped belongs anywhere near QML.
+        // Nothing SDP-shaped belongs in QML.
         QVERIFY(!norm.contains(QStringLiteral("sdp"),
                                Qt::CaseInsensitive));
     }
@@ -536,40 +443,25 @@ private Q_SLOTS:
         const int button = norm.indexOf(
             QStringLiteral("objectName: \"startVoiceCallButton\""));
         QVERIFY(button >= 0);
-        // Wide enough to cover the button's whole block including its
-        // rationale comments (widened 2026-08-19 when the coming-soon note
-        // landed, and again 2026-09-20 when the narrow-header fold gave every
-        // action in this row a `folded` and an `actionLabel`) — a too-tight
-        // window fails on prose, not on behaviour.
+        // Wide enough to cover the button's block including its comments; a
+        // too-tight window fails on prose, not behaviour.
         const QString scope = norm.mid(button, 2000);
-        // 2026-08-23: lane selection is ONE policy question, answered in
-        // AppController — MatrixRTC where available, the legacy 1:1 lane as
-        // the audio-only DM fallback. The button asks whether either lane
-        // can carry a call rather than re-deriving that rule in QML, so a
-        // homeserver with no MatrixRTC and a non-DM room shows no button.
-        //
-        // The DM restriction still EXISTS; it moved to where it belongs.
-        // AppControllerCallLaneTest covers it against the real policy.
+        // Lane selection is one policy question answered in AppController
+        // (MatrixRTC where available, legacy 1:1 as the audio-only DM
+        // fallback). The button asks whether either lane can carry a call;
+        // AppControllerCallLaneTest covers the policy itself.
         QVERIFY(scope.contains(
             QStringLiteral("app.canStartCall(app.currentRoomId)")));
         QVERIFY(scope.contains(QStringLiteral(
             "onClicked: app.startCall(app.currentRoomId, false)")));
         // A live group call must not offer "start a call" as well.
         QVERIFY(scope.contains(QStringLiteral("!app.groupCall.active")));
-        // 2026-08-23: ENABLED at the maintainer's request, after mute was
-        // made real and the engine's handshake was proven in-process. The
-        // "coming soon" wording must be gone with it — a live button whose
-        // tooltip still says the feature is unavailable is worse than
-        // either state on its own.
+        // Enabled, and the "coming soon" wording must be gone with it.
         QVERIFY(scope.contains(QStringLiteral("enabled: true")));
         QVERIFY2(!norm.contains(QStringLiteral("Voice calls are coming soon")),
                  "the coming-soon wording must not outlive the disabled state");
-        // The ENGINE gate stays load-bearing, but it now lives inside
-        // canStartCall(): on a packaged build with no GStreamer plugins
-        // neither lane is available, so the button is ABSENT rather than
-        // present and dead. What this asserts is that the gate is in the
-        // VISIBILITY, not merely in the click handler — a button that
-        // appears and then refuses is the failure mode being prevented.
+        // The engine gate lives in canStartCall() and must be in the
+        // visibility, not only the click handler: no button beats a dead one.
         const int visible = scope.indexOf(QStringLiteral("visible:"));
         const int enabled = scope.indexOf(QStringLiteral("enabled: true"));
         QVERIFY(visible >= 0 && enabled > visible);
@@ -592,8 +484,8 @@ private Q_SLOTS:
         const int verify = norm.indexOf(
             QStringLiteral("VerifySessionPrompt {"), host);
         QVERIFY(call > host);
-        QVERIFY(update > call);   // live ring renders above the passives
-        QVERIFY(verify > update); // verify keeps its anchored corner spot
+        QVERIFY(update > call);   // live ring above the passives
+        QVERIFY(verify > update); // verify keeps its corner
     }
 
     void settingsExposeTheRingToggle()
@@ -611,10 +503,8 @@ private Q_SLOTS:
 
     void callHeaderBarInstantiatesAndLaysOutItsControls()
     {
-        // A REAL instantiation, not a source scan: this is what catches a
-        // control that fails to lay out, a binding against a property that
-        // does not exist, or a Loader whose component cannot be created —
-        // none of which a text search can see.
+        // Real instantiation: catches layout failures, bindings to missing
+        // properties and uncreatable Loader components.
         AppController controller(AppController::MockBackend);
         QSignalSpy loginSpy(controller.auth(),
                             &AuthManager::loginSucceeded);
@@ -635,15 +525,12 @@ private Q_SLOTS:
             createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY2(root != nullptr, "CallHeaderBar must instantiate");
 
-        // Collapsed while no call is live, so a room without one reserves
-        // no vertical space.
+        // Collapsed with no live call, so it reserves no vertical space.
         QCOMPARE(root->property("live").toBool(), false);
         QCOMPARE(root->property("visible").toBool(), false);
         QCOMPARE(root->property("height").toDouble(), 0.0);
 
-        // The controls exist as real items, and each has a non-zero size —
-        // a control that lays out to nothing is invisible in practice even
-        // though every source check passes.
+        // Each control exists and has a non-zero size.
         for (const auto &name : {"callBarMicButton", "callBarMicChevron",
                                  "callBarDeafenButton",
                                  "callBarSpeakerChevron",
@@ -658,18 +545,9 @@ private Q_SLOTS:
         }
     }
 
-    // A REAL instantiation, which is what catches an unresolved theme token
-    // or a property typo that a string scan cannot see.
-    //
-    // Fed a ListModel fixture rather than the live controller: the strip binds
-    // `app.groupCall.participantModel`, which on the mock backend is an empty
-    // model with no way to put people in it. The fixture exercises the same
-    // required-property delegate the real model drives, because a ListModel
-    // supplies roles by name exactly as a QAbstractListModel does.
-    //
-    // On the unfixed tree the strip has a `people` property and a `modelData`
-    // delegate, so binding `model:` leaves it empty and the count assertion
-    // fails.
+    // Real instantiation of the speaker strip, fed a ListModel because the
+    // mock backend's participant model cannot be populated. A ListModel
+    // supplies roles by name exactly as the real model does.
     void speakerBubblesInstantiateAndSizeThemselves()
     {
         AppController controller(AppController::MockBackend);
@@ -740,7 +618,7 @@ Item {
         QVERIFY(strip != nullptr);
         QCOMPARE(strip->property("count").toInt(), 2);
 
-        // Nobody: no strip of empty space above the messages.
+        // Nobody: no empty strip above the messages.
         bubbles->setProperty("model", QVariant::fromValue<QObject *>(nullptr));
         QCoreApplication::processEvents();
         QCOMPARE(bubbles->property("height").toDouble(), 0.0);
@@ -753,21 +631,9 @@ Item {
         }
     }
 
-    // THE STRIP MUST ASK FOR AS MUCH ROOM AS IT ACTUALLY DRAWS, or its own
-    // `clip: true` slices the last avatar.
-    //
-    // It under-reported by 8 px per bubble for as long as the speaking ring
-    // has existed: the delegate's cell was widened from `bubbleSize + 4` to
-    // `bubbleSize + 8` so the ring would fit, and `implicitWidth` was left
-    // saying `bubbleSize + spacing6`. With two people it asked for 80 and
-    // drew 90. Seen in a real two-person call as a sliced facepile avatar on
-    // Windows and on Linux, and invisible to every test here because they all
-    // either filled the width from the host or only asked whether the strip
-    // had a HEIGHT.
-    //
-    // MEASURED, not read: the assertion is the right edge of the last
-    // delegate against the strip's own implicitWidth, so any future way of
-    // getting the arithmetic wrong fails too.
+    // The strip's implicitWidth must cover what its delegates draw, or its own
+    // `clip: true` slices the last avatar. Measured against the last
+    // delegate's right edge so any arithmetic drift fails.
     void theBubbleStripAsksForTheWidthItDraws()
     {
         QQmlEngine engine;
@@ -814,9 +680,8 @@ Item {
         auto *bubbles = qobject_cast<QQuickItem *>(
             outer->property("bubbles").value<QObject *>());
         QVERIFY(bubbles != nullptr);
-        // The host here does NOT set a width, so the strip takes its own
-        // implicit one — which is the case the header's spotlight branch
-        // hits and the collapsed strip never does.
+        // No host width, so the strip uses its implicit width (the header's
+        // spotlight branch).
         const double want = bubbles->property("implicitWidth").toDouble();
         QVERIFY2(want > 0.0, "the strip reports no implicit width at all");
 
@@ -825,8 +690,7 @@ Item {
         QVERIFY(strip != nullptr);
         QCOMPARE(strip->property("count").toInt(), 2);
 
-        // The delegates, by their real geometry. contentWidth is the
-        // ListView's own sum of cells and spacings.
+        // contentWidth is the ListView's own sum of cells and spacings.
         const double drawn = strip->property("contentWidth").toDouble();
         QVERIFY2(drawn > 0.0, "the ListView reports no content width — the "
                               "delegates never built, so this case would "
@@ -838,29 +702,16 @@ Item {
                                 .arg(want).arg(drawn).arg(drawn - want)));
     }
 
-    // EVERY `app.calls.X` AND `app.groupCall.X` IN qml/ MUST EXIST ON THE
-    // CONTROLLER, because QML only finds out when the line RUNS.
-    //
-    // `qml/CallPipWindow.qml` called `app.calls.hangUp()` where the invokable
-    // is `hangup()` — all-lowercase, and every other call site in the tree
-    // spelled it correctly. On the legacy 1:1 lane the floating window's
-    // hang-up button therefore threw a TypeError and did nothing, and nothing
-    // could have noticed: the PiP is a separate Window that only exists while
-    // a call is floated, the branch is the non-SFU one, and a `qmlformat` or
-    // a component-load test sees a syntactically perfect property access.
-    //
-    // A SOURCE SWEEP OVER BOTH SIDES, not a list of known-good names: the
-    // members are collected from the two headers (Q_PROPERTY names,
-    // Q_INVOKABLE methods, signals) and every QML use is checked against
-    // them, so a member RENAMED in C++ fails here too rather than at the
-    // moment a user presses the button.
+    // Every `app.calls.X` and `app.groupCall.X` used in qml/ must exist on the
+    // controller, since QML only fails when the line runs. Members are
+    // collected from both headers so a C++ rename fails here too.
     void everyCallControllerMemberQmlUsesActuallyExists()
     {
         auto members = [&](const QString &header) {
             const QString src = read(QStringLiteral(QML_DIR "/../src/calls/")
                                      + header);
             QSet<QString> out;
-            // Q_PROPERTY(<type> name READ ...) — the name is the token before
+            // Q_PROPERTY(<type> name READ ...): the name is the token before
             // READ/MEMBER, which survives template commas in <type>.
             QRegularExpression prop(
                 QStringLiteral("Q_PROPERTY\\s*\\([^)]*?([A-Za-z_][A-Za-z0-9_]*)"
@@ -868,19 +719,16 @@ Item {
             auto pi = prop.globalMatch(src);
             while (pi.hasNext())
                 out.insert(pi.next().captured(1));
-            // Q_INVOKABLE <ret> name(   — and plain declarations that follow
-            // a Q_SIGNALS / slots section are caught by the same shape.
+            // Q_INVOKABLE <ret> name( ; plain declarations in signal/slot
+            // sections match the same shape.
             QRegularExpression inv(
                 QStringLiteral("Q_INVOKABLE[^;{]*?([A-Za-z_][A-Za-z0-9_]*)"
                                "\\s*\\("));
             auto ii = inv.globalMatch(src);
             while (ii.hasNext())
                 out.insert(ii.next().captured(1));
-            // Signals are callable from QML too (and are how several of these
-            // surfaces are wired), so a bare declaration in the signals
-            // section counts. Collected loosely on purpose: this set is only
-            // ever used to ACCEPT a name, so being generous here can only
-            // produce a false pass, never a false failure.
+            // Signals are callable from QML too. Collected loosely: this set
+            // only accepts names, so over-matching can only cause a false pass.
             QRegularExpression sig(
                 QStringLiteral("(?m)^\\s*(?:void|bool|int|QString)\\s+"
                                "([A-Za-z_][A-Za-z0-9_]*)\\s*\\("));
@@ -893,10 +741,8 @@ Item {
         const QSet<QString> calls = members(QStringLiteral("CallController.h"));
         const QSet<QString> group =
             members(QStringLiteral("SfuCallController.h"));
-        // PRESENT-TOKEN CONTROL on the C++ side: if the header moved or the
-        // patterns stopped matching, every QML name would be "missing" and
-        // this would fail loudly — but an EMPTY set with an empty QML sweep
-        // would pass, so both sides are floored.
+        // Floor both sides: an empty C++ set with an empty QML sweep would
+        // otherwise pass.
         QVERIFY2(calls.size() > 10 && group.size() > 10,
                  qPrintable(QStringLiteral("parsed only %1/%2 members out of "
                                            "the two headers — the scan is "
@@ -942,26 +788,10 @@ Item {
                                 .arg(missing.join(QStringLiteral("; ")))));
     }
 
-    // The share picker LOADS, it classifies a row the same way the capture
-    // does, and it NAMES a window the way a person can act on.
-    //
-    // The picker was reworked from a grouped list into a Discord-style GRID
-    // of previews with an Applications/Screens tab pair — the kind of
-    // structural change whose failure mode is a binding error that only
-    // appears when a person opens the dialog, mid-call, which is the worst
-    // possible place to find out.
-    //
-    // `isWindowRow` is the load-bearing part: the picker uses it to decide
-    // which TAB a row belongs to and the CONTROLLER uses the same fact — a
-    // non-zero window handle — to decide whether to capture a window or a
-    // display. If those two ever disagreed, the grid would say one thing and
-    // the share would do another.
-    //
-    // The label half pins the report this rework came from: "with brave it
-    // listed my tab name but didnt even say brave anywhere". A Chromium
-    // caption is the TAB's title and names no browser, so the OWNING
-    // APPLICATION has to lead — and the resolution, which used to have a
-    // line of its own, must not appear on the face of the tile at all.
+    // The share picker loads, classifies window vs screen rows the same way
+    // the controller does (non-zero window handle), and labels a window by its
+    // owning application first: a browser caption names only the tab. The
+    // resolution must not appear on the tile.
     void theSharePickerLoadsAndKnowsAWindowRowFromAScreen()
     {
         AppController controller(AppController::MockBackend);
@@ -996,12 +826,11 @@ ApplicationWindow {
         auto *picker = owner->property("picker").value<QObject *>();
         QVERIFY(picker != nullptr);
 
-        // No call, so nothing to share and neither tab has anything in it.
+        // No call, so neither tab has anything in it.
         QCOMPARE(picker->property("screenCount").toInt(), 0);
         QCOMPARE(picker->property("windowCount").toInt(), 0);
 
         // A window row carries a non-zero handle; a display row does not.
-        // Both shapes come straight from SfuCallController's own maps.
         auto classify = [picker](const QVariantMap &row) {
             QVariant out;
             const bool called = QMetaObject::invokeMethod(
@@ -1025,8 +854,7 @@ ApplicationWindow {
             return called ? out.toString() : QString();
         };
 
-        // THE BRAVE CASE. The caption names a tab and no browser, so the
-        // application leads and the caption follows on its own line.
+        // Caption names a tab and no browser: the application leads.
         const QVariantMap brave{
             { QStringLiteral("index"), -1 },
             { QStringLiteral("windowHandle"), quint64(4660) },
@@ -1038,8 +866,7 @@ ApplicationWindow {
         QCOMPARE(label("secondaryLabel", brave),
                  QStringLiteral("Anthropic Console"));
 
-        // ...and a caption that already says which application it is keeps
-        // ONE line. Repeating it would be noise.
+        // A caption that already names the application stays one line.
         const QVariantMap explorer{
             { QStringLiteral("index"), -1 },
             { QStringLiteral("windowHandle"), quint64(4661) },
@@ -1052,8 +879,7 @@ ApplicationWindow {
                  QStringLiteral("Windows Explorer"));
         QCOMPARE(label("secondaryLabel", explorer), QString());
 
-        // A window whose executable could not be read still has to be
-        // nameable: `application` is legitimately empty there.
+        // An unreadable executable leaves `application` empty; still nameable.
         const QVariantMap unknownApp{
             { QStringLiteral("index"), -1 },
             { QStringLiteral("windowHandle"), quint64(4662) },
@@ -1064,8 +890,7 @@ ApplicationWindow {
         QCOMPARE(label("primaryLabel", unknownApp),
                  QStringLiteral("Untitled - Notepad"));
 
-        // A screen is its platform name, and the second line says WHICH
-        // screen it is — never its resolution.
+        // A screen shows its platform name and which screen, never resolution.
         const QVariantMap screen{
             { QStringLiteral("index"), 0 },
             { QStringLiteral("name"), QStringLiteral("\\\\.\\DISPLAY1") },
@@ -1078,9 +903,7 @@ ApplicationWindow {
                  QStringLiteral("\\\\.\\DISPLAY1"));
         QCOMPARE(label("secondaryLabel", screen), QStringLiteral("This screen"));
 
-        // THE RESOLUTION IS OFF THE FACE OF THE DIALOG — "we dont even need
-        // to tell the user the resolution" — and still reaches a screen
-        // reader, which has no preview to look at.
+        // Resolution is off the tile face but still reaches a screen reader.
         for (const QVariantMap &row : { brave, screen }) {
             const QString geometry =
                 row.value(QStringLiteral("geometry")).toString();
@@ -1101,18 +924,8 @@ ApplicationWindow {
         }
     }
 
-    // PRESSING A TILE MUST SELECT IT — including a window tile, which now
-    // lives behind the Applications tab rather than under a group header.
-    //
-    // The grouped rework this replaced shipped with its rows unclickable and
-    // it reached a user: the picker opened, clicking a window did nothing,
-    // and pressing Share published display 0 because `selected` had never
-    // moved off it. The Windows log said it exactly — three
-    // `screen share requested` and one
-    // `screen share publishing node= 0 window= false`.
-    //
-    // Everything that existed passed, because nothing had a tile to press.
-    // This drives the real tab strip and the real delegate.
+    // Pressing a tile selects it, including a window tile on the Applications
+    // tab. Drives the real tab strip and delegate.
     void pressingATileSelectsItIncludingOnTheApplicationsTab()
     {
         AppController controller(AppController::MockBackend);
@@ -1141,7 +954,7 @@ ApplicationWindow {
         auto *picker = owner->property("picker").value<QObject *>();
         QVERIFY(picker != nullptr);
 
-        // Two displays then two windows — the shape the controller builds.
+        // Two displays then two windows, as the controller builds them.
         const QVariantList rows = pickerRows({
             { QStringLiteral("Screen A"), QString(), 0 },
             { QStringLiteral("Screen B"), QString(), 0 },
@@ -1162,8 +975,7 @@ ApplicationWindow {
             QStringLiteral("sourceGrid"));
         QVERIFY2(grid != nullptr, "the picker's grid has no objectName to find");
 
-        // THE TAB SHOWS ONE KIND. A grid still holding every row would pass
-        // every click assertion below and still be the old list.
+        // The tab shows one kind only.
         QTRY_COMPARE(grid->property("count").toInt(), 2);
         QCOMPARE(picker->property("tab").toString(), QStringLiteral("screens"));
 
@@ -1172,9 +984,7 @@ ApplicationWindow {
         clickItem(window, grid, 1);
         QCOMPARE(picker->property("selected").toInt(), 1);
 
-        // Now the other tab, through the real segment rather than by writing
-        // the property: a tab strip nothing can press is the same defect as a
-        // row nothing can press.
+        // Switch tabs through the real segment, not by writing the property.
         auto *applicationsTab = findVisualChild(
             picker, QStringLiteral("shareTabs_applications"));
         QVERIFY2(applicationsTab != nullptr,
@@ -1184,28 +994,17 @@ ApplicationWindow {
                      QStringLiteral("applications"));
         QTRY_COMPARE(grid->property("count").toInt(), 2);
 
-        // Switching tabs must leave a tile of THIS tab highlighted, or Share
-        // would send something the user cannot see chosen.
+        // Switching tabs leaves a tile of this tab selected.
         QCOMPARE(picker->property("selected").toInt(), 2);
 
         clickItem(window, grid, 1);
         QCOMPARE(picker->property("selected").toInt(), 3);
     }
 
-    // THE FILTERED GRID MUST MAP BACK TO THE UNFILTERED SOURCE INDEX.
-    //
-    // `SfuCallController::chooseScreenShareSource(index)` indexes into the
-    // list it BUILT — the whole thing, screens and windows together — and the
-    // grid shows one tab at a time. So a delegate's own index is a DIFFERENT
-    // number from the one the controller needs, and the failure mode is not a
-    // dead control: it is sharing the wrong thing, silently, which is the
-    // worst outcome this dialog has.
-    //
-    // The rows below interleave the two kinds and carry more than one of
-    // each, so a naive `selected = delegateIndex` does not merely land on a
-    // neighbour — on the Screens tab it lands on a WINDOW. Each assertion
-    // therefore also names the row it expects, so a failure reads as "you
-    // shared Window A" rather than as an off-by-one.
+    // The filtered grid must map back to the unfiltered source index:
+    // chooseScreenShareSource() indexes the full list, and a wrong mapping
+    // silently shares the wrong thing. Rows interleave kinds so a naive
+    // mapping lands on a different kind, and failures name the row shared.
     void theFilteredGridMapsBackToTheUnfilteredSourceIndex()
     {
         AppController controller(AppController::MockBackend);
@@ -1234,8 +1033,7 @@ ApplicationWindow {
         auto *picker = owner->property("picker").value<QObject *>();
         QVERIFY(picker != nullptr);
 
-        // 0 screen, 1 window, 2 screen, 3 window, 4 window. Nothing lines up
-        // with a per-tab index anywhere.
+        // 0 screen, 1 window, 2 screen, 3 window, 4 window.
         const QVariantList rows = pickerRows({
             { QStringLiteral("Screen A"), QString(), 0 },
             { QStringLiteral("Window A"), QStringLiteral("Brave Browser"),
@@ -1254,11 +1052,9 @@ ApplicationWindow {
             QStringLiteral("sourceGrid"));
         QVERIFY(grid != nullptr);
 
-        // Names the row the picker would SHARE, read out of the list this
-        // test handed it — so a failure reads "you shared Window A" instead
-        // of as an off-by-one. (Deliberately not `picker->property("sources")`:
-        // a QML `property var` comes back as a QJSValue whose toList() is
-        // empty, which would make every comparison below vacuous.)
+        // Name of the row the picker would share. Not read from
+        // `picker->property("sources")`: a QML `property var` comes back as a
+        // QJSValue whose toList() is empty, making comparisons vacuous.
         auto chosenName = [picker, &rows]() {
             const int at = picker->property("selected").toInt();
             if (at < 0 || at >= rows.size())
@@ -1266,8 +1062,7 @@ ApplicationWindow {
             return rows.at(at).toMap().value(QStringLiteral("name")).toString();
         };
 
-        // SCREENS: view row 1 is source 2. A naive mapping picks source 1,
-        // which is a window.
+        // Screens: view row 1 is source 2 (a naive mapping picks a window).
         QTRY_COMPARE(grid->property("count").toInt(), 2);
         clickItem(window, grid, 1);
         QCOMPARE(chosenName(), QStringLiteral("Screen B"));
@@ -1279,7 +1074,7 @@ ApplicationWindow {
         clickCentre(window, applicationsTab);
         QTRY_COMPARE(grid->property("count").toInt(), 3);
 
-        // APPLICATIONS: view rows 0/1/2 are sources 1/3/4.
+        // Applications: view rows 0/1/2 are sources 1/3/4.
         clickItem(window, grid, 1);
         QCOMPARE(chosenName(), QStringLiteral("Window B"));
         QCOMPARE(picker->property("selected").toInt(), 3);
@@ -1288,10 +1083,7 @@ ApplicationWindow {
         QCOMPARE(chosenName(), QStringLiteral("Window C"));
         QCOMPARE(picker->property("selected").toInt(), 4);
 
-        // KEYBOARD, on the same mapping. This is a modal picker and it has to
-        // be operable without a mouse; the arrows walk the VISIBLE tab, so
-        // stepping back from Window C must land on Window B (source 3) and
-        // never on source 1 by arithmetic.
+        // Keyboard uses the same mapping: arrows walk the visible tab.
         QTRY_VERIFY2(grid->hasActiveFocus(),
                      "the grid never took focus, so the picker cannot be "
                      "driven from the keyboard");
@@ -1305,11 +1097,8 @@ ApplicationWindow {
         QCOMPARE(chosenName(), QStringLiteral("Window A"));
         QCOMPARE(picker->property("selected").toInt(), 1);
 
-        // ...and the other half of the mapping: what Share hands the
-        // controller is `selected` verbatim, never a view index. Source-read
-        // because observing the call needs a live SFU session — but the two
-        // halves together are what make the tile and the share the same
-        // thing.
+        // Share hands the controller `selected` verbatim, never a view index.
+        // Source-read because observing the call needs a live SFU session.
         const QString qml = normalized(
             code(read(QStringLiteral(QML_DIR "/ScreenSharePicker.qml"))));
         QVERIFY2(!qml.isEmpty(), "ScreenSharePicker.qml did not read");
@@ -1320,25 +1109,10 @@ ApplicationWindow {
                  "the confirm no longer hands the controller the chosen index");
     }
 
-    // EVERY refusal that reads a node id must know the OTHER source kinds
-    // carry none.
-    //
-    // A window share passes nodeId = -1 and its handle instead. There are TWO
-    // guards on that path — SfuCallController::startScreenShare and
-    // SfuMediaEngine::publishVideo — and the first shipped still refusing on
-    // `pipewireNodeId < 0` alone, so choosing a window returned false before
-    // anything was logged. The user saw a picker that did nothing and the log
-    // showed three `screen share requested` and not one publish.
-    //
-    // THE TWINS HAVE SINCE HAD TO LEARN A THIRD KIND: the Linux no-portal
-    // fallback carries an X11 root RECTANGLE and no node id either. Teaching
-    // one guard and not the other reproduces the original defect exactly, on
-    // a different platform, which is why both spellings are pinned here
-    // together rather than in each file's own suite.
-    //
-    // Source-scanned because reaching the real guard needs a live SFU
-    // session; what is pinned is that neither refusal reads a node id
-    // WITHOUT also asking whether some other source was chosen.
+    // Both screen-share guards (SfuCallController::startScreenShare and
+    // SfuMediaEngine::publishVideo) must accept sources without a node id:
+    // windows (handle) and the X11 no-portal fallback (root rectangle).
+    // Source-scanned because the guards need a live SFU session.
     void noScreenShareRefusalForgetsThatAWindowCarriesNoNodeId()
     {
         struct Site { const char *file; const char *guard; };
@@ -1358,27 +1132,16 @@ ApplicationWindow {
                          "%1 refuses a share on the node id without asking "
                          "whether a window was chosen").arg(
                          QString::fromUtf8(site.file))));
-            // ...and the bare form must be gone, or the corrected guard could
-            // sit harmlessly beside the one that still refuses.
+            // The bare form must be gone too.
             QVERIFY2(!src.contains(QLatin1String("if (pipewireNodeId < 0)\n")),
                      "a bare node-id refusal survives alongside the fixed one");
         }
     }
 
-    // THE STAGE AND THE FLOATING WINDOW MUST NEVER BOTH BE BUILT.
-    //
-    // `SfuVideoRouter` holds ONE sink per track and the LAST attach owns it.
-    // Two surfaces on one participant means the first goes black — and when
-    // the second is destroyed it detaches its OWN sink, leaving nothing
-    // attached at all, because there is no periodic re-arm (CallShareTile's
-    // header records why). That is the 2026-08-27 "when i full screen it it
-    // stop shwoing video" defect, and the manual pop-out button reintroduced
-    // it: the in-room stage host was gated only on the call being live in
-    // this room, so popping out while looking at the room built both.
-    //
-    // A TEXT SCAN of the wiring, deliberately: the failure is two live
-    // VideoOutputs attaching to one router, which needs a real call to
-    // observe. What is pinned here is the clause whose absence caused it.
+    // The in-room stage and the floating window must never both be built.
+    // SfuVideoRouter holds one sink per track and the last attach wins; when
+    // the second surface is destroyed it detaches, leaving nothing attached.
+    // Text scan because observing it needs a real call.
     void theInRoomStageStandsDownForPictureInPicture()
     {
         const QString src = read(QStringLiteral(QML_DIR "/TimelinePane.qml"));
@@ -1387,9 +1150,8 @@ ApplicationWindow {
             QStringLiteral("readonly property bool callStageOwnsColumn:"));
         QVERIFY2(at > 0, "callStageOwnsColumn is gone — re-anchor this test "
                          "rather than deleting it");
-        // The property's own expression, to the next blank-line-separated
-        // declaration. Scoped so a mention of pictureInPicture ANYWHERE else
-        // in this 6000-line file cannot satisfy it.
+        // Scoped to the property's own expression so a mention elsewhere
+        // cannot satisfy it.
         const int end = src.indexOf(QStringLiteral("\n\n"), at);
         const QString expr = src.mid(at, (end < 0 ? src.size() : end) - at);
         QVERIFY2(expr.contains(QStringLiteral("pictureInPicture")),
@@ -1398,10 +1160,7 @@ ApplicationWindow {
                  "the room gives two surfaces for one track, and the sink "
                  "goes to whichever attached last");
 
-        // ...and the host Loader really is driven by that property, so the
-        // clause above is not decoration on something nothing reads. Scoped
-        // to the 40 lines after the host's objectName, which is where its
-        // `active` binding lives.
+        // The host Loader's `active` binding really reads that property.
         const int hostAt = src.indexOf(
             QStringLiteral("objectName: \"timelineCallStageHost\""));
         QVERIFY2(hostAt > 0, "the call stage host is gone");
@@ -1411,12 +1170,8 @@ ApplicationWindow {
                  "the clause above guards nothing");
     }
 
-    // The picture-in-picture flag must not outlive the call, on EITHER lane.
-    //
-    // `CallStageState::clear()` drops it, but its callers are all on the
-    // group lane — while the pop-out button and the window itself both serve
-    // the legacy 1:1 lane. Left set, the next 1:1 call opens an always-on-top
-    // window by itself, which the settings copy promises it will not.
+    // The picture-in-picture flag must not outlive the call on either lane;
+    // CallStageState::clear() only runs on the group lane.
     void theFloatingWindowFlagDiesWithTheCall()
     {
         const QString src = read(QStringLiteral(QML_DIR "/CallPipWindow.qml"));
@@ -1431,63 +1186,33 @@ ApplicationWindow {
                  "the call-ended handler does not actually drop the flag");
     }
 
-    // CallStage must LOAD. Every other case in this file reads it as TEXT,
-    // and a text scan cannot see a load-time QML error — the failure mode that
-    // took four QML suites down at once when `font.families` (which does not
-    // exist on the QML font value type) was assigned. qmlformat cannot see it
-    // either: it parses syntax and does not check that a property exists.
-    // This case is the gate for any edit to CallStage.qml.
-    // LEAVE CALL MUST NOT RUN OFF THE EDGE OF A NARROW WINDOW.
-    //
-    // Measured on a live three-party call in a Windows guest: below about
-    // 1100 px the red hang-up and the collapse button were not drawn at all,
-    // and at 640 px three controls of twelve survived. A user in a call in a
-    // normal window could not see or click the control that leaves it.
-    //
-    // THIS IS A SOURCE SCAN, AND THAT IS A KNOWN SECOND-BEST. I wrote the
-    // behavioural version first — drive CallStage through a width sweep and
-    // assert the control row stays inside the stage — and withdrew it,
-    // because its own harness guard caught it measuring nothing: a standalone
-    // CallStage in an offscreen fixture does not lay out (the bar reported
-    // 231 px at x=40 at EVERY root width, with or without a live call), and
-    // mutation-testing it against the unfixed code passed. A test that cannot
-    // fail is worse than none. This one does fail on the unfixed code, which
-    // is the bar CLAUDE.md sets, and it is honest about what it cannot see:
-    // it pins the two lines the fix turns on, not the geometry they produce.
+    // Leave must not run off the edge of a narrow window. Source scan: a
+    // standalone CallStage does not lay out offscreen, so a geometric sweep
+    // here measured nothing. Pins the two lines the fix depends on.
     void theCallControlsMayShrinkRatherThanOverflow()
     {
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
         QVERIFY2(!stage.isEmpty(), "CallStage.qml is missing");
         const QString code = normalized(stage);
 
-        // THE FLOOR IS GONE. `Layout.minimumWidth: implicitWidth` on the
-        // controls host does not create room: once the row's minimums exceed
-        // the panel, a RowLayout hands every child its minimum and overflows
-        // to the RIGHT, and the right end of that row is the hang-up button.
+        // No `Layout.minimumWidth: implicitWidth` floor: past the panel width a
+        // RowLayout overflows to the right, where the hang-up button is.
         QVERIFY2(!code.contains(QStringLiteral(
                      "Layout.minimumWidth: implicitWidth")),
                  "the controls host has a floor at its implicit width again, "
                  "so a row too narrow for it overflows instead of shrinking "
                  "and the end of the control row leaves the window");
 
-        // AND `compact` IS DRIVEN BY AVAILABLE WIDTH, not only by the
-        // collapsed state. `compact` is precisely the reduced control set for
-        // this case; bound to `root.collapsed` alone, an expanded stage in a
-        // narrow window keeps asking for the full set.
+        // `compact` is driven by available width, not only by `collapsed`.
         QVERIFY2(code.contains(QStringLiteral(
                      "compact: root.collapsed || controlsHost.cramped")),
                  "the control bar no longer goes compact when the room it is "
                  "given is too small for it");
     }
 
-    // A CALL THAT CARRIES AUDIO AND DRAWS NOTHING MUST SAY SO.
-    //
-    // On a machine with no usable GL the scene graph falls back to Qt Quick's
-    // CPU rasteriser, which has NO NODE TYPE FOR VIDEO — so frames arrive, the
-    // sink reports a real size, every "is there a picture" test in the tiles
-    // answers yes, and the user gets an empty rectangle with no way to tell
-    // that from a broken call. Measured on Windows 2026-09-12 and reproduced
-    // on Linux with QT_QUICK_BACKEND=software as the only change.
+    // A call that carries audio but cannot draw video must say so. Qt Quick's
+    // software renderer has no video node, so frames arrive and the tiles
+    // believe they have a picture while drawing nothing.
     void aRendererThatCannotDrawVideoSaysSoOnTheStage()
     {
         AppController controller(AppController::MockBackend);
@@ -1509,9 +1234,7 @@ ApplicationWindow {
             createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY(root != nullptr);
 
-        // Into a window: `visible` is EFFECTIVE visibility and folds in the
-        // parent chain, so an unparented item answers false however its own
-        // binding evaluates.
+        // Into a window: `visible` is effective visibility.
         QQuickWindow window;
         window.resize(900, 600);
         root->setParentItem(window.contentItem());
@@ -1520,17 +1243,15 @@ ApplicationWindow {
             QStringLiteral("callSoftwareRendererNotice"));
         QVERIFY2(notice != nullptr, "the stage has no software-renderer notice");
 
-        // The overwhelmingly common case: a real GPU, and the strip must not
-        // be there at all — including reserving no height.
+        // Real GPU: the strip is absent and reserves no height.
         QVERIFY(!controller.softwareRenderer());
         QTest::qWait(50);
         QVERIFY2(!notice->property("visible").toBool(),
                  "the notice is shown on a machine that renders video fine");
         QCOMPARE(notice->property("implicitHeight").toReal(), 0.0);
 
-        // And it appears when the scene graph reports the CPU rasteriser —
-        // which main.cpp learns from the renderer interface, not from the
-        // request it made to setGraphicsApi().
+        // Shown when the scene graph reports the software rasteriser (main.cpp
+        // reads the renderer interface, not the requested graphics API).
         controller.setSoftwareRenderer(true);
         QTest::qWait(50);
         QVERIFY2(notice->property("visible").toBool(),
@@ -1540,10 +1261,8 @@ ApplicationWindow {
                  "the notice is visible but has no height");
     }
 
-    // AND THE TILES MUST STAND DOWN, or the notice explains an empty frame
-    // that is still being drawn over the placeholder. Source-level because a
-    // tile needs a participant model and a live sink to instantiate; what has
-    // to hold is narrow and checkable.
+    // Tiles must stand down under the software renderer too. Source-level
+    // because a tile needs a participant model and a live sink.
     void theVideoTilesConsultTheRendererBeforeShowingAFrame()
     {
         for (const auto *file : { QML_DIR "/CallParticipantTile.qml",
@@ -1551,9 +1270,8 @@ ApplicationWindow {
             const QString src = read(QString::fromUtf8(file));
             QVERIFY2(!src.isEmpty(), file);
             const QString code = normalized(src);
-            // THE DECLARATION AS WELL AS THE USE. Renaming or deleting the
-            // property leaves `!root.<undefined>` evaluating to true — video
-            // shows again and a use-only scan still passes.
+            // The declaration as well as the use: a missing property makes
+            // `!root.<undefined>` true and a use-only scan still passes.
             QVERIFY2(code.contains(QStringLiteral(
                          "property bool softwareRendererHidesVideo")),
                      qPrintable(QStringLiteral("%1 no longer declares "
@@ -1587,42 +1305,24 @@ ApplicationWindow {
                               QStringLiteral("CallStage"));
         if (createdSpy.isEmpty())
             QVERIFY(createdSpy.wait(5000));
-        // objectCreated carries a NULL object when the component failed, so
-        // this is the assertion that catches a load error rather than the
-        // spy merely having fired.
+        // objectCreated carries null when the component failed to load.
         auto *root = qobject_cast<QQuickItem *>(
             createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY2(root != nullptr,
                  "CallStage.qml failed to load — see the qWarning above for "
                  "the property or type that does not exist");
 
-        // The one control surface exists as a real item, not just as source
-        // text, in the expanded state this stage defaults to.
+        // The control surface exists as a real item in the default expanded
+        // state.
         QVERIFY(root->findChild<QObject *>(QStringLiteral("callStageControls"))
                 != nullptr);
     }
 
-    // THE CONTROL DOCK MUST STAY INSIDE THE PANEL, AT EVERY PANEL WIDTH.
-    //
-    // Geometric, on the real stage, and deliberately not a source scan: the
-    // thing that broke is invisible in the source, because CallStage.qml
-    // already carries a paragraph explaining the compact latch that was
-    // supposed to prevent exactly this. `Layout.minimumWidth: 0` without
-    // `Layout.fillWidth` gives an item a FIXED horizontal policy in
-    // QtQuick.Layouts — minimum = preferred = maximum — so the declared
-    // minimum was ignored, the header row never shrank, and
-    // `width + 0.5 < implicitWidth` in reassessControlRoom() could never be
-    // true. Measured on the unfixed tree: from 1100 px down to 480 px the
-    // header row stayed 723 px wide with its right edge at scene x=735, so
-    // every stage narrower than 735 px drew the end of the control row —
-    // the speaker chevron, the collapse button and the red HANG-UP —
-    // outside the panel, and carried the tile grid out with it.
-    //
-    // UNFIXED TREE: fails at 700 px on the first assertion (right edge 735
-    // against a stage right edge of 700), and again at 560 and 480.
-    //
-    // §16's window minimum is 640 and TimelinePane gives the conversation
-    // column Layout.minimumWidth 320, so every width below is reachable.
+    // The control dock stays inside the stage at every panel width. Geometric,
+    // on the real stage: `Layout.minimumWidth: 0` without `Layout.fillWidth`
+    // gives a fixed horizontal policy, so the row never shrank and the
+    // hang-up was drawn outside narrow panels. Window minimum is 640 and the
+    // conversation column's minimum is 320, so every width below is reachable.
     void theControlDockStaysInsideTheStageAtEveryWidth()
     {
         AppController controller(AppController::MockBackend);
@@ -1645,8 +1345,7 @@ ApplicationWindow {
             createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY2(root != nullptr, "CallStage must instantiate");
 
-        // Into a window: an unparented item reports effective visibility
-        // false, and a Loader that is never shown never lays its item out.
+        // Into a window, or the Loader never lays its item out.
         QQuickWindow window;
         window.resize(1100, 620);
         root->setParentItem(window.contentItem());
@@ -1656,9 +1355,8 @@ ApplicationWindow {
             QStringLiteral("callStageControls"));
         QVERIFY2(bar != nullptr, "the stage has no control bar");
 
-        // The bar's own cell, and the row that cell lives in. Walking up
-        // from the bar rather than naming a path: the assertion is about
-        // where the pixels land, so it must follow whatever the tree is.
+        // Walk up from the bar rather than naming a path; the assertion is
+        // about where pixels land.
         auto *host = qobject_cast<QQuickItem *>(bar->parentItem());
         QVERIFY(host != nullptr);
         auto *row = qobject_cast<QQuickItem *>(host->parentItem());
@@ -1681,8 +1379,7 @@ ApplicationWindow {
                                     .arg(rowRight.x())
                                     .arg(stageRight.x())));
 
-            // And the hang-up specifically, because it is the one control
-            // whose absence traps a user in a call.
+        // The hang-up specifically: its absence traps the user in the call.
             auto *hangUp = root->findChild<QQuickItem *>(
                 QStringLiteral("callBarHangUpButton"));
             QVERIFY2(hangUp != nullptr,
@@ -1690,36 +1387,12 @@ ApplicationWindow {
                          "no hang-up button at a %1 px stage").arg(width)));
             const QPointF hangRight = hangUp->mapToItem(
                 nullptr, QPointF(hangUp->width(), 0));
-            // ── AND ITS CONTENTS, WHICH IS WHERE THE 49 PX LIVED ──────
-            //
-            // The row went inside the stage when `Layout.fillWidth` let the
-            // cell shrink; its CONTENTS did not, and the hang-up ended a
-            // CONSTANT 49 px past the stage at every width from 1100 down
-            // to 480. Constant was the whole clue — not a squeeze running
-            // out of room but a fixed offset — and this is what it was made
-            // of, measured on the tree rather than reasoned about:
-            //
-            //   stage 1100 | host cell x=1050..1050 w=0 iw=0
-            //              | control row x=950..1149 w=199 -> OVER 49
-            //
-            // No call is live in this case, so CallHeaderBar is
-            // `visible: false` and reports `implicitWidth: 0` on purpose —
-            // the header row must not reserve a band for an absent dock.
-            // CallStage caps the cell at `Layout.maximumWidth: implicitWidth`,
-            // so the cell is ZERO WIDE. But a QQuickLayout decides to ignore
-            // a child by that child's OWN `visible`, never by its ancestors'
-            // — so the RowLayout inside the bar went on laying itself out at
-            // 199 px behind an invisible root, and `anchors.centerIn: parent`
-            // hung 99 px of it off each side of a zero-width point. The cell
-            // sits 50 px inside the stage (12 px of ColumnLayout margin, 8 px
-            // of row spacing, the 30 px collapse button), and 99 - 50 = 49 at
-            // every panel width, which is exactly why it never moved.
-            //
-            // Fixed in CallHeaderBar.qml by clamping that centring so the
-            // bar's right edge can never pass its host's: identity while the
-            // host is wide enough, and an overflow to the LEFT when it is
-            // not, so the control that leaves the panel first is the camera
-            // button and never Leave.
+            // The contents too. With no live call CallHeaderBar is invisible
+            // and reports implicitWidth 0, so its cell is zero wide; but a
+            // Layout ignores a child only by the child's own `visible`, so the
+            // inner RowLayout still laid out and `anchors.centerIn` hung it off
+            // both sides. CallHeaderBar clamps the centring so the bar can only
+            // overflow to the left, and Leave is never the control that goes.
             QVERIFY2(hangRight.x() <= stageRight.x() + 0.5,
                      qPrintable(QStringLiteral(
                          "at a %1 px stage the hang-up button ends at x=%2, "
@@ -1730,14 +1403,8 @@ ApplicationWindow {
         }
     }
 
-    // ...AND THE CAP IS THE OTHER HALF OF THAT FIX.
-    //
-    // `Layout.fillWidth: true` alone makes the dock GROW into the spare
-    // width of a wide panel — measured 1040 px in a 1076 px row — so the
-    // floating pill stops being pill-sized and the controls drift off
-    // centre. `Layout.maximumWidth: implicitWidth` is what keeps every wide
-    // window pixel-identical to before. A future edit that drops the cap
-    // passes the case above and fails this one.
+    // `Layout.fillWidth` alone lets the dock grow into a wide panel's spare
+    // width; `Layout.maximumWidth: implicitWidth` keeps it pill-sized.
     void theControlDockDoesNotStretchOnAWidePanel()
     {
         AppController controller(AppController::MockBackend);
@@ -1780,33 +1447,11 @@ ApplicationWindow {
                                 .arg(host->implicitWidth())));
     }
 
-    // COMPACTION MUST BE A DOOR, NOT A TRAPDOOR.
-    //
-    // The cap that keeps the dock from stretching on a wide panel is the
-    // same cap that hid the way back: `Layout.maximumWidth: implicitWidth`
-    // pins the cell to what the bar CURRENTLY asks for, and compact that is
-    // 219 px against an expanded 651 — so `width >= expandedNeed`, the old
-    // release test, could never be true again once it had fired. Measured on
-    // a live resize of the real stage, 1400 px down to 320 and back up: the
-    // dock compacted at 740 and was STILL compact at 1400, with the camera,
-    // Share, Raise hand, React, Participants, PiP buttons and all three
-    // device chevrons gone for the rest of the call. One narrow moment cost
-    // them permanently, and nothing in the UI said why.
-    //
-    // A cell cannot answer "could I have more room?" by reading its own
-    // width, because the cap is the thing being asked about. The row can:
-    // everything the other cells need is `row.implicitWidth` minus ours, and
-    // that difference is 73 px in BOTH shapes, which is what makes it safe
-    // to ask in both directions.
-    //
-    // UNFIXED TREE: reaches the final assertion with `cramped` still true
-    // and the dock still 219 px wide in a 1100 px panel.
-    //
-    // Live, unlike the case above: the latch only moves when `implicitWidth`
-    // differs between the two shapes, and an invisible dock reports 0 in
-    // both. The call state is set BEFORE the component loads so the bar's
-    // own `visible` binding is true on its first evaluation — set afterwards
-    // it would need a `stateChanged` this seam deliberately does not emit.
+    // Compaction must be reversible. `Layout.maximumWidth: implicitWidth` pins
+    // the cell to what the bar currently asks for, so the cell cannot measure
+    // whether the expanded set would fit again; the row can (its implicitWidth
+    // minus this cell's). The call state is set before the component loads so
+    // the bar's `visible` binding is true on first evaluation.
     void theControlDockComesBackWhenThePanelIsWidenedAgain()
     {
         AppController controller(AppController::MockBackend);
@@ -1833,17 +1478,9 @@ ApplicationWindow {
             createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY2(root != nullptr, "CallStage must instantiate");
 
-        // SHOWN, unlike the case above, and that is load-bearing rather
-        // than tidy. A QQuickLayout whose SIZE HINTS change schedules a
-        // polish and refuses to rearrange on a plain geometry change until
-        // that polish has run (`QQuickLayout::geometryChange` returns early
-        // while invalidated) — and polish only runs from a window's render
-        // pass. Compaction changes the dock's implicit width, so on an
-        // unshown window the entire header row froze at the width it had
-        // when the latch fired: measured rowW=576 and hostW=510 at every
-        // subsequent size including 1100. That is the HARNESS, not the
-        // defect, and a case that could not tell them apart would have
-        // "proved" the fix was absent.
+        // Shown: a QQuickLayout whose size hints change waits for a polish,
+        // which only runs from a window's render pass. On an unshown window the
+        // header row freezes at its old width and the case measures nothing.
         QQuickWindow window;
         window.resize(1100, 620);
         root->setParentItem(window.contentItem());
@@ -1868,9 +1505,7 @@ ApplicationWindow {
             settle(4);
         };
 
-        // The whole case rests on the dock actually being drawn. Assert it
-        // rather than assume it: with the bar invisible every width below
-        // reads 0 and the case would pass without testing anything.
+        // Assert the dock is drawn; with the bar invisible every width reads 0.
         resize(1100);
         QVERIFY2(bar->property("visible").toBool(),
                  "the dock is not visible, so this case is measuring an "
@@ -1883,7 +1518,7 @@ ApplicationWindow {
                                            "wide; the control set is gone")
                                 .arg(expanded)));
 
-        // Down, past the point where the full set stops fitting.
+        // Down past the point where the full set stops fitting.
         resize(600);
         QVERIFY2(host->property("cramped").toBool(),
                  "a 600 px panel did not compact the dock, so the rest of "
@@ -1891,7 +1526,7 @@ ApplicationWindow {
         QVERIFY2(host->width() + 0.5 < expanded,
                  "the dock did not actually shrink");
 
-        // ...and back up. This is the assertion the defect fails.
+        // ...and back up.
         resize(1100);
         QVERIFY2(!host->property("cramped").toBool(),
                  qPrintable(QStringLiteral(
@@ -1903,8 +1538,7 @@ ApplicationWindow {
                                 .arg(host->width())));
         QCOMPARE(host->width(), expanded);
 
-        // And the containment invariant holds all the way through, on a
-        // dock that is really on screen rather than an invisible one.
+        // Containment holds throughout, on a dock that is really on screen.
         for (const int width : { 1100, 900, 760, 740, 700, 640, 560, 480,
                                  560, 640, 700, 740, 760, 900, 1100 }) {
             resize(width);
@@ -1921,21 +1555,10 @@ ApplicationWindow {
         }
     }
 
-    // The full-screen idle timer MUST NEVER BE STOPPED.
-    //
-    // That is the whole defect, stated as an invariant. The first version
-    // stopped it while the pointer sat in the reveal band so the dock could
-    // not retire under a hand reaching for it — and the band IS the bottom
-    // edge, which is the edge the pointer leaves through to reach the
-    // taskbar. With no leave event after that the timer stays stopped
-    // forever and the chrome never hides again, which is exactly what a
-    // full-screen share looked like: controls sitting over it permanently.
-    //
-    // Part runtime, part source, and honest about which is which: the timer
-    // object is read live (its repeat and interval are real property reads),
-    // while "nobody calls stop() on it" can only be asserted against the
-    // source. Driving the retirement end-to-end would need a fabricated live
-    // share, since fullScreenActive requires a spotlight surface.
+    // The full-screen idle timer must never be stopped: the reveal band is the
+    // bottom edge the pointer leaves through, so a stop there has no matching
+    // restart and the chrome never hides again. The timer is read live;
+    // "nobody calls stop()" can only be asserted against the source.
     void theFullScreenIdleTimerIsNeverStopped()
     {
         AppController controller(AppController::MockBackend);
@@ -1977,10 +1600,8 @@ ApplicationWindow {
                  "the idle timer is stopped somewhere; a stop with no "
                  "guaranteed restart is what left the controls on screen "
                  "over a full-screen share");
-        // The retirement itself, driven rather than asserted about. The timer
-        // only auto-runs over a live share, so the ticks are delivered by
-        // hand -- but what they exercise is the real handler on the real
-        // surface, not a copy of its logic.
+        // Drive the retirement through the real handler. The timer only runs
+        // over a live share, so ticks are delivered by hand.
         const int ticksToHide = surface->property("idleTicksToHide").toInt();
         QVERIFY2(ticksToHide > 0, "no idle tick budget, so nothing can hide");
         QVERIFY2(timer->property("interval").toInt() * ticksToHide >= 2000,
@@ -1997,9 +1618,7 @@ ApplicationWindow {
                  "controls drawn over a full-screen share forever, which is "
                  "what a single-monitor desktop always does");
 
-        // And movement -- anywhere, not merely on the dock -- is what brings
-        // it back. Gating that on the dock's own hover is what made this
-        // correct on two monitors and permanent on one.
+        // Movement anywhere, not only over the dock, brings the chrome back.
         QVERIFY2(src.contains(QStringLiteral("id: fullScreenHover")),
                  "there is no pointer-movement handler over the share, so "
                  "nothing can reveal the chrome again");
@@ -2007,23 +1626,20 @@ ApplicationWindow {
                  "the chrome is still held open by a hover on the dock; a "
                  "pointer resting there never leaves on a single monitor");
 
-        // The timer is never TOUCHED -- not stopped, not restarted. What
-        // resets is the count. Re-phasing a timer whose count is already at
-        // its budget retires the chrome again on the very next tick, which is
-        // how tapping the reveal arrow put it straight back to sleep.
+        // The timer is never stopped or restarted; only the count resets.
+        // Restarting a timer whose count is at budget retires the chrome on
+        // the next tick.
         QVERIFY2(!src.contains(QStringLiteral("fullScreenIdleTimer.restart()")),
                  "the idle timer is restarted somewhere; the count is what "
                  "carries the idle budget, so re-phasing alone leaves the "
                  "chrome retiring on the next tick");
-        // Entering full screen, and tapping the arrow. Both must zero it.
+        // Entering full screen and tapping the arrow both zero it.
         QVERIFY2(src.count(QStringLiteral("idleTicks = 0")) >= 2,
                  "something wakes the chrome without clearing the idle "
                  "count, so it retires again immediately");
 
-        // Retired chrome must not answer input. Invisible and inert are the
-        // same thing to a pointer resting on it -- and the dock is stacked
-        // OVER the reveal arrow, so a live invisible dock swallowed the tap
-        // meant for the arrow and left no way back at all.
+        // Retired chrome must not take input: the dock is stacked over the
+        // reveal arrow and would swallow the tap meant for it.
         QVERIFY2(src.count(QStringLiteral("enabled: !fullScreenSurface.overlaysIdle")) >= 2,
                  "a faded full-screen surface still accepts clicks: the "
                  "reveal arrow is unreachable under the invisible dock, and "
@@ -2052,8 +1668,8 @@ ApplicationWindow {
             createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY(root != nullptr);
 
-        // A ring is NOT the bar's job: the corner card owns that, because
-        // the user may not be looking at the ringing room.
+        // A ring is the corner card's job, not the bar's: the user may not be
+        // looking at the ringing room.
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         CallSignal invite;
@@ -2070,9 +1686,8 @@ ApplicationWindow {
                  CallController::State::Ringing);
         QCOMPARE(root->property("live").toBool(), false);
 
-        // The room the call belongs to is what gates visibility. Without
-        // this, a bar in the wrong room would hang up a call the user is
-        // not even looking at.
+        // The call's room gates visibility, so a bar in another room cannot
+        // hang up a call the user is not looking at.
         QCOMPARE(root->property("callRoomId").toString(),
                  QStringLiteral("!general:mock.local"));
     }
@@ -2120,10 +1735,8 @@ ApplicationWindow {
         QTRY_COMPARE_WITH_TIMEOUT(root->property("shouldShow").toBool(),
                                   true, 3000);
 
-        // End the ring via the same controller invokable the card's
-        // Decline button is contract-pinned (above) to call — the QML
-        // binding chain from state to visibility is what this asserts;
-        // button hit-testing is not exercised here.
+        // End the ring via the invokable the card's Decline is pinned to call.
+        // Asserts the state-to-visibility binding chain, not hit-testing.
         QVERIFY(controller.calls()->rejectIncoming());
         QTRY_COMPARE_WITH_TIMEOUT(root->property("shouldShow").toBool(),
                                   false, 3000);
@@ -2131,26 +1744,14 @@ ApplicationWindow {
 
     void anRtcRingOffersJoinInsteadOfAnAnswerThatCannotWork()
     {
-        // "this [Incoming voice call] accept does nothing."
-        //
-        // It could not. The card's ONLY gate was
-        // `app.calls.mediaBackendAvailable` — a property of the LEGACY
-        // GStreamer engine, which says nothing about which lane rang — so an
-        // Element call (announced over MatrixRTC) showed an Accept that
-        // CallController::answer() refuses at its third guard, returning
-        // false into a call site that discarded the result.
-        //
-        // UNFIXED TREE: FAILS. `rtcRing` and `legacyAcceptOffered` do not
-        // exist, so both read false and the RTC case asserts a true.
+        // Accept must only be offered on the lane that can answer it.
+        // `mediaBackendAvailable` belongs to the legacy engine and says nothing
+        // about which lane rang, so an RTC ring showed an Accept that
+        // CallController::answer() refuses.
 
-        // The engine is declared BEFORE the controller so it OUTLIVES it:
-        // CallController holds a QPointer to the engine and closes a live
-        // session on teardown, and this case deliberately ends with a ring
-        // still up.
-        //
-        // See StubMediaBackend for why an engine is registered at all:
-        // without one BOTH lanes hide Accept and this test would be
-        // decoration.
+        // The engine is declared before the controller so it outlives it:
+        // CallController holds a QPointer to it and closes a live session on
+        // teardown. See StubMediaBackend for why an engine is needed at all.
         StubMediaBackend media;
         AppController controller(AppController::MockBackend);
         QSignalSpy loginSpy(controller.auth(),
@@ -2177,7 +1778,7 @@ ApplicationWindow {
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
 
-        // 1. The LEGACY lane. Accept is the affordance, and always was.
+        // 1. Legacy lane: Accept is offered.
         CallSignal invite;
         invite.kind = CallSignal::Kind::Invite;
         invite.roomId = QStringLiteral("!general:mock.local");
@@ -2199,11 +1800,9 @@ ApplicationWindow {
         QVERIFY(controller.calls()->rejectIncoming());
         settle();
 
-        // 2. The MatrixRTC lane. The legacy Accept is ABSENT — not disabled,
-        //    which in Qt Quick would receive no hover and could not explain
-        //    itself — and the reason is that answering it through the legacy
-        //    path is structurally refused, which is asserted here rather than
-        //    assumed.
+        // 2. MatrixRTC lane: the legacy Accept is absent (not disabled, which
+        //    gets no hover and cannot explain itself), and the legacy answer
+        //    path is asserted to refuse it.
         CallSignal notify;
         notify.kind = CallSignal::Kind::RtcNotification;
         notify.roomId = QStringLiteral("!general:mock.local");
@@ -2222,9 +1821,8 @@ ApplicationWindow {
         QVERIFY2(!controller.calls()->answer(),
                  "the legacy answer path claims to accept an RTC ring");
 
-        // The ring is still up, and the card is still the surface for it —
-        // hiding Accept must not have hidden the card. Decline (which sends
-        // m.rtc.decline) is what stops the ring everywhere.
+        // The ring and the card are still up; Decline (m.rtc.decline) is what
+        // stops the ring everywhere.
         QCOMPARE(controller.calls()->state(),
                  CallController::State::Ringing);
         QTRY_COMPARE_WITH_TIMEOUT(root->property("shouldShow").toBool(),
@@ -2233,11 +1831,9 @@ ApplicationWindow {
 
     void theRingCardJoinsThroughTheOneSharedGate()
     {
-        // ONE gate (app.rtc.joinBlockReason), ONE action
-        // (app.groupCall.join), three surfaces. RoomCallBanner and
-        // CallEventDelegate already carry that rule in their comments; this
-        // pins the card to the same pair so a third opinion about whether a
-        // call is joinable cannot appear.
+        // One gate (app.rtc.joinBlockReason) and one action
+        // (app.groupCall.join) shared with RoomCallBanner and
+        // CallEventDelegate.
         const QString norm = normalized(
             read(QStringLiteral(QML_DIR "/IncomingCallPrompt.qml")));
         QVERIFY(!norm.isEmpty());
@@ -2249,8 +1845,8 @@ ApplicationWindow {
             QStringLiteral("app.rtc.joinBlockReason(root.callRoomId)")));
         QVERIFY(norm.contains(
             QStringLiteral("visible: root.canJoinRtc")));
-        // The join gate's answers are a CLOSED SET of tokens mapped to
-        // wording here; a raw server string is never rendered.
+        // Join-gate answers are a closed set of tokens mapped to wording; a
+        // raw server string is never rendered.
         QVERIFY(norm.contains(QStringLiteral("case \"no_transport\":")));
         QVERIFY(norm.contains(QStringLiteral("case \"session_closed\":")));
         // Joining must never be reported to the caller as a decline.
@@ -2263,34 +1859,24 @@ ApplicationWindow {
         QVERIFY2(!norm.mid(joinAt, acceptAt - joinAt)
                       .contains(QStringLiteral("rejectIncoming")),
                  "the Join button also declines the call");
-        // And the RTC lane must never fall back to a legacy invite: that
-        // rings every member of the room.
+        // The RTC lane never falls back to a legacy invite, which rings every
+        // room member.
         QVERIFY2(!norm.contains(QStringLiteral("app.calls.placeCall")),
                  "the ring card can place a legacy call");
     }
 
     void theFullScreenWindowOpensOnTheApplicationsOwnScreen()
     {
-        // "the full screen feature always starts in the same monitor and not
-        // the one the client is in."
-        //
-        // UNFIXED TREE: FAILS on every assertion — nothing anywhere named a
-        // screen, so QWindowPrivate::init() connected the window to the
-        // PRIMARY screen and QWindowPrivate::create() re-derived the same
-        // answer from the default geometry.
+        // Full screen opens on the monitor the client is on, not the primary.
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
         QVERIFY(!stage.isEmpty());
         const QString stageCode = normalized(code(stage));
-        // Prove the stripper still leaves code behind before trusting the
-        // ORDER assertions below — a comment mentioning showFullScreen()
-        // would otherwise decide them.
+        // Prove the stripper leaves code behind before trusting the order
+        // assertions; a comment mentioning showFullScreen() would decide them.
         QVERIFY(stageCode.contains(QStringLiteral("objectName: \"callStage\"")));
 
-        // The placement happens BEFORE the window is shown. Assigning the
-        // screen afterwards does not move a window whose old and new screens
-        // are virtual siblings — the ordinary single-desktop case — because
-        // QWindow::setScreen() then finds windowRecreationRequired() false
-        // and is bookkeeping plus a signal.
+        // Placement happens before the window is shown: QWindow::setScreen()
+        // does not move a window between virtual-sibling screens.
         const int place =
             stageCode.indexOf(QStringLiteral("placeOnThisApplicationsScreen()"));
         const int show =
@@ -2299,26 +1885,22 @@ ApplicationWindow {
         QVERIFY2(show > place,
                  "the window is shown before it is placed on a screen");
 
-        // The screen comes from the Screen ATTACHED to this item, which
-        // tracks the item's window and therefore follows the application
-        // between monitors. Window.window.screen would be a lazily created
-        // wrapper (QWindow has no `screen` Q_PROPERTY at all).
+        // The screen comes from the attached Screen, which follows the item's
+        // window. QWindow has no `screen` Q_PROPERTY.
         QVERIFY(stageCode.contains(QStringLiteral("var target = root.Screen")));
         QVERIFY(stageCode.contains(
             QStringLiteral("fullScreenWindow.screen = target")));
-        // ...AND the geometry, which is the half that actually decides:
-        // QWindowPrivate::create() calls screenForGeometry() just before the
-        // platform window exists, so a screen assignment with a default
-        // rectangle lands straight back on the primary monitor.
+        // The geometry too: QWindowPrivate::create() calls
+        // screenForGeometry(), so a default rectangle lands on the primary.
         QVERIFY2(stageCode.contains(
                      QStringLiteral("fullScreenWindow.x = target.virtualX")),
                  "the window's geometry is not moved onto the target screen");
         QVERIFY(stageCode.contains(
             QStringLiteral("fullScreenWindow.y = target.virtualY")));
 
-        // The imperative-visibility rule survives (see
-        // fullScreenIsItsOwnWindowThatEscapeLeaves), and so does accepting
-        // the close — refusing it vetoes Ctrl+Q.
+        // Imperative visibility survives (see
+        // fullScreenIsItsOwnWindowThatEscapeLeaves), and the close is accepted:
+        // refusing it vetoes Ctrl+Q.
         QVERIFY2(!code(stage).contains(QStringLiteral("visibility:")),
                  "the full-screen window binds Window.visibility");
         QVERIFY(stageCode.contains(
@@ -2333,15 +1915,9 @@ ApplicationWindow {
 
     void theRaiseHandControlIsOnTheWireAndSaysNothingElse()
     {
-        // "raise hand does nothing in element" — it does now. The control
-        // used to carry an "only shown on this device" disclaimer in BOTH
-        // directions, which was true and is now false: setHandRaised() sends
-        // element-call's own m.reaction annotating our own membership state
-        // event, so a peer really does see it.
-        //
-        // A stale disclaimer is worse than none — it tells the user a
-        // working feature does not work — so the ban is the point of this
-        // test, and it fails on the tree that still carries the wording.
+        // Raise hand is sent as element-call's m.reaction on our membership,
+        // so peers see it; the old "only shown on this device" disclaimer
+        // must stay gone.
         const QString bar = normalized(
             read(QStringLiteral(QML_DIR "/CallHeaderBar.qml")));
         QVERIFY(!bar.isEmpty());
@@ -2350,14 +1926,12 @@ ApplicationWindow {
         QVERIFY2(!bar.contains(QStringLiteral("only shown on this device")),
                  "the raise-hand control still claims no peer can see it, "
                  "which stopped being true when it went on the wire");
-        // The icon must stay one the bundled Material Symbols SUBSET carries,
-        // or the glyph is tofu (IconChromeTest owns the general rule).
+        // The icon must be in the bundled Material Symbols subset
+        // (IconChromeTest owns the general rule).
         QVERIFY(bar.contains(QStringLiteral("iconName: \"front_hand\"")));
 
-        // The wire format itself, and every part of it that must not drift.
-        // element-call's ReactionsReader compares against exactly this key —
-        // a different hand emoji, or the same one without the U+FE0F
-        // variation selector, is a hand no Element client will ever see.
+        // The wire format: element-call's ReactionsReader compares against
+        // exactly this key, including the U+FE0F variation selector.
         const QString rtc =
             read(QStringLiteral(QML_DIR "/../rust/src/rtc.rs"));
         QVERIFY(!rtc.isEmpty());
@@ -2369,8 +1943,7 @@ ApplicationWindow {
                  "the join-time sweep does not ask for annotations, so a hand "
                  "raised before we joined stays invisible");
         // A raise is attributed through the membership it annotates, and the
-        // SENDER MUST OWN IT: anyone may annotate anyone's state event, and
-        // without the check one user could raise everybody's hand.
+        // sender must own it, or one user could raise everybody's hand.
         const QString controller = read(QStringLiteral(
             QML_DIR "/../src/calls/RtcController.cpp"));
         QVERIFY(!controller.isEmpty());
@@ -2383,13 +1956,8 @@ ApplicationWindow {
                  "sender owns the membership it annotates");
     }
 
-    // TRANSIENT CALL REACTIONS — the control, the tile, and the wire.
-    //
-    // docs/matrixrtc.md open item 2: "the transient emoji reactions
-    // element-call sends beside [the raised hand] — `io.element.call.reaction`
-    // with a `m.reference` to the sender's membership — do not [interoperate],
-    // and there is no control for them." Every assertion below fails on the
-    // tree that item describes, because none of this exists there.
+    // Transient call reactions: the control, the tile and the wire format
+    // (`io.element.call.reaction` referencing the sender's membership).
     void theCallReactionControlSendsElementCallsOwnPairs()
     {
         const QString bar = normalized(
@@ -2398,22 +1966,16 @@ ApplicationWindow {
         QVERIFY2(bar.contains(
                      QStringLiteral("objectName: \"callBarReactButton\"")),
                  "there is no control for sending a call reaction");
-        // The icon must be one the bundled Material Symbols SUBSET carries,
-        // or the glyph is tofu (IconChromeTest owns the general rule).
+        // The icon must be in the bundled Material Symbols subset.
         QVERIFY(bar.contains(QStringLiteral("iconName: \"add_reaction\"")));
         QVERIFY2(bar.contains(
                      QStringLiteral("app.groupCall.sendCallReaction(")),
                  "the reaction control does not reach the controller");
 
-        // THE PAIRS, BY BYTES ON BOTH SIDES.
-        //
-        // element-call looks a reaction's SOUND up by `name`
-        // (`ReactionSet.find((r) => r.name === content.name)`) and draws
-        // `emoji`, so a pair that is not one of theirs reaches an Element
-        // user as a silent generic reaction — or, with a mistyped emoji, as a
-        // different one. This test is the third independent statement of the
-        // same table (the QML picker and rust/src/rtc.rs are the other two),
-        // which is what makes a drift in either one fail here.
+        // element-call looks up a reaction's sound by `name` and draws
+        // `emoji`, so pairs must match theirs byte for byte. This is the third
+        // copy of the table (QML picker and rust/src/rtc.rs are the others),
+        // so drift in either fails here.
         struct Pair {
             const char *utf8;
             const char *name;
@@ -2452,26 +2014,19 @@ ApplicationWindow {
         const QString rtc =
             read(QStringLiteral(QML_DIR "/../rust/src/rtc.rs"));
         QVERIFY(!rtc.isEmpty());
-        // The EVENT TYPE. element-call's `ElementCallReactionEventType`; a
-        // different string is a reaction no Element client ever sees, in
-        // exactly the way a different hand emoji is a hand they never see.
+        // The event type is element-call's `ElementCallReactionEventType`.
         QVERIFY2(rtc.contains(QStringLiteral(
                      "#[ruma_event(type = \"io.element.call.reaction\", "
                      "kind = MessageLike)]")),
                  "the call reaction is not element-call's event type");
-        // The RELATION. A reference to the sender's own membership state
-        // event — not an annotation, which is what a raised HAND is. ruma's
-        // `Reference` is what stamps `rel_type: m.reference` on what we
-        // SEND. (It does not police what arrives: serde does not verify an
-        // internally-tagged struct's tag on the way in, which rust/src/rtc.rs
-        // records and asserts. Inbound safety is the sender-owns-the-
-        // membership check, not the relation type — element-call's own reader
-        // never looks at `rel_type` either.)
+        // The relation is an m.reference to the sender's own membership (an
+        // annotation is for the raised hand). Serde does not verify the tag
+        // inbound; inbound safety is the sender-owns-membership check.
         QVERIFY2(rtc.contains(QStringLiteral("pub relates_to: Reference,")),
                  "a call reaction's relation is not typed as an m.reference");
         QVERIFY(rtc.contains(QStringLiteral("relates_to: Reference::new(")));
 
-        // ONE LIFETIME CONSTANT, and it is element-call's own 3000 ms.
+        // One lifetime constant: element-call's 3000 ms.
         const QString controller = read(
             QStringLiteral(QML_DIR "/../src/calls/SfuCallController.h"));
         QVERIFY(!controller.isEmpty());
@@ -2490,11 +2045,8 @@ ApplicationWindow {
         QVERIFY(!tile.isEmpty());
         QVERIFY(tile.contains(QStringLiteral("property string reactionEmoji")));
 
-        // BEHIND A LOADER, because "" is this property's ordinary state and a
-        // Text created empty keeps ItemObservesViewport for the life of the
-        // item — the most expensive QML mistake recorded in this repo. The
-        // Loader's `active` is what proves the item is not created at all
-        // while there is no reaction.
+        // Behind a Loader: "" is the normal state, and a Text created empty
+        // keeps ItemObservesViewport for its lifetime.
         const QString normalizedTile = normalized(tile);
         const int at = normalizedTile.indexOf(
             QStringLiteral("active: root.reactionEmoji.length > 0"));
@@ -2513,14 +2065,12 @@ ApplicationWindow {
                  "the reaction glyph does not use the resolved emoji family, "
                  "so Qt's own fallback may draw it monochrome");
 
-        // NOTHING HERE OWNS A LIFETIME. The model clears the role when the
-        // window ends; a timer in the delegate would be a second answer to
-        // "is this reaction still current", one per tile.
+        // No timer in the delegate: the model clears the role when the window
+        // ends, so there is one answer to "is this reaction current".
         QVERIFY2(!block.contains(QStringLiteral("Timer")),
                  "the tile runs its own reaction timer");
 
-        // ...and the stage passes the role through to both person surfaces,
-        // or a reaction is invisible everywhere but the grid.
+        // The stage passes the role to both person surfaces.
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
         QVERIFY(!stage.isEmpty());
         QCOMPARE(stage.count(
@@ -2536,11 +2086,8 @@ ApplicationWindow {
 
     void ourOwnReactionIsDrawnFromTheEventAndNotOptimistically()
     {
-        // The raise-hand toggle IS optimistic, deliberately: it is a control
-        // whose state the user is watching, and a refusal puts it back. A
-        // reaction is not, and this pins the difference — a local echo would
-        // show the sender a reaction that may never have left the machine,
-        // and nothing would put THAT back.
+        // Raise-hand is optimistic (a refusal puts it back); a reaction is
+        // not, since a local echo could show one that never left the machine.
         const QString controller = code(read(
             QStringLiteral(QML_DIR "/../src/calls/SfuCallController.cpp")));
         QVERIFY(!controller.isEmpty());
@@ -2555,47 +2102,30 @@ ApplicationWindow {
                  "the sender's own tile is lit before the event exists");
         QVERIFY2(!body.contains(QStringLiteral("applyCallReaction(")),
                  "the sender's own tile is lit before the event exists");
-        // ...and it references OUR OWN membership, preferring the observed
-        // one: a refresh REPLACES the state event, so referencing the id we
-        // published with would address an event the room has superseded.
+        // References our own membership, preferring the observed one: a
+        // refresh replaces the state event.
         QVERIFY(body.contains(QStringLiteral("ownMembershipEventId(")));
     }
 
-    // 2026-08-23 reporter round: FOUR call surfaces were on screen at once
-    // for one call — the header bar, the stage's own control bar, the Voice
-    // Connected strip, and a "You are in a call" banner still offering Join.
-    // Each of these pins one of them shut.
+    // Only one surface owns the call's media controls.
     void exactlyOneSurfaceOwnsTheMediaControls()
     {
-        // EVERY call control lives in the header bar. The stage carries none.
-        //
-        // This started as "the stage may keep the controls that have nowhere
-        // else to live" — layout toggle, raise hand, participants — and that
-        // was wrong: once the media controls moved up, what was left on the
-        // stage were two orphan buttons floating under the call UI, which is
-        // exactly how it was reported. So the assertion is now the stronger
-        // one: no control bar on the stage at all.
+        // Every call control lives in the header bar; the stage has none.
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
         QVERIFY(!stage.isEmpty());
         QVERIFY2(!stage.contains(QStringLiteral("CallControlBar {")),
                  "the call stage instantiates a control bar again");
-        // 2026-08-26: CallControlBar.qml is DELETED. Nothing ever
-        // instantiated it, it carried the only layout control in the tree,
-        // and this suite already banned it from the one surface that could
-        // have used it — so it was a second, drifting definition of the
-        // control set kept alive only by the file list. On the unfixed tree
-        // this line fails, because the file is there.
+        // CallControlBar.qml was a second, unused definition of the control set
+        // and is deleted.
         QVERIFY2(!QFile::exists(QStringLiteral(QML_DIR "/CallControlBar.qml")),
                  "the dead CallControlBar.qml is back in the tree");
 
-        // The stage's dock is the SAME component in another placement, not a
-        // second control bar — that distinction is the whole lesson here. And
-        // the header instance stands down while the stage is showing, so the
-        // controls are never drawn twice.
+        // The stage's dock is the same component in another placement, and the
+        // header instance stands down while the stage shows.
         QVERIFY(stage.contains(QStringLiteral("CallHeaderBar {")));
         QVERIFY(stage.contains(QStringLiteral("placement: \"dock\"")));
 
-        // ...and the header owns the full set.
+        // The header owns the full set.
         const QString header =
             read(QStringLiteral(QML_DIR "/CallHeaderBar.qml"));
         QVERIFY(!header.isEmpty());
@@ -2613,54 +2143,42 @@ ApplicationWindow {
         }
     }
 
-    // The spotlight is where a screen share lands, and it used to draw a glyph
-    // and the words "someone is sharing their screen" over an empty rectangle
-    // — announcing a share it never rendered. Reported as "I couldn't see
-    // their screenshare"; the receive path was only half the cause.
+    // The spotlight renders the shared video rather than a placeholder
+    // describing it.
     void theSpotlightRendersVideoRatherThanDescribingIt()
     {
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
         QVERIFY(!stage.isEmpty());
-        // The focused surface is defined ONCE, as `focusedSurface`, and both
-        // hosts load THAT — the stage's spotlight and the full-screen window.
-        // Two copies would be two things to keep in step, and one of them
-        // would eventually stop routing video.
+        // The focused surface is defined once (`focusedSurface`) and loaded by
+        // both the stage spotlight and the full-screen window.
         const int surface = stage.indexOf(QStringLiteral("id: focusedSurface"));
         QVERIFY2(surface >= 0, "the focused surface is no longer defined once");
         const QString block = stage.mid(surface, 6000);
-        // Both kinds of surface can be spotlighted, and each is the component
-        // that owns its own routing: a SHARE is a CallShareTile (screen sink),
-        // a pinned PERSON is a CallParticipantTile (camera sink). The old
-        // stage had one surface and a `spotlightKind` string deciding which
-        // track it asked for, which is the same thing as "only one share can
-        // ever exist".
+        // Each spotlighted kind owns its routing: a share is a CallShareTile
+        // (screen sink), a pinned person a CallParticipantTile (camera sink).
         QVERIFY2(block.contains(QStringLiteral("CallShareTile {")),
                  "the spotlight cannot show a screen share");
         QVERIFY2(block.contains(QStringLiteral("CallParticipantTile {")),
                  "the spotlight cannot show a pinned participant");
-        // Matched BY ID against the real model, so a track key that arrives
-        // late still reaches the surface.
+        // Matched by id against the model, so a late track key still arrives.
         QVERIFY(block.contains(
             QStringLiteral("root.stageState.spotlightShareId")));
         QVERIFY(block.contains(
             QStringLiteral("root.stageState.pinnedIdentity")));
-        // And the spotlight really is one of its hosts.
+        // The spotlight is one of its hosts.
         const int spotlight =
             stage.indexOf(QStringLiteral("objectName: \"callSpotlight\""));
         QVERIFY(spotlight >= 0);
         QVERIFY2(stage.mid(spotlight, 1200)
                      .contains(QStringLiteral("sourceComponent: focusedSurface")),
                  "the spotlight does not host the shared focused surface");
-        // The old placeholder wording must not survive next to a real surface,
-        // or the stage claims a share is unviewable while showing it.
+        // The placeholder wording must not survive beside a real surface.
         QVERIFY(!stage.contains(
             QStringLiteral("Someone is sharing their screen")));
     }
 
-    // A camera and a screen share are two tracks from one person, and one
-    // surface can only render one of them. The tile therefore says which, and
-    // routing goes through the TRACK's key, not the participant's — a
-    // participant-keyed route can only ever feed one surface.
+    // Camera and screen share are separate tracks from one person, routed by
+    // track key; a participant-keyed route can feed only one surface.
     void aScreenShareAndACameraAreRoutedAsSeparateTracks()
     {
         const QString tile =
@@ -2669,23 +2187,20 @@ ApplicationWindow {
         QVERIFY(tile.contains(QStringLiteral("property string mediaKind")));
         QVERIFY(tile.contains(QStringLiteral("attachScreenSink(")));
         QVERIFY(tile.contains(QStringLiteral("attachLocalScreenSink(")));
-        // The RELEASE names the sink, not a key — see
-        // noVideoSurfaceEverReleasesARouteByKey for why that is the whole of
-        // "camera no longer works".
+        // Release names the sink, not a key (see
+        // noVideoSurfaceEverReleasesARouteByKey).
         QVERIFY(tile.contains(
             QStringLiteral("app.groupCall.detachSink(output.videoSink)")));
-        // Re-attached when the routing key arrives: the SFU can announce a
-        // participant before it says which media section their tracks landed
-        // on, and an attach made under an empty key never gets a frame.
+        // Re-attach when the routing key arrives: the SFU can announce a
+        // participant before its media section, and an empty-key attach never
+        // gets a frame.
         QVERIFY(tile.contains(QStringLiteral("onActiveTrackKeyChanged:")));
-        // A shared screen is content: it is fitted, never cropped, or the
-        // edges of what the other person is showing are hidden.
+        // A shared screen is fitted, never cropped.
         QVERIFY(tile.contains(QStringLiteral("VideoOutput.PreserveAspectFit")));
     }
 
-    // Discord's bubble row: who is here and who is talking, above the stage.
-    // The ring is driven by the SFU's OWN speaker updates — no local audio is
-    // inspected to produce it.
+    // Speaker bubbles above the stage. The ring is driven by the SFU's own
+    // speaker updates; no local audio is inspected.
     void theCallStageCarriesSpeakerBubbles()
     {
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
@@ -2696,29 +2211,22 @@ ApplicationWindow {
         QVERIFY(stage.contains(QStringLiteral("CallSpeakerBubbles {")));
         QVERIFY(bubbles.contains(QStringLiteral("objectName: \"callSpeakerBubbles\"")));
         QVERIFY(bubbles.contains(QStringLiteral("Avatar {")));
-        // The ring is bound to the model's speaking flag, never to anything
-        // measured here.
+        // Bound to the model's speaking flag.
         QVERIFY(bubbles.contains(QStringLiteral("required property bool speaking")));
         QVERIFY(bubbles.contains(QStringLiteral("opacity: bubble.speaking ? 1 : 0")));
         QVERIFY(bubbles.contains(QStringLiteral("border.color: AppTheme.success")));
-        // Initials come from the real name, never the "You" label — that
-        // would render a Y for the local user.
+        // Initials come from the real name, never "You".
         QVERIFY(bubbles.contains(QStringLiteral("name: bubble.displayName")));
-        // THE REAL MODEL, not a JS array copied out of participants(). On the
-        // unfixed tree the delegate reads `modelData`, which only exists
-        // because the strip was fed an array — and an array reassigned is a
-        // model reset, so every bubble was destroyed and rebuilt on every
-        // speaker update.
+        // The real model, not a JS array: a reassigned array is a model reset
+        // that rebuilds every bubble on each speaker update.
         QVERIFY2(!bubbles.contains(QStringLiteral("modelData")),
                  "the bubble strip is bound to a JS array again");
         QVERIFY(bubbles.contains(
             QStringLiteral("property var model: app.groupCall.participantModel")));
     }
 
-    // Stopping one published track must never stop another. "Unpublish the
-    // last track we published" is the screen share whenever the share started
-    // after the camera, so turning the camera off killed the share and left
-    // the camera live — the LED being the user's only honest indicator.
+    // Stopping one published track must never stop another: "the last
+    // published" is the share whenever it started after the camera.
     void stoppingOneTrackNamesItRatherThanTakingTheLastOne()
     {
         QFile file(QStringLiteral(SRC_DIR "/calls/SfuCallController.cpp"));
@@ -2726,16 +2234,14 @@ ApplicationWindow {
         const QString source = QString::fromUtf8(file.readAll());
         QVERIFY(source.contains(QStringLiteral("unpublishTrack(m_cameraCid)")));
         QVERIFY(source.contains(QStringLiteral("unpublishTrack(m_screenCid)")));
-        // The old shape: a reverse scan of the published list that breaks on
-        // the first entry, i.e. "the last one published".
+        // The old shape: a reverse scan that takes the last published entry.
         QVERIFY2(!source.contains(QStringLiteral(
                      "for (int i = m_publishedTrackIds.size() - 1")),
                  "a track is still stopped by taking the last published one");
     }
 
-    // A voice call is circular avatars on the canvas, not a grid of empty
-    // bordered panels — the shape the maintainer asked for, with a reference
-    // screenshot. A tile only becomes a panel when it has video to hold.
+    // A voice call draws circular avatars; a tile becomes a panel only when it
+    // has video.
     void aVoiceOnlyCallDrawsAvatarsNotPanels()
     {
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
@@ -2749,25 +2255,21 @@ ApplicationWindow {
         QVERIFY(stage.contains(QStringLiteral("voiceOnly: root.voiceOnly")));
         QVERIFY(grid.contains(QStringLiteral("bare: root.voiceOnly")));
         QVERIFY(tile.contains(QStringLiteral("property bool bare")));
-        // Selection and keyboard focus still draw: those are states the user
-        // caused and must be able to see.
+        // Selection and keyboard focus still draw.
         QVERIFY(tile.contains(QStringLiteral("readonly property bool _drawsCard")));
         QVERIFY(tile.contains(QStringLiteral("root.focused || root.activeFocus")));
     }
 
     void theJoinButtonActuallyJoins()
     {
-        // THE reported defect. This handler was an empty block with a
-        // comment saying no join path existed yet, long after one did: the
-        // button rendered, looked enabled, and did nothing.
+        // The banner's Join handler must actually join.
         const QString banner =
             read(QStringLiteral(QML_DIR "/RoomCallBanner.qml"));
         QVERIFY(!banner.isEmpty());
         const int at = banner.indexOf(QStringLiteral("roomCallJoinButton"));
         QVERIFY2(at >= 0, "the Join button is gone");
-        // Comments stripped, then a generous window: the explanatory comment
-        // above this handler is longer than the code and pushed the call out
-        // of a fixed-size slice.
+        // Comments stripped, then a generous window, so a long comment cannot
+        // push the call out of the slice.
         QString body = banner.mid(at, 900);
         body.remove(QRegularExpression(QStringLiteral("(?m)^\\s*//.*$")));
         body = normalized(body);
@@ -2777,35 +2279,17 @@ ApplicationWindow {
                  "the Join handler is empty again");
     }
 
-    // ── "Am I in this call?", instantiated rather than scanned ──────────
-    //
-    // THESE REPLACED A TEST THAT ASSERTED THE DEFECT. It required the literal
-    // `visible: hasCall && !ownDeviceHere && !locallyInCall`, so the buggy
-    // expression was pinned in place by its own coverage and could not be
-    // corrected without "breaking" a test.
-    //
-    // The defect: `ownDeviceHere` was `app.rtc.ownDeviceInSession()`, which
-    // answers whether ROOM STATE holds a membership naming this device — not
-    // whether this device is in a call. A device id survives a restart, so a
-    // client that exited while a call was running leaves a membership behind
-    // that still names it, and every one of these surfaces then hid its Join
-    // from the user who had just been dropped out. Reproduced live on
-    // 2026-09-12: `participants= 3` read repeatedly with no banner on screen,
-    // and the banner returned by itself the moment the ghost expired five
-    // minutes later — no restart, no click, nothing else changed.
-    //
-    // Read `property("visible")`, never `QQuickItem::isVisible()`: the latter
-    // is EFFECTIVE visibility and folds in the parent chain, so a standalone
-    // item answers a different question in either direction.
+    // "Am I in this call?", instantiated. Room state naming this device is not
+    // proof this device is in the call: a membership survives an unclean exit,
+    // and the local call controller is the authority. Read
+    // `property("visible")`, not isVisible(), which folds in the parent chain.
     void aGhostMembershipDoesNotHideTheBanner()
     {
         QQmlEngine engine;
         StubApp stub;
         const QString room = QStringLiteral("!r:mock.local");
 
-        // A live call, and room state carries a membership for THIS DEVICE —
-        // the ghost an unclean exit leaves behind. The local call controller
-        // says we are in no call, and it is the authority.
+        // Live call, a stale membership for this device, and no local call.
         stub.rtcStub()->count = 3;
         stub.rtcStub()->ownDevice = true;
         stub.callStub()->setActive(false);
@@ -2820,9 +2304,7 @@ ApplicationWindow {
 
     void theBannerStandsDownOnceThisDeviceIsInTheCall()
     {
-        // Offering "Join" to someone already in the call is nonsense, and
-        // the header bar owns the call at that point. Same name as the test
-        // this replaced; the meaning is now behavioural.
+        // Already in the call: no Join; the header bar owns it.
         QQmlEngine engine;
         StubApp stub;
         const QString room = QStringLiteral("!r:mock.local");
@@ -2836,8 +2318,7 @@ ApplicationWindow {
         QVERIFY2(!banner->property("visible").toBool(),
                  "the banner offers Join to a device already in the call");
 
-        // AND IT IS A LIVE BINDING, not a one-shot evaluation: leaving the
-        // call must bring the banner back without rebuilding anything.
+        // A live binding: leaving brings the banner back.
         stub.callStub()->setActive(false);
         QVERIFY2(banner->property("visible").toBool(),
                  "the banner did not come back when this device left the "
@@ -2846,8 +2327,7 @@ ApplicationWindow {
 
     void aCallInAnotherRoomLeavesThisRoomsBannerUp()
     {
-        // Without this, "simplify it to !app.groupCall.active" passes — and
-        // that would hide every other room's call while you are in one.
+        // Being in another call must not hide this room's banner.
         QQmlEngine engine;
         StubApp stub;
         const QString room = QStringLiteral("!r:mock.local");
@@ -2864,8 +2344,7 @@ ApplicationWindow {
 
     void noCallMeansNoBannerAndNoReservedHeight()
     {
-        // The collapse is separate real behaviour: a room with no call must
-        // not reserve a strip of empty space above its timeline.
+        // A room with no call reserves no space above its timeline.
         QQmlEngine engine;
         StubApp stub;
 
@@ -2879,12 +2358,9 @@ ApplicationWindow {
 
     void theSiblingJoinSurfacesAskTheControllerToo()
     {
-        // THE SAME WRONG ASSUMPTION LIVED IN THREE FILES, and a banner-only
-        // test would leave two of them unpinned. Source-level here rather
-        // than instantiated: CallEventDelegate is a timeline row that needs a
-        // model and RoomCallGlyph a room-list row, and what actually has to
-        // hold is narrow and checkable — neither may decide "this device is
-        // in the call" from room state.
+        // Same rule for CallEventDelegate and RoomCallGlyph, source-level since
+        // they need row models: neither may decide "this device is in the call"
+        // from room state.
         for (const auto *file : { QML_DIR "/CallEventDelegate.qml",
                                   QML_DIR "/RoomCallGlyph.qml",
                                   QML_DIR "/RoomCallBanner.qml" }) {
@@ -2902,34 +2378,18 @@ ApplicationWindow {
         }
     }
 
-    // 2026-08-26, maintainer request: "calls get put at the top of the screen".
-    // The call is a PANEL above the message list, which keeps scrolling
-    // beneath it — Discord's DM arrangement.
-    //
-    // This assertion is the INVERSE of what it used to be, and the history
-    // matters. Originally the stage was merely ADDED beside the timeline and
-    // both were `Layout.fillHeight`, so the ColumnLayout split the column:
-    // the stage got a ~45 px strip with its avatar and its buttons piled on
-    // each other. The fix then was to hide the timeline. The fix NOW is to
-    // stop the fight at its source — the stage takes an explicitly assigned,
-    // bounded height — which is what lets the timeline come back.
-    //
-    // On the unfixed tree every one of the four assertions below fails: the
-    // host is `Layout.fillHeight: active`, the timeline carries
-    // `visible: !root.callStageOwnsColumn`, and there is no panel height at
-    // all.
+    // The call is a panel above the message list, which keeps scrolling
+    // beneath it. The stage takes an explicit bounded height; making the host
+    // `Layout.fillHeight` splits the column and squashes the stage.
     void theCallPanelSitsAboveTheTimelineRatherThanReplacingIt()
     {
-        // Comment-stripped BEFORE normalizing: the bans below forbid two
-        // literals that the new hosting comment quotes verbatim while
-        // explaining why they are gone, and `normalized()` destroys the line
-        // structure a stripper needs.
+        // Comment-stripped before normalizing: the hosting comment quotes the
+        // banned literals, and normalized() destroys the line structure.
         const QString pane =
             normalized(code(read(QStringLiteral(QML_DIR "/TimelinePane.qml"))));
         QVERIFY(!pane.isEmpty());
         QVERIFY(pane.contains(QStringLiteral("objectName: \"timelineCallStageHost\"")));
-        // ONE condition, so the stage and everything around it cannot drift
-        // apart again.
+        // One condition, so the stage and its surroundings cannot drift apart.
         QVERIFY2(pane.contains(QStringLiteral(
                      "readonly property bool callStageOwnsColumn: "
                      "app.groupCall.active && app.groupCall.roomId === "
@@ -2937,8 +2397,7 @@ ApplicationWindow {
                  "TimelinePane has no single call-stage ownership condition");
         QVERIFY2(pane.contains(QStringLiteral("active: root.callStageOwnsColumn")),
                  "the call stage host does not read the ownership condition");
-        // BOUNDED, never fillHeight. `Layout.fillHeight` on the host is the
-        // original squash bug and must not come back.
+        // Bounded, never fillHeight.
         QVERIFY2(pane.contains(QStringLiteral(
                      "Layout.preferredHeight: active ? root.callPanelHeight "
                      ": 0")),
@@ -2946,8 +2405,7 @@ ApplicationWindow {
         QVERIFY2(!pane.contains(QStringLiteral("Layout.fillHeight: active")),
                  "the call stage host is fighting the timeline for the column "
                  "again");
-        // The timeline and the composer STAY. Hiding them is what this round
-        // undoes.
+        // The timeline and composer stay visible.
         QVERIFY2(!pane.contains(QStringLiteral("visible: !root.callStageOwnsColumn")),
                  "the timeline still stands down for the call");
         QVERIFY2(!pane.contains(QStringLiteral(
@@ -2956,13 +2414,8 @@ ApplicationWindow {
                  "the composer still stands down for the call");
     }
 
-    // The divider is draggable, and the drag is COMMITTED ON THE FALLING EDGE.
-    //
-    // §16's SplitView lesson, which applies to any hand-rolled resize just as
-    // it does to SplitView.resizing: the RELEASE moves nothing, so it emits no
-    // heightChanged, and a handler hung off the height never sees the end of
-    // the gesture. On the unfixed tree there is no divider at all, so the
-    // first assertion fails.
+    // The divider is draggable and commits on the falling edge: the release
+    // moves nothing, so a height-change handler never sees the gesture end.
     void theCallPanelDividerCommitsOnTheFallingEdgeOfTheDrag()
     {
         const QString raw = read(QStringLiteral(QML_DIR "/TimelinePane.qml"));
@@ -2975,19 +2428,18 @@ ApplicationWindow {
                  "the divider cannot be dragged");
         QVERIFY2(block.contains(QStringLiteral("onActiveChanged:")),
                  "the divider does not watch the drag's own active flag");
-        // The stored value is written where the gesture ENDS.
+        // The stored value is written where the gesture ends.
         QVERIFY2(block.contains(QStringLiteral(
                      "root.callPanelUserHeight = root.clampCallPanelHeight("
                      "root.callPanelHeight);")),
                  "the divider never commits the released height");
-        // ...and NOT from a height handler, which is the trap.
+        // ...and not from a height handler.
         const QString pane = normalized(code(raw));
         QVERIFY2(!pane.contains(QStringLiteral(
                      "onHeightChanged: root.callPanelUserHeight")),
                  "the panel height is being persisted from a height change, "
                  "which never fires on release");
-        // A collapse is a request to the HOST, not a self-resize: the stage
-        // cannot shrink a panel whose height it does not own.
+        // Collapse is a request to the host, which owns the panel height.
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
         QVERIFY(stage.contains(QStringLiteral("signal collapseToggled()")));
         QVERIFY(pane.contains(QStringLiteral(
@@ -2995,16 +2447,9 @@ ApplicationWindow {
             "!root.callPanelCollapsed")));
     }
 
-    // ── The reported bug, and the shape that fixes it ────────────────────
-    //
-    // "make sure multiple users can screen share, now if share is closed no
-    // way to get it back."
-    //
-    // A SHARE IS A TILE, NOT A MODE. The grid is built over SURFACES: one
-    // cell per share and one per participant. On the unfixed tree neither
-    // CallShareTile.qml nor CallTileGrid.qml exists, so this fails on its
-    // first read; and CallStage carries `sharingPerson`, which returns the
-    // FIRST sharer and stops.
+    // A share is a tile, not a mode: the grid has one cell per share and one
+    // per participant, so several people can share and a closed share can be
+    // brought back.
     void aScreenShareIsATileNotAMode()
     {
         const QString grid = read(QStringLiteral(QML_DIR "/CallTileGrid.qml"));
@@ -3014,26 +2459,25 @@ ApplicationWindow {
         QVERIFY2(!share.isEmpty(), "CallShareTile.qml is missing");
         QVERIFY(!stage.isEmpty());
 
-        // Two models, two Repeaters — surfaces, not people.
+        // Two models, two Repeaters: surfaces, not people.
         QVERIFY(grid.contains(QStringLiteral("model: root.shareModel")));
         QVERIFY(grid.contains(QStringLiteral("model: root.participantModel")));
-        // The people start where the shares end, so a sharer occupies a cell
-        // AND still has their own.
+        // People start where shares end, so a sharer has both cells.
         QVERIFY2(grid.contains(QStringLiteral(
                      "root.cellX(root.shareCount + personCell.index)")),
                  "the grid does not place people after the shares");
         // A person's own tile never renders their screen: two surfaces asking
-        // the router for one participant's screen blank each other.
+        // for one screen blank each other.
         QVERIFY(grid.contains(QStringLiteral("mediaKind: \"camera\"")));
-        // The share tile owns the screen sink, both ends of it — and it
-        // releases the SINK it holds, never a key it recomputes.
+        // The share tile owns the screen sink and releases the sink it holds,
+        // never a recomputed key.
         QVERIFY(share.contains(QStringLiteral("attachScreenSink(")));
         QVERIFY(share.contains(QStringLiteral("attachLocalScreenSink(")));
         QVERIFY(share.contains(
             QStringLiteral("app.groupCall.detachSink(output.videoSink)")));
-        // A shared screen is CONTENT: fitted, never cropped.
+        // A shared screen is fitted, never cropped.
         QVERIFY(share.contains(QStringLiteral("VideoOutput.PreserveAspectFit")));
-        // The one-sharer collapse must not come back.
+        // No single-sharer collapse.
         QVERIFY2(!stage.contains(QStringLiteral("sharingPerson")),
                  "the stage still resolves 'the one person who is sharing'");
         QVERIFY2(!stage.contains(QStringLiteral("spotlightKind")),
@@ -3041,46 +2485,34 @@ ApplicationWindow {
                  "one-share assumption in another spelling");
     }
 
-    // N simultaneous shares are N surfaces. There is nothing further to add
-    // on the wire — SfuVideoRouter already keys per participant and
-    // CallShareModel already carries one row per live share — so what this
-    // pins is that the VIEW stops collapsing them.
-    //
-    // On the unfixed tree `readonly property var sharingPerson` is present
-    // and this fails.
+    // N simultaneous shares are N surfaces. The router and CallShareModel
+    // already handle this; what is pinned is that the view does not collapse
+    // them.
     void multipleSimultaneousSharesEachGetTheirOwnSurface()
     {
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
         const QString grid = read(QStringLiteral(QML_DIR "/CallTileGrid.qml"));
         QVERIFY(!stage.isEmpty());
         QVERIFY(!grid.isEmpty());
-        // The grid is fed the whole share model, not one chosen sharer.
+        // The grid gets the whole share model.
         QVERIFY(stage.contains(QStringLiteral("shareModel: root.shareModel")));
         QVERIFY(stage.contains(
             QStringLiteral("readonly property var shareModel: "
                            "app.groupCall.shareModel")));
-        // No scan of the participant list for "who is sharing" survives
-        // anywhere on the stage — that scan is what could only ever find one.
+        // No "who is sharing" scan over participants, which finds only one.
         QVERIFY2(!stage.contains(QStringLiteral("people[i].screenSharing")),
                  "the stage scans participants for a sharer again");
         QVERIFY2(!stage.contains(QStringLiteral("readonly property var people")),
                  "the stage rebuilt the participant JS array");
-        // The strip excludes BY shareId. Excluding by identity is what used to
-        // drop a sharer's CAMERA when their SCREEN was spotlighted.
+        // The strip excludes by shareId; excluding by identity dropped a
+        // sharer's camera when their screen was spotlighted.
         QVERIFY(normalized(stage).contains(QStringLiteral(
             "stripShare.shareId !== root.stageState.spotlightShareId")));
     }
 
-    // THE INVARIANT: while any share is live there is always at least one
-    // on-screen control that puts it back on the spotlight.
-    //
-    // Two of them, deliberately. The explicit "Show screen share" button
-    // bound to `restorableShareAvailable`, and the share's own tile in the
-    // grid — because the grid is a complete index of everything on offer, a
-    // dismissed share is still a row, still a tile, still routable.
-    //
-    // On the unfixed tree this fails three ways: `layoutMode` exists, "Back
-    // to grid" writes it, and there is no restore control anywhere.
+    // While any share is live, at least one control puts it back on the
+    // spotlight: the explicit "Show screen share" button and the share's own
+    // tile in the grid.
     void aLiveShareIsAlwaysReachableAgain()
     {
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
@@ -3096,10 +2528,10 @@ ApplicationWindow {
         QVERIFY(norm.contains(
             QStringLiteral("onClicked: root.stageState.restoreAllShares()")));
 
-        // 2. The implicit one: a share tile in the grid restores itself.
+        // 2. A share tile in the grid restores itself.
         QVERIFY(norm.contains(QStringLiteral("root.stageState.restoreShare(")));
 
-        // 3. Leaving the spotlight DISMISSES; it never writes a layout.
+        // 3. Leaving the spotlight dismisses; it never writes a layout.
         QVERIFY(norm.contains(QStringLiteral(
             "root.stageState.dismissShare(root.stageState.spotlightShareId);")));
         QVERIFY(norm.contains(QStringLiteral("root.stageState.clearPin();")));
@@ -3110,30 +2542,21 @@ ApplicationWindow {
                      .contains(QStringLiteral("onClicked: root.leaveSpotlight()")),
                  "Back to grid does not go through the dismiss path");
 
-        // 4. THE LATCH IS GONE. `layoutMode` was a one-way door: the only
-        //    writer of anything but "auto" was Back to grid, writing "grid",
-        //    and nothing ever wrote back.
+        // 4. No one-way `layoutMode` latch.
         const QString stageCode = code(stage);
-        // Prove the stripper still leaves code behind before trusting a ban.
+        // Prove the stripper leaves code behind before trusting a ban.
         QVERIFY(stageCode.contains(QStringLiteral("objectName: \"callStage\"")));
         QVERIFY2(!stageCode.contains(QStringLiteral("layoutMode")),
                  "the terminal layout-mode latch is back on the call stage");
-        // And the stage never pins the shared preference either, which would
-        // be the same latch wearing the new API's name.
+        // The stage never pins the shared preference either.
         QVERIFY2(!stageCode.contains(QStringLiteral("setLayoutPreference")),
                  "the stage writes a layout preference with no writer back");
-        // `= "` and not `=`: the derivation legitimately COMPARES the
-        // preference with `===`, which contains `= ` as a substring.
+        // `= "` not `=`: the derivation compares the preference with `===`.
         QVERIFY2(!stageCode.contains(QStringLiteral("layoutPreference = \"")),
                  "the stage assigns a layout preference directly");
     }
 
-    // "volume shows up as a circle arround user" — the ring is driven by the
-    // SFU's amplitude, not by a boolean.
-    //
-    // On the unfixed tree the tile has no `speakingLevel` at all and animates
-    // `scale: root.speaking ? 1 : 0.94`, so both the presence assertion and
-    // the scale ban fail.
+    // The speaking ring follows the SFU's amplitude, not a boolean.
     void theSpeakingRingReadsALevelNotABoolean()
     {
         const QString tile =
@@ -3144,39 +2567,32 @@ ApplicationWindow {
         const QString norm = normalized(tile);
 
         QVERIFY(tile.contains(QStringLiteral("property real speakingLevel")));
-        // The GAP follows amplitude.
+        // The gap follows amplitude.
         QVERIFY2(norm.contains(QStringLiteral(
                      "readonly property real ringTarget: root.speaking ? 3 + 6 "
                      "* Math.max(0, Math.min(1, root.speakingLevel)) : 0")),
                  "the ring does not read the level");
-        // Attack fast, release slow, or it strobes between syllables.
+        // Fast attack, slow release, or it strobes between syllables.
         QVERIFY2(norm.contains(QStringLiteral(
                      "ringMotion.duration = root.ringTarget > root.ringGap ? "
                      "60 : 220")),
                  "the ring has no attack/release asymmetry");
-        // NOTHING is fabricated from the boolean. An SFU that reports only
-        // `active` must degrade to the fixed minimum ring, not to an invented
-        // amplitude.
+        // Nothing is fabricated from the boolean: an SFU reporting only
+        // `active` degrades to the fixed minimum ring.
         QVERIFY2(!norm.contains(QStringLiteral("speakingLevel: root.speaking ?")),
                  "a level is being fabricated from the speaking boolean");
-        // The ring must not resize the ITEM: scaling the avatar reflows every
-        // neighbour on every syllable.
+        // The ring must not scale the item, which reflows neighbours.
         QVERIFY2(!tile.contains(QStringLiteral("scale: root.speaking")),
                  "the speaking cue scales the avatar again");
         QVERIFY(norm.contains(QStringLiteral("width: parent.width + 2 * root.ringGap")));
-        // ...and the level actually reaches the tile from the model.
+        // The level reaches the tile from the model.
         QVERIFY(grid.contains(
             QStringLiteral("speakingLevel: personCell.speakingLevel")));
     }
 
-    // The stage binds the real models. A JS array reassigned is a MODEL
-    // RESET, and the speaker feed fires continuously while anyone talks — so
-    // the old `participants()` + `refreshTick` shape destroyed every tile,
-    // every VideoOutput and every attach()/detach() pair on every syllable.
-    // An amplitude ring cannot exist on top of that.
-    //
-    // On the unfixed tree `refreshTick` and `app.groupCall.participants()`
-    // are both in CallStage.qml and this fails.
+    // The stage binds the real models. Reassigning a JS array is a model
+    // reset, and the speaker feed fires continuously, so every tile and
+    // VideoOutput would be rebuilt on every syllable.
     void theStageBindsTheModelsRatherThanCopyingThem()
     {
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
@@ -3196,8 +2612,8 @@ ApplicationWindow {
 
     void theVoiceStripOnlyShowsWhenTheCallIsElsewhere()
     {
-        // Its whole purpose is surviving a walk away from the call's room.
-        // Inside that room it was a third copy of the same call.
+        // The strip exists for walking away from the call's room; inside that
+        // room it would duplicate the stage.
         const QString strip =
             normalized(read(QStringLiteral(QML_DIR "/VoiceConnectedBar.qml")));
         QVERIFY(!strip.isEmpty());
@@ -3207,35 +2623,20 @@ ApplicationWindow {
                  "room");
     }
 
-    // -----------------------------------------------------------------
-    // 2026-08-27. "camera no longer works" and "when i full screen it it
-    // stop shwoing video" are ONE defect, and it lives in how a destroyed
-    // surface gave up its video route.
-    // -----------------------------------------------------------------
+    // A destroyed video surface must release its route by sink, never by key.
 
     void noVideoSurfaceEverReleasesARouteByKey()
     {
-        // THE regression, stated as a rule the whole qml/ tree must obey.
-        //
-        // Qt destroys a replaced surface with deleteLater() while it builds
-        // the replacement synchronously, so on every grid<->spotlight swap,
-        // every full-screen transition and every QQuickRepeater regenerate
-        // (which is how a Repeater answers beginMoveRows — i.e. a participant
-        // reorder) the order is: NEW tile attaches, THEN old tile detaches.
-        // A key-named detach removed whatever was there, so the dying tile
-        // unhooked the living one — and since a tile only attaches on
-        // creation and on a routing-key change, nothing ever put it back.
-        //
-        // UNFIXED TREE: FAILS on the first four assertions. CallParticipantTile
-        // calls detachLocalScreenSink()/detachScreenSink(root.identity)/
-        // detachLocalCameraSink()/detachVideoSink(root.identity) and
-        // CallShareTile calls two of them, all with no sink.
+        // Rule for the whole qml/ tree: never release a route by key. Qt
+        // destroys a replaced surface with deleteLater() after building the
+        // replacement, so the new tile attaches before the old one detaches;
+        // a key-named detach unhooks the living tile and nothing re-attaches.
         QDir dir(QStringLiteral(QML_DIR));
         const QStringList files =
             dir.entryList({ QStringLiteral("*.qml") }, QDir::Files);
         QVERIFY(!files.isEmpty());
 
-        // Prove the scan can see what it is looking for before trusting a ban.
+        // Prove the scan sees what it looks for before trusting a ban.
         bool sawARelease = false;
         for (const QString &name : files) {
             const QString body = read(dir.filePath(name));
@@ -3247,8 +2648,7 @@ ApplicationWindow {
                                         "%1 releases a video route BY KEY (%2)")
                                         .arg(name, QLatin1String(banned))));
             }
-            // Every release names a sink. A bare `detachSink()` would be the
-            // same hole with the new API's name on it.
+            // Every release names a sink; a bare `detachSink()` is the same hole.
             int at = 0;
             while ((at = body.indexOf(QStringLiteral("detachSink("), at)) >= 0) {
                 at += 11; // past "detachSink("
@@ -3263,18 +2663,9 @@ ApplicationWindow {
                  "no QML surface releases a video sink at all — the scan is "
                  "asserting nothing");
 
-        // AND NO PERIODIC RE-ARM. One was written as a safety net — attach()
-        // on every `participantsChanged`, restoring explicitly the accidental
-        // self-healing the old constantly-resetting stage provided — and
-        // REMOVED on analysis, because it reintroduces the very defect above.
-        //
-        // Between a layout swap and the deferred delete that ends the old
-        // tile, BOTH tiles are alive and connected. One participant update in
-        // that window has the dying tile re-CLAIM the key from its successor,
-        // and its destruction then releases it as the rightful owner — the
-        // live surface goes blank. The late-key case the net was meant to
-        // cover is handled where it belongs, by `onActiveTrackKeyChanged` /
-        // `onTrackKeyChanged` on the tile itself.
+        // No periodic re-arm either: while both tiles are alive a participant
+        // update lets the dying tile reclaim the key and then release it. Late
+        // keys are handled by `onActiveTrackKeyChanged` / `onTrackKeyChanged`.
         for (const auto &name : { "CallParticipantTile.qml",
                                   "CallShareTile.qml" }) {
             const QString body =
@@ -3289,7 +2680,7 @@ ApplicationWindow {
                                     "key back from its successor")
                                     .arg(QLatin1String(name))));
         }
-        // The late-key re-attach IS required, in both tiles.
+        // The late-key re-attach is required in both tiles.
         QVERIFY(read(dir.filePath(QStringLiteral("CallParticipantTile.qml")))
                     .contains(QStringLiteral("onActiveTrackKeyChanged:")));
         QVERIFY(read(dir.filePath(QStringLiteral("CallShareTile.qml")))
@@ -3298,15 +2689,8 @@ ApplicationWindow {
 
     void theRouterRefusesAReleaseFromASupersededSurface()
     {
-        // The router-level statement of the same rule, and the one assertion
-        // that pins the mechanism rather than a call site.
-        //
-        // UNFIXED TREE: does not compile — `releaseSink` did not exist, and
-        // the API it replaced (`detachSink(key)`) had no way to EXPRESS this,
-        // which is exactly why eleven router tests passed straight through
-        // the regression. Behaviourally, the nearest thing you can write
-        // there — `detachSink(key)` from the superseded owner — leaves
-        // `watching(key)` FALSE, which is the blank tile.
+        // Router-level statement of the same rule: a superseded owner's
+        // release must not remove the new owner's route.
 #ifndef HAVE_LIGHTNING_WEBRTC
         QSKIP("built without the SFU media engine");
 #else
@@ -3318,27 +2702,21 @@ ApplicationWindow {
         router.attachSink(key, first.get());
         QVERIFY(router.watchedBy(key, first.get()));
 
-        // The replacement CLAIMS the key. This is the ORDER production
-        // actually produces: Qt builds the new surface synchronously and
-        // destroys the old one on the deferred-delete queue.
+        // The replacement claims the key first, the order production produces.
         router.attachSink(key, second.get());
         QVERIFY(router.watchedBy(key, second.get()));
 
-        // ...and the superseded owner's release, arriving afterwards, takes
-        // nothing with it. THIS is the assertion the whole regression turns
-        // on.
+        // The superseded owner's later release takes nothing with it.
         router.releaseSink(first.get());
         QVERIFY2(router.watching(key), "a dying surface unhooked a live one");
         QVERIFY(router.watchedBy(key, second.get()));
 
-        // The real owner's release still works, or the table would only ever
-        // grow and every assertion here would be vacuous.
+        // The real owner's release still works, or these checks are vacuous.
         router.releaseSink(second.get());
         QVERIFY(!router.watching(key));
 
-        // One surface gives up EVERY key it holds — a camera tile attaches
-        // under both the track sid and the participant sid — and touches
-        // nobody else's.
+        // A surface releases every key it holds (a camera tile attaches under
+        // both track sid and participant sid) and nobody else's.
         router.attachSink(key, first.get());
         router.attachSink(QStringLiteral("PA_alice"), first.get());
         router.attachSink(QStringLiteral("TR_other"), second.get());
@@ -3347,13 +2725,11 @@ ApplicationWindow {
         QVERIFY(!router.watching(QStringLiteral("PA_alice")));
         QVERIFY(router.watching(QStringLiteral("TR_other")));
 
-        // A null attach is a NO-OP, never an eviction: "I have no sink yet"
-        // is not "nobody may own this key". It used to remove the key, which
-        // is the same defect wearing a different hat.
+        // A null attach is a no-op, never an eviction.
         router.attachSink(QStringLiteral("TR_other"), nullptr);
         QVERIFY(router.watching(QStringLiteral("TR_other")));
 
-        // A null release is likewise a no-op and not a wildcard.
+        // A null release is a no-op, not a wildcard.
         router.releaseSink(nullptr);
         QVERIFY(router.watching(QStringLiteral("TR_other")));
 #endif
@@ -3361,18 +2737,9 @@ ApplicationWindow {
 
     void theVideoRouteSurvivesTheStagesOwnLayoutChanges()
     {
-        // THE production-reaching one, and the only kind that would have
-        // caught this. §16 records twice what a test that calls the policy
-        // directly is worth (the row window shipped as a permanent no-op; the
-        // rail drop could never group), so this drives the REAL CallStage
-        // through the REAL transition and asserts against the ROUTER — never
-        // against a QML property, because the whole failure is a tile
+        // Drives the real CallStage through real transitions and asserts
+        // against the router, never a QML property: the failure is a tile
         // reporting "attached" while the router disagrees.
-        //
-        // UNFIXED TREE: does not compile (no isRoutingVideoTo). With the
-        // equivalent assertion wired in, it FAILS at the grid -> spotlight
-        // step: the grid tile's deferred destruction removes the key the
-        // spotlight tile took, and nothing re-attaches.
 #ifndef HAVE_LIGHTNING_WEBRTC
         QSKIP("built without the SFU media engine");
 #else
@@ -3417,25 +2784,21 @@ ApplicationWindow {
 
         const QString key = QStringLiteral("TR_share_a");
 
-        // 1. GRID. Dismissing the spotlight leaves the share as an ordinary
-        //    grid tile — still live, still routable, which is the invariant
-        //    CallStageState exists for.
+        // 1. Grid: a dismissed spotlight leaves the share as a live grid tile.
         stage->dismissShare(key);
         settle();
         QCOMPARE(stage->spotlightShareId(), QString());
         QVERIFY2(call->isRoutingVideoTo(key),
                  "the grid's share tile never attached a sink");
 
-        // 2. GRID -> SPOTLIGHT. The reported failure.
+        // 2. Grid -> spotlight.
         stage->restoreShare(key);
         settle();
         QCOMPARE(stage->spotlightShareId(), key);
         QVERIFY2(call->isRoutingVideoTo(key),
                  "the dying grid tile unhooked the spotlight's sink");
 
-        // 3. SPOTLIGHT -> FULL SCREEN. The same transition again, across a
-        //    window boundary this time, which is why the feature could not
-        //    have been added before this rule existed.
+        // 3. Spotlight -> full screen, across a window boundary.
         stage->setFullScreen(true);
         QCOMPARE(stage->fullScreen(), true);
         settle();
@@ -3448,9 +2811,8 @@ ApplicationWindow {
         QVERIFY2(call->isRoutingVideoTo(key),
                  "leaving full screen lost the video route");
 
-        // 5. The share ends: NOW the route really should be gone, or the
-        //    router is simply never releasing anything and every assertion
-        //    above is vacuous.
+        // 5. Share ends: now the route must be gone, or nothing is ever
+        //    released and the checks above are vacuous.
         QVariantMap stopped = sharer;
         track.insert(QStringLiteral("muted"), true);
         stopped.insert(QStringLiteral("tracks"), QVariantList { track });
@@ -3464,24 +2826,17 @@ ApplicationWindow {
 
     void theTwoShareQualityLaddersCannotDisagree()
     {
-        // THE SNAPPING EXISTS TWICE: once in SettingsManager, which refuses
-        // to store a value outside the offered set, and once in
-        // SfuMediaEngine::setShareQuality, which refuses to put one into a
-        // caps string. Neither can be deleted -- the settings store is
-        // hand-editable and the engine is reachable from a test double --
-        // but two ladders that disagree mean the UI shows one quality and
-        // the encoder uses another, silently.
-        //
-        // So they are pinned against each other rather than each against a
-        // literal, which is what makes this catch a change to EITHER.
+        // Quality snapping exists in SettingsManager (storage) and in
+        // SfuMediaEngine::setShareQuality (caps). Both must stay, so they are
+        // pinned against each other: disagreement means the UI shows one
+        // quality while the encoder uses another.
 #ifndef HAVE_LIGHTNING_WEBRTC
         QSKIP("built without the SFU media engine");
 #else
         SettingsManager settings;
         SfuMediaEngine engine;
 
-        // Values around and between every boundary, plus the absurd ones a
-        // hand-edited config could carry.
+        // Values around every boundary, plus absurd hand-edited ones.
         const QList<int> heights = { -100, 0, 1, 480, 719, 720, 721, 900,
                                      901, 1080, 1081, 1260, 1261, 1440,
                                      1441, 1800, 1801, 2160, 2161, 4320 };
@@ -3523,9 +2878,8 @@ ApplicationWindow {
 
     void theShareMenuStaysOpenWhileSettingsAreChanged()
     {
-        // A MenuItem closes its menu on trigger, which is right for an action
-        // and wrong for a settings panel: picking a resolution should not
-        // dismiss the list you were about to pick a frame rate from.
+        // Quality rows must not close the menu on trigger, so a resolution
+        // pick does not dismiss the frame-rate list.
         AppController controller(AppController::MockBackend);
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
@@ -3556,10 +2910,8 @@ ApplicationWindow {
         QVERIFY(settings);
         settings->setShareMaxHeight(1080);
 
-        // THROUGH THE MENU'S OWN count/itemAt, not findChildren: these rows
-        // are Repeater delegates, and findChild cannot reach a Repeater's
-        // delegates at all — a trap this repository has already recorded and
-        // that cost this case one run.
+        // Through the menu's count/itemAt: rows are Repeater delegates, which
+        // findChild cannot reach.
         QQuickItem *target = nullptr;
         const int rows = menu->property("count").toInt();
         QVERIFY2(rows > 0, "the menu reports no rows at all");
@@ -3575,9 +2927,8 @@ ApplicationWindow {
             }
         }
         QVERIFY2(target != nullptr, "no 720p row found in the menu");
-        // The SIGNAL, not a trigger() method: MenuItem has no such slot,
-        // and invoking a name that does not exist is a silent no-op that
-        // leaves the assertion below blaming the code.
+        // Emit the signal: MenuItem has no trigger() slot, and invoking a
+        // missing name is a silent no-op.
         QMetaObject::invokeMethod(target, "triggered");
         QCoreApplication::processEvents();
 
@@ -3587,11 +2938,9 @@ ApplicationWindow {
 
     void theShareAudioCheckboxKeepsFollowingTheControllerAfterAClick()
     {
-        // A CheckBox WRITES its own `checked` when clicked, and an imperative
-        // write destroys the declarative binding. Without restoring it the
-        // box stops following the controller after the first click — so the
-        // picker and the call bar's menu would then disagree about whether
-        // sound is on, which is the whole point of them sharing one setting.
+        // A CheckBox writes its own `checked` on click, destroying the
+        // binding; it must be restored so the picker and the call bar's menu
+        // keep agreeing on the shared setting.
         AppController controller(AppController::MockBackend);
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
@@ -3628,13 +2977,9 @@ ApplicationWindow {
         SfuCallController *call = controller.groupCall();
         QVERIFY(call);
 
-        // A JS-SIDE WRITE, because that is what actually breaks a binding.
-        // C++ toggle()/setProperty() do NOT remove a QML binding — they set
-        // the value and the binding overwrites it on its next evaluation —
-        // so a simulation built on those passes whether or not the fix is
-        // present. Measured: with Qt.binding() deleted, the toggle() version
-        // of this case still passed. Evaluating `checked = ...` in the
-        // object's own context is the real thing.
+        // A JS-side write, because that is what breaks a binding. C++
+        // setProperty()/toggle() do not remove a QML binding, so a test built
+        // on them passes without the fix.
         {
             QQmlExpression write(qmlContext(box), box,
                                  QStringLiteral("checked = !checked"));
@@ -3645,9 +2990,7 @@ ApplicationWindow {
         QMetaObject::invokeMethod(box, "toggled");
         QCoreApplication::processEvents();
 
-        // ...then move the setting from the OTHER surface and require the
-        // box to follow. This is the assertion that fails without
-        // Qt.binding() being restored.
+        // Change the setting from the other surface; the box must follow.
         const bool now = call->shareAudioEnabled();
         call->setShareAudioEnabled(!now);
         QCoreApplication::processEvents();
@@ -3659,10 +3002,8 @@ ApplicationWindow {
 
     void bothShareSurfacesOfferTheSameRungsAndTheSameWarning()
     {
-        // TWO SURFACES, ONE TRUTH. The chevron menu and the share picker both
-        // set the same settings, and they have already drifted once: the menu
-        // gained the 4K rung and the picker did not, so the same setting
-        // offered different choices depending on which platform you were on.
+        // The chevron menu and the share picker set the same settings and must
+        // offer the same choices.
         const QString menu =
             read(QStringLiteral(QML_DIR "/CallShareOptionsMenu.qml"));
         const QString picker =
@@ -3688,9 +3029,8 @@ ApplicationWindow {
                              .arg(rate)));
         }
 
-        // And both mark the slow combination from the SAME predicate rather
-        // than each deciding. The menu marks the RATE ROW itself — a
-        // paragraph under the list ran off the menu's edge and had to go.
+        // Both mark the slow combination from the same predicate. The menu
+        // marks the rate row itself.
         for (const QString &src : { menu, picker }) {
             QVERIFY2(src.contains(QStringLiteral("shareQualityDemanding")),
                      "a share surface decides for itself whether a "
@@ -3700,33 +3040,24 @@ ApplicationWindow {
                  "the menu no longer marks the individual rate rows, so the "
                  "warning is back to being a block of prose");
 
-        // The predicate itself, and every row is a MEASURED position rather
-        // than a taste. `gdiscreencapsrc` sustains 30 fps and not 60: at 30
-        // it delivered 1000 frames against 1000 encrypted (1:1); at 60 it
-        // delivered ~500 against ~1500, i.e. videorate tripling each real
-        // frame. So 60 is warned wherever the pixel count makes the blit
-        // expensive, and 4K is warned at every rate.
-        //
-        // THE FALSE ROWS ARE THE POINT. 1080p is measured at about 1 fps of
-        // impact in a running game and must never warn — a warning on the
-        // setting most people should pick trains everyone to ignore it. And
-        // 1440p at 30 is the 240 -> 225 fps configuration: a real cost,
-        // deliberately offered without a caveat.
+        // The predicate's table. `gdiscreencapsrc` sustains 30 fps, not 60, so
+        // 60 warns where the pixel count makes the blit expensive and 4K warns
+        // at every rate. 1080p must never warn: a warning on the recommended
+        // setting trains everyone to ignore it.
         SettingsManager settings;
         struct Row { int h; int fps; bool warn; };
         const QList<Row> rows = {
-            // 1080p and below: never, at any rate.
+            // 1080p and below: never.
             { 720, 30, false }, { 720, 60, false },
             { 1080, 15, false }, { 1080, 30, false }, { 1080, 60, false },
-            // 1440p: fine at 30, warned at 60.
+            // 1440p: warned at 60 only.
             { 1440, 15, false }, { 1440, 30, false }, { 1440, 60, true },
-            // 4K: warned at every rate, including 15.
+            // 4K: warned at every rate.
             { 2160, 15, true }, { 2160, 30, true }, { 2160, 60, true },
         };
         for (const Row &r : rows) {
-            // Asked BOTH ways — about the current setting and about an
-            // arbitrary combination — because the menu rows use the second
-            // and only the first was covered.
+            // Asked both ways: current setting (bar) and arbitrary combination
+            // (menu rows).
             QCOMPARE(settings.shareQualityDemandingAt(r.h, r.fps), r.warn);
             settings.setShareMaxHeight(r.h);
             settings.setShareFps(r.fps);
@@ -3740,18 +3071,10 @@ ApplicationWindow {
 
     void startingACallAnnouncesItOnceAndOnlyByTheFirstArrival()
     {
-        // A CONTRACT SCAN, not a behavioural test, and worth saying so: this
-        // pins the two decisions, not the wire result. The behaviour needs a
-        // live room with Element on the other end, which is where it will be
-        // judged.
-        //
-        // WHY IT EXISTS. `m.call.member` is a STATE event, and state events
-        // do not appear in a timeline — so starting a call posted nothing and
-        // the only "started a call" row a user saw was one somebody else's
-        // client had sent, which read as their call being attributed to
-        // someone else. The MessageLike announcement is what renders, and
-        // docs/matrixrtc.md recorded its send pipe as built with "no caller
-        // yet".
+        // Contract scan for the call announcement. `m.call.member` is a state
+        // event and never renders in a timeline, so starting a call must also
+        // send the message-like announcement. Behaviour is judged live
+        // against Element.
         const QString src =
             read(QStringLiteral(SRC_DIR "/calls/SfuCallController.cpp"));
         QVERIFY(!src.isEmpty());
@@ -3762,17 +3085,13 @@ ApplicationWindow {
             "m_publishOp = m_client->rtcPublishMembership"));
         QVERIFY2(sampled >= 0, "nothing decides whether we started the call");
         QVERIFY2(published >= 0, "the membership publish call site moved");
-        // SAMPLED FIRST. A moment after our own membership is on the wire the
-        // answer is always "somebody is already here" — ourselves — so the
-        // room would never be told anything.
+        // Sampled before our own membership is published, or the answer is
+        // always "somebody is already here" (ourselves).
         QVERIFY2(sampled < published,
                  "the first-arrival check runs AFTER our own membership "
                  "publishes, so it can only ever answer no");
 
-        // ANNOUNCE, not ring. "ring" is Element's DM-style ring that makes
-        // the far end audibly ring; "notification" announces a group call.
-        // Announcing is what the report asked for; ringing other people's
-        // clients is a louder change and belongs to its own round.
+        // Announce ("notification"), not "ring", which makes the far end ring.
         QVERIFY2(src.contains(QStringLiteral("m_client->rtcNotify(")),
                  "nothing announces the call, so the room still gets no "
                  "timeline row when a call starts");
@@ -3785,9 +3104,8 @@ ApplicationWindow {
                  "the announcement rings other people's clients, which was "
                  "deliberately left to its own round");
 
-        // ONCE. The flag is cleared as it fires, or a re-published
-        // membership (the refresh cadence re-enters this path) announces
-        // again on every tick.
+        // Once: the flag clears as it fires, or each membership refresh
+        // announces again.
         QVERIFY2(src.contains(QStringLiteral("m_announceOnPublish = false;")),
                  "the announcement flag is never cleared, so a membership "
                  "refresh would announce the call again");
@@ -3795,17 +3113,9 @@ ApplicationWindow {
 
     void everyPrivateQtHeaderIncludeStaysGuarded()
     {
-        // A PORTABILITY RULE THE TREE ALREADY KNEW, and that a change in this
-        // round broke anyway. `qpa/qplatformscreen.h` is a PRIVATE Qt header:
-        // the Linux dev shell has it, the MinGW Qt the Windows package builds
-        // against does not. So an unguarded include compiles here and stops
-        // the Windows job dead — which is exactly what happened, thirty
-        // minutes into a build, on a line added the same afternoon.
-        //
-        // SfuCallController.cpp gets this right and says why: "Compiled on
-        // Linux alone, so no Windows or macOS translation unit sees a private
-        // Qt header; and gated on the CMake probe, so a Qt packaged without
-        // private headers still builds." The rule was two files away.
+        // `qpa/qplatformscreen.h` is a private Qt header the Windows MinGW Qt
+        // lacks, so every include must be platform- and CMake-probe guarded
+        // (as SfuCallController.cpp does).
         QDir dir(QStringLiteral(SRC_DIR));
         const QStringList files =
             dir.entryList(QStringList{}, QDir::Dirs | QDir::NoDotAndDotDot);
@@ -3832,9 +3142,8 @@ ApplicationWindow {
                     if (!lines.at(i).contains(QStringLiteral("#include <qpa/")))
                         continue;
                     ++includes;
-                    // A conditional must OPEN somewhere above it. Twenty
-                    // lines is generous enough for a comment block like the
-                    // one this rule is documented in.
+                    // A conditional must open within the preceding lines;
+                    // twenty allows for a comment block.
                     bool guarded = false;
                     for (int j = std::max(0, i - 20); j < i; ++j) {
                         if (lines.at(j).trimmed().startsWith(
@@ -3851,8 +3160,7 @@ ApplicationWindow {
         };
         walk(QStringLiteral(SRC_DIR));
 
-        // found > 0, or a rename turns this into a scan that passes by
-        // matching nothing at all.
+        // found > 0, or a rename makes this pass by matching nothing.
         QVERIFY2(includes > 0,
                  "no private Qt include found anywhere, so this scan is "
                  "checking nothing -- has the header been renamed?");
@@ -3865,12 +3173,9 @@ ApplicationWindow {
 
     void theShareChevronSitsAsCloseAsEveryOtherChevron()
     {
-        // MEASURED AGAINST THE ESTABLISHED PAIR, not against a number. The
-        // camera and microphone each group their button and chevron in one
-        // RowLayout with spacing 0 and a 2 px margin; the share pair were
-        // two siblings of the OUTER row, so they took the outer spacing and
-        // the gap read visibly wider than everything beside it. Comparing
-        // the two gaps catches that without hardcoding either.
+        // The share button/chevron gap must match the camera and microphone
+        // pairs, which group into one RowLayout with spacing 0. Compared
+        // against that pair rather than a hardcoded number.
         AppController controller(AppController::MockBackend);
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
@@ -3901,8 +3206,7 @@ ApplicationWindow {
             auto *c = bar->findChild<QQuickItem *>(QString::fromLatin1(chevron));
             if (!b || !c || !b->isVisible() || !c->isVisible())
                 return -1.0;
-            // Scene coordinates, so a different parent cannot flatter the
-            // comparison.
+            // Scene coordinates, so a different parent cannot skew it.
             const QPointF bEnd = b->mapToScene(QPointF(b->width(), 0));
             const QPointF cStart = c->mapToScene(QPointF(0, 0));
             return cStart.x() - bEnd.x();
@@ -3926,14 +3230,8 @@ ApplicationWindow {
 
     void theShareOptionsMenuShowsItsLabelsWithoutEliding()
     {
-        // MEASURED, because "260 is probably enough" is how the first
-        // version shipped a row reading "Share this computer's ...". A Label
-        // whose implicitWidth exceeds its width is eliding; that is the
-        // arithmetic Qt itself uses, so it is the thing to assert rather
-        // than a guess about character counts.
-        //
-        // It also guards the translations: a language whose word for "sound"
-        // is longer gets caught here rather than by a screenshot.
+        // Measured: a Label whose implicitWidth exceeds its width is eliding.
+        // Also catches translations with longer wording.
         AppController controller(AppController::MockBackend);
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
@@ -3966,9 +3264,8 @@ ApplicationWindow {
             QStringLiteral("shareAudioMenuItem"));
         QVERIFY2(item != nullptr, "the sound row is gone from the menu");
 
-        // The row is only built where something can capture, so a machine
-        // without a loopback element cannot exercise this -- say so rather
-        // than passing on an absent row.
+        // The row is only built where something can capture; skip rather than
+        // pass on an absent row.
         if (!item->isVisible())
             QSKIP("no loopback capture element here, so the sound row is "
                   "absent and its width cannot be measured");
@@ -3995,13 +3292,8 @@ ApplicationWindow {
 
     void theShareAudioToggleLivesWhereWaylandCanReachIt()
     {
-        // THE POINT OF THIS CASE is WHICH surface carries the control.
-        //
-        // On Wayland the share route is the PORTAL: the desktop draws its own
-        // dialog and Lightning's picker never opens, so a switch that lives
-        // only in the picker is unreachable on the platform this is developed
-        // on. It has to be on the call controls, which are shown on every
-        // route and every platform.
+        // On Wayland the share goes through the portal and our picker never
+        // opens, so the share-audio control must live on the call controls.
         const QString bar = read(QStringLiteral(QML_DIR "/CallHeaderBar.qml"));
         QVERIFY(!bar.isEmpty());
         QVERIFY2(bar.contains(QStringLiteral("callBarShareOptionsChevron")),
@@ -4014,15 +3306,13 @@ ApplicationWindow {
         QVERIFY2(menu.contains(QStringLiteral("shareAudioSupported")),
                  "the menu offers sound without asking whether anything can "
                  "capture it, so it appears where it cannot work");
-        // Resolution and frame rate must be here TOO, not only in the picker
-        // -- that is the whole reason this surface exists.
+        // Resolution and frame rate must be here too.
         QVERIFY2(menu.contains(QStringLiteral("shareMaxHeight"))
                      && menu.contains(QStringLiteral("shareFps")),
                  "resolution or frame rate is missing from the one surface "
                  "Wayland shows");
 
-        // And the picker keeps its copy, which is what X11, Windows and
-        // macOS see. Both surfaces, one setting.
+        // The picker keeps its copy for X11, Windows and macOS.
         const QString picker =
             read(QStringLiteral(QML_DIR "/ScreenSharePicker.qml"));
         QVERIFY(!picker.isEmpty());
@@ -4030,18 +3320,14 @@ ApplicationWindow {
                  "the picker lost its share-audio switch, leaving the "
                  "non-portal platforms without one");
 
-        // NEITHER surface may carry its own idea of the state. Two controls
-        // over one setting is how a toggle comes to disagree with itself.
-        // The MENU and the picker, not the bar: the bar now carries only the
-        // chevron that opens the menu, which is the point of the move.
+        // Neither the menu nor the picker may hold its own copy of the state.
         for (const QString &src : { menu, picker }) {
             QVERIFY2(src.contains(QStringLiteral("shareAudioEnabled")),
                      "a share-audio control does not read the controller's "
                      "state");
         }
 
-        // The route this is all about, asserted rather than described: the
-        // portal branch enumerates nothing and draws no picker of ours.
+        // The portal branch enumerates nothing and opens no picker of ours.
         const QString ctrl =
             read(QStringLiteral(SRC_DIR "/calls/SfuCallController.cpp"));
         QVERIFY(!ctrl.isEmpty());
@@ -4053,12 +3339,8 @@ ApplicationWindow {
 
     void theSharePickerOffersShareAudioOnlyWhereItCanWork()
     {
-        // A REAL LOAD, not a source scan. Every other case over this file
-        // reads it as text, and a text scan cannot see the failure that
-        // matters here: a binding to a property that does not exist is a
-        // load-time error which makes the component unavailable and cascades
-        // into every parent. qmlformat cannot see it either -- it parses
-        // syntax and does not check that a property exists.
+        // A real load: a binding to a missing property is a load-time error
+        // that text scans and qmlformat cannot see.
         AppController controller(AppController::MockBackend);
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
@@ -4083,11 +3365,7 @@ ApplicationWindow {
         auto *picker = owner->property("picker").value<QObject *>();
         QVERIFY(picker != nullptr);
 
-        // OPEN IT FIRST. `visible` is EFFECTIVE visibility: everything
-        // inside a closed dialog reads false whatever its own binding says,
-        // so asserting against a shut picker measures the dialog, not the
-        // switch. This is the same property that makes a shared busy
-        // indicator latch off under a hidden ancestor.
+        // Open it first: inside a closed dialog `visible` is always false.
         QMetaObject::invokeMethod(picker, "open");
         QCoreApplication::processEvents();
         QTRY_VERIFY_WITH_TIMEOUT(picker->property("visible").toBool(), 3000);
@@ -4096,29 +3374,20 @@ ApplicationWindow {
             QStringLiteral("shareAudioCheck"));
         QVERIFY2(check != nullptr, "the share-audio switch is gone");
 
-        // ABSENT where it cannot work, rather than present and disabled: a
-        // greyed switch invites "why can I not turn this on", and the honest
-        // answer on a build with no loopback element is that there is
-        // nothing to offer. Asserted against the controller's own answer, so
-        // this holds on a machine either way rather than only on this one.
+        // Absent, not disabled, where there is no loopback element. Asserted
+        // against the controller's answer so it holds on any machine.
         const bool supported =
             controller.groupCall()
                 ? controller.groupCall()->shareAudioSupported() : false;
-        // VACUITY IS MADE LOUD. On a machine with no loopback element both
-        // sides of the comparison below are false and the case passes
-        // without measuring anything -- which is precisely what happened
-        // first time round, because the availability probe answered "no"
-        // before GStreamer had been initialised. A skip says so; a pass
-        // would not.
+        // Skip loudly when unsupported: both sides would be false and the case
+        // would pass without measuring anything.
         if (!supported) {
             QSKIP("no loopback capture element here, so the visible branch "
                   "of this case cannot be exercised");
         }
         QCOMPARE(check->property("visible").toBool(), supported);
 
-        // And the switch REFLECTS the controller rather than carrying its
-        // own idea of the state -- a checkbox initialised to a literal is
-        // how a setting comes to disagree with what it controls.
+        // The switch reflects the controller rather than a literal.
         QCOMPARE(check->property("checked").toBool(),
                  controller.groupCall()->shareAudioEnabled());
         controller.groupCall()->setShareAudioEnabled(false);
@@ -4130,24 +3399,11 @@ ApplicationWindow {
 
     void chromeRetiresWithThePointerParkedOverIt()
     {
-        // THE REPORTED CASE, and the one every earlier version passed while
-        // production failed: a pointer that is ON the share and not moving.
-        //
-        // "while my mouse is on screen it still has the ui, only if i click
-        // on another window in another screen they go away" — which is the
-        // shape of a FEEDBACK LOOP, not of a dead timer. Retiring the chrome
-        // changes what sits under the pointer (the overlay goes disabled, the
-        // blank-cursor handler comes live), Qt re-delivers a hover event at
-        // the same position, and a handler that treats `pointChanged` as
-        // movement resets its own count. Measured on the unfixed tree with a
-        // pointer that never moved:
-        //     TICKS 0:0 1:1 2:2 3:3 4:4 5:5 6:0 7:1 8:2 ... idle=0
-        // It climbs to the budget, hides, wakes itself, forever. Clicking
-        // another screen "fixes" it only by stopping the re-deliveries.
-        //
-        // A real window and real mouse events, because NONE of this is
-        // reachable without a pointer -- which is exactly why three previous
-        // versions of this test passed on broken code.
+        // A pointer resting on the share must not keep the chrome awake.
+        // Retiring the chrome changes what is under the pointer, Qt re-delivers
+        // a hover at the same position, and a handler that treats
+        // `pointChanged` as movement resets its own count: a feedback loop.
+        // Needs a real window and real mouse events.
 #ifndef HAVE_LIGHTNING_WEBRTC
         QSKIP("built without the SFU media engine");
 #else
@@ -4198,7 +3454,7 @@ ApplicationWindow {
         const int budgetMs = root->property("idleTickMs").toInt()
                              * root->property("idleTicksToHide").toInt();
 
-        // Pointer ONTO the share, once. Never moved again.
+        // Pointer onto the share once, never moved again.
         QTest::mouseMove(&window, QPoint(600, 300));
         QCoreApplication::processEvents();
         QVERIFY2(!root->property("stageChromeIdle").toBool(),
@@ -4206,12 +3462,8 @@ ApplicationWindow {
         QTRY_VERIFY_WITH_TIMEOUT(root->property("stageChromeIdle").toBool(),
                                  budgetMs + 20000);
 
-        // AND IT MUST STAY RETIRED. Reaching the state is not the claim --
-        // under the feedback loop it reached it too, for a few milliseconds
-        // each cycle, which QTRY_VERIFY duly caught. That is why the first
-        // version of this very test passed on the broken tree. What the
-        // reporter sees is chrome that is THERE, so the assertion is that it
-        // stays gone.
+        // It must stay retired: under the feedback loop it reached the state
+        // briefly each cycle, which QTRY_VERIFY alone would accept.
         for (int i = 0; i < 20; ++i) {
             QTest::qWait(200);
             QVERIFY2(root->property("stageChromeIdle").toBool(),
@@ -4220,15 +3472,10 @@ ApplicationWindow {
                      "counts it as movement");
         }
 
-        // THE POINTER ITSELF, measured off the window rather than inferred
-        // from a handler's properties. Asserting that a HoverHandler carries
-        // Qt.BlankCursor says nothing about whether the window ever applied
-        // it -- which is the difference between the cursor being configured
-        // and the cursor being gone.
+        // The window's actual cursor, not the handler's configured one.
         QCOMPARE(window.cursor().shape(), Qt::BlankCursor);
 
-        // And a REAL move wakes it -- the other half, or the fix could simply
-        // be "never reset" and this would still pass.
+        // A real move wakes it, or "never reset" would also pass.
         QTest::mouseMove(&window, QPoint(640, 340));
         QCoreApplication::processEvents();
         QVERIFY2(!root->property("stageChromeIdle").toBool(),
@@ -4236,7 +3483,7 @@ ApplicationWindow {
         QVERIFY2(window.cursor().shape() != Qt::BlankCursor,
                  "the pointer stayed hidden after the chrome came back");
 
-        // ...and retires again afterwards, so waking is not a latch.
+        // ...and it retires again, so waking is not a latch.
         QTRY_VERIFY_WITH_TIMEOUT(root->property("stageChromeIdle").toBool(),
                                  budgetMs + 20000);
 #endif
@@ -4244,22 +3491,9 @@ ApplicationWindow {
 
     void chromeOverAPictureRetiresOnItsOwnTimerInBothPlaces()
     {
-        // THE TEST THAT WAS MISSING, and its absence is the whole reason this
-        // shipped broken twice.
-        //
-        // The previous version delivered ticks to the timer BY HAND and
-        // asserted the handler did the right thing with them. That proves the
-        // policy and says nothing about whether production ever runs it --
-        // the failure recorded three times already in this repository, now
-        // four. Here nothing is driven: a real share is ingested, the real
-        // spotlight resolves, and the assertion waits for the REAL timer.
-        //
-        // It also covers BOTH surfaces. Only the full-screen window was fixed
-        // the first time, and the reporter was watching a spotlight inside
-        // the application window, where no idle machinery existed at all.
-        //
-        // UNFIXED TREE: the spotlight half FAILS -- stageChromeIdle does not
-        // exist and the overlay never retires.
+        // End to end with nothing driven by hand: a real share is ingested,
+        // the spotlight resolves and the real timer retires the chrome. Covers
+        // both the in-window spotlight and the full-screen window.
 #ifndef HAVE_LIGHTNING_WEBRTC
         QSKIP("built without the SFU media engine");
 #else
@@ -4308,28 +3542,26 @@ ApplicationWindow {
                  "no spotlight surface, so nothing draws over a picture and "
                  "this test would pass without measuring anything");
 
-        // 1. THE SPOTLIGHT, in the application window. The reported case.
+        // 1. The spotlight in the application window.
         QVERIFY2(!root->property("stageChromeIdle").toBool(),
                  "the overlay is retired before any time has passed");
         const int budgetMs = root->property("idleTickMs").toInt()
                              * root->property("idleTicksToHide").toInt();
         QVERIFY2(budgetMs >= 2000 && budgetMs <= 6000,
                  "the idle budget is outside the few seconds asked for");
-        // Generous, deliberately. What is being measured is that the chrome
-        // retires WITHOUT anyone driving it, not how promptly -- and offscreen
-        // window creation can stall the loop for seconds, which failed this
-        // at budget + 4 s while the code was correct.
+        // Generous timeout: this measures that it retires unaided, not how
+        // fast, and offscreen window creation can stall the loop for seconds.
         QTRY_VERIFY_WITH_TIMEOUT(root->property("stageChromeIdle").toBool(),
                                  budgetMs + 20000);
 
-        // Movement wakes it. The count is what production resets, so that is
-        // what is reset here -- the pointer itself cannot be moved offscreen.
+        // Movement wakes it. The pointer cannot move offscreen, so reset the
+        // count production resets.
         root->setProperty("stageIdleTicks", 0);
         QVERIFY2(!root->property("stageChromeIdle").toBool(),
                  "the overlay stayed retired after the idle count cleared, "
                  "so nothing can bring it back");
 
-        // 2. THE FULL-SCREEN WINDOW, on its own timer, same rule.
+        // 2. The full-screen window, on its own timer.
         stage->setFullScreen(true);
         settle();
         QVERIFY(root->property("fullScreenActive").toBool());
@@ -4344,16 +3576,13 @@ ApplicationWindow {
         stage->setFullScreen(false);
         settle();
 
-        // Pinned, not inherited: with the count left wherever the previous
-        // steps put it this would depend on how long settle() happened to
-        // pump, and a timing-dependent assertion is worse than none.
+        // Pinned rather than inherited from earlier steps, which would make
+        // this timing-dependent.
         root->setProperty("stageIdleTicks", 0);
         QVERIFY(!root->property("stageChromeIdle").toBool());
 
-        // 3. THE POINTER. A cursor handler must participate ONLY while it is
-        //    blanking: one that names Qt.ArrowCursor the rest of the time is
-        //    still an authority on the cursor over that whole surface, and
-        //    flattens the pointing hand every button under it asks for.
+        // 3. A cursor handler must participate only while blanking; one naming
+        //    Qt.ArrowCursor otherwise overrides every button's pointing hand.
         for (const char *name : { "callSpotlightCursor",
                                   "callFullScreenCursor" }) {
             auto *cursor = root->findChild<QObject *>(
@@ -4382,37 +3611,30 @@ ApplicationWindow {
 
     void fullScreenIsItsOwnWindowThatEscapeLeaves()
     {
-        // "add an option to full screen screen share so it takes full
-        // minotir like discord". A separate Window, because an overlay can
-        // only ever fill the application window.
-        //
-        // UNFIXED TREE: FAILS on every assertion — there was no full-screen
-        // mode at all.
+        // Full-screen share is a separate Window, since an overlay can only
+        // fill the application window.
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
         QVERIFY(!stage.isEmpty());
         const QString norm = normalized(stage);
         const QString stageCode = code(stage);
-        // Prove the stripper still leaves code behind before trusting a ban.
+        // Prove the stripper leaves code behind before trusting a ban.
         QVERIFY(stageCode.contains(QStringLiteral("objectName: \"callStage\"")));
 
-        // 1. A real top-level Window, and a control that opens it.
+        // 1. A real top-level Window and a control that opens it.
         QVERIFY(norm.contains(
             QStringLiteral("objectName: \"callFullScreenWindow\"")));
         QVERIFY(norm.contains(
             QStringLiteral("objectName: \"callFullScreenButton\"")));
 
-        // 2. TWO ways out, one of them on the screen the user was already
-        //    looking at — the full-screen window may be on another monitor.
+        // 2. Two ways out, one on the screen the user was already looking at.
         QVERIFY(norm.contains(
             QStringLiteral("objectName: \"callExitFullScreenButton\"")));
         QVERIFY(norm.contains(QStringLiteral(
             "objectName: \"callExitFullScreenFromStageButton\"")));
 
-        // 3. ESCAPE IS A Keys HANDLER, NEVER A Shortcut. Esc is in
-        //    ShortcutRegistry's reserved list (the find bar, room
-        //    information, a thread, Settings), and two enabled Shortcuts on
-        //    one sequence fire NEITHER — so a Shortcut here would break
-        //    closing a dialog for as long as a call was up.
+        // 3. Escape is a Keys handler, never a Shortcut: Esc is reserved in
+        //    ShortcutRegistry, and two enabled Shortcuts on one sequence fire
+        //    neither.
         QVERIFY2(norm.contains(QStringLiteral("Keys.onPressed: function")),
                  "full screen has no key handling at all");
         QVERIFY2(norm.contains(QStringLiteral("event.key === Qt.Key_Escape")),
@@ -4421,16 +3643,14 @@ ApplicationWindow {
                  "the call stage registers a Shortcut, which can shadow a "
                  "reserved sequence");
 
-        // 4. The window's closing is ACCEPTED, never refused. A window that
-        //    refuses its close event vetoes application quit — §16 records
-        //    close-to-tray eating Ctrl+Q for exactly that reason.
+        // 4. Closing is accepted: refusing a close event vetoes application
+        //    quit.
         QVERIFY(norm.contains(QStringLiteral("onClosing: root.exitFullScreen()")));
         QVERIFY2(!stageCode.contains(QStringLiteral("close.accepted = false")),
                  "the full-screen window refuses its close event");
 
-        // 5. ONE surface per routing key: the stage's grid and spotlight both
-        //    stand down while full screen is up. Two live tiles asking the
-        //    router for one participant's screen would fight over the key.
+        // 5. One surface per routing key: grid and spotlight stand down while
+        //    full screen is up.
         QVERIFY2(norm.contains(QStringLiteral(
                      "active: !root.collapsed && !root.fullScreenActive && "
                      "root.effectiveLayout === \"grid\"")),
@@ -4446,11 +3666,8 @@ ApplicationWindow {
             "(root.stageState.fullScreen && root.spotlightHasSurface) : "
             "false")));
 
-        // 7. The window's visibility is driven imperatively. A binding on
-        //    `visibility` is a binding on the property a window manager
-        //    writes when the user closes the window, and a QML binding the
-        //    platform overwrites is how this repo has shipped one-way
-        //    latches before.
+        // 7. Visibility is driven imperatively; the window manager writes
+        //    `visibility`, which would break a binding.
         QVERIFY(norm.contains(QStringLiteral("fullScreenWindow.showFullScreen()")));
         QVERIFY2(!stageCode.contains(QStringLiteral("visibility:")),
                  "the full-screen window binds Window.visibility");
@@ -4458,15 +3675,9 @@ ApplicationWindow {
 
     void theFullScreenWindowStaysHiddenUntilItIsAskedFor()
     {
-        // A real instantiation. The Window object exists for the stage's
-        // whole life — declaring it inside the Item is what makes Qt treat it
-        // as transient for the main window — so what must hold is that it is
-        // not SHOWN, and that its contents are not built, until the flag says
-        // so. A hidden Window still instantiates its children, which is why
-        // the surface inside it is behind a Loader.
-        //
-        // UNFIXED TREE: does not compile as written (no such window), and
-        // CallStage had never been instantiated in a test at all.
+        // Real instantiation. The Window exists for the stage's lifetime (so
+        // it is transient for the main window) but must not be shown, nor its
+        // contents built, until requested; hence the Loader inside it.
         AppController controller(AppController::MockBackend);
         QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
         controller.auth()->login(QStringLiteral("https://mock.local"),
@@ -4489,11 +3700,8 @@ ApplicationWindow {
 
         QCOMPARE(root->property("fullScreenActive").toBool(), false);
 
-        // Found through the application's window list rather than through
-        // findChild: a Window declared inside an Item is not a child ITEM,
-        // and how Qt parents it is an implementation detail this assertion
-        // should not depend on. Every constructed QWindow is in this list,
-        // shown or not.
+        // Found via the application's window list: a Window declared inside an
+        // Item is not a child item.
         QWindow *window = nullptr;
         for (QWindow *w : QGuiApplication::allWindows()) {
             if (w->objectName() == QLatin1String("callFullScreenWindow")) {
@@ -4505,8 +3713,7 @@ ApplicationWindow {
         QVERIFY2(!window->isVisible(),
                  "the full-screen window opened without being asked for");
 
-        // With no call and nothing focused, asking for it is refused rather
-        // than opening an empty black window.
+        // With no call and nothing focused, the request is refused.
         auto *stage = controller.groupCall()->stageState();
         QVERIFY(stage);
         stage->setFullScreen(true);
@@ -4518,23 +3725,15 @@ ApplicationWindow {
 
     void aParticipantsVolumeIsAdjustableAndSurvivesTheCall()
     {
-        // "if a user A sets user B volume to 70% it stays the same in next
-        // call or other room." The persistence is SettingsManager's and the
-        // seeding is the controller's; what this pins is the surface, and
-        // specifically the four ways a plausible implementation of it is
-        // silently wrong.
-        //
-        // UNFIXED TREE: every assertion below fails — CallParticipantTile
-        // had no volume control of any kind, which is why there was nothing
-        // to set.
+        // Per-participant volume control on the tile. Persistence is
+        // SettingsManager's and seeding the controller's; this pins the
+        // surface.
         const QString raw =
             read(QStringLiteral(QML_DIR "/CallParticipantTile.qml"));
         QVERIFY(!raw.isEmpty());
         const QString tile = normalized(raw);
 
-        // 1. It exists, and it is reachable BOTH ways — a right-click-only
-        //    control is one most people never find, and a hover-only one is
-        //    unreachable from the keyboard.
+        // 1. Reachable by right-click and from the keyboard.
         QVERIFY(tile.contains(
             QStringLiteral("objectName: \"callParticipantVolumeSlider\"")));
         QVERIFY(tile.contains(
@@ -4542,81 +3741,50 @@ ApplicationWindow {
         QVERIFY(tile.contains(QStringLiteral("acceptedButtons: Qt.RightButton")));
         QVERIFY(tile.contains(QStringLiteral("Qt.Key_Menu")));
 
-        // 2. THE RANGE IS 0..200. `to: 100` is the obvious wrong version and
-        //    it silently removes the entire reason the control exists: the
-        //    case it is for is a participant who is too QUIET.
+        // 2. Range 0..200: the control exists for participants who are too
+        //    quiet.
         QVERIFY(tile.contains(QStringLiteral("from: 0")));
-        // The slider is the USER scale and stops at 200. What 200 MEANS is
-        // 1000% of audio: SfuMediaEngine::audioFactorPercent() expands
-        // 100-200 onto 100-1000 and leaves 0-100 as 1:1 attenuation. A
-        // straight 0-200 slider tops out at +6 dB ("above 100% barely any
-        // difference"); a straight 0-1000 one puts every useful setting in
-        // its first tenth. The curve itself is pinned by
+        // The slider is the user scale; SfuMediaEngine::audioFactorPercent()
+        // maps 100-200 onto 100-1000% and keeps 0-100 linear. Pinned by
         // theVolumeCurveIsLiteralBelowUnityAndExpandsAbove.
         QVERIFY(tile.contains(QStringLiteral("to: 200")));
-        // And the neutral point is MARKED. 100 is not the middle of a
-        // preference, it is the one value that changes nothing.
+        // 100 is marked: it is the value that changes nothing.
         QVERIFY(tile.contains(QStringLiteral(
             "objectName: \"callParticipantVolumeNeutralMark\"")));
 
-        // 3. IT READS THE CURRENT VALUE. A slider that always opens at 100 is
-        //    the specific failure called out in the brief, and it is what you
-        //    get from a control with a write path and no read path — which is
-        //    exactly what `setParticipantVolume` was before this round
-        //    (write-only, and therefore never called from any QML).
+        // 3. It opens at the current value, not always at 100.
         QVERIFY(tile.contains(QStringLiteral("function currentVolumePercent()")));
-        //    Read from the STORE through the controller, not from the model's
-        //    `volumePercent` role. The two agree in the steady state and
-        //    differ exactly while a call is opening — before the controller
-        //    has seeded the rows — which is when a person is most likely to
-        //    reach for this control.
+        //    Read from the store through the controller, not the model's
+        //    `volumePercent` role, which is unseeded while a call is opening.
         QVERIFY(tile.contains(QStringLiteral(
             "app.groupCall.participantVolume(root.identity)")));
         QVERIFY(tile.contains(QStringLiteral(
             "onOpened: volumeSlider.value = root.currentVolumePercent()")));
 
-        // 4. `onMoved`, NEVER `onValueChanged`. `onValueChanged` also fires
-        //    for the programmatic read above, so it would write the value
-        //    straight back to the controller on every single open — a store
-        //    write per open, and one that defeats the store's own "the
-        //    default is never recorded" rule by re-recording what it read.
-        //    This is the assertion most likely to catch a future edit.
+        // 4. `onMoved`, never `onValueChanged`: the latter also fires for the
+        //    programmatic read and would write the value back on every open.
         QVERIFY(tile.contains(
             QStringLiteral("onMoved: root.applyVolumePercent(value)")));
         QVERIFY2(!code(raw).contains(QStringLiteral("onValueChanged")),
                  "the volume slider must react to onMoved, not to "
                  "onValueChanged");
-        // The speaker/muted glyph CALLS currentVolumePercent(). Qt cannot
-        // observe a C++ function call as a dependency, so that binding must
-        // read a revision counter or it evaluates once and then describes a
-        // level that has since changed.
+        // The glyph binding calls currentVolumePercent(); QML cannot track a
+        // C++ call as a dependency, so it reads a revision counter.
         QVERIFY(tile.contains(QStringLiteral("property int volumeRevision")));
         QVERIFY(tile.contains(QStringLiteral("var _ = root.volumeRevision;")));
 
-        // 5. Amplification is DISCLOSED, and disclosed always — not revealed
-        //    once the user is already past the line, which is not a
-        //    disclosure.
+        // 5. Amplification is always disclosed, not only once past 100.
         QVERIFY(tile.contains(
             QStringLiteral("Above 100% amplifies and can clip.")));
 
-        // 6. NOT on the local tile. This is a PLAYBACK volume; nobody hears
-        //    their own published audio, so a slider there would move a number
-        //    with no audible effect and read as broken.
+        // 6. Not on the local tile: nobody hears their own published audio.
         QVERIFY(tile.contains(QStringLiteral(
             "readonly property bool _volumeOffered: !root.local")));
 
-        // 7. The popup SINKS its own presses. A Popup does not consume a
-        //    press that lands on it — blockInput() is false when the item is
-        //    the popup item — so without an all-buttons sink in `background:`
-        //    a press on the popup's chrome walks down to the tile's two
-        //    TapHandlers beneath: left re-spotlights the stage, right
-        //    re-opens the popup under itself. The Slider consumes its own
-        //    presses, which is what makes this easy to miss — dragging works
-        //    and only the surrounding chrome misbehaves. `modal: true` would
-        //    NOT fix it: it blocks presses OUTSIDE a popup only.
-        //
-        //    This assertion fails on the first draft of this very feature,
-        //    which is the only reason it is worth writing down.
+        // 7. The popup sinks its own presses. A Popup does not consume presses
+        //    on itself, so without an all-buttons sink in `background:` they
+        //    reach the tile's TapHandlers beneath. `modal: true` only blocks
+        //    presses outside the popup.
         QVERIFY2(tile.contains(QStringLiteral(
                      "MouseArea { anchors.fill: parent acceptedButtons: "
                      "Qt.AllButtons")),
@@ -4625,22 +3793,15 @@ ApplicationWindow {
 
     void theVolumeSurfaceGoesThroughTheControllerAndNeverTheStore()
     {
-        // The write must reach the CONTROLLER, because the controller is the
-        // only place that can map the SFU identity this tile holds to the
-        // Matrix user id the preference is stored under. An identity is per
-        // DEVICE and, in the sticky membership format, an opaque hash — a
-        // preference keyed by it would be forgotten on the next rejoin, which
-        // is the exact opposite of what was asked for.
-        //
-        // So a surface that "helpfully" also wrote app.settings would look
-        // correct in a single call and lose the setting between calls. This
-        // ban is what stops that, and it is the reason the test exists at all.
+        // The write must go through the controller, which maps the SFU
+        // identity (per device, possibly an opaque hash) to the Matrix user id
+        // the preference is stored under. Writing app.settings directly would
+        // lose the setting on the next rejoin.
         const QString tile =
             code(read(QStringLiteral(QML_DIR "/CallParticipantTile.qml")));
         QVERIFY(!tile.isEmpty());
 
-        // Present-token control: without this the ban below could pass simply
-        // because the scan found nothing at all.
+        // Present-token control, so the ban cannot pass by matching nothing.
         QVERIFY2(tile.contains(QStringLiteral("app.groupCall.setParticipantVolume")),
                  "the volume write must go through the controller");
 
@@ -4653,14 +3814,9 @@ ApplicationWindow {
 
     void aFlatpakIsNotToldItHasNoCamera()
     {
-        // Inside a Flatpak Qt can list no camera (no /dev/video* in the
-        // sandbox), yet the camera works through the xdg Camera portal. The
-        // Settings page told every Flatpak user "No camera was found." —
-        // reported from Debian 12, 2026-09-23. The empty text must branch on
-        // the controller's answer, and the controller must actually ask the
-        // sandbox, not return a constant.
-        //
-        // UNFIXED TREE: fails — the empty text was the bare string.
+        // Inside a Flatpak Qt lists no camera, yet the camera works through
+        // the xdg Camera portal. The empty text must branch on the
+        // controller's answer, which must actually ask the sandbox.
         const QString qml =
             read(QStringLiteral(QML_DIR "/CallDeviceSettings.qml"));
         const int empty = qml.indexOf(QStringLiteral("emptyText: app.callDevices.camerasChosenByDesktop"));
@@ -4679,12 +3835,8 @@ ApplicationWindow {
 
     void microphoneGainIsOfferedWithItsMicrophoneAndSaysWhatItCosts()
     {
-        // The other direction: what OTHERS hear. It lives with the microphone
-        // picker because it is a property of this computer's capture device,
-        // not of a call or of a person.
-        //
-        // UNFIXED TREE: fails on every assertion — CallDeviceSettings.qml had
-        // three device pickers and no level control at all.
+        // Microphone gain lives with the microphone picker: it is a property
+        // of the capture device, not of a call or a person.
         const QString raw =
             read(QStringLiteral(QML_DIR "/CallDeviceSettings.qml"));
         QVERIFY(!raw.isEmpty());
@@ -4692,18 +3844,15 @@ ApplicationWindow {
 
         QVERIFY(devices.contains(
             QStringLiteral("objectName: \"microphoneGainSlider\"")));
-        // Same range and the same marked neutral point as the per-person
-        // control. Two level sliders in one app that disagree about what 100
-        // means is a worse outcome than either of them being wrong.
+        // Same range and marked neutral point as the per-person control.
         QVERIFY(devices.contains(QStringLiteral("to: 200")));
         QVERIFY(devices.contains(QStringLiteral(
             "objectName: \"microphoneGainNeutralMark\"")));
         QVERIFY(devices.contains(
             QStringLiteral("Above 100% amplifies and can clip.")));
 
-        // Bound to the settings property both ways, and moved by a USER
-        // gesture only — `onValueChanged` here would write back the value the
-        // binding just delivered from the store.
+        // Bound to the setting and moved only by user gesture; `onValueChanged`
+        // would write back the value the binding just delivered.
         QVERIFY(devices.contains(
             QStringLiteral("value: app.settings.microphoneGain")));
         QVERIFY(devices.contains(QStringLiteral(
@@ -4714,44 +3863,29 @@ ApplicationWindow {
                  "no QML surface may touch QSettings");
     }
 
-    // THE INPUT LEVEL IS REACHABLE FROM THE CALL, not only from Settings.
-    //
-    // UNFIXED TREE: fails on every assertion — CallDeviceMenu.qml was a
-    // device list and nothing else, so changing how loud you were mid-call
-    // meant leaving the conversation for Settings.
-    //
-    // The load-bearing part is the LAST pair. The menu must write the same
-    // stored value Settings writes, because SfuCallController connects
-    // `microphoneGainChanged` to applyAudioState() and that is the ONLY path
-    // to the engine's volume element. A slider that kept a level of its own
-    // would move, read correctly, and reach nothing — which is the exact
-    // defect this project found on 2026-09-11 and the reason these two
-    // assertions are here rather than a screenshot.
+    // The input level is reachable from the call menu, and writes the same
+    // stored value as Settings: `microphoneGainChanged` -> applyAudioState()
+    // is the only path to the engine's volume element.
     void theCallMenuCarriesTheMicrophoneLevelAndWritesTheSharedSetting()
     {
         const QString raw = read(QStringLiteral(QML_DIR "/CallDeviceMenu.qml"));
         QVERIFY2(!raw.isEmpty(), "CallDeviceMenu.qml is missing");
-        // `code(raw)`, not `raw`: every positive assertion below would
-        // otherwise be satisfied by a COMMENT naming the token, so
-        // deleting the row and leaving its rationale behind would pass.
+        // `code(raw)`: a comment naming a token must not satisfy the positive
+        // assertions.
         const QString menu = normalized(code(raw));
 
         QVERIFY2(menu.contains(
                      QStringLiteral("objectName: \"callMenuMicGainSlider\"")),
                  "the in-call device menu has no level control");
-        // The same range and the same MARKED neutral point as the Settings
-        // control and the per-participant control. Two level sliders in one
-        // application that disagree about what 100 means is worse than either
-        // being wrong.
+        // Same range and marked neutral point as the other level controls.
         QVERIFY(menu.contains(QStringLiteral("to: 200")));
         QVERIFY(menu.contains(QStringLiteral(
             "objectName: \"callMenuMicGainNeutralMark\"")));
-        // Off the neutral point only, so it is not permanent furniture — and
-        // a real row, because a reset nobody can find is not a reset.
+        // Reset only off the neutral point, as a real row.
         QVERIFY(menu.contains(
             QStringLiteral("objectName: \"callMenuMicGainReset\"")));
 
-        // ONE stored value, two surfaces.
+        // One stored value, two surfaces.
         QVERIFY2(menu.contains(
                      QStringLiteral("value: app.settings.microphoneGain")),
                  "the menu's level is not bound to the stored setting, so it "
@@ -4770,9 +3904,7 @@ ApplicationWindow {
                  "no QML surface may touch QSettings");
     }
 
-    // The device menu is ALSO the way to the rest of the sound settings, and
-    // it points at the section that now owns them rather than at the one that
-    // used to.
+    // The device menu links to the Sound section of Settings.
     void theCallMenuPointsAtTheSoundSectionOfSettings()
     {
         const QString menu =
@@ -4783,10 +3915,8 @@ ApplicationWindow {
                  "the call's device menu offers no way to the rest of the "
                  "sound settings");
 
-        // And the section it names is a section that EXISTS. A deep link to a
-        // key SettingsScreen does not know resolves to no pane at all: the
-        // screen opens, every pane's `visible` is false, and the user is
-        // looking at an empty page with no error anywhere.
+        // The linked section must exist: an unknown key opens an empty page
+        // with no error.
         const QString screen =
             normalized(code(read(QStringLiteral(QML_DIR "/SettingsScreen.qml"))));
         QVERIFY(!screen.isEmpty());
@@ -4798,30 +3928,20 @@ ApplicationWindow {
                  "the sound section has no navigation row, so it is reachable "
                  "only by deep link");
 
-        // MOVED, NOT COPIED. Two device pickers writing one stored preference
-        // would leave the user with two places to change one microphone and
-        // no way to tell which one they are looking at. The runtime half of
-        // this — the pickers really do appear under Sound and really do leave
-        // Notifications — is SettingsShellQmlTest::
-        // theCallDevicesLiveInTheSoundSectionAndLeaveNotifications; this is
-        // the count, which a visibility check cannot make.
+        // Moved, not copied: one set of device pickers. The runtime half is
+        // SettingsShellQmlTest::theCallDevicesLiveInTheSoundSectionAndLeaveNotifications.
         QCOMPARE(screen.count(
                      QStringLiteral("objectName: \"callDeviceSettings\"")), 1);
     }
 
     void everyIconTheVolumeSurfacesAskForIsInTheBundledSubset()
     {
-        // The bundled Material Symbols font is a SUBSET: a name absent from
-        // Icon.qml's map renders as tofu, and nothing else catches it —
-        // the glyph simply comes out as a box on the maintainer's desktop.
-        // Pinned here for the names THIS round introduced, so a rename in
-        // Icon.qml cannot quietly blank the volume button.
+        // The bundled Material Symbols font is a subset; a name missing from
+        // Icon.qml's map renders as tofu.
         const QString icons = read(QStringLiteral(QML_DIR "/Icon.qml"));
         QVERIFY(!icons.isEmpty());
         // `graphic_eq` is the in-call level row's above-100% glyph
-        // (CallDeviceMenu.qml) and was missing from this list for one review
-        // cycle, while the comment above claimed to pin "the names THIS round
-        // introduced".
+        // (CallDeviceMenu.qml).
         for (const auto &name : {"volume_up", "volume_off", "graphic_eq",
                                  "mic", "settings"}) {
             QVERIFY2(icons.contains(
@@ -4831,27 +3951,10 @@ ApplicationWindow {
         }
     }
 
-    // ── The 2026-09-12 Discord shortcut audit ────────────────────────────
-
-    // EVERY GLOBAL REGISTRY ROW IS ACTUALLY BOUND TO A `Shortcut` IN qml/.
-    //
-    // The seed list in ShortcutRegistry.cpp states this as its contract — "a
-    // registry entry whose QML site was never migrated is a shortcut that
-    // reports a key and does nothing, which is strictly worse than not
-    // offering it" — and until now NOTHING enforced it. Every sweep in
-    // ShortcutRegistryTest iterates whatever rows exist and checks a rule, so
-    // all of them pass on a row that is wired to nobody.
-    //
-    // IT LIVES HERE rather than beside the registry's own cases because
-    // shortcut-registry-test is built with no QML_DIR; this target has one,
-    // plus the temp-dir QSettings environment a SettingsManager needs. Three
-    // of the seven rows the audit added are call rows, which is the thinnest
-    // part of the argument and is admitted rather than dressed up.
-    //
-    // A SOURCE SCAN, deliberately. The sites are spread over MainScreen,
-    // TimelinePane, SettingsScreen and the two composers, and several are
-    // gated on a live room or a live call — an instantiation test would cover
-    // fewer of them, not more.
+    // Every global ShortcutRegistry row must be bound to a `Shortcut` in qml/;
+    // a row wired to nothing reports a key that does nothing. Lives here
+    // because this target has QML_DIR and a QSettings sandbox. Source scan:
+    // several sites are gated on a live room or call.
     void everyGlobalShortcutRowIsActuallyBoundInQml()
     {
         SettingsManager settings;
@@ -4862,16 +3965,13 @@ ApplicationWindow {
         const auto files =
             dir.entryList({ QStringLiteral("*.qml") }, QDir::Files);
         QVERIFY(!files.isEmpty());
-        // `code()`, not `read()`: a commented-out call site would otherwise
-        // satisfy this, and the rows whose wiring is worth asserting are
-        // exactly the ones somebody might comment out while debugging.
+        // `code()`: a commented-out call site must not satisfy this.
         QString all;
         for (const QString &name : files)
             all += code(read(dir.filePath(name)));
 
-        // PRESENT-TOKEN CONTROL. Without it a renamed accessor would make
-        // this sweep match nothing at all and pass on a completely unwired
-        // tree — the mutation-check lesson, in the shape it usually arrives.
+        // Present-token control: a renamed accessor would otherwise match
+        // nothing and pass.
         QVERIFY2(all.count(QStringLiteral("sequenceFor(")) > 10,
                  "the sweep found almost no sequenceFor() call sites, so it is "
                  "matching the wrong thing and would pass on anything");
@@ -4879,11 +3979,8 @@ ApplicationWindow {
         QStringList unwired;
         for (int row = 0; row < registry.rowCount(); ++row) {
             const QModelIndex idx = registry.index(row);
-            // EditorContext rows are NOT `Shortcut` declarations: the
-            // composer claims the ShortcutOverride and routes the press
-            // through editorActionForKey(), so their id never appears beside
-            // sequenceFor(). Asserting on them would assert the wrong
-            // mechanism.
+            // EditorContext rows are routed by the composer through
+            // editorActionForKey(), not declared as `Shortcut`s.
             if (registry.data(idx, ShortcutRegistry::ContextRole).toInt()
                 == ShortcutRegistry::EditorContext)
                 continue;
@@ -4900,22 +3997,10 @@ ApplicationWindow {
                                 .arg(unwired.join(QStringLiteral(", ")))));
     }
 
-    // THE START-CALL KEY MUST CARRY THE CALL BUTTON'S WHOLE GATE, and the
-    // first version of it carried a quarter of that gate.
-    //
-    // `app.canStartCall(roomId)` is one line over `preferredCallLane()` and
-    // answers "does this room have a lane". It has NO in-a-call clause, and
-    // `SfuCallController::join` opens by tearing down whatever call is
-    // running — so a key gated on `canStartCall` alone silently ended a live
-    // call from any other RTC-capable room. The timeline header's button has
-    // never had that hole because it also asks `!app.groupCall.active` and
-    // that the legacy lane is Idle-or-Ended.
-    //
-    // The predicate therefore lives in TWO files, and it cannot be hoisted:
-    // a Q_INVOKABLE has no NOTIFY, so folding the clauses into C++ would give
-    // a binding that never re-evaluates when a call starts — stale in the
-    // dangerous direction. DRIFT BETWEEN THE TWO EXPRESSIONS IS THE DEFECT,
-    // so this asserts they agree rather than asserting either one's text.
+    // The start-call key must carry the call button's whole gate:
+    // `canStartCall()` has no in-a-call clause, and SfuCallController::join
+    // tears down any running call. The predicate cannot be hoisted into C++
+    // (a Q_INVOKABLE has no NOTIFY), so this asserts the two copies agree.
     void theStartCallKeyIsGatedLikeTheCallButton()
     {
         const QString button = normalized(
@@ -4925,21 +4010,10 @@ ApplicationWindow {
         QVERIFY(!button.isEmpty());
         QVERIFY(!shell.isEmpty());
 
-        // THE CLAUSE LIST IS DERIVED FROM THE BUTTON, never hand-kept here.
-        // A hand-kept list only notices a clause DISAPPEARING from the
-        // button; it cannot notice one being ADDED, which is H1's own shape
-        // mirrored — the button grows a fifth condition, the key does not,
-        // and the key can once again act where the button refuses. Deriving
-        // inverts that: a new button clause fails this case until somebody
-        // decides what the key should do about it.
-        //
-        // THE GATE MOVED OFF `visible:` ON 2026-09-20 and this anchor moved
-        // with it. The narrow-header fold made the row's icons
-        // `visible: available && !folded`, so `visible` now carries a LAYOUT
-        // decision as well as the gate — and `!folded` must NOT reach the
-        // shortcut, because a folded action is still offered (in the header's
-        // overflow menu) and the key must still work. `available:` is the
-        // gate, and it is the expression this slice derives from.
+        // The clause list is derived from the button, so a clause added to the
+        // button fails here until the key is updated too. Derived from
+        // `available:`, not `visible:`, which also carries the header's fold
+        // state; a folded action is still offered and its key must work.
         const QString vis =
             QStringLiteral("property bool available: app.currentRoomId !== \"\""
                            " && app.canStartCall");
@@ -4956,9 +4030,8 @@ ApplicationWindow {
                        - int(qstrlen(kGate)))
                 .trimmed();
 
-        // Split on `&&` at PAREN DEPTH ZERO. The last conjunct is itself a
-        // parenthesised `||`, and a naive split would tear it in half and
-        // then "find" both halves in any file that mentions either state.
+        // Split on `&&` at paren depth zero; the last conjunct is a
+        // parenthesised `||`.
         QStringList clauses;
         int depth = 0;
         int last = 0;
@@ -4978,28 +4051,22 @@ ApplicationWindow {
         clauses << expr.mid(last).trimmed();
         clauses.removeAll(QString());
 
-        // AND THE GATE MUST CARRY ITS OWN DEPENDENCY. `canStartCall()` is a
-        // Q_INVOKABLE: a binding that only calls it evaluates once at
-        // room-open and never again, and because this gates `visible:`
-        // rather than `enabled:`, a stale "no" means the button is ABSENT
-        // until the user navigates away and back. Asserted on the BUTTON,
-        // and the clause loop below then carries it to the shortcut.
+        // The gate reads `app.callGateRevision`: a binding that only calls the
+        // canStartCall() invokable evaluates once and goes stale.
         QVERIFY2(expr.contains(QStringLiteral("app.callGateRevision")),
                  "the call button gates on canStartCall() without reading "
                  "callGateRevision, so RTC state arriving after the room was "
                  "opened never reaches the button");
 
-        // PRESENT-TOKEN CONTROL: if the slice or the split stops working
-        // this case must say so, not silently check nothing.
+        // Present-token control on the slice and the split.
         QVERIFY2(clauses.size() >= 4,
                  qPrintable(QStringLiteral("only %1 conjuncts came out of the "
                                            "call button's gate — the slice is "
                                            "wrong and this case is vacuous")
                                 .arg(clauses.size())));
 
-        // The Shortcut's own block, not the whole file: MainScreen declares
-        // the leave and screen-share keys too, and one of those mentioning
-        // groupCall.active would otherwise satisfy this for the wrong row.
+        // The Shortcut's own block: other keys in MainScreen also mention
+        // groupCall.active.
         const int at = shell.indexOf(
             QStringLiteral("sequenceFor(\"call.startCall\")"));
         QVERIFY2(at >= 0, "no Shortcut in MainScreen.qml asks for "
@@ -5028,15 +4095,10 @@ ApplicationWindow {
             QStringLiteral("call-ui-contract-test"));
     }
 
-    // "There is a call in this room" on a room-list row, in BOTH layouts.
-    //
-    // The load-bearing rule is what it may COST. RtcController::refresh()
-    // re-reads one room's session, and read_membership_events falls back to a
-    // full /state request whenever the store holds no live membership — the
-    // normal state of every idle room. A row that refreshed itself would issue
-    // one /state per room in the list, on every rebuild, so this component
-    // reads only what the controller already knows and re-reads on its
-    // sessionChanged poke.
+    // The room-row call glyph must never trigger a refresh:
+    // RtcController::refresh() can fall back to a full /state request per
+    // idle room. It reads what the controller knows and re-reads on
+    // sessionChanged.
     void theRoomRowCallGlyphNeverAsksForARefresh()
     {
         const QString glyph = read(QStringLiteral(QML_DIR "/RoomCallGlyph.qml"));
@@ -5049,16 +4111,13 @@ ApplicationWindow {
         QVERIFY2(glyph.contains(QStringLiteral("onSessionChanged")),
                  "the glyph never re-reads, so it freezes on whatever was "
                  "known when the row was built");
-        // An Icon is a Text, and a never-laid-out empty Text keeps
-        // ItemObservesViewport forever — in a per-row delegate that is the
-        // most expensive QML mistake in this tree (d1ddc2f).
+        // Behind a Loader: an Icon is a Text, and a never-laid-out empty Text
+        // keeps ItemObservesViewport forever.
         QVERIFY2(glyph.contains(QStringLiteral("Loader")),
                  "the glyph's Icon is not behind a Loader, so every room row "
                  "adds a permanent viewport observer");
 
-        // ONE component, used by both layouts: the rule is identical in
-        // Classic and Channels, and a second copy is how the two lists end up
-        // disagreeing about whether a call is live.
+        // One component shared by both layouts.
         for (const QString &file : { QStringLiteral(QML_DIR "/RoomDelegate.qml"),
                                      QStringLiteral(QML_DIR "/ChannelDelegate.qml") }) {
             const QString source = read(file);
@@ -5073,21 +4132,14 @@ ApplicationWindow {
         }
     }
 
-    // "the people tab takes up way too much space". The panel's whole job is
-    // to list people, and the chrome above the roster was a header, a tab
-    // strip, a filter/sort/Invite row AND a search row — about 190 px before
-    // the first member, in a column ~300 px wide.
-    //
-    // Pinned as NUMBERS because that is what regressed: every one of these is
-    // a value somebody can nudge back up one control at a time without
-    // noticing the column has lost a third of its rows.
+    // The member roster's chrome stays compact. Pinned as numbers, since each
+    // can creep back up one control at a time.
     void theMemberRosterStaysCompact()
     {
         const QString panel = read(QStringLiteral(QML_DIR "/RoomInfoPanel.qml"));
         QVERIFY(!panel.isEmpty());
 
-        // ONE row of chrome: the search field and the three controls share it.
-        // A second row is the shape this replaced.
+        // One row of chrome: search field and three controls share it.
         QVERIFY2(panel.contains(QStringLiteral("id: memberSearch")),
                  "the member search field is gone");
         const int searchAt = panel.indexOf(QStringLiteral("id: memberSearch"));
@@ -5103,22 +4155,14 @@ ApplicationWindow {
                          "has a second row of chrome above it again")
                                     .arg(glyph)));
         }
-        // ...and they are ICONS. A labelled control is most of the row in a
-        // column this narrow.
+        // ...as icons; labels do not fit a column this narrow.
         QVERIFY2(!chrome.contains(QStringLiteral("text: qsTr(\"A to Z\")")),
                  "the sort control went back to a text button");
 
         // The row and heading heights, and the avatar.
         const QString list = panel.mid(listAt);
-        // EVERY SIZE IN THIS SECTION FOLLOWS THE TEXT-SIZE SLIDER.
-        //
-        // The whole panel used AppTheme.scaled zero times while the room list
-        // used it six, so the slider grew every other surface and left this
-        // one behind — which is why the roster read small however its literal
-        // sizes were tuned, across three rounds of trying to tune them.
-        //
-        // Heights are expressions over the scaled text rather than literals,
-        // or a row clips its own contents at 140%.
+        // Every size here follows the text-size slider (AppTheme.scaled).
+        // Heights are expressions over scaled text, or rows clip at 140%.
         QVERIFY2(list.contains(QStringLiteral("AppTheme.scaled(AppTheme.textTitle)")),
                  "the member name does not follow the text-size slider");
         QVERIFY2(list.contains(QStringLiteral("Math.max(34, AppTheme.scaled")),
@@ -5128,27 +4172,18 @@ ApplicationWindow {
                  "the member avatar no longer follows the row");
         QVERIFY2(list.contains(QStringLiteral("spacing: 3")),
                  "the member rows touch, so two names read as one block");
-        // THE TAB STRIP IS ONE SIZE IN EVERY SECTION. `dense` and the tab
-        // margins used to be conditional on `section === "people"`, so the
-        // strip visibly shrank the moment People was selected and grew back
-        // on the way out — "when clicking people tab everything gets small".
-        // A control that resizes depending on which of its own tabs is active
-        // looks broken; the compactness People wanted is the ROSTER's.
-        // COMMENTS STRIPPED, and bounded to the control's own block (it ends
-        // at onActivated). Both halves are load-bearing: the fix's own
-        // rationale comment NAMES the token being banned, so a ban read off
-        // the raw file always "finds" it — the hazard `code()` exists for and
-        // that this file's own header warns about — and a fixed character
-        // window runs past the block into the Overview section, whose
-        // visibility condition is none of this test's business.
+        // The tab strip is one size in every section; a control that resizes
+        // with its own active tab looks broken. Comments are stripped (the
+        // fix's comment names the banned token) and the scan is bounded to the
+        // control's block (it ends at onActivated).
         const QString clean = code(panel);
         const int tabsAt = clean.indexOf(QStringLiteral("objectName: \"roomInfoTabs\""));
         QVERIFY(tabsAt > 0);
         const int tabsEnd = clean.indexOf(QStringLiteral("onActivated:"), tabsAt);
         QVERIFY(tabsEnd > tabsAt);
         const QString tabs = clean.mid(tabsAt, tabsEnd - tabsAt);
-        // Prove the window still contains what it is meant to read, or every
-        // negative assertion below is vacuous.
+        // Prove the window contains what it should, or the negative
+        // assertions are vacuous.
         QVERIFY2(tabs.contains(QStringLiteral("dense:")),
                  "the tab window no longer contains the control it scans");
         QVERIFY2(!tabs.contains(QStringLiteral("section === \"people\"")),
@@ -5161,8 +4196,8 @@ ApplicationWindow {
                  "fillWidth the row keeps its implicit width and the last tab "
                  "runs off the edge");
 
-        // The panel may never take so much width that the shell overflows its
-        // own window. The stored width outlives the window it was dragged in.
+        // The panel may never take so much width that the shell overflows; a
+        // stored width outlives the window it was dragged in.
         const QString pane = read(QStringLiteral(QML_DIR "/TimelinePane.qml"));
         QVERIFY(!pane.isEmpty());
         QVERIFY2(pane.contains(QStringLiteral("Math.min(app.settings.sidePanelWidth")),
@@ -5173,22 +4208,9 @@ ApplicationWindow {
                  "the info panel does not clip, so anything wider than it "
                  "paints over the timeline");
 
-        // ONE body size across the panel. Compacting the roster shrank the
-        // TEXT as well as the spacing, so People read a size smaller than
-        // Overview and Media and switching tabs looked like a zoom. Density
-        // is the row height's job.
-        //
-        // Scoped to the member ROW component: `list` runs to the end of the
-        // file and so contains the sections after it, whose own smaller
-        // labels are none of this test's business.
-        //
-        // The end anchor was "Media & Files" until the media browser
-        // replaced that section (2026-09), at which point the only remaining
-        // occurrence of that string was a COMMENT near the top of the file —
-        // so indexOf() from rowAt returned -1 and this failed loudly. That is
-        // the guard working: an anchor that vanishes must break the test, not
-        // silently shrink its scope to nothing. Re-anchored on the Widgets
-        // section, which is what actually follows the roster now.
+        // One body text size across the panel; density is the row height's
+        // job. Scoped to the member row component and anchored on the
+        // Widgets section that follows the roster; a missing anchor fails.
         const int rowAt = panel.indexOf(QStringLiteral("id: memberRowComponent"));
         QVERIFY2(rowAt > 0, "the member row component is gone");
         const int rowEnd = panel.indexOf(QStringLiteral("── Widgets"), rowAt);
@@ -5202,38 +4224,11 @@ ApplicationWindow {
                  "text-size slider every other surface honours");
     }
 
-    // ── 2026-08-27 Windows layout round ──────────────────────────────────
-    //
-    // Three defects reported from a packaged Windows build ("some button are
-    // sitting on buttons ... in windows there is a lot of cliping"). None of
-    // them is a Windows API difference: the app pins its own Qt Quick style
-    // and ships its own font, so what differs is DISPLAY SCALE — the
-    // maintainer's capture measures at 1.5, which leaves every logical
-    // dimension the same and two thirds as many of them on the screen. Fixed
-    // bands then take a bigger share, and anything sized from a label lands
-    // somewhere else. The three cases below pin the structural half of that,
-    // which is the half a test can hold.
-
-    /// A control row with no implicit width is laid out ON TOP of the
-    /// controls beside it.
-    ///
-    /// CallHeaderBar is hosted three ways and only ONE of them stretches it.
-    /// The collapsed call strip puts it in a Loader inside a RowLayout and
-    /// the full-screen window puts it in a Loader anchored to the bottom
-    /// centre — both READ its implicit size. A Loader adopts the loaded
-    /// item's implicit size, a Rectangle that never sets one reports 0, and
-    /// a RowLayout cell of width 0 puts the NEXT control immediately after
-    /// it — while `bar` (anchors.centerIn) goes on drawing half the control
-    /// row each side of that zero-width point.
-    ///
-    /// `implicitHeight` was already carrying exactly this job for the
-    /// vertical axis, which is why the strip had a sensible height and no
-    /// width at all.
-    ///
-    /// The assertion is geometric rather than a source scan: every control
-    /// must lie inside the box the layout gave the bar. On the unfixed tree
-    /// the hang-up button lands past the trailing item's left edge, by about
-    /// half the control row.
+    /// A control row with no implicit width is laid out on top of its
+    /// neighbours. CallHeaderBar is hosted three ways; the collapsed strip and
+    /// the full-screen window read its implicit size through a Loader, so it
+    /// must report an implicitWidth. Geometric: every control must lie inside
+    /// the box the layout gave the bar.
     void compactCallControlsStayInsideTheBoxTheLayoutGivesThem()
     {
         AppController controller(AppController::MockBackend);
@@ -5245,10 +4240,8 @@ ApplicationWindow {
 
         QQmlEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
-        // Declared BEFORE the item it will host, so the item's own owner is
-        // destroyed FIRST: setParentItem takes QObject ownership too, and a
-        // window torn down ahead of the unique_ptr would delete the tree
-        // out from under it.
+        // Declared before the hosted item so it is destroyed after it:
+        // setParentItem also takes QObject ownership.
         QQuickWindow window;
         window.resize(900, 90);
         QQmlComponent component(&engine);
@@ -5309,9 +4302,7 @@ Item {
                  "previewMode no longer shows the bar, so this fixture proves "
                  "nothing");
 
-        // A layout rearranges on the window's POLISH pass, which is
-        // asynchronous even offscreen — so converge on a laid-out frame
-        // rather than measuring the one that happens to be current.
+        // Layouts rearrange on the asynchronous polish pass, so converge.
         QTRY_VERIFY(dock->width() > 0.0);
         QVERIFY2(dock->width() > 100.0,
                  qPrintable(QStringLiteral("the compact control row was given "
@@ -5351,15 +4342,9 @@ Item {
         }
     }
 
-    /// The nameplate pill is capped to the tile; the ROW inside it was not.
-    ///
-    /// `anchors.centerIn` sets x and y and nothing else, so the row took its
-    /// full implicit width — the whole unelided name — while the pill behind
-    /// it stopped at the tile's edge. `Layout.fillWidth` on the label then
-    /// had no width to fill against, so it never elided: the name ran out
-    /// past both ends of its own plate, and on the share tile (which clips)
-    /// it was cut off mid-word instead. That is the reported clipping, and
-    /// how soon it shows depends on how wide the platform draws the name.
+    /// The nameplate row must be capped with its pill. `anchors.centerIn`
+    /// sets only position, so the row took its full implicit width and the
+    /// label never elided.
     void aTileNameplateNeverOverflowsItsOwnPill()
     {
         AppController controller(AppController::MockBackend);
@@ -5371,8 +4356,7 @@ Item {
 
         QQmlEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
-        // Before the fixture, so the fixture's owner outlives it — see the
-        // note in the compact-dock case.
+        // Before the fixture, so the fixture's owner outlives it.
         QQuickWindow window;
         window.resize(400, 220);
         QQmlComponent component(&engine);
@@ -5433,8 +4417,7 @@ Item {
                                     .arg(QLatin1String(plateName))));
             auto *row = tile->findChild<QQuickItem *>(QLatin1String(rowName));
             QVERIFY2(row != nullptr, rowName);
-            // Converge on a laid-out frame: the pill's width comes from the
-            // inner layout's size hints, which settle on a polish pass.
+        // Converge on a laid-out frame; sizes settle on a polish pass.
             QTRY_VERIFY(plate->width() > 0.0 && row->width() > 0.0);
             QVERIFY2(plate->width() <= tile->width() + 0.5,
                      qPrintable(QStringLiteral("%1 is %2 wide on a %3 px tile")
@@ -5455,35 +4438,12 @@ Item {
         check("fixtureShare", "callShareNameplate", "callShareNameplateRow");
     }
 
-    /// The spotlight's strip of other surfaces must YIELD height, because
-    /// everything else in that column is fixed.
-    ///
-    /// It asked for a flat 96 px whatever the panel had, and the spotlight
-    /// took what was left. Measured off the maintainer's Windows capture: a
-    /// 335 px call panel spent 96 on the strip and left the shared screen
-    /// 61, so a 16:9 desktop arrived as a 112x61 stamp in a full-width
-    /// letterbox — the strip was the bigger half of the stage.
-    ///
-    /// Below a usable tile the strip becomes the bubble row rather than a
-    /// squeezed version of a shape that no longer works, which is why the
-    /// short case is checked for its MODE as well as its height.
-    ///
-    /// Both halves are pinned, because a policy test that calls the policy
-    /// proves nothing about whether production reaches it: the arithmetic
-    /// here, and the call site by scan.
-    // A PANEL SHOWING VIDEO MUST NOT BE SQUEEZED INTO ITS OWN CHROME.
-    //
-    // The divider is draggable, and the floor under it used to be a flat 45%
-    // of the pane whatever the call was doing. On a short window that left the
-    // stage its header, its dock and a sliver of picture — the share collapsed
-    // to a few pixels and the spotlight's own overlay controls, which are
-    // anchored inside a CLIPPED rectangle and do not compact, drew across the
-    // top edge in half. Reported with a screenshot: "make it when screen share
-    // is on not so squishable, ui breaks then".
-    //
-    // Drives the REAL clamp through the real property, at a real pane height,
-    // rather than restating the arithmetic: a test that recomputes the policy
-    // agrees with itself no matter what production does.
+    /// The spotlight's strip of other surfaces yields height, since the rest
+    /// of the column is fixed; below a usable tile it becomes the bubble row.
+    /// The arithmetic is checked here and the call site by scan.
+    // With video showing, the divider clamp keeps enough height for a
+    // picture; the spotlight's overlay controls do not compact and would
+    // otherwise draw across the clipped edge. Drives the real clamp.
     void aVideoCallPanelKeepsEnoughHeightToShowAPicture()
     {
         QQmlEngine engine;
@@ -5506,8 +4466,7 @@ Item {
         auto *pane = owner->property("pane").value<QObject *>();
         QVERIFY(pane != nullptr);
 
-        // The stage's own declared minimum, so this case cannot drift from
-        // the bands CallStage actually draws.
+        // The stage's own declared minimum, so this cannot drift from CallStage.
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
         QVERIFY2(normalized(stage).contains(
                      QStringLiteral("readonly property int minimumUsefulHeight")),
@@ -5518,16 +4477,8 @@ Item {
                      QStringLiteral("callStageHost.item.minimumUsefulHeight")),
                  "the pane no longer ASKS the stage for that minimum, so the "
                  "two can drift");
-        // AND THE CLAMP MUST USE IT. The property existing proves nothing —
-        // checked by mutation: deleting the branch below while leaving the
-        // property in place passed an earlier version of this assertion.
-        //
-        // Anchored on the EXPRESSION, not on a fixed window after the
-        // function's name. The first version of this scan read 700 chars from
-        // `function clampCallPanelHeight` and the explanatory comment inside
-        // that function pushed the code to offset 1016, so it failed on the
-        // FIXED tree — the "fixed-window scan defeated by added comments"
-        // trap, walked into while writing the test that guards against it.
+        // The clamp must use it, anchored on the expression rather than a
+        // fixed window after the function name (comments move the code).
         QVERIFY2(pane_.contains(QStringLiteral(
                      "var floor = root.callPanelHasVideo")),
                  "the clamp no longer distinguishes a call showing video, so "
@@ -5536,9 +4487,8 @@ Item {
                      "Math.min(root.callPanelVideoFloor,")),
                  "the clamp no longer applies the stage's own minimum");
 
-        // Drag the divider to nothing. With video the clamp must refuse to go
-        // below a height that still leaves a picture; without it the old
-        // rule stands, because a voice call has no picture to protect.
+        // Drag to nothing: with video the clamp keeps a picture; without it the
+        // voice rule stands.
         const auto floorFor = [pane](bool video) {
             pane->setProperty("callPanelUserHeight", 0.0);
             QVariant out;
@@ -5555,8 +4505,7 @@ Item {
         // 520 px pane: the voice rule is min(220, 45%) = 220.
         QCOMPARE(qRound(clamped), 220);
 
-        // And the overlay is ABSENT rather than crushed once the spotlight
-        // cannot host it — the half-drawn controls in the report.
+        // The overlay is absent, not crushed, once the spotlight cannot host it.
         QVERIFY2(normalized(stage).contains(QStringLiteral(
                      "visible: parent.height >= root.spotlightOverlayHeight")),
                  "the spotlight overlay is drawn whatever height the tile "
@@ -5570,8 +4519,7 @@ Item {
         const int strip =
             stage.indexOf(QStringLiteral("objectName: \"callStrip\""));
         QVERIFY2(strip > 0, "the spotlight strip is gone");
-        // Whitespace-normalized, so a reflow of these wrapped expressions
-        // cannot quietly turn an assertion into a pass.
+        // Whitespace-normalized, so reflows do not break the assertions.
         const QString block = normalized(stage.mid(strip, 1600));
         QVERIFY2(block.contains(
                      QStringLiteral("Layout.preferredHeight: visible ? "
@@ -5584,13 +4532,11 @@ Item {
                      QStringLiteral("visible: spotlightColumn.stripMode === "
                                     "\"tiles\"")),
                  "the tile strip is drawn whatever the stage's height is");
-        // And the tiles follow the band rather than carrying their own
-        // literals, or a shrunken strip clips the tiles it holds.
+        // Tiles follow the band rather than their own literals.
         QVERIFY(block.contains(QStringLiteral("spotlightColumn.stripTileHeight")));
         QVERIFY2(!stage.contains(QStringLiteral("width: active ? 140 : 0")),
                  "a strip tile is back to a hardcoded width");
-        // The short-stage fallback is REACHED, not merely defined: a policy
-        // with no call site is a comment.
+        // The short-stage fallback is reached, not merely defined.
         const QString whole = normalized(stage);
         QVERIFY2(whole.contains(
                      QStringLiteral("objectName: \"callStripBubblesHost\"")),
@@ -5633,8 +4579,7 @@ Item {
             return ok ? out.toString() : QString();
         };
 
-        // The stage the maintainer actually had. THE STRIP MUST NOT BE THE
-        // BIGGER HALF OF IT — with the fixed band it was 96 against 61.
+        // A short stage: the strip must not be the bigger half of it.
         const int shortStage = 165;
         const int shortStrip = stripFor(shortStage);
         QVERIFY2(shortStrip > 0, "stripHeightForStage is not invokable");
@@ -5648,20 +4593,18 @@ Item {
         QVERIFY2(spotlight > 61,
                  "the picture is no better off than the fixed 96 px band left "
                  "it on the maintainer's own capture");
-        // At that size a tile cannot carry an avatar AND a nameplate, so the
-        // strip is the bubble row rather than a broken tile.
+        // Too small for avatar plus nameplate: the bubble row instead.
         QCOMPARE(modeFor(shortStage), QStringLiteral("bubbles"));
 
-        // A roomy stage is UNCHANGED — this is a yield, not a redesign.
+        // A roomy stage is unchanged.
         QCOMPARE(modeFor(400), QStringLiteral("tiles"));
         QCOMPARE(stripFor(400), 96);
         QCOMPARE(stripFor(1000), 96);
-        // Degenerate sizes (a stage measured before its first layout) must
-        // not produce a zero-height strip that never grows back.
+        // Degenerate sizes (before first layout) must not produce a zero-height
+        // strip that never grows back.
         QCOMPARE(stripFor(0), 96);
         QCOMPARE(modeFor(0), QStringLiteral("tiles"));
-        // Wherever the tile strip IS drawn it is a usable one, and it never
-        // takes more than 40% of the stage.
+        // A drawn tile strip is always usable and never above 40% of the stage.
         for (int available = 120; available <= 900; available += 7) {
             const int band = stripFor(available);
             if (modeFor(available) == QStringLiteral("tiles")) {
@@ -5683,27 +4626,16 @@ Item {
         }
     }
 
-    // PRODUCTION HAS TO REACH THE POLICY, which is a separate claim from the
-    // policy being right.
-    //
-    // `call-controller` proves every clause of `linuxShareRoute()` by calling
-    // it. That proves nothing about whether `requestScreenShare()` consults
-    // it — the row-window shipped as a permanent no-op with the policy
-    // covered six ways and the trigger not at all, and the rail's drop was
-    // unreachable through two rounds of passing model tests. This suite
-    // cannot DRIVE the Linux branch (it needs a live call, an engine, and a
-    // portal answer that differs per machine), so it reads the branch
-    // instead.
+    // requestScreenShare() must actually consult linuxShareRoute();
+    // call-controller tests only prove the policy. Driving the Linux branch
+    // needs a live call and portal, so this reads the branch.
     void theLinuxScreenShareBranchActuallyConsultsTheRoutePolicy()
     {
         QFile file(QStringLiteral(SRC_DIR "/calls/SfuCallController.cpp"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString source = QString::fromUtf8(file.readAll());
 
-        // Slice out requestScreenShare() itself, and PROVE THE SLICE WORKED
-        // before asserting anything about its contents. A scan that matched
-        // nothing passes silently, which is how a sweep gets written that
-        // holds nothing to account.
+        // Slice out requestScreenShare() and prove the slice worked first.
         const int begin =
             source.indexOf(QStringLiteral("void SfuCallController::"
                                           "requestScreenShare()"));
@@ -5717,9 +4649,7 @@ Item {
                  "the slice does not contain a line this function is known "
                  "to have, so it is not the function");
 
-        // THE POLICY IS CONSULTED, and the refusal wording comes from it
-        // rather than being written out again at the call site — two copies
-        // of a message are two messages that drift.
+        // The policy is consulted and supplies the refusal wording.
         QVERIFY2(body.contains(QStringLiteral("linuxShareRoute(")),
                  "requestScreenShare() does not consult the route policy, so "
                  "every case that tests the policy tests nothing reachable");
@@ -5728,23 +4658,17 @@ Item {
                  "the Linux refusals do not come from the policy, or no "
                  "longer tell it whether the build is sandboxed — a Flatpak "
                  "would be told to install a host package it cannot load");
-        // The fallback reaches the SAME picker Windows and macOS use — one
-        // picker, one contract, and no second implementation to drift.
+        // The fallback reaches the same picker Windows and macOS use.
         QVERIFY2(body.contains(QStringLiteral("populateLinuxDisplaySources()")),
                  "the fallback does not populate the shared picker's rows");
         QVERIFY2(body.contains(QStringLiteral("screenShareSourcesAvailable()")),
                  "the fallback never opens the picker");
 
-        // THE PORTAL IS STILL ASKED FIRST. Its request must be the answer to
-        // the route rather than something the fallback replaced.
+        // The portal is still asked first.
         QVERIFY2(body.contains(QStringLiteral("m_portal->requestShare(")),
                  "the portal path is gone from requestScreenShare()");
-        // BOTH MUST BE FOUND BEFORE THEY ARE COMPARED. `indexOf` answers -1
-        // for an absent needle, and -1 is less than every real offset — so
-        // deleting the Portal case entirely would satisfy an ordering
-        // assertion that exists to prove the Portal case comes first. A
-        // vacuous pass is worse than no assertion, because it reads as
-        // coverage.
+        // Both must be found before comparing: indexOf's -1 is less than any
+        // real offset.
         const int portalAt = body.indexOf(QStringLiteral(
             "LinuxShareRoute::Portal"));
         const int fallbackAt = body.indexOf(QStringLiteral(
@@ -5754,11 +4678,8 @@ Item {
         QVERIFY2(portalAt < fallbackAt,
                  "the fallback is considered before the portal");
 
-        // AND THE OLD UNCONDITIONAL REFUSAL IS NO LONGER ON THE LINUX PATH.
-        // It used to be the first thing in the function, before any platform
-        // branch, so a missing portal ended the gesture there. It survives
-        // only inside the Windows/macOS guard, where `available()` means
-        // something else entirely.
+        // The old unconditional refusal survives only in the Windows/macOS
+        // guard.
         const int oldRefusal = body.indexOf(QStringLiteral(
             "Screen sharing isn't available on this desktop."));
         if (oldRefusal >= 0) {
@@ -5768,21 +4689,10 @@ Item {
                      "the unactionable refusal is reachable on Linux again");
         }
 
-        // ONE SPELLING OF THE CAPTURE ELEMENT, and it is not here: the
-        // pipeline text belongs to the engine, which is the only place that
-        // knows what a capture looks like. A probe for one name and a
-        // pipeline naming another is the shape of the missing-sctp defect.
-        // NOT IN ANY STRING LITERAL, which is the form that can actually
-        // drift into a pipeline or a user-facing sentence. The previous ban
-        // matched only a literal STARTING with the name, so the refusal
-        // wording "...needs GStreamer's ximagesrc element..." sailed straight
-        // past it — a second spelling of the one name this feature is
-        // supposed to have exactly one of.
-        //
-        // Prose comments naming the element are deliberately still allowed:
-        // they document the branch and cannot be sent to a user or handed to
-        // gst_parse_launch. A quote, then anything but a quote, then the
-        // name, on one line is a literal.
+        // The capture element's name must not appear in any string literal
+        // here: the engine owns pipeline text, and a second spelling can drift.
+        // Prose comments naming it are allowed. A quote, then non-quotes, then
+        // the name on one line is a literal.
         const QRegularExpression spelledInAString(
             QStringLiteral("\"[^\"\n]*ximagesrc"));
         QVERIFY2(!spelledInAString.match(source).hasMatch(),
@@ -5793,28 +4703,21 @@ Item {
                  "should be probing for");
     }
 
-    // The control set holds ONE position, collapsed and expanded alike.
-    //
-    // THE DEFECT THIS PINS: the expanded stage carried a second, full-width
-    // dock across its BOTTOM. That took a band of picture away from every
-    // screen share, and it moved the controls depending on a state the user
-    // had not chosen — so muting meant finding the button first. The
-    // maintainer asked for the collapsed arrangement to become permanent.
+    // The stage has one control surface, and it is not a full-width dock
+    // along the bottom (which took picture height and moved the controls).
     void theStageHasOneControlSurfaceAndItIsNotAlongTheBottom()
     {
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
         QVERIFY(!stage.isEmpty());
 
-        // Exactly one CallHeaderBar in the stage body, plus the full-screen
-        // one. Two in the body is the two-docks arrangement coming back.
+        // Exactly one CallHeaderBar in the stage body, plus the full-screen one.
         QCOMPARE(stage.count(QStringLiteral("objectName: \"callStageControls\"")), 1);
         QCOMPARE(stage.count(QStringLiteral("objectName: \"callFullScreenDock\"")), 1);
         QVERIFY2(!stage.contains(QStringLiteral("callStageDock")),
                  "the bottom dock is back: it costs a strip of every screen "
                  "share and moves the controls between states");
 
-        // And it must not be gated on the collapsed state, or expanded loses
-        // its controls entirely rather than gaining them at the top.
+        // Not gated on the collapsed state.
         const int at = stage.indexOf(QStringLiteral("objectName: \"callStageControls\""));
         QVERIFY(at > 0);
         const int loader = stage.lastIndexOf(QStringLiteral("Loader {"), at);
@@ -5825,18 +4728,9 @@ Item {
         QVERIFY2(block.contains(QStringLiteral("active: true")),
                  "the control surface must be live in both states");
 
-        // AND it must not be compact while EXPANDED. `compact` is not a size
-        // knob: CallHeaderBar hides the screen-share button, the raise-hand
-        // button and all three device chevrons behind it. Pinning the control
-        // surface to `compact: true` would have moved the controls to the top
-        // and silently deleted three of them — a worse bug than the one being
-        // fixed. Expanded takes the full bar; only the collapsed one-line
-        // strip is compact.
-        // Bounded by an EXPRESSION at BOTH ends, never by a character count:
-        // a fixed `mid(at, 600)` failed against correct QML as soon as an
-        // explanatory comment sat between the two (the fourth time that
-        // pattern has bitten this repo), and a file-wide search is wrong the
-        // other way — CallStage declares `compact` on other components too.
+        // Not compact while expanded: `compact` hides screen share, raise hand
+        // and the device chevrons. Bounded by expressions at both ends, not a
+        // character count; CallStage uses `compact` elsewhere too.
         const int barEnd =
             stage.indexOf(QStringLiteral("onParticipantsRequested"), at);
         QVERIFY2(barEnd > at, "the control bar block did not close as expected");
@@ -5849,9 +4743,7 @@ Item {
                  "the call is expanded");
     }
 
-    // The claim the case above depends on, asserted against CallHeaderBar
-    // itself: if `compact` ever stops hiding these, the reasoning changes and
-    // this pair should be revisited together rather than drifting apart.
+    // The premise of the case above, asserted against CallHeaderBar itself.
     void compactIsAReducedControlSetNotJustASmallerOne()
     {
         const QString bar = read(QStringLiteral(QML_DIR "/CallHeaderBar.qml"));
@@ -5862,16 +4754,14 @@ Item {
                                            "controls, found %1").arg(hidden)));
     }
 
-    // Full-screen chrome retires when the pointer stops. Reported as the
-    // controls "just sitting there for good" over someone's shared screen.
+    // Full-screen chrome retires when the pointer stops.
     void fullScreenOverlaysRetireWhenThePointerIsStill()
     {
         const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
         QVERIFY(stage.contains(QStringLiteral("overlaysIdle")));
         QVERIFY2(stage.contains(QStringLiteral("HoverHandler")),
                  "movement must wake the chrome without consuming a click");
-        // BOTH overlays fade, or the exit affordance sits there alone and the
-        // complaint is only half answered.
+        // Both overlays fade, including the exit affordance.
         QCOMPARE(stage.count(
                      QStringLiteral("opacity: fullScreenSurface.overlaysIdle ? 0 : 1")),
                  2);
@@ -5880,29 +4770,18 @@ Item {
                  "the idle flag outlives the state it belongs to");
     }
 
-    // THE PADLOCK MUST NOT REASSURE WHILE MEDIA IS BEING DROPPED.
-    //
-    // CallStage drew a green lock whenever the call was encrypted. That is
-    // true and it is not the whole answer: the engine has always detected a
-    // remote stream whose frames arrive and are thrown away for want of a
-    // usable key, and only wrote it to the log, so the participant you could
-    // not hear sat under a badge saying everything was in order. B026, found
-    // by review of the call receive path.
+    // The padlock must not reassure while a remote stream's frames are being
+    // dropped for want of a usable key.
     void theEncryptionBadgeStopsReassuringWhenMediaIsBeingDropped()
     {
         const QString norm = normalized(read(QStringLiteral(QML_DIR "/CallStage.qml")));
         QVERIFY(!norm.isEmpty());
         const int lock = norm.indexOf(QStringLiteral("app.groupCall.mediaEncrypted"));
         QVERIFY2(lock >= 0, "the encryption badge is gone entirely");
-        // Bounded to the badge's own Loader, so an unrelated mention of the
-        // property elsewhere in a large file cannot satisfy this.
+        // Bounded to the badge's Loader.
         const QString block = norm.mid(lock, 900);
-        // THE APPEARANCE MUST DEPEND ON IT, not merely mention it. The first
-        // version of this asserted the property appeared somewhere in the
-        // block, and a mutation that reverted the icon and the colour to
-        // constants still PASSED, because the tooltip below them kept the
-        // mention. Assert the two bindings that actually decide what the user
-        // sees.
+        // The icon and colour bindings must depend on it; a mention in the
+        // tooltip alone would pass with constants.
         QVERIFY2(block.contains(QStringLiteral(
                      "name: app.groupCall.remoteMediaBlocked ? \"warning\" : \"lock\"")),
                  "the badge's ICON does not depend on remoteMediaBlocked, so "
@@ -5916,28 +4795,16 @@ Item {
     }
 
 
-    // EVERY JOIN-BLOCK TOKEN HAS WORDING ON EVERY SURFACE THAT SHOWS ONE.
-    //
-    // The token list is DERIVED from RtcController::joinBlockReason's own
-    // body rather than written out here, which is the whole point: a
-    // hard-coded copy would have to be edited by the same person who forgets
-    // the QML, and then it agrees with them. `DesktopIntegrationTest::
-    // parseTimeFlagsSurviveIntoTheQtParser` is the pattern.
-    //
-    // ON THE BROKEN TREE `media_encryption_unavailable` had no case in
-    // EITHER QML file — in IncomingCallPrompt.qml directly under a comment
-    // claiming the set is "kept in step with RoomCallBanner.blockText" — so
-    // the one refusal that is about ENCRYPTION rendered as the default
-    // "Joining isn't available". CallEventDelegate.qml mapped NO tokens at
-    // all and only hid its Join button, so a live call the reader could see
-    // and could not join explained nothing whatsoever.
+    // Every join-block token has wording on every surface that shows one.
+    // Tokens are derived from RtcController::joinBlockReason's body, so a new
+    // token fails here until the QML maps it.
     void everyJoinBlockTokenHasWordingOnEverySurface()
     {
         const QString controller = read(QStringLiteral(
             SRC_DIR "/calls/RtcController.cpp"));
         QVERIFY(!controller.isEmpty());
 
-        // The body of joinBlockReason, walked to its own closing brace.
+        // The body of joinBlockReason, to its closing brace.
         const int at = controller.indexOf(QStringLiteral(
             "QString RtcController::joinBlockReason("));
         QVERIFY2(at >= 0, "joinBlockReason is gone; this contract is aimed "
@@ -5969,9 +4836,7 @@ Item {
             if (!tokens.contains(found))
                 tokens.append(found);
         }
-        // MUTATION GUARD. A derivation that matches nothing passes every
-        // assertion below it and proves nothing at all — §16 records that
-        // exact failure. Both the count and one token that must be there.
+        // Mutation guard: a derivation that matches nothing proves nothing.
         QVERIFY2(tokens.size() >= 7,
                  qPrintable(QStringLiteral("the token derivation found only "
                                            "%1 tokens, so it is not reading "
@@ -6002,9 +4867,7 @@ Item {
             }
         }
 
-        // ...AND SO DOES THE ONE IN C++. join() refuses with a sentence of
-        // its own when a surface has drifted out of step with the gate; a
-        // token it does not know is a refusal the user cannot act on.
+        // join()'s own refusal message in C++ must know every token too.
         const QString sfu = read(QStringLiteral(
             SRC_DIR "/calls/SfuCallController.cpp"));
         QVERIFY(!sfu.isEmpty());
@@ -6022,19 +4885,9 @@ Item {
         }
     }
 
-    // JOIN REFUSES ON EVERY BLOCK, RATHER THAN PUBLISHING A MEMBERSHIP.
-    //
-    // ON THE BROKEN TREE join() logged "join refused: block=<token>" and then
-    // carried on to publish a membership for six of the seven tokens —
-    // returning only for `media_encryption_unavailable`. A log line saying
-    // the opposite of what happened, and a membership advertising a session
-    // this client had just decided it could not join, which the header of
-    // SfuCallController calls a lie on the wire.
-    //
-    // Read from the SOURCE because the behaviour is not reachable from a
-    // test: join()'s early half needs a live SfuMediaEngine, so the
-    // call-controller target (built without HAVE_LIGHTNING_WEBRTC) leaves at
-    // the build guard long before the block gate.
+    // join() must return on every block rather than publishing a membership
+    // for a session this client cannot join. Source-read: join() needs a live
+    // SfuMediaEngine, which this build does not have.
     void joinRefusesEveryBlockInsteadOfPublishingAMembership()
     {
         const QString sfu = read(QStringLiteral(
@@ -6050,9 +4903,8 @@ Item {
                  "nothing");
         const QString between = sfu.mid(gate, publish - gate);
 
-        // The refusal branch itself, walked to its own closing brace, so the
-        // `return false;` this asserts is provably INSIDE it and not one of
-        // join()'s other guards further down.
+        // The refusal branch to its closing brace, so the `return false;` is
+        // provably inside it.
         const int branch =
             between.indexOf(QStringLiteral("if (!block.isEmpty()) {"));
         QVERIFY2(branch >= 0,
@@ -6085,21 +4937,10 @@ Item {
                  "to publish for every other one");
     }
 
-    // THE RUST SIDE OF THE SAME QUESTION: a 404 is an ANSWER.
-    //
-    // `rtc_transports` carries `server_answered`, and it was spelled
-    // `category.is_empty()` — three lines under a comment saying a
-    // 404/400/M_UNRECOGNIZED is "this homeserver has no MatrixRTC, NOT a
-    // transient failure, and the two must stay distinguishable". So the one
-    // definitive negative crossed the FFI as "we could not check": the join
-    // gate rendered `discovery_failed` ("Couldn't check whether calling is
-    // available") for a server that had answered clearly, and
-    // `discoveryWorthRetrying()` — literally `!m_serverAnswered` — stayed
-    // true, re-running account-scoped discovery on EVERY room change for the
-    // rest of the session against a constant.
-    //
-    // Asserted on the source because the payload needs a live homeserver;
-    // the helper's own behaviour is pinned by
+    // A 404/400/M_UNRECOGNIZED from discovery is an answer ("no MatrixRTC"),
+    // not a failed check: `server_answered` must be true for it, or the join
+    // gate says "couldn't check" and discovery retries on every room change.
+    // Behaviour is pinned by
     // `a_homeserver_without_matrixrtc_counts_as_having_answered` in
     // rust/src/rtc.rs.
     void aDefinitiveNoMatrixRtcAnswerIsNotReportedAsAFailedCheck()
@@ -6122,19 +4963,9 @@ Item {
                  "the helper is gone");
     }
 
-    // EVERY CALL ROW IN A ROOM OFFERED JOIN, NOT JUST THE LIVE ONE.
-    //
-    // `sessionLive` is `app.rtc.participantCount(roomId) > 0` — an answer
-    // about the ROOM, because that is the only question RtcController can
-    // answer. Every call row bound to it identically, so while any call was
-    // up a room with a day of call history showed a column of Join buttons.
-    // Reported by the maintainer, 2026-09-13.
-    //
-    // This drives the REAL delegate rather than reading its source: a text
-    // scan cannot see whether `canJoin` actually consults the new property,
-    // and that is the whole claim. The row is given a live-looking session
-    // (participantCount is stubbed by the fixture's own `app`), so the ONLY
-    // difference between the two halves is isLatestCallRow.
+    // Only the newest call row in a room offers Join; `sessionLive` is a
+    // per-room answer. Drives the real delegate with a live-looking session,
+    // so the only difference between halves is isLatestCallRow.
     void anOlderCallRowOffersNoJoinButton()
     {
         QQmlEngine engine;
@@ -6166,7 +4997,7 @@ Item {
         auto *newest = root->property("newest").value<QObject *>();
         QVERIFY(older);
         QVERIFY(newest);
-        // The property is REAL and TRACKS, on the loaded component.
+        // The property is real and tracks.
         QVERIFY2(older->property("isLatestCallRow").isValid(),
                  "CallEventDelegate does not declare isLatestCallRow, so the "
                  "host cannot tell it which row owns the live session");
@@ -6175,28 +5006,17 @@ Item {
         QVERIFY2(!newest->property("supersededByNewerCall").toBool(),
                  "the newest call row believes it has been superseded");
 
-        // AND THAT canJoin ACTUALLY CONSULTS IT — which this fixture cannot
-        // prove by reading canJoin, and saying so is the point. With no `app`
-        // in the test context `sessionLive` is false anyway, so canJoin is
-        // false on ANY tree and asserting it here passes with the gate
-        // deleted. Measured: removing `&& !supersededByNewerCall` from the
-        // expression left the loaded-component assertions green. So the
-        // coupling is pinned against the SOURCE, where the mutation does
-        // fail — the same shape as everyCallControllerMemberQmlUsesActuallyExists.
+        // canJoin's use of it is pinned against the source: with no `app` in
+        // the test context `sessionLive` is false, so canJoin is false either
+        // way and a runtime assertion would pass with the gate deleted.
         QFile delegateSource(QStringLiteral(QML_DIR "/CallEventDelegate.qml"));
         QVERIFY2(delegateSource.open(QIODevice::ReadOnly | QIODevice::Text),
                  qPrintable(delegateSource.errorString()));
         const QString qml = QString::fromUtf8(delegateSource.readAll());
         const int canJoinAt = qml.indexOf(QStringLiteral("readonly property bool canJoin:"));
         QVERIFY2(canJoinAt >= 0, "canJoin is gone from CallEventDelegate");
-        // BOUNDED TO THE STATEMENT, NOT TO A BLANK LINE. Slicing to the next
-        // "\n\n" fails OPEN: delete the blank line after the expression and
-        // the slice becomes the rest of the file, which contains
-        // `supersededByNewerCall` in its own declaration -- so the assertion
-        // would pass on a tree with the gate removed. Raised in review, and
-        // it is the same "a check that cannot fail" shape this case already
-        // exists to avoid. The end is the next declaration at the same
-        // indent, and NOT finding one is a failure rather than a fallback.
+        // Bounded to the statement: the end is the next declaration at the same
+        // indent, and not finding one fails. A blank-line slice fails open.
         const int exprEnd =
             qml.indexOf(QRegularExpression(QStringLiteral("\n    [A-Za-z/]")),
                         canJoinAt + 1);
@@ -6212,21 +5032,12 @@ Item {
                      "Expression was: %1").arg(canJoinExpr)));
     }
 
-    // ---- and the HOST actually hands the model's answer to the delegate ----
-
     void theCallRowIsToldWhichRowIsTheNewest()
     {
-        // THE THIRD LINK IN THE CHAIN, and it was the one nothing pinned.
-        // The model computes `latestCallEventId` (state-activity-grouping),
-        // the delegate derives `supersededByNewerCall` from `isLatestCallRow`
-        // and gates canJoin on it (above) -- and in between, MessageDelegate
-        // has to pass one to the other. `isLatestCallRow` defaults to TRUE on
-        // purpose, so that a host which cannot answer (a standalone load, a
-        // backend with no such model) still shows Join rather than hiding it.
-        // Delete the three-line binding and that permissive default takes
-        // over on EVERY row: every call row in the room offers Join again,
-        // which is the maintainer's original report, and every suite stays
-        // green. Raised in review of 8406f33/2a70239.
+        // MessageDelegate must pass the model's answer to `isLatestCallRow`.
+        // It defaults to true (so hosts that cannot answer still show Join),
+        // so a missing binding makes every row offer Join and no other suite
+        // notices.
         QFile hostSource(QStringLiteral(QML_DIR "/MessageDelegate.qml"));
         QVERIFY2(hostSource.open(QIODevice::ReadOnly | QIODevice::Text),
                  qPrintable(hostSource.errorString()));
@@ -6236,9 +5047,7 @@ Item {
                  "MessageDelegate no longer tells CallEventDelegate which row "
                  "is the newest call, so the delegate's permissive default "
                  "puts Join back on every call row in the room");
-        // Bounded to the binding's own statement: the end is the next
-        // property at the same indent, and NOT finding one is a failure
-        // rather than a fallback that would cover the rest of the file.
+        // Bounded to the binding's statement; not finding the end fails.
         const int bindEnd =
             host.indexOf(QRegularExpression(QStringLiteral("\n            [A-Za-z]")),
                          bindAt + 1);

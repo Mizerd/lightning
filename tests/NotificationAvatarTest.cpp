@@ -1,21 +1,13 @@
-// v0.7.3: the initials disc a notification carries when an identity has no
-// avatar.
+// The initials disc a notification carries when an identity has no avatar,
+// so the daemon does not substitute a generic document glyph.
 //
-// A sender without a picture produced a notification with no image hint at
-// all, and the daemon substituted its own generic document glyph — reported
-// from a real desktop, where a message from a user with no avatar looked
-// like an unknown file attachment.
+// The hash indices below were computed independently of the C++ (a separate
+// implementation of AppTheme.qml's identityIndex over the same keys).
 //
-// The hash indices below were computed INDEPENDENTLY of the C++ (a separate
-// implementation of AppTheme.qml's identityIndex, run over the same keys), so
-// that half of the agreement is pinned rather than restated.
-//
-// The COLOUR is no longer a fixed palette to restate: since 2026-08-22 the
-// discs are derived from the active theme's accent, by the one implementation
-// in lightning::theme that AppTheme.qml also calls. What is worth asserting
-// about it is therefore behavioural — the disc follows the theme, it is
-// stable within a theme, the painter uses the palette's own answer, and the
-// initials are drawn in an ink the disc can actually carry.
+// The disc colour derives from the active theme's accent via lightning::theme
+// (shared with AppTheme.qml), so the assertions are behavioural: it follows
+// the theme, is stable within a theme, the painter uses the palette's answer,
+// and the initials use an ink the disc can carry.
 
 #include "notifications/FallbackAvatar.h"
 #include "theme/IdentityColors.h"

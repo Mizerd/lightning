@@ -1,34 +1,28 @@
-// v0.9 (phase 11): "Send later" — ScheduledSendController policy.
+// "Send later": ScheduledSendController policy.
 //
-// Pins the two-mechanism contract and its honesty rules:
-//   * a message is scheduled SERVER-side (MSC4140) only when the server
-//     has said it supports delayed events, the room is KNOWN unencrypted,
-//     and the message carries no thread/reply relation; everything else
-//     stays in the LOCAL queue;
-//   * a local entry for an UNENCRYPTED room persists across restarts; one
-//     for an ENCRYPTED room (or a room whose encryption state is unknown)
-//     is memory-only — scheduled plaintext never touches disk (CLAUDE.md
-//     §6);
-//   * a due local entry is marked "sending" and PERSISTED before the send
-//     leaves, goes through the ROOM-level send (any room, not only the open
-//     one), and leaves the queue only on the room's real acceptance — a
-//     refusal is reported, never reported as sent;
+//   * a message is scheduled server-side (MSC4140) only when the server
+//     supports delayed events, the room is known unencrypted, and the message
+//     has no thread/reply relation; everything else stays in the local queue;
+//   * a local entry for an unencrypted room persists across restarts; one for
+//     an encrypted (or unknown) room is memory-only, so scheduled plaintext
+//     never touches disk;
+//   * a due local entry is marked "sending" and persisted before the send
+//     leaves, goes through the room-level send (any room), and leaves the
+//     queue only on the room's acceptance; a refusal is reported;
 //   * nothing is dispatched while disconnected; the reconnect fires it;
 //   * a row found in "sending" on the next start is reported as unsent and
 //     never re-fired on a guess;
-//   * every server-side mutation is serialized on the entry's one in-flight
-//     op: a reschedule/edit cancels FIRST and resubmits only on the server's
-//     "cancelled"; a failed cancel is reported and never followed by a
-//     replacement (that would deliver the message twice); changes asked
-//     while the schedule is in flight apply once the delay id arrives;
-//   * a server-held entry past its deadline is retired (the server sent
-//     it); one persisted without a delay id is reported, never re-sent;
+//   * server-side mutations are serialized on the entry's one in-flight op: a
+//     reschedule/edit cancels first and resubmits only on "cancelled"; a
+//     failed cancel is reported and never followed by a replacement (that
+//     would deliver twice); changes asked mid-schedule apply once the delay
+//     id arrives;
+//   * a server-held entry past its deadline is retired; one persisted without
+//     a delay id is reported, never re-sent;
 //   * sign-out drops the memory queue.
 //
-// HONEST SCOPE: policy and wiring against a fake client. A real homeserver
-// accepting or refusing a delayed event, the delayed event actually firing
-// server-side, and the composer's Send-later button are NOT exercised here
-// and are NOT TESTED.
+// Policy and wiring against a fake client: a real homeserver's delayed events
+// and the composer's Send-later button are not exercised here.
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"

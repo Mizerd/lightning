@@ -1,27 +1,12 @@
-// 2026-08-26: the link-preview CONSENT gate, rendered from the production
-// MessageDelegate offscreen.
-//
-// The gate is the control that stands between a reader and an outbound
-// request to a third-party site, and it is the reason link previews default
-// OFF (an encrypted room is stricter still). It used to render as a STACK —
-// a host row, a wrapped two-line amber sentence, then a full-width button —
-// which cost roughly four message lines of timeline for one unloaded link.
-// Readers reported it as taking over the row.
-//
-// What this suite pins is the pair of properties that had to survive the
-// shrink:
-//   * the gate is ONE band — the button shares the host's and the notice's
-//     vertical span instead of sitting in a row of its own, and the card is
-//     strictly smaller (both axes) than the very next state it enters. On
-//     the pre-fix delegate the button was strictly BELOW the notice and the
-//     gate was TALLER than the loading state, so every assertion here fails
-//     against it;
-//   * the privacy fact is still stated before consent — the visible notice
-//     names the direct contact and the IP, and the long sentence is still
-//     carried verbatim by the row.
-// And that consent still MEANS the button: the card's open-the-URL click
-// target stays disabled while the gate is showing, so hovering the row to
-// read the warning can never agree to the fetch.
+// The link-preview consent gate, rendered from the production MessageDelegate
+// offscreen. The gate stands between a reader and a request to a third-party
+// site (previews default off). Pinned:
+//   * the gate is one band: host, notice and button share a vertical span,
+//     and the card is smaller on both axes than the state it leads to;
+//   * the privacy fact is stated before consent: the visible notice names
+//     the direct contact and the IP, and the row carries the full sentence;
+//   * only the button consents: the card's open-URL target stays disabled
+//     while the gate shows, so hovering to read the warning cannot agree.
 #include <QTextOption>
 #include <QtTest/QtTest>
 
@@ -41,8 +26,7 @@
 namespace {
 constexpr int kSignalTimeoutMs = 3000;
 
-// Vertical spans overlap — i.e. the two items sit in the same band rather
-// than one under the other.
+// Vertical spans overlap: the items share a band rather than stacking.
 bool sharesBand(QQuickItem *a, QQuickItem *b)
 {
     const QRectF ra = a->mapRectToItem(nullptr, a->boundingRect());
@@ -63,8 +47,8 @@ private:
         QStringList warnings;
     };
 
-    // A complete role map with safe defaults so the production delegate
-    // binds without undefined-property warnings.
+    // A complete role map with safe defaults so the production delegate binds
+    // without undefined-property warnings.
     static QVariantMap baseFixture(AppController &controller)
     {
         QVariantMap fixture;
@@ -121,15 +105,11 @@ private:
         return fixture;
     }
 
-    // The delegate reads encryption from its HOST PANE, not from the row, so
-    // the fixture supplies a stand-in that reports an encrypted room — the
-    // state in which the gate carries its strongest wording.
-    //
-    // It is a real QML object rather than a QVariantMap on purpose. Several
-    // of the delegate's bindings guard on `timelineView` being truthy and
-    // then CALL a method on it (`stateGroupExpanded` is the one with no
-    // second guard), so a plain map turns every such binding into a
-    // TypeError and the no-warnings assertions below stop meaning anything.
+    // The delegate reads encryption from its host pane, so this stand-in
+    // reports an encrypted room (the gate's strongest wording). A real QML
+    // object, not a QVariantMap: some bindings call methods on
+    // `timelineView` (`stateGroupExpanded` has no second guard), and a map
+    // would turn them into TypeErrors.
     static QObject *encryptedHost(QQmlEngine *engine, QObject *owner)
     {
         QQmlComponent component(engine);
@@ -195,8 +175,8 @@ QtObject {
         out.root->setWidth(700);
         out.window->show();
         QCoreApplication::processEvents();
-        // The pane stand-in must be in place before the gate is staged, or
-        // the notice renders its unencrypted wording.
+        // The pane stand-in must be in place before the gate is staged, or the
+        // notice uses its unencrypted wording.
         QObject *host = encryptedHost(out.engine.get(), out.root);
         if (!host)
             return false;
@@ -207,9 +187,7 @@ QtObject {
     }
 
 private Q_SLOTS:
-    // ONE band. The host, the notice and the Show button share a vertical
-    // span; the pre-fix gate put the button in a row of its own below a
-    // wrapped two-line sentence.
+    // One band: host, notice and Show button share a vertical span.
     void consentGateIsASingleBand()
     {
         AppController controller(AppController::MockBackend);
@@ -231,8 +209,7 @@ private Q_SLOTS:
 
         QVERIFY(sharesBand(button, host));
         QVERIFY(sharesBand(button, notice));
-        // Two text lines, not three rows: the whole gate is no taller than
-        // the button plus the card's own padding would allow on one band.
+        // Two text lines, not three rows: no taller than one band allows.
         auto *card = d.root->findChild<QQuickItem *>(
             QStringLiteral("linkPreviewCard"));
         QVERIFY(card != nullptr);
@@ -241,10 +218,8 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // The gate is NARROWER than the state the consent click leads to.
-    //
-    // It used to be the widest card the bubble allowed — a flat 400px cap —
-    // for a link nobody had agreed to fetch. It now sizes to its own row.
+    // The gate is narrower than the state the consent click leads to; it
+    // sizes to its own row rather than the 400px cap.
     void consentGateIsNarrowerThanTheStateItLeadsTo()
     {
         AppController controller(AppController::MockBackend);
@@ -259,9 +234,9 @@ private Q_SLOTS:
         QVERIFY(gateW > 0.0);
         QVERIFY(gateH > 0.0);
 
-        // The state the button dispatches into, and eventually reaches.
-        // Order matters: the card latches a monotonic reserved height, and
-        // production always shows the gate first.
+        // The state the button dispatches into. Order matters: the card
+        // latches a monotonic reserved height, and production shows the gate
+        // first.
         QVariantMap loaded;
         loaded.insert(QStringLiteral("state"), QStringLiteral("loaded"));
         loaded.insert(QStringLiteral("host"),
@@ -275,28 +250,22 @@ private Q_SLOTS:
         d.root->setProperty("preview", QVariant::fromValue(loaded));
         QCoreApplication::processEvents();
 
-        // WIDTH is the half this test can prove, and it is the half the
-        // report was about: the gate used to take the flat 400px cap for a
-        // link nobody had agreed to fetch, and now it sizes to its own
-        // contents (measured here: 285 against the loaded card's 400).
+        // Width is what this can prove: the gate sizes to its contents rather
+        // than the loaded card's 400px cap.
         QVERIFY2(card->implicitWidth() > gateW,
                  qPrintable(QStringLiteral("gate %1 wide vs loaded %2 — the "
                                            "gate is not sizing to its own "
                                            "contents")
                                 .arg(gateW).arg(card->implicitWidth())));
 
-        // HEIGHT is deliberately NOT asserted here. A loaded card's height
-        // comes from content this fixture cannot faithfully supply (a real
-        // title, description and thumbnail arrive from LinkPreviewController,
-        // and a hand-built map renders the same 47px band the gate does), so
-        // a comparison against it would be measuring the fixture rather than
-        // the layout. The gate's own height is bounded with real teeth in
-        // consentGateIsASingleBand above — one band, no third row.
+        // Height is deliberately not compared: a loaded card's height depends
+        // on content this fixture cannot supply faithfully. The gate's own
+        // height is bounded in consentGateIsASingleBand.
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // The reason the control exists must still be on screen before consent,
-    // and the full sentence must still exist verbatim on the row.
+    // The privacy reason is on screen before consent, and the full sentence
+    // is on the row verbatim.
     void consentGateStillStatesThePrivacyFact()
     {
         AppController controller(AppController::MockBackend);
@@ -308,12 +277,10 @@ private Q_SLOTS:
         QVERIFY(notice != nullptr);
         QVERIFY(notice->isVisible());
         const QString visible = notice->property("text").toString();
-        // Both facts, and previews now go through the homeserver FIRST, so
-        // there are three things this compressed label has to carry: who
-        // fetches it, that a direct fetch is the fallback, and that the
-        // fallback costs the reader's address. Dropping the last two would
-        // promise a privacy property that a server with previews disabled
-        // — Synapse's default — cannot deliver.
+        // Previews go through the homeserver first, so the label must carry
+        // who fetches, that a direct fetch is the fallback, and that the
+        // fallback exposes the reader's address (Synapse disables server
+        // previews by default).
         QVERIFY2(visible.contains(QStringLiteral("server")),
                  qPrintable(QStringLiteral("label omits who fetches: %1")
                                 .arg(visible)));
@@ -323,12 +290,8 @@ private Q_SLOTS:
         QVERIFY2(visible.contains(QStringLiteral("IP")),
                  qPrintable(QStringLiteral("label omits what the fallback "
                                            "costs: %1").arg(visible)));
-        // Not elided away on a narrow bubble — a privacy notice the reader
-        // cannot reach the end of is not a notice.
-        // Qt::ElideNone is 3, NOT 0 — 0 is Qt::ElideLeft. This assertion was
-        // first written as `== 0` and could never have passed, on the fixed
-        // tree or the broken one. Spelled with the enum so it cannot drift
-        // back into a magic number.
+        // Not elided on a narrow bubble. Qt::ElideNone is 3, not 0 (0 is
+        // Qt::ElideLeft), hence the enum.
         const QVariant elideValue = notice->property("elide");
         QVERIFY2(elideValue.isValid()
                      && elideValue.toInt() == int(Qt::ElideNone),
@@ -343,14 +306,9 @@ private Q_SLOTS:
             QStringLiteral("linkPreviewConsentRow"));
         QVERIFY(row != nullptr);
         const QString full = row->property("fullPrivacyText").toString();
-        // BOTH HALVES, and the order matters as much as the words.
-        //
-        // Previews now go through the homeserver first, so the notice must
-        // say so — claiming a direct fetch when the server did it would be
-        // scaring the user about an exposure that did not happen. But it
-        // must ALSO keep the direct case, because the fallback is real and
-        // Synapse disables previews by DEFAULT: a notice that promised only
-        // the private route would be a lie on most servers.
+        // Both halves, in order: the notice must say the homeserver fetches
+        // first, and must keep the direct fallback, which is real on most
+        // servers.
         QVERIFY2(full.contains(QStringLiteral("homeserver")),
                  qPrintable(QStringLiteral(
                      "the consent notice no longer says the homeserver "
@@ -367,12 +325,9 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // Consent is the BUTTON. This one is a CONTRACT PIN, not a regression —
-    // it passes on the pre-fix delegate too, which is the point: the shrink
-    // added a HoverHandler and a tooltip to the gate row so the long
-    // sentence stays readable, and hovering to read a warning must never be
-    // able to agree to the fetch. Nothing else on the card may dispatch the
-    // request or open the URL while the gate is showing.
+    // Consent is the button. A contract pin: the gate row's HoverHandler and
+    // tooltip must never consent, and nothing else on the card may dispatch
+    // the request or open the URL while the gate shows.
     void onlyTheButtonConsents()
     {
         AppController controller(AppController::MockBackend);

@@ -1,7 +1,7 @@
-// v0.5.11: tests for bare-localpart user lookup — candidate derivation from
-// the authenticated account's server, exact-profile confirmation before a
-// bare-localpart result is offered, typed-full-id behavior, merge
-// deduplication with provenance, and stale-result rejection.
+// Bare-localpart user lookup: candidate derivation from the authenticated
+// account's server, exact-profile confirmation before a bare-localpart result
+// is offered, typed-full-id behaviour, merge deduplication with provenance,
+// and stale-result rejection.
 
 #include "matrix/MatrixClient.h"
 #include "models/UserLookup.h"
@@ -125,7 +125,7 @@ class UserLookupTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    // v0.7: shared visible-name fallback — localpart before the full MXID.
+    // Shared visible-name fallback: localpart before the full MXID.
     void localpartFallbackDerivation()
     {
         using namespace matrix::user_lookup;

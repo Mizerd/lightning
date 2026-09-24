@@ -1,11 +1,5 @@
-// Bridge-network recognition. Pure string logic, so this is the one piece of
-// the convergence/unified-inbox work that is fully covered by a fast unit
-// test rather than by a contract scan.
-//
-// The interesting cases are the negatives. A false positive here mislabels a
-// perfectly ordinary Matrix contact as a bridged account, which is worse
-// than showing no badge at all — so the ordinary-user cases below are the
-// ones that matter most.
+// Bridge-network recognition: pure string logic. The negatives matter most:
+// labelling an ordinary Matrix contact as bridged is worse than no badge.
 #include <QtTest/QtTest>
 
 #include "matrix/BridgeNetwork.h"
@@ -16,10 +10,9 @@ using namespace matrix::bridge;
 
 namespace {
 
-/// The smallest client the room list will accept. It exists so the badge
-/// tests can drive the MODEL rather than the pure functions: the defect this
-/// round fixes is not in the string logic (which was always right), it is
-/// that nothing ever fed the model an answer for a non-DM room.
+/// The smallest client the room list accepts, so badge tests can drive the
+/// model and not only the pure functions (non-DM rooms get their answer
+/// through the model).
 class FakeClient final : public MatrixClient
 {
     Q_OBJECT
@@ -105,8 +98,8 @@ private slots:
             << "@_discord_987654321:example.org" << "discord";
         QTest::newRow("case insensitive")
             << "@WhatsApp_447700900123:example.org" << "whatsapp";
-        // The bot DM is where login and bridge status live, so it has to be
-        // labelled too — and it has no remote id to separate with.
+        // The bot DM (login and bridge status) is labelled too, and has no
+        // remote id to separate.
         QTest::newRow("bridge bot")
             << "@whatsappbot:example.org" << "whatsapp";
         QTest::newRow("bridge bot underscored")
@@ -124,8 +117,7 @@ private slots:
     {
         QTest::addColumn<QString>("userId");
 
-        // An underscore in a human localpart must not be read as a network
-        // separator. This is the failure mode a naive prefix split has.
+        // An underscore in a human localpart is not a network separator.
         QTest::newRow("human with underscore") << "@thomas_redstone:example.org";
         QTest::newRow("plain human")           << "@rokas:example.org";
         QTest::newRow("unknown network")       << "@myspace_42:example.org";
@@ -155,8 +147,8 @@ private slots:
         QVERIFY(networkIdForAlias("").isEmpty());
     }
 
-    // A missing sigil or server part must not throw the parse off — the
-    // model hands over whatever the SDK gave it.
+    // A missing sigil or server part must not break the parse; the model
+    // passes on whatever the SDK gave it.
     void toleratesPartialIdentifiers()
     {
         QCOMPARE(networkIdForUserId("whatsapp_447700900123"),
@@ -166,8 +158,8 @@ private slots:
 
     void roomPrefersTheDirectPartner()
     {
-        // Both present and disagreeing: the DM partner wins, because it
-        // names a real remote account.
+        // Both present and disagreeing: the DM partner wins, since it names a
+        // real remote account.
         QCOMPARE(networkIdForRoom("@signal_abc:example.org",
                                   "#whatsapp_123:example.org"),
                  QStringLiteral("signal"));
@@ -194,8 +186,8 @@ private slots:
         QVERIFY(labelForNetworkId("").isEmpty());
     }
 
-    // Every id the recognisers can produce must have a label, or the UI ends
-    // up with a badge it cannot render.
+    // Every id the recognisers produce has a label, or the UI gets a badge it
+    // cannot render.
     void everyRecognisedIdHasALabel()
     {
         const QStringList ids{
@@ -212,10 +204,8 @@ private slots:
         }
     }
 
-    // The ghost-name repair (first observed live against a Beeper account,
-    // 2026-08-28): profile-less LinkedIn DMs rendered their ghost localpart
-    // ("linkedin___a_co_a_a…") and a 1:1 Signal chat rendered its bridge
-    // plumbing ("Sim, and 2 others").
+    // Bridged DM names: a profile-less ghost localpart or the bridge's hero
+    // arithmetic ("Sim, and 2 others") is never presented as the name.
     void bridgedDmNamesAreHumane()
     {
         const QString ghost = QStringLiteral("@linkedin_a_co_x9:beeper.local");
@@ -225,8 +215,8 @@ private slots:
         QCOMPARE(dm.name, QStringLiteral("Nayara Lanes"));
         QVERIFY(dm.networkLabel.isEmpty());
 
-        // The hero arithmetic is stripped for a bridged DM: the extras are
-        // the ghost and the bridge bot, not people.
+        // The hero suffix is stripped for a bridged DM: the extras are the
+        // ghost and the bridge bot, not people.
         dm = presentableDmName(QStringLiteral("Sim, and 2 others"),
                                QStringLiteral("@signal_uuid7:beeper.local"));
         QCOMPARE(dm.name, QStringLiteral("Sim"));
@@ -234,9 +224,9 @@ private slots:
                                QStringLiteral("@signal_uuid7:beeper.local"));
         QCOMPARE(dm.name, QStringLiteral("Sim"));
 
-        // A ghost localpart is never presented as a name — the caller gets
-        // the network label for its "<label> contact" placeholder. Both the
-        // full user-id form and the bare localpart occur.
+        // A ghost localpart is never a name; the caller gets the network label
+        // for its "<label> contact" placeholder. Both the full user id and the
+        // bare localpart occur.
         dm = presentableDmName(QStringLiteral("linkedin_a_co_x9"), ghost);
         QVERIFY(dm.name.isEmpty());
         QCOMPARE(dm.networkLabel, QStringLiteral("LinkedIn"));
@@ -244,8 +234,7 @@ private slots:
         QVERIFY(dm.name.isEmpty());
         QCOMPARE(dm.networkLabel, QStringLiteral("LinkedIn"));
 
-        // …unless the remote id reads as a phone number, which IS a humane
-        // name for a phone-network chat.
+        // ...unless the remote id is a phone number, which is a humane name.
         dm = presentableDmName(QStringLiteral("@signal_+447700900123:beeper.local"),
                                QStringLiteral("@signal_+447700900123:beeper.local"));
         QCOMPARE(dm.name, QStringLiteral("+447700900123"));
@@ -263,28 +252,23 @@ private slots:
         QVERIFY(dm.name.isEmpty());
         QCOMPARE(dm.networkLabel, QStringLiteral("LinkedIn"));
 
-        // A NATIVE Matrix DM is untouchable: no network, no surgery — even
-        // when the name happens to contain the hero-suffix shape.
+        // A native Matrix DM is untouched, even if its name has the
+        // hero-suffix shape.
         dm = presentableDmName(QStringLiteral("Alice, and 2 others"),
                                QStringLiteral("@alice:example.org"));
         QCOMPARE(dm.name, QStringLiteral("Alice, and 2 others"));
         QVERIFY(dm.networkLabel.isEmpty());
     }
 
-    // ── MSC2346: what the bridge itself advertises ───────────────────────
-    //
-    // The reported defect ("bridge tags appear only on direct messages") is
-    // structural: everything above needs a ghost mxid from `m.direct` or a
-    // portal alias, and a bridged GROUP has neither. These cases cover the
-    // answer that does reach a group, and above all its PRECEDENCE — the
-    // advertised text is attacker-writable room state.
+    // ---- MSC2346: what the bridge advertises ----
+    // A bridged group has no `m.direct` ghost or portal alias, so bridge room
+    // state is its only signal. The advertised text is attacker-writable, so
+    // precedence is what matters.
 
     void aKnownProtocolAlwaysGetsOurOwnLabel()
     {
-        // The curated table wins over whatever the bridge would rather be
-        // called. A room admin can write "protocol.displayname" freely, and
-        // "WhatsApp (verified)" or "Signal — official" must be unable to
-        // reach a chip when the protocol id is one we recognise.
+        // The curated table wins over what the bridge calls itself: a room
+        // admin can write "protocol.displayname" freely.
         auto badge = labelForAdvertisedBridge(
             QStringLiteral("whatsapp"),
             QStringLiteral("WhatsApp (verified by admin)"),
@@ -292,15 +276,14 @@ private slots:
         QCOMPARE(badge.networkId, QStringLiteral("whatsapp"));
         QCOMPARE(badge.label, QStringLiteral("WhatsApp"));
 
-        // Case-folded, because MSC2346 calls the id case-insensitive.
+        // Case-folded: MSC2346 makes the id case-insensitive.
         badge = labelForAdvertisedBridge(QStringLiteral("Discord"),
                                          QStringLiteral("nope"), QString());
         QCOMPARE(badge.networkId, QStringLiteral("discord"));
         QCOMPARE(badge.label, QStringLiteral("Discord"));
 
-        // And the curated answer is the SAME string the inference produces,
-        // so a bridged DM cannot read one way in the list and another in the
-        // panel depending on which signal answered.
+        // The curated answer is the same string inference produces, so list
+        // and panel cannot disagree.
         QCOMPARE(badge.label,
                  labelForNetworkId(networkIdForUserId(
                      QStringLiteral("@discord_1:example.org"))));
@@ -308,10 +291,8 @@ private slots:
 
     void anUnknownProtocolMayNameItselfOnceAndBounded()
     {
-        // A bridge for a network the table has never heard of is exactly the
-        // case MSC2346 is worth reading for, so it may name itself — in a
-        // muted chip, as plain text, bounded, beside a room name that is
-        // equally attacker-chosen.
+        // An unknown network may name itself, in a muted, bounded, plain-text
+        // chip beside an equally attacker-chosen room name.
         auto badge = labelForAdvertisedBridge(QStringLiteral("irc"),
                                               QStringLiteral("IRC"),
                                               QStringLiteral("Freenode"));
@@ -323,7 +304,7 @@ private slots:
                                          QStringLiteral("Freenode"));
         QCOMPARE(badge.label, QStringLiteral("Freenode"));
 
-        // Nothing nameable is NO badge, never a guess at the raw id.
+        // Nothing nameable means no badge, never the raw id.
         badge = labelForAdvertisedBridge(QStringLiteral("irc"), QString(),
                                          QString());
         QVERIFY(badge.label.isEmpty());
@@ -335,9 +316,8 @@ private slots:
     void advertisedTextCannotForgeLayoutOrRunAway()
     {
         // Rust sanitises this already (rust/src/bridges.rs); this is the
-        // second gate, because the badge is also reachable from a backend
-        // that is not the Rust one. A right-to-left override reverses
-        // everything drawn after it, which is a spoofing surface in a chip.
+        // second gate for other backends. A right-to-left override would
+        // reverse everything after it, a spoofing surface.
         const QString hostile =
             QStringLiteral("Disc") + QChar(0x202E) + QStringLiteral("drocsi")
             + QChar(0x202C) + QStringLiteral("ord") + QChar(0x200F);
@@ -348,11 +328,11 @@ private slots:
         // Control characters and whitespace runs.
         badge = labelForAdvertisedBridge(
             QStringLiteral("custom"),
-            // BEL, spelled \a: a \u escape below U+00A0 is ill-formed C++.
+            // BEL spelled \a: a \u escape below U+00A0 is ill-formed C++.
             QStringLiteral("  Free \anode \n\t IRC  "), QString());
         QCOMPARE(badge.label, QStringLiteral("Free node IRC"));
 
-        // And it cannot be a paragraph: a chip is one line beside a name.
+        // One line: a chip sits beside a name.
         badge = labelForAdvertisedBridge(QStringLiteral("custom"),
                                          QString(80, QLatin1Char('x')),
                                          QString());
@@ -360,9 +340,8 @@ private slots:
         QVERIFY(badge.label.endsWith(QChar(0x2026)));
     }
 
-    // The defect itself, at the layer that showed it. A bridged GROUP has no
-    // DM partner and no portal alias, so the inference answers nothing and
-    // the row showed no badge however obviously bridged the room was.
+    // A bridged group room shows the advertised badge in the room list,
+    // where inference has nothing to go on.
     void theRoomListShowsAnAdvertisedBridgeOnANonDirectRoom()
     {
         FakeClient client;
@@ -372,8 +351,7 @@ private slots:
         model.setClient(&client);
         QCOMPARE(model.rowCount(), 1);
 
-        // Before the answer: nothing to infer from, so no badge. This is the
-        // reported behaviour.
+        // Before the answer: no badge.
         QVERIFY(labelAt(model, 0).isEmpty());
         QVERIFY(networkAt(model, 0).isEmpty());
 
@@ -386,7 +364,7 @@ private slots:
                  "the row must be told, or the badge appears only on the "
                  "next unrelated redraw");
 
-        // The panel reads findRoom(), and the two must never disagree.
+        // The panel reads findRoom(); the two never disagree.
         const QVariantMap found = model.findRoom(group.id);
         QCOMPARE(found.value(QStringLiteral("bridgeLabel")).toString(),
                  QStringLiteral("Discord"));
@@ -396,9 +374,8 @@ private slots:
 
     void theInferenceStillAnswersWhenNothingIsAdvertised()
     {
-        // The advertisement SUPPLEMENTS the inference; it does not replace
-        // it. A bridged DM whose bridge publishes no MSC2346 state — which
-        // is most of them today — must keep the badge it already had.
+        // The advertisement supplements inference: a bridged DM whose bridge
+        // publishes no MSC2346 state keeps its badge.
         FakeClient client;
         RoomListModel model;
         RoomInfo dm = plainRoom(QStringLiteral("!dm:example.org"));
@@ -408,8 +385,8 @@ private slots:
         model.setClient(&client);
         QCOMPARE(labelAt(model, 0), QStringLiteral("WhatsApp"));
 
-        // "This room advertises no bridge" is not evidence that the room is
-        // not bridged, so it must not erase an inference that is correct.
+        // "Advertises no bridge" is not evidence of not bridged, so it does not
+        // erase a correct inference.
         model.setAdvertisedBridge(dm.id, QString(), QString());
         QCOMPARE(labelAt(model, 0), QStringLiteral("WhatsApp"));
 
@@ -417,8 +394,7 @@ private slots:
         model.setAdvertisedBridge(dm.id, QStringLiteral("mystery"), QString());
         QCOMPARE(labelAt(model, 0), QStringLiteral("WhatsApp"));
 
-        // A real advertisement DOES override it: the bridge knows better
-        // than a localpart convention does.
+        // A real advertisement overrides the localpart convention.
         model.setAdvertisedBridge(dm.id, QStringLiteral("signal"),
                                   QStringLiteral("Signal"));
         QCOMPARE(labelAt(model, 0), QStringLiteral("Signal"));
@@ -427,8 +403,7 @@ private slots:
 
     void advertisedAnswersAreAccountScoped()
     {
-        // Room ids belong to an account. Carrying one account's bridge
-        // answers into the next one would label the wrong rooms.
+        // Room ids belong to an account; bridge answers must not carry over.
         FakeClient client;
         RoomListModel model;
         RoomInfo group = plainRoom(QStringLiteral("!portal:example.org"));

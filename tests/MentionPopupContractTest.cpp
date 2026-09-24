@@ -1,17 +1,9 @@
-// v0.6.5 (SPEC §1q): behavior + source-scan proof for the redesigned
-// MentionPopup — the "Mention · Matching "…"" header driven by the new host-
-// set `query` property, the ADMIN/MOD role chip mapped from
-// MentionSuggestionModel::RoleRole (real power-level data on the Rust
-// backend; the mock's "default" role never shows a chip), the tinted
-// return-keycap on the selected row only, the newly-added row accessibility,
-// and that @room/presence are never fabricated (the model has no data to
-// honestly back either). Drives the REAL MentionSuggestionModel through
-// MockMatrixClient's requestRoomMembers snapshot shape — the same "role" key
-// both backends already send (see RustSdkMatrixClient.cpp/MockMatrixClient.cpp)
-// — plus the real MentionPopup.qml component loaded through the MatrixClient
-// QML module. Complements tests/MentionSuggestionModelTest.cpp (model-only)
-// and tests/ComposerQmlTest.cpp (composer wiring), neither of which exercises
-// the popup's own redesigned presentation.
+// Behaviour and source-scan test for MentionPopup: the "Mention · Matching
+// "…"" header driven by the host-set `query`, the ADMIN/MOD role chip from
+// MentionSuggestionModel::RoleRole (the mock's "default" role shows none), the
+// return keycap on the selected row only, row accessibility, and no
+// fabricated presence. Drives the real MentionSuggestionModel through
+// MockMatrixClient's member snapshot plus the real MentionPopup.qml.
 
 #include "matrix/MockMatrixClient.h"
 #include "models/MentionSuggestionModel.h"
@@ -59,10 +51,10 @@ QString extractFunction(const QString &src, const QString &name)
     return {};
 }
 
-// Stand-in for a composer, holding ONLY what a refresh function reads. The
-// C++ ranges property is played by `live`: ONE array object that the test
-// changes in place, which is how Qt 6.8 hands QML a QVariantList property --
-// a reference that re-reads the property on every access.
+// Stand-in for a composer, holding only what a refresh function reads. The
+// C++ ranges property is `live`: one array object changed in place, which is
+// how Qt 6.8 hands QML a QVariantList property (a reference re-read on every
+// access).
 const char *kRefreshScene = R"QML(
 import QtQuick
 import MatrixClient
@@ -90,9 +82,8 @@ Item {
 }
 )QML";
 
-// Test-driven member snapshot delivery — mirrors
-// tests/MentionSuggestionModelTest.cpp's MemberMock, kept self-contained per
-// QtTest's one-executable-per-.moc convention.
+// Test-driven member snapshot delivery, mirroring MentionSuggestionModelTest's
+// MemberMock.
 class MemberMock : public MockMatrixClient
 {
     Q_OBJECT
@@ -226,10 +217,8 @@ private Q_SLOTS:
                  QStringLiteral("@room"));
     }
 
-    // @room is a real suggestion, not a special case bolted onto the view: it
-    // is a row in the same model, it sorts FIRST because it is the broadest
-    // thing in the list, and it disappears when the account cannot trigger a
-    // whole-room notification.
+    // @room is a row in the same model: it sorts first and disappears when the
+    // account cannot trigger a whole-room notification.
     void theWholeRoomMentionIsOfferedFirstAndOnlyWhenAllowed()
     {
         m_model.setQuery(QString());
@@ -272,16 +261,15 @@ private Q_SLOTS:
             "text: qsTr(\"Mention · Matching \\\"%1\\\"\").arg(root.query)")));
         QVERIFY(popup.contains(QStringLiteral("font.family: AppTheme.monoFont")));
         QVERIFY(popup.contains(QStringLiteral("font.capitalization: Font.AllUppercase")));
-        // Storm skin: the header rides the faint storm mono ink (deliberate
-        // decorative-scale dim, SPEC-storm-language §2) — never a themed ink.
+        // Storm skin: the header uses the faint storm mono ink.
         QVERIFY(popup.contains(QStringLiteral("color: AppTheme.stormTextFaint")));
     }
 
     void mxidUsesTextMutedPerRuleR4()
     {
         const QString popup = read(QStringLiteral(QML_DIR "/MentionPopup.qml"));
-        // Storm skin: MXIDs ride the muted storm mono ink (§2), brightening
-        // one step on the selected row for AA on the selection fill.
+        // Storm skin: MXIDs use the muted storm mono ink, one step brighter on
+        // the selected row.
         QVERIFY(popup.contains(QStringLiteral(
             "? AppTheme.stormTextSecondary")));
         QVERIFY(popup.contains(QStringLiteral(
@@ -291,20 +279,13 @@ private Q_SLOTS:
     void theRoomRowSaysWhatItDoesAndPresenceStaysOut()
     {
         const QString popup = read(QStringLiteral(QML_DIR "/MentionPopup.qml"));
-        // @room was omitted for as long as there was nothing honest behind
-        // it. There is now: the offer is gated on the room's OWN required
-        // level for a whole-room notification, asked of the SDK. So the row
-        // exists, and it says what it does rather than repeating its own
-        // name — this is the one suggestion whose consequence is worth
-        // spelling out before it is pressed.
+        // The @room row is gated on the room's required level for a
+        // whole-room notification, and says what it does.
         QVERIFY(popup.contains(QStringLiteral("Notify everyone in this room")));
         QVERIFY(popup.contains(QStringLiteral("model.isRoom === true")));
 
-        // Presence stays out, and that is still a deliberate product choice:
-        // suggestion rows are transient type-ahead UI, not a roster. If it is
-        // ever added it must arrive via the shared PresenceDot, and this
-        // assertion pins that the popup never paints its own presence
-        // colours.
+        // Presence stays out of suggestion rows; if ever added it must come
+        // via the shared PresenceDot, never the popup's own colours.
         QVERIFY(!popup.contains(QStringLiteral("presenceOnline")));
         QVERIFY(!popup.contains(QStringLiteral("presenceAway")));
     }
@@ -371,10 +352,8 @@ private Q_SLOTS:
         // test drives currentIndex itself below.
         QTRY_VERIFY(popup->property("opened").toBool());
 
-        // The popup NEVER fabricates a row: it shows exactly what the model
-        // holds. With the whole-room mention turned off that is the three
-        // members and nothing else — the @room row is a model row like any
-        // other, covered by its own case above.
+        // The popup shows exactly what the model holds: with the whole-room
+        // mention off, the three members and nothing else.
         m_model.setRoomMentionAllowed(false);
         QTRY_COMPARE(popup->property("count").toInt(), 3);
 
@@ -465,16 +444,11 @@ private Q_SLOTS:
         delete root;
     }
 
-    // Reported against the 0.9.9 AppImage: after sending a message with a
-    // mention, every NEW message began with an accent-inked run exactly as
-    // long as that mention. It was visual only (the next event went out as a
-    // plain body), and it came from the refresh functions: they stored the
-    // C++ ranges list AS READ, and on Qt 6.8 that is a live reference, so the
-    // stored copy always equalled the new value, the "nothing changed" check
-    // returned early, and the highlighter never received the empty list. Qt
-    // 6.11 detaches the list on store, so the real composer cannot show it in
-    // a local build; each composer's OWN refresh function is run here against
-    // a ranges list that behaves the way Qt 6.8's does.
+    // After a mention is sent, the composer's refresh must clear the
+    // highlighter's ranges. On Qt 6.8 the ranges list read from C++ is a live
+    // reference, so a stored copy always equals the new value and the "nothing
+    // changed" check must not swallow the empty list. Each composer's own
+    // refresh function runs here against a Qt 6.8-style list.
     void aForgottenMentionStopsInkingTheComposer_data()
     {
         QTest::addColumn<QString>("file");

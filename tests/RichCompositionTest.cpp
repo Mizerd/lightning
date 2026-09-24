@@ -1,9 +1,8 @@
-// v0.9 rich composer: the QTextDocument -> Matrix serializer. Both wire
-// bodies come from one document walk, so these cases pin (a) every
-// formatting type's HTML shape, (b) the plain fallback derived beside it,
-// (c) the whitelist property — nothing an input can carry makes the
-// serializer emit a tag this file does not name — and (d) link-target
-// safety.
+// Rich composer: the QTextDocument -> Matrix serializer. Both wire bodies come
+// from one document walk, so these cases pin (a) every formatting type's HTML
+// shape, (b) the plain fallback derived beside it, (c) the whitelist (nothing
+// an input can carry makes the serializer emit a tag this file does not name)
+// and (d) link-target safety.
 
 #include "models/RichComposition.h"
 
@@ -259,10 +258,9 @@ private Q_SLOTS:
 
     void pastedRichContentCannotSmuggleActiveMarkup()
     {
-        // What a hostile paste becomes AFTER Qt ingests it: QTextDocument
-        // stores formatting, not markup, so script/iframe/event handlers do
-        // not survive ingestion — and whatever DOES survive can only leave
-        // through this serializer's whitelist.
+        // A hostile paste after Qt ingests it: QTextDocument stores formatting,
+        // not markup, and whatever survives can only leave through the
+        // serializer's whitelist.
         QTextDocument doc;
         doc.setHtml(QStringLiteral(
             "<p onmouseover=\"evil()\">hi <b>there</b></p>"
@@ -295,12 +293,10 @@ private Q_SLOTS:
         QVERIFY(back.contains(QStringLiteral("`code`")));
         QVERIFY(back.contains(QStringLiteral("https://example.org")));
     }
-    // ── v0.9 spell checking in rich mode ─────────────────────────────
+    // ── Spell checking in rich mode ─────────────────────────────────
 
-    // 2026-09-02, from a live report: pressing the numbered-list button put
-    // "1." in the editor and the placeholder "Message #room" stayed drawn
-    // underneath it. An empty list item has NO characters, so the
-    // TextArea's own emptiness test still said empty.
+    // A document holding only structure (an empty list item) is not blank,
+    // so the placeholder must not draw under it.
     void structureWithNoTextIsNotABlankDocument()
     {
         QTextDocument empty;

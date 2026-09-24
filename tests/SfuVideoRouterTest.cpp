@@ -1,18 +1,12 @@
-// Received video routing (2026-08-23): SfuVideoRouter's sink table.
+// Received video routing: SfuVideoRouter's sink table. Defends the parts that
+// fail silently:
 //
-// Until this class existed, received video went to a `fakesink` — the
-// pipeline decoded every frame and threw it away, so a video call showed
-// nothing. What this suite defends is the part that fails SILENTLY:
-//
-//  * A tile that is destroyed must stop being a destination. The router
-//    holds QPointers precisely because a VideoOutput can die between a frame
-//    being queued on a GStreamer streaming thread and delivered on the GUI
-//    thread, and that window opens on every grid relayout.
-//  * `watching()` is what the engine consults BEFORE copying a frame, so a
-//    stale "yes" costs a full-frame memcpy per frame for a tile nobody is
-//    looking at.
-//  * Re-attaching one stream must REPLACE, not accumulate: a tile rebuilt by
-//    a relayout would otherwise leave the old sink receiving frames.
+//  * A destroyed tile stops being a destination. The router holds QPointers
+//    because a VideoOutput can die between a frame being queued on a
+//    GStreamer streaming thread and delivered on the GUI thread.
+//  * `watching()` is consulted before copying a frame, so a stale "yes" costs
+//    a full-frame copy for a tile nobody is looking at.
+//  * Re-attaching one stream replaces rather than accumulates.
 #include "calls/SfuVideoRouter.h"
 
 #include <memory>
@@ -57,16 +51,9 @@ private slots:
 
     void aNullSinkRegistersNothingAndEvictsNobody()
     {
-        // A QML VideoOutput whose videoSink is not ready yet passes null.
-        // Recording that as an attachment would report the stream as
-        // watched and the engine would copy frames into a hole — so it must
-        // not be stored.
-        //
-        // It must not REMOVE anything either, which is the 2026-08-27
-        // correction. "I have no sink yet" and "nobody may own this key" are
-        // different statements, and treating the first as the second let a
-        // half-built surface evict a working one — the same shape of defect
-        // as the key-named detach this round removed.
+        // A VideoOutput whose videoSink is not ready passes null. That must
+        // not be stored (the stream would read as watched), and must not
+        // remove an existing working sink either.
         SfuVideoRouter router;
         auto sink = std::make_unique<QVideoSink>();
         router.attachSink(QStringLiteral("PA_alice"), sink.get());
@@ -83,9 +70,8 @@ private slots:
 
     void aDestroyedSinkStopsBeingWatched()
     {
-        // THE case the QPointer exists for. A raw pointer would report this
-        // stream as watched forever and deliverFrame would dereference freed
-        // memory on the next frame.
+        // The case the QPointer exists for: a raw pointer would report the
+        // stream as watched forever and dereference freed memory.
         SfuVideoRouter router;
         {
             auto sink = std::make_unique<QVideoSink>();
@@ -146,9 +132,8 @@ private slots:
 
     void clearDropsEverySink()
     {
-        // Teardown. A sink attached for the call that just ended is a live
-        // destination for the NEXT call's frames, whose stream ids the SFU
-        // assigns afresh.
+        // Teardown: a sink from the call that ended must not receive the next
+        // call's frames, whose stream ids the SFU assigns afresh.
         SfuVideoRouter router;
         auto a = std::make_unique<QVideoSink>();
         auto b = std::make_unique<QVideoSink>();
@@ -170,15 +155,10 @@ private slots:
 
     void aSupersededSurfaceCannotTearDownItsReplacement()
     {
-        // THE 2026-08-27 regression, at the layer that owns it. There was no
-        // way to write this before: `detachSink(key)` removed whatever was
-        // there, which is why eleven tests in this file passed straight
-        // through a defect that blanked every camera and every spotlighted
-        // share.
-        //
-        // The order below is the order production actually produces — Qt
-        // builds the replacement synchronously and destroys the old surface
-        // on the deferred-delete queue.
+        // A detach names the surface it removes, so a replacement built before
+        // the old surface is destroyed is not evicted. The order below is
+        // production's: Qt builds the replacement synchronously and destroys
+        // the old surface on the deferred-delete queue.
         SfuVideoRouter router;
         auto oldSurface = std::make_unique<QVideoSink>();
         auto newSurface = std::make_unique<QVideoSink>();

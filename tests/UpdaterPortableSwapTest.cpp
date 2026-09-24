@@ -1,13 +1,9 @@
 // lightning-updater: transactional replacement and rollback.
 //
-// The contract these tests defend is that the installation is either
-// entirely the old version or entirely the new one. A failure at any step
-// must leave the target exactly as it was found — never half-A-half-B, never
-// missing — and a target we cannot write must be refused as exactly that
-// BEFORE anything is touched.
-//
-// The mid-swap failures are injected through ReplaceHooks so the rollback
-// paths are exercised for real rather than reasoned about.
+// The installation is either entirely the old version or entirely the new
+// one: a failure at any step leaves the target exactly as found, and a target
+// we cannot write is refused before anything is touched. Mid-swap failures
+// are injected through ReplaceHooks.
 
 #include "updater/AtomicReplace.h"
 
@@ -177,17 +173,10 @@ void UpdaterPortableSwapTest::swapsTheInstallationAtomically()
     QVERIFY(QFileInfo::exists(m_dir.path()));
 }
 
-// The portable data root holds the user's settings, their sealed Matrix
-// session, the Rust SDK store and the E2EE crypto store — inside the
-// installation, because that is what makes the folder copyable. The swap
-// moves every top-level entry of the installation into the backup and then
-// deletes the backup, so without an explicit preserve set the FIRST ordinary
-// in-app update takes all of it. The user would come back to a first-run
-// login and a NEW Matrix device, losing every Megolm key that was not in
-// server-side backup — presented as a successful update.
-//
-// This case fails on a tree without preserveNames: `data/` ends up in the
-// backup and the assertions below find nothing at the target.
+// The portable data root (settings, sealed session, SDK store, crypto store)
+// lives inside the installation and must survive the swap via the preserve
+// set; otherwise an ordinary update signs the user out onto a new device and
+// loses Megolm keys not in backup.
 void UpdaterPortableSwapTest::preservedPortableDataSurvivesTheSwap()
 {
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));
@@ -354,15 +343,9 @@ void UpdaterPortableSwapTest::refusesANonWritableTargetWithADistinctError()
 #endif
 }
 
-// The installation directory itself must SURVIVE the swap as the same
-// directory — its contents are moved out and the new ones moved in. The old
-// implementation renamed the whole directory aside and renamed the staged
-// tree onto its name, which gives a different directory with the same path.
-// That distinction is the entire Windows fix: Windows refuses to rename a
-// directory while a file inside it is held, and the running helper and its
-// loaded DLLs live in there, so the rename could never succeed. Identity is
-// checked by inode, which is what makes this fail against the old code on
-// Linux, where the rename itself worked fine.
+// The installation directory itself survives the swap as the same directory
+// (checked by inode): contents move out and in. Windows refuses to rename a
+// directory while the running helper and its DLLs are held inside it.
 void UpdaterPortableSwapTest::keepsTheInstallationDirectoryItself()
 {
 #ifndef Q_OS_WIN
@@ -385,11 +368,9 @@ void UpdaterPortableSwapTest::keepsTheInstallationDirectoryItself()
 #endif
 }
 
-// A leftover backup DIRECTORY is cleared and the swap proceeds. This is the
-// normal case on Windows since the entry-by-entry swap: step 4 cannot delete
-// a backup holding the still-mapped helper and its DLLs, so it survives the
-// run that created it. Refusing here — which is what this test used to
-// assert — would let exactly one update succeed and every later one fail.
+// A leftover backup directory is cleared and the swap proceeds. On Windows
+// the backup holding the still-mapped helper survives the run that created
+// it, so refusing here would make every later update fail.
 void UpdaterPortableSwapTest::clearsAStaleBackupDirectoryAndProceeds()
 {
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));
@@ -425,30 +406,11 @@ void UpdaterPortableSwapTest::refusesABackupPathThatIsAFile()
     QVERIFY(installationHasMarker(m_target, QByteArray("old")));
 }
 
-// ── The rule the HELPER uses, not a rule invented by this test ───────────
-//
-// The case above pins the refusal. It passed for months while the shipped
-// helper hit that very refusal on every Windows portable update: it built its
-// backup at `<target>/data/update-work/previous-version`, swapDirectory
-// refused the overlap before moving a file, and the user got an "unknown
-// error" after the restart with the old build still in place. A test that
-// asserts a policy proves nothing about whether production can satisfy it.
-//
-// So this drives portableBackupPath() — the function the helper now calls —
-// through a real swap. On the old placement it fails at the first QVERIFY.
 // ── A rollback must not take the user's state with it ───────────────────
 //
-// `preserveNames` keeps the portable installation's settings, sealed session,
-// SDK store and crypto store out of the swap. The ROLLBACK ignored it: it
-// swept every entry then in the target into the scratch tree and deleted it,
-// `data` included. A failed promote therefore wiped exactly what the preserve
-// rule exists to protect, and the user came back to a fresh login and a new
-// device, losing access to everything encrypted to the old one.
-//
-// It went unseen because the old success check counted entries and the bug
-// made the count come out right: with `data` gone the target held exactly the
-// backed-up entries. Had it been preserved, that same line would have called
-// a correct rollback a failure. So this asserts the DATA, not the count.
+// A failed promote must restore the backup without sweeping `preserveNames`
+// entries (settings, session, SDK and crypto stores) away. Asserts the data,
+// not an entry count.
 void UpdaterPortableSwapTest::aFailedPromoteRollsBackWithoutTouchingPreservedState()
 {
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));
@@ -496,6 +458,8 @@ void UpdaterPortableSwapTest::aFailedPromoteRollsBackWithoutTouchingPreservedSta
     QCOMPARE(survivedKeys.readAll(), QByteArray("device-keys"));
 }
 
+// The backup path the helper actually uses (portableBackupPath()) must be
+// accepted by swapDirectory, driven through a real swap.
 void UpdaterPortableSwapTest::theBackupPathTheHelperUsesIsAcceptedBySwapDirectory()
 {
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));

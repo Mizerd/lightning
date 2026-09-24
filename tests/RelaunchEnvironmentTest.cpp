@@ -7,19 +7,12 @@
 using updater::RelaunchEnvironmentChange;
 using updater::relaunchEnvironmentChanges;
 
-// The environment corrections a relaunch needs, CALLED rather than performed.
-//
-// Every case here is a real observation from 2026-09-08, reproduced with a
-// throwaway AppImage built from the shipped runtime and run exactly the way
-// the maintainer runs Lightning
-// (`nix-shell -p appimage-run --run "appimage-run …"`):
+// The environment corrections a relaunch needs, called directly. Observed
+// with an AppImage run through `appimage-run` under nix-shell:
 //
 //   inherited TMPDIR (deleted with the shell) -> create mount dir error
 //   TMPDIR dropped, mount attempted           -> no suitable fusermount, 127
-//   TMPDIR dropped + extraction asked for     -> "Lightning 0.9.3", exit 0
-//
-// The first two FAIL on the code that shipped in 0.9.3, which relaunched with
-// whatever environment it happened to inherit.
+//   TMPDIR dropped + extraction asked for     -> runs, exit 0
 namespace {
 
 struct Env {
@@ -70,10 +63,9 @@ class RelaunchEnvironmentTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    // THE REPORTED FAILURE. nix-shell deletes its private temporary directory
-    // when it exits, and it exits when Lightning does — so the AppImage
-    // runtime's mount point cannot be created and the relaunched process dies
-    // before it runs anything of its own.
+    // nix-shell deletes its private temporary directory when it exits (with
+    // Lightning), so the AppImage runtime cannot create its mount point and
+    // the relaunch dies. The dead TMPDIR is dropped.
     void aTemporaryDirectoryThatDiedWithItsShellIsDropped()
     {
         Env env;
@@ -101,9 +93,8 @@ private Q_SLOTS:
         }
     }
 
-    // NOT AN APPIMAGE PROBLEM. A deb or rpm relaunched with a dead TMPDIR
-    // fails on its first QTemporaryFile instead, so the correction is not
-    // conditional on the install mode.
+    // A deb or rpm relaunched with a dead TMPDIR fails on its first
+    // QTemporaryFile, so the correction applies to every install mode.
     void theTemporaryDirectoryIsCorrectedForEveryInstallMode()
     {
         Env env;
@@ -129,12 +120,9 @@ private Q_SLOTS:
         QVERIFY(!mentions(changes, QStringLiteral("TMPDIR")));
     }
 
-    // THE SECOND MEASURED FAILURE. Started through appimage-run, the process
-    // — and the helper, and therefore the relaunch — lives inside a
-    // bubblewrap sandbox with no_new_privs set, where the setuid fusermount
-    // cannot gain privilege. The runtime answers "No suitable fusermount
-    // binary found on the $PATH" and exits 127. Extraction is the only way
-    // back up from in there.
+    // Under appimage-run the relaunch lives in a bubblewrap sandbox with
+    // no_new_privs, where setuid fusermount cannot work ("No suitable
+    // fusermount binary found", exit 127). Extraction is the way back up.
     void anExtractedAppImageAsksForExtractionWhenItRestarts()
     {
         Env env;
@@ -157,9 +145,8 @@ private Q_SLOTS:
                  QStringLiteral("1"));
     }
 
-    // THE CHEAP PATH STAYS CHEAP. A mounted AppImage proves fuse works here,
-    // and extraction would copy the whole payload for nothing on every single
-    // update.
+    // A mounted AppImage proves fuse works, so it is not made to extract its
+    // whole payload on every update.
     void aMountedAppImageIsNotMadeToUnpackItself()
     {
         Env env;
@@ -181,8 +168,7 @@ private Q_SLOTS:
         QVERIFY(!mentions(changes, QStringLiteral("APPIMAGE_EXTRACT_AND_RUN")));
     }
 
-    // NO APPDIR IS NO EVIDENCE. Keep the behaviour that has always shipped
-    // rather than imposing an extraction on a guess.
+    // No APPDIR is no evidence: keep the default behaviour.
     void anAppImageWithoutAnAppDirKeepsTheOldBehaviour()
     {
         Env env;
@@ -202,9 +188,8 @@ private Q_SLOTS:
                  "someone set it to 0 on purpose and it was overwritten");
     }
 
-    // Both corrections at once is the maintainer's actual case, and they are
-    // independent: the mount-point failure comes first and hides the fuse
-    // failure behind it.
+    // Both corrections at once, independently: the mount-point failure comes
+    // first and hides the fuse failure behind it.
     void theMaintainersCaseGetsBothCorrections()
     {
         Env env;

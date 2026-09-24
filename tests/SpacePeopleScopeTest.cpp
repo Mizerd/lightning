@@ -1,31 +1,22 @@
 // The People list, scoped to the selected Space.
 //
-// A DM cannot be a Space's child in Matrix, so "the people of this Space" can
-// only mean the people you have DMs WITH who are in it. That is Element's
-// reading and it needs the Space's roster — which is not free, is not local,
-// and arrives later than the list does. Everything difficult here is about
-// that gap.
+// A DM cannot be a Space's child, so "the people of this Space" means people
+// you have DMs with who are in it. That needs the Space's roster, which is
+// remote and arrives after the list does.
 //
-// THE TWO LAYOUTS FAIL IN OPPOSITE DIRECTIONS, and each suite half exists to
-// pin its own:
+// The two layouts fail in opposite directions:
 //
-//   * Classic REMOVES DMs from a list that already shows them, so an unknown
-//     roster must change NOTHING. A People chip that empties itself while it
-//     waits for an answer is the original "the people tab in spaces isn't
-//     populated" report with a delay in front of it.
-//   * Channels ADDS a People group to a Space view that has none, so an
-//     unknown roster must add NOTHING. Fail that one open and every Space
-//     lists every DM until its roster lands.
+//   * Classic removes DMs from a list that already shows them, so an unknown
+//     roster must change nothing.
+//   * Channels adds a People group to a Space view, so an unknown roster must
+//     add nothing.
 //
-// And UNKNOWN has four spellings, all of them tested: never asked (a backend
-// that cannot answer), asked and not yet answered, answered with a failure,
-// and answered with a roster the bridge TRUNCATED at its 500-member cap. The
-// last is the subtle one — a capped list cannot distinguish the people it
-// dropped from the people who are not there.
+// Unknown has four forms, all tested: never asked (backend cannot answer),
+// asked and not answered, answered with a failure, and answered with a roster
+// truncated at the bridge's 500-member cap.
 //
-// Every case drives the real triggers: SpaceManager::setActiveSpaceId is what
-// asks for a roster, and MatrixClient::roomMembersReceived is what delivers
-// one. Nothing calls the roster cache directly.
+// Every case drives the real triggers: SpaceManager::setActiveSpaceId asks,
+// and MatrixClient::roomMembersReceived delivers.
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
@@ -156,10 +147,8 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
-/// One Space with one room in it, and two DMs: one with somebody who is in
-/// the Space and one with somebody who is not. That second DM is the whole
-/// experiment — it is the row a scope must remove and an unscoped list must
-/// keep.
+/// One Space with one room in it, and two DMs: one with somebody in the Space
+/// (kept by a scope) and one with somebody who is not (removed by a scope).
 QList<RoomInfo> workspace()
 {
     return {
@@ -265,8 +254,7 @@ private Q_SLOTS:
         Classic f;
         f.build();
         f.select(kWork);
-        // Selecting the Space is what asks, and it asks for the SPACE ROOM's
-        // roster — not for any child room's.
+        // Selecting the Space asks for the Space room's roster, not a child's.
         QCOMPARE(f.client.memberRequests, QStringList{ kWork });
 
         // Nothing has answered yet: the list is exactly what it was before
@@ -367,12 +355,10 @@ private Q_SLOTS:
                  "a truncated roster was published as a complete one");
         QCOMPARE(idsOf(capped.model), (QStringList{ kDmIn, kDmOut }));
 
-        // And a roster for a room nobody asked about is not a Space roster.
-        // Rosters are accepted by ROOM rather than by op — so that the member
-        // panel fetching the same Space's people counts, and so that a
-        // synchronous answer cannot arrive before its op is recorded — which
-        // makes "we asked for this one" the only thing keeping an ordinary
-        // room's members out of the Space cache.
+        // A roster for a room nobody asked about is not a Space roster.
+        // Rosters are accepted by room rather than by op, so "we asked for
+        // this one" is what keeps an ordinary room's members out of the
+        // Space cache.
         capped.client.deliverRoster(99, kGeneral, { kZoe });
         QVERIFY(!capped.spaces.spaceRosterKnown(kGeneral));
         QCOMPARE(idsOf(capped.model), (QStringList{ kDmIn, kDmOut }));
@@ -392,10 +378,8 @@ private Q_SLOTS:
 
         f.client.deliverRoster(1, kWork, { kAda });
 
-        // BEHIND THE FILTER. The group used to be pinned under every Space
-        // view whether or not anyone asked for people, which is the opposite
-        // of a filter — so under All and under Rooms it must be absent even
-        // with a complete roster in hand.
+        // Behind the filter: under All and Rooms the group is absent even
+        // with a complete roster.
         f.model.setFilterMode(0);   // All
         QVERIFY2(!namesOf(f.model).contains(QStringLiteral("People")),
                  "People is pinned to the Space view instead of filtered");
@@ -425,9 +409,8 @@ private Q_SLOTS:
         f.select(SpaceManager::peopleId());
         QTRY_VERIFY(namesOf(f.model).contains(QStringLiteral("Ada")));
         QVERIFY(namesOf(f.model).contains(QStringLiteral("Zoe")));
-        // Home lists EVERY joined DM again since 2026-09-05 (its own Direct
-        // Messages group, at the maintainer's request): the scope is the
-        // Space view's alone.
+        // Home lists every joined DM (its own Direct Messages group); the
+        // scope applies to the Space view only.
         f.select(SpaceManager::allRoomsId());
         QTRY_VERIFY(namesOf(f.model).contains(QStringLiteral("Ada")));
         QVERIFY(namesOf(f.model).contains(QStringLiteral("Zoe")));
@@ -435,10 +418,8 @@ private Q_SLOTS:
 
     void aRosterIsAnAnswerAboutOneAccount()
     {
-        // An account switch releases the client. Carrying the roster over
-        // would scope the NEXT account's People list by the previous
-        // account's Space membership — a cross-account leak of exactly the
-        // kind the generation guards elsewhere exist to prevent.
+        // An account switch releases the client, so the roster must not scope
+        // the next account's People list.
         Channels f;
         f.build();
         f.select(kWork);

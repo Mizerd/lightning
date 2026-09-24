@@ -1,26 +1,14 @@
-// 2026-08-20 (contract C8): materializing a playable payload must not run
-// on the thread that asks for it.
+// Materializing a playable payload must not run on the thread that asks for
+// it: MediaBridge's playable file is written on a private worker thread.
 //
-// MediaBridge::writePlayableFile() wrote the whole decrypted video/audio
-// payload with a synchronous QSaveFile, bounded by m_playableMaxBytes —
-// the 256 MiB playable budget, not the 32 MiB speculative prefetch cap. Its
-// own comment admitted the cost ("Known residual synchronous cost: up to
-// 32 MiB written on the GUI thread") and the stalltrace::Scope that wrapped
-// it existed only to attribute the freeze it caused. This is the same shape
-// of defect the video poster round measured at 937 ms, and it is fixed the
-// same way: a private worker thread.
+// Pinned here, none of it visible to a source scan: the call returns before
+// the bytes are on disk, the completion arrives on the caller's thread, a
+// heartbeat on the caller's thread keeps ticking through a large write, a
+// cancelled job leaves nothing behind (not even QSaveFile's temporary), and
+// two writes for one key collapse into one.
 //
-// These cases pin the properties that fix depends on, none of which a
-// source scan can see: the call returns before the bytes are on disk, the
-// completion still arrives on the caller's thread, a heartbeat on the
-// caller's thread keeps ticking through a large write, a cancelled job
-// leaves NOTHING behind (not even QSaveFile's temporary), and two writes
-// for one key collapse into one.
-//
-// Every case measures its own SYNCHRONOUS baseline with the same payload,
-// on the same filesystem, in the same run — the number the old code paid.
-// Hardcoding a baseline would make these assertions dishonest on a disk
-// slower or faster than the one they were written on.
+// Every case measures its own synchronous baseline with the same payload on
+// the same filesystem, rather than hardcoding one.
 
 #include "media/PlayableFileWriter.h"
 
@@ -88,9 +76,8 @@ private Q_SLOTS:
         m_payload = makePayload();
         QCOMPARE(static_cast<qint64>(m_payload.size()), kPayloadBytes);
 
-        // The baseline: exactly what MediaBridge used to do, on this
-        // thread, with this payload, on this filesystem. Measured once and
-        // reported by every case below.
+        // The baseline: a synchronous QSaveFile write of this payload on this
+        // thread. Measured once and reported by every case below.
         QElapsedTimer clock;
         clock.start();
         {
@@ -151,10 +138,8 @@ private Q_SLOTS:
         QVERIFY(!(perms & QFileDevice::ReadOther));
     }
 
-    // The heartbeat measurement. MediaBridge's completion handler touches
-    // GUI-owned state, so the reply has to land on the caller's thread —
-    // and that thread has to have kept running while the payload was
-    // written.
+    // MediaBridge's completion handler touches GUI-owned state, so the reply
+    // lands on the caller's thread, which must keep running during the write.
     void theCallersThreadKeepsBeatingThroughALargeWrite()
     {
         QTemporaryDir dir;
@@ -200,10 +185,9 @@ private Q_SLOTS:
         QCOMPARE(deliveredOn.load(), QThread::currentThread());
     }
 
-    // A cancelled job must leave NOTHING — not the final file and not
-    // QSaveFile's temporary — and must owe no completion: the caller
-    // already dropped its own tracking entry when it cancelled, so a late
-    // "done" would publish a path nobody is waiting for.
+    // A cancelled job leaves nothing (neither the final file nor QSaveFile's
+    // temporary) and owes no completion, since the caller already dropped its
+    // tracking entry.
     void aCancelledWriteLeavesNothingBehindAndNoCompletion()
     {
         QTemporaryDir dir;
@@ -262,10 +246,7 @@ private Q_SLOTS:
         QVERIFY(QFileInfo::exists(path));
     }
 
-    // Coalescing, the documented "keyed dedup must service all claimants"
-    // rule: one key is one write. The single completion is what services
-    // every claimant, so a second job here would mean two writes to one
-    // path and two publications.
+    // One key is one write: the single completion services every claimant.
     void aSecondWriteForOneKeyIsRefused()
     {
         QTemporaryDir dir;

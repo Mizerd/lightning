@@ -1,12 +1,10 @@
-// A display-name colour the user chooses, carried in their Matrix profile so
-// other Lightning clients see it (rust/src/namecolor.rs does the protocol).
+// A display-name colour carried in the user's Matrix profile
+// (rust/src/namecolor.rs does the protocol). Colour values are clamped in
+// lightning::theme and gated by ThemeTokensTest.
 //
-// The colour VALUES are derived and clamped in lightning::theme and gated by
-// ThemeTokensTest. What is tested here is the part that is easy to get wrong
-// and expensive when it is: `colorFor()` is called from a QML binding that
-// re-evaluates for every name on screen, so it has to dispatch exactly one
-// request per user however often it is asked — including for a user who
-// turns out to have no colour at all.
+// `colorFor()` is called from a QML binding that re-evaluates for every name
+// on screen, so it must dispatch exactly one request per user however often
+// it is asked, including for a user who has no colour.
 
 #include "matrix/MockMatrixClient.h"
 #include "profile/NameColorManager.h"
@@ -33,10 +31,8 @@ class NameColorManagerTest : public QObject
 private Q_SLOTS:
     // ── One request per user, however often it is asked ───────────────────
     //
-    // This is the whole reason the manager exists. A timeline of thirty
-    // messages from one sender evaluates the binding thirty times before the
-    // first answer can land, so the guard has to be set when the request is
-    // SENT and not when the reply arrives.
+    // The guard is set when the request is sent, not when the reply arrives,
+    // since the binding re-evaluates many times before the first answer.
     void askingRepeatedlyDispatchesExactlyOneFetchPerUser()
     {
         MockMatrixClient client;
@@ -61,13 +57,9 @@ private Q_SLOTS:
         QCOMPARE(client.nameColorFetches, 1);
     }
 
-    // "This user has no colour" is an ANSWER and must be remembered as one.
-    // Storing only non-empty replies would re-ask forever for exactly the
-    // users who are most common — the ones who never set a colour.
-    // "make sure others don't need to restart their client to see the new
-    // colour": past the refresh interval the next read re-asks, exactly once,
-    // keeps serving the cached answer meanwhile, and a CHANGED reply bumps
-    // the revision every name binding depends on.
+    // Past the refresh interval the next read re-asks exactly once, keeps
+    // serving the cached answer meanwhile, and a changed reply bumps the
+    // revision every name binding depends on.
     void aChangedColourReachesARunningClientOnTheNextRead()
     {
         MockMatrixClient client;
@@ -106,11 +98,8 @@ private Q_SLOTS:
                  "a changed colour must bump the revision the bindings read");
     }
 
-    // 2026-09-06: "when display name color is changed it should update for
-    // other users to see the new color in max 15-30 seconds". A read-driven
-    // refresh only fires when a name re-renders; the sweep re-asks the
-    // recently read names on its own, and a user nobody has looked at in a
-    // while is left alone.
+    // The sweep re-asks recently read names without waiting for a re-render,
+    // and leaves users nobody has looked at recently alone.
     void aChangedColourReachesEveryoneOnTheSweepWithoutARerender()
     {
         MockMatrixClient client;
@@ -153,6 +142,8 @@ private Q_SLOTS:
         QCOMPARE(client.nameColorFetches, fetchesAfterSweep);
     }
 
+    // "This user has no colour" is an answer and is remembered as one, or the
+    // most common users would be re-asked forever.
     void aUserWithNoColourIsNotAskedAboutAgain()
     {
         MockMatrixClient client;

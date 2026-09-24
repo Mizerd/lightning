@@ -1,5 +1,5 @@
-// v0.6.1: the E2EE diagnostics redaction helper must never reveal a full
-// Matrix identifier while staying stable for lifecycle correlation.
+// The E2EE diagnostics redaction helper never reveals a full Matrix
+// identifier, while staying stable for lifecycle correlation.
 
 #include "crypto/E2eeDiagnostics.h"
 

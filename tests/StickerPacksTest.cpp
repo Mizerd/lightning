@@ -1,26 +1,23 @@
-// MSC2545 stickers and custom emoji — StickerPackManager policy.
+// MSC2545 stickers and custom emoji: StickerPackManager policy.
 //
 // What this pins:
 //   * snapshot ingestion, and the usage narrowing (a pack's stickers and its
 //     emoticons are two different grids over one pack);
-//   * the selection rules: an unknown pack id is REFUSED rather than mapped
+//   * the selection rules: an unknown pack id is refused rather than mapped
 //     to the first pack, and a snapshot that drops the selected pack lands on
-//     one that actually has content;
-//   * `canSave` — a plain mxc only (an encrypted sticker has no url and can
-//     never go in a pack), never gated on data nobody fetched, and closed
-//     while a save is in flight;
-//   * the SEND destination is the one passed in, room and thread are
-//     separate calls, and a thread send never degrades to a room send (§8);
+//     one that has content;
+//   * `canSave`: a plain mxc only (an encrypted sticker has no url), never
+//     gated on data nobody fetched, and closed while a save is in flight;
+//   * the send destination is the one passed in, room and thread are
+//     separate calls, and a thread send never degrades to a room send;
 //   * custom-emoji lookup: prefix matching, one winner per shortcode with the
 //     account's own pack first, and a bounded result;
-//   * generation isolation — sign-out clears everything, and an answer to a
-//     request this manager no longer owns is DROPPED rather than applied;
+//   * generation isolation: sign-out clears everything, and an answer to a
+//     request this manager no longer owns is dropped;
 //   * nothing asks the network on room navigation.
 //
-// HONEST SCOPE: policy and wiring only, against a fake client. Real
-// `im.ponies.*` round trips, a homeserver accepting or refusing an account
-// data write, the on-screen picker, and Element interoperability of a sent
-// `m.sticker` are NOT exercised here and are NOT TESTED.
+// Policy and wiring only, against a fake client: real `im.ponies.*` round
+// trips, the on-screen picker and Element interoperability are not exercised.
 
 #include "matrix/MatrixClient.h"
 #include "stickers/StickerImageModel.h"
@@ -481,8 +478,8 @@ private Q_SLOTS:
         QCOMPARE(client.sendCalls, 1);
         QCOMPARE(client.sendRoot, root);
 
-        // §8: a thread send with no root must FAIL, never fall back to the
-        // room timeline.
+        // A thread send with no root must fail, never fall back to the room
+        // timeline.
         manager.sendToThread(kRoom, QString(), manager.images()->get(0));
         QCOMPARE(client.sendCalls, 1);
     }
@@ -737,7 +734,7 @@ private Q_SLOTS:
         QCOMPARE(plain.value(QStringLiteral("canManage")).toBool(), false);
     }
 
-    // ---- the ROOM-STATE write (im.ponies.room_emotes) -------------------
+    // ---- the room-state write (im.ponies.room_emotes) -------------------
 
     void addingToARoomPackIsRefusedWithoutAPermissionTheSnapshotReported()
     {
@@ -778,8 +775,8 @@ private Q_SLOTS:
                                   QStringLiteral("image/png"), 128, 96, 4096);
         QCOMPARE(client.roomPackAddCalls, 1);
         QCOMPARE(client.roomPackRoom, kRoom);
-        // The EMPTY state key is the room's DEFAULT pack, which is what
-        // MSC2545 means by it — not a missing key.
+        // The empty state key is the room's default pack (MSC2545), not a
+        // missing key.
         QVERIFY(client.roomPackStateKey.isEmpty());
         QCOMPARE(client.roomPackShortcode, QStringLiteral("A cat"));
         QVERIFY(manager.saving());
@@ -812,10 +809,9 @@ private Q_SLOTS:
 
     // ── Pack management (MSC2545 CRUD) ──────────────────────────────────
     //
-    // Four verbs share one op slot and one permission rule. What is pinned
-    // here is that they route to the right STORE, that the permission rule
-    // is asked before anything is sent, and that a second click cannot race
-    // the first.
+    // Four verbs share one op slot and one permission rule: each routes to the
+    // right store, the permission rule is asked before sending, and a second
+    // click cannot race the first.
 
     void anAccountPackIsAlwaysManageableAndARoomPackAsksThePowerLevel()
     {

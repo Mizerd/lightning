@@ -1,15 +1,7 @@
-// v0.7.x: SmoothWheelArea must actually RESOLVE the view it scrolls.
-//
-// scroll-consistency-contract only scans QML SOURCE for the string
-// "SmoothWheelArea", which proves the component was declared and nothing
-// else. It cannot see the failure that matters: if `scrollTarget` resolves
-// to null, onWheel takes its early return, sets `event.accepted = true`, and
-// the pane becomes COMPLETELY unscrollable — the wheel event is swallowed
-// and nothing moves. That is worse than not having the component at all,
-// and a source scan reports it as covered.
-//
-// This instantiates the real component inside a real Flickable and asserts
-// the resolution, which is the one thing the contract test cannot do.
+// SmoothWheelArea must actually resolve the view it scrolls. If
+// `scrollTarget` resolves to null, onWheel accepts and drops every wheel
+// event and the pane cannot scroll at all, which a source scan cannot see.
+// This instantiates the real component inside a real Flickable.
 
 #include <QtTest/QtTest>
 
@@ -27,20 +19,16 @@
 #include <QWheelEvent>
 
 
-// QML resolves `app.settings` through the META-OBJECT, so a dynamic property
-// set with QObject::setProperty() is invisible to it — the first version of
-// this test used one and the component silently fell back to its default,
-// which the "did not read the setting at all" guard caught. This holder
-// declares the property properly and hands over the REAL SettingsManager, so
-// the test drives the same object production does.
+// QML resolves `app.settings` through the meta-object, so a dynamic property
+// set with QObject::setProperty() would be invisible. This holder declares the
+// property and hands over the real SettingsManager.
 class AppStub : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QObject *settings READ settings CONSTANT)
     // The component asks `app.timelineScroll` for the per-notch distance and
-    // falls back to a flat 120 when it is absent. Without this the test would
-    // measure the FALLBACK and prove nothing about the real tuning — the
-    // first version did exactly that and read 120 against an expected 130.
+    // falls back to a flat 120 without it; provide it so the real tuning is
+    // measured.
     Q_PROPERTY(QObject *timelineScroll READ timelineScroll CONSTANT)
 public:
     explicit AppStub(SettingsManager *s, TimelineScrollController *c,
@@ -58,10 +46,8 @@ class SmoothWheelAreaRuntimeTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    // SettingsManager PERSISTS, so a case that writes one must not write into
-    // the developer's own configuration — and must not inherit a value an
-    // earlier run left behind, which is what made the "defaults to on" check
-    // fail the first time this case ran twice.
+    // SettingsManager persists, so isolate it from the developer's own
+    // configuration and from values an earlier run left behind.
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());
@@ -153,14 +139,10 @@ Flickable {
         QCOMPARE(wheel->property("maxContentY").toReal(), 0.0);
     }
 
-    // ---- Horizontal axis (2026-08-28 sticker round) ---------------------
+    // ---- Horizontal axis ------------------------------------------------
     //
-    // The component was vertical-only, and declaring it on a HORIZONTAL view
-    // was strictly WORSE than leaving it off: contentHeight == height there,
-    // so maxContentY is 0, and onWheel still ends in `event.accepted = true`
-    // — the strip swallows every wheel event and never moves. The contract
-    // test cannot see that (it scans source for the component's name), which
-    // is the same blind spot this file was written for.
+    // On a horizontal view maxContentY is 0, so a vertical-only component
+    // would accept and drop every wheel event.
 
     void anExplicitHorizontalAxisMeasuresTheHorizontalRange()
     {
@@ -226,9 +208,8 @@ Flickable {
         QVERIFY(!wheel->property("horizontal").toBool());
         QCOMPARE(wheel->property("maxContentY").toReal(), 1800.0);
 
-        // Overflows horizontally ONLY: the old behaviour there was to accept
-        // the wheel event and do nothing, so answering it is not a
-        // regression for anyone.
+        // Overflows horizontally only: previously the wheel event was accepted
+        // and ignored there, so answering it breaks nobody.
         QQmlComponent wide(&engine);
         wide.setData(R"(
 import QtQuick
@@ -275,25 +256,9 @@ Flickable {
         QCOMPARE(root->property("contentX").toReal(), 0.0);
     }
 
-    // The three cases above measure the RANGE and drive `setScrollPosition`
-    // directly, which is exactly the shape CLAUDE.md warns about: invoking
-    // the policy proves nothing about whether a real event ever reaches it.
-    // The load-bearing claim of the horizontal axis is in `onWheel` and is
-    // untested by them --- "a mouse has ONE wheel and reports it on the Y
-    // axis, so a horizontal strip must answer a VERTICAL wheel or it cannot
-    // be scrolled with a mouse at all". That is the whole reason the custom
-    // emoji and sticker pack strips can be scrolled. So: a real QWheelEvent
-    // into a real window, and the assertion is that the HORIZONTAL axis
-    // moved.
-    // Smooth scrolling OFF must LAND the notch, not glide it — and it must
-    // travel the SAME distance, because turning off an animation is not a
-    // request to scroll a different amount.
-    //
-    // The component reads `app.settings.smoothScrolling` defensively (several
-    // suites build it with no `app` at all), so this drives the real property
-    // through a stub context object rather than calling anything directly:
-    // a policy test that invokes the policy proves nothing about whether
-    // production reaches it, which this repo has recorded three times.
+    // Smooth scrolling off must land the notch, not glide it, and travel the
+    // same distance. Driven through the real `app.settings.smoothScrolling`
+    // property via a stub context object.
     static qreal notchDistanceFor(QQuickItem *view)
     {
         // ScrollTuning's stateless per-notch distance is what BOTH paths use;
@@ -368,17 +333,11 @@ Flickable {
         QCOMPARE(wheel->property("glideDirection").toInt(), 0);
     }
 
-    // A TOUCHPAD FRAME WITH NO WHOLE PIXEL IS NOT A WHEEL NOTCH.
-    //
-    // Qt Wayland rounds each finger-scroll frame to whole pixels, carries the
-    // remainder, and ALSO sends angleDelta on every frame — so a slow swipe
-    // arrives as mostly `pixelDelta 0, angleDelta ±1` frames WITH a scroll
-    // phase. Measured on the Fedora 44 laptop, 2026-09-23. This component
-    // sent those to the notch glide, so a slow swipe travelled ~20x the
-    // finger, in jerks. The phase is what tells a touchpad from a wheel (a
-    // wheel is always NoScrollPhase, on every platform).
-    //
-    // UNFIXED TREE: fails — the phased zero-pixel frames start a glide.
+    // A touchpad frame with no whole pixel is not a wheel notch. Qt Wayland
+    // rounds finger-scroll frames to whole pixels and also sends angleDelta,
+    // so a slow swipe arrives as `pixelDelta 0, angleDelta ±1` frames with a
+    // scroll phase. The phase tells a touchpad from a wheel (a wheel is always
+    // NoScrollPhase).
     void aPhasedTouchpadFrameWithNoWholePixelNeverGlides()
     {
         QQmlEngine engine;
@@ -439,6 +398,9 @@ Flickable {
                                  2000);
     }
 
+    // A mouse reports its one wheel on the Y axis, so a horizontal strip must
+    // answer a vertical wheel. A real QWheelEvent into a real window; the
+    // horizontal axis must move.
     void aVerticalWheelEventScrollsAHorizontalStrip()
     {
         QQmlEngine engine;
@@ -472,10 +434,9 @@ ListView {
         QVERIFY(wheel->property("horizontal").toBool());
         QCOMPARE(root->property("contentX").toReal(), 0.0);
 
-        // A touchpad / high-resolution wheel reports pixels, and that branch
-        // writes the position synchronously, so it is the one branch whose
-        // effect can be asserted without waiting on the glide ticker.
-        // pixelDelta is the THIRD constructor argument; angleDelta the fourth.
+        // The pixel branch writes the position synchronously, so it can be
+        // asserted without waiting on the glide. pixelDelta is the third
+        // constructor argument; angleDelta the fourth.
         const QPointF pos(100.0, 20.0);
         QWheelEvent pixelWheel(pos, window.mapToGlobal(pos.toPoint()),
                                QPoint(0, -120), QPoint(0, 0), Qt::NoButton,
@@ -488,10 +449,9 @@ ListView {
         QCOMPARE(root->property("contentX").toReal(), 120.0);
         QCOMPARE(root->property("contentY").toReal(), 0.0);
 
-        // And the discrete notch branch, which glides rather than writing
-        // straight away: its TARGET is what is set synchronously, so that is
-        // what this asserts. A notch the handler ignored would leave the
-        // direction at 0 and the target where the pixel branch left it.
+        // The notch branch glides, but sets its target synchronously; a
+        // notch the handler ignored would leave the target where the pixel
+        // branch left it.
         QWheelEvent notch(pos, window.mapToGlobal(pos.toPoint()), QPoint(0, 0),
                           QPoint(0, -120), Qt::NoButton, Qt::NoModifier,
                           Qt::NoScrollPhase, false);

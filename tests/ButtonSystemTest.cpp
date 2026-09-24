@@ -1,13 +1,10 @@
-// Offscreen rendering proof for the design button system (SPEC §1):
-// Style A bare icon buttons carry no background or border at rest and gain
-// only the soft theme tint on hover; Style B is the accent-soft chip; Style C
-// is the accent fill reserved for primary actions. Keyboard focus draws the
-// shared 2px ring INSIDE the control's own bounds (2026-08-21 — it used to
-// bleed 4px outward and collide with, or be clipped by, its host), and the
-// named size ladder pins one box/corner/glyph triple per rung. Pixels are
-// sampled from a grabbed offscreen window
-// and compared against the theme tokens read back from the same scene —
-// never hard-coded hex — so every theme keeps the same contract.
+// Offscreen rendering proof for the button system: Style A bare icon buttons
+// have no background or border at rest and only the soft theme tint on hover;
+// Style B is the accent-soft chip; Style C is the accent fill for primary
+// actions. Keyboard focus draws the shared 2px ring inside the control's own
+// bounds, and the size ladder pins one box/corner/glyph triple per rung.
+// Pixels are compared against theme tokens read from the same scene, never
+// hard-coded hex, so every theme keeps the contract.
 
 #include <QtTest/QtTest>
 
@@ -143,8 +140,8 @@ private:
         return it ? it->property("color").value<QColor>() : QColor();
     }
 
-    // Interior sample left of the glyph, vertically centered — inside the
-    // rounded rect, outside the icon's ink.
+    // Interior sample left of the glyph, vertically centred: inside the rounded
+    // rect, outside the icon's ink.
     QRect insideRect(QQuickItem *button) const
     {
         const QPointF p = button->mapToScene(QPointF(4, button->height() / 2));
@@ -176,8 +173,8 @@ private slots:
         QVERIFY(bare);
         const QImage img = m_window->grabWindow();
         QVERIFY(!img.isNull());
-        // Interior and edge midpoint both show the window background: no
-        // fill, no border, no native frame.
+        // Interior and edge midpoint show the window background: no fill,
+        // border or native frame.
         QVERIFY(channelDelta(sampleAvg(img, insideRect(bare)),
                              token("tokBackground")) <= kTolerance);
         const QPointF edge = bare->mapToScene(QPointF(1, bare->height() / 2));
@@ -200,7 +197,7 @@ private slots:
         const QImage img = m_window->grabWindow();
         QVERIFY(channelDelta(sampleAvg(img, insideRect(bare)),
                              token("tokHover")) <= kTolerance);
-        // Move the pointer away again so later grabs see the rest state.
+        // Move the pointer away so later grabs see the rest state.
         QTest::mouseMove(m_window, QPoint(5, 5));
         QTRY_VERIFY(!bare->property("hovered").toBool());
     }
@@ -230,10 +227,9 @@ private slots:
         auto *icon = fill->property("contentItem").value<QQuickItem *>();
         QVERIFY(icon);
         QCOMPARE(icon->property("color").value<QColor>(), token("tokOnAccent"));
-        // Rounded square, not a circle: the corner region outside a 9px
-        // radius still shows the window background at (1,1), while a circle
-        // of diameter 34 would leave (8,8) uncovered too — which must be
-        // filled here.
+        // A rounded square, not a circle: (1,1) outside the 9px radius shows
+        // the background, while (8,8), which a 34px circle would leave
+        // uncovered, is filled.
         const QPointF corner = fill->mapToScene(QPointF(1, 1));
         QVERIFY(channelDelta(sampleAvg(img, QRect(int(corner.x()), int(corner.y()), 1, 1)),
                              token("tokBackground")) <= kTolerance);
@@ -261,13 +257,9 @@ private slots:
         QCOMPARE(button->property("iconSize").toInt(), 18);
     }
 
-    // 2026-08-21: the focus ring moved INSIDE the control's bounds. It used
-    // to be a 2px stroke at margins -4, i.e. four pixels of ring outside a
-    // button whose host commonly gives it two pixels of padding — on the
-    // message action bar it crossed the bar's own border and corner, and
-    // inside any of the 37 clipping containers it was scissored into an L.
-    // This asserts both halves: the ring is painted on the button's own
-    // first pixels, and NOTHING is painted outside them.
+    // The focus ring is inside the control's bounds: painted on its own first
+    // pixels and nothing outside, so hosts with little padding or clipping
+    // containers cannot cut or collide with it.
     void keyboardFocusDrawsTheRingInsideTheControl()
     {
         auto *bare = item("bareButton");
@@ -282,8 +274,7 @@ private slots:
                               token("tokFocusRing")) <= kTolerance,
                  "focus ring is not drawn on the control's own edge");
 
-        // Outside the bounds: still the window background, on every side the
-        // old ring used to bleed into.
+        // Outside the bounds is still the window background on every side.
         for (const QPointF &outside : { QPointF(-2, bare->height() / 2),
                                         QPointF(bare->width() + 1, bare->height() / 2),
                                         QPointF(bare->width() / 2, -2) }) {
@@ -295,10 +286,7 @@ private slots:
         bare->setFocus(false);
     }
 
-    // One rung = one box + one corner + one glyph size. The 2026-08-21 audit
-    // counted 66 IconButtons across ELEVEN implicit sizes and SEVEN radii,
-    // including 28px buttons at radius 6 directly under 28px buttons at
-    // radiusControl. Fails on the pre-ladder component, which had no `size`.
+    // One rung is one box, one corner and one glyph size.
     void sizeLadderPairsBoxCornerAndGlyph()
     {
         const struct { const char *name; qreal box; int glyph; } rungs[] = {
@@ -321,17 +309,14 @@ private slots:
         }
     }
 
-    // A disabled-but-active button kept the full accent chip while only its
-    // glyph greyed out, so it read as "selected and available" — the
-    // composer's format toggles do exactly that with no room open.
+    // A disabled-but-active button drops the accent chip; otherwise it reads
+    // as selected and available.
     void disabledActiveDropsTheAccentChip()
     {
         auto *button = item("disabledActiveButton");
         QVERIFY(button);
-        // Read the fill rather than sampling it: on Indigo Night
-        // cardElevated (#2A2A36) and accentSoft (#25253D) are seven channel
-        // steps apart, which is inside this suite's pixel tolerance. An
-        // exact token comparison says the thing the test means.
+        // Read the fill rather than sample it: on Indigo Night cardElevated and
+        // accentSoft are within this suite's pixel tolerance.
         auto *background = button->property("background").value<QQuickItem *>();
         QVERIFY(background);
         const QColor fill = background->property("color").value<QColor>();
@@ -340,10 +325,8 @@ private slots:
         QCOMPARE(fill, token("tokDisabledFill"));
     }
 
-    // The themed skin never brightened the glyph on hover — only a background
-    // wash that measures ~3-10 per channel under Storm — so pointing at the
-    // composer's attach/emoji/mic buttons produced no visible feedback. The
-    // storm skin has always done this; now both do.
+    // The themed skin brightens the glyph on hover, as the Storm skin does;
+    // its background wash alone is too faint to see.
     void hoverBrightensTheGlyphOnTheThemedSkin()
     {
         auto *bare = item("bareButton");

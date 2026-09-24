@@ -1,8 +1,7 @@
-// v0.6.0 checkpoint 7: the read-only E2EE health model. Snapshots are fed
-// exactly as the Rust bridge emits them (sanitized maps), so these tests pin
-// the semantic mapping — readiness states, tri-state trust, backup/recovery
-// distinctions, generation isolation, and the no-secrets contract — without
-// a homeserver or crypto store.
+// The read-only E2EE health model. Snapshots are fed as the Rust bridge emits
+// them (sanitized maps), pinning the mapping: readiness states, tri-state
+// trust, backup/recovery distinctions, generation isolation and the
+// no-secrets contract, without a homeserver or crypto store.
 
 #include "crypto/CryptoHealthModel.h"
 
@@ -35,7 +34,7 @@ class CryptoHealthModelTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    // Backends without a crypto machine: unsupported, never an error, and
+    // Backends without a crypto machine are unsupported, never an error, and
     // everything stays Unknown.
     void unsupportedBackendIsHonest()
     {
@@ -47,7 +46,7 @@ private Q_SLOTS:
         QVERIFY(!model.statusSummary().isEmpty());
     }
 
-    // Supported + no snapshot yet = initializing; the first snapshot
+    // Supported with no snapshot yet is initializing; the first snapshot
     // promotes to ready.
     void initializationPromotesToReady()
     {
@@ -78,8 +77,8 @@ private Q_SLOTS:
         QVERIFY(model.cryptoReady());
     }
 
-    // "Verified" for OUR OWN session means our own identity has cross-signed
-    // it — `is_cross_signed_by_owner()`, sent as `device_cross_signed`.
+    // "Verified" for our own session means our identity has cross-signed it:
+    // `is_cross_signed_by_owner()`, sent as `device_cross_signed`.
     void deviceTrustMapsToTriState()
     {
         CryptoHealthModel model;
@@ -110,44 +109,26 @@ private Q_SLOTS:
         QVERIFY(!model.crossSigningReady());
     }
 
-    // `device_verified` IS A CONSTANT FOR OUR OWN DEVICE AND MUST NEVER
-    // PROMOTE THIS LABEL — the regression this case exists to stop.
-    //
-    // matrix-sdk-crypto marks the own device `LocalTrust::Verified` the
-    // moment it creates it (machine/mod.rs:350: "since we are the owners of
-    // the private keys of this device we can safely mark the device as
-    // verified"), and `is_verified()` is
-    // `is_locally_trusted() || is_cross_signing_trusted()`. So the flag is
-    // TRUE on every session from the moment the store exists and says
-    // nothing at all about whether anyone has verified us.
-    //
-    // A round on 2026-09-20 bound the label to it and shipped (fb9081b0).
-    // Measured on a real account: a fresh login with every cross-signing key
-    // Missing, and the server reporting 28 of 28 devices unsigned, was badged
-    // green "Verified" — and `sessionVerificationNeeded()` went false with
-    // it, so the app stopped offering the remedy at the same moment it
-    // stopped reporting the problem.
-    //
-    // Rust no longer emits the field at all, so this case is a GUARD AGAINST
-    // RE-INTRODUCTION: it feeds a snapshot that carries it and requires the
-    // model to ignore it. matrix-sdk's own `Encryption::verification_state()`
-    // answers this question with `is_cross_signed_by_owner()` and not
-    // `is_verified()` (encryption/mod.rs:2063), which is the authority here.
+    // `device_verified` must never promote this label. matrix-sdk-crypto marks
+    // the own device `LocalTrust::Verified` on creation, so `is_verified()` is
+    // always true for it and says nothing about cross-signing. matrix-sdk's
+    // own `Encryption::verification_state()` uses
+    // `is_cross_signed_by_owner()`. Rust no longer emits the field; this
+    // guards against re-introduction by requiring the model to ignore it.
     void isVerifiedAloneMustNotPromoteTheOwnSessionsLabel()
     {
         CryptoHealthModel model;
         model.setSupported(true);
 
-        // Exactly the live state: is_verified() true because it is always
-        // true for us, nothing cross-signed, no keys.
+        // The live state: is_verified() true (always, for us), nothing
+        // cross-signed, no keys.
         QVariantMap freshSession = baseSnapshot();
         freshSession.insert(QStringLiteral("device_verified"), true);
         freshSession.insert(QStringLiteral("device_cross_signed"), false);
         model.applySnapshot(freshSession, model.generation());
         QCOMPARE(model.currentDeviceVerified(), CryptoHealthModel::No);
 
-        // And once a session of ours HAS vouched for this one, it is Yes —
-        // whatever the constant says.
+        // Once a session of ours has cross-signed this one, it is Yes.
         QVariantMap vouchedFor = baseSnapshot();
         vouchedFor.insert(QStringLiteral("device_verified"), true);
         vouchedFor.insert(QStringLiteral("device_cross_signed"), true);
@@ -169,8 +150,7 @@ private Q_SLOTS:
         QVERIFY(model.crossSigningReady());
     }
 
-    // Backup: absent vs exists-but-unusable vs actively usable are three
-    // distinct honest states.
+    // Backup absent, existing but unusable, and usable are distinct states.
     void backupStatesAreDistinguished()
     {
         CryptoHealthModel model;
@@ -181,21 +161,17 @@ private Q_SLOTS:
         QCOMPARE(model.keyBackupAvailable(), CryptoHealthModel::No);
         QVERIFY(!model.keyBackupUsable());
 
-        // AN ABSENT FIELD IS "NOT KNOWN", AND IT USED TO READ AS "NO BACKUP".
-        // The Rust probe performs a real GET /room_keys/version, so a network
-        // blip, a 5xx or an unauthenticated moment all failed it — and
-        // unwrap_or(false) published that as a definite absence. It told the
-        // user their account had no key backup, which invites abandoning a
-        // real recovery key, and it armed the enable button, whose action can
-        // mint a NEW 4S key over the existing one with no confirmation.
+        // An absent field is "not known", not "no backup": the Rust probe does
+        // a real GET /room_keys/version, which can fail transiently. Reporting
+        // absence would invite abandoning a real recovery key and arm the
+        // enable button, which can mint a new 4S key over the existing one.
         QVariantMap unknown = baseSnapshot();
         unknown.remove(QStringLiteral("backup_exists_on_server"));
         model.applySnapshot(unknown, model.generation());
         QCOMPARE(model.keyBackupAvailable(), CryptoHealthModel::Unknown);
         QVERIFY(!model.keyBackupUsable());
 
-        // A null carries the same meaning as absent, which is what a JSON
-        // null from the Rust side becomes on the way through QVariant.
+        // A null means the same as absent (a JSON null through QVariant).
         QVariantMap nulled = baseSnapshot();
         nulled.insert(QStringLiteral("backup_exists_on_server"), QVariant());
         model.applySnapshot(nulled, model.generation());
@@ -241,8 +217,8 @@ private Q_SLOTS:
         QVERIFY(!model.recoveryAvailable());
     }
 
-    // Logout / account switch: everything resets and STALE snapshots from
-    // the previous generation can never repopulate the model.
+    // Logout or account switch resets everything, and snapshots from the
+    // previous generation never repopulate the model.
     void generationIsolationAndReset()
     {
         CryptoHealthModel model;
@@ -257,44 +233,40 @@ private Q_SLOTS:
         QCOMPARE(model.currentDeviceVerified(), CryptoHealthModel::Unknown);
         QCOMPARE(model.pendingVerificationCount(), 0);
 
-        // The old account's late answer is ignored entirely.
+        // The old account's late answer is ignored.
         QSignalSpy spy(&model, &CryptoHealthModel::healthChanged);
         model.applySnapshot(baseSnapshot(), oldGeneration);
         QCOMPARE(spy.count(), 0);
         QVERIFY(!model.cryptoReady());
 
-        // The new generation's snapshot applies normally.
+        // The new generation's snapshot applies.
         model.applySnapshot(baseSnapshot(), model.generation());
         QVERIFY(model.cryptoReady());
     }
 
-    // v0.6.1: the dispatch-capture pattern AppController now uses — capture
-    // the generation when a crypto-health query is dispatched, and apply the
-    // answer with THAT captured value. A session change (logout / account
-    // switch) in flight must reject the stale answer; the fresh session's
-    // answer applies. (The 0.6.0 code passed the model's live generation, so
-    // the guard was a tautology that could never reject.)
+    // The generation is captured when a query is dispatched and the answer is
+    // applied with that value, so a session change in flight rejects the
+    // stale answer.
     void dispatchCapturedGenerationRejectsAnswerAfterSessionChange()
     {
         CryptoHealthModel model;
         model.setSupported(true);
 
-        // Dispatch a query: capture the generation now.
+        // Dispatch a query: capture the generation.
         const quint64 dispatched = model.generation();
 
-        // A session change happens before the answer arrives.
+        // A session change happens before the answer.
         model.resetForNewGeneration();
         const quint64 fresh = model.generation();
         QVERIFY(fresh != dispatched);
 
-        // The stale answer (stamped with the dispatch-time generation) is
-        // dropped, not applied to the new session.
+        // The stale answer is dropped, not applied to the new session.
         QSignalSpy spy(&model, &CryptoHealthModel::healthChanged);
         model.applySnapshot(baseSnapshot(), dispatched);
         QCOMPARE(spy.count(), 0);
         QVERIFY(!model.cryptoReady());
 
-        // The new session's answer (captured after the reset) applies.
+        // The new session's answer applies.
         model.applySnapshot(baseSnapshot(), fresh);
         QVERIFY(model.cryptoReady());
     }
@@ -308,8 +280,8 @@ private Q_SLOTS:
         QCOMPARE(model.pendingVerificationCount(), 1);
     }
 
-    // The no-secrets contract: a snapshot smuggling key-like fields never
-    // surfaces them — the model only ever exposes its fixed semantic set.
+    // No secrets: a snapshot smuggling key-like fields never surfaces them;
+    // the model exposes only its fixed semantic set.
     void modelExposesNoSecretValues()
     {
         CryptoHealthModel model;

@@ -94,20 +94,15 @@ private Q_SLOTS:
         AppController app(AppController::MockBackend);
         app.setRoomNotificationMode(kRoomId, 1);
         QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 1);
-        // Out-of-range modes and empty room ids never reach the cache.
-        // NOTE: 3 used to be out of range and is now VALID — it is
-        // "follow the account default" (server-side: the room's
-        // user-defined push rules are deleted). The upper invalid bound
-        // moved to 4 with that change; this is a contract update, not a
-        // relaxed guard.
+        // Out-of-range modes and empty room ids never reach the cache. 3 is
+        // valid ("follow the account default"), so the upper invalid bound
+        // is 4.
         app.setRoomNotificationMode(kRoomId, -1);
         app.setRoomNotificationMode(kRoomId, 4);
         app.setRoomNotificationMode(QString{}, 2);
         QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 1);
-        // 3 IS accepted and persists as an explicit choice. It must not be
-        // confused with an absent key: absence reads back as 0, so storing
-        // it explicitly is what distinguishes "following the account
-        // default" from "never configured".
+        // 3 persists as an explicit choice, distinct from an absent key
+        // (which reads back as 0).
         app.setRoomNotificationMode(kRoomId, 3);
         QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 3);
         app.setRoomNotificationMode(kRoomId, 1);
@@ -121,10 +116,8 @@ private Q_SLOTS:
         app.requestRoomNotificationMode(threadId);
     }
 
-    // The pre-existing SettingsManager storage semantics are pinned: with no
-    // active account the default mode keeps the settings file compact by
-    // REMOVING the global key, not by storing an explicit 0. (In-process
-    // QSettings instances share one backing cache, so the store is
+    // With no active account, mode 0 removes the global key rather than
+    // storing 0. (In-process QSettings share one cache, so the store is
     // inspectable without a disk sync.)
     void modeZeroStillRemovesTheLocalKey()
     {
@@ -144,11 +137,9 @@ private Q_SLOTS:
         }
     }
 
-    // M4: the mode is account-derived state on the server-capable backend,
-    // so each account keeps its own value under accounts/<slug>/…; the
-    // legacy device-global key only serves reads until an account's first
-    // write shadows it, and is never deleted (it stays the other accounts'
-    // fallback).
+    // Each account keeps its own mode under accounts/<slug>/…; the legacy
+    // device-global key serves reads until an account's first write shadows
+    // it, and is never deleted (other accounts fall back to it).
     void accountsKeepIndependentModes()
     {
         // saveSession is the public account-record entry point (no
@@ -262,11 +253,9 @@ private Q_SLOTS:
         Q_EMIT rust->roomNotificationModeChanged(kRoomId, 2, true);
         QCOMPARE(settings->roomNotificationMode(kRoomId), 2);
 
-        // A resolved account DEFAULT must NEVER mutate persisted state,
-        // even when it differs: overwriting here would silently destroy a
-        // device-local choice (for mode 0, by deleting the stored key) the
-        // moment the picker polls. The display consequence — the picker
-        // keeps showing the local value — is the accepted trade-off.
+        // A resolved account default never mutates persisted state, even when
+        // it differs, or polling the picker would destroy a device-local
+        // choice.
         QSignalSpy changed(settings,
                            &SettingsManager::roomNotificationModeChanged);
         Q_EMIT rust->roomNotificationModeChanged(kRoomId, 0, false);
@@ -321,11 +310,9 @@ private Q_SLOTS:
         QVERIFY(!app.roomNotificationModeSyncFailed(
             QStringLiteral("!other:example.org")));
 
-        // While unsynced, a user-defined report that DIFFERS from the
-        // cached value is the room's OLD rule surfacing through a poll —
-        // the failed write never reached the SDK's rules. Applying it
-        // would silently revert the user's explicit choice and erase the
-        // honest failure chip in one stroke. It must change nothing.
+        // While unsynced, a differing user-defined report is the room's old
+        // rule surfacing through a poll; applying it would revert the user's
+        // choice and hide the failure chip. It must change nothing.
         Q_EMIT rust->roomNotificationModeChanged(kRoomId, 0, true);
         QVERIFY(app.roomNotificationModeSyncFailed(kRoomId));
         QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 2);
@@ -353,10 +340,9 @@ private Q_SLOTS:
 #endif
     }
 
-    // v0.7: a write that failed offline is retried on the next reconnection,
-    // and — critically — the room does NOT leave the failed state merely
-    // because a retry was attempted. Only a server acknowledgement retires
-    // it. Anything else would show "saved" for a rule the server never took.
+    // A write that failed offline is retried on reconnection, and the room
+    // leaves the failed state only on a server acknowledgement, not merely
+    // because a retry was attempted.
     void failedWriteIsRetriedOnReconnectButNotPrematurelyCleared()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -390,10 +376,8 @@ private Q_SLOTS:
         Q_EMIT rust->connectionStateChanged(MatrixClient::Syncing);
         QCOMPARE(retried.count(), 2);
 
-        // The retry was issued, but nothing has acknowledged it, so the
-        // room is STILL disclosed as kept-on-this-device and the local
-        // value is untouched. A premature clear here would be the "pretend
-        // the rule changed" failure this path exists to prevent.
+        // The retry was issued but not acknowledged, so the room is still
+        // disclosed as kept-on-this-device and the local value is untouched.
         QVERIFY(app.roomNotificationModeSyncFailed(kRoomId));
         QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 2);
         QCOMPARE(syncState.count(), 0);
@@ -419,11 +403,8 @@ private Q_SLOTS:
                      QStringLiteral("!never-configured:example.org")), 0);
     }
 
-    // A successful rule REMOVAL is the only acknowledgement a "follow
-    // account default" choice can receive. Without honouring it, a clear
-    // that failed once and then succeeded on retry would claim "couldn't
-    // save" for the rest of the session and be re-issued on every
-    // reconnect.
+    // A successful rule removal is the only acknowledgement a "follow account
+    // default" choice can receive, and it must retire the failed state.
     void clearAcknowledgementRetiresAFailedFollowDefault()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND

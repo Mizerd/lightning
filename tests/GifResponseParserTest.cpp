@@ -1,8 +1,8 @@
-// v0.6.1: client-side GIF provider response parsing. Exercises gif::parseGiphy
-// and its safety helpers without any network, API key, or homeserver: variant
-// selection, provider-CDN host + .gif validation, tracking-param stripping,
-// safe-search rating filtering (including unknown ratings), size/dimension
-// caps, dedup, pagination offset, and malformed-input rejection.
+// GIF provider response parsing (gif::parseGiphy and its safety helpers),
+// with no network, API key or homeserver: variant selection, provider-CDN
+// host and .gif validation, tracking-param stripping, safe-search rating
+// filtering (including unknown ratings), size/dimension caps, dedup,
+// pagination offset and malformed-input rejection.
 
 #include "gif/GifResponseParser.h"
 
@@ -241,7 +241,7 @@ void GifResponseParserTest::hasMoreReflectsTotalCount()
     QVERIFY(!end.hasMore);
 }
 
-// ── KLIPY ────────────────────────────────────────────────────────────────
+// ---- KLIPY ----
 namespace {
 QByteArray klipyItem(const QByteArray &id)
 {
@@ -349,10 +349,10 @@ void GifResponseParserTest::resultsCarryProviderIdentity()
 
 void GifResponseParserTest::tileUrlsMustBeOnProviderHosts()
 {
-    // The picker's tiles load stillUrl / previewUrl straight through Qt's
-    // image loader, outside MediaBridge. The sendable rendition was always
-    // host-restricted; the DISPLAYED ones were a bare https check, so a
-    // hostile provider response could point every open picker at any host.
+    // Picker tiles load stillUrl/previewUrl through Qt's image loader,
+    // outside MediaBridge, so the displayed renditions are host-restricted
+    // like the sendable one; otherwise a hostile provider response could
+    // point every open picker at any host.
     QByteArray item = gifItem("abc", "g");
     item.replace("https://media.giphy.com/media/abc/200w_s.jpg",
                  "https://tracker.evil.example/abc.jpg");

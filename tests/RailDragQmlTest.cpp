@@ -1,60 +1,23 @@
-// The Spaces rail's drag-to-make-a-folder gesture, driven by a REAL POINTER.
+// The Spaces rail's drag-to-folder gesture, driven by real pointer events.
 //
-// WHY THIS FILE EXISTS. Dropping a Space onto a Space had never once made a
-// folder. It was "fixed" twice and was structurally unreachable both times,
-// while fifteen cases in tests/RailLayoutTest.cpp passed throughout — because
-// every one of them calls RailEntryModel directly and hands it a state
-// production could not produce. The model was right; the VIEW could not reach
-// it.
+// The rule under test: the tile is the group target, the gap between tiles is
+// the reorder target, nothing moves while the pointer is on a tile, and there
+// is no dwell. RailLayoutTest drives RailEntryModel directly; this suite sends
+// QMouseEvents at tile centres taken from real delegate geometry and asserts
+// what a release wrote, because earlier band rules were correct in the model
+// yet unreachable from the view.
 //
-//   v1 of the band rule: "the middle 24 px of a row is the group zone".
-//   Reaching that middle means first crossing the row's near edge, which
-//   REORDERED — so the tile being aimed at stepped aside, the row under the
-//   pointer became the dragged entry, and a dragged entry is never a group
-//   target.
+// This proves the gesture is reachable, not how it feels under a real hand.
 //
-//   v2: "short of the row's midpoint you are resting, past it you have pushed
-//   through". Geometry right, dispatch wrong: the resting branch ended in
-//   `updateDrag(row, !dwellTimer.running)`, and `running` is TRUE for the
-//   whole 250 ms the dwell is being served, so the second pointer sample
-//   inside the target's near half reordered anyway — and the branch that then
-//   fired stopped the very dwell it was waiting for.
+// Measurement rules: assert on the store (RailLayoutStore::folders()/order())
+// and the model, not on transient drag flags; read item `y` only after the
+// 140 ms move/displaced transition; never sample pixel colours (an offscreen
+// grab holds each item's creation-time colour).
 //
-// Both moved things while the user was still aiming. The rule under test here
-// is the third: THE TILE IS THE GROUP TARGET, THE GAP BETWEEN TILES IS THE
-// REORDER TARGET, nothing moves while the pointer is on a tile, and there is
-// no dwell. What that costs is exactly the half a model test cannot see, so
-// this suite sends real QMouseEvents at tile centres resolved from real
-// delegate geometry and asserts on what a release WROTE.
-//
-// WHAT IT PROVES, AND WHAT IT DOES NOT. An offscreen QTest::mouseMove is a
-// synthesized pointer, not a hand on a mouse. This suite proves the gesture is
-// REACHABLE — that a plausible sequence of pointer events arrives at
-// hoverGroup()/hoverGap() and that a release writes the folder. It proves
-// nothing about FEEL: whether 24 px is the right band, whether the ring
-// appearing with no dwell reads as responsive or twitchy, whether the dragged
-// tile parking on its target reads as a merge, whether the auto-scroll is
-// usable. The standing open item "DRIVE THE RAIL'S DRAG WITH A REAL POINTER"
-// (CLAUDE.md §16) therefore stays OPEN, and this round is NOT TESTED live
-// until the maintainer runs it.
-//
-// TWO MEASUREMENT RULES, both learned the expensive way:
-//   * State is asserted on the STORE (RailLayoutStore::folders()/order()) and
-//     on the model, never on a transient drag flag alone — a flag is what the
-//     gesture is doing, the store is what it did.
-//   * Item `y` is only read after a QTest::qWait past the 140 ms move/displaced
-//     transition, and NO pixel colour is ever sampled: an offscreen grab holds
-//     each item's creation-time colour because its Behavior animation has not
-//     advanced (four rounds of false readings, 2026-08-25).
-//
-// FIXTURE NOTE. The rail is the real compiled SpacesRail.qml on a real
-// AppController, so every `app.*` binding in it resolves exactly as in
-// production. Only the SPACES are substituted: the mock backend ships a single
-// Space, and a Space-onto-Space drop needs two. The test therefore hands
-// AppController's own RailEntryModel a SpaceManager fed by a local client with
-// three root Spaces (RailEntryModel::setSources), while leaving the store it
-// writes to — AppController's own RailLayoutStore — untouched. The gesture,
-// the view, the model and the store under test are all production code.
+// Fixture: the real SpacesRail.qml on a real AppController. Only the Spaces are
+// substituted (the mock has one, a Space-onto-Space drop needs two):
+// RailEntryModel gets a SpaceManager over a local client with three root
+// Spaces, while writing to AppController's own RailLayoutStore.
 
 #include <QtTest/QtTest>
 
@@ -87,21 +50,18 @@ namespace {
 
 constexpr int kSignalTimeoutMs = 5000;
 
-// The rail's own geometry, restated here so the assertions can say what they
-// mean. Every row is exactly its tile band tall while a drag is live (the
-// revealed-rooms column is hidden for the duration), the tile is 40 px drawn
-// at y = 4 inside it, and the group band is the middle 24 px of that tile.
-// These are READ, never used to fabricate a coordinate: every point sent to
-// the window comes from a real delegate's mapToScene().
+// The rail's geometry, restated so assertions can say what they mean: during
+// a drag every row is its tile band tall, the 40 px tile is drawn at y = 4,
+// and the group band is the tile's middle 24 px. Every point sent to the
+// window still comes from a real delegate's mapToScene().
 constexpr int kTileTopInRow = 4;
 constexpr int kTileHeight = 40;
 constexpr int kTileCentreInRow = kTileTopInRow + kTileHeight / 2;  // 24
 constexpr int kGroupBandTopInRow = 12;
 constexpr int kGroupBandBottomInRow = 36;
 
-// A client that answers with a fixed room list. A real SpaceManager needs a
-// real MatrixClient, and the mock backend's single Space cannot express
-// "drop this Space onto that one".
+// A client with a fixed room list: the mock backend's single Space cannot
+// express a Space-onto-Space drop.
 class RailFakeClient final : public MatrixClient
 {
     Q_OBJECT
@@ -182,12 +142,9 @@ private:
     RailEntryModel *entries() const { return m_controller->railEntries(); }
     RailLayoutStore *store() const { return m_controller->railLayout(); }
 
-    // The live delegate for `entryId`, found by walking the ListView's
-    // contentItem and matching the delegate's own `entryId` property. The
-    // footer and any non-delegate children simply do not carry it.
-    // `findChild` DOES NOT REACH A REPEATER'S DELEGATES — their QObject
-    // parent is the Repeater's context, not the item they are laid out in —
-    // so the revealed-rooms column is invisible to it. Walk the VISUAL tree.
+    // The live delegate for `entryId`, matched on its own `entryId` property.
+    // findChild cannot reach Repeater delegates (their QObject parent is the
+    // Repeater's context), so this walks the visual tree.
     static QQuickItem *descendantNamed(QQuickItem *root, const QString &name)
     {
         if (!root)
@@ -202,17 +159,11 @@ private:
         return nullptr;
     }
 
-    // THE ONE SHARED TOOLTIP, found as the thing that is actually on screen.
-    //
-    // Qt Quick Controls instantiates a SINGLE ToolTip per window for every
-    // attached `ToolTip.text` — the instance Main.qml hardens to plain text,
-    // and the reason the rail must move an ANCHOR rather than declare a tip
-    // of its own. It is a Popup, so what is drawn is its `QQuickPopupItem`,
-    // parented into the window's overlay; there is no public handle to it
-    // from C++, and reading the attached object's own `x`/`y` would report
-    // where Qt was ASKED to put it rather than where it went. This walks the
-    // visual tree for the popup item that is currently visible, which is the
-    // same thing a screenshot would have caught.
+    // The one shared ToolTip that is actually on screen. Qt Quick Controls
+    // uses a single ToolTip per window for every attached `ToolTip.text`; it
+    // is a Popup drawn as a QQuickPopupItem in the overlay, with no public
+    // C++ handle, and the attached object's x/y report the request, not the
+    // result. Walks the visual tree for the visible popup item.
     static QQuickItem *visiblePopupItem(QQuickItem *from)
     {
         if (!from)
@@ -232,9 +183,8 @@ private:
         return nullptr;
     }
 
-    // The layered group field draws one rectangle PER ANCESTOR under the
-    // same objectName, so `descendantNamed` — which stops at the first — can
-    // only ever see the outermost. Collect them all.
+    // The layered group field draws one rectangle per ancestor under one
+    // objectName; collect them all.
     static void collectDescendantsNamed(QQuickItem *root, const QString &name,
                                         QList<QQuickItem *> &out)
     {
@@ -262,18 +212,15 @@ private:
         return nullptr;
     }
 
-    // Scene y of the TOP of the row that holds `entryId`. Real geometry, so a
-    // change to the rail's margins, spacing or band heights cannot silently
-    // move every point this suite sends somewhere meaningless.
+    // Scene y of the top of the row holding `entryId`, from real geometry.
     qreal rowTopScene(const QString &entryId) const
     {
         QQuickItem *item = delegateFor(entryId);
         return item ? item->mapToScene(QPointF(0, 0)).y() : -1;
     }
 
-    // The centre of a tile, which is where a person aims and — under the rule
-    // being tested, and under neither of the two that preceded it — the middle
-    // of the group band.
+    // The centre of a tile: where a person aims, and the middle of the group
+    // band.
     QPoint tileCentre(const QString &entryId) const
     {
         QQuickItem *item = delegateFor(entryId);
@@ -284,9 +231,8 @@ private:
             .toPoint();
     }
 
-    // A point in the GAP below `entryId`'s tile: past the group band's bottom
-    // edge, in the 28 px of dead space (12 + 4 spacing + 12) that separates two
-    // adjacent tiles.
+    // A point in the gap below `entryId`'s tile, past the group band, in the
+    // 28 px (12 + 4 spacing + 12) between adjacent tiles.
     QPoint gapBelow(const QString &entryId) const
     {
         QQuickItem *item = delegateFor(entryId);
@@ -326,9 +272,8 @@ private:
     }
 
     // `steps` interpolated moves from `from` (exclusive) to `to` (inclusive).
-    // The SEQUENCE is the point: both retired rules survived a single move to
-    // the destination and died on the second sample in the same place, so a
-    // test that jumps straight to the target proves nothing.
+    // The sequence matters: earlier rules survived one move and failed on the
+    // second sample in the same place.
     void sweep(const QPoint &from, const QPoint &to, int steps,
                const std::function<void(const QPoint &)> &afterEach = {})
     {
@@ -360,15 +305,10 @@ private slots:
             QStringLiteral("rail-drag-qml-test"));
         QSettings().clear();
 
-        // DragHandler's threshold defaults to the platform's start-drag
-        // distance (10 px on most). Case 6 has to stay INSIDE a 24 px group
-        // band while still crossing that threshold, which leaves no honest
-        // margin at 10. Lowering it changes only how far the synthesized
-        // pointer must travel before the handler takes the grab — never which
-        // branch of the rail's reading a given position lands in, which is the
-        // thing under test. Every case asserts the drag actually activated, so
-        // a platform where this does not apply fails loudly rather than
-        // passing vacuously.
+        // Lower the drag threshold (platform default ~10 px) so case 6 can
+        // cross it while staying inside a 24 px group band. It only changes
+        // how far the pointer travels before the handler grabs, and every
+        // case asserts the drag activated.
         QGuiApplication::styleHints()->setStartDragDistance(4);
 
         m_client = new RailFakeClient(this);
@@ -380,8 +320,7 @@ private slots:
             joinedSpace(QStringLiteral("!space-charlie:example.org"),
                         QStringLiteral("Charlie")),
             // One room in no Space, so the rail also renders the "Other rooms"
-            // pseudo row — production's second row, and an INELIGIBLE group
-            // target sitting directly above the first Space.
+            // row: an ineligible group target directly above the first Space.
             joinedRoom(QStringLiteral("!loose:example.org"),
                        QStringLiteral("Loose room")),
         };
@@ -394,9 +333,8 @@ private slots:
         QCOMPARE(m_spaces->spaceCount(), 3);
 
         m_controller = new AppController(AppController::MockBackend);
-        // The rail's rows now come from THIS hierarchy; everything it writes
-        // still goes to AppController's own RailLayoutStore, which is what the
-        // assertions read.
+        // The rail's rows come from this hierarchy; writes still go to
+        // AppController's own RailLayoutStore, which the assertions read.
         entries()->setSources(m_spaces, store());
         QCOMPARE(entries()->rowCount(), 5);   // Home, Other rooms, 3 Spaces
 
@@ -414,25 +352,12 @@ private slots:
         QVERIFY(m_rail);
 
         m_window = new QQuickWindow;
-        // 68 px is the production rail width; 700 px is tall enough that the
-        // five rows never make the ListView flickable — a scrollable list
-        // would let the Flickable compete for the grab and would arm the
-        // rail's auto-scroll, neither of which belongs in a drop test.
-        //
-        // If a future Qt lets the ListView steal the grab from the tile's
-        // DragHandler under synthesized events, every case here fails on its
-        // "the DragHandler never took the gesture" assertion rather than
-        // quietly passing, and the harness fix is
-        // `m_list->setProperty("interactive", false)` — which disables only
-        // the rail's own flick-scrolling. A steal under a REAL pointer would
-        // be a production finding, not a harness one, and must not be papered
-        // over here.
-        // 160, which is WIDER than the rail's own maximum. That is deliberate
-        // and it is also a blind spot: geometry that only goes wrong when the
-        // gutter is at its narrowest cannot be seen at 160, which is how a
-        // clipped chevron shipped. `theGutterIsWideEnoughForTheGlyphItHolds`
-        // below narrows the rail to its real minimum for exactly that reason,
-        // and every other case here is about proportion rather than fit.
+        // Tall enough that the rows never make the ListView flickable (which
+        // would compete for the grab and arm auto-scroll). If the ListView
+        // ever steals the grab under synthesized events, cases fail on "the
+        // DragHandler never took the gesture"; under a real pointer that
+        // would be a production bug. 160 px is wider than the rail's maximum;
+        // theGutterIsWideEnoughForTheGlyphItHolds covers the narrowest width.
         m_window->resize(160, 700);
         m_rail->setParentItem(m_window->contentItem());
         m_rail->setSize(QSizeF(m_window->width(), m_window->height()));
@@ -445,9 +370,8 @@ private slots:
             QStringLiteral("spacesRailList"));
         QVERIFY(m_list);
         QTRY_COMPARE_WITH_TIMEOUT(m_list->property("count").toInt(), 5, 5000);
-        // Not scrolled, and not scrollable: the derived row tops the rail
-        // computes and the real delegate geometry this suite reads are the
-        // same coordinates only while contentY is 0.
+        // Not scrolled: derived row tops and delegate geometry agree only at
+        // contentY 0.
         QCOMPARE(m_list->property("contentY").toReal(), 0.0);
         QVERIFY(m_list->property("contentHeight").toReal()
                 <= m_list->property("height").toReal());
@@ -455,16 +379,15 @@ private slots:
 
     void cleanupTestCase()
     {
-        // Order matters: the rail item's QObject owner is the engine (the
-        // window only holds it as a visual child), so the engine goes first
-        // and the item detaches itself from a window that is still alive.
+        // The engine owns the rail item, so delete it first while the window
+        // is still alive.
         delete m_engine;
         delete m_window;
         delete m_controller;
     }
 
-    // Every case starts from the canonical arrangement: no folders, no stored
-    // order, Alpha directly above Bravo directly above Charlie.
+    // Every case starts with no folders, no stored order, and Alpha above
+    // Bravo above Charlie.
     void init()
     {
         const QVariantList folders = store()->folders();
@@ -481,17 +404,11 @@ private slots:
         QVERIFY(rowA > 0);
         QCOMPARE(entries()->rowForEntry(m_spaceIds.at(1)), rowA + 1);
         QCOMPARE(entries()->rowForEntry(m_spaceIds.at(2)), rowA + 2);
-        // Let the 140 ms move/displaced transitions from the previous case
-        // finish before any geometry is read.
+        // Let the previous case's 140 ms transitions finish.
         QTest::qWait(200);
     }
 
-    // CASE 1 — the gesture the whole feature exists for.
-    //
-    // ON THE UNFIXED TREE (0b38f8c and every revision before it) this produced
-    // a SWAP and no folder: the second pointer sample inside Bravo's near half
-    // called updateDrag(row, false), Alpha took Bravo's slot, and the release
-    // committed a reorder. That swap IS the maintainer's report.
+    // Case 1: dropping a Space on a Space creates a folder (not a swap).
     void droppingASpaceOnASpaceCreatesAFolder()
     {
         const QString a = m_spaceIds.at(0);
@@ -505,9 +422,8 @@ private slots:
         sweep(from, to, 10, [&](const QPoint &) {
             sawDragging = sawDragging || entries()->dragging();
         });
-        // A few small samples ON the target, because that is what a hand does
-        // and because it is exactly what both retired rules could not survive:
-        // one sample inside the tile was harmless, the second reordered.
+        // Several small samples on the target, as a hand makes: the second
+        // sample is what earlier rules could not survive.
         for (int i = 0; i < 4; ++i) {
             moveTo(QPoint(to.x(), to.y() + (i % 2 ? 2 : -2)));
             sawDragging = sawDragging || entries()->dragging();
@@ -520,18 +436,14 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(store()->folders().size(), 1, 3000);
         const QString folderId = folderIdOfOnlyFolder();
         QVERIFY(!folderId.isEmpty());
-        // TARGET FIRST, then the Space that was dropped: the folder takes over
-        // the position the user was pointing at, and the dragged Space joins it
-        // there (RailEntryModel::commitGrouping).
+        // Target first, then the dropped Space: the folder takes the target's
+        // position (RailEntryModel::commitGrouping).
         QCOMPARE(store()->folderMembers(folderId), QStringList({ b, a }));
         QCOMPARE(store()->folderOf(a), folderId);
         QCOMPARE(store()->folderOf(b), folderId);
     }
 
-    // CASE 2 — the direct assertion of the defect, and the one a model test can
-    // never make: the tile being aimed at must not move out from under the
-    // pointer. On the unfixed tree Bravo's row index changed on the SECOND
-    // pointer sample inside its near half.
+    // Case 2: the tile being aimed at never moves out from under the pointer.
     void theTargetRowNeverMovesWhileThePointerIsOnItsTile()
     {
         const QString a = m_spaceIds.at(0);
@@ -560,9 +472,8 @@ private slots:
         releaseAt(to);
         QCoreApplication::processEvents();
 
-        // Without this the case could pass by never reaching the target at
-        // all — and it is the SECOND sample in the same place that killed both
-        // earlier rules, so one is not enough.
+        // Require at least two samples on the tile, or the case could pass
+        // without reaching it.
         QVERIFY2(samplesInsideTile >= 2,
                  qPrintable(QStringLiteral("only %1 pointer samples landed "
                                            "inside the target tile")
@@ -577,9 +488,8 @@ private slots:
         }
     }
 
-    // CASE 3 — the decision survives to the release. `endDrag` groups on the
-    // FLAG, not on where the pointer is, so what matters is the state the model
-    // is holding at the instant the button comes up.
+    // Case 3: grouping is armed and aimed at the target when the button comes
+    // up; endDrag groups on the flag, not the pointer position.
     void groupingIsArmedAndAimedAtTheTargetWhenTheButtonComesUp()
     {
         const QString a = m_spaceIds.at(0);
@@ -599,18 +509,16 @@ private slots:
 
         releaseAt(to);
         QCoreApplication::processEvents();
-        // And the flags are cleared by the release itself — the rail draws the
-        // ring off dropTargetId, and a released tile that keeps its drag
-        // presentation was a real reported defect.
+        // The release clears the flags, so the rail stops drawing the ring
+        // and the drag presentation.
         QVERIFY(!entries()->dragging());
         QVERIFY(!entries()->grouping());
         QVERIFY(entries()->dropTargetId().isEmpty());
     }
 
-    // CASE 4 — a release in the GAP below the target reorders and makes no
-    // folder, EVEN AFTER the pointer has rested on that target on the way.
-    // Leaving a tile has to disarm the grouping as well as unlight it, or a
-    // stale flag turns a reorder into a folder.
+    // Case 4: a release in the gap below the target reorders and makes no
+    // folder, even after resting on the target. Leaving a tile must disarm
+    // grouping.
     void aReleaseInTheGapBelowReordersAndMakesNoFolder()
     {
         const QString a = m_spaceIds.at(0);
@@ -638,11 +546,9 @@ private slots:
         QCOMPARE(entries()->rowForEntry(b) + 1, entries()->rowForEntry(a));
     }
 
-    // CASE 5 — sweeping THROUGH the target without stopping leaves no folder.
-    // This is what replaces the 250 ms dwell: the dwell existed to stop a
-    // pass-through from making a folder, and the geometry now carries that on
-    // its own, because nothing moves while the pointer is on a tile and a gap
-    // is never a group target.
+    // Case 5: sweeping through a tile without stopping makes no folder. The
+    // geometry replaces a dwell: nothing moves on a tile and a gap is never a
+    // group target.
     void sweepingThroughATileWithoutStoppingMakesNoFolder()
     {
         const QString a = m_spaceIds.at(0);
@@ -652,8 +558,7 @@ private slots:
         const QPoint intoGap = gapBelow(b);
 
         pressAt(from);
-        // One continuous run straight across Bravo's tile and out the far side,
-        // with no pause anywhere.
+        // One continuous run across Bravo's tile and out the far side.
         sweep(from, intoGap, 14);
         QVERIFY(entries()->dragging());
         QVERIFY(!entries()->grouping());
@@ -665,9 +570,7 @@ private slots:
         QCOMPARE(store()->order(), QStringList({ b, a, c }));
     }
 
-    // CASE 6 — a release over the dragged block's own slot changes nothing.
-    // There is nothing to group with and nowhere new to go, so the rail must
-    // hold everything still rather than pick the nearest verb.
+    // Case 6: a release over the dragged tile's own slot changes nothing.
     void aReleaseOverTheDraggedTilesOwnSlotChangesNothing()
     {
         const QString a = m_spaceIds.at(0);
@@ -678,8 +581,7 @@ private slots:
         const qreal yABefore = rowTopScene(a);
 
         pressAt(home);
-        // 8 px of travel: past the drag threshold set in initTestCase, and
-        // still inside the 24 px group band centred on this tile.
+        // 8 px: past the drag threshold, still inside this tile's group band.
         moveTo(QPoint(home.x(), home.y() + 8));
         moveTo(QPoint(home.x(), home.y() + 4));
         moveTo(home);
@@ -700,22 +602,9 @@ private slots:
         QCOMPARE(rowTopScene(a), yABefore);
     }
 
-    // ── 2026-09-18: the expander sat nowhere near the tile it expands ───
-    //
-    // Reported in those words — "way too far off on the left, and unevenly
-    // distanced" — and measured on a real build at the 112px stop before
-    // touching anything: the gap between the chevron and its own tile ran
-    // 20, 23, 26, 29, 32px down five levels of nesting, and even a top-level
-    // Space sat 20px clear of its tile against the rail's edge.
-    //
-    // The glyph was `anchors.centerIn` its gutter, and the gutter is the
-    // whole width left of the tile — so it sat at HALF the tile's own offset
-    // and drifted half as fast as the thing it belongs to. It is anchored to
-    // the gutter's right edge now, which is already a constant 4px from the
-    // tile at every level.
-    //
-    // GEOMETRIC, on real delegates, because nothing else can see this: the
-    // old arrangement was correct QML and read perfectly well as source.
+    // Nesting moves the expander into a fixed gutter lane, not the tiles: the
+    // chevron is anchored to the gutter's right edge, a constant distance from
+    // its tile at every depth. Geometric, on real delegates.
     void nestingMovesTheTreeAndNotTheTiles()
     {
         RailFakeClient nested;
@@ -763,30 +652,16 @@ private slots:
                      "nothing");
             const QPointF glyphLeft = glyph->mapToItem(row, QPointF(0, 0));
             const QPointF tileLeft = tile->mapToItem(row, QPointF(0, 0));
-            // Both absolute in the row, because both belong to a COLUMN now:
-            // the expander to the gutter, the tile to the one axis every
-            // tile shares. Measuring the expander from the tile would have
-            // been the right question while it was a badge on the tile, and
-            // it is the wrong one once the two are separate columns.
+            // Both absolute in the row: the expander belongs to the gutter
+            // column, the tile to the shared tile axis.
             gaps << glyphLeft.x();
-            // The tile's CENTRE. A nested tile is drawn one step smaller and
-            // inset equally on both sides, so its LEFT edge legitimately moves
-            // by half the size difference — the centre is what "one column"
-            // means when the things in it are not all the same size.
+            // The tile's centre: a nested tile is one step smaller and inset
+            // equally, so its left edge moves but its centre does not.
             tileLefts << tileLeft.x() + tile->width() / 2;
         }
 
-        // ── THE TILES DO NOT MOVE ────────────────────────────────────
-        //
-        // This case used to require the OPPOSITE — that each level's tile sat
-        // further right than the one above — and that requirement was the
-        // defect. Reported as "they keep sticking out more and more and create
-        // like a wave pattern": a per-level step walks a 40px tile off its own
-        // axis inside a rail that starts at 68px, and then walks it back, so
-        // the column has no baseline anywhere. Depth moved into lanes in a
-        // fixed gutter and the tiles stay put. Element renders no nesting at
-        // all while narrow and Nheko multiplies its indent by zero — the same
-        // conclusion reached twice by people who shipped it.
+        // The tiles do not move with depth; a per-level step walked tiles off
+        // a shared axis in a narrow rail. Depth lives in the gutter lanes.
         for (int i = 1; i < tileLefts.size(); ++i) {
             QVERIFY2(qAbs(tileLefts.at(i) - tileLefts.at(0)) < 1.0,
                      qPrintable(QStringLiteral(
@@ -796,10 +671,7 @@ private slots:
                          .arg(i).arg(tileLefts.at(i)).arg(tileLefts.at(0))));
         }
 
-        // And the expander keeps ONE x at every depth — the other half of the
-        // original report, which was that the chevrons were "unevenly
-        // distanced". It has the gutter to itself, so there is nothing left
-        // for it to move for.
+        // The expander keeps one x at every depth.
         for (int i = 0; i < gaps.size(); ++i) {
             QVERIFY2(qAbs(gaps.at(i) - gaps.at(0)) < 1.0,
                      qPrintable(QStringLiteral(
@@ -807,9 +679,8 @@ private slots:
                          "the root — it moves with the row rather than "
                          "keeping the gutter's one position")
                          .arg(gaps.at(i)).arg(i).arg(gaps.at(0))));
-            // In the gutter, which is to say LEFT of the tile column. This is
-            // the assertion that would fail if the expander were ever moved
-            // back on top of the tile, where it clipped the avatar.
+            // In the gutter, left of the tile column (on the tile it clipped
+            // the avatar).
             QVERIFY2(gaps.at(i) < tileLefts.at(i),
                      qPrintable(QStringLiteral(
                          "the expander is at x=%1 and the tile's centre is at "
@@ -822,39 +693,16 @@ private slots:
     }
 
 
-    // ── 2026-09-17: expanding a LEAF Space revealed nothing until the rail
-    //    was rebuilt by something else ─────────────────────────────────────
-    //
-    // Reproduced on a real account: a Discord-style category — rooms, no
-    // subspaces — got its chevron from 143abb07, flipped it to "open" on a
-    // click, and listed none of its rooms. Collapsing and re-expanding an
-    // UNRELATED Space above it made them appear; so did restarting the app,
-    // which is how it was first reported ("a room did not appear under its
-    // space until Lightning restarted") and why it was filed as a sync
-    // staleness bug. It is not one. The state was in the store the whole
-    // time: Space Home listed both rooms while the rail showed neither.
-    //
-    // `revealed` called `root.revealCount(spaceId)`, which asks
-    // `app.railLayout.spaceExpanded(spaceId)` — a Q_INVOKABLE, so the binding
-    // records NO dependency on the expansion state and never re-evaluates
-    // when it changes. Expanding a Space that HAS subspaces inserts model
-    // rows, which rebuilds delegates and hides the defect; a leaf inserts
-    // none, so only its `expanded` ROLE changes — the chevron reads that role
-    // and flips, and the reveal, which did not, stays at its creation-time
-    // zero. Exactly the shape the space-identity suite was written for:
-    // "neither half can see a binding that never re-evaluates, which is what
-    // `root.info` (a spaceInfo() CALL) was".
-    //
-    // Substitutes its own hierarchy and puts the shared one back, so the drag
-    // cases above are untouched whatever order this file is run in.
+    // Expanding a leaf Space (rooms, no subspaces) reveals its rooms without
+    // anything else rebuilding the rail. `revealed` must depend on the
+    // expansion state: read through a Q_INVOKABLE it records no dependency,
+    // and a leaf inserts no model rows to rebuild the delegate. Substitutes
+    // its own hierarchy and restores the shared one afterwards.
     void expandingALeafSpaceRevealsItsRoomsWithoutRebuildingTheRail()
     {
-        // Production wiring, not the substituted hierarchy the drag cases
-        // use: `topRoomsInSpace()` reads `app.spaces`, which is the
-        // controller's OWN SpaceManager, so a locally-fed model would leave
-        // the reveal empty for a reason that has nothing to do with the bug.
-        // That manager is empty until the mock account is logged in — the
-        // drag cases never needed it and so never did.
+        // Production wiring: `topRoomsInSpace()` reads `app.spaces`, the
+        // controller's own SpaceManager, which is empty until the mock account
+        // logs in.
         QSignalSpy loginSpy(m_controller->auth(),
                             &AuthManager::loginSucceeded);
         m_controller->auth()->login(QStringLiteral("https://mock.local"),
@@ -866,10 +714,8 @@ private slots:
         QCoreApplication::processEvents();
         QTest::qWait(50);
 
-        // A LEAF: direct rooms to reveal, and no subspaces whose insertion
-        // would rebuild the delegate for us. Discovered from the live model
-        // rather than pinned to a mock id, so a change to the mock's
-        // hierarchy fails this loudly instead of silently testing nothing.
+        // A leaf, discovered from the live model rather than pinned to a mock
+        // id, so a hierarchy change fails loudly.
         SpaceManager *spaces = m_controller->spaces();
         QString leafId;
         int leafRooms = 0;
@@ -902,9 +748,8 @@ private slots:
         QCOMPARE(tile->property("expandable").toBool(), true);
         QCOMPARE(tile->property("revealed").toInt(), 0);
 
-        // Production's own toggle — the chevron's TapHandler calls exactly
-        // this. It inserts and removes no model row, which is the whole
-        // point: nothing else can rebuild the delegate for us.
+        // The chevron's own toggle; it inserts no model row, so nothing else
+        // can rebuild the delegate.
         const int rowsBefore = entries()->rowCount();
         store()->toggleSpaceExpanded(leafId);
         QCoreApplication::processEvents();
@@ -913,8 +758,7 @@ private slots:
 
         tile = delegateFor(leafId);
         QVERIFY(tile);
-        // The role the chevron reads DID update — that is why the control
-        // looked like it worked.
+        // The role the chevron reads did update.
         QCOMPARE(tile->property("expanded").toBool(), true);
         QVERIFY2(tile->property("revealed").toInt() > 0,
                  "the chevron opened and the reveal count stayed at its "
@@ -923,20 +767,10 @@ private slots:
                  "after an unrelated toggle or an app restart");
         QCOMPARE(tile->property("revealedRooms").toList().size(), leafRooms);
 
-        // ── AND A ROOM IS ACTUALLY DRAWN ────────────────────────────────
-        //
-        // Everything above this reads MODEL properties, and that is how the
-        // whole revealed-rooms column went missing in a shipped build while
-        // this case — and a full CTest run — stayed green. A careless edit
-        // deleted the column's `visible`, `y`, `width` and `spacing`; a
-        // Column with no width lays out nothing, so no Space revealed any
-        // room anywhere, and `revealed` went on reporting a happy number the
-        // whole time.
-        //
-        // The size is asserted as a RATIO of the Space tile, not a literal:
-        // a room tier is 0.7 of it, which is what says "this is a room and
-        // that is a Space" once the indent was taken away. And the x, because
-        // one shared axis is the rail's whole layout rule.
+        // A room is actually drawn: model properties alone stayed correct
+        // while the revealed column lost its layout properties. Size is a
+        // ratio of the Space tile (a room tier is 0.7), and x is the shared
+        // axis.
         QQuickItem *roomTile = descendantNamed(
             tile, QStringLiteral("railRevealedRoomTile"));
         QVERIFY2(roomTile, "the reveal count is non-zero and NO room tile "
@@ -966,13 +800,8 @@ private slots:
                      "on x=%2 — the column has two axes")
                      .arg(roomCentre).arg(columnCentre)));
 
-        // AND IT IS BELOW THE SPACE TILE, which is the assertion that
-        // actually discriminates. A first version checked the tile's size and
-        // x and PASSED on the broken code: a room tile carries its own width
-        // and its own absolute x, so it keeps both even when the column
-        // around it has neither. What the column owns is WHERE the run
-        // starts — strip its `y` and every revealed room is drawn on top of
-        // the Space tile it belongs to.
+        // Below the Space tile: a room tile keeps its own size and x even when
+        // its column has none, so only its y discriminates.
         const qreal bandHeight =
             tile->property("tileBandHeight").toReal();
         const qreal roomTop = roomTile->mapToItem(tile, QPointF(0, 0)).y();
@@ -982,7 +811,7 @@ private slots:
                      "tall — the rooms are drawn over the Space that owns "
                      "them").arg(roomTop).arg(bandHeight)));
 
-        // ...and closing it puts them away again, through the same binding.
+        // ...and closing puts them away through the same binding.
         store()->toggleSpaceExpanded(leafId);
         QCoreApplication::processEvents();
         QTest::qWait(50);
@@ -994,48 +823,17 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // ── 2026-09-19: EVERY TOOLTIP THIS RAIL SHOWS, MEASURED WHERE IT LANDS ─
-    //
-    // The reported defect is "the tooltip covers the tile ABOVE the one you
-    // are pointing at". Qt centres an attached tooltip on its attachee and
-    // puts it ABOVE, so on a 68px rail of 40px tiles that is, precisely, the
-    // previous row. Three of the rail's tips were moved off the rail on
-    // 2026-09-18 by attaching them to an invisible anchor hanging below the
-    // row; FOUR MORE WERE NOT, and a live run on 2026-09-19 measured all four
-    // (rail 0-78, tooltips as diff-boxes against a mouse-parked baseline):
-    //
-    //   Settings cog   x 6-72    y 1011-1043   over the rail, over the tile
-    //   Account avatar x 6-248   y 1063-1095   over the rail, over the COG
-    //   Add-Space "+"  x 6-116   y  937- 969   over the rail, over the tile
-    //   A revealed room                        beside the PARENT Space, up to
-    //                                          three rows above the pointer
-    //
-    // The last one is not an anchor at all: `spaceHover` was a HoverHandler
-    // on the whole delegate, which spans the revealed-room column, so
-    // pointing at a room lit the parent tile's ring AND — 200 ms later, the
-    // 500 ms Space delay overtaking the room's 300 — replaced the room's own
-    // tooltip with the parent's, at the parent's row.
-    //
-    // WHY THIS IS GEOMETRIC AND NOT A SOURCE SCAN. Every one of these four
-    // reads correctly in the file: an attached `ToolTip.text` on the thing it
-    // names is exactly what the documentation shows, and a HoverHandler with
-    // no explicit parent is the normal spelling. Only the pixels disagree.
-    // So this case shows the REAL shared ToolTip — the one Main.qml hardens,
-    // the only one production ever instantiates — over REAL delegates, and
-    // measures its scene rectangle against the scene rectangle of the thing
-    // the pointer is on.
-    //
-    // THE WINDOW IS WIDENED ON PURPOSE. A Popup carries `margins: 6` and Qt
-    // MOVES it back inside the window rather than letting it overhang, so in
-    // the suite's own 160px window a tooltip placed off the rail's right edge
-    // would be pushed back over the rail by the toolkit and this case would
-    // measure the clamp instead of the placement.
+    // Every rail tooltip sits beside the row the pointer is on, off the rail.
+    // Qt centres an attached tooltip above its attachee, which on the rail is
+    // the previous row, so the tips hang off invisible anchors. Revealed rooms
+    // need their own hover handler, or the parent Space's tip replaces the
+    // room's. Measured on the real shared ToolTip over real delegates. The
+    // window is widened because a Popup is kept inside its window, which
+    // would measure the clamp instead of the placement.
     void everyRailTooltipSitsBesideTheRowThePointerIsOn()
     {
-        // The revealed-room column needs the controller's OWN SpaceManager
-        // (`topRoomsInSpace()` reads `app.spaces`), which is empty until the
-        // mock account is logged in. Guarded, so the case is independent of
-        // whether a sibling above it already logged in.
+        // The revealed-room column needs the controller's own SpaceManager,
+        // which is empty until login; guarded so case order does not matter.
         if (!m_controller->loggedIn()) {
             QSignalSpy loginSpy(m_controller->auth(),
                                 &AuthManager::loginSucceeded);
@@ -1048,9 +846,8 @@ private slots:
         entries()->setSources(m_controller->spaces(), store());
         QCoreApplication::processEvents();
         QTest::qWait(50);
-        // The bottom cluster is `visible: app.loggedIn`, so without this the
-        // case would skip the cog and the avatar and say nothing about the
-        // two anchors that were measured worst.
+        // The bottom cluster is `visible: app.loggedIn`; without login the cog
+        // and avatar would be skipped.
         QVERIFY2(m_controller->loggedIn(),
                  "the fixture reports itself logged out, so the rail's "
                  "bottom cluster is hidden and cannot be pointed at");
@@ -1151,8 +948,7 @@ private slots:
                 continue;
             }
 
-            // Park the pointer clear of the rail and let the previous tip
-            // close, so what is measured next is the one just asked for.
+            // Park the pointer off the rail and let the previous tip close.
             moveTo(QPoint(int(railWidth) + 200, 8));
             QTest::qWait(120);
             moveTo(hovered.center().toPoint());
@@ -1165,9 +961,8 @@ private slots:
                 tip->mapRectToScene(QRectF(0, 0, tip->width(), tip->height()));
             ++checked;
 
-            // (1) IT DOES NOT PAINT ON THE RAIL. The rail's only identity cue
-            // is a two-letter monogram, so a tip over it hides the very thing
-            // the reader is trying to recognise.
+            // (1) It does not paint on the rail, whose monogram is the only
+            // identity cue.
             QVERIFY2(tipRect.left() >= railWidth - 0.5,
                      qPrintable(QStringLiteral(
                          "pointing at %1: the tooltip starts at x=%2 on a "
@@ -1177,9 +972,7 @@ private slots:
                          .arg(QString::fromLatin1(target.what))
                          .arg(tipRect.left()).arg(railWidth)));
 
-            // (2) IT IS BESIDE THE THING BEING POINTED AT. This is the half a
-            // "does it overlap the rail" check cannot see: a tip correctly
-            // off the rail can still name, and sit beside, a different row.
+            // (2) It sits beside the row being pointed at.
             QVERIFY2(tipRect.center().y() >= hovered.top()
                          && tipRect.center().y() <= hovered.bottom(),
                      qPrintable(QStringLiteral(
@@ -1191,20 +984,10 @@ private slots:
                          .arg(tipRect.center().y())));
         }
 
-        // The COUNT of anchors actually measured, never the count of loop
-        // iterations: a target that is invisible in this fixture is skipped
-        // above, and a case that silently measured one of five would pass on
-        // a tree where the other four are broken.
-        //
-        // FOUR, AND WHICH FOUR. The add-Space "+" is the fifth target and it
-        // is NOT covered here, measured rather than assumed: it is
-        // `visible: app.conversations.supported`, `supported()` asks
-        // `MatrixClient::supportsRoomManagement()`, and the mock does not
-        // override that virtual — so the button can never be drawn on this
-        // backend and a mutation putting its tooltip back on the button
-        // PASSES this case. Its anchor was verified live instead
-        // (2026-09-19, Xvfb, Regions and Classic). If the mock ever gains
-        // room management, raise this bar to 5.
+        // Assert the count actually measured, not loop iterations. Four: the
+        // add-Space "+" needs supportsRoomManagement(), which the mock does not
+        // override, so it is never drawn here. Raise this to 5 if the mock
+        // gains room management.
         QVERIFY2(checked >= 4,
                  qPrintable(QStringLiteral(
                      "only %1 of the rail's tooltip anchors could be pointed "
@@ -1213,49 +996,11 @@ private slots:
                      .arg(checked).arg(skipped.join(QStringLiteral("; ")))));
     }
 
-    // ── 2026-09-18: the rail scaled its Space tiles and NOTHING ELSE ──────
-    //
-    // The Space tile started following the interface size earlier the same
-    // day — it had been a flat 40 while `normalRowBand`, `indentStep` and
-    // `minRailWidth` around it were already scaled, which is exactly why a
-    // 140% rail grew wider while the tiles inside it did not. Fixing that
-    // exposed the other half: every REMAINING piece of rail geometry was
-    // still a literal, so at 140% a 56px Space tile sat above 28px room
-    // tiles, a 40px settings cog and a 40px account avatar, and the column
-    // read as three unrelated controls stacked on one another.
-    //
-    // WHAT IS ASSERTED IS A RATIO, NEVER A PIXEL COUNT. "56 at 140%" is a
-    // number someone edits to match whatever the build produces; that a
-    // revealed room's tile stays 0.7 of the Space tile above it, and that
-    // the bottom cluster's chips stay exactly one Space tile, is the rule
-    // the rail is supposed to obey and no frozen literal can satisfy it.
-    //
-    // Production wiring, for the reason the leaf case above documents: the
-    // revealed-rooms column reads `app.spaces`, the CONTROLLER's manager, so
-    // a locally-fed hierarchy would leave it empty for a reason that has
-    // nothing to do with scaling.
-    // ── 2026-09-18: a drop lands where `rowTop` says it does ─────────────
-    //
-    // `rowTop(i)` is what every drop decision is made against, and it is
-    // DERIVED by accumulating `rowBand()` rather than read off the delegates,
-    // because the move and displaced transitions interpolate a delegate's `y`
-    // for 140ms — a pointer held still over an animating list would map to one
-    // row, then its neighbour, then back.
-    //
-    // THE PRICE OF DERIVING IT is that the derivation has to keep up with the
-    // rows. It returned one constant for every row but the first, which was
-    // exactly true while every tile was `railTileSize`, and stopped being true
-    // the moment a nested Space's tile became a step smaller and the last row
-    // of a group started carrying the gap below it. Nothing would have said
-    // so: the error is 6px per nested row and 8px per group ABOVE the pointer,
-    // so shallow trees are unaffected and a deep one drops a slot off.
-    //
-    // THE FIXTURE NEEDS A ROW THAT IS NESTED AND NOT LAST, and a first
-    // version of it did not have one. Two roots each with a single nested
-    // child passed on a constant band by arithmetic accident: a nested tile
-    // is 8px shorter and the last row of a group is 8px taller, so at every
-    // width those two cancel and a nested LAST row is exactly the constant.
-    // The middle row of a three-level chain is the one that cannot cancel.
+    // `rowTop(i)` drives every drop decision and is derived by accumulating
+    // `rowBand()` (delegate `y` animates for 140 ms), so the derivation must
+    // match real row heights. The fixture needs a nested row that is not last
+    // (a three-level chain): a nested tile is 8 px shorter and a group's last
+    // row 8 px taller, so a nested last row cancels out.
     void everyRowTopMatchesTheRowThatIsActuallyThere()
     {
         RailFakeClient mixed;
@@ -1291,8 +1036,7 @@ private slots:
                      "the rail built %1 rows, so the mixed fixture is not "
                      "there").arg(count)));
 
-        // The fixture must actually contain a nested row, or a constant band
-        // would be correct and this case would prove nothing.
+        // The fixture must contain a nested row, or a constant band would pass.
         int nestedRows = 0;
         for (QQuickItem *row : content->childItems()) {
             if (row && row->isVisible()
@@ -1332,24 +1076,9 @@ private slots:
     }
 
 
-    // ── 2026-09-18: a folder painted its own contents flat ───────────────
-    //
-    // The folder container was drawn at `z: -2` while the hierarchy regions
-    // live at -21..-17, in a colour those regions already used — so a Space
-    // tree filed into a folder had its whole nesting painted OVER. Measured
-    // on a capture: inside a folder, exactly one region tint appeared in the
-    // entire rail, on a three-deep tree with four open chevrons proving the
-    // app knew it was a tree. Nothing was wrong with the model.
-    //
-    // Two things had to be true and neither was: the container has to be
-    // BEHIND the regions it contains, and it has to be WIDER than them. It
-    // was inset by a raw literal against a scaled ladder, which put it
-    // between depth 1 and depth 2 — a container narrower than its contents.
-    //
-    // A COLOUR CENSUS IS THE ONLY THING THAT SEES THE FIRST HALF from a
-    // screenshot, and no source scan sees either: both bindings read
-    // perfectly well, and the defect is entirely in how two numbers written
-    // in different places compare.
+    // A folder container draws behind the hierarchy regions it holds and is
+    // wider than them; otherwise it paints over the nesting. Two numbers set
+    // in different places, so only geometry can see it.
     void aFolderDrawsBehindTheHierarchyItHolds()
     {
         RailFakeClient tree;
@@ -1394,8 +1123,7 @@ private slots:
         QVERIFY2(container && container->isVisible(),
                  "the filed row draws no folder container");
 
-        // BEHIND. Equal z would not do either: same-z siblings paint in
-        // document order, and the container is declared first.
+        // Strictly lower z; equal z would fall back to document order.
         QVERIFY2(container->z() < layers.at(0)->z(),
                  qPrintable(QStringLiteral(
                      "the folder container is at z=%1 and the region it "
@@ -1403,9 +1131,7 @@ private slots:
                      "nesting inside it")
                      .arg(container->z()).arg(layers.at(0)->z())));
 
-        // AND WIDER. A container narrower than its contents is backwards,
-        // and it is what turned the boundary between two groups into four
-        // corner arcs and a hairline.
+        // Wider than its contents.
         QVERIFY2(container->width() > layers.at(0)->width(),
                  qPrintable(QStringLiteral(
                      "the folder container is %1px wide and the depth-1 "
@@ -1413,9 +1139,7 @@ private slots:
                      "than the thing it holds")
                      .arg(container->width()).arg(layers.at(0)->width())));
 
-        // AND THE TILE DOES NOT MOVE. The folder path had the one horizontal
-        // offset left in this file, 7.5px measured, in a rail whose whole
-        // rule is that tiles share an axis.
+        // The filed tile stays on the shared axis.
         QQuickItem *unfiled = delegateFor(QStringLiteral("!leaf:example.org"));
         auto *filedTile = subRow->findChild<QQuickItem *>(
             QStringLiteral("railSpaceTile"));
@@ -1446,30 +1170,10 @@ private slots:
     }
 
 
-    // ── 2026-09-18: sibling runs touched, and the chevron sat outside ─────
-    //
-    // Reported against a capture, in two parts. "The lowest level runs out of
-    // color, there are small gaps between them where the color should end, we
-    // want to separate it cleanly": two sibling runs of the same tint,
-    // separated by nothing but `ListView.spacing`, read as ONE shape with a
-    // hairline notch through it — because the trailing gap was keyed on the
-    // TOP-LEVEL group ending and an inner run ending spent nothing. And
-    // "chevrons should be repositioned so they are in the color shape, not in
-    // between them": a deep row's innermost region begins further right than
-    // a glyph right-anchored to the tile does, so the chevron sat in the
-    // PARENT's band beside its own box.
-    //
-    // BOTH ARE GEOMETRY AND NOTHING ELSE CAN SEE EITHER. A source scan reads
-    // the same correct-looking bindings before and after, and the second one
-    // is a two-pixel disagreement between two numbers written in different
-    // files.
-    //
-    // The fixture is two sibling runs under one Root — the smallest
-    // arrangement in which an inner run ends with something after it — and
-    // the left one is THREE deep on purpose. At two levels the innermost
-    // region's edge is still left of a tile-anchored glyph, so the chevron
-    // half of this case passes on the old gutter; only the deepest inset the
-    // rail can draw puts the two numbers in conflict.
+    // Sibling runs of the same tint are separated by a gap (an inner run
+    // ending spends one), while their parent's region stays whole; and a deep
+    // row's chevron sits inside its own region. The left run is three deep:
+    // at two levels the chevron check passes on the old gutter.
     void siblingRunsSeparateWhileTheirParentStaysWhole()
     {
         RailFakeClient tree;
@@ -1514,7 +1218,7 @@ private slots:
             return out;
         };
 
-        // The LAST row of A's run, which is the one that ends it.
+        // The last row of A's run, which ends it.
         QQuickItem *a1 = delegateFor(QStringLiteral("!a1a:example.org"));
         QQuickItem *bRow = delegateFor(QStringLiteral("!b:example.org"));
         QVERIFY2(a1 && bRow, "the two-sibling fixture did not build");
@@ -1535,7 +1239,7 @@ private slots:
             return layer->mapToItem(content, QPointF(0, 0)).y();
         };
 
-        // ── THE INNER RUNS SEPARATE ──────────────────────────────────
+        // The inner runs separate.
         const qreal gap = m_rail->property("groupGap").toReal();
         QVERIFY2(gap > 0, "the rail reports no group gap at all");
         const qreal innerGap = topIn(bLayers.at(1)) - bottomIn(a1Layers.at(1));
@@ -1546,12 +1250,8 @@ private slots:
                      "read as one shape with a notch in it")
                      .arg(innerGap).arg(gap)));
 
-        // ── AND THE PARENT DOES NOT ──────────────────────────────────
-        //
-        // The depth-1 region owns both runs, so it has to cover the gap
-        // between them: a layer that stops at its own delegate would put a
-        // hole in the parent exactly where its child happened to end, which
-        // is the other way to get this wrong.
+        // The parent's region is not split: the depth-1 region owns both runs
+        // and must cover the gap between them.
         QVERIFY2(qAbs(topIn(bLayers.at(0)) - bottomIn(a1Layers.at(0))) < 1.0,
                  qPrintable(QStringLiteral(
                      "the depth-1 region ends at y=%1 on A1 and restarts at "
@@ -1559,25 +1259,15 @@ private slots:
                      "stopped").arg(bottomIn(a1Layers.at(0)))
                      .arg(topIn(bLayers.at(0)))));
 
-        // ── AND THE CHEVRON IS INSIDE THE INNERMOST REGION ───────────
-        //
-        // AT THE MINIMUM RAIL WIDTH, and it still narrows the rail even
-        // though it no longer has to. `tileColumnX` WAS a centring
-        // calculation, so a wide rail handed the glyph tens of pixels of
-        // slack and this assertion passed on a gutter that could not
-        // actually hold it — a first version measured at this suite's 160px
-        // and proved nothing. The gutter is a constant now (the rail's two
-        // margins differ, so the tile is placed rather than centred), which
-        // makes every width the worst case. Narrowing is kept because it
-        // costs nothing and it is the case that would come back if the
-        // placement ever went back to centring.
+        // The chevron sits inside the innermost region, checked at the
+        // minimum rail width where the gutter has the least room.
         const qreal restoreWidth = m_rail->width();
         m_rail->setWidth(m_rail->property("minRailWidth").toReal());
         QCoreApplication::processEvents();
         QTest::qWait(80);
 
-        // Asserted on the row with the MOST layers, because that is where the
-        // innermost edge is furthest right and the glyph has least room.
+        // On the row with the most layers, where the innermost edge is
+        // furthest right.
         int chevronsChecked = 0;
         for (QQuickItem *row : { a1, bRow,
                                  delegateFor(QStringLiteral("!a:example.org")),
@@ -1592,14 +1282,9 @@ private slots:
                 continue;
             QQuickItem *innermost = layers.last();
             ++chevronsChecked;
-            // THE INK, NOT THE EM BOX. An `Icon`'s item is the glyph's
-            // ADVANCE — for this chevron about 0.45 of the font size — and
-            // roughly a quarter of that is the font's own empty side
-            // bearing. The rail places the mark by its ink for exactly that
-            // reason (see `chevronGlyphX`), so measuring the box here would
-            // fail a chevron that is drawn perfectly inside its region. The
-            // ink is centred in the box to within a quarter-pixel; that is
-            // measured, not assumed.
+            // Measure the ink, not the em box: an Icon's item is the glyph's
+            // advance, about a quarter of which is empty side bearing. The
+            // rail places the mark by its ink (see `chevronGlyphX`).
             const qreal inkWidth =
                 m_rail->property("chevronInkWidth").toReal();
             QVERIFY2(inkWidth > 0, "the rail reports no chevron ink width");
@@ -1639,25 +1324,9 @@ private slots:
     }
 
 
-    // ── 2026-09-18: the expander hung off the rail's edge when narrow ─────
-    //
-    // FOUND IN A CAPTURE AT THE MINIMUM WIDTH, and it could not have been
-    // found anywhere else: every case in this file runs at 160px, where the
-    // gutter is 52 and nothing is near an edge. The gutter's width was a
-    // literal 14 with nothing tying it to the glyph it carries, which left
-    // the chevron 2.8px from the rail's outer edge and 4px from its tile —
-    // closer to the window frame than to the thing it belongs to.
-    //
-    // WHAT IS ASSERTED IS THE RELATION, not a pixel count: the expander is
-    // never nearer the rail's edge than it is to its own tile. That is the
-    // property that makes it read as part of the row, it holds at every
-    // width and every text scale, and no literal can express it.
-    //
-    // THE FIRST VERSION OF THIS CASE ASSERTED `left >= 0` — clipping — and
-    // PASSED ON THE OLD CODE, because the glyph is 7.2px wide and not the 12
-    // it is given (an `Icon` sizes by font pixel size; a chevron's advance is
-    // narrower than its em). The defect was real and the description of it
-    // was arithmetic, not measurement.
+    // At the minimum rail width the expander is never nearer the rail's edge
+    // than it is to its own tile. Asserted as that relation, which holds at
+    // every width and text scale; every other case here runs at 160 px.
     void theGutterIsWideEnoughForTheGlyphItHolds()
     {
         RailFakeClient nested;
@@ -1695,10 +1364,7 @@ private slots:
                 QStringLiteral("railSpaceExpandGlyph"));
             if (!glyph || !glyph->isVisible() || glyph->width() <= 0)
                 continue;
-            // THE INK, for the reason the sibling case spells out: an
-            // `Icon`'s item is the glyph's advance and a quarter of that is
-            // empty side bearing, so the box says nothing about where the
-            // mark is drawn.
+            // Measure the ink (see the sibling case).
             const qreal inkWidth =
                 m_rail->property("chevronInkWidth").toReal();
             QVERIFY2(inkWidth > 0, "the rail reports no chevron ink width");
@@ -1708,16 +1374,8 @@ private slots:
             const qreal left = inkCentre - inkWidth / 2;
             const qreal right = inkCentre + inkWidth / 2;
             ++checked;
-            // THE REFERENCE IS THE TILE'S VISIBLE EDGE, WHICH IS THE RING.
-            //
-            // This compared against `tileColumnX` until 2026-09-18 and that
-            // is the very mistake the collision below was: the accent ring is
-            // painted outside the tile, so on a selected Space the row's
-            // visible edge is `tileRingOutset` further out. Measuring to the
-            // tile made a glyph sitting ON the ring look correctly placed.
-            // Not a loosening — the same "closer to what it acts on than to
-            // the rail's edge" property, read against the edge the eye
-            // actually sees.
+            // The reference is the tile's visible edge, which is the accent
+            // ring drawn outside the tile (`tileRingOutset`).
             const qreal ringOutset =
                 m_rail->property("tileRingOutset").toReal();
             QVERIFY2(ringOutset > 0, "the rail reports no ring outset");
@@ -1736,30 +1394,16 @@ private slots:
                          "at the minimum width of %1 the expander ends at "
                          "x=%2, past the rail's own right edge")
                          .arg(minWidth).arg(right)));
-            // AND IT CLEARS THE RING, NOT JUST THE TILE.
-            //
-            // Reported as "clipping" on 2026-09-18 with an arrow at a
-            // selected Space whose expander had lost its right arm. Nothing
-            // clipped it: the active ring is drawn OUTSIDE the tile, so the
-            // tile's visible edge is not `tileColumnX`, and a gap measured to
-            // the tile put the ink exactly where the ring paints. The ring is
-            // declared later, so it won, and only on the tile the user had
-            // just clicked — which is why every capture taken while auditing
-            // this column looked fine.
-            //
-            // The ring is measured, not assumed: its geometry is anchored to
-            // the tile and is valid whether or not it is currently visible,
-            // so this reads the real item rather than re-deriving the
-            // constant the production code already used.
+            // The expander clears the ring, not just the tile: the active ring
+            // is drawn outside the tile and paints over anything in that band,
+            // only on the selected Space. Reads the real ring item.
             auto *ring = row->findChild<QQuickItem *>(
                 QStringLiteral("railSpaceActiveRing"));
             QVERIFY2(ring, "the active ring is gone, so nothing here can say "
                            "whether the expander would collide with it");
             const qreal ringLeft = ring->mapToItem(m_rail, QPointF(0, 0)).x();
-            // THE PLATE IS THE CONTROL'S EDGE, so the plate is what has to
-            // clear the ring. Asserting the INK alone passed a plate that
-            // collided: the ink sits `chevronPlatePad` inside its own plate,
-            // which is free clearance the control does not have.
+            // The plate is the control's edge, so the plate must clear the
+            // ring (the ink sits `chevronPlatePad` inside it).
             auto *plate = row->findChild<QQuickItem *>(
                 QStringLiteral("railSpaceExpandPlate"));
             QVERIFY2(plate, "the expander has no plate, so this measures a "
@@ -1773,9 +1417,7 @@ private slots:
                          "ring starts at x=%2 — on a SELECTED Space they "
                          "overlap")
                          .arg(plateRight).arg(ringLeft)));
-            // AND THE PLATE STAYS INSIDE THE REGION IT BELONGS TO, which is
-            // what `chevronSlotLeft` exists for. It binds in real scale
-            // combinations rather than being dead code, so it is pinned.
+            // The plate stays inside its own region (`chevronSlotLeft`).
             QVERIFY2(plateLeft >= m_rail->property("chevronSlotLeft").toReal()
                                   - 0.01,
                      qPrintable(QStringLiteral(
@@ -1803,23 +1445,9 @@ private slots:
     }
 
 
-    // ── 2026-09-18: a tree deeper than the rail can draw ─────────────────
-    //
-    // THE CONDITION THIS CASE WAS WRITTEN FOR NO LONGER EXISTS, and how it
-    // stopped existing is the point. Depth used to cost an indent step, so a
-    // narrow rail ran out of room long before a hierarchy did, and the rail
-    // answered that by DIVING — picking an ancestor as a trunk and hiding
-    // everything above it behind a chip. That was a second thing for a reader
-    // to learn, invented to pay for the first.
-    //
-    // Depth costs no horizontal room now, so there is nothing to run out of
-    // and nothing to dive for. What replaces this case is the invariant that
-    // makes the dive unnecessary, asserted at a depth no rail could ever have
-    // drawn: EIGHT levels, every one expanded, every tile on the root's axis.
-    //
-    // A shallow fixture cannot discriminate here — two levels of a per-level
-    // step are a few pixels and a rounding argument away from passing. Eight
-    // are not.
+    // Depth costs the tiles no horizontal room: eight fully expanded levels,
+    // every tile on the root's axis. A shallow fixture could not tell a small
+    // per-level step from rounding.
     void depthCostsTheTilesNoHorizontalRoomAtAll()
     {
         RailFakeClient deep;
@@ -1878,12 +1506,8 @@ private slots:
                      "the deepest measured row is level %1 — the fixture did "
                      "not nest").arg(deepest)));
 
-        // ── THE LAYERS NEST, AND THEY SATURATE ──────────────────────
-        //
-        // A row draws one region per ANCESTOR, so the count is its depth,
-        // capped. The cap is what keeps a deep tree drawable at all: each
-        // layer is inset inside the one containing it, so without one the
-        // innermost region would end up narrower than the tile it holds.
+        // A row draws one region per ancestor, capped (`maxBandLayers`) so
+        // the innermost region never becomes narrower than the tile.
         const int maxLayers = m_rail->property("maxBandLayers").toInt();
         QVERIFY2(maxLayers >= 2 && maxLayers <= 6,
                  qPrintable(QStringLiteral(
@@ -1903,19 +1527,14 @@ private slots:
             QList<QQuickItem *> layers;
             collectDescendantsNamed(row, QStringLiteral("railGroupField"),
                                     layers);
-            // One per ancestor, PLUS the row's own when it owns the run
-            // below it — a tile is inside the region it owns, or the region
-            // reads as a band that begins underneath it. Every row of this
-            // chain but the last owns one.
+            // One per ancestor, plus the row's own when it owns the run below
+            // it. Every row of this chain but the last owns one.
             const bool owns = row->property("ownsRegion").toBool();
             QCOMPARE(layers.size(),
                      std::min(maxLayers, level + (owns ? 1 : 0)));
 
             // Strictly nested: each layer starts further in and is narrower
-            // than the one containing it. This is the property the previous
-            // design could not have — there was one region per row, tinted by
-            // that row's own depth, so a deeper run REPLACED its parent's
-            // tint instead of sitting on it.
+            // than the one containing it.
             for (int i = 1; i < layers.size(); ++i) {
                 const qreal outer =
                     layers.at(i - 1)->mapToItem(row, QPointF(0, 0)).x();
@@ -1932,10 +1551,8 @@ private slots:
                              "containing it").arg(id).arg(i)));
             }
 
-            // AND THE OUTERMOST DOES NOT MOVE. The top-level Space's region
-            // has to be the same shape behind a depth-1 row and behind a
-            // depth-6 one, or it is not one region running behind its
-            // descendants — it is a per-row band wearing a parent's colour.
+            // The outermost layer has the same shape behind every depth, so it
+            // reads as one region behind its descendants.
             ++deepRowsChecked;
             const qreal x = layers.at(0)->mapToItem(row, QPointF(0, 0)).x();
             if (outerX < 0) {
@@ -1958,29 +1575,17 @@ private slots:
                      "says anything about deep nesting")
                      .arg(deepRowsChecked)));
 
-        // ── NO TWO REGIONS THAT TOUCH WEAR ONE TINT ─────────────────
-        //
-        // The stack is capped, so every row past the cap draws its own region
-        // as "the innermost layer" — which meant a depth-5 region was drawn
-        // directly inside a depth-4 one at the same inset AND the same
-        // colour, and the two were one picture. Asked in those words: "are
-        // these supposed to be the same color?"
-        //
-        // A CAP CANNOT BE ALLOWED TO STOP DISTINGUISHING. Past it the
+        // No two touching regions share a tint: past the layer cap the
         // innermost layer alternates between the last two rungs, so a parent
-        // and the child drawn on top of it always differ. Eight levels is
-        // several rows past the cap, which is what makes this measurable.
+        // and the child drawn on it always differ.
         QColor previousInnermost;
         int alternationsChecked = 0;
         for (const QString &id : chain) {
             QQuickItem *row = delegateFor(id);
             if (!row || !row->isVisible())
                 continue;
-            // ONLY ROWS THAT OWN A REGION. A leaf draws its ancestors'
-            // layers and none of its own, so its "innermost" IS its
-            // parent's — identical by construction, and comparing them
-            // asserts that a row differs from itself. The first version of
-            // this did exactly that and failed on correct code.
+            // Only rows that own a region: a leaf's innermost layer is its
+            // parent's by construction.
             if (!row->property("ownsRegion").toBool())
                 continue;
             QList<QQuickItem *> rowLayers;
@@ -2006,19 +1611,9 @@ private slots:
                      "only %1 nested pairs were comparable, so nothing here "
                      "reaches past the cap").arg(alternationsChecked)));
 
-        // ── NOTHING IS DRAWN OUTSIDE THE REGION THAT CONTAINS IT ────
-        //
-        // Reported as "blue DL looks very bad, the whole region", and the
-        // cause was a shape escaping its container: the cap seam moves a
-        // child's BAND down, and the tile drawn on that band was still
-        // positioned from the row's top — so on every row that opens a seam
-        // the tile stuck out through the top edge of its own region.
-        //
-        // GEOMETRIC, ON REAL DELEGATES, and nothing else can see it. The
-        // bindings read correctly either way; the defect is entirely in two
-        // numbers that are supposed to move together and did not. The same
-        // shape of mistake has now produced three separate defects in this
-        // file, so it is worth pinning rather than fixing again.
+        // Nothing is drawn outside the region that contains it: the cap seam
+        // moves a child's band down, and the tile must be positioned from the
+        // band, not the row top. Checked on real delegates.
         int containmentChecks = 0;
         for (const QString &id : chain) {
             QQuickItem *row = delegateFor(id);
@@ -2072,23 +1667,10 @@ private slots:
     }
 
 
-    // ── 2026-09-18: the region ladder, on every preset ───────────────────
-    //
-    // The rail's whole hierarchy cue is a ladder of tinted regions, and its
-    // rungs are DERIVED from each theme's own rail and text colours — so
-    // there are eleven of them and nobody looks at more than one.
-    //
-    // MEASURED ACROSS ALL ELEVEN and they were not equal: the dark presets
-    // landed at 1.40-1.53 per boundary and the LIGHT ones at 1.22-1.36 on the
-    // same mix steps. That is the sRGB transfer curve rather than a palette
-    // problem — equal 8-bit steps are far smaller luminance steps near white
-    // than near black — so one alpha ladder cannot serve both directions and
-    // a ladder tuned on a dark preset arrives washed out on a light one.
-    //
-    // THIS READS THE LIVE SINGLETON, not the file. `railNestSurfaces` is a
-    // list of `Qt.tint()` results; a text scan of AppTheme.qml sees the
-    // alphas and cannot evaluate them, which is exactly how eleven presets
-    // came to share one ramp.
+    // The region ladder's rungs are even on every theme preset. They are
+    // derived from each theme's colours, and one alpha ladder gives smaller
+    // luminance steps on light themes than dark ones (sRGB curve). Reads the
+    // live singleton, since a text scan cannot evaluate `Qt.tint()`.
     void theRegionLadderIsEvenOnEveryTheme()
     {
         auto *theme = m_engine->singletonInstance<QObject *>(
@@ -2099,8 +1681,7 @@ private slots:
         QVERIFY2(settings, "no SettingsManager, so no theme can be selected");
         const int original = settings->property("theme").toInt();
 
-        // Relative luminance, WCAG. Written out because the ladder's whole
-        // point is a PERCEPTUAL step and an 8-bit difference is not one.
+        // WCAG relative luminance: the ladder is about perceptual steps.
         const auto luminance = [](const QColor &c) {
             const auto ch = [](double v) {
                 return v <= 0.04045 ? v / 12.92
@@ -2116,16 +1697,9 @@ private slots:
         };
 
         int themesChecked = 0;
-        // THE PALETTE IS SWITCHED ON THE SINGLETON, NOT ONLY IN SETTINGS.
-        //
-        // This wrote `settings.theme` alone until 2026-09-19, and
-        // `AppTheme.mode` is driven by a `Binding` that lives in Main.qml —
-        // which this suite never loads, because it loads SpacesRail
-        // directly. So `mode` stayed 0, `effectiveTheme` stayed on the system
-        // default, and eleven iterations measured ONE palette while
-        // `themesChecked` counted to eleven and the case passed. Exactly the
-        // shape §16 records: a check that can come back silently short is the
-        // defect, not its symptom.
+        // Switch the palette on the singleton too: `AppTheme.mode` is driven
+        // by a Binding in Main.qml, which this suite does not load, so writing
+        // `settings.theme` alone would measure one palette eleven times.
         QSet<QString> palettesSeen;
         for (int t = 1; t <= 11; ++t) {
             settings->setProperty("theme", t);
@@ -2139,9 +1713,8 @@ private slots:
             const QColor rail = theme->property("rail").value<QColor>();
             const QVariantList rungs =
                 theme->property("railNestSurfaces").toList();
-            // The fingerprint that makes "eleven palettes" checkable. A rail
-            // colour alone would not do it (presets can share one), so the
-            // deepest rung goes in with it.
+            // A fingerprint per palette (rail colour plus deepest rung), so
+            // "eleven palettes" is checkable.
             palettesSeen.insert(
                 rail.name()
                 + rungs.at(rungs.size() - 1).value<QColor>().name());
@@ -2153,31 +1726,14 @@ private slots:
 
             QColor previous = rail;
             QList<double> steps;
-            // Rung 0 is a FOLDER's container and is deliberately the quietest
-            // step of the ladder, so the assertion starts at hierarchy depth
-            // 1 — the rung a reader actually has to see against bare rail.
+            // Rung 0 is a folder's container and deliberately the quietest;
+            // start at hierarchy depth 1.
             for (int i = 1; i < rungs.size(); ++i) {
                 const QColor rung = rungs.at(i).value<QColor>();
                 const double ratio = contrast(previous, rung);
-                    // 1.20, and it was 1.30. The ladder was given a CEILING on
-                // 2026-09-18 — without one it climbed to L*62 in a theme
-                // whose base is L*6 and made the rail the brightest band in
-                // the window, 5.25:1 against the room-list column beside it.
-                // A receding column affords about 2.1:1 in total, so three
-                // rungs inside it are ~1.26-1.30 steps and no threshold
-                // written against the unbounded ladder can survive that.
-                // What this still pins is the thing that matters: the rungs
-                // are EVEN, and none of them collapses into its neighbour.
-                // 1.05, AND THE REAL ASSERTION IS THE EVENNESS BELOW.
-                // This threshold has now been re-keyed twice, both times
-                // because the ladder was made QUIETER on purpose, and a
-                // moving absolute floor pins nothing. A rail is chrome: it
-                // has to recede, so its whole range is small and its steps
-                // are small with it — Discord's entire three-plane chrome
-                // spans 9.5 ΔL*. What must never happen is a rung COLLAPSING
-                // into its neighbour, which is what this floor catches, and
-                // the spread check afterwards is what catches a ladder that
-                // has stopped being a ladder.
+                // A low floor: the rail is chrome and must recede, so its
+                // steps are small. It catches a rung collapsing into its
+                // neighbour; the evenness check below is the real assertion.
                 QVERIFY2(ratio >= 1.05,
                          qPrintable(QStringLiteral(
                              "theme %1: region rung %2 (%3) is %4:1 against "
@@ -2188,12 +1744,8 @@ private slots:
                 steps << ratio;
                 previous = rung;
             }
-            // EVEN, which is the property that actually matters and the one
-            // no absolute number can express. A ladder whose steps differ by
-            // more than half again is not a ladder — it is one loud boundary
-            // and some whispers, which is exactly what the first version of
-            // this ramp was before it was rebuilt off the rail's own
-            // background.
+            // Even: steps differing by more than half again make one loud
+            // boundary and some whispers.
             double lo = steps.first();
             double hi = steps.first();
             for (double v : std::as_const(steps)) {
@@ -2211,10 +1763,7 @@ private slots:
                  qPrintable(QStringLiteral(
                      "only %1 presets were selectable, so this says little "
                      "about the fleet").arg(themesChecked)));
-        // AND THEY WERE DIFFERENT PALETTES. Counting iterations cannot tell
-        // "eleven themes measured" from "one theme measured eleven times",
-        // and for months this case was doing the second while reporting the
-        // first.
+        // They were different palettes, not one measured eleven times.
         QVERIFY2(palettesSeen.size() >= 8,
                  qPrintable(QStringLiteral(
                      "%1 presets were selected but only %2 distinct palettes "
@@ -2228,6 +1777,9 @@ private slots:
     }
 
 
+    // Every piece of rail geometry follows the interface size, asserted as
+    // ratios to the Space tile (a revealed room is 0.7 of it, the bottom chips
+    // exactly one tile), never as pixel counts.
     void everyRailChipFollowsTheInterfaceSize()
     {
         auto *theme = m_engine->singletonInstance<QObject *>(
@@ -2249,9 +1801,8 @@ private slots:
         QCoreApplication::processEvents();
         QTest::qWait(50);
 
-        // Whatever happens below, the shared engine goes back to 100% and the
-        // suite's own hierarchy goes back on the rail — every other case here
-        // reads geometry from both.
+        // Restore 100% and the suite's own hierarchy whatever happens; other
+        // cases read geometry from both.
         const auto restore = qScopeGuard([&] {
             theme->setProperty("textScale", originalScale);
             entries()->setSources(m_spaces, store());
@@ -2331,8 +1882,8 @@ private slots:
                          .arg(at100.at(i)).arg(at140.at(i))));
         }
 
-        // The ratios that make the rail read as one column. One pixel of
-        // slack for Math.round, and no more.
+        // The ratios that make the rail read as one column, with one pixel of
+        // slack for Math.round.
         for (const QList<qreal> &m : { at100, at140 }) {
             const qreal tile = m.at(0);
             QVERIFY2(qAbs(m.at(1) - qRound(tile * 0.7)) <= 1.0,
@@ -2352,33 +1903,11 @@ private slots:
         }
     }
 
-    // ── 2026-09-19: the expander's plate was ONE rung above the region it
-    //    sits on, and its own source asks for TWO ─────────────────────────
-    //
-    // `plateRung` is built from `innermostTint`, and `innermostTint` asked
-    // `bandTint(bandLayers - 1)`. A region layer at INDEX i draws DEPTH
-    // i + 1, so the innermost layer's depth is `bandLayers` and that
-    // expression named the layer one step OUTSIDE it. The Repeater that
-    // paints the regions already carries the correction in a comment
-    // ("INDEX `depth`, NOT `depth - 1`" — caught by measuring a capture);
-    // the plate never got it.
-    //
-    // MEASURED on a live rail rather than reasoned about — Lightning Dark,
-    // 78px rail, isolated Xvfb, 2026-09-19: at depth 1 the band read
-    // #141920 (L* 8.55) with its plate #1a1f29 (L* 11.69), a step of 3.13,
-    // which is exactly what separates two REGIONS. Depth 2: 11.69 -> 15.14.
-    // Depth 3: 15.14 -> 18.64. The two rungs the source asks for are
-    // 6.6-6.9, and a COLLAPSED Space — which has no region and so takes the
-    // `0` arm — got the full 6.73. So the control changed weight with the
-    // state of the thing it toggles, which is the exact complaint
-    // `plateRung`'s own comment records having been written to prevent.
-    // Lightning Light measured the same steps in the other direction
-    // (85.55 -> 82.03 -> 78.76 -> 75.26 -> 71.97, plate always one rung).
-    //
-    // ON THE COLOUR PROPERTY, never on a grab: an offscreen render holds
-    // each item's creation-time colour because its Behavior has not
-    // advanced, and this file's header records four rounds lost to that.
-    // The property is what the binding produced.
+    // The expander's plate is two rungs off the region it sits on. A region
+    // layer at index i draws depth i + 1, so `bandTint(bandLayers - 1)` named
+    // the layer outside the innermost one and the plate differed by only one
+    // rung (and by two on a collapsed Space). Asserted on the colour property,
+    // not a grab.
     void theExpanderPlateIsTwoRungsOffTheRegionItSitsOn()
     {
         RailFakeClient nested;
@@ -2403,8 +1932,7 @@ private slots:
             store()->setSpaceExpanded(id, true);
         entries()->setSources(&nestedSpaces, store());
         QCoreApplication::processEvents();
-        // Past the plate's own 90 ms ColorAnimation, so a Behavior caught
-        // mid-flight cannot be mistaken for the binding's answer.
+        // Past the plate's 90 ms ColorAnimation.
         QTest::qWait(150);
 
         const auto lstar = [](const QColor &c) {
@@ -2434,8 +1962,7 @@ private slots:
                      qPrintable(QStringLiteral(
                          "row %1 draws no region, so there is nothing for "
                          "the plate to step off").arg(id)));
-            // The INNERMOST layer is the narrowest: each one is inset
-            // inside the one containing it.
+            // The innermost layer is the narrowest.
             QQuickItem *inner = layers.first();
             for (QQuickItem *l : layers) {
                 if (l->width() < inner->width())
@@ -2459,32 +1986,17 @@ private slots:
                          .arg(step, 0, 'f', 2)));
             ++measured;
         }
-        // THE COUNT, not just the items: a loop that silently measured one
-        // row would pass on a rail whose deeper rows are the broken ones.
+        // The count, not just the items.
         QCOMPARE(measured, 3);
 
         entries()->setSources(m_spaces, store());
         QCoreApplication::processEvents();
     }
 
-    // ── 2026-09-20: an anchor NARROWER than the tip it carries ───────────
-    //
-    // `everyRailTooltipSitsBesideTheRowThePointerIsOn` above proves the
-    // anchors are at the rail's right edge. It cannot see this one, and it
-    // passed on the broken tree for a reason worth stating: Qt's Basic
-    // style places an attached tooltip with
-    // `x: (parent.width - implicitWidth) / 2` — CENTRED on the anchor — and
-    // centring is harmless only while the tip is NARROWER than the anchor.
-    // Every string that case points at is, on this fixture.
-    //
-    // Past the anchor's width the surplus spills LEFT, back over the rail,
-    // and the anchor's whole purpose is undone. Measured live 2026-09-19 on
-    // a 78px rail in BOTH depth styles: the account tile's tip — the Matrix
-    // user id, the widest string the rail shows — drew a 258px slab at
-    // x 17..274, covering the avatar it describes and 61px of the tile
-    // column. The anchors all carried the same flat `AppTheme.scaled(150)`,
-    // so it is not an account-tile defect: a long Space or room name does
-    // it too, which is the form this case can reach.
+    // A tooltip wider than its anchor still hangs off the rail. Qt's Basic
+    // style centres an attached tooltip on its anchor, so a tip wider than the
+    // anchor spills left over the rail; the anchor must be at least as wide as
+    // the tip.
     void aTooltipWiderThanItsAnchorStillHangsOffTheRail()
     {
         const qreal railWidth = m_rail->width();
@@ -2497,9 +2009,8 @@ private slots:
             entries()->setSources(m_spaces, store());
             QCoreApplication::processEvents();
         });
-        // Wide enough that Qt's own popup positioner never has to pull the
-        // tip back inside the window: a clamp at the right edge would hide
-        // the defect by fixing it for a reason that is not the anchor.
+        // Wide enough that Qt's popup positioner never pulls the tip back
+        // inside the window, which would hide the defect.
         m_window->resize(900, windowSize.height());
         m_rail->setWidth(railWidth);
         QCoreApplication::processEvents();
@@ -2534,13 +2045,9 @@ private slots:
         const QRectF tipRect =
             tip->mapRectToScene(QRectF(0, 0, tip->width(), tip->height()));
 
-        // NON-VACUITY FIRST, and it is the whole reason this case exists
-        // beside the one above: if the tip fits inside the anchor's floor
-        // then centring cannot spill and the assertion below is satisfied
-        // by arithmetic rather than by the fix. Read from the rail so it
-        // follows the interface size; 150 is the pre-fix literal, used only
-        // when the property is absent, i.e. when running against the
-        // unfixed tree.
+        // Non-vacuity: the tip must be wider than the anchor's floor, or
+        // centring cannot spill. Read from the rail (150 is the fallback when
+        // the property is absent).
         const QVariant floorProperty = m_rail->property("railTipFloor");
         const qreal floor =
             floorProperty.isValid() ? floorProperty.toReal() : 150.0;
@@ -2562,31 +2069,13 @@ private slots:
                      .arg(tipRect.left()).arg(railWidth)));
     }
 
-    // ── 2026-09-20: the group ring was painted UNDER the avatar ──────────
-    //
-    // The rail's whole grouping affordance is "a ring on the Space or
-    // folder a release would file into", and on a real Space it had never
-    // once been drawn. It was `border.width: dropTarget ? 3 : 0` on the
-    // tile Rectangle itself, and a Qt Rectangle paints its border INSIDE
-    // its bounds, under `Avatar { anchors.fill: parent }`.
-    //
-    // Measured mid-drag 2026-09-19 with the drag parked on a target tile:
-    // the row read the avatar's own purple edge to edge with no accent
-    // pixel anywhere, while the tile was 43px against an unhovered 40 — so
-    // `dropTarget` WAS true, the border WAS set, and the avatar covered it.
-    // All the user ever got was the 8% scale-up.
-    //
-    // GEOMETRY, not a grab: this suite never samples a pixel (a grab holds
-    // each item's creation-time colour because its Behavior has not
-    // advanced — four rounds of false readings). The property that makes
-    // the ring visible is that it lies OUTSIDE the bounds every full-bleed
-    // child of the tile fills, and that is measurable.
+    // The group ring is drawn outside the avatar that fills the tile. A
+    // Rectangle's border paints inside its bounds, under a full-bleed Avatar,
+    // so a border-based ring was never visible. Asserted geometrically.
     void theGroupRingIsDrawnOutsideTheAvatarThatFillsTheTile()
     {
-        // Driven through the model rather than through a pointer: the
-        // cases at the top of this file already prove a real drag reaches
-        // hoverGroup(), and what is under test here is where the ring is
-        // DRAWN once it does.
+        // Driven through the model: the cases above prove a real drag reaches
+        // hoverGroup(); this is about where the ring is drawn.
         const int bravoRow = entries()->rowForEntry(m_spaceIds.at(1));
         QVERIFY(bravoRow >= 0);
         QVERIFY(entries()->beginDrag(m_spaceIds.at(0)));
@@ -2596,8 +2085,7 @@ private slots:
         });
         entries()->hoverGroup(bravoRow);
         QCoreApplication::processEvents();
-        // Past the tile's own 90 ms scale Behavior, so the transform this
-        // reads is the settled one and not a frame of the animation.
+        // Past the tile's 90 ms scale Behavior.
         QTest::qWait(200);
         QVERIFY2(entries()->grouping(),
                  "the model refused to offer a group, so no tile is a drop "
@@ -2620,11 +2108,8 @@ private slots:
                  "the group ring exists but is not visible on the tile a "
                  "release would file into");
 
-        // Scene rects, so the tile's 1.08 drop-target SCALE is included on
-        // both sides. That scale is exactly what a ring anchored to the
-        // tile's unscaled bounds loses to: `scale` is a transform and does
-        // not move x/y/width/height, so a sibling ring keeps its old
-        // geometry while the tile grows through it.
+        // Scene rects, so the tile's 1.08 drop-target scale is included: a
+        // ring anchored to the tile's unscaled bounds would be grown through.
         const QRectF tileRect =
             tile->mapRectToScene(QRectF(0, 0, tile->width(), tile->height()));
         const QRectF ringRect =
@@ -2664,34 +2149,14 @@ private slots:
                          .arg(side.outside).arg(stroke)));
             ++measured;
         }
-        // The COUNT of sides actually compared, never the loop's length.
+        // The count of sides compared, not the loop's length.
         QCOMPARE(measured, 4);
     }
 
-    // ── 2026-09-20: "every tile shares one axis" was false at the DEFAULT ─
-    //
-    // `SpacesRail.qml` states the rail's one rule — "ONE x for every tile,
-    // CENTRED" — and `railNestedTileSize`'s own comment records 0.833 being
-    // chosen over 0.85 specifically so the nested tile would not land half
-    // a pixel off. That reasoning was done at the 48px tile and holds only
-    // there.
-    //
-    // A derived tile is placed at
-    // `tileColumnX + round((railTileSize - rowTileSize) / 2)`, which is
-    // exact only when the derived size has the SAME PARITY as
-    // `railTileSize`; otherwise the halved difference is a .5 and
-    // `Math.round` takes it away from the centre. Measured live
-    // 2026-09-19 at the 40px tile — the rail's minimum AND its shipped
-    // default — the full tile spanned x 19..59 (centre 39.0) while the
-    // nested tile spanned 23..56 (centre 39.5), 4px of air on the left
-    // against 3 on the right. Five of the rail's nine widths were off on
-    // one tier or both.
-    //
-    // PARITY IS THE PROPERTY, and it is asserted as the reader's
-    // statement — the derived tile's centre falls exactly on the column's
-    // centre — over every width the rail can actually be dragged to, with
-    // the count of widths measured asserted so a loop that silently ran
-    // once cannot pass.
+    // Every derived tile centres on the same axis at every rail width. A
+    // derived tile is placed at `tileColumnX + round((railTileSize -
+    // rowTileSize) / 2)`, exact only when both sizes have the same parity;
+    // otherwise Math.round shifts it half a pixel.
     void everyDerivedTileCentresOnTheSameAxisAtEveryRailWidth()
     {
         const qreal railWidth = m_rail->width();
@@ -2722,9 +2187,7 @@ private slots:
                   m_rail->property("railRoomTileSize").toInt() },
             };
             for (const auto &tier : tiers) {
-                // The placement the delegate performs, restated: this is
-                // `x: tileColumnX + Math.round((railTileSize - rowTileSize)
-                // / 2)` from SpacesRail.qml, and the centre it produces.
+                // The delegate's placement, restated from SpacesRail.qml.
                 const qreal derivedX =
                     columnX + qRound((tile - tier.second) / 2.0);
                 const qreal derivedCentre = derivedX + tier.second / 2.0;
@@ -2748,10 +2211,8 @@ private slots:
                      "rounds away from centre. %3")
                      .arg(offenders.size()).arg(measured)
                      .arg(offenders.join(QStringLiteral("; ")))));
-        // THE COUNT OF PAIRS ACTUALLY MEASURED, never the loop bound: a
-        // rail that reported a degenerate width range would otherwise pass
-        // this case having compared nothing. Nine widths, two derived
-        // tiers.
+        // The count of pairs measured (nine widths, two derived tiers), not
+        // the loop bound.
         QCOMPARE(measured, (maxWidth - minWidth + 1) * 2);
         QVERIFY2(measured >= 18,
                  qPrintable(QStringLiteral(
@@ -2764,8 +2225,7 @@ private slots:
 
 int main(int argc, char *argv[])
 {
-    // Real Qt Quick item creation (even offscreen) needs a QGuiApplication,
-    // matching main.cpp's application class exactly.
+    // Qt Quick item creation needs a QGuiApplication, as in main.cpp.
     QGuiApplication app(argc, argv);
     RailDragQmlTest testObject;
     return QTest::qExec(&testObject, argc, argv);

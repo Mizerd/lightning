@@ -1,7 +1,7 @@
-// v0.7: shared inline-playback coordinator. One audible owner at a time,
-// release is owner-checked so a superseded card can never clear the new
-// owner's claim, and stopAll (room/account switch, sign-out) both clears
-// the owner and bumps the stop generation cards use to force-pause.
+// Shared inline-playback coordinator. One audible owner at a time, release is
+// owner-checked so a superseded card can never clear the new owner's claim,
+// and stopAll (room/account switch, sign-out) clears the owner and bumps the
+// stop generation cards use to force-pause.
 #include <QSignalSpy>
 #include <QtTest/QtTest>
 

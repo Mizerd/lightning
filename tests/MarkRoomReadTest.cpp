@@ -1,27 +1,13 @@
-// v0.7.x read markers — "Mark as read" for a room that is NOT open.
+// "Mark as read" for a room that is not open.
 //
-// The room list has offered "Mark as read" for a long time, and on the Rust
-// backend it did nothing at all for any room except the open one.
-// RoomListModel::markRoomRead resolved its target event by walking
-// `MatrixClient::timeline(roomId)`, and that only ever holds the ACTIVE
-// room's loaded timeline — for every other room it is empty, the loop found
-// no event, and the function returned having sent nothing. The menu item
-// reported success by saying nothing, the room stayed unread, and the user's
-// read position never moved on their other devices.
+// `MatrixClient::timeline(roomId)` only holds the active room's loaded
+// timeline, so a capable backend must resolve the latest event itself (the
+// SDK's `Room::latest_event()`); backends that cannot keep the
+// timeline-walking path. The Rust side sends both the public read receipt
+// and `m.fully_read`, which syncs the user's own read position.
 //
-// The fix routes through a backend that can resolve the latest event WITHOUT
-// a loaded timeline (the SDK's own `Room::latest_event()`), and keeps the
-// old timeline-walking path for backends that cannot.
-//
-// What the Rust side then sends is deliberately BOTH markers: the public
-// read receipt is what other people see, and `m.fully_read` is the user's
-// own read position — the half that actually syncs their place across their
-// own devices, which is the point of the feature.
-//
-// HONEST SCOPE: routing and fallback selection only. That a homeserver
-// accepts the receipts, that `m.fully_read` really lands in account data,
-// and that another client observes the moved marker are NOT exercised here
-// and are NOT TESTED.
+// Routing and fallback selection only: homeserver acceptance and other
+// clients observing the marker are not exercised here.
 
 #include "matrix/MatrixClient.h"
 #include "models/RoomListModel.h"
@@ -101,7 +87,7 @@ public:
     { markReadCalls.append(roomId); }
 };
 
-// A backend WITHOUT that capability — Mock/HTTP, which do keep timelines.
+// A backend without that capability (Mock/HTTP, which do keep timelines).
 class LegacyClient final : public CapableClient
 {
     Q_OBJECT
@@ -125,14 +111,9 @@ class MarkRoomReadTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    // The regression. With an empty loaded timeline — the normal state of
-    // every room that is not open — the old code sent nothing at all. It
-    // must now reach the backend that can resolve the event itself.
-    // 2026-09-05, "no favorite tab exists in classic mode, it just says added
-    // to favorite": a favourite ranks above the feed under a header of its
-    // own — Element's shape — with invites still first and recency ordering
-    // each rank. An invite cannot carry a tag, so a favourite flag on one
-    // changes nothing.
+    // A favourite ranks above the feed under its own header, with invites
+    // still first and recency ordering each rank. An invite cannot carry a
+    // tag, so a favourite flag on one changes nothing.
     void aFavouriteRanksAboveTheFeedUnderItsOwnHeader()
     {
         CapableClient client;
@@ -167,6 +148,8 @@ private Q_SLOTS:
         QCOMPARE(RoomListModel::orderRankOf(busy), 2);
     }
 
+    // With an empty loaded timeline (every room that is not open), the call
+    // must reach the backend that can resolve the event itself.
     void closedRoomIsMarkedReadThroughTheCapableBackend()
     {
         CapableClient client;
@@ -231,9 +214,7 @@ private Q_SLOTS:
         QVERIFY(client.receiptCalls.isEmpty());
 
         // A room the model does not hold still reaches the capable backend:
-        // it is the SDK, not this model, that knows which rooms exist, and
-        // refusing here would reintroduce a silent no-op for a room the
-        // list is merely filtering out.
+        // the SDK, not this model, knows which rooms exist.
         model.markRoomRead(QStringLiteral("!elsewhere:example.org"));
         QCOMPARE(client.markReadCalls,
                  QStringList{ QStringLiteral("!elsewhere:example.org") });
@@ -242,16 +223,8 @@ private Q_SLOTS:
         detached.markRoomRead(kRoom); // no client — must not crash
     }
 
-    // MARK ALL ROOMS READ.
-    //
-    // Per-room has existed for a long time and per-Space since the Element
-    // parity round; the account-wide sweep did not, so an account that had
-    // drifted could only be caught up one room at a time.
-    //
-    // What it must NOT do is as much of the contract as what it must: a
-    // receipt for every joined room would be one request per room, most of
-    // them telling the server what it already knows, and two of the skips
-    // protect a deliberate user choice rather than just saving traffic.
+    // Mark all rooms read touches only the rooms that are unread, and the
+    // skips protect deliberate user choices as well as saving requests.
     void markAllRoomsReadTouchesOnlyTheRoomsThatAreUnread()
     {
         CapableClient client;
@@ -289,10 +262,8 @@ private Q_SLOTS:
                                QStringLiteral("!b:example.org"),
                                QStringLiteral("!c:example.org") }));
 
-        // Idempotent from the model's side: the counts have not moved (the
-        // server has not answered yet), so a second press marks them again
-        // rather than inventing a local "already done" state the server
-        // never confirmed. What it must not do is grow the set.
+        // Idempotent: the counts have not moved (the server has not answered),
+        // so a second press marks them again, but never grows the set.
         client.markReadCalls.clear();
         QCOMPARE(model.markAllRoomsRead(), 3);
         QCOMPARE(client.markReadCalls.size(), 3);

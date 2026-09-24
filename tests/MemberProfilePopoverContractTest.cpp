@@ -1,11 +1,8 @@
-// v0.6.5 (SPEC 1p): offscreen proof for the redesigned member profile
-// popover content. Loads the real MemberProfilePopover.qml against a real
-// AppController on the mock backend (logged in, so app.conversations is
-// actually usable), drives openFor()/startOrOpenDm()/Copy ID, and asserts
-// the omitted affordances (call/videocam/more_horiz/Ignore/Verified
-// chip/SHARED rooms/View full profile) never rendered — no disabled
-// placeholders in their place — while the DM-reuse and Copy ID mechanics
-// are preserved byte-for-byte.
+// The member profile popover, rendered offscreen from the real
+// MemberProfilePopover.qml against a logged-in AppController on the mock
+// backend: openFor(), startOrOpenDm() and Copy ID are driven, omitted
+// affordances never render (not even as disabled placeholders), and the
+// DM-reuse and Copy ID mechanics are unchanged.
 
 #include <QtTest/QtTest>
 
@@ -122,26 +119,17 @@ private slots:
         delete m_controller;
     }
 
-    // OPENING A MEMBER CARD SCOPES ROOM INFORMATION TO THE CURRENT ROOM.
-    //
-    // The card refuses Kick, Ban, Unban and Set role unless `app.roomInfo` is
-    // scoped to the room the reader is in, and that gate is right: the power
-    // levels the controller answers with belong to whichever room it was last
-    // pointed at. What was missing is anything that pointed it. The only
-    // writers of that scope are Room Information, People, Pinned and Search,
-    // so a card opened the ordinary way -- a timeline avatar, a mention pill,
-    // "View profile" -- found the scope wherever it happened to be, and an
-    // admin saw no moderation controls at all.
-    //
-    // This drives the real openFor() rather than the helper it calls, because
-    // the claim is about what opening a card DOES.
+    // Opening a member card scopes Room Information to the current room, so
+    // the card's moderation controls (gated on that scope, since power levels
+    // belong to the scoped room) appear however the card was opened. Driven
+    // through the real openFor().
     void openingAMemberCardScopesRoomInformationToTheCurrentRoom()
     {
         const QString roomId = QStringLiteral("!general:mock.local");
         m_controller->setCurrentRoomId(roomId);
         QCOMPARE(m_controller->currentRoomId(), roomId);
-        // Exactly the state a timeline avatar click finds: the reader is in a
-        // room and Room Information has never been opened for it.
+        // The state a timeline avatar click finds: Room Information never
+        // opened for this room.
         m_controller->roomInfo()->setRoomId(QString{});
         QVERIFY(m_controller->roomInfo()->roomId().isEmpty());
 
@@ -169,35 +157,22 @@ private slots:
 
     void omittedAffordancesNeverRenderAsPlaceholders()
     {
-        // Icon literals for the omitted actions must never appear at all —
-        // these strings do not collide with prose (unlike the words below).
+        // Icon literals of omitted actions never appear (they do not collide
+        // with prose).
         QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString content = QString::fromUtf8(file.readAll());
         QVERIFY(!content.contains(QStringLiteral("\"call\"")));
         QVERIFY(!content.contains(QStringLiteral("\"videocam\"")));
-        // "more_horiz" left this list on 2026-08-28, the same way "block"
-        // did: it is now the glyph of a REAL overflow menu carrying only
-        // actions that exist (Copy user ID, and the account-wide ignore
-        // through ModerationController). It is not an empty affordance, and
-        // the menu deliberately has no "Set Nickname" row because Lightning
-        // has no per-user nickname to set — which the qsTr sweep below pins.
-        // "block" left this list on 2026-08-14: it is now the icon of the
-        // REAL ban action (SDK Room::ban_user through RoomInfoController),
-        // not an Ignore placeholder. Ignore itself remains omitted below.
-        //
-        // Presence left this list with the v0.7.x presence round: the
-        // popover now carries the REAL shared indicator (PresenceDot +
-        // status line backed by PresenceManager polling), so the contract
-        // flipped from "never present" to "present via the shared
-        // component" — the popover must not paint its own presence colours.
+        // Not banned here: "more_horiz" (a real overflow menu with real
+        // actions, deliberately without "Set Nickname"), "block" (the real ban
+        // action) and presence (the shared PresenceDot, so the popover paints
+        // no presence colours of its own).
         QVERIFY(content.contains(QStringLiteral("PresenceDot")));
         QVERIFY(!content.contains(QStringLiteral("presenceOnline")));
 
-        // No qsTr() user-facing string ever mentions the omitted
-        // affordances — explanatory source comments documenting the
-        // omission are not user-facing wording, so this checks qsTr() call
-        // sites specifically rather than banning the words file-wide.
+        // No user-facing qsTr() string mentions the omitted affordances;
+        // comments documenting the omission are fine.
         QRegularExpression qsTrCall(QStringLiteral("qsTr\\(\"([^\"]*)\""));
         auto it = qsTrCall.globalMatch(content);
         while (it.hasNext()) {
@@ -206,9 +181,7 @@ private slots:
             QVERIFY2(!text.contains(QStringLiteral("SHARED")), qPrintable(text));
             QVERIFY2(!text.contains(QStringLiteral("View full profile")),
                      qPrintable(text));
-            // "Ignore" left this list in v0.7.x: the account-wide ignore is
-            // now a REAL m.ignored_user_list action on the popover, not an
-            // omitted mock affordance.
+            // Ignore is a real m.ignored_user_list action now.
             QVERIFY2(!text.contains(QStringLiteral("Set Nickname")),
                      qPrintable(text));
             QVERIFY2(!text.contains(QStringLiteral("Mutual Rooms")),
@@ -216,10 +189,9 @@ private slots:
         }
     }
 
-    // The bio is remote free text. It may be rendered as PLAIN TEXT and
-    // nothing else — MSC4440's own example embeds an <img src="mxc://…">,
-    // so a StyledText/RichText renderer here would fetch remote media of the
-    // profile owner's choosing for everyone who opened the card (§6).
+    // The bio is remote free text rendered as plain text only: MSC4440's own
+    // example embeds <img src="mxc://…">, which a rich renderer would fetch
+    // for everyone opening the card.
     void theBioIsRenderedAsPlainTextAndNothingElse()
     {
         QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
@@ -227,21 +199,15 @@ private slots:
         const QString content = QString::fromUtf8(file.readAll());
         QVERIFY(content.contains(QStringLiteral("profileBioText")));
         QVERIFY(content.contains(QStringLiteral("app.bio.bioFor")));
-        // The ASK is a side effect on the open edge, never inside a binding.
+        // The request is a side effect of opening, never inside a binding.
         QVERIFY(content.contains(QStringLiteral("app.bio.request")));
         QVERIFY(!content.contains(QStringLiteral("Text.StyledText")));
         QVERIFY(!content.contains(QStringLiteral("Text.RichText")));
         QVERIFY(!content.contains(QStringLiteral("Text.MarkdownText")));
         QVERIFY(!content.contains(QStringLiteral("linkActivated")));
-        // Every Text/Label that renders the bio must name PlainText
-        // explicitly rather than relying on the default.
-        //
-        // Anchored on the EXPRESSION at BOTH ends, never on a fixed window
-        // after a name. A `content.mid(at, N)` scan is defeated the moment
-        // somebody adds a comment inside the block — the assertion then
-        // measures the wrong text and starts passing on broken code (or,
-        // as here, failing on correct code). CLAUDE.md records that trap
-        // four times over; this file will not make it a fifth.
+        // Every Text/Label rendering the bio names PlainText explicitly.
+        // Anchored on expressions at both ends rather than a fixed window,
+        // which comments inside the block would defeat.
         const int bioAt = content.indexOf(
             QStringLiteral("objectName: \"profileBioText\""));
         QVERIFY2(bioAt > 0, "the bio Text was not found");
@@ -249,17 +215,15 @@ private slots:
             QStringLiteral("Accessible.name: qsTr(\"Bio\")"), bioAt);
         QVERIFY2(bioEnd > bioAt, "the bio block's end anchor was not found");
         const QString bioBlock = content.mid(bioAt, bioEnd - bioAt);
-        // The scan must actually be looking at the item that renders the
-        // bio, or "it contains PlainText" is a claim about some other Text.
+        // The scan must bracket the item that renders the bio.
         QVERIFY2(bioBlock.contains(QStringLiteral("text: root.bioText")),
                  "the anchors do not bracket the item that renders the bio");
         QVERIFY2(bioBlock.contains(QStringLiteral("textFormat: Text.PlainText")),
                  qPrintable(bioBlock.left(400)));
     }
 
-    // The standalone presence status line is GONE, and the state is
-    // formatted in exactly one place — PresenceDot. A second copy of the
-    // wording here is how the two drift apart.
+    // Presence wording lives only in PresenceDot; a second copy here would
+    // drift.
     void thePresenceSentenceLivesOnlyInTheSharedDot()
     {
         QFile popover(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
@@ -277,18 +241,14 @@ private slots:
         QVERIFY(dotSrc.contains(QStringLiteral("ToolTip.text")));
     }
 
-    // A decorative badge must never borrow the vocabulary of a trust or a
-    // moderation signal. The tint is the holder's own identity ink and the
-    // treatment carries no shield, check, lock or trust palette.
+    // A decorative badge never borrows trust or moderation vocabulary: it uses
+    // the holder's identity ink, with no shield, check, lock or trust palette.
     void theBadgeNeverBorrowsATrustOrModerationSignal()
     {
         QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString content = QString::fromUtf8(file.readAll());
-        // Anchored on the EXPRESSION at both ends, never on a fixed window
-        // after a name: a source scan cut at N characters is defeated the
-        // moment somebody adds a comment, and this file has recorded that
-        // trap four times.
+        // Anchored on expressions at both ends, not a fixed window.
         const int at = content.indexOf(QStringLiteral("root.badgeLabel.length > 0"));
         QVERIFY2(at > 0, "the badge Loader was not found");
         const int end = content.indexOf(QStringLiteral("root.bioText.length > 0"), at);
@@ -300,16 +260,15 @@ private slots:
         QVERIFY2(!block.contains(QStringLiteral("\"check\"")), "badge check");
         QVERIFY2(!block.contains(QStringLiteral("\"lock\"")), "badge lock");
         QVERIFY2(!block.contains(QStringLiteral("trust")), "badge trust palette");
-        // ...and it explains itself rather than leaving the treatment to
-        // imply what it is.
+        // ...and it explains itself.
         QVERIFY(block.contains(QStringLiteral("root.badgeDescription")));
     }
 
     void dmReuseMechanicsArePreserved()
     {
-        // The exact existing DM-reuse call sequence must still be present
-        // (checkExistingDm -> existingDms -> openRoom, else
-        // startDirectMessage), never a bare/duplicate room create.
+        // The DM-reuse call sequence (checkExistingDm -> existingDms ->
+        // openRoom, else startDirectMessage) is intact, never a bare room
+        // create.
         QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString content = QString::fromUtf8(file.readAll());
@@ -349,8 +308,8 @@ private slots:
                                   Q_ARG(QVariant, QStringLiteral("")),
                                   Q_ARG(QVariant, true));
         QVERIFY(popover->property("isOwn").toBool());
-        // The own-account row never shows the Message button (there is no
-        // real self-DM action).
+        // The own-account card never shows Message (there is no self-DM
+        // action).
         QObject *messageButton = nullptr;
         for (QObject *candidate : popover->findChildren<QObject *>()) {
             if (candidate->property("text").toString() == QStringLiteral("Message")) {
@@ -363,13 +322,9 @@ private slots:
         popover->setProperty("visible", false);
     }
 
-    // Reported 2026-08-28: clicking a user from a MENTION in message text
-    // opened their card with no picture and their MXID where the display
-    // name should be, while clicking the same person's avatar one line above
-    // was correct. The two call sites in MessageDelegate differ only in what
-    // they PASS — the mention branch has nothing but a user id — so the fix
-    // is that the card resolves what it was not given, rather than a sixth
-    // call site being told to remember.
+    // Opening a card with only a user id (e.g. from a mention) resolves the
+    // display name and avatar itself, instead of relying on every call site
+    // to pass them.
     void openingWithOnlyAUserIdResolvesTheNameAndTheFace()
     {
         auto *mock = m_controller->findChild<MockMatrixClient *>();
@@ -377,8 +332,7 @@ private slots:
         const QString room = QStringLiteral("!general:mock.local");
         const QString bob = QStringLiteral("@bob:mock.local");
 
-        // The mock's seeded members carry no avatar, and an avatar is half
-        // of the report — so give this one a face before asking for it.
+        // The mock's seeded members have no avatar; give this one a face.
         MemberInfo member;
         member.userId = bob;
         member.displayName = QStringLiteral("Bob Mockworth");
@@ -402,18 +356,15 @@ private slots:
                  QStringLiteral("Bob Mockworth"));
         QCOMPARE(popover->property("avatarMxc").toString(),
                  QStringLiteral("mxc://mock.local/bob-face"));
-        // ...and the name the card actually renders is the display name, not
-        // the id it was handed.
+        // ...and the card renders the display name, not the id it was handed.
         QCOMPARE(popover->property("visibleName").toString(),
                  QStringLiteral("Bob Mockworth"));
         popover->setProperty("visible", false);
     }
 
-    // The chip row is a Flow inside a ColumnLayout, which is a shape with a
-    // known Qt hazard: a positioner whose implicit height depends on a width
-    // the layout has not given it yet can settle at zero and take the whole
-    // row off the card while every `visible` still reads true. So this
-    // measures GEOMETRY, not visibility.
+    // The chip row (a Flow in a ColumnLayout) occupies real space: a
+    // positioner whose height depends on a width not yet assigned can settle
+    // at zero while everything reads visible. Measures geometry.
     void theChipRowActuallyOccupiesSpace()
     {
         auto *popover = find(QStringLiteral("popover"));
@@ -441,14 +392,13 @@ private slots:
                  qPrintable(QStringLiteral("overflow chip collapsed: %1x%2")
                                 .arg(overflow->width())
                                 .arg(overflow->height())));
-        // ...and the row itself has real height, not just its children.
+        // ...and the row itself has real height.
         auto *row = qobject_cast<QQuickItem *>(share->parentItem());
         QVERIFY(row);
         QVERIFY2(row->height() > 0, "the chip row collapsed to zero height");
 
-        // Share copies the PUBLIC matrix.to profile link, and the notice
-        // names what went to the clipboard — "Share" must not be a control
-        // whose effect the user cannot see.
+        // Share copies the public matrix.to profile link, and the notice names
+        // what went to the clipboard.
         QGuiApplication::clipboard()->clear();
         QMetaObject::invokeMethod(share, "clicked");
         QCOMPARE(QGuiApplication::clipboard()->text(),
@@ -456,9 +406,8 @@ private slots:
         popover->setProperty("visible", false);
     }
 
-    // The badge, actually RENDERED. It lives behind a Loader (a Label born
-    // holding "" keeps ItemObservesViewport for its whole life — §16), so
-    // "the table has a row" is not evidence that anything reaches the card.
+    // The badge is actually rendered (it lives behind a Loader, so a table
+    // row is not evidence).
     void theBadgeHoldersCardActuallyRendersTheBadge()
     {
         auto *popover = find(QStringLiteral("popover"));
@@ -482,10 +431,8 @@ private slots:
         }
         QVERIFY2(rendered, "the badge pill never reached the card");
 
-        // ...and an ordinary user's card shows no badge. The Loader's item
-        // is destroyed rather than emptied, but destruction is DEFERRED, so
-        // the honest assertion is that nothing carrying that text is still
-        // VISIBLE — not that the object has already gone.
+        // An ordinary user's card shows no badge. Loader destruction is
+        // deferred, so assert that nothing with that text is visible.
         QMetaObject::invokeMethod(m_root, "openFromMentionLink",
                                   Q_ARG(QVariant,
                                         QStringLiteral("@bob:mock.local")));
@@ -504,11 +451,9 @@ private slots:
         popover->setProperty("visible", false);
     }
 
-    // The other half of the same rule: nothing may be INVENTED for a user
-    // the roster does not hold — somebody who has left, or a room whose
-    // members were never fetched. The localpart fallback every surface
-    // already shares is the honest answer, and the avatar stays empty
-    // because a wrong face is worse than no face.
+    // Nothing is invented for a user the roster does not hold (left the room,
+    // members not fetched): the localpart fallback, and no avatar rather than
+    // a wrong one.
     void aUserTheRosterDoesNotHoldIsNeverFabricated()
     {
         auto *popover = find(QStringLiteral("popover"));
@@ -544,13 +489,8 @@ private slots:
                  QStringLiteral("@dave:mock.local"));
     }
 
-    // The chip row shares ONE vertical centre.
-    //
-    // Two attempts at this failed, so it MEASURES the laid-out items rather
-    // than reading the source. A Flow lays its children out top-aligned and
-    // the two chip kinds disagree on height — StatusChip is
-    // max(chipHeight, content+4), ProfileChipButton is chipHeight+6 — so
-    // without a common height the shorter ones hang off a common top edge.
+    // The chip row shares one vertical centre, measured on laid-out items: a
+    // Flow top-aligns its children, and the two chip kinds differ in height.
     void theChipRowSharesOneVerticalCentre()
     {
         QMetaObject::invokeMethod(m_root, "openFor",
@@ -585,11 +525,8 @@ private slots:
                                 + report.join(QLatin1String("; "))));
         }
 
-        // AND THE CONTENT INSIDE THEM. The items sharing a centre is not the
-        // same claim as the label inside each one being centred: a Control
-        // whose height is forced larger than its contentItem's leaves that
-        // content wherever the control put it, and what a reader sees is the
-        // TEXT, not the box around it.
+        // The content inside each button is centred too: a Control forced
+        // taller than its contentItem leaves the content where it was.
         for (const QString &name : { QStringLiteral("profileShareButton"),
                                      QStringLiteral("profileOverflowButton") }) {
             auto *item = qobject_cast<QQuickItem *>(find(name));
@@ -608,17 +545,9 @@ private slots:
                              .arg(content->y()).arg(content->height())
                              .arg(contentCentre)));
 
-            // HORIZONTALLY, MEASURED ON THE PAINTED CHILDREN.
-            //
-            // Comparing the contentItem's centre to the button's is VACUOUS:
-            // a Control stretches its contentItem across the full available
-            // width, so that centre always matches while the children inside
-            // it are packed at x=0. This case passed twice against a button
-            // whose dots were visibly left of centre, which is exactly the
-            // shape of a measurement that cannot fail.
-            //
-            // So it measures the union of the CHILDREN — the icon and the
-            // label — which is what a reader actually sees.
+            // Horizontally, measured on the painted children (icon and
+            // label): a Control stretches its contentItem to full width, so
+            // comparing that centre would always pass.
             qreal minX = std::numeric_limits<qreal>::max();
             qreal maxX = std::numeric_limits<qreal>::lowest();
             const auto kids = content->childItems();
@@ -642,13 +571,9 @@ private slots:
         }
     }
 
-    // The bolt watermark belongs to the GRADIENT, not to somebody's banner.
-    //
-    // It stands in for a banner nobody has set. Once a user has one, the
-    // banner is their picture and stamping a logo across it is neither ours
-    // to do nor what they chose. Tied to the IMAGE'S READINESS rather than to
-    // the mxc string, so it does not blink out before the picture it is
-    // making way for has arrived.
+    // The bolt watermark stands in for a missing banner, so it yields once a
+    // real banner image is ready (tied to image readiness, not the mxc
+    // string, so it does not vanish early).
     void theBoltWatermarkYieldsToARealBanner()
     {
         QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
@@ -664,14 +589,9 @@ private slots:
                  "the bolt is painted over a user's own banner");
     }
 
-    // A BANNER THAT FAILED TO FETCH ONCE MUST NOT BE GONE FOR THE SESSION.
-    //
-    // MediaBridge::wideImageSource() answers "" for as long as a transient
-    // failure mark stands, and nothing else the `source` binding reads ever
-    // changes again — so a dropped connection left the card on its gradient
-    // even after the media repository came back. Both the cache completion
-    // and the mark's EXPIRY have to poke the re-resolve counter, which is
-    // exactly what Avatar.qml has done since v0.7.
+    // A banner that failed to fetch recovers: wideImageSource() answers ""
+    // while a transient failure mark stands, so both cache completion and
+    // mark expiry must bump the re-resolve counter (as Avatar.qml does).
     void aBannerRecoversFromATransientMediaFailure()
     {
         QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
@@ -679,12 +599,8 @@ private slots:
         const QString src = QString::fromUtf8(file.readAll());
         const int at = src.indexOf(QStringLiteral("id: bannerImage"));
         QVERIFY2(at > 0, "the banner Image is gone");
-        // BOUNDED TO THE BANNER'S OWN BLOCK. `src.mid(at)` ran to the end
-        // of a 1,100-line file, so any later Connections carrying the same
-        // two handler names would keep this green after the banner's own
-        // were removed. Raised in review. The next `id: ` after the banner
-        // is the end of its block; fall back to a generous window if the
-        // banner is the last named item.
+        // Bounded to the banner's own block (up to the next `id: `), so
+        // handlers elsewhere in the file cannot satisfy the check.
         const int nextId = src.indexOf(QStringLiteral("id: "), at + 20);
         const QString block =
             nextId > at ? src.mid(at, nextId - at) : src.mid(at, 3000);
@@ -692,21 +608,15 @@ private slots:
                  "the banner no longer re-resolves when its bytes land");
         QVERIFY2(block.contains(QStringLiteral("function onMediaRetryable(")),
                  "a banner whose fetch failed once stays absent all session");
-        // ...and it is still a COUNTER, never an assignment to `source`:
-        // assigning a bound property imperatively destroys the binding, which
-        // is what made banners sticky in 0.7.6.
+        // Still a counter, never an assignment to `source`, which would
+        // destroy the binding.
         QVERIFY2(!block.contains(QStringLiteral("bannerImage.source =")),
                  "the banner binding is destroyed by an imperative assignment");
     }
 
-    // Rooms in common, as Sable lists them — and ABSENT rather than shown
-    // empty when none are known.
-    //
-    // That distinction is the point: the list reads only membership the
-    // store already holds, because asking would cost one /state per room
-    // every time a card opened (the rule that governs the room-list call
-    // glyph). So "no rooms known" and "no rooms in common" are different
-    // claims, and an empty section would assert the stronger one.
+    // Rooms in common are absent, not shown empty, until some are known: the
+    // list reads only membership the store already holds (asking would cost a
+    // /state per room), so an empty section would claim too much.
     void mutualRoomsAreAbsentUntilAnyAreKnown()
     {
         QMetaObject::invokeMethod(m_root, "openFor",
@@ -719,8 +629,7 @@ private slots:
         QVERIFY(popover);
         QTRY_VERIFY(popover->property("opened").toBool());
 
-        // The mock backend answers no mutual rooms, so the header must not
-        // be drawn and no room row may exist.
+        // The mock has no mutual rooms: no header, no rows.
         auto *header = find(QStringLiteral("profileMutualRoomsHeader"));
         if (header)
             QVERIFY2(!header->property("visible").toBool(),
@@ -728,7 +637,7 @@ private slots:
         QVERIFY2(find(QStringLiteral("profileMutualRoom")) == nullptr,
                  "a mutual-room row exists with no mutual rooms");
 
-        // Opening the overflow must ASK, or the list can never populate.
+        // Opening the overflow must ask, or the list never populates.
         QFile popoverSrc(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
         QVERIFY(popoverSrc.open(QIODevice::ReadOnly));
         const QString src = QString::fromUtf8(popoverSrc.readAll());

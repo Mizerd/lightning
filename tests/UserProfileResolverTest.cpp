@@ -1,9 +1,8 @@
 // UserProfileResolver: the global-profile lookup behind mention pills and the
-// profile popover for users the room member snapshot cannot name
-// (2026-09-05). What it must guarantee: one ask per user per session, a
-// cached answer afterwards, a refused answer remembered (and re-asked only
-// after the retry interval), and somebody else's profile fetch never lands in
-// its cache.
+// profile popover for users the room member snapshot cannot name. One ask per
+// user per session, a cached answer afterwards, a refused answer remembered
+// (re-asked only after the retry interval), and another caller's profile
+// fetch never lands in its cache.
 
 #include "matrix/MockMatrixClient.h"
 #include "profile/UserProfileResolver.h"
@@ -144,20 +143,10 @@ private Q_SLOTS:
         QVERIFY(!resolver.profile(QStringLiteral("@dim:example.org")).known);
     }
 
-    // THE SESSION BOUNDARY PRODUCTION ACTUALLY CROSSES.
-    //
-    // The case above hands the resolver a DIFFERENT MatrixClient, and nothing
-    // in this application ever does that: AppController builds one client in
-    // its constructor and keeps it for the process, so an account switch is
-    // `detachSession()` (which emits loggedOut) followed by
-    // `restoreSession()` on the SAME object — and `setClient` returns early
-    // when the pointer has not changed. Without a loggedOut connection the
-    // previous account's global display names and avatar URIs were still
-    // served to the next account's mention pills and profile cards.
-    //
-    // Its three siblings in src/profile — NameColorManager,
-    // ProfileBannerManager and ProfileBioManager — all connect this signal
-    // for exactly this reason; this one did not.
+    // An account switch keeps the same MatrixClient (detachSession() emits
+    // loggedOut, then restoreSession()), so `setClient` never sees a new
+    // pointer; the resolver must drop its cache on loggedOut, like
+    // NameColorManager, ProfileBannerManager and ProfileBioManager.
     void signingOutDropsTheProfilesTheAccountResolved()
     {
         MockMatrixClient client;

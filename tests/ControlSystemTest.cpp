@@ -1,11 +1,9 @@
-// Rendered proof for the shared Lightning control system (the runtime
-// screenshots showed Fusion bevels/gradients leaking through Room
-// Information, Settings, and the GIF picker). Renders the production
-// AppButton kinds, SegmentedControl, AppTextField, and AppComboBox (popup
-// open) offscreen and asserts sampled pixels: flat fills (no vertical
-// gradient), token-driven colors per state, themed popup surface — never a
-// native look. Expected colors are read back from token probes in the same
-// scene, so every theme keeps the contract.
+// Rendered proof for the shared control system: AppButton kinds,
+// SegmentedControl, AppTextField and AppComboBox (popup open) are rendered
+// offscreen and sampled for flat fills (no Fusion gradient or bevel),
+// token-driven colours per state and a themed popup surface. Expected colours
+// come from token probes in the same scene, so the contract holds on every
+// theme.
 
 #include <QtTest/QtTest>
 
@@ -159,8 +157,8 @@ private:
         return it ? it->property("color").value<QColor>() : QColor();
     }
 
-    // Sample near the top and bottom of an item's interior: a flat fill has
-    // identical rows; a Fusion-style gradient/bevel does not.
+    // Sample near the top and bottom of the interior: a flat fill has
+    // identical rows; a gradient or bevel does not.
     void assertFlatFill(const QImage &img, QQuickItem *it, const QColor &expected,
                         const char *what)
     {
@@ -211,7 +209,7 @@ private slots:
         assertFlatFill(img, primary, token("tokAccent"), "primary");
         auto *secondary = item("secondaryButton");
         QVERIFY(secondary);
-        // Secondary rests on the window background with only its 1px border.
+        // Secondary sits on the window background with only its 1px border.
         assertFlatFill(img, secondary, token("tokBackground"), "secondary");
         QCOMPARE(secondary->property("kind").toString(),
                  QStringLiteral("secondary"));
@@ -225,10 +223,8 @@ private slots:
         QVERIFY(danger && disabled);
         assertFlatFill(img, danger, token("tokBackground"), "danger-rest");
         assertFlatFill(img, disabled, token("tokCardElevated"), "disabled");
-        // Danger label is the danger tone, not the primary/secondary text.
-        // The label is now a named child of the content item rather than the
-        // content item itself: AppButton carries an optional leading icon, so
-        // its contentItem is the centring wrapper around the icon+label pair.
+        // The danger label uses the danger tone. The label is a named child:
+        // AppButton's contentItem wraps an optional icon and the label.
         auto *label = findItem(danger, QStringLiteral("buttonLabel"));
         QVERIFY(label);
         const QColor dangerText = label->property("color").value<QColor>();
@@ -238,11 +234,9 @@ private slots:
         QVERIFY(dangerText != saveLabel->property("color").value<QColor>());
     }
 
-    // 2026-08-21. The destructive CONFIRM of a destructive dialog is not a
-    // quiet outlined button: "danger" stays the quiet one, "dangerPrimary" is
-    // the committed one, and it must be a real fill with dangerText on it —
-    // never `danger` used as a background, which is now an INK token and
-    // measures 3.03-4.03:1 on Storm's surfaces.
+    // A destructive dialog's confirm uses "dangerPrimary", a real fill with
+    // dangerText on it; "danger" is the quiet outlined kind, and `danger` as a
+    // background would fail contrast (it is an ink token).
     void destructiveKindIsASolidFillWithItsOwnInk()
     {
         const QImage img = m_window->grabWindow();
@@ -254,9 +248,7 @@ private slots:
         QCOMPARE(label->property("color").value<QColor>(), token("tokDangerInk"));
     }
 
-    // Every kind rides ONE geometry: same height, same corner. Before the
-    // ladder a dialog footer could hold a 30px outlined button beside a 40px
-    // square stock one.
+    // Every kind shares one geometry: height and corner.
     void everyKindSharesOneGeometry()
     {
         const char *kinds[] = { "secondaryButton", "primaryButton",
@@ -276,9 +268,7 @@ private slots:
         }
     }
 
-    // A disabled segment used to fall through to exactly what an enabled,
-    // unselected, unhovered one renders — transparent, no border — so the
-    // only cue was a single ink step that reads as a rendering glitch.
+    // A disabled segment is visibly distinct from an enabled, unselected one.
     void disabledSegmentIsVisiblyDistinctFromAnUnselectedOne()
     {
         auto *disabled = item("segments_files");
@@ -323,8 +313,8 @@ private slots:
         QVERIFY(combo);
         assertFlatFill(img, combo, token("tokInputBg"), "combo-field");
 
-        // Open the popup: its surface and delegates are themed, flat, and
-        // carry the accent-soft selected row.
+        // Open the popup: its surface and delegates are themed and flat, with
+        // the accent-soft selected row.
         auto *popupObject = combo->property("popup").value<QObject *>();
         QVERIFY(popupObject);
         QMetaObject::invokeMethod(popupObject, "open");
@@ -338,13 +328,10 @@ private slots:
             popupItem->width() - 10, popupItem->height() / 2));
         const QColor sampled = sampleAvg(
             open, QRect(int(inPopup.x()), int(inPopup.y()), 2, 2));
-        // Storm §5: dropdown popups are part of the menu system and always
-        // render stormPanel. Since the 0.6.5 routing correction stormPanel
-        // itself is theme-ROUTED (Storm literal under theme 11, the user's
-        // own surface tone under every legacy theme) rather than invariant
-        // — this assertion stays self-consistent because it compares the
-        // live-sampled popup pixel against the SAME routed token, not a
-        // hardcoded literal, so it holds under any active theme.
+        // Dropdown popups render stormPanel, which is theme-routed (Storm's
+        // literal under theme 11, the user's surface tone otherwise). The
+        // sampled pixel is compared with the same routed token, so this holds
+        // under any theme.
         QVERIFY2(channelDelta(sampled, token("tokStormPanel")) <= kTolerance,
                  qPrintable(QStringLiteral("popup surface %1 vs %2")
                                 .arg(sampled.name(),
@@ -368,11 +355,8 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // 2026-08-15 report: under the Storm theme the themed selected chip was
-    // accentSoft (14% translucent bolt = khaki) carrying accentText
-    // (canvas-dark ink, meant for a SOLID bolt fill) — dark-on-dark. The
-    // selected segment must be the solid bolt "current selection" moment
-    // with boltInk on it. This fails on the pre-fix SegmentedControl.
+    // Under Storm the selected segment is a soft accent field with readable
+    // ink, not dark text on a tinted fill.
     void stormRoutesSelectedSegmentToASoftAccentField()
     {
         m_root->setProperty("themeMode", 11); // Storm
@@ -380,19 +364,11 @@ private slots:
         const QImage img = m_window->grabWindow();
         auto *selected = item("segments_people");
         QVERIFY(selected);
-        // 2026-08-21: the selected segment is a SOFT accent field, not a
-        // solid bolt fill.
-        //
-        // roomFilterMode defaults to 0 ("All"), so the solid treatment put a
-        // permanent block of the app's loudest colour in the navigation
-        // column at its factory setting — an independent colour pass counted
-        // bolt seven times in one screenshot and named this the single
-        // biggest dilution of "bolt means active". Bolt now belongs to the
-        // primary button.
-        //
-        // The guard keeps its teeth in both directions: the fill must be the
-        // soft field, the ink must be the readable one, and the fill must NOT
-        // be the solid bolt.
+        // A soft accent field rather than solid bolt: the filter defaults to
+        // "All", so a solid fill would put the app's loudest colour
+        // permanently in the navigation column; bolt belongs to the primary
+        // button. The fill is the soft field, the ink readable, and the fill
+        // not solid bolt.
         const QColor selectedFill = sampleAvg(
             img, QRect(int(selected->mapToScene(QPointF(8, 6)).x()),
                        int(selected->mapToScene(QPointF(8, 6)).y()), 2, 2));
@@ -409,23 +385,14 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // 2026-08-16 report (Deep Teal): the same defect on the OTHER side of the
-    // Storm routing. The selected chip's fill is accentSoft -- a TINT -- and
-    // it carried accentText, which is the ink for a SOLID accent fill and is
-    // white in every theme that does not override it. Measured contrast was
-    // 1.00 on Deep Teal (#062A25 on #112928), 1.14 on Moss Light and 1.42 on
-    // Lightning Light: the label was simply not there. Only Deep Teal was
-    // reported because that is the theme in use; the light themes were just
-    // as broken.
-    //
-    // The ink must be selectedText -- the ink meant for a selected row/chip --
-    // in every non-Storm theme. ThemeTokensTest pins the contrast numbers;
-    // this pins that the control actually asks for that token. Fails on the
-    // pre-fix SegmentedControl, which returned accentText here.
+    // In non-Storm themes the selected segment's label uses selectedText, not
+    // accentText (the ink for a solid accent fill, invisible on a tint).
+    // ThemeTokensTest pins the contrast numbers; this pins that the control
+    // asks for that token.
     void designThemesKeepTheSelectedSegmentLabelReadable()
     {
-        // Deep Teal (10), Moss Light (8) and Lightning Light (1) are the
-        // three that measured below AA before the fix.
+        // Deep Teal (10), Moss Light (8) and Lightning Light (1) fell below AA
+        // with the wrong ink.
         for (int mode : { 10, 8, 1 }) {
             m_root->setProperty("themeMode", mode);
             QCoreApplication::processEvents();
@@ -438,7 +405,7 @@ private slots:
             const QColor ink = label->property("color").value<QColor>();
 
             QCOMPARE(ink, token("tokSelectedText"));
-            // And explicitly NOT the solid-fill ink that made it invisible.
+            // Not the solid-fill ink.
             QVERIFY2(ink != token("tokAccentText"),
                      qPrintable(QStringLiteral("theme %1 still inks the selected "
                                                "segment with accentText")

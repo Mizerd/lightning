@@ -1,23 +1,19 @@
-// v0.7.x personal moderation — ModerationController policy (the account's
-// m.ignored_user_list cache and message reporting) against the scriptable
-// MockMatrixClient surface, plus the pure notification guard. Pins:
+// Personal moderation: ModerationController policy (the account's
+// m.ignored_user_list cache and message reporting) against MockMatrixClient,
+// plus the pure notification guard. Pins:
 //   * ignore/unignore round-trip: the terminal signal, the cached list,
 //     isIgnored() and the bump-on-change revision;
-//   * self-ignore is refused synchronously (the backend returns no op) and
-//     reports a failure rather than dispatching or hanging;
-//   * a remote change (another client) lands through the sync push, and an
-//     identical pushed list is deduplicated — no phantom revision bump;
+//   * self-ignore is refused synchronously and reports a failure;
+//   * a remote change lands through the sync push, and an identical pushed
+//     list causes no revision bump;
 //   * the report prompt opens/submits/cancels correctly, failure categories
-//     surface honestly, and reporting is single-flight;
-//   * NotificationManager::decide short-circuits an ignored sender — the
-//     local belt-and-braces for the race window before the server applies
-//     the ignore and stops delivering their events;
-//   * sign-out clears the cached list and the prompt, so one account's
-//     ignore list can never bleed into another.
+//     surface, and reporting is single-flight;
+//   * NotificationManager::decide short-circuits an ignored sender (before
+//     the server applies the ignore);
+//   * sign-out clears the cached list and the prompt.
 //
-// HONEST SCOPE: policy and wiring only. Real m.ignored_user_list account-data
-// round trips and /rooms/{roomId}/report against a homeserver are NOT
-// exercised here and are NOT TESTED.
+// Policy and wiring only: real account-data round trips and
+// /rooms/{roomId}/report against a homeserver are not exercised here.
 
 #include "app/ModerationController.h"
 #include "matrix/MockMatrixClient.h"
@@ -292,19 +288,10 @@ private Q_SLOTS:
         QVERIFY(ctl.revision() > revBefore);
     }
 
-    // EVERY DESTRUCTIVE ACTION ASKS FIRST.
-    //
-    // Six of them acted on the click while every reversible action beside
-    // them confirmed: Delete, Remove edits, End poll, Set role, Remove
-    // widget and Ignore user. The sharpest is the role change, which can be
-    // a ONE-WAY DOOR -- Matrix refuses a power-level change at or above your
-    // own, so promoting somebody to your level cannot be taken back. B022,
-    // and two of them were seen live on the 2026-09-08 GUI sweep.
-    //
-    // Asserted as "the trigger routes through a confirmation", bounded to
-    // each action's own handler, because that is the property: an action
-    // that calls its controller straight from onTriggered has no question in
-    // front of it however many dialogs exist elsewhere in the file.
+    // Every destructive action asks first: Delete, Remove edits, End poll,
+    // Set role, Remove widget and Ignore user. A role change can be one-way
+    // (Matrix refuses a change at or above your own level). Asserted per
+    // handler: the trigger routes through a confirmation.
     void everyDestructiveActionAsksBeforeItActs()
     {
         struct Case {
@@ -354,29 +341,10 @@ private Q_SLOTS:
         }
     }
 
-    // A NOTIFICATION FOR A THREAD REPLY MUST NOT JUMP ON THE ROOM TIMELINE,
-    // AND MUST NOT PAGINATE IT EITHER.
-    //
-    // Two defects, one handler, and the second was created by the fix for
-    // the first.
-    //
-    // B023: the live room timeline is TimelineFocus::Live with
-    // hide_threaded_events, so a threaded event id is not a row there. The
-    // click opened the thread and then asked the ROOM timeline to locate the
-    // REPLY, which could only fail — it paginated looking for something that
-    // can never appear and ended on the unavailable notice. A thread ROOT
-    // does remain in the main timeline (CLAUDE.md §8), so that became the
-    // target instead.
-    //
-    // And THAT is the second defect. jumpToEvent() may spend
-    // kMaxNavigationBatches real backward paginations hunting for its target,
-    // which is right for a message the reader asked for — but a thread root
-    // can be arbitrarily old, and the destination (the thread panel) is
-    // already open. So clicking a thread notification walked the reader's
-    // room view backwards through months of history nobody asked to see,
-    // reported as a notification that "started scrolling backwards" until it
-    // reached the previous month. revealIfLoaded() takes the root when it is
-    // already loaded and leaves the room timeline alone when it is not.
+    // A thread-reply notification must not jump to the reply on the room
+    // timeline (which hides threaded events), and must not paginate it
+    // either: a thread root can be arbitrarily old and the thread panel is
+    // already open. revealIfLoaded() takes the root only if already loaded.
     void aThreadNotificationDoesNotJumpToAnEventTheTimelineHides()
     {
         QFile file(QStringLiteral(QML_DIR "/Main.qml"));
@@ -385,10 +353,7 @@ private Q_SLOTS:
 
         const int at = source.indexOf(QStringLiteral("onNotificationOpenRequested"));
         QVERIFY2(at > 0, "the notification click handler is gone");
-        // The handler's OWN block, by brace matching. A fixed character
-        // window silently stopped covering the tail of it the first time a
-        // comment grew, and a scan that reaches past its last line reports
-        // an absence it never looked for.
+        // The handler's own block, by brace matching, not a fixed window.
         const int open = source.indexOf(QLatin1Char('{'), at);
         QVERIFY2(open > at, "the handler has no body");
         int depth = 0;
@@ -422,14 +387,9 @@ private Q_SLOTS:
         QVERIFY2(body.contains(QStringLiteral("jumpToEvent(eventId)")),
                  "an ordinary notification no longer jumps to the message it "
                  "was raised for");
-        // A TEXT SCAN CANNOT SEE BRANCH STRUCTURE, so pin the shape as well
-        // as the calls: `jumpToEvent(eventId)` placed UNCONDITIONALLY after
-        // the thread branch satisfies every assertion above and re-creates
-        // B023 exactly. It has to be the else of `if (inThread)`.
-        // lastIndexOf: the handler opens the thread panel from an EARLIER
-        // `if (inThread)`, and anchoring on that one would prove ordering
-        // rather than nesting — an unrelated `} else if (` between the two
-        // would let an unconditional jump pass again.
+        // A text scan cannot see branch structure, so pin the shape too: the
+        // room-timeline fallback must be the else of the last `if (inThread)`,
+        // not an unconditional call after it.
         const int thread = body.lastIndexOf(QStringLiteral("if (inThread)"));
         QVERIFY2(thread >= 0, "the thread branch is gone");
         const int otherwise = body.indexOf(QStringLiteral("} else if ("), thread);
@@ -440,19 +400,10 @@ private Q_SLOTS:
                  "jumpToEvent(eventId) is not inside that else branch");
     }
 
-    // A SUBMITTED REPORT MUST TELL THE USER WHAT HAPPENED.
-    //
-    // reportFinished carried a translated sentence for both outcomes from the
-    // day it was written, and NOTHING outside this suite ever listened to it.
-    // submitReport clears the prompt BEFORE the server answers, so
-    // ReportMessageDialog closes at once: the user pressed Report, the dialog
-    // vanished, and no surface ever said whether the server accepted it,
-    // refused it, rate-limited it or lost it.
-    //
-    // The consumer is a Connections in Main.qml, so this is a source
-    // contract. The cases above already prove the signal fires with the right
-    // payload; what could not be proven at this layer, and what actually
-    // broke, is that anyone is listening.
+    // A submitted report must tell the user what happened: submitReport
+    // clears the prompt before the server answers, so the dialog closes at
+    // once and only the reportFinished consumer in Main.qml can report the
+    // outcome. Source contract; the cases above prove the signal's payload.
     void theReportOutcomeReachesAScreen()
     {
         QFile file(QStringLiteral(QML_DIR "/Main.qml"));
@@ -470,16 +421,8 @@ private Q_SLOTS:
         QVERIFY2(body.contains(QStringLiteral("pinNotice.show")),
                  "the report outcome is received and then dropped without "
                  "being shown");
-        // The controller already carries the wording for both outcomes. A
-        // handler that only reports failures would leave a successful report
-        // indistinguishable from a dead menu item, because nothing visible
-        // changes when one lands.
-        //
-        // ASSERTED AS A POSITIVE SHAPE, not as the absence of two spellings.
-        // The first version excluded `if (ok)` and `!ok &&`, and a review
-        // pointed out that `if (!ok) pinNotice.show(...)` contains neither and
-        // would have passed: an assertion that lists the ways to be wrong
-        // cannot cover the one nobody thought of.
+        // Both outcomes are shown, asserted as a positive shape: listing ways
+        // to be wrong cannot cover the one nobody thought of.
         QVERIFY2(body.contains(QStringLiteral("pinNotice.show(message, !ok)")),
                  "the handler no longer passes the outcome straight through, "
                  "so it either reports one outcome only (a silent success is "

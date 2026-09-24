@@ -1,11 +1,9 @@
-// v0.6.5 (SPEC 1j+1k): offscreen behavior proof for the two-mode quick
-// switcher — the Wave-1 audit's G2 gap (this surface previously had zero
-// behavioural coverage). Covers the mode transitions ('>' prefix in, lone
-// backspace out, openCommandMode()), the honesty of the command action list
-// (settings/sections/accounts/themes ONLY — never leave/mute/files/sign-out
-// verbs), a real end-to-end theme action against the existing writable
-// settings.theme property, Escape dismissal, and a source-level pin that
-// navigate-mode invite routing still opens (never accepts) invites.
+// Offscreen behaviour test for the two-mode quick switcher: mode transitions
+// ('>' prefix in, lone backspace out, openCommandMode()), the command action
+// list (settings/sections/accounts/themes only, never leave/mute/files/
+// sign-out verbs), a real end-to-end theme action against settings.theme,
+// Escape dismissal, and a source pin that navigate-mode invite routing opens
+// (never accepts) invites.
 
 #include <QtTest/QtTest>
 
@@ -182,10 +180,9 @@ private slots:
         QTRY_VERIFY(switcher()->property("commandMode").toBool());
         QTRY_VERIFY(commandCount() > 0);
 
-        // Offscreen, nothing requests a frame after the popup opens, and
-        // ListView delegate creation rides the polish pass a frame runs —
-        // force one exactly like the pixel suites do. Rows materialize a
-        // tick later; harvest until the first action is visible.
+        // Offscreen nothing requests a frame after the popup opens, and
+        // ListView delegate creation rides a frame's polish pass, so force one.
+        // Rows materialize a tick later.
         (void) m_window->grabWindow();
         // Row items materialize a tick after count updates — harvest until
         // the first action is visible.

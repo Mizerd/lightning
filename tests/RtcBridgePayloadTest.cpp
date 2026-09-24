@@ -1,27 +1,11 @@
-// WHAT THE RUST LANE COMPUTES AND THE BRIDGE FORGETS TO CARRY.
+// Fields the Rust lane computes must survive the bridge. SfuCallController's
+// tests drive a fake client that emits the signal directly, so only the real
+// dispatcher (`handleRustEventForTest`) with the real payload shows whether
+// `RustSdkMatrixClient::handleRustEvent` carries a field.
 //
-// `rtc_membership_published` is a JSON payload with six fields. The C++
-// handler read four of them and then FIVE of them, and `delayed_category` —
-// which rust/src/rtc.rs has computed and enqueued since the delayed-events
-// work — was dropped on the floor at `RustSdkMatrixClient.cpp`. Nothing could
-// see it: SfuCallController's own tests drive a FAKE client that emits the
-// signal directly, so they prove what the controller does with a field and
-// say nothing about whether the bridge ever supplies one.
-//
-// That is the defect shape CLAUDE.md §16 names twice over — a test that
-// composes something RESEMBLING what production composes proves nothing — and
-// the only cure is to drive the real dispatcher with the real payload, which
-// is what `handleRustEventForTest` exists for.
-//
-// The cost of the drop was diagnostic, not functional: every `delayed= false`
-// in a call log was mute about WHETHER the homeserver has no MSC4140 endpoint
-// (permanent, nothing to retry) or refused this one write (transient, the
-// next publish tries again). Those have opposite remedies and issue #10's
-// reporter had no way to tell them apart.
-//
-// FAIL-ON-OLD: drop the `delayed_category` line from the
-// `rtc_membership_published` branch of `RustSdkMatrixClient::handleRustEvent`
-// and `theDelayedRefusalReasonSurvivesTheBridge` reads an empty string.
+// `delayed_category` in `rtc_membership_published` says whether a refused
+// delayed event means "no MSC4140 endpoint" (permanent) or "this write was
+// refused" (transient).
 
 #include "app/SettingsManager.h"
 
@@ -83,17 +67,9 @@ private slots:
 #endif
     }
 
-    /// THE SAME DEFECT, CAUGHT A SECOND TIME IN THE SAME FILE.
-    ///
-    /// `auto_key_recovery` carries how many sessions a pass DOWNLOADED and how
-    /// many taught it nothing. The bridge read three fields and the payload had
-    /// four, so `inconclusive` was computed, serialised and dropped here — and
-    /// the whole point of carrying it is that `ok sessions=1` out of a pass of
-    /// 32 cannot otherwise be told from a server that refused thirty-one
-    /// times. A review found it; this is the case that would have.
-    ///
-    /// FAIL-ON-OLD: drop the `inconclusive` line from the `crypto_bootstrap`
-    /// branch of `handleRustEvent` and the last QCOMPARE reads 0.
+    /// `auto_key_recovery`'s `inconclusive` count must survive the bridge: it
+    /// is what distinguishes one downloaded session out of 32 from a server
+    /// that refused thirty-one times.
     void theInconclusiveCountSurvivesTheBridge()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -152,10 +128,8 @@ private slots:
 #ifndef ENABLE_RUST_SDK_BACKEND
         QSKIP("needs the Rust backend");
 #else
-        // The success case must not invent a reason: rtc.rs leaves
-        // `delayed_category` empty when the arm succeeded, and a reader of
-        // the log has to be able to trust that an empty reason beside a
-        // non-empty delay id means nothing went wrong.
+        // Success must not invent a reason: an empty `delayed_category` beside
+        // a non-empty delay id means nothing went wrong.
         SettingsManager settings;
         RustSdkMatrixClient client(&settings);
         QSignalSpy spy(&client, &MatrixClient::rtcMembershipPublished);

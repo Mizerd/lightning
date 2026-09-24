@@ -1,14 +1,13 @@
-// v0.7 timeline-stability suite. Reproduces the live room-open defects with
-// the real TimelinePane.qml + TimelineModel + PaginationController stack on
-// the mock backend, driven through the staged Rust-SDK-shaped sequence:
-// a small initial snapshot, asynchronous history fill batches, and in-place
-// Set updates that change delegate heights after presentation.
+// Timeline-stability suite: room-open behaviour with the real
+// TimelinePane.qml + TimelineModel + PaginationController stack on the mock
+// backend, driven through a Rust-SDK-shaped sequence (small initial snapshot,
+// asynchronous history fill batches, in-place Set updates that change
+// delegate heights after presentation).
 //
 // Gates covered:
 //   * the initial-hydration presentation gate (no one-item partial room,
 //     open at the latest event once coherently presentable);
-//   * bottom-pinned stability while rows above grow (media/text hydration
-//     must not push the newest message out of the viewport);
+//   * bottom-pinned stability while rows above grow;
 //   * scrolled-up anchor preservation while rows above/below the anchor
 //     grow and while live events append;
 //   * row-scoped (not full-range) model updates for in-place Set diffs.
@@ -127,9 +126,8 @@ private:
     }
 
     // How far the view sits from the newest message. The timeline is rotated
-    // so that proxy row 0 — the newest — is at the physical bottom, which puts
-    // it at the LOW end of the scroll range; following the latest therefore
-    // means contentY resting on wheelMinY(), not on contentHeight.
+    // so the newest row is at the low end of the scroll range: following the
+    // latest means contentY resting on wheelMinY().
     static qreal bottomDistance(QQuickItem *timeline)
     {
         return timelineReal(timeline, "contentY")
@@ -149,10 +147,9 @@ private:
     }
 
 private Q_SLOTS:
-    // The live defect: a room whose event cache starts with one event and
-    // hydrates through fill batches must not present the partial snapshot.
-    // It presents once coherent, positioned at the latest event, with the
-    // loading surface gone.
+    // A room whose cache starts with one event and hydrates through fill
+    // batches must not present the partial snapshot; it presents once
+    // coherent, at the latest event, with the loading surface gone.
     void initialHydrationGateHoldsThenOpensAtLatest()
     {
         AppController controller(AppController::MockBackend);
@@ -181,20 +178,10 @@ private Q_SLOTS:
         // The automatic viewport fill settles the gate without user input.
         QTRY_VERIFY_WITH_TIMEOUT(
             pane.timeline->property("presentationReady").toBool(), 5000);
-        // The gate's whole contract: it does NOT open on the one-item
-        // partial snapshot. More than one row means the staged history
-        // pages actually arrived before the view was presented.
-        //
-        // 2026-08-21: this is where a real regression landed, and a bare
-        // "returned FALSE" named none of it — so report the geometry the
-        // gate decided on. The fast path (fillsViewport) compares
-        // contentHeight against height, and right after a reset
-        // contentHeight still reads the OUTGOING content's value until the
-        // Column has re-positioned; presentationGeometryStale exists to
-        // suppress exactly that read. A failure printing modelRows=1 with a
-        // contentHeight far larger than one row's worth is that read
-        // happening anyway — i.e. the staleness flag was cleared by
-        // something other than the relayout itself.
+        // The gate does not open on the one-item partial snapshot. On failure
+        // the message reports the geometry the gate decided on: right after a
+        // reset contentHeight still reads the outgoing content until the
+        // Column relayouts, which presentationGeometryStale must suppress.
         const int gatedRows = controller.timeline()->rowCount();
         QVERIFY2(gatedRows > 1,
                  qPrintable(
@@ -225,13 +212,9 @@ private Q_SLOTS:
         QCOMPARE(pane.warnings, QStringList{});
     }
 
-    // The presentation gate's FAST path: opening the first room of a
-    // session with warm content that already fills the viewport must
-    // present via fillsViewport — not wait for the pagination settle
-    // signal (blocked here by a 3s page delay) or the 2.5s guard timer.
-    // Regression coverage for the 2026-08-18 review finding that the
-    // geometry-staleness gate, armed unconditionally, made this exact
-    // path silently fall back to the guard.
+    // The gate's fast path: warm content that already fills the viewport
+    // presents via fillsViewport, not via the pagination settle signal
+    // (delayed 3s here) or the 2.5s guard timer.
     void firstRoomOpenWithWarmContentPresentsFast()
     {
         AppController controller(AppController::MockBackend);
@@ -266,10 +249,8 @@ private Q_SLOTS:
                                 .arg(openedAfterMs)));
     }
 
-    // While pinned to the bottom, asynchronous row growth above the newest
-    // message (image hydration, late decryption, link previews) must keep
-    // the newest message visible — the regression was a growing gap that
-    // pushed the conversation out of the viewport.
+    // While pinned to the bottom, asynchronous growth above the newest message
+    // (image hydration, late decryption, link previews) keeps it visible.
     void bottomPinnedStaysAtLatestWhileRowsGrow()
     {
         AppController controller(AppController::MockBackend);
@@ -350,13 +331,9 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(
             !pane.timeline->property("viewAnchorId").toString().isEmpty(),
             2000);
-        // The measurement tracks one EVENT, not one view slot. View rows
-        // count from the newest message, so a live append shifts every
-        // existing event's view row by one — remember the anchor's SOURCE
-        // row and re-derive its view row at each read, through the pane's
-        // own mapping functions (never a hand-rolled count-1-row formula:
-        // the paced proxy's local count can disagree with the source total
-        // while rows are still releasing).
+        // Track one event, not one view slot: a live append shifts every view
+        // row by one, so keep the anchor's source row and re-derive its view
+        // row through the pane's own mapping functions.
         const int anchorSourceRow =
             callQml(pane.timeline, "sourceRowForViewRow", anchorRow).toInt();
         QVERIFY(anchorSourceRow >= 0);
@@ -387,18 +364,10 @@ private Q_SLOTS:
                 <= 2.0,
             5000);
 
-        // Growth on the other side of the anchor. NOTE the sides are not
-        // what a top-to-bottom reading suggests: the timeline is rotated, so
-        // model row 24 (a NEWER message) is at a LOWER content y than the
-        // anchor, and growing it shifts every row above it — the anchor
-        // included. That is precisely the case maintainViewAnchor must
-        // compensate, unlike rows 2/5 above, which sit at higher content y
-        // and cannot move the anchor at all.
-        //
-        // Asserted with QTRY like the first case: the correction is
-        // explicitly ONE COALESCED pass per batch, so a bare qWait(60)
-        // followed by an immediate read was racing the very coalescing the
-        // pane documents. The bound itself (2px) is unchanged.
+        // Growth on the other side: the timeline is rotated, so model row 24
+        // (newer) sits at lower content y and growing it shifts the anchor,
+        // which maintainViewAnchor must compensate. QTRY, because the
+        // correction is one coalesced pass per batch.
         grow(24);
         QTRY_VERIFY_WITH_TIMEOUT(
             qAbs(viewportYForRow(pane.timeline, anchorRow) - anchorViewportY)
@@ -419,10 +388,7 @@ private Q_SLOTS:
         QCOMPARE(pane.warnings, QStringList{});
     }
 
-    // An in-place Set diff re-reads exactly one row. The previous full-range
-    // dataChanged forced every delegate to re-bind and re-measure on every
-    // profile/decryption/reaction update — the relayout storm behind the
-    // room-open jumping.
+    // An in-place Set diff re-reads exactly one row, not the full range.
     void setDiffEmitsRowScopedChange()
     {
         AppController controller(AppController::MockBackend);
@@ -459,11 +425,8 @@ private Q_SLOTS:
                  QStringLiteral("Resolved Name"));
 
         // A grouping-relevant change (new sender) also refreshes the
-        // neighbourhood presentation roles. That refresh is now emitted
-        // synchronously and scoped to the mutation boundary, rather than
-        // coalesced onto the next turn as one whole-model span: at 600-900
-        // rows the whole-model form rebound all of loaded history once per
-        // page. The row-scoped change still lands, and every span stays local.
+        // neighbourhood presentation roles, synchronously and scoped to the
+        // mutation boundary. Every span stays local.
         changed.clear();
         TimelineEvent senderChange = updated;
         senderChange.sender = QStringLiteral("@carol:mock.local");
@@ -483,10 +446,9 @@ private Q_SLOTS:
         QVERIFY(sawRowScoped);
     }
 
-    // The visible sender label never falls back to the complete Matrix ID
-    // when a safer representation exists: unresolved profiles show the
-    // localpart, and a late profile resolution replaces it in place on the
-    // same row (the live "@matas:matrix.smetonis.net" regression).
+    // The sender label never falls back to the full Matrix ID when a safer
+    // form exists: unresolved profiles show the localpart, and a late profile
+    // replaces it in place on the same row.
     void displayNameFallsBackToLocalpartThenResolvesInPlace()
     {
         AppController controller(AppController::MockBackend);

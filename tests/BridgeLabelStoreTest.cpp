@@ -7,16 +7,9 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
-// B017, reported 2026-09-08: "when I open lightning, the tags are shown how
-// they used to show, missing on some chats, only when I click on chats does
-// the correct tag show up, and it doesn't persist between restarting the
-// application."
-//
-// The MSC2346 answer was held in the room list model and nowhere else, so
-// every launch started from nothing. These cases pin the store that fixes the
-// second half of that report, including the part that makes the first half
-// affordable: a NEGATIVE answer is a result and is written down, or a sweep
-// re-asks every room it has already answered for on every launch.
+// BridgeLabelStore persists MSC2346 bridge labels across launches, so badges
+// show at startup without first opening each chat. A negative answer is also
+// stored, or every launch would re-ask every room already answered.
 class BridgeLabelStoreTest : public QObject
 {
     Q_OBJECT
@@ -63,7 +56,7 @@ void BridgeLabelStoreTest::aLearnedLabelSurvivesAReopen()
         store.remember(QStringLiteral("!room:example.org"),
                        QStringLiteral("whatsapp"), QStringLiteral("WhatsApp"));
     }
-    // A second process, a second launch: nothing is carried over in memory.
+    // A second launch: nothing carried over in memory.
     BridgeLabelStore reopened;
     QVERIFY(reopened.openFor(path()));
     const auto entry = reopened.label(QStringLiteral("!room:example.org"));
@@ -111,8 +104,8 @@ void BridgeLabelStoreTest::anExpiredNegativeAnswerStopsCountingAsKnown()
 void BridgeLabelStoreTest::aPositiveAnswerOutlivesANegativeOne()
 {
     const qint64 now = QDateTime::currentSecsSinceEpoch();
-    // One second past the NEGATIVE lifetime: a negative row is stale here and
-    // a positive one is not. This is the asymmetry, pinned.
+    // One second past the negative lifetime: a negative row is stale, a
+    // positive one is not.
     const qint64 stamp = now - BridgeLabelStore::kNegativeLifetimeSecs - 1;
 
     BridgeLabelStore::Entry positive;
@@ -214,20 +207,16 @@ void BridgeLabelStoreTest::removeStoreDeletesTheFile()
     QVERIFY(BridgeLabelStore::removeStore(path()));
 }
 
-// A FUTURE-STAMPED ROW IS EVICTED BEFORE A FRESH ONE.
-//
-// A clock that moved backwards leaves rows stamped ahead of now.
-// `entryIsFresh` already refuses to believe them, so they are worthless,
-// and the cap must not keep one at the cost of a row that is real. The
-// first attempt clamped the sort key to `now`, which a review showed is
-// a no-op: the smallest keys are evicted, and a clamped future row still
-// sorts at or above every legitimate row.
+// A future-stamped row is evicted before a fresh one: after a clock moves
+// backwards `entryIsFresh` already distrusts such rows, so the cap must not
+// keep one at a real row's expense. Clamping the sort key to `now` does not
+// achieve this; the clamped row still sorts at or above every real one.
 void BridgeLabelStoreTest::theCapEvictsAFutureStampedRowBeforeAFreshOne()
 {
     const qint64 now = QDateTime::currentSecsSinceEpoch();
     QJsonObject root;
-    // One row stamped in the future, and kMaxEntries genuinely fresh
-    // ones. Exactly one must go, and it must be the future row.
+    // One future-stamped row and kMaxEntries fresh ones: exactly one goes,
+    // the future row.
     QJsonObject ahead;
     ahead.insert(QStringLiteral("n"), QStringLiteral("irc"));
     ahead.insert(QStringLiteral("l"), QStringLiteral("IRC"));

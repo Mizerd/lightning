@@ -1,7 +1,6 @@
-// v0.6.1: shared GIF provider abstraction. Verifies endpoint construction,
-// API-key injection, pagination convention, safe-search mapping, attribution,
-// parse dispatch and the factory — for both GIPHY and KLIPY — without any
-// network. Keys used here are placeholders, never real.
+// GIF provider abstraction: endpoint construction, API-key injection,
+// pagination, safe-search mapping, attribution, parse dispatch and the factory
+// for GIPHY and KLIPY, without network. Keys here are placeholders.
 
 #include "gif/GifProvider.h"
 

@@ -1,7 +1,7 @@
-// v0.9 slash commands: what the COMPOSER does with a parsed command — the
-// half SlashCommandsTest (pure parser) cannot see. A recording client pins
-// which backend verb ran, with which arguments and which body spec, and the
-// draft-preservation contract: a refusal never destroys what the user typed.
+// Slash commands: what the composer does with a parsed command (the parser
+// itself is SlashCommandsTest). A recording client pins which backend verb
+// ran, with which arguments and body spec, and that a refusal never destroys
+// the draft.
 
 #include "matrix/MatrixClient.h"
 #include "models/MessageComposer.h"
@@ -177,9 +177,8 @@ private Q_SLOTS:
 
     // ── Typing privacy (Settings -> Privacy -> Reading and typing) ──────
     //
-    // Typing notices are the highest-frequency disclosure a chat client
-    // makes. The setting has to stop them at the source, and it has to deal
-    // with being switched off MID-NOTICE.
+    // The setting stops typing notices at the source, including one already
+    // live when it is switched off.
 
     void typingNoticesAreSentByDefault()
     {
@@ -197,9 +196,8 @@ private Q_SLOTS:
                  "no typing notice may leave the device while it is off");
     }
 
-    // Turning it off WHILE a notice is live must retract it now. The server
-    // would eventually time the notice out on its own, but "you will stop
-    // appearing to type within thirty seconds" is not what the switch says.
+    // Turning it off while a notice is live retracts it immediately rather
+    // than waiting for the server's timeout.
     void turningItOffMidNoticeSendsTheStopImmediately()
     {
         m_composer->setText(QStringLiteral("hello"));
@@ -263,16 +261,8 @@ private Q_SLOTS:
         QVERIFY(m_composer->commandError().isEmpty());
     }
 
-    // AN UNKNOWN COMMAND IS SENT, NOT REFUSED.
-    //
-    // Reported as issue #11: people run bots whose command sets Lightning
-    // cannot know, so "/new" met "Unknown command. It was not sent." and a
-    // mouse trip to a button, every time. A client cannot tell a bot's
-    // command from a typo, and blocking every one to guard against the typo
-    // is the wrong trade.
-    //
-    // FAIL-ON-OLD: the old behaviour left `sends` empty and set a command
-    // error, so both assertions below fail.
+    // An unknown command is sent as text with its slash intact: a client
+    // cannot tell a bot's command from a typo.
     void unknownCommandIsSentAsTextWithItsSlashIntact()
     {
         m_composer->setText(QStringLiteral("/frobnicate hard"));
@@ -285,9 +275,8 @@ private Q_SLOTS:
         QCOMPARE(m_composer->text(), QString());
     }
 
-    // ...AND A KNOWN COMMAND WITH BAD ARGUMENTS STILL REFUSES, because there
-    // Lightning does know what was meant. Losing this would turn every
-    // mistyped real command into a message in the room.
+    // ...but a known command with bad arguments still refuses, since there
+    // Lightning knows what was meant.
     void aKnownCommandWithMissingArgumentsStillRefuses()
     {
         m_composer->setText(QStringLiteral("/me"));
@@ -455,20 +444,9 @@ private Q_SLOTS:
         QVERIFY(comps.first().toMap().value(QStringLiteral("enabled")).toBool());
     }
 
-    // AN EDIT GOES TO THE TIMELINE THAT HOLDS THE EVENT, not to the
-    // composer's own room.
-    //
-    // The thread panel's Edit routes through THIS composer, whose roomId is
-    // the room. matrix-sdk resolves an edit against the timeline's own item
-    // list, and the live room timeline is built `hide_threaded_events: true`,
-    // so a thread reply edited with the room id was looked up in a list it is
-    // not in and failed every single time with "The edit could not be
-    // applied." Redact, retry/cancel and react each had exactly this defect
-    // and each was fixed by carrying the thread's identity; edit was the last
-    // one, because its caller had none to carry.
-    //
-    // FAIL-ON-OLD: before beginEdit took a timeline id, the recorded room was
-    // kRoom for both halves and the first QCOMPARE fails.
+    // An edit goes to the timeline that holds the event, not the composer's
+    // own room: the live room timeline hides threaded events, so a thread
+    // reply's edit must carry the thread's timeline id.
     void anEditIsSentToTheTimelineThatHoldsTheEvent()
     {
         const QString composite =

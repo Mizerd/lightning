@@ -1,9 +1,7 @@
-// v0.7.x server-side message search: debounced dispatch, roomName
-// resolution against the authoritative room list, next_batch paging, stale
-// superseding, scope-change clears, and sign-out invalidation. Encrypted
-// rooms are excluded SERVER-side (the server cannot search ciphertext);
-// that exclusion is a protocol fact the UI discloses, not something this
-// model could observe against the mock.
+// Server-side message search: debounced dispatch, roomName resolution against
+// the room list, next_batch paging, stale superseding, scope-change clears
+// and sign-out invalidation. Encrypted rooms are excluded by the server, which
+// this mock cannot observe.
 
 #include "matrix/MockMatrixClient.h"
 #include "models/MessageSearchController.h"
@@ -31,11 +29,9 @@ QVariantMap resultRow(const QString &roomId, const QString &eventId,
     return row;
 }
 
-// A local-search backend whose corpus size and page size the test controls.
-// MockMatrixClient::localSearch answers from its seeded timeline, and the
-// paging defect below only appears once the index holds at least one full
-// page — so this records every LIMIT the controller asks for and answers
-// with exactly as many rows as an index of `available` matches would.
+// A local-search backend whose corpus size and page size the test controls:
+// it records every LIMIT the controller asks for and answers with as many
+// rows as an index of `available` matches would.
 class PagedLocalSearchClient final : public MockMatrixClient
 {
     Q_OBJECT
@@ -93,10 +89,8 @@ private Q_SLOTS:
         MessageSearchController model;
         model.setDebounceMs(0);
         model.setClient(&client);
-        // THIS SUITE IS ABOUT SERVER SEARCH. Since the local index landed the
-        // controller prefers "local" wherever a backend has one, and
-        // MockMatrixClient now does — so a case that means the /search path
-        // has to say so, or it silently starts testing the other one.
+        // Server search explicitly: the mock also has a local index, which
+        // the controller would otherwise prefer.
         model.setSource(QStringLiteral("server"));
         QVERIFY(model.supported());
 
@@ -126,10 +120,8 @@ private Q_SLOTS:
         MessageSearchController model;
         model.setDebounceMs(0);
         model.setClient(&client);
-        // THIS SUITE IS ABOUT SERVER SEARCH. Since the local index landed the
-        // controller prefers "local" wherever a backend has one, and
-        // MockMatrixClient now does — so a case that means the /search path
-        // has to say so, or it silently starts testing the other one.
+        // Server search explicitly: the mock also has a local index, which
+        // the controller would otherwise prefer.
         model.setSource(QStringLiteral("server"));
         client.mockSearchResults = { resultRow(
             QStringLiteral("!general:mock.local"), QStringLiteral("$e1"),
@@ -148,10 +140,8 @@ private Q_SLOTS:
         MessageSearchController model;
         model.setDebounceMs(0);
         model.setClient(&client);
-        // THIS SUITE IS ABOUT SERVER SEARCH. Since the local index landed the
-        // controller prefers "local" wherever a backend has one, and
-        // MockMatrixClient now does — so a case that means the /search path
-        // has to say so, or it silently starts testing the other one.
+        // Server search explicitly: the mock also has a local index, which
+        // the controller would otherwise prefer.
         model.setSource(QStringLiteral("server"));
         client.mockSearchResults = { resultRow(
             QStringLiteral("!general:mock.local"), QStringLiteral("$e1"),
@@ -172,10 +162,8 @@ private Q_SLOTS:
         MessageSearchController model;
         model.setDebounceMs(0);
         model.setClient(&client);
-        // THIS SUITE IS ABOUT SERVER SEARCH. Since the local index landed the
-        // controller prefers "local" wherever a backend has one, and
-        // MockMatrixClient now does — so a case that means the /search path
-        // has to say so, or it silently starts testing the other one.
+        // Server search explicitly: the mock also has a local index, which
+        // the controller would otherwise prefer.
         model.setSource(QStringLiteral("server"));
         client.mockSearchResults = { resultRow(
             QStringLiteral("!general:mock.local"), QStringLiteral("$e1"),
@@ -196,10 +184,8 @@ private Q_SLOTS:
         MessageSearchController model;
         model.setDebounceMs(0);
         model.setClient(&client);
-        // THIS SUITE IS ABOUT SERVER SEARCH. Since the local index landed the
-        // controller prefers "local" wherever a backend has one, and
-        // MockMatrixClient now does — so a case that means the /search path
-        // has to say so, or it silently starts testing the other one.
+        // Server search explicitly: the mock also has a local index, which
+        // the controller would otherwise prefer.
         model.setSource(QStringLiteral("server"));
         client.mockSearchResults = { resultRow(
             QStringLiteral("!general:mock.local"), QStringLiteral("$old"),
@@ -222,10 +208,8 @@ private Q_SLOTS:
         MessageSearchController model;
         model.setDebounceMs(0);
         model.setClient(&client);
-        // THIS SUITE IS ABOUT SERVER SEARCH. Since the local index landed the
-        // controller prefers "local" wherever a backend has one, and
-        // MockMatrixClient now does — so a case that means the /search path
-        // has to say so, or it silently starts testing the other one.
+        // Server search explicitly: the mock also has a local index, which
+        // the controller would otherwise prefer.
         model.setSource(QStringLiteral("server"));
         model.setRoomId(QStringLiteral("!general:mock.local"));
 
@@ -275,10 +259,8 @@ private Q_SLOTS:
         MessageSearchController model;
         model.setDebounceMs(0);
         model.setClient(&client);
-        // THIS SUITE IS ABOUT SERVER SEARCH. Since the local index landed the
-        // controller prefers "local" wherever a backend has one, and
-        // MockMatrixClient now does — so a case that means the /search path
-        // has to say so, or it silently starts testing the other one.
+        // Server search explicitly: the mock also has a local index, which
+        // the controller would otherwise prefer.
         model.setSource(QStringLiteral("server"));
         client.mockSearchResults = { resultRow(
             QStringLiteral("!general:mock.local"), QStringLiteral("$e1"),
@@ -291,17 +273,8 @@ private Q_SLOTS:
     }
     // ── Indexing under a live result list must refresh it ────────────────
     //
-    // Found by driving the real client against a real homeserver: with the
-    // find bar open on an encrypted room, the coverage line went 31 -> 32
-    // while the list below it still read "No messages found in this room's
-    // history" for the message that had just been indexed. Only editing the
-    // query revealed it.
-    //
-    // Two paths, and the second is the one that was broken. A sweep runs on
-    // a five-minute timer underneath whatever is on screen; and an explicit
-    // "Index this room" used to refresh ONLY when it wrote something, so a
-    // sweep that had already indexed the message seconds earlier left the
-    // button doing visibly nothing.
+    // Both a background sweep and an explicit "Index this room" must refresh
+    // the visible results, the latter even when it wrote nothing.
     void indexingUnderALiveResultListRefreshesIt()
     {
         MockMatrixClient client;
@@ -327,27 +300,18 @@ private Q_SLOTS:
         QTest::qWait(120);
         QCOMPARE(searches.count(), before);
 
-        // An explicit "Index this room" refreshes even when it writes
-        // NOTHING. The mock's deepen answers written == 0, which is exactly
-        // the live case: the sweep had already indexed the message, so the
-        // button used to complete while the stale list stayed on screen.
+        // An explicit "Index this room" refreshes even when it writes nothing
+        // (the mock's deepen answers written == 0).
         before = searches.count();
         model.indexRoomHistory(QStringLiteral("!general:mock.local"));
         QTRY_VERIFY_WITH_TIMEOUT(searches.count() > before, kSignalTimeoutMs);
     }
 
-    // ── The date bounds, ISOLATED ────────────────────────────────────────
+    // ── The date bounds, isolated ────────────────────────────────────────
     //
-    // The combined-filter case above sets afterMs/beforeMs alongside four
-    // other filters, and its two negative rows already fail on msgtype and on
-    // mentions — so it passes unchanged with both date clauses DELETED. This
-    // one differs ONLY by timestamp and sets ONLY the bounds, so it fails if
-    // either clause goes or flips its comparison.
-    //
-    // The upper bound is deliberately EXCLUSIVE (`>= m_beforeMs` rejects),
-    // which is what makes "before 1 Jan" mean the whole of 31 Dec and not one
-    // millisecond of 1 Jan; `atUpperBound` pins that, and it is the assertion
-    // an inclusive comparison would break.
+    // Rows differ only by timestamp and only the bounds are set, so this fails
+    // if either clause goes or flips. The upper bound is exclusive, so "before
+    // 1 Jan" means all of 31 Dec; `atUpperBound` pins that.
     void dateBoundsAloneDecideWhichRowsSurvive()
     {
         MockMatrixClient client;
@@ -388,21 +352,10 @@ private Q_SLOTS:
                                      QStringLiteral("$inside") }));
     }
 
-    // A LOCAL PAGE IS FULL RELATIVE TO WHAT IT ASKED FOR, NOT TO kLocalPage.
-    //
-    // Local search has no cursor, so "load more" re-runs the query with a
-    // BIGGER limit (rows + 50) and replaces the model. The completion tested
-    // `results.size() >= kLocalPage` — the constant — so from the second
-    // page on it compared a 100-row request against 50. Once the index held
-    // 50 matches, the short page that PROVES exhaustion read as a full one:
-    // canLoadMore stayed true, and the results list auto-fires loadMore on
-    // onAtYEndChanged. Each redundant page replaces the rows inside
-    // begin/endResetModel, which drops contentY to 0 and re-satisfies
-    // atYEnd — so it spins rather than stalls, re-running the query against
-    // a live FTS5 index for as long as the panel is open.
-    //
-    // FAIL-ON-OLD: the unfixed tree fails the "index is exhausted" QVERIFY2
-    // below (50 >= 50 says there is more).
+    // A local page is full relative to what it asked for, not to kLocalPage.
+    // "Load more" re-runs local search with a bigger limit (rows + 50), so
+    // comparing against the constant made an exhausted index look like it
+    // had more, and the list kept auto-loading.
     void aLocalPageIsFullOnlyRelativeToWhatItAskedFor()
     {
         PagedLocalSearchClient client;
@@ -444,22 +397,10 @@ private Q_SLOTS:
         QVERIFY(model.canLoadMore());
     }
 
-    // THE NEXT LIMIT GROWS FROM THE RAW PAGE, NOT FROM THE FILTERED ROWS.
-    //
-    // The sibling of the case above, and the half it does not reach. The
-    // exhaustion test counts RAW results (the filters run on this side, so a
-    // filtered count says nothing about what the index had left) — but the
-    // next request's limit was `m_rows.size() + kLocalPage`, and m_rows is
-    // what SURVIVED matchesFilters(). Mix the two populations and a filter
-    // that drops a whole page freezes the limit: 0 + 50 forever, every page
-    // answering `50 >= 50`, canLoadMore() never clearing.
-    //
-    // Every row the mock produces carries timestampMs 1700000000000, so an
-    // afterMs one millisecond later drops all of them and leaves the raw
-    // count untouched — exactly the shape.
-    //
-    // FAIL-ON-OLD: the unfixed tree asks for 50 twice and never clears
-    // canLoadMore; both QCOMPAREs below fail.
+    // The next limit grows from the raw page, not from the filtered rows: a
+    // filter that drops a whole page must not freeze the limit at 0 + 50.
+    // Every mock row has timestampMs 1700000000000, so an afterMs one
+    // millisecond later drops all of them.
     void aFullyFilteredPageStillGrowsTheNextRequestsLimit()
     {
         PagedLocalSearchClient client;
@@ -488,15 +429,9 @@ private Q_SLOTS:
 
     // ── The two producers must spell the sender the same way ─────────────
     //
-    // MessageSearchController is shared by SERVER search and the LOCAL index,
-    // and it reads one key: senderDisplayName. Both local-search producers
-    // (the Rust bridge and this mock) used to emit "senderName" instead, so
-    // every local result reached the find bar with an empty sender — which
-    // rendered in the results list and in the Accessible name, and which no
-    // unit test could see because none of them read a local row's sender.
-    //
-    // Asserts the VALUE, not merely that a role exists: an empty string is
-    // exactly what the defect produced.
+    // Server and local results both reach the model through
+    // senderDisplayName. Asserts the value, since an empty string is the
+    // failure.
     void aLocalResultCarriesItsSenderThroughToTheModel()
     {
         MockMatrixClient client;

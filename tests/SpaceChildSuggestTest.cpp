@@ -1,9 +1,7 @@
-// 2026-08-19 Element-parity round: SpaceManager::setSpaceChildSuggested
-// plumbing — pending-op tracking against MatrixClient's
-// spaceChildSuggestedFinished, foreign-op rejection, the refused-send
-// (opId 0) immediate failure, and account isolation on logout. The wire
-// behavior (state-event read-modify-send preserving via/order) is Rust
-// and is not what this suite proves.
+// SpaceManager::setSpaceChildSuggested plumbing: pending-op tracking against
+// spaceChildSuggestedFinished, foreign-op rejection, the refused-send (opId 0)
+// immediate failure, and account isolation on logout. The Rust wire behaviour
+// is not covered here.
 #include <QSignalSpy>
 #include <QtTest>
 
@@ -94,7 +92,7 @@ public:
 const QString kSpace = QStringLiteral("!space:example.org");
 const QString kRoom = QStringLiteral("!room:example.org");
 
-// ---- Space Home lobby fixture (2026-09-23) --------------------------------
+// ---- Space Home lobby fixture ---------------------------------------------
 //
 //   !home                      (the Space whose Home is open)
 //     !general   joined room    topic from sync
@@ -331,10 +329,10 @@ private Q_SLOTS:
         QCOMPARE(done.count(), 0);
     }
 
-    // ---- The Space Home lobby (2026-09-23) --------------------------------
+    // ---- The Space Home lobby ---------------------------------------------
 
-    // THE REPORT: "you cant tell which rooms belong to each space". The flat
-    // list read childRoomsDetailed(), which is transitive.
+    // The lobby groups each room under the Space it belongs to, rather than
+    // one flat list from the transitive childRoomsDetailed().
     void lobbyGroupsEachRoomUnderItsOwnSpace()
     {
         const QVariantList secs = sections();
@@ -425,8 +423,8 @@ private Q_SLOTS:
         // Remove to change: not selectable.
         QVERIFY(!row[QStringLiteral("!late:example.org")]
                      .value(QStringLiteral("selectable")).toBool());
-        // ONE unread rule: a count alone makes a row unread, and the section
-        // says so too (it used to draw a folded total with no row badge).
+        // One unread rule: a count alone makes a row unread, and the section
+        // says so too.
         QVERIFY(row[kA1].value(QStringLiteral("hasUnread")).toBool());
         QVERIFY(!row[kA2].value(QStringLiteral("hasUnread")).toBool());
         QVERIFY(secs.at(1).toMap().value(QStringLiteral("hasUnread")).toBool());
@@ -533,11 +531,9 @@ private Q_SLOTS:
         QVERIFY(!mgr.lobbySectionCollapsed(kHome, kSubA));
     }
 
-    // Remove may only send into the Space the room is a DIRECT child of.
-    // The lobby lets a manager select a subspace (a direct child that is a
-    // Space) and an unjoined child; the old transitive pre-check reported
-    // both "removed" without sending anything, and would have sent an
-    // empty-via m.space.child into the Home for a SUBSPACE's room.
+    // Remove may only send into the Space the room is a direct child of: a
+    // selected subspace or unjoined child must not be reported removed
+    // without a send.
     void removeActsOnDirectChildrenOnly()
     {
         FakeClient client;

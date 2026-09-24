@@ -1,18 +1,17 @@
 // Profile bios (MSC4440 over MSC4133) and the decorative badge table.
 //
-// The wire format and the sanitizing live in rust/src/bio.rs and are covered
-// there. This is the POLICY half, and what it pins is the honesty:
+// The wire format and sanitizing are covered in rust/src/bio.rs. This is the
+// policy half:
 //
-//   * "this user has no bio", "we have not asked yet" and "this homeserver
-//     does not implement extended profile fields" are three different facts
-//     that all render as NOTHING, and only the third stops the client asking;
-//   * an absent field is M_NOT_FOUND — a server answering correctly — and is
-//     never an error, never a latch, and never a placeholder;
-//   * nothing is applied optimistically: `ownBio` changes only once the
-//     server has accepted the write, and it takes the value the WRITE PATH
-//     reports, which is the bounded text actually stored;
-//   * a badge is a fixed local table lookup with no session, no network and
-//     no Matrix state behind it.
+//   * "no bio", "not asked yet" and "this homeserver does not implement
+//     extended profile fields" all render as nothing, and only the third
+//     stops the client asking;
+//   * an absent field is M_NOT_FOUND, a correct answer: never an error, a
+//     latch or a placeholder;
+//   * nothing is optimistic: `ownBio` changes only once the server accepts
+//     the write, and takes the bounded text the write path reports;
+//   * a badge is a fixed local table lookup with no session, network or
+//     Matrix state behind it.
 
 #include "matrix/MockMatrixClient.h"
 #include "profile/ProfileBadges.h"
@@ -86,10 +85,9 @@ private Q_SLOTS:
         QCOMPARE(revisions.count(), 1);
     }
 
-    // THE distinction the whole feature turns on: a user with no bio answers
-    // M_NOT_FOUND, which the Rust side reports as supported == true with an
-    // empty string. It must not look like a server without extended profiles,
-    // because that one hides the editing surface for everybody.
+    // A user with no bio answers M_NOT_FOUND (supported == true, empty
+    // string), which must not look like a server without extended profiles:
+    // that hides the editing surface.
     void anAbsentBioIsNotAnUnsupportedServer()
     {
         FakeBioClient client;
@@ -162,8 +160,8 @@ private Q_SLOTS:
         bios.setOwnBio(QStringLiteral("again"));
         QCOMPARE(client.writes.size(), 1);
 
-        // The value cached is what the WRITE PATH reports actually stored —
-        // the bounded, sanitized text, not what was typed.
+        // The cached value is what the write path reports stored (bounded and
+        // sanitized), not what was typed.
         Q_EMIT client.profileBioSet(client.lastWriteOp, true,
                                     QStringLiteral("typed"), QString());
         QVERIFY(!bios.busy());
@@ -279,7 +277,7 @@ private Q_SLOTS:
                                  + QStringLiteral(":elsewhere.example")));
     }
 
-    // The thank-you the round exists for.
+    // The recorded badge is the one that was awarded.
     void theRecordedBadgeIsTheOneThatWasAwarded()
     {
         ProfileBadges badges;

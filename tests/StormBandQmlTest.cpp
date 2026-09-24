@@ -1,18 +1,13 @@
-// StormBand.qml: the About page's procedural storm-landscape band. Proves
-// the runtime component contract — pixel content itself is
-// StormBandPainterTest's job: loading zero-warning through the real
-// "MatrixClient" QML module with the real image provider registered (a
-// missing provider surfaces as a qmlWarning from a failed Image fetch, so
-// registering it here is load-bearing, not decoration), fixed geometry, no
-// pointer interception, and the reduced-motion / off-screen animation gate
-// (the same `animating` idiom qml/Skeleton.qml already establishes). Also
-// runs source-level contract scans against the checked-in file, the same
-// idiom tests/ThemeTokensTest.cpp and tests/IconChromeTest.cpp use.
+// StormBand.qml: the About page's procedural storm-landscape band. The runtime
+// component contract (pixels are StormBandPainterTest's job): zero-warning
+// load through the real "MatrixClient" QML module with the real image
+// provider registered (a missing provider surfaces as a qmlWarning), fixed
+// geometry, no pointer interception, and the reduced-motion / off-screen
+// animation gate (the `animating` idiom from qml/Skeleton.qml). Also runs
+// source-level contract scans against the file.
 //
-// StormBand.qml depends only on the AppTheme singleton and the Window
-// attached property, so — like the Skeleton coverage in
-// tests/MediaPlaceholderQmlTest.cpp — this loads the component directly
-// with no AppController/context properties required.
+// StormBand.qml depends only on AppTheme and the Window attached property, so
+// it loads directly with no AppController or context properties.
 #include <QtTest/QtTest>
 
 #include <QFile>

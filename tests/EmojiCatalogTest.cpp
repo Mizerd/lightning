@@ -31,11 +31,10 @@ private Q_SLOTS:
         QCoreApplication::setApplicationName(QStringLiteral("catalogue"));
     }
 
-    // v0.7: category switching swaps a precomputed bucket — it must stay a
-    // constant-time list swap, never an O(catalogue) rescan per tab click.
-    // The bound is deliberately generous (no flaky micro-benchmark): 200
-    // switches across every category must finish far inside a second, and
-    // each switch must land on a populated, category-consistent bucket.
+    // Category switching swaps a precomputed bucket: constant time, never a
+    // full-catalogue rescan per click. The bound is generous to avoid flakes:
+    // 200 switches must finish well inside a second, each landing on a
+    // populated, consistent bucket.
     void categorySwitchingIsBucketSwapFast()
     {
         EmojiCatalog catalog(nullptr);
@@ -138,10 +137,7 @@ private Q_SLOTS:
     }
 
     // Big-emoji detection: one user-perceived sequence counts once, any
-    // non-whitespace text disables it, the count saturates at 4. The old
-    // catalogue had no emojiOnlySequenceCount at all (messages of 1-3 emoji
-    // rendered at ordinary body size), so this suite is the regression net
-    // for the large-emoji feature.
+    // non-whitespace text disables it, and the count saturates at 4.
     void emojiOnlySequenceCount_data()
     {
         QTest::addColumn<QString>("text");

@@ -1,25 +1,14 @@
-// v0.7.4: behavioural suite for qml/CodeBlock.qml.
-//
-// The defect this component exists for is a GEOMETRY defect: Qt's rich-text
-// engine does not wrap <pre>, so one long terminal line laid the message
-// TextEdit out far past its own width and — because MessageDelegate's root is
-// deliberately clip:false so the hover action bar can overhang — escaped the
-// bubble and the timeline. A source scan cannot see that, and neither can a
-// unit test of the parser: it is only visible in real instantiated geometry.
-// So every case here loads the production component offscreen and measures it.
-//
-// The four contracts pinned:
-//   * a line far wider than any pane never widens the component (the overflow
-//     becomes contentX inside a clipping Flickable, never geometry);
-//   * the gutter has exactly one number per source line, and is not selectable
-//     text that could ride along into a copy;
-//   * Copy yields the program EXACTLY — no line numbers, no gutter padding;
-//   * the height is bounded and the content still scrolls past the bound.
-//
-// Plus the nested-scroll hazard, which is the one that would be found last and
-// hurt most: the room timeline's WheelHandler is the single pointer-wheel
-// owner, and wheel events are delivered innermost-first. A code block that
-// accepted a vertical notch would trap a reader mid-conversation.
+// Behavioural suite for qml/CodeBlock.qml. Qt's rich-text engine does not
+// wrap <pre>, and MessageDelegate's root is clip:false (for the hover bar),
+// so a long line could escape the bubble; only real instantiated geometry
+// shows that. Pinned:
+//   * a line wider than any pane never widens the component (the overflow is
+//     contentX inside a clipping Flickable);
+//   * the gutter has one number per source line and is not selectable;
+//   * Copy yields exactly the program, with no line numbers or padding;
+//   * the height is bounded and the content scrolls past the bound;
+//   * a vertical wheel notch is left to the timeline's WheelHandler (wheel
+//     events go innermost-first, so accepting it would trap the reader).
 
 #include <QtTest/QtTest>
 
@@ -63,9 +52,8 @@ class CodeBlockQmlTest : public QObject
 
 private:
     struct Harness {
-        // Declared FIRST so it is destroyed LAST: the warning lambda below
-        // captures it by reference and the engine can still emit during its
-        // own teardown.
+        // Declared first so it is destroyed last: the warning lambda captures
+        // it and the engine can still emit during teardown.
         QStringList warnings;
         std::unique_ptr<QQmlEngine> engine;
         std::unique_ptr<QQuickWindow> window;
@@ -80,10 +68,8 @@ private:
         }
     };
 
-    // The code is injected through setProperty rather than baked into the QML
-    // source, so no test has to escape tabs, newlines or quotes into a string
-    // literal inside a string literal — the fixture text stays readable and,
-    // more importantly, stays EXACTLY what the assertion compares against.
+    // The code is injected through setProperty, so fixtures need no escaping
+    // and stay exactly what the assertions compare against.
     bool build(Harness &h, const QString &code,
                const QString &language = QString())
     {
@@ -163,24 +149,19 @@ Item {
         QCoreApplication::processEvents();
     }
 
-    // ── The segment HOST, not the block ─────────────────────────────────
-    // A fenced block does not render alone: MessageDelegate replaces the
-    // single body TextEdit with a Repeater of segment rows, and that host is
-    // where the geometry of a code block actually lands. These cases load the
-    // real MessageDelegate with a real TimelineModel role schema, exactly as
-    // the timeline does.
+    // The segment host: MessageDelegate replaces the body TextEdit with a
+    // Repeater of segment rows, which is where a code block's geometry lands.
+    // These cases load the real MessageDelegate with the TimelineModel role
+    // schema.
     struct RowHarness {
-        // Declared FIRST so it is destroyed LAST -- the warning lambda below
-        // captures it by reference and the engine still emits during its own
-        // teardown.
+        // Declared first so it is destroyed last (see the CodeBlock harness).
         QStringList warnings;
         std::unique_ptr<AppController> controller;
         std::unique_ptr<QQmlApplicationEngine> engine;
         std::unique_ptr<QQuickWindow> window;
-        // Owned explicitly and destroyed FIRST, exactly as the CodeBlock
-        // harness above does: component.create() hands back an object with no
-        // QObject parent, and the QML tree must go before the engine that
-        // built it and before the AppController its bindings reach into.
+        // Owned explicitly and destroyed first: component.create() returns an
+        // unparented object, and the QML tree must go before the engine and the
+        // AppController its bindings reach.
         std::unique_ptr<QObject> hostOwner;
         QQuickItem *host = nullptr;
         QQuickItem *row = nullptr;
@@ -220,9 +201,7 @@ Item {
         return segment(1, code, language);
     }
 
-    // Long enough that it cannot fit the cap at any window width these cases
-    // use, so "reaches the cap and wraps" is a property of the text and not
-    // of a lucky fixture size.
+    // Long enough to exceed the cap at every width these cases use.
     static QString longProse()
     {
         return QStringLiteral(
@@ -231,9 +210,8 @@ Item {
             "width whatsoever, twice over if need be.");
     }
 
-    // The Repeater's delegates, in the order the column lays them out.
-    // findChildren() makes no ordering promise; the layout's own child list
-    // does, and these cases assert on "the first segment" by position.
+    // The Repeater's delegates in layout order; findChildren() promises no
+    // order, the layout's child list does.
     static QList<QQuickItem *> segmentRows(const RowHarness &h)
     {
         QList<QQuickItem *> rows;
@@ -346,10 +324,8 @@ private:
     QTemporaryDir m_configHome;
 
 private Q_SLOTS:
-    // The segment-host cases construct a real AppController, which owns a
-    // SettingsManager backed by QSettings. Redirect the whole suite at a
-    // temporary config home so a test can never read or write the developer's
-    // own Lightning settings.
+    // The segment-host cases build a real AppController with QSettings, so the
+    // suite uses a temporary config home.
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());
@@ -361,11 +337,9 @@ private Q_SLOTS:
         QSettings().clear();
     }
 
-    // THE defect. A 5000-character line must not become 5000 characters of
-    // geometry: the component stays inside the width it was given, its
-    // implicit width stays bounded (so it cannot inflate the bubble or the
-    // enclosing layout either), and the overflow lives in a CLIPPING
-    // Flickable's contentWidth instead.
+    // A 5000-character line must not become 5000 characters of geometry: the
+    // component stays inside its width, its implicit width stays bounded, and
+    // the overflow is a clipping Flickable's contentWidth.
     void oneVeryLongLineNeverWidensTheComponent()
     {
         Harness h;
@@ -377,8 +351,7 @@ private Q_SLOTS:
                                            "it was given")
                                 .arg(h.block->width())));
         // A plain non-wrapping TextEdit reports the whole line as its implicit
-        // width (tens of thousands of pixels) and drags the enclosing layout
-        // with it — that is precisely the escape this clamp prevents.
+        // width and drags the layout with it; this clamp prevents that.
         const qreal implicit = h.block->implicitWidth();
         QVERIFY2(implicit <= 761.0,
                  qPrintable(QStringLiteral("implicitWidth %1 is unbounded")
@@ -397,8 +370,8 @@ private Q_SLOTS:
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // Short code must not scroll horizontally at all, or every ordinary
-    // snippet would show a scrollbar it does not need.
+    // Short code does not scroll horizontally, so ordinary snippets show no
+    // scrollbar.
     void shortCodeDoesNotOverflowHorizontally()
     {
         Harness h;
@@ -409,8 +382,8 @@ private Q_SLOTS:
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // One gutter number per source line, in order. wrapMode is NoWrap, so a
-    // source line is exactly one visual line and the two cannot drift.
+    // One gutter number per source line, in order. wrapMode is NoWrap, so
+    // source and visual lines cannot drift.
     void gutterHasExactlyOneNumberPerLine()
     {
         Harness h;
@@ -425,16 +398,16 @@ private Q_SLOTS:
         QCOMPARE(numbers.first(), QStringLiteral("1"));
         QCOMPARE(numbers.last(), QStringLiteral("120"));
 
-        // A Text, never a TextEdit: if the gutter were selectable, a
-        // select-all inside the block would carry line numbers into the paste.
+        // A Text, not a TextEdit: a selectable gutter would put line numbers
+        // into a select-all paste.
         QVERIFY2(!gutter->property("selectByMouse").isValid(),
                  "the gutter is selectable text");
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // Copy yields the program and nothing else. The fixture deliberately
-    // starts a line with a digit and uses a tab, so gutter contamination or
-    // whitespace normalisation both show up as an inequality.
+    // Copy yields the program and nothing else. The fixture starts a line with
+    // a digit and uses a tab, so gutter contamination or whitespace
+    // normalisation both show.
     void copyYieldsExactlyTheCodeTextWithNoGutter()
     {
         const QString code =
@@ -446,12 +419,9 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(h.block, "copyCode"));
 
         const QString pasted = QGuiApplication::clipboard()->text();
-        // QTextCursor::selectedText() reports a block break as U+2029, so the
-        // hidden-TextEdit relay is only correct if QQuickTextControl::copy()
-        // normalises it. The production "copy message text" path uses the same
-        // relay on bodies that are routinely multi-line, so a failure here is a
-        // pre-existing defect in that path too — and the fix is a C++ clipboard
-        // helper, not a change to this component's structure.
+        // QTextCursor::selectedText() reports block breaks as U+2029, so the
+        // hidden-TextEdit relay relies on QQuickTextControl::copy() normalising
+        // it. The "copy message text" path uses the same relay.
         QVERIFY2(!pasted.contains(QChar(0x2029)),
                  "the clipboard carries U+2029 paragraph separators instead of "
                  "newlines");
@@ -464,25 +434,10 @@ private Q_SLOTS:
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // THE VERTICAL BAR NEVER PAINTS OVER THE WIDEST LINE.
-    //
-    // An attached ScrollBar overlays the Flickable's right edge and takes no
-    // layout width, and MessageDelegate lays a code segment out at its own
-    // natural width — so a block that fits under the cap had a viewport
-    // exactly as wide as its widest line, ZERO horizontal scroll range, and a
-    // 6px bar drawn over that line's last characters with nowhere to scroll
-    // them clear. Reported 2026-09-17 against an ASCII tree: tall enough to
-    // raise the bar, narrow enough not to clamp.
-    //
-    // The horizontal bar has had a reserved band since it was written
-    // (`horizontalBarSpace`); the vertical one simply never got one. This
-    // asserts the band exists in the SCROLLABLE EXTENT, which is where it has
-    // to be — a rightMargin would not do, because the overflow predicate, the
-    // Right key and the wheel router all clamp on contentWidth and none of
-    // them reads a margin.
-    //
-    // Fails on the unfixed tree by construction: contentWidth was exactly
-    // codeArea.implicitWidth there, so the difference is 0 and not >= 6.
+    // The vertical scrollbar never paints over the widest line. An attached
+    // ScrollBar takes no layout width, so contentWidth must reserve a band
+    // (not a rightMargin: the overflow predicate, Right key and wheel router
+    // all clamp on contentWidth).
     void theVerticalBarNeverPaintsOverTheWidestLine()
     {
         Harness h;
@@ -509,13 +464,11 @@ private Q_SLOTS:
                          .arg(contentWidth).arg(text->implicitWidth())
                          .arg(band)));
 
-        // And the band is NOT free-floating: it is exactly the reserve, so a
-        // future change that widens contentWidth for some other reason does
-        // not accidentally satisfy this case.
+        // The band is exactly the reserve, so an unrelated widening of
+        // contentWidth cannot satisfy this.
         QCOMPARE(band, h.block->property("verticalBarSpace").toReal());
 
-        // A block with nothing to scroll vertically reserves NOTHING, so
-        // every short block stays pixel-identical to before the fix.
+        // A block with nothing to scroll vertically reserves nothing.
         Harness shortBlock;
         QVERIFY(build(shortBlock, QStringLiteral("one line")));
         QTRY_VERIFY_WITH_TIMEOUT(shortBlock.block->height() > 0.0, kTimeoutMs);
@@ -523,8 +476,7 @@ private Q_SLOTS:
         QCOMPARE(shortBlock.block->property("verticalBarSpace").toReal(), 0.0);
     }
 
-    // The height is bounded, and the content that does not fit is reachable
-    // by scrolling rather than simply lost.
+    // The height is bounded and the rest is reachable by scrolling.
     void boundedHeightCapsAndTheContentStillScrollsPastIt()
     {
         Harness h;
@@ -550,9 +502,8 @@ private Q_SLOTS:
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // The nested-scroll hazard. A plain vertical notch over a code block must
-    // reach the outer wheel owner (in production, the timeline's
-    // timelineWheelHandler), and must NOT move the block's own content.
+    // A plain vertical notch over a code block reaches the outer wheel owner
+    // (timelineWheelHandler in production) and does not move the block.
     void verticalWheelIsLeftToTheTimeline()
     {
         Harness h;
@@ -574,8 +525,8 @@ private Q_SLOTS:
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // Shift+wheel is the block's own gesture: it scrolls the code sideways
-    // and does NOT reach the timeline. This is the only wheel the block takes.
+    // Shift+wheel scrolls the code sideways and stops there; it is the only
+    // wheel gesture the block takes.
     void shiftWheelScrollsTheCodeSidewaysAndStopsThere()
     {
         Harness h;
@@ -590,8 +541,8 @@ private Q_SLOTS:
 
         const QPointF centre = body->mapToScene(
             QPointF(body->width() / 2.0, body->height() / 2.0));
-        // Negative delta = "toward the end of the line", matching the
-        // wheel-down-scrolls-forward convention.
+        // Negative delta moves toward the end of the line (wheel-down scrolls
+        // forward).
         sendWheel(*h.window, centre, QPoint(0, -120), Qt::ShiftModifier);
 
         QTRY_VERIFY_WITH_TIMEOUT(
@@ -600,9 +551,8 @@ private Q_SLOTS:
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // The language token is re-validated here, not trusted: this label is
-    // user-visible and part of an accessible name, and a class attribute is
-    // sender-chosen text.
+    // The language token is re-validated: it is sender-chosen text shown to
+    // the user and used in an accessible name.
     void onlyAValidatedLanguageTokenIsShown()
     {
         Harness valid;
@@ -624,17 +574,10 @@ private Q_SLOTS:
             QVERIFY(build(bad, QStringLiteral("x"), hostile));
             QVERIFY2(bad.block->property("safeLanguage").toString().isEmpty(),
                      qPrintable(QStringLiteral("accepted %1").arg(hostile)));
-            // The label must not EXIST, not merely be invisible. A QQuickText
-            // is born carrying ItemObservesViewport and only
-            // QQuickText::setText clears it — and that function early-returns
-            // on an unchanged value BEFORE the clearing line, so a Label
-            // created holding "" keeps the flag for its whole life and
-            // defeats subtree pruning on every contentY change. Inside a
-            // timeline row that is the single most expensive QML mistake this
-            // codebase knows (2026-08-19: 3000 observers, 33.89 -> 10.39 ms
-            // per wheel notch once removed). Visibility is irrelevant to the
-            // mechanism, so a `visible: false` gate would NOT be a fix — the
-            // component uses a Loader, and this asserts that.
+            // The label must not exist, not merely be invisible: a Label
+            // created holding "" keeps ItemObservesViewport for its lifetime
+            // (QQuickText::setText early-returns before clearing it), which
+            // defeats subtree pruning in every timeline row. Hence a Loader.
             QVERIFY2(bad.find(QStringLiteral("codeBlockLanguageLabel"))
                          == nullptr,
                      qPrintable(QStringLiteral(
@@ -643,17 +586,16 @@ private Q_SLOTS:
         }
     }
 
-    // The code is rendered as PLAIN text. The segment text is already
-    // entity-decoded, so RichText here would re-interpret a program's own
-    // angle brackets as markup — the one thing this whole path exists to
-    // prevent.
+    // The code renders as plain text: the segment text is already
+    // entity-decoded, so RichText would reinterpret the program's angle
+    // brackets as markup.
     void codeIsRenderedAsPlainTextAndNeverWrapped()
     {
         Harness h;
         QVERIFY(build(h, QStringLiteral("<b>not bold</b> && <script>x</script>")));
         auto *text = h.find(QStringLiteral("codeBlockText"));
         QVERIFY(text != nullptr);
-        // Text.PlainText == 0, Text.NoWrap == 0 in the QML enums.
+        // Text.PlainText == 0 and Text.NoWrap == 0 in the QML enums.
         QCOMPARE(text->property("textFormat").toInt(), 0);
         QCOMPARE(text->property("wrapMode").toInt(), 0);
         QVERIFY(text->property("readOnly").toBool());
@@ -663,10 +605,8 @@ private Q_SLOTS:
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // "A visible focus state" is a requirement, not decoration: the block is
-    // keyboard-reachable (it owns horizontal scrolling and Ctrl+C), so a
-    // keyboard user must be able to see where they are. The focus ring is the
-    // frame border itself, in the shared focus ink — one outline, not two.
+    // The block is keyboard-reachable (horizontal scrolling, Ctrl+C), so it
+    // must show focus; the ring is the frame border in the shared focus ink.
     void focusIsReachableByTabAndVisiblyMarked()
     {
         Harness h;
@@ -692,28 +632,12 @@ private Q_SLOTS:
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // ── The segment host's geometry, and the loop it used to report ──────
-    //
-    // A live `scripts/run-dev.sh` run printed this four times while a room
-    // loaded, once per rich segment of the fenced messages in it:
-    //
-    //   MessageDelegate.qml:1954:43: QML QQuickItem*: Binding loop detected
-    //   for property "implicitWidth": MessageDelegate.qml:1970:37
-    //
-    // A binding loop is a WARNING, so nothing in the suite could fail on it.
-    // These cases collect QQmlEngine::warnings from a REAL MessageDelegate
-    // loaded over the real TimelineModel role schema and require ZERO of
-    // them — measured against the unfixed tree, this case reports one loop
-    // per rich segment in every layout.
-    //
-    // The mechanism, established by bisecting the two halves separately:
-    // reading QQuickTextEdit::implicitWidth from a binding is not a pure
-    // read (the first one sets requireImplicitWidth and runs updateSize(),
-    // which emits implicitWidthChanged while the binding is still on the
-    // stack), and a wrapping text item handed `min(cap, its own implicit
-    // width)` is being sized from its own measurement whenever that width
-    // is under the cap. A code segment has neither property and never
-    // looped; the split is what the fix encodes.
+    // A real MessageDelegate over the TimelineModel role schema must produce
+    // zero QML warnings, including binding loops (which are only warnings).
+    // Reading QQuickTextEdit::implicitWidth from a binding runs updateSize()
+    // and emits implicitWidthChanged mid-binding, and a wrapping text sized
+    // from min(cap, its own implicit width) measures itself; code segments do
+    // neither.
     void segmentedMessageRowsReportNoBindingLoop()
     {
         const QString prose = longProse();
@@ -733,10 +657,8 @@ private Q_SLOTS:
 
         struct Case { const char *name; QVariantList segments; QString body; };
         const QList<Case> cases{
-            // (a) and (b) carry no fenced block at all, so they render
-            // through the single-body TextEdit. They are here because the
-            // ordinary message is the majority of the timeline and the fix
-            // must not have moved the loop onto it.
+            // (a) and (b) have no fenced block and render through the single
+            // body TextEdit, the common case, which must not loop either.
             {"shortPlainMessage", QVariantList{}, QStringLiteral("ok")},
             {"longPlainMessage", QVariantList{}, prose},
             {"codeOnlyMessage", codeOnly, QStringLiteral("```\nls -la\n```")},
@@ -761,11 +683,9 @@ private Q_SLOTS:
         }
     }
 
-    // The behaviour the loop fix had to preserve. A segment reports its
-    // NATURAL width upward (that implicit width is what sizes a DM bubble),
-    // so a two-word tail must stay well under the cap while a paragraph must
-    // exceed it -- and the paragraph's text item must actually be laid out AT
-    // the cap, which is what makes it wrap instead of running off the row.
+    // A segment reports its natural width upward (it sizes a DM bubble): a
+    // short tail stays under the cap, a paragraph exceeds it and is laid out
+    // at the cap so it wraps.
     void aShortSegmentStaysNarrowAndAParagraphReachesTheCap()
     {
         RowHarness h;
@@ -791,10 +711,9 @@ private Q_SLOTS:
                                            "message would stretch its bubble")
                                 .arg(rows.at(2)->implicitWidth()).arg(cap)));
 
-        // The paragraph is laid out at the cap and wraps there. contentWidth
-        // is the widest laid-out line, so it can never exceed the width the
-        // item was given; a paragraph that did NOT wrap would report a
-        // content width equal to its (much larger) implicit width.
+        // contentWidth is the widest laid-out line, so a wrapped paragraph
+        // cannot exceed its given width; an unwrapped one would report its
+        // implicit width.
         auto *paragraph = rows.at(0)->findChild<QQuickItem *>(
             QStringLiteral("messageSegmentText"));
         QVERIFY(paragraph != nullptr);
@@ -804,11 +723,9 @@ private Q_SLOTS:
                  "the paragraph did not wrap at the cap");
     }
 
-    // A code-only message is the case the implicit-width propagation exists
-    // for: in Bubbles the bubble's width IS its content's implicit width, so
-    // a row reporting nothing collapses the whole message to the 60px floor.
-    // And the block must still be its own width -- `ls -la` in an
-    // edge-to-edge grey frame is the regression on the other side.
+    // In Bubbles the bubble width is its content's implicit width, so a
+    // code-only message must report one (or collapse to the 60px floor) while
+    // the block keeps its own width rather than filling the row.
     void aCodeOnlyMessageKeepsItsOwnWidthInsideABubble()
     {
         RowHarness h;
@@ -839,9 +756,8 @@ private Q_SLOTS:
         QVERIFY(bubbleItem->width() < cap);
     }
 
-    // The other end of the code block's contract, inside the delegate rather
-    // than standalone: a line wider than any pane clamps at the cap and the
-    // overflow becomes horizontal scroll range, never geometry.
+    // Inside the delegate, a line wider than any pane clamps at the cap and
+    // overflows into horizontal scroll range.
     void aWideCodeBlockClampsAtTheCapAndScrollsInstead()
     {
         RowHarness h;

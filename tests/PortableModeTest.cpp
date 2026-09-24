@@ -19,12 +19,10 @@
 
 // Hermetic, platform-neutral coverage for portable mode.
 //
-// Everything here runs through the PURE helpers (markerPresentIn,
-// dataRootFor, resolveAppDataBase, composeAppDataRoot) and the documented test
-// seam. Nothing writes a portable.marker beside the TEST EXECUTABLE — that
-// would leave a file in the build tree that silently turns every other binary
-// in it portable if a run ever aborted, which is a far worse failure than a
-// slightly indirect test.
+// Everything runs through the pure helpers (markerPresentIn, dataRootFor,
+// resolveAppDataBase, composeAppDataRoot) and the test seam. Nothing writes a
+// portable.marker beside the test executable, which would turn every binary
+// in the build tree portable if a run aborted.
 class PortableModeTest : public QObject
 {
     Q_OBJECT
@@ -63,9 +61,8 @@ private:
 void PortableModeTest::initTestCase()
 {
     QVERIFY(m_home.isValid());
-    // Isolate EVERY variable the non-portable paths can reach. A previous test
-    // in this project isolated only some of them and wrote into the
-    // maintainer's real data directory; the cost of over-isolating is nil.
+    // Isolate every variable the non-portable paths can reach, so nothing
+    // writes into the real data directory.
     const QByteArray home = m_home.path().toUtf8();
     qputenv("HOME", home);
     qputenv("XDG_DATA_HOME", home + "/xdg-data");
@@ -94,11 +91,9 @@ void PortableModeTest::cleanup()
 
 void PortableModeTest::realDecisionIsCachedAndDoesNotFlipMidProcess()
 {
-    // initTestCase() already forced the real decision. Turning the
-    // development override ON afterwards must NOT change the answer: a
-    // running process's storage location cannot be allowed to move, and a
-    // marker file that appears (or a variable that is set) mid-run is exactly
-    // the situation the cache exists to survive.
+    // initTestCase() already forced the decision. Turning the override on
+    // afterwards must not change it: a running process's storage location
+    // cannot move.
     qputenv("LIGHTNING_PORTABLE", "1");
     QVERIFY(!lightning::portable::isPortable());
     QVERIFY(lightning::portable::dataRoot().isEmpty());
@@ -334,11 +329,9 @@ void PortableModeTest::legacyRootsAreEmptyInPortableMode()
 
 void PortableModeTest::unresolvableExecutableDirectoryYieldsNoRootRatherThanAppData()
 {
-    // Portable, but the program directory could not be resolved (an empty
-    // GetModuleFileNameW / readlink result). The answer is "no root" — never a
-    // quiet fall-through to the environment, which would put the SDK store
-    // outside the folder the user copies and reintroduce the very bug portable
-    // mode fixes. main.cpp exits non-zero on this; nothing may paper over it.
+    // Portable, but the program directory could not be resolved: the answer
+    // is "no root", never a fall-through to the environment that would put the
+    // SDK store outside the folder. main.cpp exits non-zero on this.
     lightning::portable::setPortableOverrideForTest(true, QString());
 
     QVERIFY(lightning::portable::isPortable());
@@ -404,15 +397,9 @@ void PortableModeTest::prepareDataRootCreatesTheWholeTree()
     QVERIFY(!lightning::portable::prepareDataRoot().isEmpty());
 }
 
-// 2026-08-21: an external audit found three paths that still left the folder,
-// which is the one promise portable mode makes. Two were scratch
-// (QDir::tempPath() for voice recordings and animated media), and the third
-// was the UPDATER — it staged the new version and the displaced old one in
-// the PARENT of the portable folder, so a successful update on a USB stick
-// left `lightning-previous-version` sitting beside `Lightning\` and required
-// the parent to be writable.
-//
-// This pins the contract as PATHS, which is what the audit actually checked.
+// Every scratch and updater path stays inside the portable folder: voice
+// recordings and animated media scratch, and the updater's staging and
+// displaced previous version (never the folder's parent).
 void PortableModeTest::everyScratchAndUpdatePathStaysInsideTheFolder()
 {
     QTemporaryDir exeDir;
@@ -440,10 +427,8 @@ void PortableModeTest::everyScratchAndUpdatePathStaysInsideTheFolder()
     // The media scratch root IS the portable temp dir — not the OS one.
     QCOMPARE(lightning::portable::mediaScratchRoot(),
              lightning::portable::tempDir());
-    // ...and NOT the OS temp directory, which is where it used to go. (The
-    // containment loop above is the real guarantee; this names the specific
-    // regression so a failure reads as what it is. Compared against the bare
-    // path, since this fixture's own folder happens to live under /tmp.)
+    // ...and not the OS temp directory. Compared against the bare path, since
+    // this fixture's own folder lives under /tmp.
     QVERIFY2(lightning::portable::mediaScratchRoot() != QDir::tempPath(),
              "decrypted media scratch is still the OS temp directory");
 
@@ -637,11 +622,8 @@ QString PortableModeTest::grepForPath(const QString &dir, const QString &needle)
 
 void PortableModeTest::staleScratchIsSweptOnAnOrdinaryInstallToo()
 {
-    // The sweep used to read tempDir(), which is EMPTY unless portable, and
-    // to be called only inside main's portable block -- so on every ordinary
-    // install a crash left decrypted media under the OS temp directory for
-    // good. It now sweeps mediaScratchRoot(), which is where those payloads
-    // actually go.
+    // The sweep reads mediaScratchRoot(), where decrypted media actually goes,
+    // on ordinary installs too.
     QTemporaryDir exeDir;
     QVERIFY(exeDir.isValid());
     lightning::portable::setPortableOverrideForTest(false, exeDir.path());

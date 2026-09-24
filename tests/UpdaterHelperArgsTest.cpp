@@ -1,11 +1,9 @@
 // lightning-updater: argv contract and install-strategy planning.
 //
-// The helper accepts NO command strings. This suite proves that the argument
-// vector is validated exactly as UPDATE-SPEC §11 requires — every option
-// enumerated, every value checked, injection-shaped values refused on their
-// own merits — and that every strategy produces a program path plus a
-// QStringList argument VECTOR in which a hostile or merely awkward path stays
-// one single element.
+// The helper accepts no command strings: every option is enumerated, every
+// value checked, injection-shaped values are refused on their own merits, and
+// every strategy produces a program plus an argument vector in which an
+// awkward path stays one element.
 
 #include "updater/ArtifactDigest.h"
 #include "updater/InstallStrategies.h"
@@ -345,9 +343,8 @@ void UpdaterHelperArgsTest::valueThatLooksLikeAnOptionRefused()
 
 void UpdaterHelperArgsTest::relaunchIsOptionalAndAbsenceMeansNoRelaunch()
 {
-    // Lightning omits --relaunch for a plain installUpdate(): the update is
-    // applied when the user quits, and the helper must NOT start the
-    // application back up. Before this, the helper always relaunched.
+    // Without --relaunch (a plain installUpdate()) the update applies when the
+    // user quits and the helper must not start the application again.
     QStringList args = baseArgs(QStringLiteral("linux-deb"), m_targetDir);
     const int index = args.indexOf(QStringLiteral("--relaunch"));
     QVERIFY(index >= 0);
@@ -690,18 +687,15 @@ void UpdaterHelperArgsTest::msiPlanIsExactArgv()
     QVERIFY(result.plan.program.endsWith(QStringLiteral("msiexec.exe")));
     QCOMPARE(result.plan.arguments.size(), 4);
     QCOMPARE(result.plan.arguments.at(0), QStringLiteral("/i"));
-    // The package path must reach msiexec with BACKSLASHES. Qt produces '/'
-    // on Windows too, and msiexec's own parser reads '/' as a switch: the
-    // forward-slash form returns 1619 and installs nothing, which is what
-    // every MSI update did in the field until 2026-08-17. Verified by hand
-    // against one file — '/' errored, '\' installed normally.
+    // The package path must reach msiexec with backslashes: msiexec reads '/'
+    // as a switch, returns 1619 and installs nothing.
     QCOMPARE(result.plan.arguments.at(1),
              QStringLiteral("C:\\Users\\x\\AppData\\Local\\updates\\Lightning-0.8.0.msi"));
     QVERIFY(!result.plan.arguments.at(1).contains(QLatin1Char('/')));
     QCOMPARE(result.plan.arguments.at(2), QStringLiteral("/qb"));
     QCOMPARE(result.plan.arguments.at(3), QStringLiteral("REINSTALLMODE=vomus"));
-    // A per-user MSI -- the default, and every install before issue #14 --
-    // keeps exactly this vector, and the helper must never elevate for it.
+    // A per-user MSI (the default) keeps exactly this vector and never
+    // elevates.
     QVERIFY(!result.plan.elevates);
     QVERIFY(!result.plan.elevateOnWindows);
 }
@@ -741,10 +735,9 @@ void UpdaterHelperArgsTest::setupPlanUsesNsisSilentSwitchFirst()
         QVERIFY(!argument.startsWith(QStringLiteral("/D")));
 }
 
-// ISSUE #14: a per-machine ("all users") MSI must be upgraded in the
-// per-machine context. Without ALLUSERS=1 Windows Installer searches only the
-// per-user context for the old version, finds none, and installs a SECOND copy
-// in %LOCALAPPDATA% beside the one in Program Files.
+// A per-machine MSI must be upgraded in the per-machine context: without
+// ALLUSERS=1 Windows Installer looks only in the per-user context and
+// installs a second copy in %LOCALAPPDATA%.
 void UpdaterHelperArgsTest::perMachineMsiPlanAddsAllUsersAndElevates()
 {
     UpdaterArguments args;
@@ -792,8 +785,7 @@ void UpdaterHelperArgsTest::perMachineSetupPlanPassesAllUsersAndElevates()
 
 void UpdaterHelperArgsTest::installScopeIsOptionalAndDefaultsToUser()
 {
-    // What every helper before the option received, and still receives from
-    // a caller that omits it: per-user, never elevated.
+    // A caller that omits the option gets per-user and no elevation.
     for (const char *mode : {"windows-msi", "windows-setup"}) {
         const ArgsParseResult parsed =
             parseUpdaterArgs(baseArgs(QString::fromLatin1(mode), m_targetFile));
@@ -818,9 +810,8 @@ void UpdaterHelperArgsTest::installScopeParsesForTheTwoWindowsInstallers()
                      machine ? updater::InstallScope::Machine : updater::InstallScope::User);
             QCOMPARE(updater::installScopeToString(parsed.args.installScope),
                      QString::fromLatin1(scope));
-            // And the parsed value is what decides the elevation, end to end,
-            // with the artifact lock always travelling with it: an elevated
-            // plan that does not lock is exactly the TOCTOU the lock closes.
+            // The parsed value decides elevation end to end, and the artifact
+            // lock always travels with it.
             const InstallPlan plan = planForMode(parsed.args).plan;
             QCOMPARE(plan.elevateOnWindows, machine);
             QCOMPARE(!plan.lockedArtifact.isEmpty(), machine);
@@ -988,11 +979,9 @@ void UpdaterHelperArgsTest::windowsCommandLineRefusesQuotesAndControlCharacters(
     QVERIFY(ok);
 }
 
-// A JUNCTION in a parent directory can be re-pointed after the helper locked
-// the artifact, and the elevated installer opens its argument by PATH. So the
-// plan is rewritten to the locked handle's final path before launch; these two
-// functions are the testable half of that (GetFinalPathNameByHandleW is the
-// Windows half).
+// A junction in a parent directory can be re-pointed after the helper locked
+// the artifact, so the plan is rewritten to the locked handle's final path
+// before launch. These two functions are the portable half of that.
 void UpdaterHelperArgsTest::finalPathBecomesALaunchablePath_data()
 {
     QTest::addColumn<QString>("finalPath");
@@ -1498,17 +1487,9 @@ void UpdaterHelperArgsTest::theHelperInstallsWhenTheDigestMatches()
 #endif
 }
 
-// THE RELAUNCH'S ENVIRONMENT, through the REAL helper binary.
-//
-// RelaunchEnvironmentTest calls the policy directly, which says nothing about
-// whether the helper ever reaches it -- the mistake this project has recorded
-// under "a policy test that invokes the policy function directly proves
-// nothing". So this one installs a recording script and reads back what the
-// relaunched process was actually handed.
-//
-// The environment given here is the maintainer's measured one: a TMPDIR that
-// nix-shell deleted on its way out, and an APPDIR that says appimage-run
-// unpacked us rather than the runtime mounting us.
+// The relaunch's environment, through the real helper binary: a recording
+// script reads back what the relaunched process was handed. The input is a
+// TMPDIR that no longer exists and an APPDIR from appimage-run.
 void UpdaterHelperArgsTest::theRelaunchedApplicationDoesNotInheritADeadTemporaryDirectory()
 {
 #ifdef Q_OS_WIN
@@ -1531,9 +1512,8 @@ void UpdaterHelperArgsTest::theRelaunchedApplicationDoesNotInheritADeadTemporary
     const qint64 pid = exitedPid();
     QVERIFY(pid > 1);
 
-    // A temporary directory that existed when Lightning started and does not
-    // exist now, which is exactly what a shell that owns one does when it
-    // exits -- and it exits when Lightning does.
+    // A temporary directory that existed at startup and is gone now, as when
+    // the owning shell exits along with Lightning.
     const QString deadTemp = root.absoluteFilePath(QStringLiteral("shell-private-tmp"));
     QVERIFY(QDir().mkpath(deadTemp));
     QVERIFY(QDir(deadTemp).removeRecursively());

@@ -1,16 +1,10 @@
-// CameraPortal against a FAKE xdg-desktop-portal on a PRIVATE session bus.
-//
-// The defect this pins, measured 2026-09-23 on Fedora 44 / KDE from inside the
-// published Flathub build: with the camera permission already stored, the real
-// portal sends `AccessCamera`'s reply and then its Request's `Response` 0.4 ms
-// apart. CameraPortal subscribed to `Response` only once the reply had been
-// handled, so the grant was lost and the camera never started. The fake below
-// reproduces exactly that shape — reply, then Response, back to back, on the
-// same connection — which is what makes this a test of the race and not of a
-// friendlier portal.
-//
-// A private `dbus-daemon` rather than the developer's session bus: the fake has
-// to OWN org.freedesktop.portal.Desktop, and a real desktop already does.
+// CameraPortal against a fake xdg-desktop-portal on a private session bus.
+// With the camera permission already stored, a real portal sends the
+// `AccessCamera` reply and the Request's `Response` back to back, so
+// CameraPortal must subscribe to `Response` before the reply is handled or
+// the grant is lost. The fake reproduces that shape on the same connection.
+// A private `dbus-daemon`, because the fake must own
+// org.freedesktop.portal.Desktop, which a real desktop already does.
 
 #include "calls/CameraPortal.h"
 #include "calls/PortalRequest.h"
@@ -42,9 +36,9 @@ class FakeCameraPortal : public QDBusVirtualObject
 {
 public:
     enum class Answer {
-        InstantGrant,     // Response 0 immediately after the reply — the bug
+        InstantGrant,     // Response 0 immediately after the reply (the race)
         InstantDecline,   // Response 1 immediately after the reply
-        LateGrantOnOtherPath, // a pre-0.9 portal: unpredicted path, answered later
+        LateGrantOnOtherPath, // an older portal: unpredicted path, answered later
     };
 
     explicit FakeCameraPortal(QDBusConnection bus) : m_bus(bus) {}
@@ -52,7 +46,7 @@ public:
     Answer answer = Answer::InstantGrant;
     int accessCalls = 0;
     int openCalls = 0;
-    int fixtureErrors = 0; // the FAKE failed, not the code under test
+    int fixtureErrors = 0; // the fake failed, not the code under test
 
     QString introspect(const QString &) const override { return {}; }
 
@@ -64,11 +58,9 @@ public:
 
         if (message.member() == QLatin1String("AccessCamera")) {
             ++accessCalls;
-            // A virtual object receives the RAW message, so the a{sv} is a
-            // QDBusArgument here, not a QVariantMap — `toMap()` gives an empty
-            // map, the token is lost, and the fake would reply with an invalid
-            // path. It did exactly that at first, which made every case fail
-            // on old and new code alike.
+            // A virtual object receives the raw message, so the a{sv} is a
+            // QDBusArgument here, not a QVariantMap; `toMap()` would lose the
+            // token and the fake would reply with an invalid path.
             const QVariantMap options =
                 qdbus_cast<QVariantMap>(message.arguments().value(0));
             const QString token =
@@ -93,8 +85,8 @@ public:
                 QStringLiteral("Response"));
             response << code << QVariantMap();
             if (otherPath) {
-                // Late enough that even the old subscribe-after-reply code
-                // would catch it: this case pins the FALLBACK, not the race.
+                // Late enough that subscribe-after-reply would also catch it:
+                // this case pins the fallback, not the race.
                 QDBusConnection bus = m_bus;
                 QTimer::singleShot(200, [bus, response]() mutable {
                     bus.send(response);
@@ -149,10 +141,9 @@ void CameraPortalTest::initTestCase()
     if (daemon.isEmpty())
         QSKIP("dbus-daemon not found; this suite needs a private bus");
 
-    // The daemon's OWN session.conf, not `--session`: that reads
-    // /etc/dbus-1/session.conf, which NixOS provides and Fedora (dbus-broker)
-    // does not — there the daemon exits at once with "Configuration file
-    // needs one or more <listen> elements". Measured on the Fedora 44 laptop.
+    // The daemon's own session.conf rather than `--session`, which reads
+    // /etc/dbus-1/session.conf; Fedora (dbus-broker) lacks it and the daemon
+    // exits with "Configuration file needs one or more <listen> elements".
     QStringList args{QStringLiteral("--nofork"),
                      QStringLiteral("--print-address=1")};
     const QString packaged = QFileInfo(daemon).absolutePath()
@@ -168,8 +159,8 @@ void CameraPortalTest::initTestCase()
     const QByteArray address = m_daemon.readLine().trimmed();
     QVERIFY(!address.isEmpty());
 
-    // CameraPortal talks to QDBusConnection::sessionBus(), which reads this
-    // variable the first time it is used — and nothing has used it yet.
+    // QDBusConnection::sessionBus() reads this on first use, which has not
+    // happened yet.
     qputenv("DBUS_SESSION_BUS_ADDRESS", address);
     QVERIFY(QDBusConnection::sessionBus().isConnected());
 
@@ -195,8 +186,8 @@ void CameraPortalTest::cleanupTestCase()
 
 void CameraPortalTest::thePredictedPathFollowsThePortalSpec()
 {
-    // The exact shape observed on a live portal: sender :1.189, token
-    // lightprobe27560 -> .../request/1_189/lightprobe27560.
+    // The shape seen on a live portal: sender :1.189, token lightprobe27560
+    // -> .../request/1_189/lightprobe27560.
     QCOMPARE(portal::predictedRequestPath(QStringLiteral(":1.189"),
                                           QStringLiteral("lightprobe27560")),
              QStringLiteral("/org/freedesktop/portal/desktop/request/1_189/"
@@ -219,8 +210,8 @@ void CameraPortalTest::anInstantGrantIsNotLost()
     portal.requestAccess();
     const int fixtureErrorsBefore = m_fake->fixtureErrors;
 
-    // Generous: the old code does not fail slowly, it never answers at all
-    // (only the 120 s timeout would ever end it).
+    // Generous: the race does not fail slowly, it never answers (only the
+    // 120 s timeout would end it).
     QVERIFY2(ready.wait(5000),
              "the portal granted the camera in the same breath as its reply, "
              "and CameraPortal missed the grant");

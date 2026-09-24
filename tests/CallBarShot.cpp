@@ -1,5 +1,4 @@
-// Renders CallHeaderBar in a real window and saves a PNG, so the maintainer's
-// visual complaint can be checked visually rather than argued about.
+// Renders CallHeaderBar in a real window and saves a PNG for visual review.
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -31,9 +30,8 @@ int main(int argc, char **argv)
     controller.auth()->login("https://mock.local", "alice", "unused");
     login.wait(4000);
 
-    // SHOT_THEME lets the same harness prove the bar in a dark theme as well
-    // as a light one — the maintainer's report came from Storm (11), and a
-    // surface that only works in one palette is a theming bug.
+    // SHOT_THEME renders the bar in another theme (e.g. Storm, 11); a surface
+    // that works in one palette only is a theming bug.
     if (qEnvironmentVariableIsSet("SHOT_THEME")) {
         controller.settings()->setTheme(static_cast<SettingsManager::Theme>(
             qEnvironmentVariableIntValue("SHOT_THEME")));
@@ -80,19 +78,16 @@ Window {
     auto *win = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
     if (!win) return 3;
 
-    // Drive a real ACTIVE legacy call: invite -> answer, exactly the state
-    // the maintainer photographed.
+    // Drive a real active legacy call: invite, then answer.
     auto *mock = controller.findChild<MockMatrixClient *>();
     controller.setCurrentRoomId("!general:mock.local");
-    // An OUTBOUND call: placeCallWithOffer is the seam that reaches
-    // Inviting without a media engine, and Inviting is a state the bar owns
-    // (a RINGING inbound call belongs to the corner card, because the user
-    // may not be looking at that room).
+    // An outbound call: placeCallWithOffer reaches Inviting without a media
+    // engine, and Inviting belongs to the bar (a ringing inbound call belongs
+    // to the corner card).
     Q_UNUSED(mock);
-    // previewMode renders the bar's appearance without a session: the mock
-    // backend implements no call signalling, so there is no honest way to
-    // reach a live call here, and faking one would prove less than showing
-    // the real component.
+    // previewMode renders the bar without a session: the mock implements no
+    // call signalling, and faking a call would prove less than showing the
+    // real component.
     QTimer::singleShot(2200, [&] {
         QImage shot = win->grabWindow();
         shot.save(qEnvironmentVariable("SHOT_OUT"));

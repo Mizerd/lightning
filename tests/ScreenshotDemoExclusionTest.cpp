@@ -1,19 +1,16 @@
 // Production-exclusion contract for the development-only screenshot/demo mode.
 //
-// Runs the REAL shipped lightning-matrix binary (path injected by CMake via
-// SCREENSHOT_DEMO_BINARY) and asserts the compile-time boundary from the
-// outside — the only way to prove what a user's binary actually does:
+// Runs the real lightning-matrix binary (path injected by CMake via
+// SCREENSHOT_DEMO_BINARY), the only way to prove what a user's binary does:
 //
 //   * --build-info always reports a machine-checkable `screenshot_demo_compiled`
-//     line; its value matches how the binary was compiled.
-//   * In a normal/release build (the demo option OFF — the default test config,
-//     and every packaged build) the flag is `false` and --screenshot-demo is
-//     REJECTED in preflight (exit 2) before any GUI/network/store is touched.
+//     line whose value matches how the binary was compiled.
+//   * In a normal build (demo option OFF: the default test config and every
+//     packaged build) the flag is `false` and --screenshot-demo is rejected in
+//     preflight (exit 2) before any GUI/network/store is touched.
 //
-// Both invocations exit in preflight (before QGuiApplication), so this needs no
-// display. A LIGHTNING_RUST_ONLY release additionally cannot even be compiled
-// with the demo option (CMake fatal-errors), so `screenshot_demo_compiled:false`
-// is guaranteed for every shipped artifact.
+// Both invocations exit in preflight, so no display is needed. A
+// LIGHTNING_RUST_ONLY release cannot be compiled with the demo option at all.
 #include <QtTest/QtTest>
 
 #include <QProcess>

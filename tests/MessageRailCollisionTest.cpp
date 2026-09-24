@@ -1,35 +1,14 @@
-// THE ROW'S RIGHT RAIL IS SHARED, AND THREE THINGS WERE FIGHTING OVER IT.
+// The row's right rail is shared: the hover action bar and the read-receipt
+// facepile anchor to the same edge from opposite ends of a row, and on a
+// short row the facepile (same z, later in the document) covered the bar's
+// buttons.
 //
-// Reported 2026-09-14 with a screenshot: "this is a bit messy and hard to
-// click on stuff". Read-receipt avatars sat ON TOP of the hover action bar,
-// over its Edit and overflow buttons. The reporter guessed at their display
-// scaling; it is not the scaling, it is that the bar and the facepile are
-// anchored to the same edge from opposite ends of the row and nothing
-// arbitrated between them. Reproduced live on this machine before the fix,
-// and the avatars win: both carry z 3 and the receipt strip is later in the
-// document, so the buttons underneath are not merely ugly, they are
-// unclickable.
+// Also covered, all in Bubbles: the sender header, body text, media cards and
+// reactions must stay inside (or under) their own bubble, and an own bubble
+// must leave the receipt rail clear.
 //
-// Two more of the same shape turned up in the Bubbles audit that followed:
-//   * the sender identity header rendered OUTSIDE its bubble, because the
-//     header's width cap was derived from the bubble that is itself sized
-//     from the header — a loop Qt resolves by pinning the header to one
-//     pixel of contributed width;
-//   * the facepile clipped the bottom-right corner of an own bubble, because
-//     the bubble's width cap reserves a 40px rail that its PLACEMENT then
-//     ignored.
-//
-// A 2026-09-19 GUI audit added four more, all of them in Bubbles and all of
-// them found by the same method — a geometric sweep over the real delegate,
-// 23 fixture variants x 3 layouts x own/other x two row widths x two text
-// scales x hover/idle. Modern and Compact produced zero violations; every
-// failure was a child of the Bubbles bubble being sized against the bubble's
-// OUTER width, or the reactions Flow packing from the wrong edge.
-//
-// These are GEOMETRIC assertions on the real delegate, not a source scan.
-// A scan cannot see an overlap: every one of these defects was present in a
-// file that read as though it handled the case, and two of them are sitting
-// underneath comments that describe the collision being handled.
+// These are geometric assertions on the real delegate, not a source scan: a
+// scan cannot see an overlap.
 #include <QtTest/QtTest>
 
 #include <QQmlApplicationEngine>
@@ -167,11 +146,9 @@ class MessageRailCollisionTest : public QObject
         out.window->resize(800, 480);
         out.root->setParentItem(out.window->contentItem());
         out.root->setWidth(rowWidth);
-        // Bubbles is a DIRECT-room layout and the flag normally comes from
-        // the host view this delegate has none of. Set it BEFORE the first
-        // layout pass: switching a laid-out row from Modern to Bubbles
-        // leaves the content caps a frame behind and the measurement is of
-        // neither layout.
+        // Bubbles is a direct-room layout and the flag normally comes from the
+        // host view. Set it before the first layout pass, or the content caps
+        // lag a frame behind.
         if (direct)
             QQmlProperty::write(out.root, QStringLiteral("isDirectRoom"), true);
         out.window->show();
@@ -181,9 +158,8 @@ class MessageRailCollisionTest : public QObject
     }
 
     /// The action bar is created on hover, which needs a live timelineView.
-    /// Forcing the Loader is enough for a GEOMETRY question: its x and width
-    /// come from anchors and the reserve, neither of which consults
-    /// `visible`.
+    /// Forcing the Loader is enough for a geometry question: its x and width
+    /// come from anchors and the reserve, not `visible`.
     static QQuickItem *forceActionBar(QQuickItem *root)
     {
         auto *loader = root->findChild<QQuickItem *>(
@@ -219,12 +195,7 @@ private Q_SLOTS:
             QStringLiteral("message-rail-collision-test"));
     }
 
-    // THE REPORTED DEFECT. A short row with receipts: the bar must end
-    // before the facepile begins.
-    //
-    // FAIL-ON-OLD: drop `+ root.actionBarReceiptReserve` from the loader's
-    // rightMargin and the bar's right edge lands past the pile's left edge
-    // by the pile's full width.
+    // A short row with receipts: the bar must end before the facepile begins.
     void theActionBarClearsTheReceiptPileOnAShortRow()
     {
         AppController app(AppController::MockBackend);
@@ -252,9 +223,8 @@ private Q_SLOTS:
                      .arg(barRight).arg(pileLeft)));
     }
 
-    // AND IT IS A RESERVATION, NOT A PERMANENT INDENT. On a tall row the bar
-    // is nowhere near the pile and must keep the row's corner, or every
-    // message in a room with receipts pays for a collision it never has.
+    // It is a reservation, not a permanent indent: on a tall row the bar keeps
+    // the row's corner.
     void aTallRowKeepsTheBarInTheCorner()
     {
         AppController app(AppController::MockBackend);
@@ -294,18 +264,9 @@ private Q_SLOTS:
                      .arg(tallRight).arg(shortRight)));
     }
 
-    // BUBBLES: THE IDENTITY HEADER BELONGS INSIDE THE BUBBLE.
-    //
-    // The header's width cap was `bubble.width - 112`, and in Bubbles the
-    // bubble is SIZED FROM the column the header is in — so the cap fed the
-    // header's own input. Qt resolves that with whatever the bubble measured
-    // last, which for a short body is under 112, so `Math.max(1, …)` pinned
-    // the header's contributed width to ONE PIXEL: the bubble sized itself to
-    // the body alone and the sender name and timestamp rendered outside it,
-    // over the timeline background. Seen live 2026-09-14 on a DM reply of
-    // "got it".
-    //
-    // FAIL-ON-OLD: restore the unconditional `bubble.width - 112` cap.
+    // Bubbles: the identity header belongs inside the bubble. Its width cap
+    // must not be derived from the bubble, which is sized from the header's
+    // own column (Qt resolves that loop by pinning the header to one pixel).
     void aBubbleContainsItsOwnSenderHeader()
     {
         AppController app(AppController::MockBackend);
@@ -343,13 +304,8 @@ private Q_SLOTS:
                      .arg(headerRight).arg(bubbleRight)));
     }
 
-    // BUBBLES: AN OWN BUBBLE MUST LEAVE THE RECEIPT RAIL ALONE.
-    //
-    // The width cap subtracts 40 for a rail; the PLACEMENT right-aligned to
-    // `parent.width` and ignored it, so a short own bubble was pushed flush
-    // to the row edge and the avatars clipped its bottom-right corner.
-    //
-    // FAIL-ON-OLD: drop `- root.bubbleReceiptInset` from the bubble's x.
+    // Bubbles: an own bubble's placement must honour the receipt-rail inset
+    // its width cap reserves, or the avatars clip its corner.
     void anOwnBubbleClearsTheReceiptPile()
     {
         AppController app(AppController::MockBackend);
@@ -384,7 +340,7 @@ private Q_SLOTS:
                      .arg(bubbleRight).arg(pileLeft)));
     }
 
-    // ── 2026-09-19 GUI AUDIT ────────────────────────────────────────────
+    // ── Bubbles geometry ─────────────────────────────────────────────────
 
     /// The union of every reaction pill and the add chip, in row coords.
     static QRectF chipBand(QQuickItem *root)
@@ -415,17 +371,8 @@ private Q_SLOTS:
         return bubble->mapToItem(root, QPointF(bubble->width(), 0)).x() - pad;
     }
 
-    // BUBBLES: A REACTION ON YOUR OWN MESSAGE BELONGS UNDER YOUR OWN MESSAGE.
-    //
-    // The reactions Flow fills the row and packs from its own left edge,
-    // and an own bubble is right-aligned — so the chips were laid out at
-    // the row's LEFT edge with the bubble they annotate at the right.
-    // Measured live 2026-09-19 in a DM on a 1920px window: chips at
-    // x 444..520, the bubble at x 1156..1883, which reads as a reaction on
-    // the OTHER person's side of the conversation.
-    //
-    // FAIL-ON-OLD: restore `Layout.leftMargin: root.avatarGutterWidth` on
-    // reactionsFlow and the band lands at the row's left edge again.
+    // Bubbles: reactions on an own message hang under that (right-aligned)
+    // bubble, not at the row's left edge.
     void ownBubbleReactionsHangUnderTheirBubble()
     {
         AppController app(AppController::MockBackend);
@@ -457,16 +404,8 @@ private Q_SLOTS:
                      .arg(band.right()).arg(bubbleLeft)));
     }
 
-    // BUBBLES: THE BODY MUST STAY INSIDE THE BUBBLE'S PADDING.
-    //
-    // `bubbleContent` insets every child by `bubblePad` (10 in Bubbles, 0 in
-    // Modern/Compact), but the body's cap was `bubble.width - 8` — the
-    // bubble's OUTER width. Measured 2026-09-19 at a 640px row: bubble
-    // 84..640, messageBody 94..642, i.e. 12px past the bubble's inner edge
-    // and 2px past the ROW. Invisible in Modern/Compact, where the padding
-    // is zero and the same expression is 8px conservative.
-    //
-    // FAIL-ON-OLD: put `Math.min(720, bubble.width - 8)` back on bodyLabel.
+    // Bubbles: the body stays inside the bubble's padding (`bubblePad` is 10
+    // in Bubbles, 0 elsewhere), so its cap must be the inner width.
     void aBubbleContainsItsOwnBodyText()
     {
         AppController app(AppController::MockBackend);
@@ -504,15 +443,8 @@ private Q_SLOTS:
                      .arg(bodyRight).arg(d.root->width())));
     }
 
-    // BUBBLES: AND SO MUST A MEDIA CARD, WHICH IS THE VISIBLE HALF.
-    //
-    // Every card sized itself `Math.min(N, bubble.width)` — again the OUTER
-    // width — so on a row narrow enough for the bubble's cap to bind, the
-    // card was drawn 10px past the bubble on the right and, for an own
-    // message, 10px past the row. Measured 2026-09-19 at a 360px row:
-    // bubble 84..360, fileCard 94..370.
-    //
-    // FAIL-ON-OLD: put `Math.min(340, bubble.width)` back on fileCard.
+    // Bubbles: a media card stays inside the bubble on a narrow row, so its
+    // cap must be the inner width too.
     void aNarrowBubbleContainsItsFileCard()
     {
         AppController app(AppController::MockBackend);
@@ -555,17 +487,9 @@ private Q_SLOTS:
                      .arg(cardRight).arg(d.root->width())));
     }
 
-    // BUBBLES: THE HEADER CAP HAS TO MIRROR THE **WHOLE** BUBBLE CAP.
-    //
-    // `aBubbleContainsItsOwnSenderHeader` above fixed the loop; the cap it
-    // installed mirrors the bubble's width EXCEPT for `bubbleReceiptInset`,
-    // which was added later. So with a facepile on a narrow row the header
-    // may be the pile's width wider than the bubble can ever become.
-    // Measured 2026-09-19 at a 360px row with four receipts: bubble
-    // 44..256, senderIdentityHeader 54..310, and its timestamp at 293..319
-    // — outside the bubble and underneath the avatars.
-    //
-    // FAIL-ON-OLD: drop `- root.bubbleReceiptInset` from contentInnerCap.
+    // Bubbles: the header cap mirrors the whole bubble cap, including
+    // `bubbleReceiptInset`, so on a narrow row with a facepile the header
+    // cannot be wider than the bubble.
     void aNarrowBubbleWithReceiptsContainsItsSenderHeader()
     {
         AppController app(AppController::MockBackend);

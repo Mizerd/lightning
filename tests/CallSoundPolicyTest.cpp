@@ -1,9 +1,6 @@
-// Which call sound plays when — CallSoundPolicy on its own, no audio.
-//
-// Every case here is a RULE the policy exists to keep, and each asserts the
-// exact cue list, never just "something played": a list that is merely
-// non-empty cannot say WHICH branch produced it (§16, the ShortcutRegistry
-// lesson).
+// Which call sound plays when: CallSoundPolicy alone, no audio. Each case
+// asserts the exact cue list, since a merely non-empty list cannot say which
+// branch produced it.
 #include <QtTest/QtTest>
 
 #include "calls/CallSoundPolicy.h"
@@ -57,8 +54,8 @@ private Q_SLOTS:
         QCOMPARE(p.groupPhaseChanged(GroupPhase::Ended, 10), QList<Cue>{});
     }
 
-    // THE CHORUS. The people already in the room arrive as one roster at
-    // connect; announcing them would play a join per person.
+    // The people already in the room arrive as one roster at connect;
+    // announcing them would play a join per person.
     void theRoomAlreadyThereIsNotAnnounced()
     {
         Policy p;
@@ -87,8 +84,8 @@ private Q_SLOTS:
                  QList<Cue>{ Cue::Leave });
     }
 
-    // Several people in one update are ONE cue, and a burst within the
-    // throttle window is one cue too.
+    // Several people in one update are one cue, and so is a burst within the
+    // throttle window.
     void aBurstIsOneCue()
     {
         qint64 t = 0;
@@ -143,7 +140,7 @@ private Q_SLOTS:
                  QList<Cue>{ Cue::Unmute });
     }
 
-    // Deafen moves BOTH flags (it mutes too). One press, one cue.
+    // Deafen changes both flags (it mutes too): one press, one cue.
     void deafenIsOneCueNotTwo()
     {
         qint64 t = 0;
@@ -154,8 +151,8 @@ private Q_SLOTS:
                  QList<Cue>{ Cue::Undeafen });
     }
 
-    // The lobby, and a controller resetting its flags on the way out, are
-    // not actions to confirm.
+    // The lobby, and a controller resetting flags on the way out, are not
+    // actions to confirm.
     void controlsOutsideACallAreSilent()
     {
         Policy p;
@@ -167,7 +164,7 @@ private Q_SLOTS:
                  QList<Cue>{});
     }
 
-    // DEAFENED: nothing other people do makes a sound; your own hands still
+    // Deafened: nothing others do makes a sound; your own actions still
     // confirm.
     void deafenSilencesTheRoomButNotYourOwnActions()
     {
@@ -183,9 +180,9 @@ private Q_SLOTS:
         QCOMPARE(p.localShareChanged(true), QList<Cue>{ Cue::ShareStart });
         QCOMPARE(p.localAudioChanged(Lane::Group, true, false),
                  QList<Cue>{ Cue::Undeafen });
-        // And the room is audible again. `a` is still sharing and still has
-        // a hand up — a roster that dropped those flags would be a genuine
-        // share STOP and must play one, which is not what this case is about.
+        // The room is audible again. `a` is still sharing with a hand up; a
+        // roster that dropped those flags would be a real share stop, which is
+        // not this case.
         sharing.insert(QStringLiteral("c"), RemoteParticipant{});
         QCOMPARE(p.rosterChanged(sharing, t + 2000),
                  QList<Cue>{ Cue::Join });
@@ -208,7 +205,7 @@ private Q_SLOTS:
         QCOMPARE(p.rosterChanged(r, t + 3000), QList<Cue>{ Cue::ShareStop });
     }
 
-    // A sharer who leaves is ONE event: the leave.
+    // A sharer who leaves is one event: the leave.
     void leavingMidShareIsOnlyALeave()
     {
         qint64 t = 0;
@@ -260,8 +257,8 @@ private Q_SLOTS:
                  QList<Cue>{});
     }
 
-    // A cue a switch suppressed must not use up the throttle window of the
-    // next one that would have played.
+    // A cue suppressed by a switch does not use up the throttle window of the
+    // next one.
     void aSuppressedCueDoesNotConsumeTheThrottle()
     {
         qint64 t = 0;
@@ -274,7 +271,7 @@ private Q_SLOTS:
     }
 
     // A share carrying the whole output mix would carry our cues into the
-    // call; while it is live, nothing plays.
+    // call, so nothing plays while it is live.
     void nothingLeaksIntoACapturedOutputMix()
     {
         qint64 t = 0;
@@ -288,7 +285,7 @@ private Q_SLOTS:
                  QList<Cue>{ Cue::Unmute });
     }
 
-    // ── Loops ─────────────────────────────────────────────────────────────
+    // ---- loops ----
 
     void anIncomingRingRingsAndBecomesCallWaitingInACall()
     {
@@ -303,8 +300,8 @@ private Q_SLOTS:
         QCOMPARE(p.desiredLoop(), Loop::None);
     }
 
-    // The ring is governed by the ring switch, applied by whoever announces
-    // it — not by the in-call master switch, and not by deafen.
+    // The ring follows the ring switch, applied by whoever announces it, not
+    // the in-call master switch or deafen.
     void theRingIgnoresTheInCallSwitches()
     {
         Policy p;
@@ -364,8 +361,7 @@ private Q_SLOTS:
         QCOMPARE(p.desiredLoop(), Loop::None);
     }
 
-    // Every cue and loop names a file the generator renders; an empty or
-    // duplicated name would be a sound that can never play.
+    // Every cue and loop names a distinct file the generator renders.
     void everySoundHasADistinctName()
     {
         QSet<QString> names;

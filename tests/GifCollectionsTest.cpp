@@ -1,7 +1,7 @@
-// v0.6.1: local GIF Favorites and Recents. Exercises persistence, dedup,
-// ordering, bounded history, the record-only-on-send rule, recording toggle,
-// clear actions, corrupted-store recovery, and the safety rule that no
-// non-provider / non-https URL and no Matrix identifier is ever stored.
+// Local GIF favorites and recents: persistence, dedup, ordering, bounded
+// history, recording only on send, the recording toggle, clear actions,
+// corrupted-store recovery, and that no non-provider or non-https URL and no
+// Matrix identifier is ever stored.
 
 #include "gif/GifFavoritesModel.h"
 #include "gif/GifRecentModel.h"
@@ -45,10 +45,9 @@ QVariantMap toMap(const gif::GifResult &r)
     return m;
 }
 
-// A local-starred row exactly as GifStarredStore builds it: provider
-// "local", id a content-hash-shaped string, no URLs at all (see
-// GifStarredStore's header — the actual playback source is re-derived from
-// the hash, never trusted from a persisted URL).
+// A local saved row as GifStarredStore builds it: provider "local", a
+// content-hash id and no URLs (playback is re-derived from the hash, never a
+// persisted URL).
 gif::GifResult makeLocal(const QString &hash, qint64 bytes = 1234)
 {
     gif::GifResult r;
@@ -66,10 +65,8 @@ class GifCollectionsTest : public QObject
 {
     Q_OBJECT
 
-    // v0.6.7 review (N6): a per-run QTemporaryDir, not a fixed /tmp path. The
-    // hard-coded name collided if two CTest runs ever overlapped (the trees
-    // are built and tested separately, so that is reachable), and a collision
-    // here looks like a data bug rather than a harness one.
+    // A per-run QTemporaryDir, so overlapping CTest runs of the two build trees
+    // cannot collide.
     QTemporaryDir tempDir;
     QSettings *store = nullptr;
 
@@ -106,8 +103,8 @@ private Q_SLOTS:
     void rejectsUnsafeStoredUrl();
     void noSensitiveFieldsPersisted();
 
-    // v0.6.6: GifStarredModel — the thin GifStoredModel sibling
-    // GifStarredStore persists local-starred rows through.
+    // GifStarredModel: the GifStoredModel sibling GifStarredStore persists
+    // through.
     void starredInsertDedupsByHashAndOrdersNewestFirst();
     void starredPersistsAcrossReloadWithNoUrlFields();
     void starredUnstarRemovesEntry();
@@ -115,8 +112,8 @@ private Q_SLOTS:
     void starredNoSensitiveFieldsPersisted();
     void reopenReplacesRowsAndCanGoStorageless();
 
-    // v0.6.7: GifSavedModel — the single user-visible "Saved" list, a
-    // presentation merge over the two stores that stay separate underneath.
+    // GifSavedModel: the one visible "Saved" list, merging two stores that
+    // stay separate underneath.
     void savedListsLocalRowsFirstThenProviderRows();
     void savedGetIsBoundsCheckedAcrossTheGroupBoundary();
     void savedTracksBothSourcesLive();
@@ -124,9 +121,8 @@ private Q_SLOTS:
     void savedSurvivesASourceReopen();
     void favoriteRoleIsAConstantAndNotASavedStateOracle();
 
-    // 2026-08 media round: the persisted "ext" field (gif::GifResult::localExt) — a
-    // local-saved row's own format, written only when non-empty so a
-    // favorites/recents entry (which never sets it) round-trips unchanged.
+    // The persisted "ext" field (gif::GifResult::localExt), written only when
+    // non-empty so favorites/recents entries round-trip unchanged.
     void localExtRoundTripsThroughJsonWhenSet();
     void missingExtFieldDefaultsToEmptyNeverCrashes();
     void favoritesEntryNeverGainsAnExtKey();
@@ -230,11 +226,9 @@ void GifCollectionsTest::corruptedStoreRecovers()
     QVERIFY(fav.toggle(toMap(make("giphy", "ok")))); // still usable
 }
 
-// The reopen crash reported around GIF favourites has never been reproduced
-// (seven headless scenario families and an ASan build found nothing), so this
-// does NOT claim a root cause. What it does is widen the malformed-input net
-// past "not valid JSON" to the shapes a partially-written or hand-edited store
-// actually produces, so none of them can be the cause.
+// Malformed store shapes that partial writes or hand edits produce, beyond
+// invalid JSON, must all be survivable and leave the model usable. (A reported
+// reopen crash was never reproduced; this does not claim its cause.)
 void GifCollectionsTest::malformedStoreShapesAreAllSurvivable()
 {
     const QString key = QStringLiteral("gif/favorites");
@@ -253,8 +247,8 @@ void GifCollectionsTest::malformedStoreShapesAreAllSurvivable()
              QStringLiteral("[{}]"),
              QStringLiteral("[{\"provider\":\"giphy\"}]"),
              QStringLiteral("[{\"id\":\"only\"}]"),
-             // Fields of the wrong TYPE, which .toString()/.toInt() coerce
-             // rather than reject — the entry must still fail validation.
+             // Wrong field types, which .toString()/.toInt() would coerce; the
+             // entry must still fail validation.
              QStringLiteral("[{\"provider\":5,\"id\":true,\"gifUrl\":[]}]"),
              // Truncated mid-write, the realistic corruption.
              QStringLiteral("[{\"provider\":\"giphy\",\"id\":\"a\","),
@@ -265,16 +259,15 @@ void GifCollectionsTest::malformedStoreShapesAreAllSurvivable()
         store->sync();
         GifFavoritesModel fav(store);   // must not crash
         QCOMPARE(fav.count(), 0);
-        // ...and the model must still be USABLE afterwards, not just alive.
+        // ...and the model is still usable afterwards.
         QVERIFY2(fav.toggle(toMap(make("giphy", "ok"))), qPrintable(payload));
         QCOMPARE(fav.count(), 1);
         store->remove(key);
     }
 }
 
-// A store holding the same GIF twice must load it once. Duplicates are the
-// state most likely to be produced by a half-completed write, and a model that
-// loaded both would answer isFavorite() correctly while showing two tiles.
+// A store holding the same GIF twice loads it once; a half-completed write is
+// the likely source, and two tiles would show while isFavorite() stayed right.
 void GifCollectionsTest::duplicateStoredEntriesLoadOnce()
 {
     store->setValue(
@@ -311,7 +304,7 @@ void GifCollectionsTest::noSensitiveFieldsPersisted()
     fav.toggle(toMap(make("giphy", "a")));
     store->sync();
     const QString raw = store->value(QStringLiteral("gif/favorites")).toString();
-    // Provider identity + safe media fields only — never Matrix context.
+    // Provider identity and safe media fields only, never Matrix context.
     QVERIFY(raw.contains(QStringLiteral("provider")));
     QVERIFY(raw.contains(QStringLiteral("gifUrl")));
     for (const char *forbidden : { "roomId", "eventId", "threadRootId",
@@ -334,8 +327,7 @@ void GifCollectionsTest::starredInsertDedupsByHashAndOrdersNewestFirst()
     QVERIFY(starred.hasHash(h1));
     QVERIFY(starred.hasHash(h2));
 
-    // Re-inserting the SAME hash (re-starring identical content) moves it
-    // to the front instead of duplicating.
+    // Re-inserting the same hash moves it to the front instead of duplicating.
     starred.insertLocal(makeLocal(h1));
     QCOMPARE(starred.count(), 2);
     QCOMPARE(starred.get(0).value(QStringLiteral("gifId")).toString(), h1);
@@ -399,14 +391,12 @@ void GifCollectionsTest::reopenReplacesRowsAndCanGoStorageless()
     starred.insertLocal(makeLocal(QString(64, QLatin1Char('f'))));
     QCOMPARE(starred.count(), 1);
 
-    // Re-point at "no backing store" (closed) — every row drops, and
-    // nothing is written back to the OLD settings object (still holding
-    // the account-A row untouched on disk).
+    // Repoint at no backing store (closed): every row drops, and nothing is
+    // written back to the old settings object.
     starred.reopen(nullptr);
     QCOMPARE(starred.count(), 0);
 
-    // Re-point at a DIFFERENT settings object (a different account
-    // directory) and load whatever it holds.
+    // Repoint at another account's settings and load what it holds.
     QSettings other(storePath(QStringLiteral("account-b")),
                     QSettings::IniFormat);
     other.clear();
@@ -416,8 +406,7 @@ void GifCollectionsTest::reopenReplacesRowsAndCanGoStorageless()
     QCOMPARE(starred.count(), 1);
     other.sync();
 
-    // The original settings object's "gif/starred" key is untouched by any
-    // of the above — reopen() never persists into the store it just left.
+    // reopen() never persisted into the store it left.
     store->sync();
     GifStarredModel original(store);
     QCOMPARE(original.count(), 1);
@@ -426,7 +415,7 @@ void GifCollectionsTest::reopenReplacesRowsAndCanGoStorageless()
     other.clear();
 }
 
-// ── v0.6.7: the merged Saved list ───────────────────────────────────────
+// ---- the merged Saved list ----
 
 void GifCollectionsTest::savedListsLocalRowsFirstThenProviderRows()
 {
@@ -442,9 +431,8 @@ void GifCollectionsTest::savedListsLocalRowsFirstThenProviderRows()
     local.insertLocal(makeLocal(h1));
     local.insertLocal(makeLocal(h2));
 
-    // Grouped by kind, each group newest-first: locals first, then provider
-    // bookmarks. NOT a chronological interleave — gif::GifResult carries no
-    // saved-at timestamp, so claiming one would be fiction.
+    // Grouped by kind, each newest-first: locals, then provider bookmarks. Not
+    // a chronological interleave: gif::GifResult has no saved-at timestamp.
     QCOMPARE(saved.count(), 4);
     QCOMPARE(saved.get(0).value(QStringLiteral("gifId")).toString(), h2);
     QCOMPARE(saved.get(1).value(QStringLiteral("gifId")).toString(), h1);
@@ -452,8 +440,8 @@ void GifCollectionsTest::savedListsLocalRowsFirstThenProviderRows()
              QStringLiteral("p2"));
     QCOMPARE(saved.get(3).value(QStringLiteral("gifId")).toString(),
              QStringLiteral("p1"));
-    // Provider identity survives the merge — it is what routes a star press
-    // back to the right store, and what the tile's source tag displays.
+    // Provider identity survives the merge: it routes a star press to the
+    // right store and feeds the tile's source tag.
     QCOMPARE(saved.get(0).value(QStringLiteral("provider")).toString(),
              QStringLiteral("local"));
     QCOMPARE(saved.get(2).value(QStringLiteral("provider")).toString(),
@@ -469,11 +457,9 @@ void GifCollectionsTest::savedGetIsBoundsCheckedAcrossTheGroupBoundary()
     QVERIFY(provider.toggle(toMap(make("giphy", "p1"))));
     QCOMPARE(saved.count(), 2);
 
-    // An out-of-range row must answer an EMPTY map, never a neighbouring row.
-    // GifPicker.qml's choose() drops a result with no provider/gifId, so an
-    // empty map is what makes a stale keyboard row send nothing rather than
-    // send the wrong GIF — the whole reason the offset arithmetic here is
-    // bounds-checked on the provider side too, not only on the local side.
+    // An out-of-range row answers an empty map, never a neighbour:
+    // GifPicker.qml's choose() drops a result without provider/gifId, so a
+    // stale keyboard row sends nothing.
     QVERIFY(saved.get(2).isEmpty());
     QVERIFY(saved.get(99).isEmpty());
     QVERIFY(saved.get(-1).isEmpty());
@@ -493,7 +479,7 @@ void GifCollectionsTest::savedTracksBothSourcesLive()
     QCOMPARE(saved.count(), 2);
     QVERIFY(counted.count() >= 2);
 
-    // Unsaving through EITHER store drops the row from the one visible list.
+    // Unsaving through either store drops the row from the list.
     local.unstar(h);
     QCOMPARE(saved.count(), 1);
     QCOMPARE(saved.get(0).value(QStringLiteral("gifId")).toString(),
@@ -511,20 +497,12 @@ void GifCollectionsTest::savedForwardsRolesCorrectlyForBothGroups()
     QVERIFY(provider.toggle(toMap(make("giphy", "p1"))));
     QCOMPARE(saved.rowCount(), 2);
 
-    // QConcatenateTablesProxyModel forwards the numeric role AS GIVEN to
-    // whichever source a row maps to, with no per-source remapping by name.
-    // That is only correct because both sources answer the IDENTICAL
-    // GifResultModel role table — assert that directly rather than trusting
-    // it, because two sources with similarly-named but differently-numbered
-    // roles would silently cross-wire fields with no visible error.
+    // QConcatenateTablesProxyModel forwards numeric roles unremapped, which is
+    // only correct because both sources share the GifResultModel role table.
     QCOMPARE(local.roleNames(), provider.roleNames());
-    // The proxy's own table is a SUPERSET — QConcatenateTablesProxyModel adds
-    // Qt's default item roles (display/decoration/edit/...) on top. What has
-    // to hold is that every GIF role keeps its exact number->name pairing
-    // through the merge, which is what makes the un-remapped forwarding above
-    // correct.
-    // Both hashes held by value: roleNames() returns a temporary, and
-    // iterating from one temporary's begin() to another's end() is undefined.
+    // The proxy's table is a superset (Qt's default item roles are added);
+    // every GIF role must keep its number->name pairing. Both hashes are held
+    // by value: iterating across two temporaries is undefined.
     const QHash<int, QByteArray> proxyRoles = saved.roleNames();
     const QHash<int, QByteArray> sourceRoles = local.roleNames();
     for (auto it = sourceRoles.cbegin(); it != sourceRoles.cend(); ++it) {
@@ -544,11 +522,9 @@ void GifCollectionsTest::savedForwardsRolesCorrectlyForBothGroups()
              QStringLiteral("giphy"));
 }
 
-// v0.6.7 review (M2): the merged view's riskiest path had no coverage —
-// GifStarredStore::openFor()/close() repoint the SAME long-lived
-// GifStarredModel at a different account's file through reopen(), which emits
-// two back-to-back reset pairs. If the proxy did not relay those, the Saved
-// tab would keep rendering the PREVIOUS account's rows after a switch.
+// GifStarredStore::openFor()/close() repoint the long-lived GifStarredModel
+// via reopen(), emitting two reset pairs; the proxy must relay them or the
+// Saved tab keeps the previous account's rows.
 void GifCollectionsTest::savedSurvivesASourceReopen()
 {
     GifStarredModel local(store);
@@ -564,8 +540,8 @@ void GifCollectionsTest::savedSurvivesASourceReopen()
     QSignalSpy reset(&saved, &QAbstractItemModel::modelReset);
     QSignalSpy counted(&saved, &GifSavedModel::countChanged);
 
-    // Sign-out / account close: the local group goes storageless. The proxy
-    // must drop exactly that group and keep the provider group.
+    // Sign-out: the local group goes storageless; the proxy drops exactly that
+    // group and keeps the provider group.
     local.reopen(nullptr);
     QVERIFY(reset.count() >= 1);
     QVERIFY(counted.count() >= 1);
@@ -576,8 +552,8 @@ void GifCollectionsTest::savedSurvivesASourceReopen()
              QStringLiteral("p1"));
     QVERIFY(saved.get(1).isEmpty());
 
-    // Switching to another account's directory: its rows appear, ahead of the
-    // provider group again, and none of the previous account's survive.
+    // Another account's directory: its rows appear ahead of the provider group
+    // and none of the previous account's survive.
     QSettings other(storePath(QStringLiteral("account-c")),
                     QSettings::IniFormat);
     other.clear();
@@ -591,13 +567,9 @@ void GifCollectionsTest::savedSurvivesASourceReopen()
     other.clear();
 }
 
-// v0.6.7 review (H1): GifStoredModel answers FavoriteRole with a constant
-// `true` — "stored == favorited". That is honest for favorites and for
-// locally-saved rows, and a LIE for recents, whose rows are merely recently
-// sent. The picker read that role to drive its star, so every Recent tile
-// rendered as saved, announced "Remove from saved GIFs", and then INSERTED on
-// activation. This pins the trap itself so the next reader cannot mistake the
-// role for a saved-state oracle, and pins the store lookup that replaced it.
+// GifStoredModel's FavoriteRole is a constant `true` ("stored == favorited"),
+// which is wrong for recents. It must not be used as a saved-state oracle;
+// the collection lookup is what GifPicker.qml's isSaved() asks.
 void GifCollectionsTest::favoriteRoleIsAConstantAndNotASavedStateOracle()
 {
     GifRecentModel recent(store);
@@ -605,16 +577,15 @@ void GifCollectionsTest::favoriteRoleIsAConstantAndNotASavedStateOracle()
 
     recent.recordSent(make("giphy", "sent1"));
     QCOMPARE(recent.count(), 1);
-    // The role claims "favorite" for a GIF that was only ever SENT.
+    // The role claims "favorite" for a GIF that was only sent.
     QCOMPARE(recent.data(recent.index(0, 0),
                          GifResultModel::FavoriteRole).toBool(),
              true);
-    // The collection tells the truth, which is why GifPicker.qml's isSaved()
-    // asks it instead.
+    // The collection answers truthfully.
     QVERIFY(!favorites.isFavorite(QStringLiteral("giphy"),
                                   QStringLiteral("sent1")));
 
-    // And it answers honestly once the GIF really is saved.
+    // ...and says yes once it really is saved.
     QVERIFY(favorites.toggle(toMap(make("giphy", "sent1"))));
     QVERIFY(favorites.isFavorite(QStringLiteral("giphy"),
                                  QStringLiteral("sent1")));
@@ -623,9 +594,8 @@ void GifCollectionsTest::favoriteRoleIsAConstantAndNotASavedStateOracle()
                                   QStringLiteral("sent1")));
 }
 
-// 2026-08 media round: a local row's format survives a reload — GifStarredStore is what
-// actually sets localExt (see GifStarredStoreTest.cpp for the store-level
-// coverage); this proves the JSON round-trip GifStoredModel itself owns.
+// A local row's format survives a reload: GifStoredModel's JSON round trip
+// (GifStarredStoreTest covers the store that sets localExt).
 void GifCollectionsTest::localExtRoundTripsThroughJsonWhenSet()
 {
     const QString h = QString(64, QLatin1Char('1'));
@@ -645,13 +615,9 @@ void GifCollectionsTest::localExtRoundTripsThroughJsonWhenSet()
     QCOMPARE(reloaded.resultAt(0).localExt, QStringLiteral("png"));
 }
 
-// A row persisted with NO "ext" key (every row before the 2026-08 media round, or a
-// favorites/recents row, which never sets localExt at all) must load with
-// localExt simply empty — never crash, never invent "gif" itself. Turning
-// "empty" into "gif" is GifStarredStore's own convention (see its class
-// comment), applied at the point the store actually needs a filesystem
-// suffix — not baked into the model/JSON layer, which stays a faithful,
-// format-agnostic round trip.
+// A row with no "ext" key (older rows, and every favorites/recents row) loads
+// with localExt empty. Mapping empty to "gif" is GifStarredStore's
+// convention, applied where it needs a file suffix, not in the model layer.
 void GifCollectionsTest::missingExtFieldDefaultsToEmptyNeverCrashes()
 {
     const QString h = QString(64, QLatin1Char('2'));
@@ -665,10 +631,8 @@ void GifCollectionsTest::missingExtFieldDefaultsToEmptyNeverCrashes()
     QCOMPARE(starred.resultAt(0).localExt, QString());
 }
 
-// A favorites (provider) row never sets localExt, so toJson() must never
-// write an "ext" key for it — the exact "written only when non-empty"
-// contract the design relies on to keep a provider entry's persisted shape
-// unchanged by this generalization.
+// A favorites row never sets localExt, so toJson() writes no "ext" key and
+// its persisted shape is unchanged.
 void GifCollectionsTest::favoritesEntryNeverGainsAnExtKey()
 {
     GifFavoritesModel fav(store);

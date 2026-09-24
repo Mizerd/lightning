@@ -1,6 +1,6 @@
-// v0.9 slash commands: the parser and registry contract. Everything here is
-// pure (no composer, no client), which is what lets the corner cases —
-// escapes, emoticons, non-letter words — be pinned exactly.
+// Slash commands: the parser and registry contract. Everything here is pure
+// (no composer, no client), so the corner cases (escapes, emoticons,
+// non-letter words) are pinned exactly.
 
 #include "models/SlashCommands.h"
 

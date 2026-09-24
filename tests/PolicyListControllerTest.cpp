@@ -1,9 +1,8 @@
-// Mjolnir-style policy lists: the controller's op discipline, and the one
-// design decision worth pinning — that following a list does not act on it.
+// Mjolnir-style policy lists: the controller's op discipline, and that
+// following a list does not act on it.
 //
-// The op rules matter because a policy room can be slow to read (it is a
-// whole-room /state fetch over a list that may hold thousands of rules), so
-// answers genuinely arrive out of order and for rooms the user has left.
+// A policy room read is a whole-room /state fetch that can be slow, so
+// answers arrive out of order and for rooms the user has left.
 
 #include "app/PolicyListController.h"
 #include "matrix/MockMatrixClient.h"
@@ -107,9 +106,8 @@ private Q_SLOTS:
         QVERIFY(!policy.loading());
     }
 
-    // A slow read of one room must not land under another room's name. Both
-    // guards are exercised, because either alone lets a wrong list through:
-    // the op id catches a superseded read of the SAME room, and the room id
+    // A slow read of one room must not land under another room's name. The
+    // op id catches a superseded read of the same room, and the room id
     // catches an answer whose op happens to match.
     void anAnswerForAnotherRoomIsNeverShown()
     {
@@ -136,11 +134,9 @@ private Q_SLOTS:
         QCOMPARE(policy.rules()->rowCount(), 1);
     }
 
-    // The SECOND guard, on its own: an answer whose op is the outstanding one
-    // but whose room is not. It should not happen — the bridge echoes back
-    // the room it was asked about — which is exactly why it is checked here
-    // rather than trusted. Note the op IS consumed: it is that read's answer,
-    // and leaving the slot open would hang `loading` forever.
+    // The room-id guard on its own: an answer with the outstanding op but the
+    // wrong room is refused. The op is still consumed, or `loading` would
+    // hang.
     void anAnswerNamingTheWrongRoomIsRefusedEvenWhenTheOpMatches()
     {
         PolicyClient client;
@@ -289,10 +285,8 @@ private Q_SLOTS:
         QCOMPARE(policy.rules()->rowCount(), 0);
     }
 
-    // Following a list produces NO enforcement of its own. This is the design
-    // decision, and it is here so a later change has to argue with a test
-    // rather than slip past: a subscribed list is somebody else's judgement,
-    // and silently acting on it is a different feature.
+    // Following a list produces no enforcement of its own: a subscribed list
+    // is somebody else's judgement.
     void followingAListNeverActsOnItsOwn()
     {
         PolicyClient client;
@@ -311,13 +305,9 @@ private Q_SLOTS:
         QCOMPARE(client.writeCalls, 0);
     }
 
-    // The check's answer is forwarded, and a superseded one is not.
-    //
-    // NOTE what this does NOT claim. An earlier version asserted that a MISS
-    // carries no rule detail by emitting an empty map and checking the map
-    // was empty — a tautology, because the controller forwards `detail`
-    // verbatim. The filtering that actually strips a miss's fields lives in
-    // RustSdkMatrixClient's poll dispatch, which this suite cannot reach.
+    // The check's answer is forwarded, and a superseded one is not. (Stripping
+    // a miss's rule detail happens in RustSdkMatrixClient's poll dispatch,
+    // which this suite cannot reach.)
     void aCheckAnswersOnceAndASupersededOneIsDropped()
     {
         PolicyClient client;
@@ -343,14 +333,9 @@ private Q_SLOTS:
         QCOMPARE(spy.first().at(0).toString(), QStringLiteral("@c:b.example"));
     }
 
-    // REMOVAL USES THE RULE'S OWN STATE KEY, not one derived from the entity.
-    //
-    // `rule:<entity>` is a CONVENTION, not a requirement — the state key is a
-    // free string. A rule another tool wrote under a different key would
-    // survive a removal keyed on the derived form, and the write would
-    // SUCCEED (it creates an empty event at a fresh key), so the user would
-    // be told the rule was gone while it stayed on the list. §6: "never
-    // report a cleanup as successful when it removed nothing."
+    // Removal uses the rule's own state key, not `rule:<entity>` derived from
+    // the entity: the key is a free string, and a write to a derived key
+    // would succeed while the real rule stayed on the list.
     void removalIsKeyedOnTheRulesOwnStateKey()
     {
         PolicyClient client;

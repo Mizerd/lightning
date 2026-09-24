@@ -1,14 +1,9 @@
-// The media browser's model: what it shows, and what it CLAIMS about how much
-// of history it has seen.
+// The media browser's model: what it shows, and what it claims about how much
+// of history it has seen ("no images" after 60 events and after 40,000 are
+// different claims).
 //
-// The second half is the point. A browser that renders "no images" the same
-// way after 60 events and after 40,000 is lying about one of them, and the
-// old Media tab did exactly that — it showed whatever the timeline had
-// loaded, with a line of prose asking the user to scroll the conversation.
-//
-// Driven by emitting the client's own signals, so these are the real
-// deliveries the Rust backend makes rather than a mock of the model's
-// internals.
+// Driven by emitting the client's own signals, as the Rust backend delivers
+// them.
 
 #include "matrix/MockMatrixClient.h"
 #include "models/MediaHistoryModel.h"
@@ -40,9 +35,8 @@ QVariantMap entry(const QString &eventId, const QString &kind,
 }
 
 /// `entry()` plus the media registry key, which the Rust scanner sets to the
-/// event id (rust/src/mediahistory.rs) exactly as the timeline keys its own
-/// rows. `entry()` deliberately omits it — theRegistryKeyRidesTheRow needs a
-/// row without one — so the media-viewer cases add it here.
+/// event id. `entry()` omits it (theRegistryKeyRidesTheRow needs a row
+/// without one).
 QVariantMap keyedEntry(const QString &eventId, const QString &kind,
                        const QString &sender = QStringLiteral("@a:example.org"))
 {
@@ -195,12 +189,9 @@ private Q_SLOTS:
         QCOMPARE(model.loadedCount(), 2);
     }
 
-    // A page for a room the panel has moved away from must not land. The
-    // panel can be pointed at another room while a request is in flight.
-    // Every tile fetches through the media registry when the scanner
-    // registered a key for it — the only path that can decrypt an encrypted
-    // attachment's thumbnail. The key rides the row as `mediaKey`; a row
-    // without one keeps the plain mxc route.
+    // Tiles fetch through the media registry when the scanner registered a
+    // key (the only path that decrypts an encrypted thumbnail). The key rides
+    // the row as `mediaKey`; a row without one keeps the plain mxc route.
     void theRegistryKeyRidesTheRow()
     {
         MockMatrixClient client;
@@ -221,6 +212,7 @@ private Q_SLOTS:
         QVERIFY(model.data(model.index(1), MediaHistoryModel::MediaKeyRole).toString().isEmpty());
     }
 
+    // A page for a room the panel has moved away from must not land.
     void aPageForAnotherRoomIsIgnored()
     {
         MockMatrixClient client;
@@ -289,20 +281,9 @@ private Q_SLOTS:
         QVERIFY(model.roomId().isEmpty());
     }
 
-    // CLICKING A PICTURE IN THE MEDIA TAB MUST OPEN THAT PICTURE.
-    //
-    // It did not. ImageViewerOverlay.openFor() took a media key alone and
-    // searched `app.timeline.imageEntries()` — the images the open TIMELINE
-    // has paginated — then, on a miss, opened `entries.length - 1`. This
-    // model exists precisely to reach media the timeline has never loaded, so
-    // the miss was the NORMAL case and the viewer reliably opened the newest
-    // loaded image instead of the one clicked. (The browser also sent
-    // `entry.mxc` rather than the media key, which the bridge cannot fetch in
-    // an encrypted room at all.)
-    //
-    // The viewer now takes the list AND the index; these are that list and
-    // that index, and the model owns both so QML cannot re-derive an order
-    // that drifts from the one on screen.
+    // Clicking a picture in the Media tab opens that picture. The viewer takes
+    // the list and the index, and this model owns both so QML cannot
+    // re-derive an order that drifts from the one on screen.
     void imageEntriesCarryTheViewerShapeInViewOrder()
     {
         MockMatrixClient client;

@@ -1,26 +1,12 @@
-// Regression: one user activation of a GIF must produce exactly one send.
-// GifPicker.qml's own `activated` one-shot latch (qml/GifPicker.qml) closes
-// the common case — a second click/Return landing while the popup is still
-// visually closing — but that latch is QML-local, per-picker-instance state.
-// It says nothing about any OTHER caller of sendToRoom()/sendToThread(): a
-// future call site, a test, or two independently-instantiated pickers (the
-// room composer and the thread panel each own one, sharing one
-// GifSearchController) racing on the same underlying controller.
-//
-// This suite drives GifSendController directly — the authoritative backstop
-// — and proves: (1) two activations of the SAME gif into the SAME
-// destination while the first is still downloading collapse into ONE
-// network operation and ONE send; (2) the dedup key is destination-AND-
-// identity qualified, so a different room, a different thread root, or a
-// different gif is never incorrectly suppressed; (3) the guard only covers
-// genuinely in-flight duplicates — a deliberate repeat send AFTER the first
-// one has already resolved (succeeded or failed) is never blocked, because
-// by then it is no longer "pending" and is ordinary, legitimate user intent.
-//
-// Mirrors tests/GifSendControllerTest.cpp's FakeSendClient harness (kept
-// separate/self-contained per QtTest's one-executable-per-.moc convention
-// rather than shared, consistent with that file not being in this
-// checkpoint's ownership).
+// One activation of a GIF produces exactly one send. GifPicker.qml's
+// `activated` latch is per-picker QML state, so GifSendController is the
+// authoritative backstop (the room and thread pickers share one controller).
+// Proves: (1) two activations of the same GIF to the same destination while
+// the first downloads collapse into one download and one send; (2) the dedup
+// key includes destination and identity, so different rooms, thread roots or
+// GIFs are never suppressed; (3) only in-flight duplicates are blocked: a
+// repeat after the first resolved is ordinary intent. Uses its own copy of
+// GifSendControllerTest's FakeSendClient harness.
 #include "gif/GifSendController.h"
 #include "gif/GifRecentModel.h"
 #include "matrix/MockMatrixClient.h"
@@ -153,9 +139,8 @@ void GifSendControllerDedupTest::identicalRoomActivationWhileFirstInFlightSendsO
     setup();
     QSignalSpy started(send, &GifSendController::sendStarted);
     QSignalSpy ok(send, &GifSendController::sendSucceeded);
-    // Two activations of the exact same GIF into the exact same room, the
-    // second landing before the first's download completes — exactly the
-    // "double click before the popup finishes closing" race.
+    // The same GIF to the same room twice, the second before the first's
+    // download completes (a double click while the popup closes).
     send->sendToRoom(QStringLiteral("!room:hs"), gifMap("giphy", "a"));
     send->sendToRoom(QStringLiteral("!room:hs"), gifMap("giphy", "a"));
     QCOMPARE(client->downloadedUrls.size(), 1);   // one network op, not two
@@ -185,8 +170,7 @@ void GifSendControllerDedupTest::identicalThreadActivationWhileFirstInFlightSend
 void GifSendControllerDedupTest::differentRoomNotDeduplicated()
 {
     setup();
-    // Same GIF, two DIFFERENT rooms — the dedup key is destination-
-    // qualified, so both must proceed as independent sends.
+    // The same GIF to two different rooms: both proceed.
     send->sendToRoom(QStringLiteral("!roomA:hs"), gifMap("giphy", "a"));
     send->sendToRoom(QStringLiteral("!roomB:hs"), gifMap("giphy", "a"));
     QCOMPARE(client->downloadedUrls.size(), 2);
@@ -196,9 +180,8 @@ void GifSendControllerDedupTest::differentRoomNotDeduplicated()
 void GifSendControllerDedupTest::differentThreadRootNotDeduplicated()
 {
     setup();
-    // Same room, same GIF, two DIFFERENT thread roots — still two distinct
-    // destinations (and distinct from an ordinary room send of the same
-    // GIF), never collapsed.
+    // Same room and GIF, two different thread roots: distinct destinations
+    // (and distinct from a room send), never collapsed.
     send->sendToThread(QStringLiteral("!room:hs"), QStringLiteral("$rootA"),
                        gifMap("giphy", "a"));
     send->sendToThread(QStringLiteral("!room:hs"), QStringLiteral("$rootB"),
@@ -211,7 +194,7 @@ void GifSendControllerDedupTest::differentThreadRootNotDeduplicated()
 void GifSendControllerDedupTest::differentGifNotDeduplicated()
 {
     setup();
-    // Same room, two DIFFERENT gifs — never collapsed.
+    // Same room, two different GIFs: never collapsed.
     send->sendToRoom(QStringLiteral("!room:hs"), gifMap("giphy", "a"));
     send->sendToRoom(QStringLiteral("!room:hs"), gifMap("giphy", "b"));
     QCOMPARE(client->downloadedUrls.size(), 2);
@@ -221,9 +204,7 @@ void GifSendControllerDedupTest::differentGifNotDeduplicated()
 void GifSendControllerDedupTest::repeatAfterSuccessIsNotBlocked()
 {
     setup();
-    // The guard only ever covers a genuinely IN-FLIGHT duplicate. Once the
-    // first send has resolved, a deliberate repeat of the identical GIF to
-    // the identical destination is ordinary user intent and must proceed.
+    // Once the first send resolved, a deliberate repeat proceeds.
     send->sendToRoom(QStringLiteral("!room:hs"), gifMap("giphy", "a"));
     client->finishDownload(client->dlOp, true);
     QCOMPARE(client->sends.size(), 1);
@@ -245,8 +226,7 @@ void GifSendControllerDedupTest::repeatAfterFailureIsNotBlocked()
     QCOMPARE(fail.count(), 1);
     QCOMPARE(send->activeCount(), 0);
 
-    // Retrying the identical GIF/destination after a failure must not be
-    // silently swallowed as a "duplicate" — the failed attempt is no
+    // A retry after failure is not a duplicate: the failed attempt is no
     // longer pending.
     send->sendToRoom(QStringLiteral("!room:hs"), gifMap("giphy", "a"));
     QCOMPARE(client->downloadedUrls.size(), 2);

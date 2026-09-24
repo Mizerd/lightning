@@ -1,8 +1,7 @@
-// v0.7: verified-session bootstrap state machine. The SDK owns the actual
-// secret gossip / backup download; this model only names the phase from
-// sanitized state events — these tests pin the derivation, idempotency,
-// key-count accumulation, the manual-recovery fallback signal, and the
-// per-session reset that account switching relies on.
+// Verified-session bootstrap state machine. The SDK owns secret gossip and
+// backup download; this model only names the phase from sanitized state
+// events. Pins the derivation, idempotency, key-count accumulation, the
+// manual-recovery fallback and the per-session reset account switching needs.
 #include <QSignalSpy>
 #include <QtTest/QtTest>
 
@@ -105,11 +104,9 @@ private Q_SLOTS:
         QVERIFY(!m.statusMessage().isEmpty());
     }
 
-    // v0.7 supervisor: the homeserver-truth probe says no backup exists.
-    // The model reaches the honest terminal state immediately — no
-    // 30-second wait for a gossip answer that cannot restore anything —
-    // and the copy stops promising that a recovery key will bring
-    // history back.
+    // The homeserver says no backup exists: the model reaches the honest
+    // terminal state immediately, without waiting for a gossip answer that
+    // cannot restore anything, and stops promising a recovery key helps.
     void serverTruthNoBackupIsTerminal()
     {
         CryptoBootstrapModel m;
@@ -126,11 +123,10 @@ private Q_SLOTS:
         QCOMPARE(n.phase(), CryptoBootstrapModel::WaitingForKeys);
     }
 
-    // v0.7 supervisor: the explicit download pass drives the phase. A
-    // started pass shows restoring even when the backup state is already
-    // steady at enabled (the F2 stored-key case); a failed pass escalates
-    // honestly instead of claiming Ready; a later successful pass (e.g.
-    // after manual recovery) still promotes.
+    // The explicit download pass drives the phase: a started pass shows
+    // restoring even when the backup is already enabled (a stored key), a
+    // failed pass escalates instead of claiming Ready, and a later successful
+    // pass still promotes.
     void downloadPassDrivesRestoreAndEscalation()
     {
         CryptoBootstrapModel m;
@@ -151,23 +147,10 @@ private Q_SLOTS:
         QCOMPARE(m.phase(), CryptoBootstrapModel::Ready);
     }
 
-    // A ROOM THAT RAN NO PASS MUST NOT ERASE WHAT A ROOM THAT FAILED ONE SAID.
-    //
-    // The supervisor tells us WHY a download pass did not run, and the first
-    // cut of that vocabulary rode the `backup_download` kind. That looked
-    // inert -- m_download is only ever COMPARED against "started" and
-    // "failed" -- but it is ASSIGNED unconditionally, and recompute() reads
-    // anything that is not "failed" as Ready. So opening any room that had
-    // already been attempted (which is every room switch after the first,
-    // since the pass is spawned on every open) retired the recovery banner
-    // and reported Ready over history that was never restored. §6: never
-    // report a cleanup as successful when it removed nothing.
-    //
-    // 207 tests passed on that code because none of them had ever fed a skip
-    // into this model.
-    //
-    // FAIL-ON-OLD: change either skip below back to the "backup_download"
-    // kind and the first QCOMPARE reads Ready.
+    // A room that ran no pass must not erase a failed pass's escalation.
+    // Skips are reported under their own kind; under `backup_download` they
+    // would reach recompute(), which reads anything but "failed" as Ready,
+    // so every later room switch would report Ready over unrestored history.
     void aSkippedPassDoesNotRetireTheEscalation()
     {
         CryptoBootstrapModel m;
@@ -177,7 +160,7 @@ private Q_SLOTS:
         QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
         QVERIFY(m.needsRecoveryKey());
 
-        // The room switch that used to undo it.
+        // The room switch.
         apply(m, "backup_download_skipped", "skipped_already_attempted");
         QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
         QVERIFY(m.needsRecoveryKey());
@@ -185,32 +168,26 @@ private Q_SLOTS:
         apply(m, "backup_download_skipped", "skipped_no_backup_key");
         QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
 
-        // Nor does the automatic recovery pass, which is an observation about
-        // individual sessions and not a verdict on the room's history.
+        // The automatic recovery pass concerns individual sessions, not the
+        // room's history, so it does not retire it either.
         apply(m, "auto_key_recovery", "started");
         QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
         apply(m, "auto_key_recovery", "no_keys_found");
         QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
 
-        // AND THE MISROUTED CASE, which is the one the defect actually took.
-        // The dedicated kind above returns before recompute(), so a stray
-        // assignment there is inert; `backup_download` does NOT return, so a
-        // skip arriving under THAT kind is what reached recompute() and
-        // reported Ready. A first version of this test only covered the
-        // dedicated kind and passed on the broken code.
+        // A skip misrouted under `backup_download` (which does not return
+        // before recompute()) must not report Ready either.
         apply(m, "backup_download", "skipped_already_attempted");
         QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
         QVERIFY(m.needsRecoveryKey());
 
-        // A REAL pass still speaks. The escalation is not sticky-forever.
+        // A real pass still speaks; the escalation is not permanent.
         apply(m, "backup_download", "ok");
         QCOMPARE(m.phase(), CryptoBootstrapModel::Ready);
     }
 
-    // The automatic request may never be answered. After the bounded wait,
-    // the model escalates from the indefinite "waiting" spinner to an honest
-    // manual-recovery state so the UI can offer the recovery key instead of
-    // shimmering forever.
+    // An unanswered automatic request escalates from the waiting spinner to
+    // manual recovery after a bounded wait.
     void unansweredRequestEscalatesToManualRecovery()
     {
         CryptoBootstrapModel m;
@@ -244,13 +221,12 @@ private Q_SLOTS:
         apply(m, "verification_state", "verified");
         apply(m, "backup_state", "downloading");
         QCOMPARE(m.phase(), CryptoBootstrapModel::RestoringHistory);
-        // The stale wait timer must not fire us into manual recovery now.
+        // The stale wait timer must not escalate now.
         QTest::qWait(60);
         QCOMPARE(m.phase(), CryptoBootstrapModel::RestoringHistory);
     }
 
-    // Account switch / logout: reset drops every remembered state and
-    // count, so a stale phase can never describe the next account.
+    // Account switch or logout resets every remembered state and count.
     void resetIsolatesSessions()
     {
         CryptoBootstrapModel m;
@@ -268,15 +244,14 @@ private Q_SLOTS:
         QVERIFY(!m.active());
         QCOMPARE(m.statusMessage(), QString());
 
-        // The v0.7 supervisor inputs are per-account too: the next account
-        // must not inherit "no backup exists" or a failed download pass.
+        // Supervisor inputs are per-account too: no inherited "no backup" or
+        // failed download pass.
         apply(m, "verification_state", "verified");
         QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
         m.reset();
 
-        // Old-session events after the reset (already rejected upstream by
-        // the handle generation) would at worst re-derive from scratch —
-        // they can never resurrect the previous account's counters.
+        // Old-session events after reset (already rejected upstream by the
+        // handle generation) could only re-derive from scratch.
         apply(m, "backup_state", "downloading");
         QCOMPARE(m.phase(), CryptoBootstrapModel::Idle); // not verified
     }
@@ -292,10 +267,9 @@ private Q_SLOTS:
         QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
     }
 
-    // v0.7.1 secrets watchdog: the Rust supervisor's bounded secrets_pending
-    // report refines the waiting phase into an honest "your other device has
-    // not answered" state — still waiting (spinner semantics, no recovery
-    // panel highlight yet) with copy distinct from plain WaitingForKeys.
+    // The supervisor's bounded secrets_pending report refines the waiting
+    // phase into "your other device has not answered": still waiting, with
+    // distinct copy from WaitingForKeys.
     void secretsPendingNamesIntermediateWaitState()
     {
         CryptoBootstrapModel m;
@@ -318,10 +292,9 @@ private Q_SLOTS:
         QCOMPARE(m.phase(), CryptoBootstrapModel::SecretsPending);
     }
 
-    // The WaitingForKeys -> SecretsPending refinement must NOT restart or
-    // stop the escalation timer: the shared bound still promotes the wait to
-    // ManualRecoveryRequired, which then stays sticky against late watchdog
-    // reports and no-progress events.
+    // The WaitingForKeys -> SecretsPending refinement does not restart or stop
+    // the escalation timer, and ManualRecoveryRequired stays sticky against
+    // late watchdog reports and no-progress events.
     void secretsPendingStillEscalatesOnTheSharedTimer()
     {
         CryptoBootstrapModel m;
@@ -336,10 +309,10 @@ private Q_SLOTS:
         QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
         QVERIFY(m.needsRecoveryKey());
 
-        // Sticky: a late watchdog report cannot bounce back to waiting…
+        // Sticky: a late watchdog report cannot return to waiting...
         apply(m, "secrets_pending", "waiting");
         QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
-        // …nor can a no-progress recovery event.
+        // ...nor can a no-progress recovery event.
         apply(m, "recovery_state", "incomplete");
         QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
         // Real backup progress still promotes it out.
@@ -347,9 +320,8 @@ private Q_SLOTS:
         QCOMPARE(m.phase(), CryptoBootstrapModel::RestoringHistory);
     }
 
-    // Real progress consumes the watchdog report: promotion to restoring /
-    // ready, and a later re-entry into the waiting family starts from the
-    // plain WaitingForKeys copy again (no stale "device did not answer").
+    // Real progress consumes the watchdog report: promotion to restoring or
+    // ready, and a later wait starts from plain WaitingForKeys.
     void secretsPendingProgressPromotesAndClears()
     {
         CryptoBootstrapModel m;
@@ -360,21 +332,21 @@ private Q_SLOTS:
 
         apply(m, "backup_state", "downloading");
         QCOMPARE(m.phase(), CryptoBootstrapModel::RestoringHistory);
-        // The stale wait timer must not fire us into manual recovery now.
+        // The stale wait timer must not escalate now.
         QTest::qWait(60);
         QCOMPARE(m.phase(), CryptoBootstrapModel::RestoringHistory);
 
         apply(m, "backup_state", "enabled");
         QCOMPARE(m.phase(), CryptoBootstrapModel::Ready);
 
-        // A backup-state regression re-enters the WAITING phase, not the
-        // consumed SecretsPending refinement.
+        // A backup-state regression re-enters plain waiting, not the consumed
+        // refinement.
         apply(m, "backup_state", "unknown");
         QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
     }
 
-    // Per-session isolation: reset drops the watchdog flag, and a report
-    // arriving while unverified can never mark the next verified wait.
+    // Reset drops the watchdog flag, and a report while unverified cannot
+    // mark the next verified wait.
     void secretsPendingResetAndUnverifiedIsolation()
     {
         CryptoBootstrapModel m;
@@ -396,9 +368,8 @@ private Q_SLOTS:
         QCOMPARE(n.phase(), CryptoBootstrapModel::WaitingForKeys);
     }
 
-    // v0.7.2 coordinator attempts: each explicit "requested" report counts
-    // an attempt, carries the eligible-device count, refines the waiting
-    // message, and offers the real re-request action.
+    // Each "requested" report counts an attempt, carries the eligible-device
+    // count, refines the waiting message and offers the re-request action.
     void secretRequestAttemptsRefineWaitingState()
     {
         CryptoBootstrapModel m;
@@ -425,8 +396,8 @@ private Q_SLOTS:
         QCOMPARE(m.requestAttempts(), 2);
     }
 
-    // v0.7.2: the coordinator's explicit ladder-exhaustion report escalates
-    // to manual recovery without waiting for the local backstop timer.
+    // The coordinator's ladder-exhaustion report escalates to manual recovery
+    // without waiting for the local backstop timer.
     void exhaustedLadderEscalatesExplicitly()
     {
         CryptoBootstrapModel m;
@@ -443,8 +414,8 @@ private Q_SLOTS:
         QVERIFY(m.canRequestKeys());
     }
 
-    // v0.7.2: a received m.secret.send answer names the processing state;
-    // backup progress promotes it out and consumes the flag.
+    // A received m.secret.send answer names the processing state; backup
+    // progress promotes out of it and consumes the flag.
     void secretResponseNamesProcessingState()
     {
         CryptoBootstrapModel m;
@@ -464,8 +435,8 @@ private Q_SLOTS:
         QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
     }
 
-    // v0.7.2: an unverified own identity blocks requesting (answers could
-    // not be accepted) and names the honest remedy.
+    // An unverified own identity blocks requesting (answers could not be
+    // accepted) and names the remedy.
     void unverifiedIdentityBlocksRequests()
     {
         CryptoBootstrapModel m;
@@ -482,8 +453,8 @@ private Q_SLOTS:
         QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
     }
 
-    // v0.7.2 manual re-request: leaves the sticky manual state exactly
-    // once, and a genuinely new coordinator request round does the same.
+    // A manual re-request leaves the sticky manual state once, and so does a
+    // new coordinator request round.
     void manualRearmLeavesManualRecoveryOnce()
     {
         CryptoBootstrapModel m;
@@ -495,8 +466,8 @@ private Q_SLOTS:
         m.rearmAfterManualRequest();
         QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
 
-        // Escalate again; this time the coordinator's own fresh request
-        // round (new ladder) re-arms the waiting state.
+        // Escalate again; the coordinator's fresh request round re-arms
+        // waiting.
         apply(m, "secrets_pending", "exhausted");
         QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
         apply(m, "secret_request", "requested", 1);
@@ -508,10 +479,9 @@ private Q_SLOTS:
         QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
     }
 
-    // Review finding: a received answer that never turns into backup
-    // progress must NOT wedge the model. Exhaustion outranks the received
-    // state, a still-missing attempt clears it, and the backstop timer
-    // keeps running through it.
+    // A received answer that never turns into backup progress must not wedge
+    // the model: exhaustion outranks it, a still-missing attempt clears it,
+    // and the backstop timer keeps running.
     void secretReceivedCannotWedgeTheModel()
     {
         CryptoBootstrapModel m;
@@ -522,14 +492,13 @@ private Q_SLOTS:
         // The genuine re-request action stays available here.
         QVERIFY(m.canRequestKeys());
 
-        // The coordinator's exhaustion report escalates even though an
-        // answer was seen.
+        // Exhaustion escalates even though an answer was seen.
         apply(m, "secrets_pending", "exhausted");
         QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
         QVERIFY(m.needsRecoveryKey());
 
-        // A later attempt that still finds secrets missing clears the
-        // stale received flag instead of resurrecting SecretReceived.
+        // A later attempt that still finds secrets missing clears the stale
+        // received flag.
         apply(m, "secret_request", "requested", 1);
         QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
         apply(m, "secret_response", "received", 1);
@@ -538,8 +507,8 @@ private Q_SLOTS:
         QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
     }
 
-    // Review finding: the local backstop must be able to escalate a
-    // SecretReceived state the coordinator never resolves.
+    // The local backstop escalates a SecretReceived state the coordinator
+    // never resolves.
     void secretReceivedStillEscalatesOnTheBackstop()
     {
         CryptoBootstrapModel m;
@@ -555,7 +524,7 @@ private Q_SLOTS:
         QVERIFY(m.needsRecoveryKey());
     }
 
-    // v0.7.2: reset drops every coordinator diagnostic.
+    // Reset drops every coordinator diagnostic.
     void resetClearsCoordinatorDiagnostics()
     {
         CryptoBootstrapModel m;

@@ -1,11 +1,7 @@
-// 0.5.14 checkpoint 2, chronology amendment 2026-09-01: room-activity
-// (state-change) grouping is transparent through read markers and the
-// timeline-start marker — matrix-sdk-ui freely interleaves those between
-// real events, and they must not fragment one logical activity group.
-// A DATE DIVIDER is different: it ends the run, so each calendar day's
-// activity leads its own collapsed group under its own truthful date
-// separator instead of one group swallowing months of history. A visible
-// message/media/call event ends a group as before.
+// Room-activity (state-change) grouping is transparent through read markers
+// and the timeline-start marker, which matrix-sdk-ui interleaves freely. A
+// date divider ends the run, so each day's activity leads its own group under
+// its own date. A visible message/media/call event also ends a group.
 
 #include "matrix/MatrixClient.h"
 #include "models/TimelineModel.h"
@@ -142,8 +138,7 @@ private Q_SLOTS:
     void appendingContiguousStateChangeExtendsGroupForward();
     void prependingOlderStateChangesExtendsGroupBackward();
     void groupCountAlwaysMatchesAccessibleChildren();
-    // v0.7.4 (C4): a date divider must not draw when everything it
-    // introduces is hidden.
+    // A date divider must not draw when everything it introduces is hidden.
     void everyDayOfAMultiDayRunOwnsItsGroupAndItsDate();
     void hiddenRoutineActivityLeavesItsDividerWithNothingToIntroduce();
     void showRoomActivityFlipReAnnouncesTheDividerRows();
@@ -168,33 +163,10 @@ void StateActivityGroupingTest::cleanup()
     m_client = nullptr;
 }
 
-// THE REPORTED ROW. A call arrived as a state event whose kind was "m.call"
-// and whose body was the literal words "call event", so MessageDelegate hosted
-// it in RoomActivityDelegate and it drew "1 room update" expanding to "call
-// event" — reported as "also room event look bleak".
-//
-// ON THE UNFIXED TREE this whole case fails at its first line: IsCallEventRole
-// does not exist, isStateActivity is TRUE, and stateGroupEntriesFrom(0) yields
-// one entry whose description is the row's body.
-//
-// It is written against the LEGACY shape (a StateChange carrying stateKind
-// "m.call") deliberately: that is what a cached row and the mock/HTTP backends
-// still produce, so this pins that those render identically to the new typed
-// row rather than falling back into the activity group.
-// A ROOM WITH CALL HISTORY GREW A COLUMN OF JOIN BUTTONS.
-//
-// `CallEventDelegate.sessionLive` is `app.rtc.participantCount(roomId) > 0` —
-// an answer about the ROOM, because that is the only question RtcController
-// can answer. Every call row in the room bound to it identically, so the
-// moment anyone was in a call, every historical "started a call" row offered
-// Join. Reported by the maintainer looking at a day of call history.
-//
-// The model now names the newest call row and the delegate stands down when
-// it is not that row. This pins the model half: the id must be the NEWEST
-// call row, must ignore ordinary messages between them, and must move when a
-// newer call arrives.
-//
-// ON THE UNFIXED TREE latestCallEventId does not exist at all.
+// Only the newest call row offers Join: `CallEventDelegate.sessionLive` is a
+// per-room answer, so the model names the newest call row. The id must be the
+// newest call row, ignore messages between them, and move when a newer call
+// arrives.
 void StateActivityGroupingTest::onlyTheNewestCallRowCanBeJoined()
 {
     TimelineEvent older = makeStateChange(QStringLiteral("$call-older"),
@@ -208,11 +180,8 @@ void StateActivityGroupingTest::onlyTheNewestCallRowCanBeJoined()
 
     QCOMPARE(m_model->latestCallEventId(), QStringLiteral("$call-newer"));
 
-    // IT MUST MOVE ON A LIVE APPEND, which is the production path: a call
-    // starts while the reader has the room open. An earlier version of this
-    // case "moved" the id by resetting the room, which exercises modelReset
-    // and says NOTHING about the countChanged hook the fix actually relies
-    // on -- it passed whether or not that hook worked. Raised in review.
+    // It must move on a live append (a call starting while the room is open),
+    // which exercises the countChanged hook rather than modelReset.
     QSignalSpy moved(m_model, &TimelineModel::latestCallEventIdChanged);
     TimelineEvent newest = makeStateChange(QStringLiteral("$call-newest"),
                                            QString{}, QStringLiteral("m.call"));
@@ -221,11 +190,8 @@ void StateActivityGroupingTest::onlyTheNewestCallRowCanBeJoined()
     QCOMPARE(m_model->latestCallEventId(), QStringLiteral("$call-newest"));
     QCOMPARE(moved.count(), 1);
 
-    // AND ON AN IN-PLACE SET, which changes no row count at all. A late
-    // decryption, an edit, a redaction and a cached `stateKind` row being
-    // re-set all arrive this way; redacting the newest call row must hand the
-    // button back to the one before it. Without the callness hook in
-    // onEventChangedAt this keeps naming a row that is no longer a call.
+    // And on an in-place set, which changes no row count: redacting the newest
+    // call row hands the button back to the one before it.
     TimelineEvent redacted = makeMessage(QStringLiteral("$call-newest"),
                                          QStringLiteral("[removed]"));
     Q_EMIT m_client->eventChangedAt(kRoom, 3, redacted);
@@ -235,14 +201,9 @@ void StateActivityGroupingTest::onlyTheNewestCallRowCanBeJoined()
              "move latestCallEventId, so the Join button stays on a row that "
              "is no longer a call");
 
-    // AND THE OTHER DIRECTION, which is the one the production causes name.
-    // `callnessChanged` is a != of two predicates, and narrowing it to
-    // `wasCall && !isCall` passes every assertion above while a row that
-    // BECOMES a call row through an in-place Set never takes the button --
-    // which is exactly what a late decryption or a re-set `stateKind` row
-    // does. Raised in review. Index 3 is the row the redaction above left as
-    // an ordinary message; turning it back into a call must reclaim the
-    // newest-call title from `$call-newer` at index 2.
+    // And the other direction: a row that becomes a call row through an
+    // in-place set (late decryption, re-set `stateKind`) reclaims the title.
+    // Index 3 is the row the redaction above left as an ordinary message.
     const int before = moved.count();
     TimelineEvent decrypted = makeStateChange(QStringLiteral("$call-newest"),
                                               QString{}, QStringLiteral("m.call"));
@@ -284,9 +245,8 @@ void StateActivityGroupingTest::aCallIsNotARoomUpdate()
              QStringLiteral("Alice started a call."));
 }
 
-// A call is content, so annotations either side of it are TWO groups, not one
-// group with a call swallowed in the middle. ON THE UNFIXED TREE this is one
-// group of three entries whose middle row reads "call event".
+// A call is content, so annotations either side of it form two groups, not
+// one group with the call swallowed in the middle.
 void StateActivityGroupingTest::aCallBreaksTheActivityRunAroundIt()
 {
     m_client->mirror = {
@@ -364,15 +324,8 @@ void StateActivityGroupingTest::exposesTypedMembershipAndRoomStateEntries()
              QStringLiteral("m.room.topic"));
 }
 
-// A membership row says WHAT IT DID, as a closed set, beside the sentence.
-//
-// The row draws a glyph per action — joining, being removed and being banned
-// are not the same event, and a column of identical grey sentences says they
-// are. Deriving that glyph from the sentence is the thing this field exists
-// to prevent: the sentence is TRANSLATED, so a glyph parsed out of it would
-// be right in exactly one language.
-//
-// On the unfixed tree the key is absent, so the row has nothing to draw from.
+// A membership row carries its action as a closed set beside the sentence, so
+// the per-action glyph is not parsed out of a translated sentence.
 void StateActivityGroupingTest::aMembershipEntryCarriesWhatItDid()
 {
     TimelineEvent joined = makeStateChange(
@@ -412,13 +365,9 @@ void StateActivityGroupingTest::aMembershipEntryCarriesWhatItDid()
              QStringLiteral("Bob joined the room."));
 }
 
-// INVERTED 2026-09-01: this case used to pin the opposite — that a divider
-// was transparent and both rows shared one group. That transparency is what
-// let one collapsed group swallow months of history under a single date
-// separator ("142 room updates · 22 Feb – 31 Aug" below "22 February"), so
-// the rule is now: a date divider ENDS a state run; each day's activity
-// leads its own group under its own truthful date. Read markers and the
-// timeline-start row stay transparent (the two cases below this one).
+// A date divider ends a state run: each day's activity leads its own group
+// under its own date. Read markers and the timeline-start row stay
+// transparent (the two cases below).
 void StateActivityGroupingTest::dateDividerSplitsTheRunIntoDailyGroups()
 {
     m_client->mirror = {
@@ -455,8 +404,7 @@ void StateActivityGroupingTest::dateDividerSplitsTheRunIntoDailyGroups()
 void StateActivityGroupingTest::multiDayRunYieldsOneGroupPerDay()
 {
     // Three days of pure state churn, divider-separated as the SDK delivers
-    // them (DateDividerMode is daily): day 0 has two rows, days 1 and 2 one
-    // each. Four state rows, THREE groups — one per calendar day.
+    // them: four state rows, three groups, one per calendar day.
     m_client->mirror = {
         onDay(makeStateChange(QStringLiteral("$a0"), QStringLiteral("a0")), 0),
         onDay(makeStateChange(QStringLiteral("$a1"), QStringLiteral("a1")), 0),
@@ -480,11 +428,7 @@ void StateActivityGroupingTest::multiDayRunYieldsOneGroupPerDay()
 void StateActivityGroupingTest::aDividerLeadingOnlyActivityStillIntroducesVisibleContent()
 {
     // With the run split at the divider, the day's first state row leads a
-    // group and DRAWS its summary — so the divider above it introduces
-    // visible content and keeps its date on screen. Before the split this
-    // divider introduced nothing (the run's leader sat above it) and the
-    // date label was suppressed, which is exactly how a months-wide group
-    // ended up owning one stale date.
+    // group and draws its summary, so the divider above it keeps its date.
     m_client->mirror = {
         onDay(makeStateChange(QStringLiteral("$s0"), QStringLiteral("yesterday")), 0),
         makeVirtual(TimelineEvent::DateDivider, QStringLiteral("$div0")),
@@ -699,14 +643,8 @@ void StateActivityGroupingTest::groupCountAlwaysMatchesAccessibleChildren()
 
 void StateActivityGroupingTest::everyDayOfAMultiDayRunOwnsItsGroupAndItsDate()
 {
-    // REWRITTEN 2026-09-01. The previous version of this case pinned the
-    // opposite design: one group across the whole 3-day run, with the inner
-    // dividers suppressed as "orphans". That removed the bare-date-label
-    // defect but created the misleading-chronology one — a single date
-    // separator owning a collapsed group whose subtitle ran months past it.
-    // The run now BREAKS at every date divider, which solves both defects
-    // at once: no divider is an orphan (each introduces its own day's
-    // summary), and no summary spans days its date separator does not own.
+    // The run breaks at every date divider: no divider is an orphan and no
+    // summary spans days its date separator does not own.
     QList<TimelineEvent> mirror;
     mirror.append(onDay(makeVirtual(TimelineEvent::DateDivider,
                                     QStringLiteral("$divA")), 0));
@@ -747,11 +685,9 @@ void StateActivityGroupingTest::everyDayOfAMultiDayRunOwnsItsGroupAndItsDate()
     }
     QCOMPARE(leaders, 3);
 
-    // The fixture's layout is explicit, so each answer is read at a KNOWN
-    // row and guarded by that row's own id: a drift in the fixture must
-    // fail the test, never quietly move an assertion onto another row.
-    // Returning an invalid QVariant on a mismatch does exactly that,
-    // because neither QVariant(true) nor QVariant(false) equals it.
+    // Each answer is read at a known row and guarded by that row's id, so a
+    // drift in the fixture fails instead of moving an assertion to another
+    // row (an invalid QVariant equals neither true nor false).
     const auto dividerAt = [this](int row, const QString &eventId) {
         const QModelIndex idx = m_model->index(row);
         if (m_model->data(idx, TimelineModel::EventIdRole).toString() != eventId)
@@ -867,9 +803,8 @@ void StateActivityGroupingTest::showRoomActivityFlipReAnnouncesTheDividerRows()
                    TimelineModel::DividerIntroducesVisibleContentRole))
             coveredDivider = true;
     }
-    // The refresh must reach the divider row THROUGH the existing
-    // presentation-grouping path — a role nothing re-announces is a role
-    // that silently keeps its old answer in every live view.
+    // The refresh must reach the divider row through the existing
+    // presentation-grouping path.
     QVERIFY(coveredDivider);
 
     // Idempotent: writing the same value again is not a refresh.

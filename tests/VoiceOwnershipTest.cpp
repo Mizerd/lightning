@@ -1,27 +1,13 @@
-// v0.7 thread parity: ownership of the SHARED voice recorder.
+// Ownership of the shared voice recorder. There is one VoiceRecorder and both
+// composers (room and thread) listen to its ready()/failed(), so only the
+// owner may act on them or one ready() would be sent twice.
 //
-// There is exactly one VoiceRecorder for the application and both composers
-// (room and thread) listen to its ready()/failed(). Before ownership existed,
-// each composer armed those Connections from its own local flag, so a
-// recording started in the room composer and then superseded from the thread
-// panel left BOTH armed and one ready() sent the same file twice — into the
-// room AND into the thread. Opening a thread does not change currentRoomId,
-// so the room composer's cancel-on-room-change never fired for that sequence.
-//
-// The first fix was worse than the bug: it moved ownership BEFORE calling
-// start() and cleared it when start() failed. VoiceRecorder::start() REFUSES
-// while Recording or Processing and returns false WITHOUT emitting failed(),
-// so the recorder stayed live while owned by NOBODY — microphone open, no
-// pill, no cancel button, cancelVoiceRecording() early-returning on an empty
-// owner — until the 15-minute cap, and across sign-out.
-//
-// These tests pin the corrected rules:
-//   * ownership is taken only AFTER a successful start;
+// VoiceRecorder::start() refuses while Recording or Processing and returns
+// false without emitting failed(). The rules pinned:
+//   * ownership is taken only after a successful start;
 //   * a live recording is never stolen, only refused;
 //   * a refusal leaves the existing owner (and therefore its UI) intact;
 //   * the refusal is distinguishable from "no microphone available".
-// No real capture chain, no microphone, no audio backend: the recorder is
-// replaced with a state-only double through the test seam.
 
 #include "app/AppController.h"
 #include "media/VoiceRecorder.h"
@@ -106,10 +92,9 @@ private Q_SLOTS:
         QVERIFY(!app.voiceRecordingBusy());
     }
 
-    // THE C1 REGRESSION. Record in the room composer, then press the thread
-    // mic. The thread start must be refused and the ROOM must keep
-    // ownership — so the live recording keeps its pill, its cancel button
-    // and its ready() arming, and the microphone is never orphaned.
+    // Record in the room composer, then press the thread mic: the thread
+    // start is refused and the room keeps ownership, its pill, cancel button
+    // and ready() arming.
     void asecondComposerCannotStealALiveRecording()
     {
         AppController app(AppController::MockBackend);
@@ -129,10 +114,8 @@ private Q_SLOTS:
         QVERIFY(app.voiceRecordingBusy());
     }
 
-    // Same rule during the finalizing window: Send pressed in the room
-    // composer, then the thread mic. The owner that pressed Send must stay
-    // armed, or its ready() would be delivered to nobody and the recording
-    // would be neither sent nor deleted.
+    // The same during the finalizing window: the owner that pressed Send
+    // stays armed, or its ready() would reach nobody.
     void aliveRecordingIsNotStolenWhileFinalizing()
     {
         AppController app(AppController::MockBackend);

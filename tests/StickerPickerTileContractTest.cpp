@@ -1,29 +1,16 @@
-// StickerPicker tile contract.
+// StickerPicker tile contract: two silent failures the component-load gate
+// cannot see (it never builds a tile).
 //
-// Two silent-failure modes that the animated-sticker round introduced or
-// depends on. Neither throws, neither logs, and neither is visible to the
-// component-load gate — which loads StickerPicker.qml but never builds a
-// tile, because nothing in that test has a populated sticker model.
+// 1. A `required property` the model cannot supply by name makes
+//    QQuickDelegateModel build no delegate at all while `count` stays
+//    correct, so every required property must be a served role.
 //
-// 1. A `required property` the model cannot supply BY NAME makes
-//    QQuickDelegateModel refuse to build the delegate AT ALL, while
-//    rowCount() and the view's `count` stay correct (CLAUDE.md §16, the
-//    Qt 6.8 proxy-roleNames finding: "roleNames PRESENT -> count=3
-//    delegates=3, STRIPPED -> count=3 delegates=0"). The observable is a
-//    picker with the right count and zero tiles. Adding `mimetype` to the
-//    image tile put a new name on that contract, so the contract is pinned
-//    here rather than trusted.
+// 2. The picker compares MediaBridge's cache keys as strings (the
+//    `animatedMediaReady(cacheKey)` and `mediaCached(cacheKey)` signals carry
+//    nothing else), so a prefix rename would silently never match.
 //
-// 2. The picker compares MediaBridge's cache keys as STRINGS — it has to,
-//    because `animatedMediaReady(cacheKey)` and `mediaCached(cacheKey)`
-//    carry nothing else. A rename on the C++ side therefore does not break
-//    a build or a test; it makes the comparison silently never match, and
-//    the animation simply never appears. That is precisely the defect this
-//    round fixed, so it must not be reintroducible by a rename.
-//
-// Both cases GUARD THEIR OWN SWEEP (found > 0): a scan that matches nothing
-// passes vacuously, which is the recorded "mutation-check every new sweep"
-// trap.
+// Both cases guard their own sweep (found > 0) so they cannot pass
+// vacuously.
 
 #include "stickers/StickerImageModel.h"
 #include "stickers/StickerPackModel.h"
@@ -63,11 +50,8 @@ class StickerPickerTileContractTest : public QObject
 
 private slots:
     // Every `required property` a StickerPicker delegate declares must be a
-    // role name one of the picker's two models actually serves. `index` is
-    // the exception: it is a built-in delegate property, not a model role.
-    //
-    // On a tree where StickerImageModel drops "mimetype" from roleNames()
-    // this fails naming that exact property.
+    // role one of the picker's two models serves (`index` is built in). A
+    // dropped role fails naming that property.
     void everyRequiredPropertyOfAPickerTileIsARoleSomeModelServes()
     {
         const QString qml = pickerQml();
@@ -106,11 +90,8 @@ private slots:
     }
 
     // The picker's `onAnimatedMediaReady` / `onMediaCached` handlers compare
-    // the signal's cacheKey against keys they build themselves. Those keys
-    // are MediaBridge's, so both spellings must exist on both sides.
-    //
-    // On a tree where MediaBridge's prefix is renamed (or the picker's is)
-    // this fails naming the prefix that went missing.
+    // the signal's cacheKey against keys they build; both prefixes must exist
+    // on both sides, and a rename fails naming the missing prefix.
     void thePickerAndTheBridgeAgreeOnTheCacheKeyPrefixes()
     {
         const QString qml = pickerQml();

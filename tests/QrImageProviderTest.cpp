@@ -1,16 +1,15 @@
-// Show-QR verification rendering. Lightning DISPLAYS a verification QR code
-// for another device to scan; it never scans one. This pins the pure
-// grid -> QImage transform and the memory-only single-slot store:
+// Show-QR verification rendering (Lightning displays a code, it never scans
+// one): the pure grid -> QImage transform and the memory-only single-slot
+// store.
 //   * the packed row-major/MSB-first grid maps to the right modules;
 //   * the 4-module quiet zone is present and white;
 //   * dark modules are black and light ones white regardless of theme;
 //   * scaling stays whole-module (a fractional module will not scan);
-//   * an unknown or stale token renders NOTHING rather than another flow's
+//   * an unknown or stale token renders nothing rather than another flow's
 //     code;
 //   * malformed geometry is refused rather than rendered sheared;
 //   * clear() drops the grid, so a code cannot outlive its flow.
-// No credentials, key material, or real QR payloads appear anywhere here —
-// the grids are synthetic.
+// The grids are synthetic; no key material or real QR payloads appear here.
 
 #include "crypto/QrImageProvider.h"
 

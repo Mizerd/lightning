@@ -1,6 +1,6 @@
-// v0.6.1: the quick switcher result model — matching over local room/DM/
-// Space/invite presentation data, category classification, bounded results,
-// and logout clearing. No network, no homeserver.
+// The quick switcher result model: matching over local room/DM/Space/invite
+// presentation data, category classification, bounded results, and logout
+// clearing. No network, no homeserver.
 
 #include "matrix/MockMatrixClient.h"
 #include "models/QuickSwitcherModel.h"

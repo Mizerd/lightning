@@ -1,20 +1,9 @@
-// ShortcutRegistry — the rules that make rebinding safe rather than merely
-// possible.
+// ShortcutRegistry: the rules that make rebinding safe. Each case pins one rule
+// against the obvious naive implementation, noted per case.
 //
-// HONESTY ABOUT WHAT THESE ARE. Nothing here is a regression test in the
-// CLAUDE.md §18 sense: before this round there was no rebinding
-// infrastructure at all, so there is no "old code" for a case to fail
-// against. What each case DOES do is pin one rule against the obvious naive
-// implementation of the same feature, and each is annotated with which naive
-// implementation it catches. Those are real: every one of them is a shape a
-// shortcut editor is normally written in.
-//
-// WHAT IS NOT COVERED, AND IS NOT CLAIMED. Whether a rebound sequence
-// actually reaches a live `Shortcut` in a running client, whether the capture
-// control receives a key that is already bound (it relies on Qt delivering a
-// ShortcutOverride to the focus item), and whether Qt's ambiguous-overload
-// behaviour is what the conflict rule says it is — all three need a running
-// GUI and are NOT TESTED here.
+// Not covered (needs a running GUI): whether a rebound sequence reaches a live
+// `Shortcut`, whether the capture control receives an already-bound key (it
+// relies on Qt's ShortcutOverride), and Qt's ambiguous-overload behaviour.
 
 #include "app/SettingsManager.h"
 #include "app/ShortcutRegistry.h"
@@ -79,13 +68,10 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // ── The seed list itself ────────────────────────────────────────────
-
-    // NAIVE IMPLEMENTATION THIS CATCHES: a seed list written by hand with a
-    // duplicate default — which is exactly what happens when someone adds
-    // "Bold = Ctrl+B" to a list that already contains "toggle room list =
-    // Ctrl+B" without noticing. Shipping that would make BOTH actions dead
-    // on first launch, before anyone had rebound anything.
+    // The seed list.
+    //
+    // No two actions ship on the same default in one context: a duplicate
+    // default makes both actions dead on first launch.
     void noTwoActionsShipOnTheSameDefaultInOneContext()
     {
         SettingsManager settings;
@@ -112,11 +98,8 @@ private Q_SLOTS:
         QCOMPARE(registry.conflictCount(), 0);
     }
 
-    // NAIVE IMPLEMENTATION THIS CATCHES: a seed list that only knows about
-    // its own rows. Escape and the message menu's single-letter accelerators
-    // stay hard-coded in QML, so a registry that does not carry them would
-    // cheerfully hand Escape to "Quit" and break every dialog in the client
-    // at the same time — with the settings page reporting no conflict.
+    // Seeded defaults avoid the keys hard-coded in QML (Escape, the message
+    // menu's single-letter accelerators), which the registry must know about.
     void everySeededDefaultAvoidsTheHardCodedKeys()
     {
         SettingsManager settings;
@@ -130,8 +113,7 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("default %1 is reserved for %2")
                                     .arg(seq, registry.reservedOwner(seq))));
         }
-        // And the reserved list is not vacuously empty — a list that matched
-        // nothing would pass the loop above while defending nothing at all.
+        // The reserved list is not empty, or the loop above defends nothing.
         QVERIFY(registry.isReserved(QStringLiteral("Esc")));
         QVERIFY(registry.isReserved(QStringLiteral("Escape")));
         QVERIFY(registry.isReserved(QStringLiteral("Alt+V")));
@@ -139,15 +121,9 @@ private Q_SLOTS:
         QVERIFY(registry.isReserved(QStringLiteral("Space")));
     }
 
-    // NAIVE IMPLEMENTATION THIS CATCHES: a default written the way a human
-    // says it ("Ctrl+Slash", "Control+/") rather than the way
-    // QKeySequence::PortableText round-trips it. normalize() returns an
-    // EMPTY string for anything Qt cannot parse, and an empty sequence makes
-    // an INERT `Shortcut` — a key that reports itself in Settings and does
-    // nothing, with nothing anywhere saying why. Every sweep below compares
-    // against the round-tripped form, so a default that does not survive the
-    // round trip would make those sweeps agree with each other about a
-    // sequence the client can never fire.
+    // Every seeded default survives the QKeySequence::PortableText round trip:
+    // normalize() returns "" for anything Qt cannot parse, and an empty
+    // sequence makes an inert `Shortcut`.
     void everySeededDefaultSurvivesThePortableTextRoundTrip()
     {
         SettingsManager settings;
@@ -163,25 +139,17 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("%1 has an unparseable default")
                                     .arg(id)));
             QCOMPARE(ShortcutRegistry::normalize(seq), seq);
-            // …and the resolved (current) sequence agrees with it on a clean
-            // profile, which is what QML actually binds.
+            // ...and the resolved sequence QML binds agrees with it on a clean
+            // profile.
             QCOMPARE(registry.data(idx, ShortcutRegistry::CurrentSequenceRole)
                          .toString(),
                      seq);
         }
     }
 
-    // NAIVE IMPLEMENTATION THIS CATCHES: enforcing the modifier rule in
-    // setBinding() alone. validationError() is only reached when a USER
-    // rebinds — nothing checks the SEED list, so a shipped default of "U" or
-    // "F5" would take that key away from every text field in the client on
-    // first launch and the rebinding page would report no problem at all.
-    // Exactly the shape of commit 4c2317f's Space defect, arriving through
-    // the table instead of through QML.
-    //
-    // BOTH contexts, because validationError() refuses a modifier-less
-    // sequence for both: an Editor action on a bare letter would be
-    // unreachable anyway, since typing the letter is what the box is for.
+    // Every seeded default carries a real modifier, in both contexts: the
+    // modifier rule is otherwise only enforced on user rebinds, and a bare-key
+    // default would take that key from every text field.
     void everySeededDefaultCarriesARealModifier()
     {
         SettingsManager settings;
@@ -212,14 +180,9 @@ private Q_SLOTS:
         QVERIFY2(checkedRows > 0, "no rows at all — the sweep is inert");
     }
 
-    // ── The 2026-09-09 Discord-style additions ──────────────────────────
-
-    // THE POINT OF THIS CASE is that the two sweeps above and
-    // everySeededDefaultAvoidsTheHardCodedKeys() iterate whatever rows the
-    // model happens to have — so a new action whose id was mistyped, or that
-    // was never added at all, would be covered by NOTHING while every sweep
-    // still passed. This pins the ids and the sequences, which is what makes
-    // the sweeps' coverage of them a fact rather than an assumption.
+    // The named additions ship on exactly these ids and keys: the rule sweeps
+    // iterate whatever rows exist, so a missing or mistyped row would pass them
+    // all.
     void theDiscordStyleAdditionsShipOnExactlyTheseKeys()
     {
         SettingsManager settings;
@@ -253,26 +216,14 @@ private Q_SLOTS:
         }
         QCOMPARE(registry.conflictCount(), 0);
 
-        // The widened row REPLACED the old narrow one rather than joining
-        // it. Two rows both defaulting to Ctrl+, would be a hard conflict,
-        // and a leftover row would be a shortcut wired to nothing.
+        // The widened row replaced the old narrow one; both defaulting to
+        // Ctrl+, would conflict.
         QVERIFY(!resolved.contains(QStringLiteral("app.settingsSearch")));
     }
 
-    // THE 2026-09-12 DISCORD AUDIT'S ROWS, PINNED BY ID AND BY KEY.
-    //
-    // WHY A PIN AND NOT A SWEEP. Every other case in this file iterates
-    // `rowCount()` and checks a RULE, so all of them pass vacuously on a row
-    // that was never added or whose id was mistyped — the sweep simply has
-    // one fewer row to visit and says nothing. This is the case that fails
-    // when a row is missing, which is the failure mode the seed list's own
-    // comment calls "strictly worse than not offering it".
-    //
-    // Each id here is WIRED in the same commit: nav.newDirectMessage,
-    // nav.activityCenter, room.markAllRead, room.markUnread, call.startCall,
-    // call.leave and call.toggleScreenShare are all declared in
-    // qml/MainScreen.qml, and theShortcutRowsWiredInQmlCoverEveryRegistryId
-    // below is what keeps that true.
+    // More rows pinned by id and key, since sweeps pass vacuously on a missing
+    // row. Each is wired in qml/MainScreen.qml, which
+    // theShortcutRowsWiredInQmlCoverEveryRegistryId keeps true.
     void theDiscordAuditAdditionsShipOnExactlyTheseKeys()
     {
         SettingsManager settings;
@@ -304,35 +255,21 @@ private Q_SLOTS:
         }
         QCOMPARE(registry.conflictCount(), 0);
 
-        // Ctrl+B IS BOLD IN THE MESSAGE BOX AND THE ROOM-LIST TOGGLE
-        // EVERYWHERE ELSE, and the audit that produced the rows above was
-        // told that is not negotiable. Restated here rather than left to
-        // theOnlyCrossContextSharesAreTheTwoDesignedOnes, because that case
-        // would still pass if BOTH of these moved to some third key
-        // together.
+        // Ctrl+B is Bold in the message box and the room-list toggle
+        // elsewhere; pinned here too, since the cross-context case would pass
+        // if both moved to another key together.
         QCOMPARE(resolved.value(QStringLiteral("composer.bold")),
                  QStringLiteral("Ctrl+B"));
         QCOMPARE(resolved.value(QStringLiteral("shell.toggleRoomList")),
                  QStringLiteral("Ctrl+B"));
     }
 
-    // WHERE THE "is every row actually WIRED?" CASE LIVES, and why it is not
-    // here. The seed list's contract — "a registry entry whose QML site was
-    // never migrated is a shortcut that reports a key and does nothing" — can
-    // only be checked against the qml/ tree, and THIS target is built without
-    // a QML_DIR definition (CMakeLists: shortcut-registry-test links four
-    // sources and Qt6::Core/Gui/Test, nothing more). The sweep therefore
-    // lives in CallUiContractTest as
-    // everyGlobalShortcutRowIsActuallyBoundInQml, which has QML_DIR and a
-    // temp-dir QSettings environment already. Move it here the day this
-    // target gains QML_DIR.
+    // "Is every row wired in QML?" needs QML_DIR, which this target lacks; it
+    // lives in CallUiContractTest::everyGlobalShortcutRowIsActuallyBoundInQml.
 
-    // NAIVE IMPLEMENTATION THIS CATCHES: adding the picker/attach actions in
-    // EditorContext because their ids begin with "composer.". Both composers
-    // route an EditorContext hit straight into applyFormat() by stripping
-    // that prefix, so "composer.emojiPicker" would arrive there as the
-    // format name "emojiPicker" — which toggleFormat() does not know — and
-    // the picker would never open. They are GLOBAL, and this is what says so.
+    // The picker/attach actions are Global, not EditorContext: both composers
+    // pass an EditorContext hit to applyFormat() by stripping "composer.", so
+    // "emojiPicker" would arrive as an unknown format.
     void theMessageBoxSurfaceActionsAreGlobalRatherThanEditorFormats()
     {
         SettingsManager settings;
@@ -344,25 +281,19 @@ private Q_SLOTS:
             QCOMPARE(roleFor(registry, id, ShortcutRegistry::ContextRole),
                      QString::number(int(ShortcutRegistry::GlobalContext)));
         }
-        // …and the composers' own lookup refuses them, which is the property
-        // that actually protects applyFormat().
+        // ...and the composers' lookup refuses them, which protects
+        // applyFormat().
         const int shiftCtrl = int(Qt::ControlModifier | Qt::ShiftModifier);
         QVERIFY(registry.editorActionForKey(Qt::Key_E, shiftCtrl).isEmpty());
         QVERIFY(registry.editorActionForKey(Qt::Key_G, shiftCtrl).isEmpty());
         QVERIFY(registry.editorActionForKey(Qt::Key_O, shiftCtrl).isEmpty());
-        // The neighbouring EDITOR key is unaffected: Ctrl+E is still code.
+        // The neighbouring editor key is unaffected: Ctrl+E is still code.
         QCOMPARE(registry.editorActionForKey(Qt::Key_E, Qt::ControlModifier),
                  QStringLiteral("composer.code"));
     }
 
-    // Ctrl+U is DELIBERATELY bound twice, and this pins that it is the same
-    // arrangement as Ctrl+B rather than an oversight: Underline while the
-    // message box has focus, the people panel everywhere else.
-    //
-    // NAIVE IMPLEMENTATION THIS CATCHES: "fixing" the duplicate by moving
-    // one of them, or by making cross-context pairs a conflict. Either would
-    // silently undo Discord's own arrangement, and the second would also
-    // break the Ctrl+B pair this feature exists to preserve.
+    // Ctrl+U is deliberately bound twice like Ctrl+B: Underline in the message
+    // box, the people panel elsewhere. Cross-context pairs are not conflicts.
     void ctrlUIsTheSecondDeliberateDualBindingAndBothRowsSaySo()
     {
         SettingsManager settings;
@@ -384,20 +315,15 @@ private Q_SLOTS:
         QVERIFY(!roleFor(registry, QStringLiteral("composer.underline"),
                          ShortcutRegistry::ShadowNoteRole)
                      .isEmpty());
-        // The editor half still resolves, so the composer keeps claiming the
-        // ShortcutOverride — which is the ONLY thing that stops the global
-        // action running while someone is typing.
+        // The editor half still resolves, so the composer claims the
+        // ShortcutOverride and the global action does not run while typing.
         QCOMPARE(registry.editorActionForKey(Qt::Key_U, Qt::ControlModifier),
                  QStringLiteral("composer.underline"));
     }
 
-    // EXACTLY TWO sequences may appear on more than one row, and both are
-    // deliberate cross-context pairs: Ctrl+B (Bold / conversation list) and
-    // Ctrl+U (Underline / people panel). A THIRD appearing by accident is a
-    // shadow nobody designed, and a shadow nobody designed reads to the user
-    // as a key that stopped working — while conflictCount() stays 0, because
-    // a cross-context pair is legal by construction. This is the only case
-    // that would notice.
+    // Exactly two sequences appear on more than one row (Ctrl+B and Ctrl+U,
+    // both designed cross-context pairs). conflictCount() cannot see a third,
+    // accidental one, since cross-context pairs are legal.
     void theOnlyCrossContextSharesAreTheTwoDesignedOnes()
     {
         SettingsManager settings;
@@ -425,14 +351,10 @@ private Q_SLOTS:
                                QStringLiteral("Ctrl+U") }));
     }
 
-    // ── Rule (a): a Global action needs a real modifier ─────────────────
-
-    // NAIVE IMPLEMENTATION THIS CATCHES: accepting whatever the capture
-    // control reports. Qt dispatches QEvent::Shortcut BEFORE the focused
-    // item sees the key, so a global Shortcut on a bare letter takes that
-    // letter away from every text field in the application — INCLUDING the
-    // capture field that would undo it. Commit 4c2317f is this defect
-    // happening once already, with Space.
+    // Rule (a): a Global action needs a real modifier. Qt dispatches
+    // QEvent::Shortcut before the focused item sees the key, so a global
+    // Shortcut on a bare letter takes it from every text field, including the
+    // capture field.
     void aGlobalActionRefusesAModifierLessSequence()
     {
         SettingsManager settings;
@@ -446,15 +368,13 @@ private Q_SLOTS:
             QVERIFY2(!error.isEmpty(),
                      qPrintable(QStringLiteral("%1 was accepted").arg(bad)));
         }
-        // Refusal must also be a NO-OP: a half-applied rebind that stores the
-        // value and returns an error is the worst of both.
+        // A refusal is a no-op, never a half-applied rebind.
         QCOMPARE(registry.sequenceFor(QStringLiteral("nav.quickSwitcher")),
                  QStringLiteral("Ctrl+K"));
         QVERIFY(!registry.anyCustomised());
     }
 
-    // Shift is deliberately NOT a qualifying modifier: Shift+B is how a
-    // capital B is typed. A naive `modifiers != NoModifier` check passes it.
+    // Shift is not a qualifying modifier (Shift+B types a capital B).
     void shiftAloneIsNotAModifier()
     {
         SettingsManager settings;
@@ -469,14 +389,8 @@ private Q_SLOTS:
                     .isEmpty());
     }
 
-    // ── Rule (b): a duplicate binding kills BOTH actions ────────────────
-
-    // NAIVE IMPLEMENTATION THIS CATCHES: storing the conflicting binding and
-    // drawing a warning triangle next to it. Two enabled Shortcuts on one
-    // sequence make Qt report an ambiguous overload and fire NEITHER, so a
-    // stored conflict is not "a setting with a caveat", it is two actions
-    // silently switched off — and the symptom points nowhere near the page
-    // that caused it.
+    // Rule (b): a conflicting binding is refused, not stored with a warning:
+    // two enabled Shortcuts on one sequence make Qt fire neither.
     void aConflictingBindingIsRefusedRatherThanStored()
     {
         SettingsManager settings;
@@ -497,13 +411,9 @@ private Q_SLOTS:
     {
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
-        // Ctrl+C, not Escape. validationError refuses a MODIFIER-LESS
-        // sequence before it ever consults the reserved table, so binding a
-        // global action to bare Escape returns the modifier error and this
-        // case passed its !isEmpty() check while testing nothing about
-        // reservation. Esc is reserved AND modifier-less, so it is refused
-        // twice over and cannot reach this branch at all; a reserved
-        // sequence that carries a modifier is the only way in.
+        // Ctrl+C, not Escape: validationError refuses modifier-less sequences
+        // before consulting the reserved table, so only a reserved sequence
+        // with a modifier reaches this branch.
         const QString error = registry.setBinding(QStringLiteral("app.quit"),
                                                   QStringLiteral("Ctrl+C"));
         QVERIFY(!error.isEmpty());
@@ -513,34 +423,27 @@ private Q_SLOTS:
                  QStringLiteral("Ctrl+Q"));
     }
 
-    // ── Global vs Editor is a shadow, not a conflict ────────────────────
-
-    // NAIVE IMPLEMENTATION THIS CATCHES: treating every same-sequence pair as
-    // a conflict. That would forbid the one arrangement that resolves the
-    // Ctrl+B collision — Bold while the message box has focus, toggle the
-    // room list everywhere else — and force one of the two to be silently
-    // rebound instead, which is the outcome this whole feature exists to
-    // avoid.
+    // Global vs Editor on one sequence is a shadow, not a conflict: this is
+    // what lets Ctrl+B be Bold in the message box and the room-list toggle
+    // elsewhere.
     void aGlobalAndAnEditorActionMayShareASequenceAndSaySo()
     {
         SettingsManager settings;
         ShortcutRegistry registry(&settings);
 
-        // Shipped that way: Bold and "toggle the conversation list" are both
-        // Ctrl+B out of the box.
+        // Shipped that way.
         const auto resolved = resolvedById(registry);
         QCOMPARE(resolved.value(QStringLiteral("composer.bold")),
                  QStringLiteral("Ctrl+B"));
         QCOMPARE(resolved.value(QStringLiteral("shell.toggleRoomList")),
                  QStringLiteral("Ctrl+B"));
 
-        // Not a conflict…
+        // Not a conflict...
         QCOMPARE(registry.conflictCount(), 0);
         QVERIFY(roleFor(registry, QStringLiteral("composer.bold"),
                         ShortcutRegistry::ConflictsWithRole)
                     .isEmpty());
-        // …but both rows say what happens, in both directions. A key that
-        // does two things has to be described rather than discovered.
+        // ...but both rows describe the shadow, in both directions.
         QVERIFY(!roleFor(registry, QStringLiteral("composer.bold"),
                          ShortcutRegistry::ShadowNoteRole)
                      .isEmpty());
@@ -549,7 +452,7 @@ private Q_SLOTS:
                      .isEmpty());
     }
 
-    // ── Storage ─────────────────────────────────────────────────────────
+    // Storage.
 
     void aBindingSurvivesANewRegistryOverTheSameSettings()
     {
@@ -567,10 +470,8 @@ private Q_SLOTS:
         QVERIFY(reopened.anyCustomised());
     }
 
-    // NAIVE IMPLEMENTATION THIS CATCHES: storing a binding that equals the
-    // default. The account then carries a pinned copy of TODAY's default and
-    // stops following a later change to it, and "Reset" appears to do
-    // nothing because the value it resets to is the value already stored.
+    // Binding back to the default clears the override, so the account keeps
+    // following later default changes and Reset is meaningful.
     void bindingBackToTheDefaultClearsTheOverride()
     {
         SettingsManager settings;
@@ -590,11 +491,8 @@ private Q_SLOTS:
                  "an override equal to the default must not be stored");
     }
 
-    // NAIVE IMPLEMENTATION THIS CATCHES: an unparseable stored value handed
-    // straight to QML. A `Shortcut` bound to a string Qt cannot parse is
-    // INERT and looks exactly like a shortcut that simply does not work,
-    // with nothing anywhere saying why. Degrading to the default is a state
-    // the user can see and act on.
+    // An unparseable stored value degrades to the default rather than reaching
+    // QML as an inert `Shortcut`.
     void anUnparseableStoredValueDegradesToTheDefault()
     {
         {
@@ -609,11 +507,9 @@ private Q_SLOTS:
                  QStringLiteral("Ctrl+K"));
     }
 
-    // NAIVE IMPLEMENTATION THIS CATCHES: building the QSettings key by
-    // concatenation with no check on the id. An id carrying a slash would
-    // address a key in a DIFFERENT group — "../session/accessToken" is the
-    // shape of that mistake — so an unsafe id reads and writes nothing at
-    // all rather than being quietly rewritten into a safe one.
+    // An unsafe action id (e.g. containing a slash, like
+    // "../session/accessToken") reads and writes nothing rather than
+    // addressing another settings group.
     void anUnsafeActionIdReachesNoOtherSettingsGroup()
     {
         SettingsManager settings;
@@ -647,13 +543,9 @@ private Q_SLOTS:
         QCOMPARE(registry.conflictCount(), 0);
     }
 
-    // NAIVE IMPLEMENTATION THIS CATCHES: announcing a rebind with
-    // dataChanged alone. QML binds `Shortcut.sequences` through
-    // sequenceFor(), which is a function call and creates NO dependency Qt
-    // can track — so without a property the binding reads, a rebind would
-    // not take effect until the component was next created. This is the
-    // media-cache "imperative assignment destroys the binding" lesson in a
-    // different costume, and the counter is the same remedy.
+    // Every change bumps a revision QML can bind to: `Shortcut.sequences` binds
+    // through sequenceFor(), a function call with no tracked dependency, so
+    // dataChanged alone would not re-evaluate it.
     void everyChangeBumpsARevisionQmlCanBindTo()
     {
         SettingsManager settings;
@@ -671,13 +563,10 @@ private Q_SLOTS:
         QCOMPARE(spy.count(), 2);
     }
 
-    // ── The capture control's input path ────────────────────────────────
-
-    // NAIVE IMPLEMENTATION THIS CATCHES: closing the capture on the first
-    // key event. A capture control receives a key event for Ctrl on its own
-    // while the user is still reaching for the letter — treating that as the
-    // answer would bind "Ctrl" and end the capture before the real key ever
-    // arrived.
+    // The capture control's input path.
+    //
+    // A bare modifier press is not a captured sequence: the user is still
+    // reaching for the letter.
     void aBareModifierPressIsNotACapturedSequence()
     {
         SettingsManager settings;
@@ -693,11 +582,8 @@ private Q_SLOTS:
                  QStringLiteral("Ctrl+B"));
     }
 
-    // NAIVE IMPLEMENTATION THIS CATCHES: passing event.modifiers straight
-    // through. KeypadModifier says WHICH physical key produced the
-    // character, so leaving it in stores a sequence that only ever matches
-    // the numeric keypad — the shortcut then "does not work" on the number
-    // row the user was looking at when they set it.
+    // KeypadModifier is stripped from a captured sequence, or it would only
+    // ever match the numeric keypad.
     void theKeypadModifierIsStrippedFromACapturedSequence()
     {
         SettingsManager settings;
@@ -707,7 +593,7 @@ private Q_SLOTS:
                  QStringLiteral("Ctrl+0"));
     }
 
-    // ── Presentation ────────────────────────────────────────────────────
+    // Presentation.
 
     void everyRowCarriesACategoryAndACategoryListCoversThemAll()
     {
@@ -726,10 +612,8 @@ private Q_SLOTS:
         }
     }
 
-    // The QML delegate assigns the model's roles onto ShortcutRow's own
-    // like-named properties. Unprefixed role names would collide with them
-    // (a QML component may not redeclare a property its type already has),
-    // so the prefix is load-bearing rather than cosmetic.
+    // Role names are prefixed: the delegate assigns them onto ShortcutRow's
+    // like-named properties, and QML forbids redeclaring an existing property.
     void roleNamesAreNamespacedAwayFromTheDelegatesOwnProperties()
     {
         SettingsManager settings;
@@ -741,14 +625,9 @@ private Q_SLOTS:
         QVERIFY(roles.values().contains(QByteArray("shortcutCurrent")));
     }
 
-    // ── The editor-context lookup both composers share ──────────────────
-
-    // NAIVE IMPLEMENTATION THIS CATCHES: each composer carrying its own
-    // hand-written list of editor action ids. That is what the QML did, and
-    // the THREAD composer had no list at all -- so Ctrl+B inside a thread
-    // reply fell through to the window and toggled the conversation list
-    // while the user was typing. Driving it from the registry's own
-    // EditorContext flag is what makes one list impossible to forget.
+    // The editor-context lookup both composers share, driven by the registry's
+    // EditorContext flag rather than per-composer lists (a composer without a
+    // list let Ctrl+B fall through to the window).
     void editorActionForKeyAnswersEveryEditorBindingAndNothingElse()
     {
         SettingsManager settings;
@@ -759,8 +638,8 @@ private Q_SLOTS:
         QCOMPARE(registry.editorActionForKey(Qt::Key_I, Qt::ControlModifier),
                  QStringLiteral("composer.italic"));
 
-        // Every EditorContext row in the table must be reachable, so adding a
-        // seventh one cannot silently go unhandled in either composer.
+        // Every EditorContext row is reachable, so a new one cannot go
+        // unhandled.
         int editorRows = 0;
         for (int row = 0; row < registry.rowCount(); ++row) {
             const QModelIndex idx = registry.index(row, 0);
@@ -784,9 +663,8 @@ private Q_SLOTS:
         }
         QVERIFY2(editorRows > 0, "no EditorContext rows -- the sweep is inert");
 
-        // A GLOBAL binding must NOT resolve here, or the composer would claim
-        // the ShortcutOverride for Ctrl+K and swallow the quick switcher
-        // while the message box has focus.
+        // A Global binding does not resolve here, or the composer would claim
+        // the ShortcutOverride for Ctrl+K and swallow the quick switcher.
         QVERIFY(registry.editorActionForKey(Qt::Key_K, Qt::ControlModifier)
                     .isEmpty());
         QVERIFY(registry.editorActionForKey(Qt::Key_Q, Qt::ControlModifier)
@@ -796,8 +674,7 @@ private Q_SLOTS:
                     .isEmpty());
     }
 
-    // The lookup must follow a REBIND. Reading the default table instead
-    // would leave the old sequence working and the new one dead.
+    // The lookup follows a rebind.
     void editorActionForKeyFollowsARebind()
     {
         SettingsManager settings;

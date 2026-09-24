@@ -1,8 +1,8 @@
-// v0.5.11: tests for the safe link-preview backend — URL extraction with
-// scheme allow-list, punctuation/parenthesis/code-span handling, userinfo
-// rejection, MIME-validated GIF classification, encrypted-room privacy
-// gating with explicit consent, per-URL request deduplication, bounded
-// caching, retry, sign-out partitioning, and settings defaults.
+// Link-preview backend: URL extraction with a scheme allow-list,
+// punctuation/parenthesis/code-span handling, userinfo rejection,
+// MIME-validated GIF classification, encrypted-room gating with explicit
+// consent, per-URL request dedup, bounded caching, retry, sign-out
+// partitioning and settings defaults.
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
@@ -41,8 +41,8 @@ public:
     {
         Q_EMIT urlPreviewFinished(opId, false, {}, category);
     }
-    // v0.5.14: failure with the sanitized HTTP-status/redirect-count
-    // diagnostics a real backend now supplies.
+    // Failure with the sanitized HTTP-status/redirect-count diagnostics a
+    // real backend supplies.
     void failWithDiagnostics(quint64 opId, const QString &category,
                              int httpStatus, int redirectCount)
     {
@@ -121,7 +121,7 @@ private Q_SLOTS:
     void matrixToUrlsAreNeverPreviewCandidates()
     {
         using matrix::link_preview::firstPreviewableUrl;
-        // A mention's markdown fallback must not trigger any preview —
+        // A mention's markdown fallback never triggers a preview;
         // classification happens before any network contact.
         QCOMPARE(firstPreviewableUrl(QStringLiteral(
                      "[@test](https://matrix.to/#/%40test%3Amatrix.example.org)")),
@@ -133,8 +133,8 @@ private Q_SLOTS:
         QCOMPARE(firstPreviewableUrl(QStringLiteral(
                      "see https://MATRIX.TO/#/!room:example.org/$event")),
                  QString());
-        // Skip-and-continue: a genuine external URL in the same message
-        // still previews.
+        // Skip and continue: a genuine external URL in the same message still
+        // previews.
         QCOMPARE(firstPreviewableUrl(QStringLiteral(
                      "[@test](https://matrix.to/#/%40test%3Ax) also "
                      "https://example.org/story")),
@@ -289,9 +289,9 @@ private Q_SLOTS:
                  QStringLiteral("Example"));
     }
 
-    // A controller that was never handed a policy must not contact anything.
-    // The preview fetch is client-side, so a fail-open default would leak the
-    // reader's IP address to a host the sender chose.
+    // A controller never handed a policy contacts nothing: the fetch is
+    // client-side, so a fail-open default would leak the reader's IP to a host
+    // the sender chose.
     void controllerDefaultsToNoAutomaticFetch()
     {
         FakeClient client;
@@ -336,7 +336,7 @@ private Q_SLOTS:
         // The sanitized host is available for the consent UI...
         QCOMPARE(state.value(QStringLiteral("host")).toString(),
                  QStringLiteral("example.org"));
-        // ...but the homeserver was NOT contacted.
+        // ...but the homeserver was not contacted.
         QCOMPARE(client.requestedUrls.size(), 0);
     }
 
@@ -472,8 +472,8 @@ private Q_SLOTS:
                                    QStringLiteral("https://example.org/a"), false);
         const quint64 opA = client.lastOp;
 
-        // Prepending rows does not alter stable identity. Reusing a delegate
-        // for B starts from B's own state, not A's row-era state.
+        // Prepending rows does not change stable identity: reusing a delegate
+        // for B starts from B's own state.
         const QVariantMap b = controller.previewForEvent(
             roomA, QStringLiteral("stable-b"),
             QStringLiteral("membership change"), false);
@@ -630,9 +630,8 @@ private Q_SLOTS:
         QCOMPARE(state.value(QStringLiteral("description")).toString(), QStringLiteral("Summary"));
     }
 
-    // v0.5.14: the sanitized HTTP-status/redirect-count diagnostics exist
-    // for logs only — they must never leak into the QML-facing state map,
-    // and the existing retry/category behavior must be unaffected by them.
+    // The sanitized diagnostics are for logs only: they never reach the
+    // QML-facing state map, and retry/category behaviour is unaffected.
     void diagnosticFieldsAreNotExposedToQmlState()
     {
         FakeClient client;
@@ -669,29 +668,18 @@ private Q_SLOTS:
         fresh.sync();
         SettingsManager settings;
 
-        // BOTH preview defaults are OFF. A preview is fetched by this client,
-        // straight from the linked site rather than through the homeserver's
-        // proxy, so loading one automatically would hand the reader's IP
-        // address and read timing to a host the SENDER chose — and in an
-        // encrypted room it additionally leaks that a link was followed at
-        // all. The privacy audit behind `6b06f95` called that a tracking
-        // pixel by another name.
-        //
-        // THIS IS THE SECOND OF TWO GUARDS THAT WERE EDITED TO AGREE WITH A
-        // CHANGE rather than blocking it: the default was flipped ON and both
-        // this case and SettingsSessionTest's were rewritten to expect the
-        // new value, which is how a documented privacy commitment came to
-        // disagree with the code for a whole release cycle. The coupling to
-        // docs/privacy.md lives in the other case; keep them both.
+        // Both preview defaults are off. This client fetches previews directly
+        // from the linked site, so auto-loading would hand the reader's IP and
+        // read timing to a host the sender chose, and in an encrypted room
+        // reveal that a link was followed. SettingsSessionTest holds the
+        // matching guard tied to docs/privacy.md; keep both.
         QCOMPARE(settings.autoLoadLinkPreviews(), false);
         QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
-        // Animating media the user already received contacts nobody, so it
-        // is a different question and stays ON.
+        // Animating media already received contacts nobody, so it stays on.
         QCOMPARE(settings.animateGifPreviews(), true);
 
-        // Toggled AWAY from the default and back. Writing the value it
-        // already holds is a no-op that emits nothing — which is correct, and
-        // is why this drives it ON first rather than off.
+        // Toggled away from the default and back: writing the current value
+        // emits nothing, so it is driven on first.
         QSignalSpy encryptedChanged(
             &settings, &SettingsManager::loadPreviewsInEncryptedRoomsChanged);
         settings.setLoadPreviewsInEncryptedRooms(true);

@@ -1,8 +1,6 @@
-// v0.6.5 (SPEC 1d): RoomListModel::roomPermalink is pure formatting — no
-// server behavior — so it is unit-tested directly. It mirrors
-// TimelineModel::messagePermalink's existing percent-encoding convention
-// (! $ : @ excluded from encoding) so message and room links read
-// consistently throughout the app.
+// RoomListModel::roomPermalink is pure formatting. It mirrors
+// TimelineModel::messagePermalink's percent-encoding convention (! $ : @ are
+// not encoded) so message and room links read consistently.
 
 #include <QtTest/QtTest>
 

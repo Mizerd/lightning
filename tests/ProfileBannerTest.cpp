@@ -1,10 +1,9 @@
 // Profile banners (MSC4427 over MSC4133 extended profile fields).
 //
-// The Rust half decides the wire format and is covered in rust/src/banner.rs;
-// this is the policy half. What it pins is the honesty: three different facts
-// — "no banner", "not asked yet" and "this homeserver does not do extended
-// profiles" — all render as nothing, and the third latches so the client stops
-// asking a question it has already been told it cannot ask.
+// The Rust half (wire format) is covered in rust/src/banner.rs; this is the
+// policy half. "No banner", "not asked yet" and "this homeserver does not do
+// extended profiles" all render as nothing, and the last latches so the
+// client stops asking.
 
 #include "matrix/MockMatrixClient.h"
 #include "profile/ProfileBannerManager.h"
@@ -193,10 +192,8 @@ private Q_SLOTS:
 
     void aFileUrlIsConvertedForTheCurrentPlatform()
     {
-        // A file the user picks reaches QML as a URL. Stripping "file://" by
-        // hand is wrong on Windows — file:///C:/x.png becomes /C:/x.png, a
-        // leading slash before the drive letter — so the conversion happens
-        // here, once, where no caller can get it wrong.
+        // A picked file reaches QML as a URL; converting it here avoids
+        // hand-stripping "file://" (wrong on Windows: file:///C:/x.png).
         FakeBannerClient client;
         ProfileBannerManager banners;
         banners.setClient(&client);
@@ -217,10 +214,8 @@ private Q_SLOTS:
                                        QStringLiteral("mxc://example.org/b"),
                                        QString());
 
-        // A UNC path IS a local file to QUrl, and to Windows, so it is
-        // converted rather than refused — file://server/share/x.png becomes
-        // //server/share/x.png. Asserting a refusal here was my mistake, not
-        // the code's.
+        // A UNC path is a local file to QUrl and to Windows, so it is
+        // converted (file://server/share/x.png -> //server/share/x.png).
         banners.setOwnBanner(QStringLiteral("file://server/share/x.png"));
         QCOMPARE(client.writes.size(), 3);
         QCOMPARE(client.writes.last(), QStringLiteral("//server/share/x.png"));
@@ -257,11 +252,8 @@ private Q_SLOTS:
 
     // ── Room / Space banners ────────────────────────────────────────────
     //
-    // The room half had NO coverage at all before 2026-09-08. It is the half
-    // the Space settings dialog and Space Home render, it is a custom state
-    // event with its OWN required power level, and "nobody has asked yet" and
-    // "this account may not change it" are the two facts a control must not
-    // guess at.
+    // A custom state event with its own required power level: "nobody has
+    // asked yet" and "this account may not change it" must never be guessed.
 
     void aRoomIsAskedAboutOnceAndItsPermissionIsNeverGuessed()
     {
@@ -292,13 +284,9 @@ private Q_SLOTS:
         QCOMPARE(revisions.count(), 1);
     }
 
-    // A REFRESH IS THE ONLY WAY A REMOTE CHANGE CAN EVER ARRIVE. Sliding sync
-    // delivers only the state types Lightning names in required_state, and
-    // page.codeberg.everypizza.room.banner is not one of them (see
-    // rust/src/banner.rs), so nothing tells this client the banner moved. The
-    // Space settings dialog re-reads on every open for exactly that reason —
-    // and refreshRoom() has to actually ask, including for a room already in
-    // the cache and including once the cache is full.
+    // Sliding sync does not deliver the banner state type, so a refresh is the
+    // only way a remote change arrives: refreshRoom() must ask again, for a
+    // cached room and when the cache is full.
     void refreshingARoomAsksAgainAndTheCacheCapDoesNotBlockIt()
     {
         FakeBannerClient client;
@@ -321,10 +309,8 @@ private Q_SLOTS:
                  QStringLiteral("mxc://example.org/c"));
         QVERIFY(!banners.canSetRoomBanner(room));
 
-        // Fill the bound with OTHER rooms. The cap exists to stop the cache
-        // growing without limit; a room already in it is not growth, and
-        // refusing to re-read one would silently freeze that Space's banner
-        // for the rest of the session.
+        // Fill the bound with other rooms. Re-reading a room already cached is
+        // not growth, so the cap must not block it.
         for (int i = 0; i < 512; ++i) {
             const QString other =
                 QStringLiteral("!filler%1:example.org").arg(i);
@@ -384,7 +370,7 @@ private Q_SLOTS:
         QCOMPARE(banners.lastError(), QStringLiteral("forbidden"));
         QCOMPARE(banners.roomBannerFor(room), QString());
 
-        // The acknowledged write IS authoritative — no round trip needed.
+        // The acknowledged write is authoritative; no round trip needed.
         banners.setRoomBanner(room, QStringLiteral("/tmp/banner.png"));
         Q_EMIT client.roomBannerSet(client.lastRoomWriteOp, room, true,
                                     QStringLiteral("mxc://example.org/new"),

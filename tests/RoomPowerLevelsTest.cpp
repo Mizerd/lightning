@@ -1,23 +1,21 @@
-// v0.7.x room administration through RoomInfoController — member power
-// levels, join rule and canonical alias. Pins:
+// Room administration through RoomInfoController: member power levels, join
+// rule and canonical alias. Pins:
 //   * the extended snapshot fields (canChangePowerLevels / canPinMessages /
 //     canChangeJoinRule / canChangeAlias / usersDefaultPowerLevel / joinRule
 //     / canonicalAlias) land on the controller;
-//   * canSetPowerLevel enforces the Matrix rules the server will apply —
+//   * canSetPowerLevel enforces the Matrix rules the server will apply:
 //     never grant above your own level, never act on a peer at or above it,
-//     self-demotion only — and fails closed for an unknown target;
-//   * arbitrary CUSTOM numeric levels survive: they are neither rounded into
-//     a preset nor relabelled as one;
-//   * the write is not optimistic — the authoritative roster is re-read
-//     afterwards, on success and on rejection alike;
-//   * the join rule accepts only the three rules that carry no allow-rule
-//     list, and a no-op is not sent;
+//     self-demotion only, and fail closed for an unknown target;
+//   * custom numeric levels are neither rounded into a preset nor relabelled;
+//   * the write is not optimistic: the roster is re-read afterwards, on
+//     success and on rejection;
+//   * the join rule accepts only the three rules that carry no allow list,
+//     and a no-op is not sent;
 //   * a bare alias localpart is completed with the account's own server, and
 //     an empty alias (clearing it) is a legitimate value.
 //
-// HONEST SCOPE: policy and wiring only. Real m.room.power_levels /
-// m.room.join_rules / m.room.canonical_alias round trips against a homeserver
-// and Element interoperability are NOT exercised here and are NOT TESTED.
+// Policy and wiring only: real state-event round trips against a homeserver
+// are not exercised here.
 
 #include "app/RoomInfoController.h"
 #include "matrix/MatrixClient.h"
@@ -108,7 +106,7 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
-    // v0.9 room access (phase 4).
+    // Room access.
     int restrictedCalls = 0;
     QStringList lastAllowed;
     QString lastHistoryVisibility;
@@ -215,7 +213,7 @@ QVariantMap adminSnapshot(qlonglong ownPl, const QVariantList &members,
     s.insert(QStringLiteral("usersDefaultPowerLevel"), usersDefault);
     s.insert(QStringLiteral("joinRule"), joinRule);
     s.insert(QStringLiteral("canonicalAlias"), alias);
-    // v0.9 room access: gates on, a plain configuration.
+    // Room access: gates on, a plain configuration.
     s.insert(QStringLiteral("canChangeHistoryVisibility"), true);
     s.insert(QStringLiteral("canChangeGuestAccess"), true);
     s.insert(QStringLiteral("historyVisibility"), QStringLiteral("shared"));
@@ -461,7 +459,7 @@ private Q_SLOTS:
         QCOMPARE(client.lastJoinRule, QStringLiteral("public"));
     }
 
-    // ── v0.9 room access (phase 4) ────────────────────────────────────
+    // ── Room access ───────────────────────────────────────────────────
 
     void restrictedJoinRuleCarriesTheAllowListAndRefusesAnEmptyOne()
     {

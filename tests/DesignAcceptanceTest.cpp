@@ -1,11 +1,10 @@
-// Offscreen acceptance walkthrough for the runtime-correction pass: drives
-// the PRODUCTION Main window (mock backend, bundled fonts) at the reference
-// and narrower sizes, saves PNG snapshots as artifacts, and asserts rendered
-// geometry and sampled pixels: the composer card tracks each design theme's
-// raised surface, the open thread panel is exactly 340px beside the visible
-// timeline and closing it collapses the right side to none, Settings is a
-// FULL application view (rail, room list, timeline, composer all hidden),
-// and an increased text scale renders without breaking the shell.
+// Offscreen acceptance walkthrough of the production Main window (mock
+// backend, bundled fonts) at the reference and narrower sizes. Saves PNG
+// snapshots and asserts geometry and sampled pixels: the composer card tracks
+// each theme's raised surface; the thread panel is exactly 340px beside the
+// visible timeline and closing it frees that space; Settings is a full view
+// (rail, room list, timeline and composer hidden); and a larger text scale
+// does not break the shell.
 
 #include <QtTest/QtTest>
 
@@ -144,11 +143,9 @@ private slots:
             QStringLiteral("design-acceptance-test"));
         QSettings().clear();
 
-        // The bundled UI fonts, exactly as main.cpp registers them, so the
-        // snapshots render production type — including the v0.7 selectable
-        // families. Every registration must succeed and announce the exact
-        // family Settings offers, or the font option would silently fall
-        // back on user machines.
+        // The bundled UI fonts, registered as main.cpp does. Each must register
+        // and report the family Settings offers, or the font option would
+        // silently fall back on user machines.
         const QList<QPair<QString, QString>> bundled = {
             { QStringLiteral("Manrope[wght].ttf"), QStringLiteral("Manrope") },
             { QStringLiteral("JetBrainsMono[wght].ttf"),
@@ -160,9 +157,8 @@ private slots:
               QStringLiteral("Source Sans 3") },
             { QStringLiteral("PlusJakartaSans[wght].ttf"),
               QStringLiteral("Plus Jakarta Sans") },
-            // v0.6.5: brand face for the trust surface (SPEC 1r) — not a
-            // selectable body face, but a stripped build must still fail
-            // loudly rather than silently substituting.
+            // Brand face for the trust surface, not a selectable body face; a
+            // stripped build must still fail loudly.
             { QStringLiteral("SpaceGrotesk[wght].ttf"),
               QStringLiteral("Space Grotesk") },
         };
@@ -183,10 +179,9 @@ private slots:
         connect(m_engine, &QQmlEngine::warnings, this,
                 [this](const QList<QQmlError> &warnings) {
                     for (const auto &w : warnings) {
-                        // The mock backend seeds media rows with URLs on the
-                        // fake mock.local host; the resulting offline DNS
-                        // failure from QQuickImage is mock-data noise, not a
-                        // QML defect. Everything else fails the run.
+                        // Mock media URLs point at the fake mock.local host; the
+                        // resulting DNS failure is fixture noise. Everything
+                        // else fails the run.
                         if (w.toString().contains(
                                 QLatin1String("Host mock.local not found")))
                             continue;
@@ -226,8 +221,7 @@ private slots:
 
     void mainChatRendersAcrossDesignThemes()
     {
-        // The formatting toolbar is collapsible; open it so its raised
-        // surface is sampled below.
+        // Open the collapsible toolbar so its raised surface is sampled.
         if (auto *composer = item("messageComposer"))
             composer->setProperty("toolbarExpanded", true);
         QCoreApplication::processEvents();
@@ -236,10 +230,8 @@ private slots:
             { 8, "design-main-moss-light" },
             { 9, "design-main-indigo-night" },
             { 10, "design-main-deep-teal" },
-            // v0.6.5: Storm (11), the brand navy + bolt theme. token() reads
-            // AppTheme.<name> live through the shared engine, so no other
-            // change is needed here for the surface/rail samples to resolve
-            // against Storm's own palette instead of a stale expectation.
+            // Storm (11). token() reads AppTheme live, so samples resolve
+            // against Storm's palette.
             { 11, "design-main-storm" },
         };
         for (const auto &c : cases) {
@@ -247,8 +239,8 @@ private slots:
                 static_cast<SettingsManager::Theme>(c.theme));
             const QImage img = grabAndSave(QLatin1String(c.name));
             QVERIFY(!img.isNull());
-            // Composer card: sample the toolbar row's empty right side —
-            // the theme's raised surface.
+            // Composer card: the toolbar row's empty right side, the theme's
+            // raised surface.
             auto *card = item("composerCard");
             auto *toolbar = item("composerToolbarRow");
             QVERIFY(card && toolbar);
@@ -266,14 +258,10 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // v0.6.5 (C5, reviewer M4): a runtime guard against BOTH known-bad
-    // wordmark states — the original defect (a bolt tile to the LEFT of
-    // "Lightning") and the anchor regression caught in the visual audit
-    // (headerRow anchored both left AND right, so QtQuickLayouts still
-    // distributed the surplus between the two non-fill children and pinned
-    // the bolt to the room-list column's far-right edge instead of hugging
-    // the label — see RoomsPanel.qml:94-110). Loads the real production
-    // Main.qml shell (via initTestCase below), not a synthetic fixture.
+    // The wordmark bolt hugs the "Lightning" label: not a tile to its left,
+    // and not pinned to the room-list column's far edge by a layout that
+    // distributes surplus between non-fill children (see RoomsPanel.qml).
+    // Uses the real Main.qml shell.
     void wordmarkBoltHugsTheLabelNotTheColumnEdge()
     {
         auto *label = item("workspaceLabel");
@@ -287,15 +275,13 @@ private slots:
         const qreal boltRight =
             bolt->mapToItem(rooms, QPointF(bolt->width(), 0)).x();
 
-        // Hugs the text: the bolt's left edge sits within a few px of the
-        // label's right edge plus headerRow's own spacing (6px) — not
-        // somewhere out past a large uncontrolled gap.
+        // The bolt's left edge sits just past the label's right edge plus
+        // headerRow spacing (6px).
         QVERIFY2(boltLeft >= labelRight && boltLeft <= labelRight + 20,
                  qPrintable(QStringLiteral(
                      "bolt.x=%1 not within a few px of label's right edge=%2")
                                 .arg(boltLeft).arg(labelRight)));
-        // Not flush with the column's far-right edge (the actual observed
-        // regression).
+        // Not flush with the column's far-right edge.
         QVERIFY2(boltRight < rooms->width() - 4,
                  qPrintable(QStringLiteral(
                      "bolt right edge=%1 flush with column edge=%2")
@@ -317,8 +303,8 @@ private slots:
         auto *composer = item("composerCard");
         QVERIFY(panel && roomColumn && composer);
         QTRY_COMPARE_WITH_TIMEOUT(panel->isVisible(), true, kSignalTimeoutMs);
-        // The rendered panel is exactly 340px; the timeline and composer
-        // stay visible and interactive beside it.
+        // The panel is exactly 340px; timeline and composer stay visible and
+        // interactive beside it.
         QTRY_COMPARE_WITH_TIMEOUT(panel->width(), 340.0, kSignalTimeoutMs);
         QVERIFY(roomColumn->isVisible());
         QVERIFY(composer->isVisible());
@@ -330,13 +316,12 @@ private slots:
 
         const QImage img = grabAndSave(QStringLiteral("design-thread-panel"));
         QVERIFY(!img.isNull());
-        // Panel surface: sample below the header, left edge of the panel.
+        // Panel surface: below the header, at the panel's left edge.
         const QPointF p = panel->mapToScene(QPointF(8, 70));
         QVERIFY(channelDelta(sampleAvg(img, QRect(int(p.x()), int(p.y()), 3, 3)),
                              token("sidebar")) <= kTolerance);
 
-        // Closing with the panel's X collapses the right side completely:
-        // no Room Information, no member panel, timeline expands.
+        // Closing with the panel's X collapses the right side completely.
         auto *closeButton = item("threadCloseButton");
         QVERIFY(closeButton);
         QMetaObject::invokeMethod(closeButton, "click");
@@ -349,8 +334,8 @@ private slots:
             QStringLiteral("none"), kSignalTimeoutMs);
         QTRY_VERIFY(!panel->isVisible());
         QVERIFY(roomColumn->isVisible());
-        // Geometry, not just booleans: the released 340px goes back to the
-        // timeline column.
+        // Geometry, not just booleans: the 340px returns to the timeline
+        // column.
         auto *roomColumnItem = qobject_cast<QQuickItem *>(roomColumn);
         QVERIFY(roomColumnItem);
         QTRY_VERIFY(roomColumnItem->width() >= pane->width() - 1.0);
@@ -407,8 +392,8 @@ private slots:
         auto *panel = item("threadPanel");
         auto *roomColumn = item("roomColumn");
         QVERIFY(panel && roomColumn);
-        // 1280 wide leaves the pane comfortably over the 660px boundary:
-        // the thread stays a 340px side panel, the timeline stays visible.
+        // At 1280 wide the pane is over the 660px boundary: the thread stays a
+        // 340px side panel and the timeline stays visible.
         QTRY_COMPARE_WITH_TIMEOUT(panel->width(), 340.0, kSignalTimeoutMs);
         QVERIFY(roomColumn->isVisible());
         QVERIFY(!grabAndSave(QStringLiteral("design-1280-thread")).isNull());

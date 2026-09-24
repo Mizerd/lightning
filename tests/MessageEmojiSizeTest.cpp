@@ -1,18 +1,10 @@
 // Inline emoji sizing: MessageHtml::markEmoji.
 //
-// The report was "an emoji in a sentence reads as a character, not a picture".
-// Measured against the reference client's screenshot, its inline emoji is
-// ~1.7x its text where Lightning's was ~1.0x. Qt's rich-text engine ignores
-// `em` and `%` in a font-size, and MessageHtml is not told what pixel size it
-// is writing for, so the only scale-RELATIVE lever is the CSS keyword ladder
-// (0.7/0.8/1.0/1.2/1.5/2.0/2.4) and `x-large` is its 1.5 rung.
+// Qt's rich-text engine ignores `em` and `%` in font-size, and MessageHtml
+// does not know its pixel size, so the only scale-relative lever is the CSS
+// keyword ladder (0.7/0.8/1.0/1.2/1.5/2.0/2.4); `x-large` is its 1.5 rung.
 //
-// These cases assert BEHAVIOUR — what comes out for a given body — not the
-// presence of source text. Each one was checked against a deliberately broken
-// build of the same tree (see the round notes): removing the suppression
-// fails emojiOnlyBodyIsLeftToTheBigEmojiPath, removing the code-span tracking
-// fails emojiInsideCodeKeepsItsSize, and dropping the whitespace break fails
-// whitespaceEndsARunRatherThanJoiningIt.
+// These cases assert output for a given body, not source text.
 #include "models/MessageHtml.h"
 
 #include <QObject>

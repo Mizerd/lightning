@@ -1,28 +1,15 @@
-// v0.7 regression (live bug): clicking a favorite GIF sent the FIRST
-// TRENDING item — the picker resolved the clicked row against gif.results
-// instead of the model the user was looking at. This suite drives the real
-// GifPicker.qml with the real GifSearchController/favorites models and
-// proves the chosen record is the exact provider-qualified favorite, with
-// no dependence on (or substitution from) the browse results model.
-//
-// v0.7 follow-up: reviewing a report on GIFs sent from a thread reply not
-// matching what was clicked found three more surfaces of the SAME
-// underlying defect — selection identity resolved from mutable, shared,
-// asynchronously-replaced state instead of an immutable snapshot taken at
-// activation time:
-//   - a keyboard-highlighted grid.currentIndex surviving a search response
-//     that replaces the grid's contents, so Return could resolve a
-//     completely different item than the one the user actually highlighted
+// GifPicker selection identity, driven through the real GifPicker.qml with
+// real GifSearchController/favorites models. A chosen row must resolve
+// against the model the user is looking at, from a snapshot taken at
+// activation, never from shared state replaced asynchronously:
+//   - a saved GIF click sends that exact provider-qualified row, not a
+//     trending one;
+//   - a keyboard highlight does not survive a model reset
 //     (staleCurrentIndexAfterModelResetCannotSendWrongItem);
-//   - the search field's Return handler sending row 0 of whatever the grid
-//     currently held while the just-typed query was still debounced — i.e.
-//     the PREVIOUS query's (or trending's) first result, never what was
-//     typed (searchFieldEnterWithPendingDebounceSendsNothing);
-//   - the room composer and thread panel each owning an independent
-//     GifPicker instance, both bound to the ONE shared app.gif controller,
-//     with nothing enforcing that only one is ever open — so a search
-//     performed in either could silently swap what the other was showing
-//     (openingOnePickerClosesTheOther).
+//   - Return in the search field with a pending debounce sends nothing
+//     (searchFieldEnterWithPendingDebounceSendsNothing);
+//   - the room and thread pickers share app.gif, so opening one closes the
+//     other (openingOnePickerClosesTheOther).
 #include <QtTest/QtTest>
 
 #include <QQmlApplicationEngine>
@@ -64,13 +51,10 @@ QVariantMap favoriteFixture(const QString &provider, const QString &id)
     return m;
 }
 
-// Records issued URLs and lets the test complete requests on demand —
-// mirrors tests/GifSearchControllerTest.cpp's FakeGifTransport. Needed here
-// (rather than AppController::MockBackend's real gif transport) because
-// MockMatrixClient never implements gifGet()/supportsGifProvider(), so
-// app.gif is permanently Offline under MockBackend and can never be driven
-// through an actual Loading -> Ready transition. A raw GifSearchController
-// with this fake transport can be.
+// Records issued URLs and lets the test complete requests on demand (as in
+// GifSearchControllerTest.cpp). MockMatrixClient has no gifGet(), so app.gif
+// is always Offline under MockBackend; a raw controller with this transport
+// can be driven through Loading -> Ready.
 class FakeGifTransport : public GifTransport
 {
     Q_OBJECT
@@ -112,24 +96,11 @@ QByteArray giphyBody(const QStringList &ids)
         + ",\"count\":" + QByteArray::number(ids.size()) + ",\"offset\":0}}";
 }
 
-// A GifResultModel row with an intentionally EMPTY previewUrl/stillUrl,
-// injected directly via GifResultModel::reset()/append() rather than
-// through the real provider-JSON parser. Two tests below render a real,
-// shown GridView to exercise real currentIndex/keyboard behaviour, and
-// AnimatedImage/Image bound to an empty source never attempts a load —
-// whereas a real "https://media.giphy.com/..." row (as produced by
-// giphyBody() above, which IS safe for the headless, non-rendering
-// GifSearchControllerTest.cpp) starts a real async network fetch that this
-// offline/sandboxed test process can never complete. That fetch's
-// in-flight state on Qt's own image-loader thread pool then races the
-// window/engine teardown at the end of the test function and reliably
-// SEGFAULTs inside QQuickAnimatedImage::~QQuickAnimatedImage() ->
-// QObject::deleteLater() — a Qt Quick teardown fragility hit only by
-// actually rendering provider-hosted image URLs offscreen, not a defect in
-// the code under test. previewUrl/stillUrl content is irrelevant to what
-// these tests assert (row identity / currentIndex); provider URL parsing
-// and validation are already covered by GifResponseParserTest.cpp and
-// GifSearchControllerTest.cpp (headless, no rendering).
+// A GifResultModel row with empty previewUrl/stillUrl, injected directly.
+// Tests that render a real GridView would otherwise start network image
+// fetches that never complete offline and race teardown, segfaulting in
+// ~QQuickAnimatedImage. URL parsing is covered by the headless
+// GifResponseParserTest and GifSearchControllerTest.
 gif::GifResult safeResult(const QString &provider, const QString &id)
 {
     gif::GifResult r;
@@ -143,24 +114,19 @@ gif::GifResult safeResult(const QString &provider, const QString &id)
     return r;
 }
 
-// Minimal stand-in for AppController's QML-facing surface: GifPicker.qml
-// only ever reads app.gif and app.settings.gifAutoplay (grep confirms
-// there is nothing else), so a real AppController — whose GIF transport is
-// architecturally offline under MockBackend — is not required to drive it
-// deterministically through real search timing.
+// Minimal stand-in for AppController's QML surface: GifPicker.qml reads only
+// app.gif and app.settings.gifAutoplay.
 class FakeGifSettings : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(int gifAutoplay MEMBER gifAutoplay)
 public:
     explicit FakeGifSettings(QObject *parent = nullptr) : QObject(parent) {}
-    int gifAutoplay = 2; // Never — keep AnimatedImage decode out of a headless test
+    int gifAutoplay = 2; // Never: keep AnimatedImage decoding out of a headless test
 
-    // v0.6.7: AnchoredPopup reads the remembered picker size on every open and
-    // writes it back after a resize drag. These must exist on the fake, and
-    // must behave like SettingsManager's (0 = never resized), or the popup's
-    // onAboutToShow would raise a TypeError — which the warning assertions in
-    // this suite would then catch as a failure.
+    // AnchoredPopup reads and writes the remembered picker size; these must
+    // behave like SettingsManager's (0 = never resized) or onAboutToShow
+    // throws a TypeError that the warning assertions catch.
     Q_INVOKABLE int pickerWidthShare(const QString &id) const
     { return m_sizes.value(id + QStringLiteral("/w"), 0); }
     Q_INVOKABLE int pickerHeightShare(const QString &id) const
@@ -193,13 +159,9 @@ private:
     FakeGifSettings *m_settings;
 };
 
-// A minimal real ApplicationWindow scene hosting two independent GifPicker
-// instances, exactly as MessageComposerBar.qml (target: "room") and
-// ThreadPanel.qml (target: "thread") each do — needed for
-// openingOnePickerClosesTheOther(), which drives the REAL Popup
-// open()/close() lifecycle (aboutToShow/closed) and therefore needs a real
-// window + Overlay, unlike the other tests here which bypass that by
-// reparenting a picker's bare contentItem.
+// A real ApplicationWindow hosting two GifPickers, as MessageComposerBar.qml
+// ("room") and ThreadPanel.qml ("thread") do. openingOnePickerClosesTheOther
+// needs the real Popup open()/close() lifecycle, hence a window and Overlay.
 const char *kTwoPickerScene = R"QML(
 import QtQuick
 import QtQuick.Controls
@@ -224,15 +186,10 @@ ApplicationWindow {
 }
 )QML";
 
-// v0.6.7 anchoring scene: a composer-shaped anchor — a wide bar pinned to the
-// bottom of the window, exactly what MessageComposerBar's card is. The picker
-// is parented to it and pinned by its bottom-right corner, so the contract
-// under test is expressed purely in the ANCHOR's coordinates: the picker's
-// right edge meets the anchor's right edge and its bottom sits one gap above
-// the anchor's top, at every window size.
-//
-// A 40px button will not do here: the picker is clamped to never exceed its
-// anchor's width ("on the right go no further than the text box").
+// A composer-shaped anchor: a wide bar pinned to the window bottom. The picker
+// is parented to it and pinned by its bottom-right corner, so the contract is
+// in the anchor's coordinates. The anchor must be wide, since the picker is
+// clamped to the anchor's width.
 const char *kAnchoredPickerScene = R"QML(
 import QtQuick
 import QtQuick.Controls
@@ -264,14 +221,8 @@ ApplicationWindow {
 }
 )QML";
 
-// v0.6.7 review (H1): the scene that catches an anchor moving because an
-// ANCESTOR moved. The anchor bar lives inside a fixed-width trailing panel, so
-// a window resize slides the whole panel while the bar's own x within it never
-// changes — the ThreadPanel shape (a fixed 340px item at the end of a
-// RowLayout).
-//
-// Three successive placement schemes got this wrong before the popup was
-// simply parented to its anchor and left to Qt's own positioner.
+// The anchor moves because an ancestor moved: the bar sits in a fixed-width
+// trailing panel that slides on resize (the ThreadPanel shape).
 const char *kAncestorMoveScene = R"QML(
 import QtQuick
 import QtQuick.Controls
@@ -322,11 +273,8 @@ ApplicationWindow {
 }
 )QML";
 
-// v0.6.7 review (round-4 follow-up): the bare-`anchorPoint` path — no
-// anchorItem — which is how the reaction popovers open (at a point inside a
-// scrolling message row, with no stable item to hold). It is a high-traffic
-// surface that no round had ever exercised, and it takes the one code path
-// the placement bindings deliberately do NOT drive.
+// The bare `anchorPoint` path with no anchorItem, used by reaction popovers
+// opened at a point inside a scrolling row.
 const char *kPointAnchoredScene = R"QML(
 import QtQuick
 import QtQuick.Controls
@@ -369,20 +317,16 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // v0.6.7: the Favorites section became the Saved tab, and the visible
-    // model is the merged GifSavedModel rather than GifFavoritesModel
-    // directly. The invariant under test is unchanged and is the whole reason
-    // choose() resolves against activeModel: a row must be resolved against
-    // the model the user is LOOKING AT, never the browse grid.
+    // A Saved-tab click resolves against the merged GifSavedModel the grid
+    // shows, never the browse results.
     void savedClickChoosesExactSavedRowNotTrending()
     {
         AppController controller(AppController::MockBackend);
         auto *gif = controller.gif();
         QVERIFY(gif != nullptr);
 
-        // Two saved provider GIFs from different providers, deliberately NOT
-        // present in the browse results model (which stays empty — the live
-        // bug substituted its first row).
+        // Two saved GIFs from different providers, absent from the (empty)
+        // browse results model.
         QVERIFY(gif->toggleFavorite(
             favoriteFixture(QStringLiteral("giphy"), QStringLiteral("aaa1"))));
         QVERIFY(gif->toggleFavorite(
@@ -422,11 +366,9 @@ private Q_SLOTS:
         QCOMPARE(QQmlProperty::read(picker, QStringLiteral("tab")).toString(),
                  QStringLiteral("saved"));
 
-        // Click row 1 of the VISIBLE saved grid — read through the merged
-        // model the picker is actually bound to, not through the favorites
-        // store behind it (with no local rows the two agree, but resolving
-        // against the visible model is exactly the invariant here). Saved
-        // rows prepend newest first, so verify by identity, never position.
+        // Click row 1 of the visible saved grid, read through the model the
+        // picker is bound to. Saved rows prepend newest first, so verify by
+        // identity, not position.
         const QVariantMap expected = gif->saved()->get(1);
         QVERIFY(!expected.value(QStringLiteral("gifId")).toString().isEmpty());
         QVERIFY(QMetaObject::invokeMethod(picker, "choose",
@@ -440,12 +382,11 @@ private Q_SLOTS:
                  expected.value(QStringLiteral("gifId")).toString());
         QCOMPARE(result.value(QStringLiteral("gifUrl")).toString(),
                  expected.value(QStringLiteral("gifUrl")).toString());
-        // And the identity is provider-qualified — never a bare id that
-        // could collide across GIPHY and KLIPY.
+        // The identity is provider-qualified, never a bare id that could
+        // collide across GIPHY and KLIPY.
         QVERIFY(!result.value(QStringLiteral("provider")).toString().isEmpty());
 
-        // An out-of-range or unidentifiable row chooses NOTHING (no
-        // index-zero fallback, no substitution).
+        // An out-of-range row chooses nothing: no index-zero fallback.
         QVERIFY(QMetaObject::invokeMethod(picker, "choose",
                                           Q_ARG(QVariant, 99)));
         QCOMPARE(chosen.count(), 1);
@@ -483,14 +424,8 @@ private Q_SLOTS:
         window.show();
         QCoreApplication::processEvents();
 
-        // A "search response" lands with three rows. Injected directly via
-        // the model (see safeResult()) rather than through
-        // searchNow()/a fake transport/the real parser: GifResultModel's
-        // reset() emits the exact same modelReset() this test's fix reacts
-        // to regardless of who calls it, and doing it this way keeps every
-        // rendered row's image source empty (network-safe) — the debounce
-        // -> transport -> parser wiring itself is already covered by
-        // GifSearchControllerTest.cpp.
+        // A search response lands with three rows, injected via reset(), which
+        // emits the same modelReset() and keeps image sources empty.
         gif.results()->reset({ safeResult(QStringLiteral("giphy"), QStringLiteral("cat1")),
                                safeResult(QStringLiteral("giphy"), QStringLiteral("cat2")),
                                safeResult(QStringLiteral("giphy"), QStringLiteral("cat3")) });
@@ -500,16 +435,13 @@ private Q_SLOTS:
             picker->findChild<QObject *>(QStringLiteral("gifResultGrid"));
         QVERIFY(gridObj != nullptr);
 
-        // The user keyboard-highlights the last row ("cat3") without
-        // pressing Return yet.
+        // Keyboard-highlight the last row ("cat3") without pressing Return.
         QQmlProperty::write(gridObj, QStringLiteral("currentIndex"), 2);
         QCOMPARE(QQmlProperty::read(gridObj, QStringLiteral("currentIndex"))
                      .toInt(),
                  2);
 
-        // A debounced search for something else lands before Return is
-        // pressed, replacing the grid with entirely different content that
-        // still happens to have a row at the same position.
+        // A different search lands first, with a row at the same position.
         gif.results()->reset({ safeResult(QStringLiteral("giphy"), QStringLiteral("dog1")),
                                safeResult(QStringLiteral("giphy"), QStringLiteral("dog2")),
                                safeResult(QStringLiteral("giphy"), QStringLiteral("dog3")) });
@@ -517,12 +449,8 @@ private Q_SLOTS:
         QVERIFY(gif.results()->get(2).value(QStringLiteral("gifId")).toString()
                 != QStringLiteral("cat3"));
 
-        // The stale highlight must NOT survive: row 2 now means "dog3", a
-        // completely different item than what the user was looking at when
-        // they highlighted row 2. Without this invalidation, Return's own
-        // `if (currentIndex >= 0) picker.choose(currentIndex)` guard would
-        // happily resolve and send "dog3" under the user's belief they
-        // were sending "cat3". Fails before the fix: currentIndex stays 2.
+        // The stale highlight must not survive: row 2 is now "dog3", and
+        // Return would send it.
         QCOMPARE(QQmlProperty::read(gridObj, QStringLiteral("currentIndex"))
                      .toInt(),
                  -1);
@@ -533,8 +461,7 @@ private Q_SLOTS:
     {
         FakeGifTransport transport;
         GifSearchController gif;
-        // A long debounce so the test's Return keypress deterministically
-        // races ahead of it — exactly the window the live bug hit.
+        // A long debounce so Return deterministically races ahead of it.
         gif.setDebounceMs(60'000);
         gif.setApiKey(QStringLiteral("giphy"), QStringLiteral("GKEY"));
         gif.setTransport(&transport);
@@ -588,20 +515,15 @@ private Q_SLOTS:
         QTest::keyClick(&window, Qt::Key_Return);
         QCoreApplication::processEvents();
 
-        // Nothing was sent — the debounce (60s) has not fired, and no
-        // response for "dogs" exists yet, so there is no safe row to send.
+        // Nothing sent: the debounce has not fired and no "dogs" response
+        // exists yet.
         QCOMPARE(chosen.count(), 0);
-        // Return flushed the query immediately rather than waiting out the
-        // debounce: a new request for "dogs" was issued right away.
+        // Return flushed the query immediately.
         QVERIFY(transport.issued.size() > issuedCountBeforeEnter);
         QVERIFY(transport.issued.last().second.contains(QStringLiteral("dogs")));
 
-        // Completing that flushed request afterward must not retroactively
-        // send anything either — Return only moved focus into the grid, it
-        // never queued a pending choose(). An empty response body keeps
-        // this safe to render (see safeResult()'s comment): the point here
-        // is that NOTHING gets auto-sent on completion, not what the
-        // result set contains.
+        // Completing the flushed request must not send anything either: Return
+        // only moved focus into the grid.
         transport.complete(transport.lastOp(), true, 200,
                            giphyBody({}), QStringLiteral("ok"));
         QCOMPARE(chosen.count(), 0);
@@ -641,16 +563,13 @@ private Q_SLOTS:
         QTRY_VERIFY(roomPicker->property("opened").toBool());
         QVERIFY(!threadPicker->property("opened").toBool());
 
-        // Opening the thread picker while the room one is still open must
-        // close the room one — the documented-but-previously-unimplemented
-        // "the active target closes the other picker" invariant (see the
-        // comment at the top of qml/GifPicker.qml). Before the fix this
-        // never happened: both stayed open, sharing one live results grid.
+        // Opening the thread picker closes the room picker (see the header of
+        // qml/GifPicker.qml).
         QVERIFY(QMetaObject::invokeMethod(threadPicker, "open"));
         QTRY_VERIFY(threadPicker->property("opened").toBool());
         QTRY_VERIFY(!roomPicker->property("opened").toBool());
 
-        // And it works symmetrically back the other way.
+        // And symmetrically back.
         QVERIFY(QMetaObject::invokeMethod(roomPicker, "open"));
         QTRY_VERIFY(roomPicker->property("opened").toBool());
         QTRY_VERIFY(!threadPicker->property("opened").toBool());
@@ -659,40 +578,25 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
-    // v0.6.6 live-bug fix, still guarded after the v0.6.7 rework:
-    // `gif.starredStore.model()` in GifPicker.qml's activeModel binding called
-    // a plain, non-Q_INVOKABLE C++ method — QML cannot call that, the binding
-    // throws a TypeError, Qt's QQmlBinding::update catches it and (silently)
-    // leaves activeModel at its PREVIOUS value. Since activeModel starts out
-    // bound to gif.results, selecting the local tab left the grid still
-    // showing trending GIPHY results — while the tab's header/footer/
-    // search-field visibility all correctly switched, because those bind on
-    // the tab state directly, never through the throwing expression.
-    // Text-scanning contract tests can only see the call form; only a real
-    // engine evaluates the branch. This test drives the real engine, the real
-    // GifStarredStore and the real merged model, and asserts both the model
-    // identity AND that no QML warning (i.e. no caught binding exception) was
-    // ever emitted — a text scan can never prove that on its own.
+    // The Saved tab's activeModel binding must evaluate to the merged model.
+    // A binding that throws (e.g. calling a non-invokable C++ method) is
+    // swallowed by QQmlBinding and leaves the previous model (trending) in
+    // place while tab chrome switches correctly. Only a real engine sees
+    // this, so it asserts model identity and no QML warnings.
     void savedTabBindsTheMergedModelNotResults()
     {
         QTemporaryDir starredDir;
         QVERIFY(starredDir.isValid());
         GifSearchController gif;
-        // v0.6.7: provider favorites persist to the shared QSettings store,
-        // so a controller constructed here loads whatever an EARLIER case in
-        // this binary saved. That did not matter while the local tab rendered
-        // GifStarredModel alone; now that the Saved tab is the merged list,
-        // leftover favorites would land in the very count asserted below.
-        // Start from an empty provider group so the merged list is exactly
-        // the local group.
+        // Provider favorites persist in shared QSettings; clear them so the
+        // merged list is exactly the local group.
         gif.favorites()->clearAll();
         gif.openStarredStoreFor(starredDir.path());
         QVERIFY(gif.starredStore()->isOpen());
         QCOMPARE(gif.saved()->count(), 0);
 
-        // A minimal real GIF: magic + logical-screen-descriptor width/height
-        // — the smallest shape gif::validateGifBytes accepts (mirrors
-        // GifStarredStoreTest.cpp's makeGif()).
+        // Minimal GIF: magic plus logical-screen descriptor, the smallest shape
+        // gif::validateGifBytes accepts (as GifStarredStoreTest's makeGif()).
         QByteArray starredBytes = QByteArrayLiteral("GIF89a");
         starredBytes.append(char(10)); starredBytes.append(char(0));
         starredBytes.append(char(10)); starredBytes.append(char(0));
@@ -703,12 +607,8 @@ private Q_SLOTS:
         QVERIFY(starFinished.at(0).at(1).toBool());
         QCOMPARE(gif.starredStore()->count(), 1);
 
-        // The browse results model stays populated with UNRELATED trending
-        // content — exactly what the bug left rendered on the Starred tab.
-        // TWO rows, deliberately: with one row each, the grid's count would
-        // be 1 in both the fixed and the broken state, so the count
-        // assertion below would pass against the bug and only the identity
-        // assertions would catch it.
+        // Browse results hold two unrelated trending rows, so the count
+        // assertion alone discriminates (one row would match either way).
         gif.results()->reset(
             { safeResult(QStringLiteral("giphy"), QStringLiteral("trend1")),
               safeResult(QStringLiteral("giphy"), QStringLiteral("trend2")) });
@@ -742,7 +642,7 @@ private Q_SLOTS:
         window.show();
         QCoreApplication::processEvents();
 
-        // Select the Saved tab exactly like the nav strip's onActivated does.
+        // Select the Saved tab as the nav strip's onActivated does.
         QQmlProperty::write(picker, QStringLiteral("tab"),
                             QStringLiteral("saved"));
         QCoreApplication::processEvents();
@@ -755,8 +655,7 @@ private Q_SLOTS:
             picker->findChild<QObject *>(QStringLiteral("gifResultGrid"));
         QVERIFY(gridObj != nullptr);
 
-        // activeModel (and the grid bound to it) must be the merged SAVED
-        // model — never gif.results (trending).
+        // activeModel must be the merged saved model, never gif.results.
         QObject *activeModel =
             QQmlProperty::read(picker, QStringLiteral("activeModel"))
                 .value<QObject *>();
@@ -767,28 +666,16 @@ private Q_SLOTS:
             QQmlProperty::read(gridObj, QStringLiteral("model")).value<QObject *>();
         QCOMPARE(gridModel, static_cast<QObject *>(gif.saved()));
 
-        // The grid actually renders the ONE locally-saved row, not the TWO
-        // trending rows the bug left it showing — a count assertion that
-        // discriminates on its own, not only alongside the identity checks.
-        // No provider favorites exist here, so the merged list is exactly the
-        // local group.
+        // The grid shows the one local row, not the two trending rows.
         QCOMPARE(QQmlProperty::read(gridObj, QStringLiteral("count")).toInt(), 1);
 
-        // No caught binding exception anywhere in this sequence — the
-        // regression's actual failure mode (a swallowed TypeError) would
-        // otherwise show up here even if some other code path happened to
-        // still produce the right model.
+        // No swallowed binding exception anywhere in the sequence.
         QCOMPARE(warnings, QStringList{});
     }
 
-    // v0.6.7: the picker is PARENTED to its anchor, so its position is
-    // expressed in the anchor's own coordinates and Qt's popup positioner
-    // keeps the two rigid through any ancestor movement. The contract is
-    // therefore a geometric relationship that must hold at EVERY window size:
-    // right edges flush, bottom one gap above the anchor's top.
-    //
-    // Three earlier schemes computed an absolute overlay position instead and
-    // each broke a different case — drift, lag, then a 400px ancestor error.
+    // The picker is parented to its anchor, so Qt's popup positioner keeps
+    // them rigid. At every window size: right edges flush, bottom one gap
+    // above the anchor's top.
     void pickerIsPinnedToItsAnchorAtEveryWindowSize()
     {
         GifSearchController gif;
@@ -818,7 +705,7 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(picker, "open"));
         QTRY_VERIFY(picker->property("opened").toBool());
 
-        // The anchor IS the parent — that is the whole mechanism.
+        // The anchor is the parent; that is the mechanism.
         QCOMPARE(picker->property("parent").value<QQuickItem *>(), bar);
 
         const qreal gap = picker->property("anchorGap").toReal();
@@ -855,20 +742,16 @@ private Q_SLOTS:
         QTRY_COMPARE(int(window->width()), 620);
         QTRY_VERIFY(bar->width() < barWidthBefore);
         pinned("after shrink");
-        // Shrinking below the picker's own default forces the width clamp —
-        // the picker must follow the anchor down rather than overhang it.
+        // Below the picker's default width the clamp forces it to follow the
+        // anchor down.
         QVERIFY(picker->property("width").toReal() <= bar->width() + 0.5);
 
         delete root;
         QCOMPARE(warnings, QStringList{});
     }
 
-    // v0.6.7 review (H1): the anchor moves because its CONTAINER moved, not
-    // because its own x changed. Every scheme that computed an absolute
-    // position from mapToItem() missed this — the named dependencies never
-    // fire — and it is the production ThreadPanel shape. Parenting the popup
-    // to the anchor makes it structurally impossible: the popup's coordinates
-    // are the anchor's, so it cannot be left behind by an ancestor at all.
+    // The anchor moves because its container moved; parenting to the anchor
+    // means no position needs recomputing.
     void pickerFollowsAnAnchorMovedByItsAncestor()
     {
         GifSearchController gif;
@@ -909,9 +792,7 @@ private Q_SLOTS:
 
         window->resize(1300, 900);
         QTRY_COMPARE(int(window->width()), 1300);
-        // Premise: the panel slid by the full delta and the bar did NOT move
-        // inside it. If this stops holding the scene has drifted and the case
-        // no longer covers what it claims.
+        // Premise: the panel slid and the bar did not move inside it.
         QTRY_VERIFY2(sidePanel->x() > panelXBefore + 300,
                      qPrintable(QStringLiteral("panel did not slide: %1 -> %2")
                                     .arg(panelXBefore).arg(sidePanel->x())));
@@ -919,8 +800,7 @@ private Q_SLOTS:
         QVERIFY(bar->mapToItem(overlayForScene, QPointF(0, 0)).x()
                 > barSceneXBefore + 300);
 
-        // The picker's coordinates are the anchor's, so they did not need to
-        // change at all — and the relationship still holds exactly.
+        // The picker's coordinates are the anchor's, so they are unchanged.
         QCOMPARE(picker->property("x").toReal(), pickerXBefore);
         const qreal x = picker->property("x").toReal();
         const qreal w = picker->property("width").toReal();
@@ -930,13 +810,9 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
-    // v0.6.7 review (round-4 follow-up): a popup with no anchorItem is placed
-    // ONCE from its point and afterwards only clamped — never re-placed. That
-    // distinction is the whole reason the placement Binding tests
-    // `anchorItem !== null`: the captured point is already stale by the time
-    // the window changes, so re-placing against it would slide an
-    // edge-clamped popover somewhere arbitrary, or flip one that opened above
-    // its anchor to below.
+    // A popup without anchorItem is placed once from its point and afterwards
+    // only clamped. The captured point is stale after a resize, so re-placing
+    // would slide or flip it.
     void pointAnchoredPopupIsPlacedOnceThenOnlyClamped()
     {
         GifSearchController gif;
@@ -966,17 +842,14 @@ private Q_SLOTS:
         auto *overlay = picker->property("parent").value<QQuickItem *>();
         QVERIFY(overlay != nullptr);
 
-        // Placed from the point, clamped inside the window: the anchor is at
-        // x=860 in a 900px window, so a centred placement would overflow and
+        // Anchor at x=860 in a 900px window: a centred placement overflows and
         // is pulled back to the right margin.
         const qreal w = picker->property("width").toReal();
         const qreal openedX = picker->property("x").toReal();
         const qreal rightLimit = overlay->width() - w - 8; // AppTheme.spacingS
         QTRY_COMPARE(picker->property("x").toReal(), rightLimit);
 
-        // GROWING the window must NOT move it. This is the regression the
-        // anchorItem test in the Binding guards: a re-place would now fit the
-        // centred position (860 - w/2) and shift it there.
+        // Growing the window must not move it (a re-place would now centre it).
         window->resize(1400, 900);
         QTRY_COMPARE(int(window->width()), 1400);
         QTRY_COMPARE(int(overlay->width()), 1400);
@@ -986,7 +859,7 @@ private Q_SLOTS:
                  "scene no longer distinguishes clamp from re-place");
         QCOMPARE(picker->property("x").toReal(), openedX);
 
-        // SHRINKING must clamp it back inside — the one correction it does get.
+        // Shrinking clamps it back inside.
         window->resize(500, 700);
         QTRY_COMPARE(int(overlay->width()), 500);
         QTRY_VERIFY(picker->property("x").toReal()
@@ -998,14 +871,9 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
-    // v0.6.7: the resize cycle end to end, without a synthetic pointer — the
-    // grip's only uncovered part is then the two-line inverted arithmetic.
-    //
-    // There is no "detach" any more: the placement bindings pin the
-    // bottom-right corner to the anchor, so a bigger size grows the popup up
-    // and to the LEFT on its own. That is why the grip moved to the top-left
-    // corner, and it is what "snapped in place" means — the picker cannot
-    // drift away from the composer even while being resized.
+    // Resize end to end without a synthetic pointer. The bottom-right corner
+    // is pinned to the anchor, so the popup grows up and left (the grip is at
+    // the top-left).
     void resizeGrowsFromThePinnedCornerAndPersists()
     {
         GifSearchController gif;
@@ -1034,9 +902,8 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(picker, "open"));
         QTRY_VERIFY(picker->property("opened").toBool());
 
-        // Sized as a SHARE of the anchor, so the expected width is derived
-        // from the live anchor rather than hardcoded — that is the behaviour
-        // under test, not an incidental number.
+        // Sized as a share of the anchor, so the expected width is derived
+        // from the live anchor.
         const qreal fraction = picker->property("widthFraction").toReal();
         QVERIFY2(qAbs(picker->property("width").toReal()
                       - bar->width() * fraction) < 1.5,
@@ -1047,8 +914,7 @@ private Q_SLOTS:
         const qreal rightEdgeBefore = picker->property("x").toReal()
                                       + picker->property("width").toReal();
 
-        // Grow. The right edge and the bottom must not budge — only the top
-        // and the left move outward.
+        // Grow: the right and bottom edges stay; top and left move out.
         QVERIFY(QMetaObject::invokeMethod(picker, "resizeTo",
                                           Q_ARG(QVariant, 460),
                                           Q_ARG(QVariant, 600)));
@@ -1059,12 +925,8 @@ private Q_SLOTS:
         QVERIFY(qAbs((picker->property("y").toReal()
                       + picker->property("height").toReal()) + gap) < 1.5);
 
-        // Below the component minimum is refused. Read from the picker's own
-        // minWidth/minHeight rather than hardcoded: the claim under test is
-        // "the floor is honoured", and the floor legitimately moves when the
-        // popup's item carries chrome the panel does not (2026-08-28: the
-        // resize grab band, which is inset from the visible panel so a press
-        // aimed at the corner grip cannot land outside the popup).
+        // Below the minimum is refused; the floor is read from the picker
+        // (it includes chrome such as the resize grab band).
         const qreal floorW = picker->property("minWidth").toReal();
         const qreal floorH = picker->property("minHeight").toReal();
         QVERIFY(floorW > 0 && floorH > 0);
@@ -1074,19 +936,18 @@ private Q_SLOTS:
         QCOMPARE(picker->property("width").toReal(), floorW);
         QCOMPARE(picker->property("height").toReal(), floorH);
 
-        // Wider than the anchor is refused — "no further than the text box".
+        // Wider than the anchor is refused.
         QVERIFY(QMetaObject::invokeMethod(picker, "resizeTo",
                                           Q_ARG(QVariant, 99999),
                                           Q_ARG(QVariant, 99999)));
         QCOMPARE(picker->property("width").toReal(), bar->width());
         QCOMPARE(picker->property("x").toReal(), 0.0);
-        // And never taller than the room above the anchor.
+        // Never taller than the room above the anchor.
         QVERIFY(picker->property("height").toReal()
                 <= window->height() - bar->height());
 
-        // Settle on a real size and end the drag. What is remembered is a
-        // SHARE (per mille of the anchor), not a pixel count — which is what
-        // lets it scale with the window and transfer to the emoji picker.
+        // End the drag. A share (per mille of the anchor) is remembered, so it
+        // scales with the window and transfers to the emoji picker.
         QVERIFY(QMetaObject::invokeMethod(picker, "resizeTo",
                                           Q_ARG(QVariant, 420),
                                           Q_ARG(QVariant, 560)));
@@ -1095,8 +956,7 @@ private Q_SLOTS:
         auto *settings = fakeApp.property("settings").value<QObject *>();
         QVERIFY(settings != nullptr);
         int storedShare = 0;
-        // Both pickers persist under the SAME id, which is the sync between
-        // them: there is no second value to keep in step.
+        // Both pickers persist under the same id.
         QVERIFY(QMetaObject::invokeMethod(settings, "pickerWidthShare",
                                           Q_RETURN_ARG(int, storedShare),
                                           Q_ARG(QString, QStringLiteral("picker"))));
@@ -1113,8 +973,7 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("restored width %1").arg(restored)));
         QVERIFY(qAbs((picker->property("x").toReal() + restored) - bar->width()) < 1.5);
 
-        // And the share tracks the window: a wider anchor gives a wider
-        // picker without the user touching anything.
+        // The share tracks the window: a wider anchor gives a wider picker.
         window->resize(1500, 900);
         QTRY_VERIFY(bar->width() > 1200);
         QTRY_VERIFY2(picker->property("width").toReal() > restored + 100,
@@ -1124,27 +983,14 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
-    // v0.6.7 review (H1/N9): the behavioural guard for the Recent-tab star.
-    //
-    // GifStoredModel answers FavoriteRole with a constant `true` — "stored ==
-    // favorited" — and GifRecentModel does not override it. The picker read
-    // that role to drive its star, so every Recent tile rendered as saved,
-    // announced "Remove from saved GIFs", and then called toggleFavorite()
-    // which INSERTS: the control said Remove and did Save. The source-scan
-    // pin in GifPickerRedesignContractTest catches the shape; this drives a
-    // real picker with a real controller and reads the rendered delegate's
-    // own `saved` property, which is what the user actually sees.
-    //
-    // It fails on the unfixed tree: `saved` was
-    // `tile.provider === "local" || tile.favorite`, and tile.favorite is
-    // unconditionally true for a recents row, so the first assertion below
-    // would read true.
+    // A Recent tile is not "saved" merely because it was sent.
+    // GifStoredModel's FavoriteRole is constantly true and GifRecentModel does
+    // not override it, so the star must not read that role. Reads the
+    // rendered delegate's own `saved` property.
     void recentTileIsNotSavedMerelyBecauseItWasSent()
     {
         GifSearchController gif;
-        // Recents and favorites share the process QSettings, so start from a
-        // known-empty provider group (see savedTabBindsTheMergedModelNot-
-        // Results for the same isolation note).
+        // Recents and favorites share process QSettings; start empty.
         gif.favorites()->clearAll();
         gif.recent()->clearAll();
 
@@ -1164,9 +1010,8 @@ private Q_SLOTS:
                 });
         engine.rootContext()->setContextProperty("app", &fakeApp);
 
-        // A real ApplicationWindow so Overlay.overlay resolves and the opened
-        // popup gets real geometry — a GridView with no height creates no
-        // delegates, and this test has to read one.
+        // A real ApplicationWindow: a GridView with no height creates no
+        // delegates, and this test reads one.
         QQmlComponent component(&engine);
         component.setData(QByteArray(kAnchoredPickerScene),
                           QUrl(QStringLiteral("anchoredpickerscene.qml")));
@@ -1194,18 +1039,17 @@ private Q_SLOTS:
                         Q_ARG(int, 0))
                     && tile != nullptr);
 
-        // A GIF that was merely SENT is not saved.
+        // A GIF that was merely sent is not saved.
         QVERIFY2(!QQmlProperty::read(tile, QStringLiteral("saved")).toBool(),
                  "a recents row reported itself as saved");
 
-        // Saving it flips the SAME tile live — which also proves the revision
-        // counter actually re-evaluates the binding, since isSaved() is a
-        // plain call that establishes no dependency of its own.
+        // Saving flips the same tile live, proving the revision counter
+        // re-evaluates the binding (isSaved() is a plain call).
         QVERIFY(gif.toggleFavorite(sent));
         QTRY_VERIFY2(QQmlProperty::read(tile, QStringLiteral("saved")).toBool(),
                      "tile did not pick up the new saved state");
 
-        // And unsaving flips it back.
+        // Unsaving flips it back.
         QVERIFY(!gif.toggleFavorite(sent));
         QTRY_VERIFY(!QQmlProperty::read(tile, QStringLiteral("saved")).toBool());
 
@@ -1213,30 +1057,11 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
-    // Regression: one user activation must produce exactly one send. Before
-    // the fix, nothing stopped a second activation reaching choose() while
-    // the popup was still visually closing — MouseArea delivers a fast
-    // double-click as TWO separate "clicked" signals, and Popup.close()
-    // only starts an exit transition, it does not synchronously tear the
-    // content down. The `activated` one-shot latch (qml/GifPicker.qml)
-    // gates choose() itself, so it covers every activation surface (mouse
-    // AND the grid's Return/Enter keyboard path) with one guard rather than
-    // one per input device.
-    //
-    // Uses the same minimal harness as staleCurrentIndexAfterModelResetCan-
-    // notSendWrongItem/searchFieldEnterWithPendingDebounceSendsNothing above
-    // (a raw GifSearchController + FakeGifApp, default provider tab, results
-    // injected directly) rather than the two-picker
-    // ApplicationWindow/kTwoPickerScene harness openingOnePickerClosesThe-
-    // Other uses: that combination — a real Popup open()/close()/reopen
-    // cycle together with a switch to the saved list — segfaulted deep in
-    // Qt's own event-posting machinery
-    // (QCoreApplicationPrivate::lockThreadPostEventList) in a way that
-    // survived waiting for the close transition to finish before reopening,
-    // and is not a combination any OTHER test in this file exercises. The
-    // guard itself only needs choose() to be called twice in a row with no
-    // event-loop turn between them — reachable without a real popup
-    // lifecycle or the saved list at all.
+    // One activation produces exactly one send. A fast double-click is two
+    // `clicked` signals and Popup.close() only starts a transition, so the
+    // `activated` latch in qml/GifPicker.qml gates choose() for mouse and
+    // keyboard alike. Uses the single-picker harness: the two-picker
+    // open/close/reopen cycle crashes in Qt (see the note below).
     void secondActivationBeforeCloseCompletesSendsExactlyOne()
     {
         GifSearchController gif;
@@ -1274,8 +1099,7 @@ private Q_SLOTS:
         QCOMPARE(gif.results()->count(), 1);
 
         QSignalSpy chosen(picker, SIGNAL(gifChosen(QVariant)));
-        // Two activations of the SAME row, back to back, with no event-loop
-        // turn between them — the worst case the race allows.
+        // Two activations of the same row with no event-loop turn between.
         QVERIFY(QMetaObject::invokeMethod(picker, "choose", Q_ARG(QVariant, 0)));
         QVERIFY(QMetaObject::invokeMethod(picker, "choose", Q_ARG(QVariant, 0)));
         QCOMPARE(chosen.count(), 1);
@@ -1287,31 +1111,11 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
-    // NOT COVERED, and a PRE-EXISTING CRASH worth its own pass.
-    //
-    // The latch's RELEASE path (onAboutToShow's `activated = false`) has no
-    // automated coverage, because the only scene that exercises it segfaults
-    // for reasons that have nothing to do with this checkpoint.
-    //
-    // Reproduction: drive a two-picker scene matching production
-    // (MessageComposerBar.qml and ThreadPanel.qml each instantiate one
-    // GifPicker), then open() -> tab = "saved" (the "favorites" section,
-    // before the v0.6.7 rework) -> choose() -> close() -> reopen(). That
-    // crashes in
-    // QCoreApplicationPrivate::lockThreadPostEventList, and waiting for the
-    // close transition to finish first does not avoid it.
-    //
-    // It is NOT caused by the double-activation guard. Verified empirically:
-    // with origin/main's qml/GifPicker.qml swapped in, the same sequence
-    // still segfaults, while secondActivationBeforeCloseCompletes... fails
-    // as expected without the guard. So the crash is a pre-existing
-    // fragility in GifPicker.qml's real Popup/saved-list lifecycle, reachable
-    // by an ordinary user sequence, and it survived this long only because
-    // nothing had ever driven that sequence.
-    //
-    // A test asserting the crash was deliberately NOT committed: a red suite
-    // helps nobody. Fixing the lifecycle, and then covering the latch reset,
-    // belongs in a dedicated checkpoint.
+    // Not covered: the latch's release path (onAboutToShow's
+    // `activated = false`). The only scene that exercises it (two pickers,
+    // open -> saved tab -> choose -> close -> reopen) segfaults in
+    // QCoreApplicationPrivate::lockThreadPostEventList, independently of the
+    // latch. Fix the popup lifecycle first, then cover the reset.
 
 private:
     QTemporaryDir m_configHome;

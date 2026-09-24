@@ -1,15 +1,10 @@
-// v0.6.6: "star a chat GIF" — the client-local save store. Exercises
-// content-hash dedup, the item/byte-size caps that REFUSE rather than
-// silently evict a GIF the user chose to keep, account-scope isolation
-// (two openFor() directories never see each other's rows), unstar deleting
-// the on-disk file, a stale/tampered index entry never surfacing a tile
-// that cannot actually be played, and the session-only mediaKey->hash
-// mapping the hover-star's filled/outline state depends on. The picker's
-// Starred tab binds GifStarredStore::model() (GifStarredModel) directly —
-// see GifPickerRedesignContractTest/QmlBindingContractTest for that
-// source-level wiring; there is no merged-model class to unit test here
-// any more (GifFavoritesMergedModel was removed with the UX rework that
-// gave Starred its own picker tab instead of folding it into Favorites).
+// GifStarredStore, the client-local saved-image store: content-hash dedup,
+// item/byte caps that refuse rather than silently evict, account-scope
+// isolation between openFor() directories, unstar deleting the file, stale or
+// tampered index entries never surfacing an unplayable tile, and the
+// session-only mediaKey->hash mapping behind the hover star's state. The
+// picker's QML wiring is covered by GifPickerRedesignContractTest and
+// QmlBindingContractTest.
 
 #include "gif/GifResponseParser.h"
 #include "gif/GifStarredStore.h"
@@ -26,10 +21,9 @@
 
 namespace {
 
-// A minimal, real GIF header: magic + logical-screen-descriptor width/height
-// (exactly 10 bytes, the smallest gif::validateGifBytes accepts), plus an
-// optional tail so otherwise-identical dimensions still hash differently
-// (used to create distinct "GIFs" for cap tests).
+// A minimal real GIF header: magic plus logical-screen width/height (10 bytes,
+// the smallest gif::validateGifBytes accepts), with an optional tail so equal
+// dimensions can still hash differently.
 QByteArray makeGif(int w, int h, const QByteArray &tail = {})
 {
     QByteArray b = "GIF89a";
@@ -41,15 +35,10 @@ QByteArray makeGif(int w, int h, const QByteArray &tail = {})
     return b;
 }
 
-// 2026-08 media round: minimal, real byte-level fixtures for the three new raster
-// formats — deliberately as small as gif::validateRasterBytes' own parsers
-// actually require (they read the format's HEADER fields only; none of
-// them verify a checksum or decode pixel data), exactly like makeGif()
-// above is a minimal GIF, not a fully rendered one. This target links only
-// Qt6::Core + Qt6::Test (see CMakeLists.txt), so these are hand-built
-// rather than produced via QImage::save (which needs Qt6::Gui — the
-// gif-send-controller-test target does link Gui and uses that approach for
-// its own PNG fixture instead).
+// Minimal byte-level fixtures for PNG, JPEG and WebP: only the header fields
+// gif::validateRasterBytes reads (no checksums or pixel data). Hand-built
+// because this target links only Qt6::Core and Qt6::Test (QImage::save needs
+// Qt6::Gui).
 QByteArray be32(quint32 v)
 {
     QByteArray r(4, '\0');
@@ -60,10 +49,9 @@ QByteArray be32(quint32 v)
     return r;
 }
 
-// PNG: 8-byte signature + the mandatory IHDR chunk (length=13, "IHDR",
-// width/height big-endian, then 5 bytes of bit-depth/color-type/
-// compression/filter/interlace and a 4-byte CRC — both left zeroed since
-// pngDims() never checks either).
+// PNG: 8-byte signature plus the IHDR chunk (length 13, width/height big-endian,
+// 5 bytes of depth/colour/compression/filter/interlace and a CRC, both zeroed
+// since pngDims() checks neither).
 QByteArray makePng(int w, int h)
 {
     QByteArray b;
@@ -141,7 +129,6 @@ private Q_SLOTS:
     void staleIndexEntryIsPrunedOnOpen();
     void sessionMediaKeyMappingDrivesUnstarByMediaKey();
 
-    // Review round (CRITICAL-1/HIGH-2/M4/L7/L8/L9/L10/L13/M6) additions.
     void reStarringAfterFileWasManuallyDeletedRewritesIt();
     void openForSweepsOrphanedFilesNotInIndex();
     void oversizedFileOnDiskRejectedByReadBytes();
@@ -155,8 +142,8 @@ private Q_SLOTS:
     void unstarEmitsFeedbackOnlyWhenSomethingRemoved();
     void categoryMessagesAreTranslatedNeverRawTokens();
 
-    // 2026-08 media round: raster format generalization (GIF/PNG/JPEG/WebP, byte-decided
-    // never trusted from a claim) — see gif::validateRasterBytes.
+    // Raster formats (GIF/PNG/JPEG/WebP) decided from bytes, never from a
+    // claim; see gif::validateRasterBytes.
     void legacyIndexEntryWithNoExtFieldLoadsAndSendsAsGif();
     void hostileExtInIndexNeverReachesAPath();
     void savesPngBytesUnderThePngSuffix();
@@ -206,13 +193,10 @@ void GifStarredStoreTest::reStarringSameBytesDedupsByHash()
     QVERIFY(store.isStarredThisSession(QStringLiteral("mkB")));
 }
 
-// v0.6.6 review (M1, optional/preferred improvement): the FIRST star of a
-// hash reports plain success (category/message both empty, so the UI says
-// "Starred."); re-starring the SAME already-indexed hash (the ambiguous-
-// activation path AppController::isChatGifStarred's durable check can land
-// on when it does not yet know an answer) must say so honestly rather than
-// implying a brand new star just happened — category "already_starred",
-// with a real translated message, never a raw token.
+// The first star of a hash reports plain success; re-starring an already
+// indexed hash (reachable via AppController::isChatGifStarred's durable
+// check) reports category "already_starred" with a translated message, never
+// a raw token.
 void GifStarredStoreTest::reStarringAlreadyIndexedHashReportsAlreadyStarredCategory()
 {
     QTemporaryDir dir;
@@ -238,16 +222,10 @@ void GifStarredStoreTest::reStarringAlreadyIndexedHashReportsAlreadyStarredCateg
     QCOMPARE(store.count(), 1); // still no duplicate row or file
 }
 
-// 2026-08 media round: CHANGED PIN — starBytes() now calls gif::validateRasterBytes (the
-// general four-format validator), not gif::validateGifBytes directly. HTML
-// bytes match none of GIF/PNG/JPEG/WebP's magic, so the category is now
-// "unsupported_format" (validateRasterBytes' own token for "not one of the
-// four supported magics"), not the GIF-only validator's "not_a_gif". This
-// is a legitimate behavior change, not a loosened assertion: the store
-// still refuses the bytes, writes nothing, and reports a real failure —
-// only the specific machine-readable token differs, and
-// categoryMessagesAreTranslatedNeverRawTokens below still proves it never
-// reaches the UI as a raw token either way.
+// HTML matches none of the four supported magics, so starBytes() (via
+// gif::validateRasterBytes) refuses it as "unsupported_format", writes
+// nothing and reports a failure. categoryMessagesAreTranslatedNeverRawTokens
+// proves the token never reaches the UI.
 void GifStarredStoreTest::rejectsHtmlBytes()
 {
     QTemporaryDir dir;
@@ -265,8 +243,8 @@ void GifStarredStoreTest::rejectsHtmlBytes()
 
 void GifStarredStoreTest::rejectsSvgBytes()
 {
-    // SVG is deliberately unsupported (CLAUDE.md §6: never render untrusted
-    // SVG as active content — it must never even reach the "saved" store).
+    // SVG is deliberately unsupported: untrusted SVG must never reach the
+    // saved store.
     QTemporaryDir dir;
     GifStarredStore store;
     QSignalSpy finished(&store, &GifStarredStore::starFinished);
@@ -300,8 +278,7 @@ void GifStarredStoreTest::itemCapRefusesRatherThanEvicts()
     QCOMPARE(finished.count(), 1);
     QVERIFY(!finished.at(0).at(1).toBool());
     QCOMPARE(finished.at(0).at(2).toString(), QStringLiteral("cap_items"));
-    // Still exactly 2 — the first item was never silently evicted to make
-    // room for the third.
+    // Still exactly 2: the first item was not evicted for the third.
     QCOMPARE(store.count(), 2);
     QVERIFY(store.model()->contains(QStringLiteral("local"), firstHash));
 }
@@ -311,7 +288,7 @@ void GifStarredStoreTest::byteCapRefusesRatherThanEvicts()
     QTemporaryDir dir;
     GifStarredStore store;
     store.openFor(dir.path());
-    // Small caps so the test allocates only a few KB, not real GiB content.
+    // Small caps so the test allocates only a few bytes.
     store.setCapsForTest(/*maxItems=*/200, /*maxTotalBytes=*/20);
 
     store.starBytes(QStringLiteral("mk1"), makeGif(10, 10, QByteArray(10, 'x'))); // 20 bytes
@@ -364,13 +341,13 @@ void GifStarredStoreTest::accountScopeIsolation()
     store.starBytes(QStringLiteral("mk"), makeGif(30, 30));
     QCOMPARE(store.count(), 1);
 
-    // Switching to a different account's directory shows THAT account's
-    // (empty) store — never account A's rows.
+    // Another account's directory shows that account's (empty) store, never
+    // account A's rows.
     store.openFor(dirB.path());
     QCOMPARE(store.count(), 0);
     QVERIFY(!store.isStarredThisSession(QStringLiteral("mk"))); // session map reset too
 
-    // Switching back reloads account A's persisted index from disk.
+    // Switching back reloads account A's index from disk.
     store.openFor(dirA.path());
     QCOMPARE(store.count(), 1);
 }
@@ -399,8 +376,8 @@ void GifStarredStoreTest::staleIndexEntryIsPrunedOnOpen()
     QVERIFY(QDir().mkpath(dir.path()));
     QSettings settings(dir.path() + QStringLiteral("/index.ini"),
                        QSettings::IniFormat);
-    // A tampered/stale index entry: a well-formed hash whose file was never
-    // written (or was deleted out from under the index).
+    // A tampered or stale index entry: a well-formed hash whose file does not
+    // exist.
     const QString fakeHash = QString(64, QLatin1Char('a'));
     settings.setValue(QStringLiteral("gif/starred"),
                       QStringLiteral("[{\"provider\":\"local\",\"id\":\"%1\","
@@ -432,9 +409,8 @@ void GifStarredStoreTest::sessionMediaKeyMappingDrivesUnstarByMediaKey()
 
 void GifStarredStoreTest::reStarringAfterFileWasManuallyDeletedRewritesIt()
 {
-    // L7: a re-star must not skip the write just because the INDEX still
-    // thinks the hash exists — the backing file may have been removed by
-    // something other than unstar() (disk cleanup, corruption, etc.).
+    // A re-star must not skip the write because the index still has the hash:
+    // the file may have been removed by something other than unstar().
     QTemporaryDir dir;
     GifStarredStore store;
     store.openFor(dir.path());
@@ -455,9 +431,9 @@ void GifStarredStoreTest::reStarringAfterFileWasManuallyDeletedRewritesIt()
 
 void GifStarredStoreTest::openForSweepsOrphanedFilesNotInIndex()
 {
-    // M4: a *.gif file on disk that no index row references (crash between
-    // write and registration, hand-edited index, ...) must not silently
-    // escape the cap or linger forever — openFor() sweeps it.
+    // An on-disk file no index row references (crash between write and
+    // registration, hand-edited index) is swept by openFor() rather than
+    // escaping the cap.
     QTemporaryDir dir;
     QString keptHash;
     {
@@ -486,8 +462,8 @@ void GifStarredStoreTest::openForSweepsOrphanedFilesNotInIndex()
 
 void GifStarredStoreTest::oversizedFileOnDiskRejectedByReadBytes()
 {
-    // L8: readBytes() must bound the read even though the file was
-    // validated at write time — it may have been replaced since.
+    // readBytes() bounds the read even though the file was validated at write
+    // time; it may have been replaced since.
     QTemporaryDir dir;
     GifStarredStore store;
     store.openFor(dir.path());
@@ -557,8 +533,7 @@ void GifStarredStoreTest::storeDirectoryIsOwnerOnlyAfterFirstWrite()
 
 void GifStarredStoreTest::directoryIsNotCreatedUntilFirstWrite()
 {
-    // L21: an account that never stars anything must not get an empty
-    // starred-gifs directory materialized on every login.
+    // An account that never stars anything gets no empty directory on login.
     QTemporaryDir dir;
     const QString starredDir = dir.path() + QStringLiteral("/starred-gifs");
     GifStarredStore store;
@@ -590,22 +565,18 @@ void GifStarredStoreTest::clearAllDeletesEveryFileAndRow()
     QVERIFY(!store.isStarredThisSession(QStringLiteral("mk2")));
 }
 
-// Ordering contract, not just end state: consumers refresh their own
-// "is this starred?" view FROM countChanged (the hover star on a GIF row
-// does exactly that, and for clearAll it is the ONLY signal emitted — no
-// per-hash unstarFinished). If the session map were still populated while
-// that signal ran, the star would stay filled and its next activation
-// would RE-STAR the file — re-persisting decrypted bytes the user just
-// explicitly deleted. So the map must already read false INSIDE the
-// handler, not merely after the call returns. Asserted for both mutation
-// paths that clear mappings.
+// Ordering contract: consumers such as the hover star refresh from
+// countChanged, which is the only signal clearAll emits. If the session map
+// were still populated inside that handler, the star would stay filled and
+// its next activation would re-persist bytes the user just deleted. Asserted
+// for both paths that clear mappings.
 void GifStarredStoreTest::sessionMapIsAlreadyClearedWhenCountChangedFires()
 {
     QTemporaryDir dir;
     GifStarredStore store;
     store.openFor(dir.path());
 
-    // --- clearAll(): the Settings -> "Clear All" path ---
+    // --- clearAll(): Settings > "Clear All" ---
     store.starBytes(QStringLiteral("mk1"), makeGif(10, 10, "a"));
     store.starBytes(QStringLiteral("mk2"), makeGif(10, 10, "b"));
     QVERIFY(store.isStarredThisSession(QStringLiteral("mk1")));
@@ -629,7 +600,7 @@ void GifStarredStoreTest::sessionMapIsAlreadyClearedWhenCountChangedFires()
              "cleared GIFs as starred — a consumer refreshing from that "
              "signal keeps a filled star that re-persists deleted bytes");
 
-    // --- unstar(): the per-hash path (same ordering rule) ---
+    // --- unstar(): the per-hash path, same ordering rule ---
     store.starBytes(QStringLiteral("mk3"), makeGif(12, 12, "c"));
     const QString h3 =
         store.model()->get(0).value(QStringLiteral("gifId")).toString();
@@ -688,8 +659,8 @@ void GifStarredStoreTest::unstarEmitsFeedbackOnlyWhenSomethingRemoved()
 
 void GifStarredStoreTest::categoryMessagesAreTranslatedNeverRawTokens()
 {
-    // M6: the UI-facing message must never be a raw category token, and a
-    // cap refusal must state the actual configured limit.
+    // The UI message is never a raw category token, and a cap refusal states
+    // the configured limit.
     QTemporaryDir dir;
     GifStarredStore store;
     store.openFor(dir.path());
@@ -706,12 +677,10 @@ void GifStarredStoreTest::categoryMessagesAreTranslatedNeverRawTokens()
     QVERIFY(message.contains(QStringLiteral("1"))); // states the real limit
 }
 
-// 2026-08 raster format generalization ────────────────────────────────────
+// ---- raster formats ----
 
-// A LEGACY entry — an index row with no "ext" key at all, as every row was
-// persisted before this generalization — must keep loading and sending
-// exactly as it always did: no migration/rewrite pass runs, and a bare
-// "ext"-less row means "gif" (see GifStarredStore's class comment and
+// A legacy index row with no "ext" key loads and sends as a GIF with no
+// migration pass (see GifStarredStore's class comment and
 // GifStoredModel::fromJson).
 void GifStarredStoreTest::legacyIndexEntryWithNoExtFieldLoadsAndSendsAsGif()
 {
@@ -721,8 +690,8 @@ void GifStarredStoreTest::legacyIndexEntryWithNoExtFieldLoadsAndSendsAsGif()
     const QString hash = QString::fromLatin1(
         QCryptographicHash::hash(gif, QCryptographicHash::Sha256).toHex());
 
-    // Hand-write exactly what a pre-generalization build would have persisted: the
-    // GIF file at "<hash>.gif" and an index row with no "ext" key.
+    // Hand-write what an older build persisted: "<hash>.gif" and an index row
+    // with no "ext" key.
     QFile file(dir.path() + QLatin1Char('/') + hash + QStringLiteral(".gif"));
     QVERIFY(file.open(QIODevice::WriteOnly));
     QCOMPARE(file.write(gif), qint64(gif.size()));
@@ -738,22 +707,18 @@ void GifStarredStoreTest::legacyIndexEntryWithNoExtFieldLoadsAndSendsAsGif()
 
     GifStarredStore store;
     store.openFor(dir.path());
-    // Visible: not pruned as stale (the file DOES exist, once "ext"-less is
-    // read as "gif").
+    // Visible, not pruned as stale: "ext"-less reads as "gif".
     QCOMPARE(store.count(), 1);
     QVERIFY(store.model()->hasHash(hash));
-    // Sendable fields: source()/readBytes()/sourceExt() all resolve through
-    // the same "ext"-less-means-gif convention.
+    // source(), readBytes() and sourceExt() follow the same convention.
     QVERIFY(!store.source(hash).isEmpty());
     QCOMPARE(store.readBytes(hash), gif);
     QCOMPARE(store.sourceExt(hash), QStringLiteral("gif"));
 }
 
-// review M1: the persisted "ext" participates in file-path construction
-// (filePath -> unstar's QFile::remove, readBytes, source's file:// URL), so
-// a hostile/corrupted index value — including a traversal-shaped one — must
-// collapse to legacy-GIF semantics at read time and never reach a path.
-// Old behavior: the raw string was used verbatim.
+// The persisted "ext" takes part in file-path construction (unstar's remove,
+// readBytes, source's file:// URL), so a hostile or corrupted value,
+// including traversal, must collapse to legacy-GIF semantics at read time.
 void GifStarredStoreTest::hostileExtInIndexNeverReachesAPath()
 {
     QTemporaryDir dir;
@@ -792,9 +757,8 @@ void GifStarredStoreTest::hostileExtInIndexNeverReachesAPath()
 
     GifStarredStore store;
     store.openFor(dir.path());
-    // The hostile ext collapsed to legacy-GIF semantics: the row survives
-    // (its <hash>.gif exists), resolves as gif, and every path stays inside
-    // the store.
+    // The hostile ext collapsed to legacy GIF: the row survives, resolves as
+    // gif, and every path stays inside the store.
     QCOMPARE(store.count(), 1);
     QCOMPARE(store.sourceExt(hash), QStringLiteral("gif"));
     QVERIFY(store.source(hash).contains(hash + QStringLiteral(".gif")));
@@ -863,11 +827,9 @@ void GifStarredStoreTest::savesWebpBytesUnderTheWebpSuffix()
     QCOMPARE(store.readBytes(hash), webp);
 }
 
-// "Spoofed extension" in spirit: nothing about starBytes()'s call site ever
-// claims a format (there is no filename/MIME parameter at all) — the ONLY
-// input is bytes, and the ONLY thing that ever decides the stored suffix is
-// what gif::validateRasterBytes reads from those bytes. This proves PNG
-// bytes are never, under any circumstance, written as "<hash>.gif".
+// starBytes() takes no filename or MIME; the stored suffix is decided only by
+// what gif::validateRasterBytes reads from the bytes, so PNG bytes are never
+// written as "<hash>.gif".
 void GifStarredStoreTest::neverGuessesAnExtensionFromAnythingButTheBytes()
 {
     QTemporaryDir dir;
@@ -881,17 +843,15 @@ void GifStarredStoreTest::neverGuessesAnExtensionFromAnythingButTheBytes()
         dir.path() + QLatin1Char('/') + hash + QStringLiteral(".png")));
     QVERIFY(!QFileInfo::exists(
         dir.path() + QLatin1Char('/') + hash + QStringLiteral(".gif")));
-    // Not even under a DIFFERENT supported suffix — bytes decided "png" and
-    // nothing else was ever written.
+        // Nor under another supported suffix.
     for (const QString &wrongExt : { QStringLiteral("jpg"), QStringLiteral("webp") }) {
         QVERIFY(!QFileInfo::exists(
             dir.path() + QLatin1Char('/') + hash + QLatin1Char('.') + wrongExt));
     }
 }
 
-// M4 extended to every supported suffix: a *.png/*.jpg/*.webp file the
-// index does not reference must be swept exactly like a *.gif orphan
-// already was (openForSweepsOrphanedFilesNotInIndex above).
+// Unreferenced *.png/*.jpg/*.webp files are swept like *.gif orphans
+// (openForSweepsOrphanedFilesNotInIndex).
 void GifStarredStoreTest::orphanSweepRemovesStrayFilesOfEveryFormat()
 {
     QTemporaryDir dir;
@@ -910,9 +870,8 @@ void GifStarredStoreTest::orphanSweepRemovesStrayFilesOfEveryFormat()
     };
     for (const QString &ext : { QStringLiteral("png"), QStringLiteral("jpg"),
                                 QStringLiteral("webp") }) {
-        // A well-formed (valid hex) but unreferenced hash — proves the
-        // sweep drops it because the INDEX does not know it, not merely
-        // because the fake name fails the hash-format check.
+        // A well-formed but unreferenced hash, so the sweep drops it because
+        // the index does not know it, not because the name is malformed.
         const QString orphanHash = QString(64, hexDigitForExt.value(ext));
         const QString path =
             dir.path() + QLatin1Char('/') + orphanHash + QLatin1Char('.') + ext;

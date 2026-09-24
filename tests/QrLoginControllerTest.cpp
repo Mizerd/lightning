@@ -1,15 +1,11 @@
-// MSC4108 sign-in-another-device: the state machine, and the two rules that
-// make it safe rather than merely working.
+// MSC4108 sign-in-another-device: the state machine, and two safety rules.
 //
-// 1. A progress step for a flow the user has already left must be IGNORED.
-//    Applying it drives the current flow with the previous one's input — and
-//    for a check code that means asking someone to compare digits belonging
-//    to a channel that no longer exists, which is exactly the comparison the
-//    digits are there to prevent being skipped.
+// 1. A progress step for a flow the user has already left is ignored, so a
+//    check code from a dead channel is never shown for comparison.
 //
-// 2. The rendered code must not outlive its flow. The store is shared with
-//    device verification and is served over an `image://` URL; a grid left in
-//    it after the flow ended is one a stale URL can still fetch.
+// 2. The rendered code does not outlive its flow. The store is shared with
+//    device verification and served over an `image://` URL, so a leftover
+//    grid could still be fetched.
 
 #include "crypto/QrLoginController.h"
 #include "matrix/MockMatrixClient.h"
@@ -158,7 +154,7 @@ private Q_SLOTS:
         QCOMPARE(qr.state(), QStringLiteral("showing"));
     }
 
-    // RULE 2. The code does not outlive its flow, by any exit.
+    // Rule 2: the code does not outlive its flow, by any exit.
     void everyExitClearsTheRenderedCode()
     {
         for (const QString &exit : { QStringLiteral("cancel"),
@@ -206,14 +202,9 @@ private Q_SLOTS:
         }
     }
 
-    // A BARE CANCEL — with no restart — must drop the flow's queued steps.
-    //
-    // The generation guard alone does not do this: after cancel,
-    // `m_generation` still names the cancelled flow, so a `qr_ready` already
-    // sitting in the event queue compares EQUAL and would be applied,
-    // re-publishing the code into the shared store and putting the dialog
-    // back into "showing". The contract is that the code does not outlive
-    // its flow by ANY exit.
+    // A bare cancel (no restart) must drop the flow's queued steps: after
+    // cancel `m_generation` still names the cancelled flow, so the generation
+    // guard alone would apply a queued `qr_ready` and republish the code.
     void aLateStepAfterABareCancelIsDropped()
     {
         QrClient client;
@@ -243,10 +234,9 @@ private Q_SLOTS:
         QCOMPARE(qr.state(), QStringLiteral("failed"));
     }
 
-    // THE GRID STORE IS SHARED WITH DEVICE VERIFICATION and holds one code.
-    // Clearing it unconditionally means cancelling a sign-in blanks a
-    // verification QR that had since replaced ours — mid-scan, with nothing
-    // on screen to say why.
+    // The grid store is shared with device verification and holds one code:
+    // cancelling a sign-in must not blank a verification QR that has since
+    // replaced ours.
     void cancellingDoesNotClearSomebodyElsesCode()
     {
         QrClient client;

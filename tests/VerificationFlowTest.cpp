@@ -1,17 +1,16 @@
-// v0.7.1: SAS verification UI state machine — the "They match" feedback
-// chain. Boots a real AppController on the Rust backend (no session, no
-// network: the FFI wrappers no-op without a live handle) and drives the
-// RustSdkMatrixClient verification signals directly, exactly as the poll
-// dispatcher would. Pins:
-//   * sas_ready --confirm()--> confirming happens SYNCHRONOUSLY;
+// The SAS verification UI state machine. Boots a real AppController on the
+// Rust backend (no session, no network: the FFI wrappers no-op without a live
+// handle) and emits RustSdkMatrixClient's verification signals directly, as
+// the poll dispatcher would. Pins:
+//   * sas_ready --confirm()--> confirming happens synchronously;
 //   * verificationSasConfirmed moves confirming -> waiting_for_peer;
-//   * verificationDone terminates the flow from the peer wait;
+//   * verificationDone ends the flow from the peer wait;
 //   * confirm outside sas_ready (repeat clicks, terminal states) is a no-op;
-//   * cancelled/failed terminate from the intermediate states;
-//   * events for a stale/unknown flow id never mutate the visible state;
+//   * cancelled/failed end the flow from intermediate states;
+//   * events for a stale or unknown flow id never change the visible state;
 //   * a Confirmed report without a local confirm never advances the flow;
-//   * logout (the path account switching passes through) clears everything.
-// No credentials, tokens, or key material appear anywhere in this test.
+//   * logout (also the account-switch path) clears everything.
+// No credentials, tokens or key material appear in this test.
 
 #include "app/AppController.h"
 
@@ -31,9 +30,8 @@ class VerificationFlowTest : public QObject
 private:
     static RustSdkMatrixClient *rustClient(AppController &app)
     {
-        // The concrete client is parented to the AppController (makeClient
-        // passes it as the QObject parent), mirroring how AppController
-        // itself locates it via qobject_cast on m_client.
+        // The concrete client is parented to the AppController, as
+        // AppController itself finds it via qobject_cast.
         return app.findChild<RustSdkMatrixClient *>();
     }
 
@@ -47,9 +45,8 @@ private:
         return emojis;
     }
 
-    // A synthetic, well-formed module grid. Never a real QR payload: the
-    // handshake that produces one lives entirely inside matrix-sdk, whose
-    // QrVerification cannot be constructed from a test.
+    // A synthetic, well-formed module grid, never a real QR payload:
+    // matrix-sdk's QrVerification cannot be constructed from a test.
     static constexpr int kModules = 21;
     static QByteArray sampleGrid()
     {
@@ -69,8 +66,8 @@ private:
         QVERIFY(app.verificationQrAvailable());
     }
 
-    // Drive an outbound self-verification flow to the emoji screen using
-    // the same signals the Rust event dispatcher emits.
+    // Drive an outbound self-verification flow to the emoji screen with the
+    // signals the Rust dispatcher emits.
     static void reachSasReady(AppController &app, RustSdkMatrixClient *rust,
                               const QString &flowId)
     {
@@ -117,7 +114,7 @@ private Q_SLOTS:
 
         QSignalSpy changed(&app, &AppController::verificationStateChanged);
         app.confirmVerification();
-        // The press is acknowledged BEFORE any SDK round-trip reports back.
+        // The press is acknowledged before any SDK round trip reports back.
         QCOMPARE(changed.count(), 1);
         QCOMPARE(app.verificationState(), QStringLiteral("confirming"));
         QVERIFY(app.verificationActive());
@@ -130,10 +127,9 @@ private Q_SLOTS:
 #endif
     }
 
-    // The Element X stall fix: an accepted incoming request must visibly
-    // leave "requested" as soon as both sides are Ready, so the card stops
-    // offering Accept and shows handshake progress instead of looking
-    // identical to an unanswered request.
+    // An accepted incoming request leaves "requested" as soon as both sides
+    // are ready, so the card stops offering Accept and shows handshake
+    // progress.
     void incomingRequestAdvancesThroughReadyToTheEmojiScreen()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -150,14 +146,13 @@ private Q_SLOTS:
         QCOMPARE(app.verificationFlowId(), QStringLiteral("flow-in-1"));
         QCOMPARE(app.verificationOtherDevice(), QStringLiteral("PHONEDEV"));
 
-        // Accepting is a request to the SDK, not a state promotion: the
-        // model must not claim progress the SDK has not reported.
+        // Accepting is a request to the SDK, not a state promotion.
         QSignalSpy changed(&app, &AppController::verificationStateChanged);
         app.acceptVerification();
         QCOMPARE(changed.count(), 0);
         QCOMPARE(app.verificationState(), QStringLiteral("requested"));
 
-        // .ready from the SDK — the state the old build threw away.
+        // .ready from the SDK.
         Q_EMIT rust->verificationReady(QStringLiteral("flow-in-1"));
         QCOMPARE(changed.count(), 1);
         QCOMPARE(app.verificationState(), QStringLiteral("ready"));
@@ -171,9 +166,8 @@ private Q_SLOTS:
 #endif
     }
 
-    // A ready report may only move the flow forward. It must never be
-    // able to rewind a live flow, resurrect a finished one, or leak
-    // across flows.
+    // A ready report only moves the flow forward: it never rewinds a live
+    // flow, resurrects a finished one, or leaks across flows.
     void readyOnlyAdvancesPreEmojiStatesAndIsFlowScoped()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -206,17 +200,15 @@ private Q_SLOTS:
 #endif
     }
 
-    // The stall must always be escapable: whichever bounded Rust timeout
-    // or peer cancellation fires, the UI leaves the in-flight state for a
-    // terminal one carrying a reason. Never a silent freeze.
+    // A stall always ends: whichever bounded Rust timeout or peer cancellation
+    // fires, the UI reaches a terminal state carrying a reason.
     void stallsExitReadyIntoAVisibleTerminalState()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
         QSKIP("SAS verification exists on the Rust backend only.");
 #else
         {
-            // "Timed out waiting for SAS handshake." — the Rust accept
-            // path's bounded exit.
+            // The Rust accept path's bounded timeout.
             AppController app(AppController::RustBackend);
             auto *rust = rustClient(app);
             QVERIFY(rust);
@@ -232,7 +224,7 @@ private Q_SLOTS:
                 QStringLiteral("Timed out waiting for SAS handshake."));
             QVERIFY(app.verificationState().startsWith(
                 QStringLiteral("failed")));
-            // The reason has to reach the surface, not be swallowed.
+            // The reason reaches the surface.
             QVERIFY(app.verificationState().contains(
                 QStringLiteral("Timed out")));
         }
@@ -308,8 +300,8 @@ private Q_SLOTS:
         QVERIFY(rust);
         reachSasReady(app, rust, QStringLiteral("flow-3"));
 
-        // A Confirmed report while sas_ready (no local confirm happened —
-        // e.g. a stray poll observation) must not advance the flow.
+        // A Confirmed report while sas_ready (no local confirm, e.g. a stray
+        // poll observation) does not advance the flow.
         Q_EMIT rust->verificationSasConfirmed(QStringLiteral("flow-3"));
         QCOMPARE(app.verificationState(), QStringLiteral("sas_ready"));
 
@@ -381,11 +373,9 @@ private Q_SLOTS:
 #endif
     }
 
-    // A failure raised BEFORE any flow id exists — no cross-signing identity,
-    // request send failed, not signed in — must still be visible AND
-    // dismissable. The card is shown for any non-empty state, so if Dismiss
-    // could not clear a flow-id-less failure the user would be pinned to it
-    // permanently: the start row stays hidden while a state is set.
+    // A failure raised before any flow id exists (no cross-signing identity,
+    // request send failed, not signed in) is visible and dismissable; the
+    // start row stays hidden while any state is set.
     void failureWithoutAFlowIdStaysVisibleAndIsDismissable()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -411,10 +401,8 @@ private Q_SLOTS:
 #endif
     }
 
-    // "They do not match" is a report to the SDK, not a verdict the model
-    // may render itself. Only the SDK's own cancellation moves the card —
-    // otherwise the UI would claim an outcome the crypto layer never
-    // reached.
+    // "They do not match" is reported to the SDK; only the SDK's own
+    // cancellation moves the card.
     void mismatchNeedsAFlowAndNeverPromotesStateItself()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -443,9 +431,8 @@ private Q_SLOTS:
 #endif
     }
 
-    // One flow at a time, enforced without wrecking the live one: a second
-    // start must be refused outright, leaving the visible flow exactly as
-    // it was.
+    // One flow at a time: a second start is refused and the visible flow is
+    // left untouched.
     void startingASecondFlowIsRefusedAndLeavesTheLiveOneIntact()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -468,9 +455,7 @@ private Q_SLOTS:
 #endif
     }
 
-    // The complement: every TERMINAL state must allow a fresh attempt.
-    // A finished, cancelled or failed flow that kept blocking new starts is
-    // exactly the brick this pass removed on the Rust side too.
+    // Every terminal state allows a fresh attempt.
     void aTerminalFlowNeverBlocksTheNextAttempt()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -496,9 +481,9 @@ private Q_SLOTS:
             QSignalSpy errors(&app, &AppController::errorReported);
             app.startOwnVerification();
 
-            // Not refused. Without a live backend handle the attempt fails
-            // immediately with a flow-id-less error, which is precisely the
-            // path that must stay visible and dismissable.
+            // Not refused. Without a live backend handle the attempt fails at
+            // once with a flow-id-less error, which must stay visible and
+            // dismissable.
             QCOMPARE(errors.count(), 0);
             QVERIFY2(app.verificationState().startsWith(
                          QStringLiteral("failed")),
@@ -510,11 +495,9 @@ private Q_SLOTS:
 #endif
     }
 
-    // The bridge now refuses to surface a second request while a flow is
-    // live (it cancels the newcomer instead), so this should not happen in
-    // practice. If it ever does, the model must adopt ONE flow cleanly
-    // rather than blend two: no stale emoji, and the orphaned flow's
-    // events must be inert.
+    // The bridge cancels a second incoming request while a flow is live, but
+    // if one ever reaches the model it adopts one flow cleanly: no stale
+    // emoji, and the orphaned flow's events are inert.
     void aSecondIncomingRequestReplacesTheFlowWithoutMixingState()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -532,8 +515,7 @@ private Q_SLOTS:
         QCOMPARE(app.verificationState(), QStringLiteral("requested"));
         QCOMPARE(app.verificationFlowId(), QStringLiteral("flow-second"));
         QCOMPARE(app.verificationOtherDevice(), QStringLiteral("OTHERDEV"));
-        // The previous flow's short auth string must not survive into a
-        // different flow's card.
+        // The previous flow's short auth string does not carry over.
         QVERIFY(app.verificationEmojis().isEmpty());
 
         // Nothing the orphaned flow says may touch the visible one.
@@ -546,9 +528,8 @@ private Q_SLOTS:
 #endif
     }
 
-    // Whatever reason the bridge reports — a peer cancel, a user cancel, or
-    // the outgoing path's peer-wait timeout — the card must land in one
-    // honest terminal state and never keep spinning.
+    // Every cancellation reason (peer, user, outgoing peer-wait timeout) ends
+    // in a terminal state, never a spinner.
     void everyCancellationReasonTerminatesTheFlow()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -579,9 +560,9 @@ private Q_SLOTS:
 #endif
     }
 
-    // Poll batches deliver SDK state in order, but the model must not
-    // depend on it: a missing intermediate report may never strand the
-    // card, and a late one may never rewind a flow that moved on.
+    // Poll batches deliver SDK state in order, but the model does not rely on
+    // it: a missing report never strands the card and a late one never
+    // rewinds it.
     void outOfOrderReportsNeverStrandOrRewindTheFlow()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -603,8 +584,8 @@ private Q_SLOTS:
             QCOMPARE(app.verificationState(), QStringLiteral("sas_ready"));
         }
         {
-            // Done without any emoji ever being shown. The SDK is the only
-            // authority on success, so this still terminates as done.
+            // Done without any emoji shown still ends as done: the SDK is the
+            // authority on success.
             AppController app(AppController::RustBackend);
             auto *rust = rustClient(app);
             QVERIFY(rust);
@@ -623,11 +604,8 @@ private Q_SLOTS:
             reachSasReady(app, rust, QStringLiteral("flow-ooo3"));
             Q_EMIT rust->verificationDone(QStringLiteral("flow-ooo3"));
             QCOMPARE(app.verificationState(), QStringLiteral("done"));
-            // A duplicate terminal report is idempotent: re-notifying is
-            // allowed, moving the flow is not. Also prove no OTHER terminal
-            // report can overwrite a completed one — a late cancellation
-            // must never turn a finished verification into a failed-looking
-            // card.
+            // Re-notifying is allowed, moving the flow is not, and a late
+            // cancellation cannot overwrite a completed verification.
             Q_EMIT rust->verificationDone(QStringLiteral("flow-ooo3"));
             QCOMPARE(app.verificationState(), QStringLiteral("done"));
             Q_EMIT rust->verificationCancelled(QStringLiteral("flow-ooo3"),
@@ -640,12 +618,9 @@ private Q_SLOTS:
 #endif
     }
 
-    // ── Show-QR leg ────────────────────────────────────────────────────
-    //
-    // HONEST SCOPE: these drive the SIGNALS the Rust dispatcher emits, so
-    // they prove the UI state machine and nothing else. The reciprocate
-    // handshake, a real phone scanning the code, and Element / Element X
-    // interoperability are NOT exercised here and are NOT TESTED.
+    // Show-QR leg. These drive the Rust dispatcher's signals and prove only
+    // the UI state machine; the reciprocate handshake, a real phone scanning
+    // and Element interoperability are not tested here.
 
     void qrIsShownThenScannedThenConfirmedThroughToDone()
     {
@@ -657,8 +632,8 @@ private Q_SLOTS:
         QVERIFY(rust);
         reachQrReady(app, rust, QStringLiteral("flow-qr-1"));
 
-        // Showing a code does not move the SAS state machine: the QR is an
-        // alternative presentation of the SAME flow.
+        // Showing a code does not move the SAS state machine: the QR is
+        // another presentation of the same flow.
         QCOMPARE(app.verificationState(), QStringLiteral("ready"));
         QVERIFY(!app.verificationQrScanned());
         QVERIFY(!app.verificationQrConfirming());
@@ -667,8 +642,7 @@ private Q_SLOTS:
         QVERIFY(url.startsWith(QStringLiteral("image://lightning-qr/")));
         QVERIFY(!url.contains(QStringLiteral("flow-qr-1")));
 
-        // Confirming before the peer scanned is a no-op — nothing may be
-        // auto-confirmed, and nothing may be confirmed early either.
+        // Confirming before the peer scanned is a no-op.
         QSignalSpy changed(&app, &AppController::verificationStateChanged);
         app.confirmQrVerification();
         QCOMPARE(changed.count(), 0);
@@ -678,8 +652,8 @@ private Q_SLOTS:
         QVERIFY(app.verificationQrScanned());
         QVERIFY(!app.verificationQrConfirming());
 
-        // The user's explicit confirmation is acknowledged synchronously,
-        // but it is a request to the SDK — never a success claim.
+        // The user's confirmation is acknowledged synchronously but is a
+        // request to the SDK, not a success claim.
         changed.clear();
         app.confirmQrVerification();
         QCOMPARE(changed.count(), 1);
@@ -703,9 +677,9 @@ private Q_SLOTS:
 #endif
     }
 
-    // The "peer cannot scan" fallback: the SDK moves the request onto SAS,
-    // Rust reports the QR dismissed, and the card returns to the emoji
-    // presentation without the flow being disturbed.
+    // "Peer cannot scan" fallback: the SDK moves the request to SAS, Rust
+    // reports the QR dismissed, and the card returns to the emoji
+    // presentation without disturbing the flow.
     void aDismissedQrFallsBackToTheSasFlowCleanly()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -738,9 +712,8 @@ private Q_SLOTS:
 #endif
     }
 
-    // Every terminal state retires the code. A cancelled or failed flow
-    // that kept a scannable code on screen would invite the user to scan
-    // something that can no longer verify anything.
+    // Every terminal state retires the code, so nothing invites scanning a
+    // code that can no longer verify.
     void everyTerminalStateRetiresTheQrCode()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -777,8 +750,8 @@ private Q_SLOTS:
 #endif
     }
 
-    // A QR event for another flow — or one arriving after this flow already
-    // finished — must never put a code back on screen.
+    // A QR event for another flow, or after this flow finished, never puts a
+    // code back on screen.
     void qrEventsAreFlowScopedAndCannotResurrectAFinishedFlow()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -815,8 +788,7 @@ private Q_SLOTS:
 #endif
     }
 
-    // Malformed geometry must show no code at all rather than an
-    // unscannable picture presented as a working one.
+    // Malformed geometry shows no code rather than an unscannable picture.
     void aMalformedGridIsRefusedAndLeavesNoCodeOnScreen()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -846,8 +818,7 @@ private Q_SLOTS:
 #endif
     }
 
-    // A new flow — in either direction — must never inherit the previous
-    // flow's code.
+    // A new flow, in either direction, never inherits the previous code.
     void anewFlowNeverInheritsThePreviousCode()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -890,8 +861,8 @@ private Q_SLOTS:
         Q_EMIT rust->verificationQrScanned(QStringLiteral("flow-qr-out"));
         QVERIFY(app.verificationQrScanned());
 
-        // Account switching detaches through the same loggedOut signal; a
-        // code must never survive into the next account's UI.
+        // Account switching goes through the same loggedOut signal; a code
+        // never survives into the next account.
         Q_EMIT rust->loggedOut();
         QVERIFY(!app.verificationQrAvailable());
         QVERIFY(!app.verificationQrScanned());
@@ -917,8 +888,8 @@ private Q_SLOTS:
         Q_EMIT rust->verificationSasConfirmed(QStringLiteral("flow-7"));
         QCOMPARE(app.verificationState(), QStringLiteral("waiting_for_peer"));
 
-        // Account switching detaches the session through the same
-        // loggedOut signal; the cache must never leak across sessions.
+        // Account switching goes through the same loggedOut signal; nothing
+        // leaks across sessions.
         Q_EMIT rust->loggedOut();
         QVERIFY(!app.verificationActive());
         QCOMPARE(app.verificationState(), QString());

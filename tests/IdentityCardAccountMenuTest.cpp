@@ -1,11 +1,9 @@
-// v0.6.5 (SPEC 1h, modified): offscreen proof for the redesigned account
-// switcher — vertical IdentityCard stack (no carousel/pagination dots), the
-// fixed 320px popover width, the LIVE active-account guard (b8df062), the
-// accountSwitching lockout, both destructive confirmations still reachable
-// with Cancel focused, and that no meta text is fabricated (real
-// connection state / real space count only, omitted when absent, never a
-// per-account unread count). Drives a real AppController on the mock
-// backend with two saved accounts, exactly like AccountSwitchTest.cpp.
+// Account switcher (AccountMenu + IdentityCard): a vertical card stack, the
+// fixed 320px popover width, the live active-account guard, the
+// accountSwitching lockout, both destructive confirmations reachable with
+// Cancel focused, and no fabricated meta text (no per-account unread count).
+// Drives a real AppController on the mock backend with two saved accounts,
+// like AccountSwitchTest.cpp.
 
 #include <QtTest/QtTest>
 
@@ -93,10 +91,9 @@ int channelDelta(const QColor &a, const QColor &b)
                 qAbs(a.blue() - b.blue()));
 }
 
-// Source-over composite of a possibly TRANSLUCENT fill onto its ground. A
-// row's selection chip is not always opaque — Storm's `hover` is
-// `Qt.alpha(_stoHover, 0.22)` — so the pixels under the MXID are the chip
-// over the popover canvas, never the chip's own colour property.
+// Source-over composite of a possibly translucent fill onto its ground: a
+// row's chip may be translucent (Storm's `hover`), so the pixels under the
+// MXID are the chip over the canvas.
 QColor over(const QColor &fg, const QColor &bg)
 {
     const double a = fg.alphaF();
@@ -156,12 +153,8 @@ ApplicationWindow {
 
 } // namespace
 
-// Test functions run in declaration order (QTest iterates the compiled
-// slot table, which preserves source order) and deliberately share ONE
-// AppController/QML scene across the whole class — booting a fresh window
-// per test would be expensive, and the sequence below is a coherent
-// scenario walkthrough (Alice active -> switch to Bob -> switch back),
-// exactly like AccountSwitchTest.cpp's ordered multi-hop test.
+// Test functions run in declaration order and share one AppController and
+// QML scene: the sequence is one scenario (Alice active -> Bob -> Alice).
 class IdentityCardAccountMenuTest : public QObject
 {
     Q_OBJECT
@@ -179,9 +172,8 @@ private:
         return m_root->findChild<QObject *>(name);
     }
 
-    // ListView-created delegates are model-owned, not QObject-parented, so
-    // findChild cannot see them — resolve cards through itemAtIndex on the
-    // (static, findable) list.
+    // ListView delegates are model-owned, so findChild cannot see them;
+    // resolve cards through itemAtIndex on the list.
     QObject *findCard(const QString &userId) const
     {
         auto *list = m_root->findChild<QQuickItem *>(
@@ -207,9 +199,7 @@ private:
         auto *menu = find(QStringLiteral("menu"));
         QVERIFY(menu);
         QTRY_VERIFY(menu->property("opened").toBool());
-        // Delegate instantiation happens on the ListView's next layout
-        // pass, not synchronously with `opened` — wait for the cards to
-        // materialize before any lookup.
+        // Delegates appear on the ListView's next layout pass, not on `opened`.
         QTRY_VERIFY(findCard(kAlice) != nullptr);
     }
 
@@ -225,9 +215,8 @@ private slots:
             QStringLiteral("identity-card-account-menu-test"));
         QSettings().clear();
 
-        // Controls derive hoverEnabled from this hint, and the offscreen
-        // platform may leave it off — a harness in which no button is ever
-        // hovered cannot see a hover-revealed control hide under the pointer.
+        // Controls derive hoverEnabled from this hint, which offscreen may
+        // leave off; without hover a hover-revealed control cannot be tested.
         QGuiApplication::styleHints()->setUseHoverEffects(true);
         m_controller = new AppController(AppController::MockBackend);
         auto *secrets = new FakeSecretStore(m_controller);
@@ -290,22 +279,18 @@ private slots:
         auto *aliceItem = qobject_cast<QQuickItem *>(aliceCard);
         auto *bobItem = qobject_cast<QQuickItem *>(bobCard);
         QVERIFY(aliceItem && bobItem);
-        // Vertical stack, same column: identical x, different y — never a
-        // horizontal carousel.
+        // Vertical stack: identical x, different y.
         QCOMPARE(aliceItem->x(), bobItem->x());
         QVERIFY(aliceItem->y() != bobItem->y());
         // Active-first ordering.
         QVERIFY(aliceItem->y() < bobItem->y());
 
-        // Decision: no real per-account unread source exists, so it is
-        // never fabricated on the inactive card.
+        // No real per-account unread source exists, so none is fabricated.
         QCOMPARE(bobCard->property("unreadCount").toInt(), 0);
     }
 
-    // The meta line used to be stamped on the ACTIVE card and left empty on
-    // every other one. It is now ONE strip below the list, which is the
-    // same guarantee expressed structurally: there is no per-row carrier
-    // for it at all, so an inactive account cannot acquire one.
+    // Status is one strip below the list, not per row, so an inactive account
+    // cannot acquire one. It speaks only when the connection is unhealthy.
     void statusStripSpeaksOnlyWhenSomethingIsWrong()
     {
         openMenu();
@@ -316,18 +301,13 @@ private slots:
         QVERIFY(meta);
         const QString text = meta->property("text").toString();
 
-        // THE SPACE COUNT IS GONE. A switcher answers "which account am I,
-        // switch me"; how many Spaces the account joined is not part of
-        // either question, and the rail beside it already shows them.
-        // Reported as a line whose purpose could not be guessed.
+        // No space count: it answers neither "which account" nor "switch me".
         QVERIFY2(!text.contains(QStringLiteral("space")),
                  qPrintable(QStringLiteral("the space count came back: \"%1\"")
                                 .arg(text)));
 
-        // AND A HEALTHY CONNECTION SAYS NOTHING. "Connected" on a working
-        // client is the same noise as a warning that fires on a stock
-        // theme: a line that always says "fine" teaches people not to read
-        // it, and then it cannot say "not fine".
+        // A healthy connection says nothing; a line that always says "fine"
+        // cannot say "not fine".
         const QString status = m_controller->connectionStatus();
         if (status == QStringLiteral("Connected")) {
             QVERIFY2(!text.contains(status),
@@ -335,24 +315,19 @@ private slots:
                                                "connection: \"%1\"")
                                     .arg(text)));
         } else {
-            // …and an UNHEALTHY one still does. This is the half that was
-            // doing real work all along: the reported screenshot read
-            // "Idle", which is the word for disconnected-while-logged-in.
+        // ...and an unhealthy one does ("Idle" means disconnected while
+        // logged in).
             QVERIFY2(text.contains(status),
                      qPrintable(QStringLiteral("the strip swallowed \"%1\"")
                                     .arg(status)));
         }
         QVERIFY(!text.contains(QStringLiteral("Online")));
 
-        // Exactly one strip, however many accounts are listed: this is a
-        // property of the attached session, not a column.
+        // Exactly one strip regardless of account count.
         QCOMPARE(m_root->findChildren<QObject *>(
                      QStringLiteral("accountStatusStrip")).size(), 1);
 
-        // No row carries presence/crypto state any more, so none can
-        // fabricate it. (The old defect was the other way round: the ACTIVE
-        // row carried three of them and the probe that sized the list
-        // carried one.)
+        // No row carries presence or crypto state, so none can fabricate it.
         QFile cardFile(QStringLiteral(QML_DIR "/IdentityCard.qml"));
         QVERIFY(cardFile.open(QIODevice::ReadOnly));
         const QString card = QString::fromUtf8(cardFile.readAll());
@@ -369,8 +344,7 @@ private slots:
         QVERIFY(aliceCard);
         QMetaObject::invokeMethod(aliceCard, "activated");
         QCoreApplication::processEvents();
-        // Alice is already active: re-activating her own card is a silent
-        // no-op — never a redundant switch/detach cycle.
+        // Re-activating the active account is a silent no-op, not a switch.
         QCOMPARE(m_controller->accounts()->activeUserId(), kAlice);
         QVERIFY(!m_controller->accountSwitching());
     }
@@ -381,8 +355,7 @@ private slots:
         auto *bobCard = findCard(kBob);
         QVERIFY(bobCard);
         QMetaObject::invokeMethod(bobCard, "activated");
-        // Switching state is set synchronously (existing lifecycle
-        // contract) and the popover closes immediately.
+        // Switching state is set synchronously and the popover closes.
         QVERIFY(m_controller->accountSwitching());
         QTRY_VERIFY(!m_controller->accountSwitching());
         QCOMPARE(m_controller->accounts()->activeUserId(), kBob);
@@ -408,9 +381,8 @@ private slots:
         QMetaObject::invokeMethod(signOutDialog, "close");
         QVERIFY(m_controller->auth()->isLoggedIn());
 
-        // Re-open the (freshly reopened) menu and drive per-card removal —
-        // Bob is now active, so exercise removal through the Add-account
-        // fixture instead: reuse Alice's (inactive) row.
+        // Reopen the menu and exercise removal on Alice's (inactive) row, since
+        // Bob is now active.
         openMenu();
         auto *aliceCard = findCard(kAlice);
         QVERIFY(aliceCard);
@@ -436,15 +408,14 @@ private slots:
 
     void accountSwitchingDisablesEveryRowAndFooterButton()
     {
-        // Bob is active from the previous test; switch back to Alice and
-        // check the mid-flight disabled state on the OTHER row/footer.
+        // Bob is active from the previous test; switch back to Alice and check
+        // the mid-flight disabled state.
         openMenu();
         auto *aliceCard = findCard(kAlice);
         QVERIFY(aliceCard);
         QMetaObject::invokeMethod(aliceCard, "activated");
         QVERIFY(m_controller->accountSwitching());
-        // Every row (including the one just activated, mid-flight) and the
-        // whole footer must read disabled while a switch is in progress.
+        // Every row and the footer read disabled while a switch is in progress.
         auto *bobCard = findCard(kBob);
         QVERIFY(bobCard);
         QVERIFY(!bobCard->property("enabled").toBool());
@@ -454,17 +425,10 @@ private slots:
         QTRY_VERIFY(!m_controller->accountSwitching());
     }
 
-    // ── The remove X must survive the pointer reaching it ─────────────────
-    //
-    // Reported 2026-09-06: "the x doesnt work it just kinda starts to
-    // flicker and never signs me out". The X was revealed by the card's
-    // MouseArea `containsMouse`, and a hover-enabled ToolButton ABOVE that
-    // MouseArea takes the hover the moment the pointer reaches it, so the
-    // MouseArea reports a leave, the X hides, the pointer is back over the
-    // MouseArea alone, the X shows, the button takes the hover again — the
-    // flicker — and a click lands on a button that is hidden half the time.
-    // Driven with a REAL pointer: hover the card, move onto the X, and the
-    // X must still be there for the click that opens the confirm dialog.
+    // The remove X must survive the pointer reaching it. Revealing it from the
+    // card MouseArea's `containsMouse` flickers: the hover-enabled button takes
+    // the hover, the MouseArea reports a leave and the X hides. Driven with a
+    // real pointer through to the confirm dialog.
     void removeButtonStaysUnderThePointerAndAClickReachesTheDialog()
     {
         m_controller->switchToAccount(kAlice);
@@ -477,15 +441,15 @@ private slots:
             QStringLiteral("identityCardRemoveButton"));
         QVERIFY(x);
 
-        // At rest the X holds its layout slot and paints nothing; it is
-        // not clickable and not a tab stop (see the no-reflow case below).
+        // At rest the X holds its slot, paints nothing, and is neither
+        // clickable nor a tab stop.
         QVERIFY2(qFuzzyIsNull(x->opacity()),
                  "the X is painted on a row nobody is pointing at");
         QVERIFY2(!x->isEnabled(),
                  "a transparent X that still takes clicks removes an "
                  "account nobody aimed at");
 
-        // Hover the card, away from the X: the affordance reveals.
+        // Hover the card away from the X: it reveals.
         const QPoint onCard = bobCard->mapToScene(
             QPointF(bobCard->width() * 0.3, bobCard->height() * 0.5)).toPoint();
         QTest::mouseMove(m_window, onCard);
@@ -493,10 +457,8 @@ private slots:
                      "hovering the card must reveal the X");
         QVERIFY(x->isEnabled());
 
-        // Onto the X itself: it must stay, or nothing can ever click it.
-        // A Layout places a newly visible item in its next polish, so the
-        // X's position is not valid the instant it becomes visible; aim only
-        // once it sits in the card's right half (its slot at the row's end).
+        // Onto the X itself: it must stay. A Layout places a newly visible item
+        // on its next polish, so aim only once it sits in the right half.
         auto xCentre = [x]() {
             return x->mapToScene(QPointF(x->width() / 2, x->height() / 2)).toPoint();
         };
@@ -512,7 +474,7 @@ private slots:
                  "the X hid the moment the pointer reached it");
         QVERIFY2(x->property("hovered").toBool(),
                  "the pointer is on the X but the X is not hovered");
-        // "make the x hitbox bigger" — a 22 px target was the report.
+        // A hit target of at least 28 px.
         QVERIFY2(x->width() >= 28 && x->height() >= 28,
                  qPrintable(QStringLiteral("hit box %1x%2")
                                 .arg(x->width()).arg(x->height())));
@@ -526,7 +488,7 @@ private slots:
                      "the click on the X did not open the confirm dialog");
         QCOMPARE(requested.count(), 1);
         QCOMPARE(removeDialog->property("targetUserId").toString(), kBob);
-        // And it STAYS: the popover closing must not take the dialog with it.
+        // The popover closing must not take the dialog with it.
         QTest::qWait(600);
         QVERIFY2(removeDialog->property("opened").toBool(),
                  "the confirm dialog did not stay open");
@@ -534,9 +496,7 @@ private slots:
         auto *menu = find(QStringLiteral("menu"));
         QVERIFY(menu);
         QTRY_VERIFY(!menu->property("opened").toBool());
-        // The click reached the X and not the card beneath it, which would
-        // have switched accounts instead (the first cut of this very test
-        // aimed before the row had placed the X, and did exactly that).
+        // The click reached the X, not the card (which would switch accounts).
         QCOMPARE(m_controller->accounts()->activeUserId(), kAlice);
         QVERIFY(!m_controller->accountSwitching());
         QMetaObject::invokeMethod(removeDialog, "close");
@@ -545,23 +505,11 @@ private slots:
         QTest::mouseMove(m_window, QPoint(1, 1));
     }
 
-    // ── THE REGRESSION ───────────────────────────────────────────────────
-    //
-    // Reported 2026-09-19: "you can even scroll about with one account since
-    // it doesn't fit". The list used to be sized from an off-layout PROBE of
-    // IdentityCard times the model count — sound reasoning (contentHeight is
-    // 0 until delegates exist, and delegates only instantiate inside a
-    // nonzero viewport), broken by resemblance: the probe declared neither
-    // the trust meter nor the E2EE badge that the ACTIVE card renders, so it
-    // under-measured that card by exactly 23 px. Measured at the 296 px
-    // content width on the unfixed tree: short card 113, tall probe 136,
-    // real active card 159.
-    //
-    // Rows are now one height this file can name, so the viewport and the
-    // content are the same arithmetic. Asserted as UNIFORMITY plus FIT,
-    // because either alone would have passed the old tree in some
-    // configuration: the mock backend reports no crypto state, so the old
-    // list fitted here while overflowing by 23 px on every real install.
+    // Every row is one height and the list viewport equals its content, so a
+    // single account never scrolls. The active row used to be taller than the
+    // probe that sized the list. Asserted as uniformity plus fit: the mock has
+    // no crypto state, so either alone could pass here and fail on real
+    // installs.
     void everyRowIsOneRowHighAndTheViewportFitsItsContent()
     {
         m_controller->switchToAccount(kAlice);
@@ -582,17 +530,12 @@ private slots:
                 QStringLiteral("identityCardList"));
             QVERIFY(list);
             QTRY_COMPARE(list->property("count").toInt(), expectedCount);
-            // The rows are laid out on the next polish, not synchronously
-            // with the model change.
+            // Rows lay out on the next polish.
             QTest::qWait(80);
 
-            // 1. Every row is exactly as tall as the FIRST one — the
-            //    ACTIVE row is first, and it is the one that used to be
-            //    taller. Derived from the list rather than from the menu's
-            //    own number on purpose: this assertion must be able to fail
-            //    on a tree that has no such number, which is the tree that
-            //    had the defect (measured there: active 136, the rest 113
-            //    on the mock; 159 and 113 with a real crypto backend).
+            // 1. Every row is as tall as the first (the active one). Derived
+            //    from the list, not the menu's number, so it can fail on a tree
+            //    without that number.
             QQuickItem *firstRow = nullptr;
             QMetaObject::invokeMethod(list, "itemAtIndex",
                                       Q_RETURN_ARG(QQuickItem *, firstRow),
@@ -615,8 +558,7 @@ private slots:
                                         .arg(item->height()).arg(oneRow)));
             }
 
-            // 2. The viewport is the content, up to the cap: nothing
-            //    scrolls until there are genuinely more accounts than fit.
+            // 2. The viewport is the content, up to the cap.
             const qreal viewport = list->height();
             const qreal content = list->property("contentHeight").toDouble();
             const int rowH = menu->property("rowH").toInt();
@@ -652,20 +594,18 @@ private slots:
                 QStringLiteral("DEV"), QStringLiteral("tok"));
             checkAt(3 + i);
         }
-        // And the reported case: one account, which must not scroll either.
+        // One account must not scroll either.
         for (const QString &u : extra)
             m_controller->settings()->clearSessionForAccount(u);
         m_controller->settings()->clearSessionForAccount(kBob);
         checkAt(1);
-        // Restore the fixture for the source-scan test that follows.
+        // Restore the fixture for the next test.
         m_controller->settings()->saveSession(
             QStringLiteral("https://two.example"), kBob,
             QStringLiteral("BOBDEV"), QStringLiteral("bob-token-fixture"));
     }
 
-    // The other half of the same guarantee: no state a row can carry may
-    // change its height. This is what the probe could not know and what a
-    // future property must not be able to break.
+    // No state a row can carry may change its height.
     void noRowStateCanChangeARowsHeight()
     {
         QQmlComponent c(m_engine);
@@ -703,11 +643,8 @@ Item {
 )QML"), QUrl(QStringLiteral("rowheight.qml")));
         QScopedPointer<QObject> scene(c.create());
         QVERIFY2(scene, qPrintable(c.errorString()));
-        // Parented into the real window: a QQuickLayout's implicit size is
-        // refreshed on a POLISH pass, and polish only runs for items in a
-        // window. Measured off-window, the column's height reads back the
-        // value it was first given whatever the font does — which is a
-        // harness that answers the same number for every input.
+        // Parented into the real window: layout implicit sizes refresh on a
+        // polish pass, which only runs for items in a window.
         if (auto *sceneItem = qobject_cast<QQuickItem *>(scene.data()))
             sceneItem->setParentItem(m_window->contentItem());
         auto *plain = qvariant_cast<QQuickItem *>(scene->property("plain"));
@@ -718,11 +655,8 @@ Item {
         QCOMPARE(plain->implicitHeight(), qreal(44));
         QCOMPARE(loaded->implicitHeight(), plain->implicitHeight());
 
-        // And the ladder actually fits the row it is given, at every
-        // interface scale. A row that clips its own id would trade away the
-        // only thing telling two same-named accounts apart, and
-        // `AppTheme.scaled()` drives BOTH the row height and the two font
-        // sizes — so this asserts the proportion rather than assuming it.
+        // The name/id ladder fits the row at every interface scale;
+        // AppTheme.scaled() drives both the row height and the font sizes.
         auto *scale = qvariant_cast<QQuickItem *>(scene->property("scaler"));
         QVERIFY(scale);
         const qreal original = scale->property("uiScale").toReal();
@@ -733,10 +667,8 @@ Item {
             plain->setProperty("rowHeight", row);
             QTest::qWait(60);
             const qreal text = loaded->property("textColumnHeight").toReal();
-            // Headroom measured 2026-09-19 at 7/9/10/13/16/19 px for
-            // 0.85/1.0/1.25/1.5/1.75/2.0 — tightest at the SMALLEST scale,
-            // because the two font sizes round up against a row that
-            // rounds down.
+            // Tightest at the smallest scale: the fonts round up against a row
+            // that rounds down.
             QVERIFY2(text <= row,
                      qPrintable(QStringLiteral(
                          "scale %1: the name+id column is %2 px in a %3 px "
@@ -748,9 +680,8 @@ Item {
         scale->setProperty("uiScale", original);
     }
 
-    // Two accounts can share a display name on different homeservers — the
-    // reported screenshot had two "Mizerd"s — so the id beneath the name is
-    // the only disambiguator and must survive the popover's 320 px width.
+    // Two accounts can share a display name, so the id beneath it is the only
+    // disambiguator and must fit the 320 px popover.
     void theIdentityLineSurvivesThePopoverWidth()
     {
         QQmlComponent c(m_engine);
@@ -787,20 +718,9 @@ Item {
                         .arg(label->property("contentWidth").toReal())));
     }
 
-    // ── F3: THE REVEAL MUST NOT MOVE WHAT IT IS REVEALED NEXT TO ─────────
-    //
-    // The remove (x) is a real RowLayout child. Revealing it with `visible`
-    // took 30 px plus 8 px of spacing out of the text column the moment the
-    // pointer arrived, and the id beneath the name re-elided UNDER THE
-    // CURSOR — measured on an 8-account fixture,
-    // `@dave:chat.very…ame.example.net` at rest became
-    // `@dave:chat.v….example.net` on hover. Five characters of the one
-    // string that tells two accounts sharing a display name apart, removed
-    // at exactly the moment someone is reading it.
-    //
-    // Asserted on the LABEL'S GEOMETRY, not on the button's: a width
-    // assertion on the X would pass on any implementation that keeps the
-    // button the same size while still stealing the column.
+    // Revealing the remove X must not move the text beside it: the X keeps
+    // its layout slot at rest, so the id does not re-elide under the pointer.
+    // Asserted on the label's geometry, not the button's.
     void revealingTheRemoveXDoesNotReElideTheIdUnderThePointer()
     {
         m_controller->switchToAccount(kAlice);
@@ -848,11 +768,9 @@ Item {
         QTRY_VERIFY(!menu->property("opened").toBool());
     }
 
-    // Holding the slot costs the text column 38 px on every inactive row,
-    // so the id that the previous rounds fought for must still fit at the
-    // popover's real content width. The ACTIVE row is covered by
-    // theIdentityLineSurvivesThePopoverWidth; this is the inactive one,
-    // which is the row that now carries the reserve.
+    // With the X's slot reserved on inactive rows, the id must still fit at
+    // the real content width (the active row is covered by
+    // theIdentityLineSurvivesThePopoverWidth).
     void theIdentityLineStillFitsOnAnInactiveRowWithTheSlotReserved()
     {
         QQmlComponent c(m_engine);
@@ -875,7 +793,7 @@ Item {
         QVERIFY2(scene, qPrintable(c.errorString()));
         auto *row = qvariant_cast<QQuickItem *>(scene->property("row"));
         QVERIFY(row);
-        row->setWidth(296); // 320 popover - 2 x 12 padding.
+        row->setWidth(296); // 320 popover - 2 x 12 padding
         QCoreApplication::processEvents();
         auto *label = qvariant_cast<QQuickItem *>(
             row->property("identityLabel"));
@@ -888,14 +806,9 @@ Item {
                         .arg(label->property("contentWidth").toReal())));
     }
 
-    // ── F4: A DESTRUCTIVE CONFIRMATION MUST DIM WHAT IT IS OVER ──────────
-    //
-    // Both dialogs are `modal: true`, and on the unfixed tree that drew
-    // NOTHING: three background pixels sampled before and after "Sign out?"
-    // opened were byte-identical. The Basic style's Overlay.modal tints
-    // `palette.shadow`, a role nothing in this application sets, so the
-    // scrim has to be named. Measured as PIXELS, because the property is
-    // exactly the kind of thing that can be present and paint nothing.
+    // Both destructive confirmations paint a modal scrim. The Basic style's
+    // Overlay.modal tints `palette.shadow`, which this app never sets, so the
+    // scrim is named explicitly. Measured as pixels.
     void bothDestructiveConfirmationsPaintAModalScrim()
     {
         auto *menu = find(QStringLiteral("menu"));
@@ -907,8 +820,7 @@ Item {
 
         const QImage before = m_window->grabWindow();
         QVERIFY(!before.isNull());
-        // Corners, which neither dialog covers: both are centred, at most
-        // 420 px wide and a few rows tall in a 500x700 window.
+        // Corners, which neither centred dialog covers in a 500x700 window.
         const QPoint samples[] = {
             QPoint(3, 3),
             QPoint(before.width() - 4, 3),
@@ -944,17 +856,9 @@ Item {
         }
     }
 
-    // ── F6: A ROW'S TWO LINES MUST READ AS A HIERARCHY ───────────────────
-    //
-    // The inactive name inked `stormTextSecondary`, which in the LIGHT
-    // palettes is all but the same colour as the id's `stormTextMuted`
-    // under it — Lightning Light #4c5661 against #525c68, 5.63:1 against
-    // 5.12:1 on the popover canvas, a ratio of 1.10 where Storm reads 1.63.
-    // The name and the id stopped being a hierarchy and read as one block
-    // of grey.
-    //
-    // Eleven palettes are DEMANDED to be distinct rather than counted, for
-    // the reason in the scene's own comment.
+    // An inactive row's name and id read as a hierarchy on every palette (in
+    // light palettes the secondary and muted inks were nearly identical).
+    // The eleven palettes must be distinct, not merely counted.
     void theInactiveRowsNameAndIdAreAHierarchyOnEveryPalette()
     {
         m_controller->switchToAccount(kAlice);
@@ -985,8 +889,7 @@ Item {
             const QColor idInk = id->property("color").value<QColor>();
             const double nameRatio = contrastRatio(nameInk, canvas);
             const double idRatio = contrastRatio(idInk, canvas);
-            // The id is the only thing telling two same-named accounts
-            // apart; it was 1.60:1 in the light palette once.
+        // The id is the only thing telling same-named accounts apart.
             QVERIFY2(idRatio >= 4.5,
                      qPrintable(QStringLiteral("theme %1: the MXID %2 is "
                                                "%3:1 on %4")
@@ -1011,34 +914,10 @@ Item {
         QTRY_VERIFY(!menu->property("opened").toBool());
     }
 
-    // ── A ROW IS FOUR SURFACES, AND ONLY ONE OF THEM HAD BEEN MEASURED ───
-    //
-    // The case above measures an inactive row AT REST on the popover canvas.
-    // A row also paints `hover`, `selected` and `selectedHover` over that
-    // canvas depending on what the pointer is doing, and two of those are
-    // translucent in some palettes, so the pixels under the MXID are the chip
-    // OVER the canvas and not the chip colour. Measured 2026-09-20 on real
-    // hovered rows, the MXID was below 4.5:1 AA on:
-    //   hovered INACTIVE row, six palettes  — Graphite 3.09, Indigo Night
-    //     3.44, Deep Teal 3.45, Nordic 3.46, Midnight 3.58, Lightning Dark
-    //     3.61;
-    //   ACTIVE row, four palettes           — Indigo Night 4.12, Graphite
-    //     4.16, Lightning Dark 4.33, Warm 4.40;
-    //   hovered ACTIVE row, NINE palettes   — worst Graphite 3.37. Nobody had
-    //     measured this state at all, and it is the worst of the four.
-    // The display NAME fails too, on one: `stormText` is 4.31:1 on Nordic
-    // hovered-active, whose `selectedHover` flattens to the mid slate
-    // #587197.
-    //
-    // The resting inactive row clears on every palette (floor 4.59), which is
-    // exactly why measuring only that state found nothing — and why the
-    // derivation leaves it bit-identical, so the hierarchy case above is
-    // unaffected.
-    //
-    // This case drives a REAL pointer onto a REAL row: `pointerWithin` has to
-    // become true and `identityCardRowChip` has to paint, because a probe
-    // that composites what it THINKS the row would paint shares none of the
-    // row.
+    // The MXID must clear 4.5:1 over every fill its row can paint: at rest,
+    // hover, selected and selected-hover. Some fills are translucent, so the
+    // ground is the chip composited over the canvas. Drives a real pointer onto
+    // a real row so `identityCardRowChip` actually paints.
     void theMxidClearsEveryFillItsRowCanPaintOnEveryPalette()
     {
         m_controller->switchToAccount(kAlice);
@@ -1051,9 +930,7 @@ Item {
         QVERIFY(aliceCard->property("active").toBool());
         QVERIFY(!bobCard->property("active").toBool());
 
-        // The ground the row derives its inks against must be the ground the
-        // popover actually paints, or every number below is about a surface
-        // nobody draws.
+        // The ground must be what the popover actually paints.
         auto *popoverBg = m_root->findChild<QQuickItem *>(
             QStringLiteral("accountPopoverBackground"));
         QVERIFY(popoverBg);
@@ -1132,19 +1009,15 @@ Item {
                                 .arg(fill.name())));
                 ++measured;
 
-                // NOT VACUOUS: the raw token this ink is derived FROM fails
-                // on nineteen of these forty-four (palette, state) pairs, so
-                // a case that passed because every palette was already fine
-                // would count zero here and be caught.
+                // Not vacuous: the raw token this ink derives from fails on
+                // many of these pairs, so an already-fine palette set is caught.
                 const QColor raw = st.active ? tok("tokStormTextSecondary")
                                              : tok("tokStormTextMuted");
                 if (contrastRatio(raw, fill) < 4.5)
                     ++rawTokenFailures;
             }
         }
-        // Four states times eleven palettes, all forty-four a different
-        // fill: the palettes really moved AND the four states really are
-        // four surfaces.
+        // Four states on eleven palettes, all distinct fills.
         QCOMPARE(distinctCanvases.size(), 11);
         QCOMPARE(distinctFills.size(), 44);
         QCOMPARE(measured, 44);
@@ -1163,37 +1036,17 @@ Item {
         QTRY_VERIFY(!menu->property("opened").toBool());
     }
 
-    // ── ESCAPE MUST DISMISS THE SWITCHER, AND IT NEVER HAS ──────────────
-    //
-    // The popover has always declared `closePolicy: Popup.CloseOnEscape |
-    // Popup.CloseOnPressOutside`, and half of that declaration did nothing:
-    // `QQuickPopup::keyPressEvent` gates its Escape branch on
-    // `hasActiveFocus()`, and a Popup only takes active focus when `focus` is
-    // true — which DEFAULTS TO FALSE. Measured on Windows against the
-    // published 0.9.8: four Escape presses, zero differing pixels, with a
-    // hover/park control proving the screen was live. Press-outside worked
-    // the whole time because the overlay handles that with the mouse,
-    // independently of focus, and that asymmetry is what disguised it.
-    //
-    // The two confirmations inherit the same rule and were broken the same
-    // way — worse, because each carries `focus: true` on its Cancel BUTTON,
-    // which sets focus WITHIN the popup focus scope and cannot become ACTIVE
-    // focus while the scope itself has none. So the safe default action was
-    // not the focused one either. The case above asserts the declared
-    // `focus`; this one asserts `activeFocus`, which is the property that
-    // decides whether a keystroke arrives.
-    //
-    // UNFIXED TREE: `activeFocus` is false on the popover and neither the
-    // popover nor either dialog closes on Escape.
+    // Escape dismisses the switcher and both confirmations. QQuickPopup only
+    // handles Escape with active focus, and a Popup's `focus` defaults to
+    // false; Cancel's `focus: true` cannot become active focus while its scope
+    // has none. This asserts `activeFocus`, which decides key delivery.
     void escapeDismissesTheSwitcherAndBothConfirmations()
     {
         openMenu();
         auto *menu = find(QStringLiteral("menu"));
         QVERIFY(menu);
         QVERIFY(menu->property("opened").toBool());
-        // Read the flag out of QML rather than pinning its numeric value
-        // here: an enum spelled by hand in a test is a second source of
-        // truth that can be wrong on its own.
+        // Read the flag from QML rather than pinning its numeric value.
         {
             auto *menuItem = menu->property("contentItem")
                                  .value<QQuickItem *>();
@@ -1211,7 +1064,7 @@ Item {
         QTRY_VERIFY2(!menu->property("opened").toBool(),
                      "Escape did not dismiss the account switcher");
 
-        // SIGN OUT. Escape must abandon it, and the session must survive.
+        // Sign out: Escape abandons it and the session survives.
         openMenu();
         auto *signOutButton = find(QStringLiteral("accountFooterSignOut"));
         QVERIFY(signOutButton);
@@ -1221,8 +1074,7 @@ Item {
         QTRY_VERIFY(signOutDialog->property("opened").toBool());
         QTRY_VERIFY2(signOutDialog->property("activeFocus").toBool(),
                      "the sign-out confirmation never takes active focus");
-        // And now Cancel is really the focused action rather than merely
-        // the one that asked to be.
+        // Cancel really has active focus.
         bool cancelHasActiveFocus = false;
         for (QObject *candidate : signOutDialog->findChildren<QObject *>()) {
             if (candidate->property("text").toString()
@@ -1240,7 +1092,7 @@ Item {
                      "Escape did not abandon the sign-out confirmation");
         QVERIFY(m_controller->auth()->isLoggedIn());
 
-        // REMOVE ACCOUNT. Same, and the account must survive.
+        // Remove account: same, and the account survives.
         auto *menuAgain = find(QStringLiteral("menu"));
         if (!menuAgain->property("opened").toBool())
             openMenu();
@@ -1272,9 +1124,8 @@ Item {
     }
     void noTokenOrPathEverBoundIntoTheUi()
     {
-        // Source-level guarantee alongside the live checks above: neither
-        // secret material nor a filesystem path is ever interpolated into a
-        // label/Accessible string.
+        // Neither secret material nor a filesystem path is interpolated into a
+        // label or Accessible string.
         QFile file(QStringLiteral(QML_DIR "/AccountMenu.qml"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString content = QString::fromUtf8(file.readAll());
@@ -1282,9 +1133,8 @@ Item {
         QVERIFY(!content.contains(QStringLiteral("Token")));
         QVERIFY(!content.contains(QStringLiteral("crypto-store")));
 
-        // R16: no `name:` property on IdentityCard's own API (Avatar's own
-        // `name` binding inside the file is a different component's
-        // property and is not what this checks).
+        // No `name:` property on IdentityCard's own API (Avatar's `name`
+        // binding inside the file is a different component's).
         QFile cardFile(QStringLiteral(QML_DIR "/IdentityCard.qml"));
         QVERIFY(cardFile.open(QIODevice::ReadOnly));
         const QString cardContent = QString::fromUtf8(cardFile.readAll());
@@ -1292,40 +1142,11 @@ Item {
         QVERIFY(!cardContent.contains(QStringLiteral("property var name")));
     }
 
-    // ── THE SWITCHER MUST BE ON SCREEN ON THE FIRST OPEN ─────────────
-    //
-    // 2026-09-19: the account switcher opened with its top level with the
-    // rail avatar tile's TOP and grew downward, so ~200 px of a 279 px
-    // popover was off the bottom of the window and nothing below the header
-    // could be reached. It was wrong on EVERY open until the window's height
-    // changed once, and right for the rest of the session afterwards — which
-    // is why it survived review and several GUI audits: anything that resizes
-    // the window before looking sees a working switcher.
-    //
-    // The cause was `SpacesRail.qml`'s placement reading
-    // `parent.mapFromItem(null, 0, 0).y` into a cached property to clamp the
-    // popover against the window's top edge. mapFromItem() is not reactive,
-    // and the snapshot was taken while the rail's own ColumnLayout had not
-    // had its first pass — the account tile was still 12 px from the rail's
-    // TOP rather than at its foot — so the clamp term came out 0 and beat the
-    // real -239 for the rest of the session. The list's height was never
-    // involved: measured in the running app, `implicitHeight` was already at
-    // its final 279 when that one evaluation happened.
-    //
-    // WHY THIS CASE BUILDS ITS OWN SCENE. Every other case here pins the
-    // popover at a fixed `x`/`y`, which is exactly the placement under test.
-    // This one loads the REAL compiled `SpacesRail.qml` on the same real
-    // AppController, in its own window, and NEVER RESIZES IT.
-    //
-    // WHY IT READS `y` BEFORE SHOWING. In the running app the placement
-    // binding is evaluated during start-up, before the rail's layout has run
-    // (measured: the cached value changes to -12 before the popover's own
-    // Component.onCompleted). An offscreen scene that nobody reads settles
-    // its layout first and would therefore take the snapshot at the RIGHT
-    // moment and pass over the defect. The read below is what makes the
-    // harness evaluate the placement as early as production does; it names
-    // no private property, so it stays valid whatever the placement is
-    // written in.
+    // The switcher opens fully inside the window on the first open with no
+    // resize. A placement that reads mapFromItem() into a cached property is
+    // not reactive and can snapshot the rail before its first layout. This
+    // loads the real SpacesRail.qml in its own never-resized window, and reads
+    // `y` before showing so the placement is evaluated as early as in the app.
     void theSwitcherOpensFullyInsideTheWindowOnAFirstOpenWithNoResize()
     {
         const char *railScene = R"QML(
@@ -1360,8 +1181,7 @@ Window {
         auto *popup = root->findChild<QObject *>(
             QStringLiteral("accountSwitcherPopover"));
         QVERIFY(popup);
-        // See above: evaluate the placement now, before the rail has been
-        // laid out, exactly as the running app does.
+        // Evaluate the placement now, before the rail lays out.
         popup->property("y");
 
         win->show();
@@ -1372,11 +1192,10 @@ Window {
             QStringLiteral("railAccountTile"));
         QVERIFY(tile);
         QTRY_VERIFY(tile->isVisible());
-        // The tile must have reached the foot of the rail, or this case is
-        // measuring a rail that never laid out rather than a placement.
+        // The tile reached the rail's foot, or the rail never laid out.
         QTRY_VERIFY(tile->mapToScene(QPointF(0, 0)).y() > win->height() / 2);
 
-        // FIRST OPEN. Nothing has resized this window and nothing will.
+        // First open; nothing resizes this window.
         QMetaObject::invokeMethod(popup, "open");
         QTRY_VERIFY(popup->property("opened").toBool());
         auto *list = root->findChild<QQuickItem *>(
@@ -1385,8 +1204,7 @@ Window {
         QTRY_COMPARE(list->property("count").toInt(), 2);
         QCoreApplication::processEvents();
 
-        // The popup's own item in the overlay, not the Popup object: this is
-        // the rectangle the user can actually press.
+        // The popup's own item in the overlay: the rectangle the user presses.
         auto *content = popup->property("contentItem").value<QQuickItem *>();
         QVERIFY(content);
         QQuickItem *popupItem = content->parentItem();

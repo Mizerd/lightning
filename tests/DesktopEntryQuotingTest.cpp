@@ -4,16 +4,8 @@
 
 using lightning::desktop_entry::quoteExecArgument;
 
-// The Exec quoting, CALLED rather than scanned for.
-//
-// The original guard was a source scan over src/main.cpp asserting that a
-// literal appeared somewhere in a 1,900-line file. A review pointed out that
-// several such contracts pass on broken code, and this one had concrete right
-// and wrong answers going begging, so the function moved into its own unit
-// and these call it.
-//
-// Every case below FAILS on the escaping that shipped, which escaped `"`,
-// `` ` ``, `$` and `\` with a single backslash and left `%` alone.
+// Desktop-entry Exec argument quoting, tested by calling the function rather
+// than scanning main.cpp for a literal.
 class DesktopEntryQuotingTest : public QObject
 {
     Q_OBJECT
@@ -23,13 +15,13 @@ private Q_SLOTS:
     {
         QCOMPARE(quoteExecArgument(QStringLiteral("/opt/Lightning.AppImage")),
                  QStringLiteral("\"/opt/Lightning.AppImage\""));
-        // A space is the whole reason the argument is quoted at all.
+        // A space is why the argument is quoted at all.
         QCOMPARE(quoteExecArgument(QStringLiteral("/home/a b/L.AppImage")),
                  QStringLiteral("\"/home/a b/L.AppImage\""));
     }
 
-    // A LITERAL BACKSLASH NEEDS FOUR. One for the Exec rule, and then both of
-    // those doubled by the string escape the reader undoes first.
+    // A literal backslash needs four: one for the Exec rule, both doubled by
+    // the string escape the reader undoes first.
     void aBackslashSurvivesBothEscapingLayers()
     {
         const QString out = quoteExecArgument(QStringLiteral("/a\\b"));
@@ -40,9 +32,8 @@ private Q_SLOTS:
                  "escape of the following character");
     }
 
-    // `\$` IS NOT A VALID STRING ESCAPE. GKeyFile reports an invalid escape
-    // sequence and returns NULL for the whole value, so the entry ends up
-    // with no Exec at all and the menu item silently does nothing.
+    // `\$` is not a valid string escape: GKeyFile rejects the whole value and
+    // the entry ends up with no Exec.
     void aDollarIsEscapedAtBothLayersNotOne()
     {
         const QString out = quoteExecArgument(QStringLiteral("/a$b"));
@@ -62,10 +53,8 @@ private Q_SLOTS:
                  QStringLiteral("\"/a\\\\\"b\""));
     }
 
-    // `%` INTRODUCES A FIELD CODE. A browser-downloaded AppImage very often
-    // sits in a percent-encoded path, and an undoubled `%20` is dropped by
-    // the expander: `…/Down%20loads/…` launches from `…/Down0loads/…`, which
-    // does not exist.
+    // `%` introduces a field code: an undoubled `%20` in a percent-encoded
+    // download path is mangled by the expander.
     void aPercentIsDoubledSoTheFieldCodeExpanderLeavesItAlone()
     {
         const QString out =
@@ -77,9 +66,8 @@ private Q_SLOTS:
         QCOMPARE(out.count(QLatin1Char('%')), 2);
     }
 
-    // REFUSED, NOT ENCODED. A newline would inject a key into the file and
-    // there is no correct quoting for it; the caller treats empty as "do not
-    // publish", which is the only safe answer.
+    // Refused, not encoded: a newline would inject a key and has no correct
+    // quoting. Empty means "do not publish".
     void aControlCharacterIsRefusedRatherThanEncoded()
     {
         QVERIFY2(quoteExecArgument(QStringLiteral("/a\nExec=/bin/sh")).isEmpty(),

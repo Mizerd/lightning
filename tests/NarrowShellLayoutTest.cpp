@@ -1,19 +1,12 @@
-// 2026-08-18 tester report: the application shell must stay usable at the
-// smallest window size the app itself allows (Main.qml pins minimumWidth 640
-// / minimumHeight 420).
+// The application shell must stay usable at the smallest window size the app
+// allows (Main.qml pins minimumWidth 640 / minimumHeight 420), measured
+// against the real MainScreen (rail + room list + timeline + composer):
 //
-// Two reported defects, both measured here against the REAL MainScreen (rail
-// + room list + timeline + composer), not against the composer in isolation:
-//
-//   * "kai sushrinkini app iki max net nematai pilnos vienos raides ka
-//     typini" — at the minimum width the composer's text field collapsed to
-//     a few pixels, because every optional button in the input row keeps its
-//     full width and the field is the only Layout.fillWidth item left to
-//     absorb the deficit.
-//   * "kai darai shift+enter max praleidzia tik viena eilute" / "kai padalini
-//     app i dvi dalis ... negali editinti zinuciu per sita ui" — in a short
-//     window the composer could not grow past one extra line, so a multi-line
-//     draft (and an edit of a long message) was invisible while typing.
+//   * at the minimum width the composer's text field must keep a usable
+//     width, though every optional button in the input row keeps its own and
+//     the field is the only Layout.fillWidth item;
+//   * in a short window the composer must still grow for a multi-line draft
+//     (or an edit of a long message).
 
 #include <QtTest/QtTest>
 

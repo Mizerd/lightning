@@ -1,23 +1,15 @@
-// 2026-08-19 scroll round 2: the sliding window in ReverseListProxyModel.
+// The sliding window in ReverseListProxyModel. The timeline instantiates every
+// row it is handed and per-frame cost scales with the instantiated item count,
+// so the window bounds how many rows are exposed.
 //
-// WHY the window exists, measured rather than assumed: the timeline
-// instantiates every row it is handed, and per-frame cost scales with the
-// TOTAL instantiated item count — a perf capture put scene-graph node sync at
-// ~10% and event delivery at ~12% of a frame at 1000 loaded rows, while layout
-// was ~1%. Per-notch wheel cost measured 4.44 ms at 600 rows against 10.65 ms
-// at 1000. Pacing cannot help: it only delays rows, it never takes any back.
+// The window is two integers: how many of the newest source rows are excluded
+// (`windowSkip`) and how many are exposed. Every transition between two
+// windows must be a single insert or remove at one end.
 //
-// The window is two integers — how many of the NEWEST source rows are excluded
-// (`windowSkip`) and how many are exposed — and EVERY transition between two
-// windows must be a single insert-or-remove at one end. This suite is where
-// that claim is proven, because the model is where an off-by-one silently
-// becomes "the reader is looking at the wrong message".
-//
-// Model conventions under test (they are easy to invert by accident):
-//   * source row 0 is the OLDEST event; source row total-1 is the NEWEST;
-//   * proxy row 0 is the NEWEST source row the window includes;
-//   * windowSkip 0 is the only state in which proxy row 0 is the live edge —
-//     the pane must return to it before the reader can reach the bottom.
+// Conventions (easy to invert by accident):
+//   * source row 0 is the oldest event; source row total-1 the newest;
+//   * proxy row 0 is the newest source row the window includes;
+//   * only windowSkip 0 makes proxy row 0 the live edge.
 #include <QAbstractListModel>
 #include <QSignalSpy>
 #include <QtTest>
@@ -57,9 +49,8 @@ public:
         m_rows.append(id);
         endInsertRows();
     }
-    // Announce that one source row's DATA changed, nothing structural.
-    // An edit, a redaction and a late decryption all reach the proxy this
-    // way.
+    // Announce that one source row's data changed, nothing structural (edits,
+    // redactions and late decryptions arrive this way).
     void touch(int row)
     {
         const QModelIndex ix = index(row, 0);
@@ -89,9 +80,8 @@ QString proxyText(const ReverseListProxyModel &proxy, int row)
     return proxy.data(proxy.index(row, 0), Qt::DisplayRole).toString();
 }
 
-// Every exposed row must map to the source row the window says it does, and
-// mapFromSource must be its exact inverse. Checked after EVERY mutation: a
-// window whose arithmetic drifts is the whole risk of this feature.
+// Every exposed row maps to the source row the window says, and
+// mapFromSource is its exact inverse. Checked after every mutation.
 void verifyMappingIsConsistent(const ReverseListProxyModel &proxy,
                               const FakeSource &source)
 {
@@ -103,8 +93,7 @@ void verifyMappingIsConsistent(const ReverseListProxyModel &proxy,
                  qPrintable(QStringLiteral("proxy row %1 maps nowhere").arg(r)));
         QCOMPARE(src.row(), total - 1 - proxy.windowSkip() - r);
         QCOMPARE(proxy.mapFromSource(src).row(), r);
-        // ...and the data agrees, which catches an inverted reversal that
-        // index arithmetic alone would not.
+        // ...and the data agrees, which catches an inverted reversal.
         QCOMPARE(proxyText(proxy, r),
                  source.data(src, Qt::DisplayRole).toString());
     }
@@ -122,8 +111,7 @@ class ReverseListProxyWindowTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    // Baseline: with no window the proxy is exactly what it always was —
-    // newest-first over the whole source.
+    // With no window the proxy is newest-first over the whole source.
     void unwindowedProxyIsNewestFirstOverEverything()
     {
         FakeSource source;
@@ -138,7 +126,7 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // The window's defining behaviour: skip the newest rows, expose a band.
+    // A window skips the newest rows and exposes a band.
     void windowExposesABandAndMapsItCorrectly()
     {
         FakeSource source;
@@ -146,7 +134,7 @@ private Q_SLOTS:
         ReverseListProxyModel proxy;
         proxy.setSourceModel(&source);
 
-        // Skip the 20 newest, expose 30 → source rows 50..79, newest-first.
+        // Skip the 20 newest, expose 30: source rows 50..79, newest first.
         proxy.setWindow(/*skipNewest=*/20, /*rows=*/30);
         QCOMPARE(proxy.windowSkip(), 20);
         QCOMPARE(proxy.rowCount(), 30);
@@ -156,9 +144,8 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // Each end must move by a single insert/remove — never a reset, and never
-    // a renumbering of rows in the middle. A reset here would rebuild every
-    // delegate, which is the cost this whole feature exists to avoid.
+    // Each end moves by a single insert or remove: never a reset (which would
+    // rebuild every delegate) and never a renumbering in the middle.
     void everyWindowTransitionIsOneInsertOrRemovePerEnd()
     {
         FakeSource source;
@@ -171,9 +158,8 @@ private Q_SLOTS:
         QSignalSpy inserted(&proxy, &QAbstractItemModel::rowsInserted);
         QSignalSpy removed(&proxy, &QAbstractItemModel::rowsRemoved);
 
-        // Grow the OLDEST end by 10 (scrolling further up): one insert at the
-        // tail, which in the rotated view is the far edge — nothing the reader
-        // is looking at can move.
+        // Grow the oldest end by 10: one insert at the tail, the far edge in
+        // the rotated view.
         proxy.setWindow(20, 40);
         QCOMPARE(removed.count(), 0);
         QCOMPARE(inserted.count(), 1);
@@ -183,9 +169,8 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
         inserted.clear();
 
-        // Release the NEWEST end (reader moved further from the live edge):
-        // one remove at the HEAD. This is the only transition that shifts the
-        // kept rows, which is why the pane corrects contentY for it.
+        // Release the newest end: one remove at the head. This is the one
+        // transition that shifts kept rows, so the pane corrects contentY.
         proxy.setWindow(35, 40);
         QCOMPARE(reset.count(), 0);
         QCOMPARE(removed.count(), 1);
@@ -198,11 +183,8 @@ private Q_SLOTS:
         removed.clear();
         inserted.clear();
 
-        // Reader heads back toward the live edge, keeping the same window
-        // SIZE: the band slides, so both ends move — 25 rows released at the
-        // oldest end (the tail, free) and 25 restored at the newest end (the
-        // head, which the pane corrects contentY for). Exactly one op per
-        // end, and still no reset.
+        // Slide the band towards the live edge at the same size: 25 released
+        // at the tail and 25 restored at the head, one op per end, no reset.
         proxy.setWindow(10, 40);
         QCOMPARE(reset.count(), 0);
         QCOMPARE(removed.count(), 1);
@@ -217,9 +199,8 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // THE stability invariant. While the reader is deep in history the window
-    // must keep covering the SAME events as live messages arrive — otherwise
-    // every incoming message would slide the reader's content by one row.
+    // While the reader is deep in history, live messages must not change which
+    // events the window covers, or each one would slide the reader by a row.
     void liveMessagesDoNotSlideAWindowedReader()
     {
         FakeSource source;
@@ -244,14 +225,14 @@ private Q_SLOTS:
         QCOMPARE(proxy.rowCount(), 20);
         // ...the window absorbed them by growing its skip...
         QCOMPARE(proxy.windowSkip(), 45);
-        // ...and the reader is still looking at exactly the same events.
+        // ...and the reader still sees the same events.
         QCOMPARE(proxyText(proxy, 0), topEvent);
         QCOMPARE(proxyText(proxy, 19), bottomEvent);
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // Backward pagination while windowed lands entirely older than the window:
-    // invisible, and it must not disturb the exposed band.
+    // Backward pagination while windowed lands older than the window: invisible
+    // and without disturbing the band.
     void backwardPaginationBelowTheWindowIsInvisible()
     {
         FakeSource source;
@@ -270,8 +251,8 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // Pacing must never undo a window. Without the cap the reveal timer would
-    // walk the exposed count straight back up to the source total.
+    // Pacing never grows past the window; without the cap the reveal timer
+    // would walk the exposed count back up to the source total.
     void pacingNeverGrowsPastTheWindow()
     {
         FakeSource source;
@@ -281,17 +262,15 @@ private Q_SLOTS:
         proxy.setWindow(50, 40);
         QCOMPARE(proxy.rowCount(), 40);
 
-        // Give the reveal timer generous room to misbehave.
+        // Give the reveal timer generous time to misbehave.
         QTest::qWait(400);
         QCOMPARE(proxy.rowCount(), 40);
         QCOMPARE(proxy.windowSkip(), 50);
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // Every jump/search path calls releaseAll() before addressing a row. With
-    // a window that must also restore the newest end, or a jump to a recent
-    // message would resolve to "no such row" — silently doing nothing, the
-    // exact failure the pacing backlog already taught this codebase.
+    // Jump and search paths call releaseAll() first; with a window it must also
+    // restore the newest end, or a jump to a recent message finds no row.
     void clearWindowRestoresEverythingIncludingTheLiveEdge()
     {
         FakeSource source;
@@ -308,8 +287,7 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // releaseAll() alone (the pre-existing jump path) must also lift the cap,
-    // or the first jump after a window would expose nothing further.
+    // releaseAll() alone also lifts the window cap.
     void releaseAllLiftsTheWindowCap()
     {
         FakeSource source;
@@ -324,10 +302,9 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // Reaching the window's OLD edge must re-expose rows we already hold
-    // rather than asking the homeserver for history. Paced, because a
-    // synchronous release of a whole margin would build that many delegates
-    // in one go (3-7 ms each in the real pane).
+    // Reaching the window's old edge re-exposes rows already held instead of
+    // asking the homeserver. Paced, since releasing a whole margin at once
+    // builds that many delegates in one frame.
     void extendingAtTheOldEndIsPacedAndBoundedByTheRequestedRows()
     {
         FakeSource source;
@@ -341,14 +318,14 @@ private Q_SLOTS:
         proxy.extendWindowAtOldEnd(30);
         // Paced: not all of it lands synchronously.
         QTRY_COMPARE(proxy.rowCount(), 70);
-        // And it STOPS there — generous extra time must not walk it further.
+        // And it stops there.
         QTest::qWait(300);
         QCOMPARE(proxy.rowCount(), 70);
 
-        // The newest end must not move: the reader's contentY correction
-        // depends on the skip, and this path deliberately performs none.
+        // The newest end does not move: this path performs no contentY
+        // correction.
         QCOMPARE(proxy.windowSkip(), 50);
-        // Every insert lands at the TAIL (beyond the reader), never at row 0.
+        // Every insert lands at the tail (beyond the reader), never at row 0.
         QVERIFY(inserted.count() > 0);
         for (const QList<QVariant> &args : inserted)
             QVERIFY2(args.at(1).toInt() >= 40,
@@ -357,15 +334,10 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // The PACING backlog also leaves rows unexposed, but it releases itself
-    // on its own timer and the pane's near-top logic must keep working
-    // normally around it. Conflating the two is not hypothetical: the first
-    // version of the pane hook asked `rowWindowSkip + count < total`, which
-    // is also true during an ordinary initial reveal with no window at all,
-    // and it swallowed the near-top request on every such timeline
-    // (timeline-pane-qml's nearTopProximityIsMeasuredFromLoadedHistoryNot
-    // AbsoluteContentY failed with "an approach to the top must consume the
-    // latch"). Only the window's own cap may answer yes.
+    // Extending refuses when only the pacing backlog withholds rows: that
+    // backlog releases itself, and only the window's own cap may answer yes.
+    // (A check like `rowWindowSkip + count < total` is also true during an
+    // ordinary initial reveal.)
     void extendingRefusesWhenOnlyThePacingBacklogWithholdsRows()
     {
         FakeSource source;
@@ -373,31 +345,30 @@ private Q_SLOTS:
         ReverseListProxyModel proxy;
         proxy.setSourceModel(&source);
 
-        // No window: m_windowCap is 0 (uncapped), so anything still unexposed
-        // is the paced backlog.
+        // No window (cap 0), so anything unexposed is pacing backlog.
         QCOMPARE(proxy.extendWindowAtOldEnd(50), false);
         QTRY_COMPARE(proxy.rowCount(), 200);   // pacing gets there by itself
         QCOMPARE(proxy.extendWindowAtOldEnd(50), false);
 
-        // And with a window whose cap pacing has not yet reached, it is still
-        // pacing's job, not the window's.
+        // With a window whose cap pacing has not reached yet, it is still
+        // pacing's job.
         proxy.setWindow(50, 60);
         QCOMPARE(proxy.rowCount(), 60);
-        // total=200, skip=50 -> sourceRow = 149 - proxyRow, so the exposed
-        // band is source [90, 149]. (200 is past the end and aborts.)
+        // total=200, skip=50: sourceRow = 149 - proxyRow, so the band is
+        // source [90, 149].
         source.removeAt(100, 20);              // inside the window
         QVERIFY(proxy.rowCount() < 60);
         QCOMPARE(proxy.extendWindowAtOldEnd(30), false);
 
-        // Once pacing has caught up to the cap, the window is the constraint.
+        // Once pacing reaches the cap, the window is the constraint.
         QTRY_COMPARE(proxy.rowCount(), 60);
         QCOMPARE(proxy.extendWindowAtOldEnd(30), true);
         QTRY_COMPARE(proxy.rowCount(), 90);
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // The extension stops at the oldest row actually loaded, and asking again
-    // once everything is out is a no-op rather than an unbounded reveal.
+    // The extension stops at the oldest loaded row, and asking again once
+    // everything is exposed is a no-op.
     void extendingAtTheOldEndStopsAtTheOldestLoadedRow()
     {
         FakeSource source;
@@ -419,13 +390,9 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // revealNextChunk() bounded its release loop on sourceRowTotal() rather
-    // than revealTarget(). The guard at the top of that function stops the
-    // timer from STARTING past the cap, so this only bites once the exposed
-    // count drops BELOW the cap — a removal inside the window — after which a
-    // single 3 ms tick released straight through the cap to the source total.
-    // With no delegates to build in a unit test, that is hundreds of rows:
-    // the "pacing undoes the window" failure the cap exists to prevent.
+    // revealNextChunk() is bounded by revealTarget(), not sourceRowTotal():
+    // after a removal inside the window drops the exposed count below the cap,
+    // a single tick must not release straight through the cap.
     void pacingNeverOvershootsTheCapAfterARemovalInsideTheWindow()
     {
         FakeSource source;
@@ -435,12 +402,9 @@ private Q_SLOTS:
         proxy.setWindow(50, 60);
         QCOMPARE(proxy.rowCount(), 60);
 
-        // Drop rows from inside the exposed window, leaving the cap above the
-        // exposed count — the state that lets the reveal loop run. With
-        // total=300 and skip=50 the mapping is sourceRow = 249 - proxyRow,
-        // so the exposed band is source [190, 249]; 150 is OLDER than the
-        // window and removing there changes nothing (the guard below caught
-        // exactly that).
+        // Remove rows inside the exposed window, leaving the cap above the
+        // exposed count. With total=300 and skip=50, sourceRow = 249 - proxyRow,
+        // so the band is source [190, 249].
         source.removeAt(200, 20);
         QVERIFY2(proxy.rowCount() < 60,
                  "the removal did not shrink the exposed window, so the "
@@ -458,20 +422,10 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // ── the NEWEST end (2026-08-20) ─────────────────────────────────────
-    //
-    // Case A of the correctness round: with a window active, `wheelMinY()` is
-    // the window's SYNTHETIC newest edge, so a downward gesture longer than
-    // the pane's runway hits it and the motion settles — the reader stops
-    // before the newest message, which is loaded in the source model and
-    // hidden by nothing but the skip. Extending at the newest end is what
-    // lets the gesture continue.
-    //
-    // It is the one extension that shifts every kept row, so the shape of the
-    // signal matters as much as the arithmetic: the pane corrects contentY by
-    // the exact summed measured height of the inserted rows, and it can only
-    // do that if they arrive as ONE insert at the head with everything else
-    // left alone.
+    // The newest end: with a window active the pane's wheelMinY() is the
+    // window's synthetic edge, so a downward gesture needs the window extended
+    // there. It shifts every kept row, so it must arrive as one insert at the
+    // head (the pane corrects contentY by the inserted rows' heights).
     void extendingAtTheNewEndRestoresRowsAsOneInsertAtTheHead()
     {
         FakeSource source;
@@ -493,9 +447,8 @@ private Q_SLOTS:
 
         QCOMPARE(proxy.windowSkip(), 35);
         QCOMPARE(proxy.rowCount(), 55);
-        // Exactly one structural op, at the head, covering 0..14 — never a
-        // reset (which would rebuild every delegate the window exists to
-        // avoid) and never a renumbering in the middle.
+        // Exactly one structural op, at the head, covering 0..14: no reset and
+        // no renumbering in the middle.
         QCOMPARE(reset.count(), 0);
         QCOMPARE(removed.count(), 0);
         QCOMPARE(aboutToInsert.count(), 1);
@@ -506,8 +459,8 @@ private Q_SLOTS:
         QCOMPARE(inserted.at(0).at(2).toInt(), 14);
         QCOMPARE(windowSpy.count(), 1);
 
-        // Fifteen newer events at the head; the row that was the head is now
-        // at 15 and is still the same event; the old end did not move.
+        // Fifteen newer events at the head; the former head is at 15 and
+        // unchanged; the old end did not move.
         QCOMPARE(proxyText(proxy, 0), QStringLiteral("e164"));
         QCOMPARE(proxyText(proxy, 14), QStringLiteral("e150"));
         QCOMPARE(proxyText(proxy, 15), QStringLiteral("e149"));
@@ -515,10 +468,8 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // Asking for more than the skip holds clamps to the live edge rather than
-    // refusing or overshooting — and reaching skip 0 is the state the pane
-    // needs, because it is the only one in which the bottom of the view is
-    // honestly the newest message.
+    // Asking for more than the skip holds clamps to the live edge; skip 0 is
+    // the only state where the view's bottom is the newest message.
     void extendingBeyondTheSkipClampsAndRestoresTheLiveEdge()
     {
         FakeSource source;
@@ -535,15 +486,13 @@ private Q_SLOTS:
                  source.rowCount() - 1);
         verifyMappingIsConsistent(proxy, source);
 
-        // And now there is nothing left to give, which is the answer the pane
-        // reads as "already live".
+        // Nothing left to give: the pane reads this as "already live".
         QCOMPARE(proxy.extendWindowAtNewEnd(10), false);
     }
 
-    // "Already at the live edge" must be a refusal, not a no-op insert: the
-    // pane distinguishes "extended, correct contentY" from "there was nothing
-    // to extend, stop asking", and a silent true would leave it correcting
-    // contentY for rows that never arrived.
+    // At the live edge the extension refuses (returns false) rather than
+    // reporting a no-op success, so the pane does not correct contentY for
+    // rows that never arrived.
     void extendingAtTheNewEndRefusesWhenThereIsNothingToGive()
     {
         FakeSource source;
@@ -559,8 +508,7 @@ private Q_SLOTS:
         QCOMPARE(windowSpy.count(), 0);
         QCOMPARE(proxy.rowCount(), 50);
 
-        // A window that bounds only the OLD end has no skip either, so the
-        // same answer holds — the rows it withholds are not at this end.
+        // A window bounding only the old end has no skip either.
         proxy.setWindow(0, 20);
         inserted.clear();
         windowSpy.clear();
@@ -569,8 +517,7 @@ private Q_SLOTS:
         QCOMPARE(windowSpy.count(), 0);
         QCOMPARE(proxy.rowCount(), 20);
 
-        // A non-positive request is refused outright rather than being read as
-        // "give me everything".
+        // A non-positive request is refused, not read as "everything".
         proxy.setWindow(10, 20);
         QCOMPARE(proxy.extendWindowAtNewEnd(0), false);
         QCOMPARE(proxy.extendWindowAtNewEnd(-5), false);
@@ -579,11 +526,9 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // THE stability invariant, re-asserted across an extension: restoring
-    // rows at the newest end must not weaken the window's absorption of live
-    // messages. If the extension left the skip inconsistent, every incoming
-    // message would start sliding the reader's content by one row — the exact
-    // failure liveMessagesDoNotSlideAWindowedReader pins for setWindow().
+    // After a newest-end extension, live messages are still absorbed into the
+    // skip and do not slide the reader (see
+    // liveMessagesDoNotSlideAWindowedReader).
     void liveMessagesStillDoNotSlideTheReaderAfterANewEndExtension()
     {
         FakeSource source;
@@ -614,12 +559,9 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // Pacing must not undo the window after an extension either — and the cap
-    // has to grow with what was restored, or the OLD end's promise is silently
-    // retired. revealNextChunk() once bounded its loop on sourceRowTotal()
-    // instead of revealTarget() and released straight through the cap; that
-    // path is only reachable once the exposed count drops BELOW the cap, so
-    // this drives that state deliberately.
+    // After an extension the cap grows with what was restored, and pacing
+    // still never overshoots it. Overshooting needs the exposed count below
+    // the cap, so this drives that state.
     void pacingNeverGrowsPastTheWindowAfterANewEndExtension()
     {
         FakeSource source;
@@ -638,19 +580,16 @@ private Q_SLOTS:
         QCOMPARE(proxy.rowCount(), 80);
         QCOMPARE(proxy.windowSkip(), 30);
 
-        // Now make the reveal loop genuinely runnable — the only state in
-        // which the cap can be overshot — by removing rows from INSIDE the
-        // exposed band. With total=300 and skip=30 the mapping is
-        // sourceRow = 269 - proxyRow, so the band is source [190, 269].
+        // Remove rows inside the band so the reveal loop can run. With
+        // total=300 and skip=30, sourceRow = 269 - proxyRow, so the band is
+        // source [190, 269].
         source.removeAt(200, 20);
         QVERIFY2(proxy.rowCount() < 80,
                  "the removal did not shrink the exposed window, so the "
                  "overshoot path is not reachable and this test would pass "
                  "on broken code");
 
-        // Pacing restores exactly the cap the extension established — no
-        // fewer (the old end still owed rows) and no more (that is the window
-        // undoing itself).
+        // Pacing restores exactly the cap the extension set: no fewer, no more.
         QTRY_COMPARE(proxy.rowCount(), 80);
         QTest::qWait(300);
         QCOMPARE(proxy.rowCount(), 80);
@@ -658,13 +597,9 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // The cap has to grow BY WHAT WAS RESTORED, not be reassigned to whatever
-    // is exposed at that instant. Those two rules coincide whenever pacing has
-    // caught up, and differ exactly when it has not: a removal inside the
-    // window leaves the OLD end still owing rows, and reassigning the cap
-    // there would retire that debt silently — the reader would reach the
-    // window's old edge early and the pane would have to ask the server for
-    // history it already holds.
+    // The cap grows by what was restored rather than being reset to what is
+    // exposed now: after a removal inside the window the old end still owes
+    // rows, and resetting the cap would silently drop that.
     void aNewEndExtensionDoesNotRetireWhatTheOldEndStillOwes()
     {
         FakeSource source;
@@ -674,9 +609,8 @@ private Q_SLOTS:
         proxy.setWindow(50, 60);       // exposes source 190..249, cap 60
         QCOMPARE(proxy.rowCount(), 60);
 
-        // Drop rows from inside the band, WITHOUT letting pacing refill it:
-        // nothing here spins the event loop, so the reveal timer cannot run
-        // between the removal and the extension. That is the state under test.
+        // Remove rows inside the band without spinning the event loop, so
+        // pacing cannot refill before the extension.
         source.removeAt(200, 20);
         QCOMPARE(proxy.rowCount(), 40);
 
@@ -684,7 +618,7 @@ private Q_SLOTS:
         QCOMPARE(proxy.windowSkip(), 40);
         QCOMPARE(proxy.rowCount(), 50);
 
-        // 60 the window asked for, plus the 10 just restored at the head.
+        // The 60 the window asked for, plus the 10 restored at the head.
         QTRY_COMPARE(proxy.rowCount(), 70);
         QTest::qWait(300);
         QCOMPARE(proxy.rowCount(), 70);
@@ -692,10 +626,8 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // Walk the window all the way home in small steps, checking every exposed
-    // row's mapping after each one. A skip change renumbers every view row,
-    // and arithmetic that ignores it fails QUIETLY — this file's whole hazard
-    // class — so the check is exhaustive rather than sampled.
+    // Walk the window home in small steps, checking every exposed row's mapping
+    // after each one: a skip change renumbers every view row.
     void everyExposedRowStillMapsCorrectlyAcrossRepeatedExtensions()
     {
         FakeSource source;
@@ -716,8 +648,7 @@ private Q_SLOTS:
             const int add = skipBefore < 7 ? skipBefore : 7;
             QCOMPARE(proxy.windowSkip(), skipBefore - add);
             QCOMPARE(proxy.rowCount(), rowsBefore + add);
-            // The event that was the head has moved down by exactly the
-            // number of rows restored so far, and is still itself.
+            // The former head moved down by exactly the rows restored so far.
             QCOMPARE(proxyText(proxy, 60 - proxy.windowSkip()), tracked);
             verifyMappingIsConsistent(proxy, source);
         }
@@ -729,9 +660,8 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // A reset still clears everything after an extension: the extension must
-    // not leave state behind that a room switch would carry into the next
-    // room, which would hide its newest messages.
+    // A reset after an extension still clears the window, so a room switch
+    // does not hide the next room's newest messages.
     void aSourceResetAfterANewEndExtensionStillClearsTheWindow()
     {
         FakeSource source;
@@ -750,8 +680,7 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // A room switch must not carry a stale skip into the new room — that would
-    // hide the new room's newest messages.
+    // A room switch does not carry a stale skip into the new room.
     void aSourceResetClearsTheWindow()
     {
         FakeSource source;
@@ -768,8 +697,8 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // Redactions/removals land anywhere. Each region must be handled without
-    // corrupting the mapping — inside the window, newer than it, older than it.
+    // Removals are handled in every region: inside the window, newer than it,
+    // and older than it.
     void removalsAreHandledInEveryRegion()
     {
         FakeSource source;
@@ -778,21 +707,21 @@ private Q_SLOTS:
         proxy.setSourceModel(&source);
         proxy.setWindow(40, 20);       // exposes source 40..59
 
-        // NEWER than the window: shrinks the skip, exposes nothing new.
+        // Newer than the window: shrinks the skip, exposes nothing new.
         source.removeAt(90);
         QCOMPARE(proxy.windowSkip(), 39);
         QCOMPARE(proxy.rowCount(), 20);
         QCOMPARE(proxyText(proxy, 0), QStringLiteral("e59"));
         verifyMappingIsConsistent(proxy, source);
 
-        // INSIDE the window: one row leaves the view.
+        // Inside the window: one row leaves the view.
         QSignalSpy removed(&proxy, &QAbstractItemModel::rowsRemoved);
         source.removeAt(50);
         QCOMPARE(removed.count(), 1);
         QCOMPARE(proxy.rowCount(), 19);
         verifyMappingIsConsistent(proxy, source);
 
-        // OLDER than the window: invisible.
+        // Older than the window: invisible.
         removed.clear();
         source.removeAt(3);
         QCOMPARE(removed.count(), 0);
@@ -800,8 +729,8 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // Windows are clamped, never asserted: a pane computing a window from a
-    // stale row count must degrade, not corrupt the mapping.
+    // Windows are clamped: a window computed from a stale row count degrades
+    // instead of corrupting the mapping.
     void outOfRangeWindowsAreClamped()
     {
         FakeSource source;
@@ -824,24 +753,13 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // ── windowChanged() notification ───────────────────────────────────
-    //
-    // WHY these exist (2026-08-20): windowSkip is a Q_PROPERTY whose NOTIFY is
-    // windowChanged(), and QML reads it through `rowWindowSkip`, a NOTIFY-gated
-    // binding whose only other dependency is a constant. Five of the eight
-    // sites that wrote the skip never emitted, so after a room switch or a
-    // jump-to-live trim the pane kept reading the PREVIOUS room's skip — and
-    // atBottomEdge() refuses while that is non-zero, so the jump-to-latest pill
-    // stayed on screen at the true live edge and follow-latest never
-    // re-engaged. clearWindow() could not repair it either: it guards on
-    // `m_windowSkip != 0`, which is already false in that state.
-    //
-    // A silent value change is exactly the class of bug the window keeps
-    // producing (four view-row renumbering instances in 2026-08-19 alone), so
-    // each of these pins the SIGNAL, not just the value.
+    // windowChanged() notifications. QML reads the skip through a NOTIFY-gated
+    // binding (`rowWindowSkip`), so every change must emit or the pane keeps a
+    // stale value (e.g. atBottomEdge() refusing at the real live edge). Each
+    // case pins the signal, not just the value.
 
-    // A room switch arrives as a source reset. The value goes to 0 either way;
-    // what was missing was telling anyone.
+    // A room switch arrives as a source reset: the skip goes to 0 and that is
+    // announced.
     void aSourceResetEmitsWindowChanged()
     {
         FakeSource source;
@@ -860,10 +778,7 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // A live message landing newer than the window really does move the skip —
-    // that is how the window absorbs it instead of sliding the reader — so the
-    // notification is not cosmetic: the pane's cached copy is wrong by one row
-    // per message until it is told.
+    // A live message absorbed by the window moves the skip, so it is announced.
     void aLiveMessageAbsorbedByTheWindowEmitsWindowChanged()
     {
         FakeSource source;
@@ -878,14 +793,13 @@ private Q_SLOTS:
 
         QCOMPARE(windowSpy.count(), 1);
         QCOMPARE(proxy.windowSkip(), 21);
-        // ...and the absorption itself still holds: same rows, same head.
+        // ...and the absorption still holds: same rows, same head.
         QCOMPARE(proxy.rowCount(), 20);
         QCOMPARE(proxyText(proxy, 0), QStringLiteral("e39"));
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // A redaction newer than the window shrinks the skip for the same reason,
-    // in the other direction.
+    // A removal newer than the window shrinks the skip and is announced.
     void aRemovalNewerThanTheWindowEmitsWindowChanged()
     {
         FakeSource source;
@@ -904,14 +818,9 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // A CHANGE MUST REACH THE ROW THAT CHANGED, with a window held.
-    //
-    // Every other mapping in the proxy subtracts the window skip; the
-    // dataChanged forwarder did not, so with a live-captured skip of 380 an
-    // edit to the reader's own message was announced 380 rows away. The
-    // wrong row repaints and re-reads correctly, so nothing looks broken,
-    // while the changed row is never told to re-read: §9's "the same stable
-    // event updates in place" fails in exactly the state the window creates.
+    // With a window held, dataChanged names the proxy row that changed: the
+    // forwarder must subtract the skip like every other mapping, or the
+    // changed row is never told to re-read.
     void aDataChangeUnderAWindowNamesTheRowThatChanged()
     {
         FakeSource source;
@@ -938,8 +847,8 @@ private Q_SLOTS:
         QCOMPARE(last.at(0).toModelIndex().row(), 19);
     }
 
-    // Re-pointing the proxy at another model drops the window with it. Same
-    // hazard as the reset: the incoming model's live edge would stay hidden.
+    // Re-pointing the proxy at another model drops the window and announces
+    // it.
     void setSourceModelEmitsWindowChanged()
     {
         FakeSource first;
@@ -961,10 +870,8 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, second);
     }
 
-    // The other half of the contract. This signal fires from inside source
-    // signal handlers on every removal and every live message, so a write of
-    // the value it already holds must stay silent — otherwise the fix trades a
-    // missing notification for a storm of useless ones.
+    // Writing the value the skip already holds does not emit: this runs from
+    // source signal handlers on every removal and live message.
     void writingTheSameWindowSkipDoesNotEmit()
     {
         FakeSource source;
@@ -975,13 +882,12 @@ private Q_SLOTS:
 
         QSignalSpy windowSpy(&proxy, &ReverseListProxyModel::windowChanged);
 
-        // Identical window: nothing moved at either end.
+        // Identical window: nothing moved.
         proxy.setWindow(30, 20);
         QCOMPARE(windowSpy.count(), 0);
 
-        // Only the OLD end moved. windowChanged notifies windowSkip, which is
-        // unchanged here; the exposed count is announced by the model's own
-        // rowsInserted/rowsRemoved, which is what a view listens to.
+        // Only the old end moved: the skip is unchanged, and the exposed count
+        // is announced through rowsInserted/rowsRemoved.
         proxy.setWindow(30, 25);
         QCOMPARE(windowSpy.count(), 0);
         QCOMPARE(proxy.rowCount(), 25);
@@ -998,11 +904,8 @@ private Q_SLOTS:
         verifyMappingIsConsistent(proxy, source);
     }
 
-    // The specific state the pane was left in: after a reset the skip is 0 and
-    // STAYS 0, and clearWindow() — the pane's "give me the live edge back"
-    // call — has nothing to do and says nothing. Before the fix the pane's
-    // cached copy was stale and this was the path that could not repair it,
-    // because clearWindow() guards its work on the skip being non-zero.
+    // After a reset the skip is 0 and stays 0, and clearWindow() (which only
+    // acts on a non-zero skip) is a silent no-op.
     void afterAResetTheSkipStaysZeroAndClearWindowIsASilentNoOp()
     {
         FakeSource source;

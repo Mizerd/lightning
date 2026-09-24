@@ -1,24 +1,12 @@
-// Where a window OPENS, which is a question this application got wrong in a
-// way nobody could report as a bug: the window opened off the edge of the
-// desktop and simply was not there.
+// Where a window opens. Two rules, one test each:
 //
-// Measured on the maintainer's two-monitor layout before the fix:
+//  1. centring uses the screen the window opens on, not the whole virtual
+//     desktop (which aims two monitors at the seam between them);
+//  2. an unreachable rect is refused.
 //
-//   window placement "centred" applied=[6490,360 1100x720]
-//   screens="DP-3[3840,0 2560x1440] DP-1[0,0 2560x1440]"
-//
-// with the virtual desktop ending at 6400. Two causes, and the tests below
-// pin one each:
-//
-//  1. the centring divided the whole VIRTUAL DESKTOP, not the screen the
-//     window opens on, so two monitors aimed it at the seam between them;
-//  2. nothing checked the answer, so an unreachable rect was used anyway.
-//
-// These are deliberately BEHAVIOURAL — they ask where a window would go, not
-// whether some symbol exists. The offscreen platform gives one screen, which
-// is enough to pin "inside its own screen" and "an unreachable rect is
-// refused"; the two-monitor arithmetic is pinned by the reachability rule,
-// which is what actually made the bad rect unusable.
+// Behavioural: they ask where a window would go. The offscreen platform gives
+// one screen, which is enough for "inside its own screen" and the
+// reachability rule.
 
 #include "app/AppController.h"
 
@@ -61,10 +49,8 @@ private Q_SLOTS:
         QCOMPARE(placed.center().x(), available.center().x());
     }
 
-    // The guard that makes the whole thing safe: a rect nobody could reach is
-    // refused, and the caller then leaves placement to the window manager.
-    // Without this, arithmetic that goes wrong on a layout the developer does
-    // not have opens the window where it cannot be seen.
+    // A rect nobody could reach is refused, and the caller then leaves
+    // placement to the window manager.
     void anUnreachableRectIsRefused()
     {
         const QScreen *screen = QGuiApplication::primaryScreen();
@@ -86,10 +72,9 @@ private Q_SLOTS:
         QVERIFY(!AppController::windowGeometryIsReachable(QRect()));
     }
 
-    // The legitimate cases the guard must NOT refuse, because refusing them
-    // would be a regression of its own: a window whose grab band meets a
-    // screen is reachable even when the rest of it hangs off, and that is how
-    // a window spanned across two monitors looks.
+    // The guard must not refuse a window whose grab band meets a screen even
+    // if the rest hangs off, which is how a window spanning two monitors
+    // looks.
     void aReachableWindowIsAccepted()
     {
         const QScreen *screen = QGuiApplication::primaryScreen();

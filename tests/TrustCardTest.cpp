@@ -1,38 +1,9 @@
-// v0.6.5 (SPEC 1r): offscreen proof for the standalone TrustCard component.
-// TrustCard never touches `app.*` (the embedding surface owns all real
-// bindings), so this test drives it purely through property injection:
-// complete vs pending node rendering, the both-ends-complete connector rule,
-// the Verify-only action (never Message, never QR), and — since 2026-08-26 —
-// that the card FOLLOWS the selected theme.
-//
-// That last group replaces brandColoursStayFixedAcrossThemeChanges(), which
-// asserted the opposite (tokTrustNavy identical across theme modes 8, 9 and
-// 10) for as long as the card was pinned to the raw Storm literals. The
-// maintainer reported the consequence: "the blue lightning session status
-// should match the rest of the theme". The three replacements below each
-// FAIL on the unfixed tree, and it is worth saying how, because a test that
-// only passes after the fix is not the same as a test that fails before it:
-//   cardRetintsWhenTheThemeChanges          — every sample was one constant,
-//                                             so each QVERIFY(a != b) fails.
-//   cardPaintsTheSettingsCardPairOnEveryTheme — the card was _stoPanel /
-//                                             _stoBorder while stormCanvas /
-//                                             stormBorder route per theme, so
-//                                             it fails on all ten legacy
-//                                             themes AND on Storm (_stoPanel
-//                                             is not _stoCanvas).
-//   stormKeepsTheBrandLiterals              — under Storm the old card fill
-//                                             was #202473 and the complete
-//                                             node ink was #202473 too; the
-//                                             expected values were #121655 and
-//                                             #0A0F24.
-//
-// 2026-09-20: the SettingsCard plane those two cases track moved
-// stormCanvas -> stormPanel, because stormCanvas and stormDeep both route to
-// the palette's `background` outside Storm and every settings card was
-// therefore EXACTLY the colour of the page behind it on ten of eleven themes
-// (measured on screen: 1.00:1). The trust card follows the plane, so the
-// Storm literal asserted below is #202473 again — the sibling rule is
-// unchanged, the siblings moved.
+// Offscreen test for the standalone TrustCard component. It never touches
+// `app.*`, so it is driven purely through property injection: complete vs
+// pending node rendering, the both-ends-complete connector rule, the
+// Verify-only action (never Message, never QR), and that the card follows
+// the selected theme, painting the same plane as the SettingsCards beside
+// it.
 
 #include <QtTest/QtTest>
 
@@ -173,11 +144,9 @@ private slots:
         QVERIFY(m_window);
         QVERIFY(QTest::qWaitForWindowExposed(m_window));
 
-        // Optional visual-comparison artifact: the mock backend cannot
-        // render the card in the demo app (crypto unsupported), so this
-        // fictional-data scene doubles as the reference capture when
-        // LIGHTNING_TRUSTCARD_SNAPSHOT names an output path. Test behavior
-        // is unchanged when the variable is unset.
+        // Optional visual-comparison artifact: when
+        // LIGHTNING_TRUSTCARD_SNAPSHOT names an output path, this fictional
+        // scene is saved as a reference capture.
         const QString snapshotPath = qEnvironmentVariable(
             "LIGHTNING_TRUSTCARD_SNAPSHOT");
         if (!snapshotPath.isEmpty()) {
@@ -196,10 +165,7 @@ private slots:
     void noQrWordingInAnyUserFacingString()
     {
         // The banned icon name, and no qsTr() string mentioning QR/scanning
-        // (QR verification does not exist — SAS is the only real flow).
-        // Explanatory source comments documenting that ruling are not
-        // user-facing wording, so this checks qsTr() call sites specifically
-        // rather than banning the substring across the whole file.
+        // (SAS is the only real flow). Checks qsTr() call sites, not comments.
         QFile file(QStringLiteral(QML_DIR "/TrustCard.qml"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString content = QString::fromUtf8(file.readAll());
@@ -333,10 +299,8 @@ private slots:
 
     void pendingRingActuallyPaintsPixels()
     {
-        // The dashed pending ring must RENDER, not merely exist: the
-        // cooperative Canvas strategy once deferred the first paint past
-        // offscreen grabs, shipping ringless captures while the item's
-        // `visible` property (all the old assertion checked) stayed true.
+        // The dashed pending ring must render, not merely be `visible`: a
+        // deferred Canvas paint can miss offscreen grabs.
         const QImage shot = m_window->grabWindow();
         QVERIFY(!shot.isNull());
         // Repeater delegates are not QObject-parented into the window tree,
@@ -389,20 +353,9 @@ private slots:
 
     void nodeIconInkIsTheInkForItsOwnFill()
     {
-        // The one site where a mechanical token swap would have been wrong.
-        // The complete node's glyph sits ON the bolt disc, so it must be
-        // boltInk — CLAUDE.md §7, "ink on a bolt/accent fill uses boltInk,
-        // never stormPanel". It read correctly for years only because the
-        // pinned card fill happened to be navy; routed unchanged it would
-        // have painted the PAGE GROUND onto a yellow disc.
-        //
-        // The pending glyph was borderStrong, which measures 1.76-3.50:1 on
-        // inputBackground across the eleven themes — an illegible 12px icon.
-        // stormTextMuted is AA-covered on that fill on every theme.
-        //
-        // On the unfixed tree both QCOMPAREs fail: the complete ink was
-        // trustNavy (_stoPanel) and the pending ink was trustPending
-        // (_stoBorderStrong).
+        // The complete node's glyph sits on the bolt disc, so it must be
+        // boltInk. The pending glyph uses stormTextMuted, which is readable on
+        // inputBackground on every theme.
         setTheme(9);
         auto *complete = stepChild(0, QStringLiteral("trustNodeIcon"));
         QVERIFY(complete);
@@ -416,14 +369,8 @@ private slots:
 
     void cardRetintsWhenTheThemeChanges()
     {
-        // The property the maintainer reported, stated directly: switching
-        // theme must MOVE the card's colours. Sampled through the real
-        // AppTheme.mode binding and off the card's own items — not by
-        // calling a routing helper, which would prove only that the helper
-        // works and nothing about whether the card reaches it.
-        //
-        // Unfixed tree: every one of these samples was a constant, so the
-        // first QVERIFY fires.
+        // Switching theme must move the card's colours, sampled through the
+        // real AppTheme.mode binding off the card's own items.
         auto *surface = find(QStringLiteral("trustCardSurface"));
         auto *chain = find(QStringLiteral("trustChainPanel"));
         QVERIFY(surface);
@@ -452,23 +399,9 @@ private slots:
 
     void cardPaintsTheSettingsCardPairOnEveryTheme()
     {
-        // "Doesn't match the theme" is really "doesn't match its siblings":
-        // SettingsScreen.qml's SettingsCard paints the card plane with a
-        // stormBorder edge, and the trust card sits in the same column. So
-        // assert the same pair on all eleven modes rather than one.
-        //
-        // 2026-09-20: that plane moved stormCanvas -> stormPanel. stormCanvas
-        // and stormDeep BOTH route to the palette's `background` outside
-        // Storm, so every settings card was measured at exactly 1.00:1
-        // against the page behind it on ten of eleven themes; the card plane
-        // is now the palette's own `surface`. This case follows the siblings
-        // by construction — it reads whatever token the probe names — so what
-        // keeps it honest is that the probe and SettingsCard must name the
-        // same one.
-        //
-        // Unfixed tree (2026-08-26): the card was _stoPanel/_stoBorder while
-        // the SettingsCards were stormCanvas, so this failed on the ten
-        // legacy themes AND on Storm.
+        // The card must paint the same plane and edge as SettingsScreen's
+        // SettingsCard beside it, on all eleven modes. The probe and
+        // SettingsCard must name the same token.
         auto *surface = find(QStringLiteral("trustCardSurface"));
         auto *chain = find(QStringLiteral("trustChainPanel"));
         QVERIFY(surface);
@@ -478,10 +411,9 @@ private slots:
             QCOMPARE(surface->property("color").value<QColor>(),
                      token(QStringLiteral("tokPanel")));
             QCOMPARE(borderColor(surface), token(QStringLiteral("tokBorder")));
-            // The inner module rides the input-fill rung on every theme, so
-            // it stays a distinct surface from the card ground. The
-            // inequality guards the routing, not the SIZE of the step:
-            // Graphite's two rungs are one unit apart by design.
+            // The inner module rides the input-fill rung, so it stays distinct
+            // from the card ground. The inequality guards the routing, not the
+            // size of the step.
             QCOMPARE(chain->property("color").value<QColor>(),
                      token(QStringLiteral("tokInset")));
             QCOMPARE(borderColor(chain), token(QStringLiteral("tokBorder")));
@@ -496,27 +428,10 @@ private slots:
 
     void stormKeepsTheBrandLiterals()
     {
-        // Under Storm (theme 11) every routed role the card reads must land
-        // on its SPEC §1 literal — the routing must not quietly re-colour the
-        // brand theme on its way to fixing the other ten.
-        //
-        // Two values under Storm DID move, deliberately, and are asserted at
-        // their new values rather than hidden:
-        //   * the card fill, _stoPanel #202473 -> _stoCanvas #121655, so the
-        //     card matches the SettingsCards beside it on Storm too. 2026-09-20
-        //     moved it BACK to _stoPanel #202473 — not a revert of that
-        //     decision but the same one applied again, because the whole
-        //     SettingsCard plane moved: stormCanvas is the palette's
-        //     `background` outside Storm and so is the page, so the cards had
-        //     no fill at all on ten themes. On Storm the ladder gains a rung
-        //     it was designed with (deep page / canvas nav / panel cards) and
-        //     the card-vs-page separation rises 1.22:1 -> 1.50:1;
-        //   * the watermark, a 10%-opacity bolt -> AppTheme.stormWatermark
-        //     (12% alpha), the token IdentityCard and MemberProfilePopover
-        //     already use for the same hero-card glyph. Not asserted here —
-        //     it is an alpha on a decorative glyph, and there is no probe
-        //     that could distinguish it from the fill behind it.
-        // Everything else below is byte-identical to the deleted pin.
+        // Under Storm (theme 11) every routed role must land on its brand
+        // literal. The card fill follows the SettingsCard plane (_stoPanel
+        // #202473). The watermark alpha is not asserted: nothing can
+        // distinguish it from the fill behind it.
         setTheme(11);
         auto *surface = find(QStringLiteral("trustCardSurface"));
         auto *chain = find(QStringLiteral("trustChainPanel"));

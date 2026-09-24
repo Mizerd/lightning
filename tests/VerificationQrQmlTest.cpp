@@ -1,18 +1,17 @@
-// Show-QR verification panel, rendered against the REAL SettingsScreen
+// Show-QR verification panel, rendered against the real SettingsScreen
 // verification card (section "sessions") with a real AppController on the
 // Rust backend. Pins:
 //   * the panel appears only while the SDK has a live code for this flow;
-//   * the QR image binds to the opaque provider URL — never a flow id;
+//   * the QR image binds to the opaque provider URL, never a flow id;
 //   * the confirm prompt appears only after the SDK reports the scan, and
 //     its buttons are the new invocable and the existing cancel;
 //   * the panel disappears on dismissal (the SAS fallback) and on every
-//     terminal state, so no scannable code is ever left on screen;
+//     terminal state, so no scannable code is left on screen;
 //   * the accessible name for the image is present;
 //   * loading and driving all of it produces zero QML warnings.
 //
-// HONEST SCOPE: this proves wiring and presentation only. A real phone
-// scanning the code, the reciprocate handshake, and Element / Element X
-// interoperability are NOT exercised here and are NOT TESTED.
+// Wiring and presentation only: a real phone scan, the reciprocate handshake
+// and Element interoperability are not exercised here.
 
 #include "app/AppController.h"
 #include "crypto/QrImageProvider.h"
@@ -33,15 +32,10 @@
 
 namespace {
 
-// v0.7.x: the verification FLOW (status line, QR panel, emoji, buttons)
-// moved out of the Settings page and into the shared focused modal declared
-// once in Main.qml — a two-device emoji comparison buried at the bottom of a
-// scrolled settings page could put the emojis off-screen at the moment they
-// mattered. The panel itself is unchanged, so this scene keeps SettingsScreen
-// (the section this surface belongs to, and the source of the Verify entry
-// point) and adds the dialog beside it, exactly as the real shell does. The
-// dialog opens itself off AppController's verification state, so nothing here
-// has to drive its visibility by hand.
+// The verification flow lives in the shared modal declared in Main.qml, so
+// this scene holds SettingsScreen (the Verify entry point) and the dialog
+// beside it, as the real shell does. The dialog opens itself off
+// AppController's verification state.
 const char *kScene = R"QML(
 import QtQuick
 import QtQuick.Controls
@@ -120,9 +114,8 @@ private slots:
                 });
         m_engine->rootContext()->setContextProperty(QStringLiteral("app"),
                                                     m_controller);
-        // Register the SAME provider main.cpp does, against the SAME store
-        // the controller fills, so this exercises the whole path — grid ->
-        // store -> provider URL -> rendered image — rather than a stub.
+        // Register the same provider main.cpp does, against the same store the
+        // controller fills: grid -> store -> provider URL -> rendered image.
         m_engine->addImageProvider(QStringLiteral("lightning-qr"),
                                    new QrImageProvider(
                                        m_controller->qrCodeStore()));
@@ -155,8 +148,7 @@ private slots:
         // Nothing in flight: the whole card is hidden, so the panel is too.
         QVERIFY(!panel->isVisible());
 
-        // A live flow WITHOUT a code still shows no QR panel — the SAS-only
-        // presentation must be untouched by this change.
+        // A live flow without a code still shows no QR panel.
         Q_EMIT rust()->verificationRequestStarted(
             QStringLiteral("flow-qml-1"), QStringLiteral("@self:example.org"),
             true);
@@ -191,9 +183,7 @@ private slots:
         QCOMPARE(image->property("cache").toBool(), false);
 
         // The provider actually served a code: the Image reached Ready
-        // (Image.Ready == 1) with a real, whole-module bitmap behind it.
-        // A panel that renders a broken-image icon would otherwise satisfy
-        // every visibility assertion above.
+        // (Image.Ready == 1) with a real bitmap behind it.
         QTRY_COMPARE(image->property("status").toInt(), 1);
         const int rendered = image->property("implicitWidth").toInt();
         QVERIFY2(rendered > 0, "the QR provider returned no image");
@@ -241,7 +231,7 @@ private slots:
         QVERIFY(reject && reject->isVisible());
         QVERIFY(confirm->property("enabled").toBool());
 
-        // The prompt asks about the OTHER device's report — it never claims
+        // The prompt asks about the other device's report; it never claims
         // the verification succeeded.
         auto *status = item("verificationStatusLabel");
         QVERIFY(status);

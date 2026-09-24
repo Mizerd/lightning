@@ -1,14 +1,9 @@
-// 2026-08-18 round 3: the REAL WebRTC handshake, no mocks. Two
-// GstCallMediaBackend instances in one process — one offers, one answers —
-// exchange SDP and trickled ICE candidates exactly the way CallController
-// wires them across Matrix, and must reach CONNECTED: a genuine ICE
-// negotiation over loopback host candidates plus a genuine DTLS-SRTP
-// handshake with Opus RTP flowing (test-tone mode: audiotestsrc/fakesink,
-// so no audio device is needed and CI can run this headless).
-//
-// If the runtime element probe fails (a tree without the GStreamer plugins)
-// the suite SKIPs rather than fails: absence of the engine is a supported
-// configuration, not a defect.
+// The real WebRTC handshake, no mocks: two GstCallMediaBackend instances in
+// one process exchange SDP and trickled ICE as CallController wires them over
+// Matrix, and must reach CONNECTED over loopback host candidates with
+// DTLS-SRTP and Opus RTP flowing (test-tone mode, so no audio device is
+// needed). Without the GStreamer plugins the suite skips: an absent engine is
+// a supported configuration.
 #include <QtTest/QtTest>
 
 #include <QSignalSpy>
@@ -30,34 +25,17 @@ private Q_SLOTS:
 
     void runtimeProbeIsStable()
     {
-        // Second call answers from the cached init; must agree.
+        // A second call answers from the cached init and must agree.
         QVERIFY(GstCallMediaBackend::runtimeAvailable());
     }
 
-    /// A PROMISE CHANGE FUNCTION OUTLIVES ITS OWN CONTEXT.
-    ///
-    /// Every create-offer / create-answer / set-remote-description promise
-    /// this backend makes carries a heap context (the backend, a reference
-    /// on the webrtcbin, and the call id as a QString) with `promiseCtxFree`
-    /// as the promise's DESTROY NOTIFY. A destroy notify runs when the
-    /// promise is finalized — and the `gst_promise_unref()` inside the
-    /// change function itself can be the reference that finalizes it, which
-    /// is what happens when webrtcbin replies with an error instead of a
-    /// description. All four change functions read `ctx->backend`,
-    /// `ctx->webrtc` and (in onRemoteOfferSet) the QString `ctx->callId`
-    /// BELOW that unref, i.e. after the context had been deleted and the
-    /// QString destroyed.
-    ///
-    /// WHAT THIS CASE PROVES, AND WHAT IT CANNOT. It pins the precondition
-    /// exactly: after the reply the only reference left on the element the
-    /// context pinned is this test's own, so the context really was
-    /// destroyed synchronously inside the change function. The reads
-    /// themselves are UNDEFINED BEHAVIOUR, and undefined behaviour of this
-    /// shape "passes" without a sanitizer — freed memory usually still holds
-    /// the bytes that were there. So this case does NOT go red on the
-    /// unfixed tree; only ASan does. It exists so that the ordering the fix
-    /// relies on cannot be quietly undone by someone who believes the unref
-    /// is harmless here.
+    /// A promise change function must not touch its context after the
+    /// `gst_promise_unref()` that can finalize the promise (whose destroy
+    /// notify, `promiseCtxFree`, deletes the context), as when webrtcbin
+    /// replies with an error. This pins the precondition: after the reply the
+    /// test holds the only reference on the element, so the context was
+    /// destroyed synchronously. The use-after-free itself is only visible
+    /// under ASan; this case guards the ordering the fix relies on.
     void aPromiseChangeFunctionOutlivesItsOwnContext()
     {
         const int refs =
@@ -85,7 +63,7 @@ private Q_SLOTS:
         bool calleeConnected = false;
         QString failureCategory;
 
-        // Cross the signaling exactly as CallController does over Matrix.
+        // Cross the signalling as CallController does over Matrix.
         bool sawAudioOffer = false;
         bool sawAudioAnswer = false;
         connect(&caller, &CallMediaBackend::offerReady, &callee,
@@ -139,8 +117,7 @@ private Q_SLOTS:
         QVERIFY(sawAudioOffer);
         QVERIFY(sawAudioAnswer);
 
-        // Tear down cleanly; a second call on the same engines must work
-        // (session state fully recycles).
+        // Tear down cleanly; a second call on the same engines must work.
         caller.close(callId);
         callee.close(callId);
 
@@ -168,7 +145,7 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(failed.count() >= 1, 10000);
         QCOMPARE(failed.first().at(1).toString(),
                  QStringLiteral("bad_remote_offer"));
-        // The engine recovered: a fresh offer session still starts.
+        // The engine recovered: a fresh offer session starts.
         bool offered = false;
         connect(&engine, &CallMediaBackend::offerReady, this,
                 [&](const QString &, const QString &) { offered = true; });

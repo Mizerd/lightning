@@ -1,19 +1,14 @@
-// MatrixRTC observation (2026-08-23): RtcController's session store,
-// poke coalescing, generation isolation and join-block honesty.
+// RtcController's MatrixRTC session store: poke coalescing, generation
+// isolation and join-block reasons.
 //
-// What this suite is really defending:
-//
-//  * A room's participant count is what the UI counts on. It must come from
-//    a reply we ASKED for, for the room we asked about, under the account we
-//    asked under — a late reply from a previous account writing into the
-//    current one is the generation-isolation defect §9 exists to prevent.
-//  * A poke burst (a group call filling up rewrites many state events in a
-//    row) must collapse into ONE read, and must not LOSE a change that
+//  * A participant count comes only from a reply we asked for, for that room,
+//    under the current account; a late reply from a previous account must not
+//    write into the current one.
+//  * A burst of pokes collapses into one read without losing a change that
 //    arrived while a read was in flight.
-//  * "Cannot join" has several distinct causes and the UI wording differs
-//    for each, so `joinBlockReason` must keep "not looked yet", "looked and
-//    the server has nothing" and "the look failed" apart.
-//  * The same person on two devices is two participants but ONE face.
+//  * `joinBlockReason` keeps "not looked yet", "server has nothing" and "the
+//    look failed" apart, since the UI wording differs.
+//  * The same person on two devices is two participants but one face.
 #include "calls/RtcController.h"
 #include "matrix/MatrixClient.h"
 
@@ -188,8 +183,8 @@ void RtcSessionTest::ignoresAReplyWeNeverAskedFor()
     RtcController controller;
     controller.setClient(&client);
 
-    // An op id nobody dispatched. Accepting it would let any stray poll
-    // event install a participant list.
+    // An op id nobody dispatched: accepting it would let a stray event install
+    // a participant list.
     Q_EMIT client.rtcSessionReceived(
         4242, sessionFor(kRoom, {person(QStringLiteral("@a:example.org"),
                                         QStringLiteral("D1"))}));
@@ -203,8 +198,7 @@ void RtcSessionTest::ignoresAReplyNamingADifferentRoom()
     controller.setClient(&client);
     controller.refresh(kRoom);
 
-    // Right op id, wrong room. Writing this would attribute one room's call
-    // to another.
+    // Right op id, wrong room: would attribute one room's call to another.
     Q_EMIT client.rtcSessionReceived(
         client.lastSessionOp,
         sessionFor(kOther, {person(QStringLiteral("@a:example.org"),
@@ -222,8 +216,7 @@ void RtcSessionTest::aReplyFromAPreviousAccountNeverLandsInTheNewOne()
     controller.refresh(kRoom);
     const quint64 staleOp = first.lastSessionOp;
 
-    // Account switch. The in-flight read belongs to the account that is
-    // going away.
+    // Account switch: the in-flight read belongs to the outgoing account.
     controller.setClient(&second);
 
     Q_EMIT first.rtcSessionReceived(
@@ -244,8 +237,7 @@ void RtcSessionTest::signOutForgetsObservedCalls()
                                   QStringLiteral("D1"))}));
     QCOMPARE(controller.participantCount(kRoom), 1);
 
-    // A participant list is other people's presence in a room this account
-    // may no longer be in; it must not survive sign-out.
+    // A participant list does not survive sign-out.
     client.logout();
     QCOMPARE(controller.participantCount(kRoom), 0);
 }
@@ -257,8 +249,7 @@ void RtcSessionTest::pokeBurstCollapsesIntoOneRead()
     controller.setClient(&client);
     controller.setPokeCoalesceMsForTest(20);
 
-    // A group call filling up rewrites one state event per joiner. Reading
-    // once per event would be pure waste.
+    // A call filling up rewrites one state event per joiner; read once.
     for (int i = 0; i < 8; ++i)
         Q_EMIT client.rtcSessionChanged(kRoom);
     QCOMPARE(client.sessionReads.count(), 0); // nothing yet — still coalescing
@@ -277,9 +268,8 @@ void RtcSessionTest::aPokeDuringAnInFlightReadIsNotLost()
     controller.refresh(kRoom); // read in flight, not yet answered
     QCOMPARE(client.sessionReads.count(), 1);
 
-    // A change arrives while that read is outstanding. The reply will carry
-    // state from BEFORE this change, so dropping the poke would leave the
-    // banner permanently stale.
+    // A change arrives while a read is outstanding; that reply predates it,
+    // so dropping the poke would leave the banner stale.
     Q_EMIT client.rtcSessionChanged(kRoom);
     QTest::qWait(40);
     QCOMPARE(client.sessionReads.count(), 1); // still blocked, correctly
@@ -302,8 +292,8 @@ void RtcSessionTest::unchangedSessionDoesNotAnnounceAChange()
                                      sessionFor(kRoom, people));
     QSignalSpy changed(&controller, &RtcController::sessionChanged);
 
-    // Re-reading identical state must not re-render every banner and
-    // facepile in the app.
+    // Re-reading identical state does not re-render every banner and
+    // facepile.
     controller.refresh(kRoom);
     Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
                                      sessionFor(kRoom, people));
@@ -324,8 +314,8 @@ void RtcSessionTest::slotClosedHidesTheSessionEntirely()
     data.slotClosed = true;
     Q_EMIT client.rtcSessionReceived(client.lastSessionOp, data);
 
-    // An explicitly closed slot means the call is over even though stale
-    // memberships linger, so nothing about it may be presented as live.
+    // An explicitly closed slot means the call is over despite lingering
+    // memberships.
     QCOMPARE(controller.participantCount(kRoom), 0);
     QVERIFY(!controller.hasLiveSession(kRoom));
     QVERIFY(controller.participants(kRoom).isEmpty());
@@ -340,8 +330,8 @@ void RtcSessionTest::ownDeviceIsDistinctFromOwnUser()
     controller.setClient(&client);
     controller.refresh(kRoom);
 
-    // The local ACCOUNT is in the call, but from a different device. "Am I
-    // in this call?" must not answer yes for this device.
+    // The local account is in the call from a different device, so "am I in
+    // this call?" is no for this device.
     Q_EMIT client.rtcSessionReceived(
         client.lastSessionOp,
         sessionFor(kRoom, {person(QStringLiteral("@me:example.org"),
@@ -368,10 +358,9 @@ void RtcSessionTest::oneFacePerPersonAcrossDevices()
                     person(QStringLiteral("@b:example.org"),
                            QStringLiteral("D1"), 3000)}));
 
-    // Three participant DEVICES...
+    // Three participant devices...
     QCOMPARE(controller.participantCount(kRoom), 3);
-    // ...but two people, and a facepile showing the same avatar twice with
-    // no explanation reads as a bug.
+    // ...but two people, and two faces.
     QCOMPARE(controller.participantUserIds(kRoom).count(), 2);
     QCOMPARE(controller.participantFaces(kRoom).count(), 2);
 }
@@ -381,8 +370,8 @@ void RtcSessionTest::joinBlockKeepsItsCausesApart()
     FakeClient client;
     RtcController controller;
     controller.setClient(&client);
-    // This case is about TRANSPORT causes; say the room is unencrypted so
-    // the (correct) encryption gate does not mask them.
+    // Transport causes only: mark the room unencrypted so the encryption gate
+    // does not mask them.
     controller.setRoomEncrypted(kRoom, false);
 
     // Nothing looked yet: "checking", not "unavailable".
@@ -391,16 +380,9 @@ void RtcSessionTest::joinBlockKeepsItsCausesApart()
     QVERIFY(controller.discoveryWorthRetrying());
 
     // The server answered and named nothing: this homeserver has no
-    // MatrixRTC. Different wording from a failed check.
-    //
-    // THE PAIR (answered = true, category = "unsupported") IS THE ONE RUST
-    // REALLY SENDS, and until this round it was not: `server_answered` was
-    // spelled `category.is_empty()`, so a definitive 404 crossed as
-    // "not answered" and this fixture was exercising a combination
-    // production could never produce. `rtc.rs` now routes it through
-    // `discovery_answer_is_definitive`, which counts an empty category AND
-    // `unsupported` as answers and nothing else — pinned there by
-    // `a_homeserver_without_matrixrtc_counts_as_having_answered`.
+    // MatrixRTC, worded differently from a failed check. (answered = true,
+    // category = "unsupported") is what Rust sends for a definitive 404; see
+    // rtc.rs discovery_answer_is_definitive.
     controller.discover(kRoom);
     Q_EMIT client.rtcTransportsReceived(client.lastTransportsOp, true,
                                         QStringLiteral("unsupported"), {},
@@ -408,16 +390,14 @@ void RtcSessionTest::joinBlockKeepsItsCausesApart()
     QCOMPARE(controller.joinBlockReason(kRoom),
              QStringLiteral("no_transport"));
     QVERIFY(!controller.callingAvailable());
-    // ...and that settles it for the session. `discoveryWorthRetrying()` is
-    // what the automatic room-change trigger consults, so a server that has
-    // answered must stop it: re-asking is a poll against a constant, once
-    // per room change, for as long as the client runs.
+    // A server that answered stops the automatic re-check
+    // (discoveryWorthRetrying()), which would otherwise run on every room
+    // change.
     QVERIFY2(!controller.discoveryWorthRetrying(),
              "a homeserver that answered \"no MatrixRTC here\" is still "
              "re-asked on every room change");
 
-    // The check itself failed: we do not know, and must not claim the
-    // server lacks calling — and this one IS worth asking again.
+    // The check itself failed: unknown, not "no calling", and worth retrying.
     controller.discover(kRoom);
     Q_EMIT client.rtcTransportsReceived(client.lastTransportsOp, false,
                                         QStringLiteral("network"), {},
@@ -426,40 +406,34 @@ void RtcSessionTest::joinBlockKeepsItsCausesApart()
              QStringLiteral("discovery_failed"));
     QVERIFY(controller.discoveryWorthRetrying());
 
-    // A transport exists. Everything Matrix-side is fine, so the remaining
-    // blocker is this build's missing media transport — and that is a
-    // different sentence to the user than "your server has no calling".
+    // A transport exists; the remaining blocker is this build's missing media
+    // transport, a different sentence from "your server has no calling".
     controller.discover(kRoom);
     Q_EMIT client.rtcTransportsReceived(
         client.lastTransportsOp, true, QString(),
         QStringList{QStringLiteral("https://sfu.example.org/")}, QString());
-    // A transport exists but this run has no SFU media engine, so joining
-    // would publish a membership no peer could connect to.
+    // Without an SFU media engine, joining would publish a membership no peer
+    // could connect to.
     QCOMPARE(controller.joinBlockReason(kRoom),
              QStringLiteral("no_media_transport"));
     QVERIFY(controller.callingAvailable());
 
-    // With an engine, the call is genuinely joinable — and this is the ONLY
-    // path to an empty reason, so a Join button can never light up while any
-    // blocker remains.
+    // With an engine the call is joinable; this is the only path to an empty
+    // reason.
     controller.setMediaAvailable(true);
     QVERIFY(controller.joinBlockReason(kRoom).isEmpty());
     QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
 
-    // AND THE ROOM'S OWN POWER LEVELS. A room with default levels puts state
-    // events at 50, so an ordinary member cannot write the call membership
-    // at all — which used to be discovered only when the publish came back
-    // refused. Blocked before the click now, with its own reason.
+    // The room's power levels: with default levels an ordinary member cannot
+    // write the call membership, so joining is blocked up front with its own
+    // reason.
     controller.setCanPublishMembership(kRoom, false);
     QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::NoPermission);
     QCOMPARE(controller.joinBlockReason(kRoom), QStringLiteral("no_permission"));
 
-    // UNKNOWN IS NOT REFUSED. A room whose capability has not been reported
-    // must keep the button live: the server is still the authority, and
-    // disabling it on a guess would take calling away from anyone whose
-    // snapshot has not landed yet. (Opposite default to the encryption
-    // gate above, and deliberately so — that one fails safe by refusing,
-    // this one fails safe by letting the server answer.)
+    // Unknown capability is not a refusal: the button stays live and the
+    // server decides (unlike the encryption gate, which fails safe by
+    // refusing).
     controller.setCanPublishMembership(kRoom, true);
     QVERIFY(controller.joinBlockReason(kRoom).isEmpty());
     RtcController fresh;
@@ -488,8 +462,8 @@ void RtcSessionTest::unsupportedBackendDoesNothingAtAll()
     controller.discover(kRoom);
     Q_EMIT client.rtcSessionChanged(kRoom);
 
-    // No reads, no discovery, and an honest reason — the mock and HTTP
-    // backends must not appear to support calling.
+    // No reads, no discovery, and an honest reason: mock and HTTP backends do
+    // not appear to support calling.
     QVERIFY(client.sessionReads.isEmpty());
     QVERIFY(client.transportRooms.isEmpty());
     QVERIFY(!controller.supported());
@@ -503,9 +477,9 @@ void RtcSessionTest::availabilityNeedsAPositiveTransport()
     RtcController controller;
     controller.setClient(&client);
 
-    // Availability is a POSITIVE fact. Before any answer it is false, and a
-    // participant-advertised focus alone is enough to make it true (that is
-    // how a server without the MSC4143 endpoint still supports calling).
+    // Availability is a positive fact: false before any answer, and a
+    // participant-advertised focus alone makes it true (servers without the
+    // MSC4143 endpoint still support calling).
     QVERIFY(!controller.callingAvailable());
     controller.discover(kRoom);
     Q_EMIT client.rtcTransportsReceived(
@@ -517,11 +491,9 @@ void RtcSessionTest::availabilityNeedsAPositiveTransport()
 
 void RtcSessionTest::anUnansweredReadReleasesItsRoom()
 {
-    // The Rust event queue DROPS the oldest event on overflow, so a reply
-    // can legitimately never arrive. Before the fix that left the room in
-    // m_roomsBeingRead forever — permanently un-refreshable — while
-    // flushPokes re-armed its 250 ms timer every tick for the rest of the
-    // session.
+    // The Rust event queue drops the oldest event on overflow, so a reply may
+    // never arrive; the read times out rather than leaving the room
+    // permanently un-refreshable.
     FakeClient client;
     RtcController controller;
     controller.setClient(&client);
@@ -530,11 +502,11 @@ void RtcSessionTest::anUnansweredReadReleasesItsRoom()
     controller.refresh(kRoom);
     QCOMPARE(client.sessionReads.count(), 1);
 
-    // No reply ever arrives. A second read is correctly suppressed...
+    // No reply ever arrives; a second read is suppressed...
     controller.refresh(kRoom);
     QCOMPARE(client.sessionReads.count(), 1);
 
-    // ...until the read times out, after which the room is retryable again.
+    // ...until the read times out.
     QTest::qWait(60);
     controller.refresh(kRoom);
     QCOMPARE(client.sessionReads.count(), 2);
@@ -542,12 +514,9 @@ void RtcSessionTest::anUnansweredReadReleasesItsRoom()
 
 void RtcSessionTest::aReplacedClientsLateReplyCannotBeDelivered()
 {
-    // Op ids come from a PER-CLIENT counter, so a replacement client
-    // restarts at 1 and its ids collide with the outgoing one's. What keeps
-    // the accounts apart is that setClient DISCONNECTS the previous client,
-    // so its late reply is never delivered at all — deliberately not a
-    // version counter, which could not discriminate a colliding id anyway
-    // (the reply carries no account identity). See RtcController.h.
+    // Op ids come from a per-client counter, so a replacement client's ids
+    // collide with the old one's. setClient disconnects the previous client,
+    // so its late reply is never delivered (see RtcController.h).
     FakeClient first;
     FakeClient second;
     RtcController controller;
@@ -556,17 +525,17 @@ void RtcSessionTest::aReplacedClientsLateReplyCannotBeDelivered()
     const quint64 staleOp = first.lastSessionOp;
 
     controller.setClient(&second);
-    // The new client hands out the SAME op id for its own first read.
+    // The new client hands out the same op id for its first read.
     controller.refresh(kRoom);
     QCOMPARE(second.lastSessionOp, staleOp);
 
-    // The OLD client's reply, carrying that id, must be refused.
+    // The old client's reply with that id is refused.
     Q_EMIT first.rtcSessionReceived(
         staleOp, sessionFor(kRoom, {person(QStringLiteral("@ghost:example.org"),
                                            QStringLiteral("D1"))}));
     QCOMPARE(controller.participantCount(kRoom), 0);
 
-    // The NEW client's reply for the same id is accepted.
+    // The new client's reply for the same id is accepted.
     Q_EMIT second.rtcSessionReceived(
         second.lastSessionOp,
         sessionFor(kRoom, {person(QStringLiteral("@real:example.org"),
@@ -576,14 +545,12 @@ void RtcSessionTest::aReplacedClientsLateReplyCannotBeDelivered()
 
 void RtcSessionTest::oneRoomsFocusDoesNotDecideAnothers()
 {
-    // A focus advertised by ROOM A's participants says nothing about room
-    // B. Consulting it account-globally let one room's SFU decide another
-    // room's join-block wording.
+    // A focus advertised by room A's participants says nothing about room B.
     FakeClient client;
     RtcController controller;
     controller.setClient(&client);
-    // About focus SCOPING; both rooms unencrypted so the encryption gate
-    // does not mask the transport answer.
+    // Both rooms unencrypted, so the encryption gate does not mask the
+    // transport answer.
     controller.setRoomEncrypted(kRoom, false);
     controller.setRoomEncrypted(kOther, false);
 
@@ -595,26 +562,16 @@ void RtcSessionTest::oneRoomsFocusDoesNotDecideAnothers()
     // Room A has a reachable transport...
     QCOMPARE(controller.joinBlockReason(kRoom),
              QStringLiteral("no_media_transport"));
-    // ...room B does not, and must say so.
+    // ...room B does not, and says so.
     QCOMPARE(controller.joinBlockReason(kOther),
              QStringLiteral("no_transport"));
 }
 
 void RtcSessionTest::aSessionThatNamesAFocusIsJoinableWithoutDiscovery()
 {
-    // THE user-reported defect (2026-08-23): a room showing "3 people in
-    // call" whose Join reported "Couldn't check whether calling is
-    // available", while the same call worked in Element.
-    //
-    // The memberships plainly carried a focus — the banner counted them — but
-    // the join gate consulted only the account-scoped discovery and a
-    // per-room participant fallback that was fetched exactly ONCE, on the
-    // initial-sync edge, for whatever room was open then, which is none. So
-    // on any homeserver without the MSC4143 endpoint (nearly all of them)
-    // joining was impossible in every room, always.
-    //
-    // A session that names a focus is a reachable transport, full stop, and
-    // it must not depend on discovery having answered.
+    // A session whose memberships name a focus is a reachable transport,
+    // regardless of discovery: most homeservers lack the MSC4143 endpoint, and
+    // joining must still work where the call is visible.
     FakeClient client;
     RtcController controller;
     controller.setClient(&client);
@@ -622,7 +579,7 @@ void RtcSessionTest::aSessionThatNamesAFocusIsJoinableWithoutDiscovery()
     controller.setMediaAvailable(true);
     controller.setMediaEncryptionAvailable(true);
 
-    // Nothing discovered, and nothing ever will be: no MSC4143 here.
+    // Nothing discovered, and nothing ever will be (no MSC4143 here).
     QCOMPARE(controller.joinBlockReason(kRoom),
              QStringLiteral("undiscovered"));
 
@@ -638,12 +595,10 @@ void RtcSessionTest::aSessionThatNamesAFocusIsJoinableWithoutDiscovery()
                             .arg(controller.joinBlockReason(kRoom))));
     QCOMPARE(controller.focusUrlFor(kRoom),
              QStringLiteral("https://sfu.example.org/"));
-    // And it counts as availability without a discovery round trip.
+    // It counts as availability without a discovery round trip.
     QVERIFY(controller.callingAvailable());
 
-    // A FAILED discovery must not undo it. This is the exact state the user
-    // was in: discovery ran, did not answer, and the gate then reported
-    // "couldn't check" for a call it could see and had a focus for.
+    // A failed discovery does not undo it.
     controller.discover(kRoom);
     Q_EMIT client.rtcTransportsReceived(client.lastTransportsOp, false,
                                         QStringLiteral("network"), {},
@@ -656,12 +611,9 @@ void RtcSessionTest::aSessionThatNamesAFocusIsJoinableWithoutDiscovery()
 
 void RtcSessionTest::anExistingSessionsFocusOutranksOurOwnHomeserver()
 {
-    // Order, not just presence. When a call is already running its
-    // participants are on the focus the oldest membership named; picking our
-    // own homeserver's SFU instead would put us alone on a different server
-    // while the room says people are in the call. The reference
-    // implementation resolves it the same way, and that agreement is what
-    // keeps Lightning and Element in ONE call.
+    // With a call running, use the focus the oldest membership named, not our
+    // own homeserver's SFU, so everyone ends up in one call (as the reference
+    // implementation does).
     FakeClient client;
     RtcController controller;
     controller.setClient(&client);
@@ -671,8 +623,7 @@ void RtcSessionTest::anExistingSessionsFocusOutranksOurOwnHomeserver()
     Q_EMIT client.rtcTransportsReceived(
         client.lastTransportsOp, true, QString(),
         QStringList{QStringLiteral("https://ours.example.org/")}, QString());
-    // With no session, our own server is the right answer: this is the
-    // START-a-call case, where there is nobody to agree with yet.
+    // With no session, our own server is right: starting a call.
     QCOMPARE(controller.focusUrlFor(kRoom),
              QStringLiteral("https://ours.example.org/"));
 
@@ -686,8 +637,7 @@ void RtcSessionTest::anExistingSessionsFocusOutranksOurOwnHomeserver()
     QCOMPARE(controller.focusUrlFor(kRoom),
              QStringLiteral("https://theirs.example.org/"));
 
-    // A CLOSED slot is not a session to agree with, so our own server comes
-    // back — the call it named is over.
+    // A closed slot is not a session to agree with.
     RtcSessionData closed = session;
     closed.slotClosed = true;
     controller.refresh(kRoom);
@@ -698,10 +648,8 @@ void RtcSessionTest::anExistingSessionsFocusOutranksOurOwnHomeserver()
 
 void RtcSessionTest::mediaKeyTargetsAddressEveryOtherDeviceAndNotOurOwn()
 {
-    // The media key is an Olm-encrypted to-device message, so it is
-    // addressed per DEVICE. Two properties matter and both are silent when
-    // wrong: a device we omit cannot decrypt our audio at all, and our own
-    // device does not need a copy of a key it just generated.
+    // Media key targets are per device (Olm to-device): every other device
+    // needs one, and our own device does not.
     FakeClient client;
     RtcController controller;
     controller.setClient(&client);
@@ -724,10 +672,8 @@ void RtcSessionTest::mediaKeyTargetsAddressEveryOtherDeviceAndNotOurOwn()
             controller.mediaKeyTargetsJson(kRoom).toUtf8()).array();
     QCOMPARE(targets.size(), 2);
 
-    // Our OWN device is absent; our own account on a SECOND device is not —
-    // that device is a separate Olm session and needs the key like anyone
-    // else. Excluding by user id instead of by device would silently
-    // deafen the user's own laptop.
+    // Our own device is absent; our account's second device is present, since
+    // it is a separate Olm session.
     QSet<QString> pairs;
     for (const QJsonValue &value : targets) {
         pairs.insert(value.toObject().value(QStringLiteral("user_id"))
@@ -743,9 +689,8 @@ void RtcSessionTest::mediaKeyTargetsAddressEveryOtherDeviceAndNotOurOwn()
 
 void RtcSessionTest::mediaKeyTargetsAreEmptyForARoomWithNoSession()
 {
-    // A well-formed empty list, never a malformed string: the Rust side
-    // parses this and fails the whole send on invalid JSON, so "nobody to
-    // tell" must still be valid JSON rather than an empty QString.
+    // An empty target list is still valid JSON: the Rust side fails the whole
+    // send on invalid JSON.
     FakeClient client;
     RtcController controller;
     controller.setClient(&client);
@@ -758,10 +703,8 @@ void RtcSessionTest::mediaKeyTargetsAreEmptyForARoomWithNoSession()
 
 void RtcSessionTest::anEncryptedRoomRefusesWithoutMediaEncryption()
 {
-    // §6: a call in an end-to-end encrypted room must FAIL SAFELY rather
-    // than publish media the SFU can read. The user was told that room is
-    // encrypted; quietly carrying their audio in the clear because the
-    // frame cryptor is not wired yet would make that a lie.
+    // A call in an end-to-end encrypted room fails safely rather than
+    // publishing media the SFU can read.
     FakeClient client;
     RtcController controller;
     controller.setClient(&client);
@@ -775,25 +718,22 @@ void RtcSessionTest::anEncryptedRoomRefusesWithoutMediaEncryption()
     QCOMPARE(controller.joinBlockReason(kRoom),
              QStringLiteral("no_media_transport"));
 
-    // Encrypted room, media E2EE not active: a DIFFERENT and more important
-    // refusal, and it must be the one reported.
+    // Encrypted room without media E2EE: a different, more important refusal,
+    // and the one reported.
     controller.setRoomEncrypted(kRoom, true);
     QCOMPARE(controller.joinBlockReason(kRoom),
              QStringLiteral("media_encryption_unavailable"));
 
-    // With media E2EE active the encryption objection lifts, leaving only
-    // the ordinary transport blocker.
+    // With media E2EE active only the transport blocker remains.
     controller.setMediaEncryptionAvailable(true);
     QCOMPARE(controller.joinBlockReason(kRoom),
              QStringLiteral("no_media_transport"));
-    // ...and with an engine as well, an encrypted room becomes joinable.
+    // ...and with an engine an encrypted room is joinable.
     controller.setMediaAvailable(true);
     QVERIFY(controller.joinBlockReason(kRoom).isEmpty());
 
-    // A room we were never told about defaults to ENCRYPTED. A boolean
-    // cannot say "unknown", and the safe answer to "might this be
-    // encrypted?" is yes — assuming unencrypted would be exactly the
-    // silent downgrade the gate exists to prevent.
+    // A room never reported defaults to encrypted: a boolean cannot say
+    // "unknown", and assuming unencrypted would be a silent downgrade.
     RtcController fresh;
     FakeClient freshClient;
     fresh.setClient(&freshClient);
@@ -803,25 +743,16 @@ void RtcSessionTest::anEncryptedRoomRefusesWithoutMediaEncryption()
         QStringList{QStringLiteral("https://sfu.example.org/")}, QString());
     QCOMPARE(fresh.joinBlockReason(kOther),
              QStringLiteral("media_encryption_unavailable"));
-    // Even with media available: encryption is checked FIRST, because it is
-    // the objection that matters to the user.
+    // Encryption is checked first, even with media available.
     fresh.setMediaAvailable(true);
     QCOMPARE(fresh.joinBlockReason(kOther),
              QStringLiteral("media_encryption_unavailable"));
 }
 
 
-// ---------------------------------------------------------------------------
-// Server-backed reads (GitHub issue #10)
-//
-// The SFU only lists a participant who authenticated as a real Matrix
-// identity, so "the SFU reports somebody no membership accounts for" is
-// evidence that OUR view of the room's state is incomplete, not that they
-// have not published. Before this existed there was no route back from that
-// state: the key lane re-ran its resolution every tick against the same
-// stale answer, the peer stayed a question mark, and every frame they sent
-// was dropped for want of a key that could not be addressed to them.
-// ---------------------------------------------------------------------------
+// Server-backed reads. The SFU only lists participants who authenticated as
+// real Matrix identities, so one that no membership accounts for means our
+// local state is incomplete; a forced /state read is the way back.
 
 void RtcSessionTest::anOrdinaryRefreshTrustsTheLocalStore()
 {
@@ -851,8 +782,7 @@ void RtcSessionTest::aForcedRefreshIsRateLimitedPerRoom()
     controller.setClient(&client);
     controller.setServerReadCooldownMsForTest(60000);
 
-    // Every participant update and every media key re-runs the resolution,
-    // so the trigger fires in bursts. One `/state` request per burst.
+    // The trigger fires in bursts; one /state request per burst.
     controller.refreshFromServer(kRoom);
     Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
                                      sessionFor(kRoom, {}));
@@ -860,7 +790,7 @@ void RtcSessionTest::aForcedRefreshIsRateLimitedPerRoom()
     controller.refreshFromServer(kRoom);
     QCOMPARE(client.sessionReads.count(), 1);
 
-    // ...and a different room is a different question.
+    // ...and a different room is a separate question.
     controller.refreshFromServer(QStringLiteral("!other:example.org"));
     QCOMPARE(client.sessionReads.count(), 2);
     QCOMPARE(client.sessionReadPreferredServer.last(), true);
@@ -881,9 +811,8 @@ void RtcSessionTest::aForcedRefreshDuringAnInFlightReadIsNotLost()
     controller.setClient(&client);
     controller.setPokeCoalesceMsForTest(10);
 
-    // A store-backed read is already outstanding. Its reply will carry the
-    // very answer that prompted the forced read, so being folded into it
-    // would leave the peer unnamed for another whole cycle.
+    // A store-backed read is outstanding, but its reply carries the answer
+    // that prompted the forced read, so the forced read is not folded into it.
     controller.refresh(kRoom);
     QCOMPARE(client.sessionReads.count(), 1);
     QCOMPARE(client.sessionReadPreferredServer.first(), false);
@@ -907,8 +836,7 @@ void RtcSessionTest::aNewAccountMayForceAReadImmediately()
     controller.refreshFromServer(kRoom);
     QCOMPARE(client.sessionReads.count(), 1);
 
-    // The cooldown paced the PREVIOUS account's reads. Carrying it forward
-    // would silence the first question the new one asks.
+    // The cooldown is per account; it does not carry over to the next one.
     client.logout();
     controller.refreshFromServer(kRoom);
     QCOMPARE(client.sessionReads.count(), 2);
@@ -920,13 +848,11 @@ void RtcSessionTest::aForcedReadThatChangesNothingBacksOff()
     FakeClient client;
     RtcController controller;
     controller.setClient(&client);
-    // 1 ms base, so the doubling is what the test measures rather than the
-    // wall clock: 1, 2, 4, 8 ... and a QTest::qWait covers the early rungs.
+    // 1 ms base, so the doubling is what is measured: 1, 2, 4, 8...
     controller.setServerReadCooldownMsForTest(1);
 
-    // A participant this build can never name — the SFU keeps reporting
-    // them and no membership will ever account for them — must not cost a
-    // /state request every tick for the length of the call.
+    // A participant no membership will ever account for does not cost a
+    // /state request every tick for the whole call.
     for (int i = 0; i < 12; ++i) {
         controller.refreshFromServer(kRoom);
         if (client.lastSessionOp != 0) {
@@ -935,8 +861,7 @@ void RtcSessionTest::aForcedReadThatChangesNothingBacksOff()
         }
         QTest::qWait(4);
     }
-    // Without the backoff every iteration would dispatch: the 4 ms wait is
-    // longer than the 1 ms base cooldown.
+    // Without backoff every iteration would dispatch (4 ms wait > 1 ms base).
     QVERIFY2(client.sessionReads.count() < 12,
              qPrintable(QStringLiteral("every forced read dispatched (%1)")
                             .arg(client.sessionReads.count())));
@@ -948,13 +873,12 @@ void RtcSessionTest::aForcedReadThatFoundSomebodyRestoresFullSpeed()
     FakeClient client;
     RtcController controller;
     controller.setClient(&client);
-    // 50 ms base, so the grown gap (200 ms after two fruitless reads) is
-    // unambiguously longer than the 80 ms this test then waits, and the
-    // reset gap (50 ms) is unambiguously shorter.
+    // 50 ms base: the grown gap (200 ms after two fruitless reads) is longer
+    // than the 80 ms wait, and the reset gap (50 ms) shorter.
     controller.setServerReadCooldownMsForTest(50);
 
-    // Two forced reads that changed nothing, each waited past its own
-    // cooldown, so the gap has doubled twice.
+    // Two fruitless forced reads, each past its cooldown: the gap doubled
+    // twice.
     controller.refreshFromServer(kRoom);
     Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
                                      sessionFor(kRoom, {}));
@@ -964,9 +888,7 @@ void RtcSessionTest::aForcedReadThatFoundSomebodyRestoresFullSpeed()
                                      sessionFor(kRoom, {}));
     QCOMPARE(client.sessionReads.count(), 2);
 
-    // ...and now a read comes back with the peer in it. The escalating gap
-    // is for the case where asking again cannot help; this is the proof
-    // that it can, so the next question must be asked at full speed.
+    // A read that finds the peer resets the backoff.
     controller.refresh(kRoom);
     Q_EMIT client.rtcSessionReceived(
         client.lastSessionOp,

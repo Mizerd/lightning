@@ -1,13 +1,12 @@
-// v0.6.0 checkpoint 11: the pure notification decision policy — privacy
-// modes, mention handling, local per-room modes, active-room suppression,
-// and the never-expose-ciphertext contract. No DBus, no homeserver.
+// The pure notification decision policy: privacy modes, mention handling,
+// per-room modes, active-room suppression, and never exposing ciphertext. No
+// DBus, no homeserver.
 
 #include "notifications/NotificationManager.h"
 
 #include "app/TrayIcon.h"
-// threadTimelineId() and friends are static inline in this header, so the
-// cases below build a REAL composite timeline id rather than hard-coding a
-// separator that could drift away from the one the app uses.
+// threadTimelineId() is static inline in this header, so cases build a real
+// composite timeline id instead of hard-coding the separator.
 #include "matrix/MatrixClient.h"
 #include "matrix/TimelineEvent.h"
 
@@ -52,7 +51,7 @@ class NotificationManagerTest : public QObject
 
 private Q_SLOTS:
     void readingARoomWithdrawsItsGhostNotifications();
-    // 2026-09-05 notification actions.
+    // Notification actions.
     void anActionCarriesTheAccountTheCardWasRaisedFor();
     void anInlineReplyKeepsThePayloadUntilTheTextArrives();
     void anEmptyInlineReplySendsNothing();
@@ -98,7 +97,7 @@ private Q_SLOTS:
         auto context = baseContext();
         context.previewMode = NotificationManager::SenderAndMessage;
 
-        // Poll: question only — never the MSC3381 answer-list fallback.
+        // Poll: question only, never the MSC3381 answer-list fallback.
         TimelineEvent poll = incomingText(
             QStringLiteral("Best answer?\n1. Yes\n2. No\n3. Big Money"));
         poll.type = TimelineEvent::Poll;
@@ -128,7 +127,7 @@ private Q_SLOTS:
         QVERIFY(!decision.body.contains(QStringLiteral("Lightning Dev")));
     }
 
-    // Undecryptable events NEVER leak anything, even in the fullest mode.
+    // Undecryptable events never leak anything, even in the fullest mode.
     void undecryptableEventStaysGeneric()
     {
         auto context = baseContext();
@@ -184,20 +183,17 @@ private Q_SLOTS:
         QVERIFY(NotificationManager::decide(incomingText(), context).notify);
     }
 
-    // Reported from a real desktop: opening a room for the first time after
-    // a restart delivered a notification for every message it loaded. The
-    // cause is that opening a room subscribes it in sliding sync, so its
-    // recent history arrives as ordinary live appends — while the view is
-    // still hydrating, which is exactly when roomVisibleAtLatest cannot be
-    // true, because that flag requires a settled, stuck-to-bottom view.
+    // An open room that is still hydrating suppresses notifications: opening
+    // a room subscribes it in sliding sync, so its recent history arrives as
+    // live appends before the view can be "visible at latest".
     void hydratingOpenRoomSuppresses()
     {
         auto context = baseContext();
         context.roomVisibleAtLatest = false; // the view has not settled yet
         context.roomHydrating = true;
         QVERIFY(!NotificationManager::decide(incomingText(), context).notify);
-        // A mention in the room being read is suppressed on the same ground
-        // — the message is on screen the moment the view settles.
+        // A mention in the room being read is suppressed too; it is on screen
+        // once the view settles.
         TimelineEvent mention = incomingText();
         mention.mentionsMe = true;
         QVERIFY(!NotificationManager::decide(mention, context).notify);
@@ -232,14 +228,9 @@ private Q_SLOTS:
         QVERIFY(!NotificationManager::decide(incomingText(), disabled).notify);
     }
 
-    // Thread replies notify like messages; the click payload identity is the
-    // event's thread root (delivery-side contract: payload = room, event,
-    // threadRootId only — no tokens are even available to this layer).
-    // v0.6.1 (thread work): thread replies are hidden from the main timeline,
-    // but a reply still reaches the notification path through the sync-level
-    // room-message handler (real room id + m.thread root), independent of any
-    // rendered main-timeline row. It is then subject to the SAME push-rule
-    // policy as any message, and its click payload routes to the thread.
+    // Thread replies (hidden from the main timeline) reach notifications via
+    // the sync-level handler, follow the same policy as any message, and carry
+    // the thread root in their click payload.
     void threadRepliesCarryThreadIdentity()
     {
         auto context = baseContext();
@@ -253,14 +244,15 @@ private Q_SLOTS:
         context.roomMode = NotificationManager::Muted;
         QVERIFY(!NotificationManager::decide(reply, context).notify);
 
-        // Mentions-only: a plain thread reply is silent; a mentioning one is not.
+        // Mentions-only: a plain thread reply is silent, a mentioning one is
+        // not.
         context.roomMode = NotificationManager::MentionsOnly;
         QVERIFY(!NotificationManager::decide(reply, context).notify);
         TimelineEvent mentioningReply = reply;
         mentioningReply.mentionsMe = true;
         QVERIFY(NotificationManager::decide(mentioningReply, context).notify);
 
-        // Initial-sync backlog: never (no cold-start storm from threads).
+        // Initial-sync backlog: never.
         context.roomMode = NotificationManager::AllMessages;
         context.initialSyncComplete = false;
         QVERIFY(!NotificationManager::decide(reply, context).notify);
@@ -271,8 +263,8 @@ private Q_SLOTS:
         QVERIFY(!NotificationManager::decide(reply, context).notify);
     }
 
-    // The click payload for a thread reply carries the thread root id, so
-    // activating the notification opens the correct thread (not just the room).
+    // A thread reply's click payload carries the thread root, so activation
+    // opens the thread, not just the room.
     void threadReplyClickRoutesToThread()
     {
         NotificationManager manager;
@@ -291,9 +283,8 @@ private Q_SLOTS:
         QCOMPARE(spy.first().at(2).toString(), QStringLiteral("$root:example.org"));
     }
 
-    // v0.6.1 regression (cold-start message storm): events applied before the
-    // initial sync completes are backlog history, never fresh activity, and
-    // must be suppressed regardless of privacy mode or mention state.
+    // Events applied before the initial sync completes are backlog, never
+    // fresh activity, whatever the mode or mention state.
     void initialSyncBacklogNeverNotifies()
     {
         auto context = baseContext();
@@ -310,9 +301,8 @@ private Q_SLOTS:
         QVERIFY(NotificationManager::decide(incomingText(), context).notify);
     }
 
-    // v0.6.1 regression (cold-start invite storm): pending invites present at
-    // launch are seeded silently; only invites seen after the initial sync
-    // (and not already announced) raise a notification.
+    // Pending invites present at launch are seeded silently; only invites seen
+    // after the initial sync (and not yet announced) notify.
     void invitePolicySuppressesBacklog()
     {
         // During initial sync: never notify, even for a brand-new invite.
@@ -327,8 +317,8 @@ private Q_SLOTS:
         QVERIFY(!NotificationManager::shouldNotifyInvite(true, false, false));
     }
 
-    // v0.6.1: notification sound rides on the notify decision and the mode
-    // narrows which eligible notifications also sound.
+    // Sound rides on the notify decision, and the sound mode narrows which
+    // eligible notifications also sound.
     void soundModeGatesEligibleNotifications()
     {
         auto ctx = baseContext();
@@ -385,9 +375,8 @@ private Q_SLOTS:
                      .playSound);
     }
 
-    // v0.6.1 regression (click routing lost after 64 pending): the bounded
-    // map evicts the OLDEST payloads (FIFO) instead of clearing everything, so
-    // the most recent notifications remain clickable.
+    // The bounded payload map evicts the oldest entries (FIFO) rather than
+    // clearing everything, so recent notifications stay clickable.
     void clickPayloadEvictionIsFifo()
     {
         NotificationManager manager;
@@ -401,13 +390,14 @@ private Q_SLOTS:
             return p;
         };
 
-        // Record 66 payloads (ids 1..66) — two past the cap of 64.
+        // Record 66 payloads (ids 1..66), two past the cap of 64.
         for (quint32 id = 1; id <= 66; ++id)
             manager.recordPayloadForTest(id, payload(QStringLiteral("!r%1")
                                                          .arg(id)));
         QCOMPARE(manager.pendingPayloadCountForTest(), 64);
 
-        // The two oldest (ids 1, 2) were evicted: clicking them routes nowhere.
+        // The two oldest (ids 1, 2) were evicted: clicking them routes
+        // nowhere.
         QMetaObject::invokeMethod(&manager, "onActionInvoked",
                                   Q_ARG(quint32, 1u),
                                   Q_ARG(QString, QStringLiteral("default")));
@@ -427,10 +417,9 @@ private Q_SLOTS:
         QCOMPARE(manager.pendingPayloadCountForTest(), 0);
     }
 
-    // ── 2026-08-18 round 2: the incoming-call ring mechanism ─────────────
-    // The DBus daemon is absent here, so Notify() never runs — these cases
-    // pin the STATE machine around it: timer lifecycle, id-matched decline
-    // and closed handling, replacement, deadline, and teardown.
+    // The incoming-call ring. With no DBus daemon here, Notify() never runs;
+    // these pin the state machine around it: timer lifecycle, id-matched
+    // decline and close, replacement, deadline, and teardown.
 
     void callRingTimerFollowsSoundAndStops()
     {
@@ -481,40 +470,27 @@ private Q_SLOTS:
     void ringDeadlineRetiresTheCard()
     {
         NotificationManager manager;
-        // ringSeconds is clamped to >= 5; drive the tick with a deadline
-        // already in the past by using the minimum and invoking the slot
-        // (the timer interval is 5 s — the first tick lands at/after the
-        // 5 s deadline).
+        // ringSeconds is clamped to >= 5 and the timer interval is 5 s, so the
+        // first tick lands at or after the deadline.
         manager.showIncomingCall(QStringLiteral("!r:x"),
                                  QStringLiteral("call-1"),
                                  QStringLiteral("Incoming call"),
                                  QStringLiteral("body"), true,
                                  /*ringSeconds=*/-100 /* clamps to 5 */);
         QVERIFY(manager.callRingActiveForTest());
-        // First tick at t≈5s: at/after the deadline — must retire.
+        // First tick at ~5 s: at or after the deadline, so it retires.
         QTest::qWait(5100);
         QTRY_VERIFY_WITH_TIMEOUT(!manager.callRingActiveForTest(), 7000);
         QCOMPARE(manager.activeCallIdForTest(), QString());
     }
 
-    // THE CALL CARD OFFERS AN ANSWER, AND THE WHOLE LIST IS PINNED.
-    //
-    // From 2026-08-18 to 2026-09-17 the incoming-call notification carried
-    // Open and Decline and nothing else — the one notification whose entire
-    // purpose is a decision made in seconds could only be used to say no.
-    // A registered, passing notification suite never noticed, and the reason
-    // is structural: the action list was a literal built inline INSIDE the
-    // Notify() call, this suite runs with no daemon so Notify() never
-    // executes, and nothing could observe what the card offered. Extracting
-    // `callActions` is what makes the contract testable at all.
-    //
-    // Asserting the EXACT list, not `contains("accept")`: CLAUDE.md records
-    // the same lesson from three separate defects — a check that can come
-    // back silently short is the defect, not its symptom.
+    // The exact action list of the incoming-call card (Join/Answer, Silence,
+    // Decline). `callActions` is extracted so it can be tested without a
+    // daemon; the whole list is asserted, not just `contains`.
     void theCallCardOffersAnswerAndDecline()
     {
-        // MatrixRTC ring: the verb is Join, because an RTC call belongs to
-        // the room and may already be in progress.
+        // MatrixRTC ring: the verb is Join, since an RTC call belongs to the
+        // room and may already be in progress.
         QCOMPARE(NotificationManager::callActions(/*acceptOffered=*/true,
                                                   /*rtcLane=*/true),
                  (QStringList{ QStringLiteral("default"), QObject::tr("Open"),
@@ -528,15 +504,14 @@ private Q_SLOTS:
                                QObject::tr("Answer"),
                                QStringLiteral("decline"),
                                QObject::tr("Decline") }));
-        // Not answerable — no media backend, or the join is blocked. NO
-        // accept key at all, because a button labelled Answer that cannot
-        // answer is the "this accept does nothing" report all over again.
+        // Not answerable (no media backend, or the join is blocked): no accept
+        // key at all.
         QCOMPARE(NotificationManager::callActions(/*acceptOffered=*/false,
                                                   false),
                  (QStringList{ QStringLiteral("default"), QObject::tr("Open"),
                                QStringLiteral("decline"),
                                QObject::tr("Decline") }));
-        // Silence (2026-09-23) goes before Decline, and only when offered.
+        // Silence goes before Decline, and only when offered.
         QCOMPARE(NotificationManager::callActions(true, /*rtcLane=*/false,
                                                   /*silenceOffered=*/true),
                  (QStringList{ QStringLiteral("default"), QObject::tr("Open"),
@@ -546,8 +521,8 @@ private Q_SLOTS:
                                QObject::tr("Silence"),
                                QStringLiteral("decline"),
                                QObject::tr("Decline") }));
-        // Decline is LAST in every shape: the destructive action is the one
-        // a mis-aimed click must be least likely to reach.
+        // Decline is last in every shape, so a mis-aimed click is least likely
+        // to reach it.
         int shapes = 0;
         for (bool offered : { true, false }) {
             for (bool rtc : { true, false }) {
@@ -563,9 +538,8 @@ private Q_SLOTS:
         QCOMPARE(shapes, 8);
     }
 
-    // SILENCE IS A REQUEST, NOT AN ANSWER. The action is id-matched and
-    // exact like accept/decline, it retires nothing, and it is honoured only
-    // on a card that offered it.
+    // Silence is id-matched like accept/decline, retires nothing, and is
+    // honoured only on a card that offered it.
     void silenceActionMatchesTheDeliveredIdAndEndsNothing()
     {
         NotificationManager manager;
@@ -612,8 +586,8 @@ private Q_SLOTS:
         manager.stopIncomingCall(QString());
     }
 
-    // The card side of Silence: the themed sound and its 5 s re-post stop,
-    // the card stays, and nothing later brings the sound back.
+    // Silencing stops the themed sound and its 5 s re-post, keeps the card,
+    // and nothing later brings the sound back.
     void silenceIncomingCallQuietensTheCardAndKeepsIt()
     {
         NotificationManager manager;
@@ -643,10 +617,8 @@ private Q_SLOTS:
         QVERIFY(!manager.callSilenceOfferedForTest());
     }
 
-    // Mirrors declineActionMatchesTheDeliveredId exactly, because the two
-    // actions must agree about WHICH card they belong to: an action arriving
-    // for a stale notification id would answer a call the user is no longer
-    // being offered.
+    // Accept is id-matched like decline: an action for a stale notification
+    // id must not answer a call no longer offered.
     void acceptActionMatchesTheDeliveredId()
     {
         NotificationManager manager;
@@ -668,8 +640,8 @@ private Q_SLOTS:
         QCOMPARE(accepted.count(), 1);
         QCOMPARE(accepted.first().at(0).toString(),
                  QStringLiteral("call-1"));
-        // Retired BEFORE the signal, like decline: answering ends the ring,
-        // and a re-delivery racing the answer would put a dead card back up.
+        // Retired before the signal: a re-delivery racing the answer would put
+        // a dead card back up.
         QVERIFY(!manager.callRingActiveForTest());
         QCOMPARE(manager.activeCallIdForTest(), QString());
     }
@@ -695,8 +667,7 @@ private Q_SLOTS:
         QCOMPARE(declined.count(), 1);
         QCOMPARE(declined.first().at(0).toString(),
                  QStringLiteral("call-1"));
-        // The ring is retired BEFORE the signal, so reentrant stop calls
-        // are no-ops.
+        // Retired before the signal, so reentrant stop calls are no-ops.
         QVERIFY(!manager.callRingActiveForTest());
         QCOMPARE(manager.activeCallIdForTest(), QString());
     }
@@ -718,21 +689,10 @@ private Q_SLOTS:
         manager.stopIncomingCall(QString());
     }
 
-    // ── 2026-09-17: the ring is the one notification with no fallback ───
-    //
-    // Every other producer reaches deliverNow(), which has fallen back to the
-    // tray balloon since 2026-09-05 — "no notifications on windows at all".
-    // deliverCallNotification() builds its own card and never went near it,
-    // and its WHOLE BODY sat inside `#ifdef HAVE_QT_DBUS` with no `#else`,
-    // so on Windows and macOS it compiled to an empty function: not a card
-    // without Accept/Decline, no card at all. The "Missed call" notice that
-    // follows a ring DID reach the tray (showGeneric -> deliver), so the only
-    // desktop evidence of a call on those platforms was the notice that it
-    // was already over.
-    //
-    // Driven on a DBus BUILD with no reachable bus, which is what the CMake
-    // ENVIRONMENT pin is for: a fix that lived only in an `#else` could never
-    // be executed by any test this project runs.
+    // An incoming call is announced where there is no freedesktop daemon, via
+    // the tray balloon like every other notification. Run on a DBus build with
+    // no reachable bus (pinned by the CMake ENVIRONMENT), so the fallback path
+    // actually executes.
     void anIncomingCallIsAnnouncedWhereThereIsNoFreedesktopDaemon()
     {
         NotificationManager manager;
@@ -748,26 +708,20 @@ private Q_SLOTS:
                  "service never reached the tray balloon: on Windows and "
                  "macOS that is the ONLY delivery there is, so the call was "
                  "not announced on the desktop at all");
-        // The click identity the balloon was BUILT with — this is what
-        // routes the user to the ringing room, where IncomingCallPrompt
-        // (gated on call state, never on notifications) offers Answer.
+        // The click identity routes to the ringing room, where
+        // IncomingCallPrompt offers Answer.
         QCOMPARE(manager.lastCallTrayPayloadForTest()
                      .value(QStringLiteral("roomId")).toString(),
                  QStringLiteral("!ring:example.org"));
-        // §8: never a composite timeline id, and never an event id the
-        // opener would try to jump to.
+        // Never a composite timeline id, nor an event id to jump to.
         QCOMPARE(manager.lastCallTrayPayloadForTest()
                      .value(QStringLiteral("eventId")).toString(),
                  QString());
         manager.stopIncomingCall(QStringLiteral("call-1"));
     }
 
-    // The repeat is a DAEMON capability and does not survive the translation.
-    // A freedesktop card is re-Notify()'d with `replaces_id` every 5s so the
-    // themed ring repeats IN PLACE; a balloon has no such verb, so the same
-    // loop would raise twelve separate toasts a minute, each with its own
-    // platform sound. Pins BOTH edges: 0 is the unfixed tree, 4 is the naive
-    // fix that delivers on every tick.
+    // A balloon cannot be replaced in place like a freedesktop card, so the
+    // call balloon is raised once per call, not on every 5 s ring tick.
     void theCallBalloonIsRaisedOncePerCallNotOncePerRingTick()
     {
         NotificationManager manager;
@@ -780,8 +734,7 @@ private Q_SLOTS:
         for (int i = 0; i < 3; ++i)
             QVERIFY(QMetaObject::invokeMethod(&manager, "onCallRingTick"));
         QCOMPARE(manager.callTrayAttemptsForTest(), 1);
-        // ...and the NEXT call gets its own, or a second call in the same
-        // session would arrive in silence.
+        // ...and the next call gets its own.
         manager.stopIncomingCall(QStringLiteral("call-1"));
         manager.showIncomingCall(QStringLiteral("!other:example.org"),
                                  QStringLiteral("call-2"),
@@ -815,10 +768,9 @@ private Q_SLOTS:
         p.insert(QStringLiteral("roomId"), QStringLiteral("!call:x"));
         p.insert(QStringLiteral("eventId"), QString());
         p.insert(QStringLiteral("threadRootId"), QString());
-        // The call card's id is recorded FIRST, then 63 message payloads
-        // arrive, then the card re-delivers (same id). The re-record must
-        // promote it so the NEXT eviction takes a stale message payload,
-        // not the actively refreshed call card (review round 2).
+        // The call card's id is recorded first, 63 message payloads follow,
+        // then the card re-delivers under the same id. The re-record must
+        // promote it, so the next eviction takes a stale message payload.
         manager.recordPayloadForTest(100, p);
         for (quint32 id = 1; id <= 63; ++id)
             manager.recordPayloadForTest(id, p);
@@ -832,24 +784,14 @@ private Q_SLOTS:
         QCOMPARE(spy.count(), 1); // the call card survived the eviction
     }
 
-    // ── The macOS menu-bar badge, tested off a Mac ───────────────────────
-    //
-    // The status item takes a TEMPLATE image: AppKit reads only the ALPHA
-    // channel and paints the shape itself. So the ordinary badge — a red
-    // disc with white digits on it — is invisible there twice over: the red
-    // becomes whatever the menu bar's ink is, and the white digits vanish
-    // into it entirely, leaving a solid blob that says nothing.
-    //
-    // The Apple-only part of this feature is one `#ifdef` around the CALL
-    // SITE. The rule itself is pure and compiled everywhere on purpose, so
-    // the thing that has to be right can be proven on Linux — the badge is
-    // written into the alpha channel, and the digit is KNOCKED OUT of the
-    // disc rather than drawn on top of it.
+    // The macOS menu-bar badge. A status item takes a template image (AppKit
+    // uses only alpha), so the badge disc is written into the alpha channel
+    // and the digit knocked out of it. The rule is compiled everywhere so it
+    // can be tested off a Mac.
     void theMacMenuBarBadgeIsCutIntoTheAlphaChannel()
     {
-        // A fully opaque square standing in for the template asset. Opaque
-        // everywhere is the strongest fixture: every transparent pixel in
-        // the result was necessarily produced by this function.
+        // A fully opaque base: every transparent pixel in the result was
+        // produced by this function.
         QPixmap base(44, 44);
         base.fill(QColor(0, 0, 0, 255));
 
@@ -862,9 +804,7 @@ private Q_SLOTS:
                 .toImage()
                 .convertToFormat(QImage::Format_ARGB32);
 
-        // Geometry taken from the production constants rather than
-        // guessed at, so the case moves with them instead of silently
-        // sampling the wrong pixel.
+        // Geometry from the production constants.
         const qreal side = 44.0;
         const qreal diameter = side * 0.62;
         const QRectF disc(side - diameter, side - diameter,
@@ -876,16 +816,13 @@ private Q_SLOTS:
             return badged.pixelColor(qRound(x), qRound(y)).alpha();
         };
 
-        // 1. The badge disc is OPAQUE. Sampled off-centre so the digit
-        //    knocked out of the middle is not what is being measured.
+        // 1. The disc is opaque (sampled off-centre, away from the digit).
         QVERIFY2(alphaAt(hub.x() + radius * 0.7, hub.y()) > 200,
                  "the badge disc is not opaque, so the menu bar would paint "
                  "nothing where the count should be");
 
-        // 2. The digit is CLEARED, not painted. On the old code path it was
-        //    white ink, and a template image keeps no colour — a white "3"
-        //    on a black disc IS a black disc. This is the assertion that
-        //    fails on that path.
+        // 2. The digit is cleared, not painted: a template image keeps no
+        //    colour, so white ink on the disc would vanish.
         int cleared = 0;
         for (int y = 0; y < badged.height(); ++y) {
             for (int x = 0; x < badged.width(); ++x) {
@@ -901,11 +838,8 @@ private Q_SLOTS:
                  "nothing was knocked out of the badge disc, so the count "
                  "is a featureless blob in the menu bar");
 
-        // 3. A MOAT separates the badge from the mark beneath it, or the
-        //    two fuse into one shape the moment colour is discarded. Walked
-        //    along the diagonal between the disc's edge and the moat's,
-        //    rather than sampled at one computed pixel: that band is a few
-        //    pixels wide and antialiasing owns its edges.
+        // 3. A moat separates the badge from the mark beneath it. Walked along
+        //    the diagonal, since antialiasing owns the band's edges.
         bool gap = false;
         for (qreal d = radius + 0.5; d < radius + moat && !gap; d += 0.5) {
             const qreal offset = d / std::sqrt(2.0);
@@ -915,8 +849,7 @@ private Q_SLOTS:
                  "the badge touches the mark it sits on, which in a "
                  "template image is one merged blob");
 
-        // 4. The dot form has no knockout at all — there is no count to
-        //    show, and a hole in it would read as a second, smaller thing.
+        // 4. The dot form has no knockout.
         const QImage dot =
             TrayIcon::macTemplateBadged(base, QStringLiteral("\u2022"))
                 .toImage()
@@ -929,21 +862,16 @@ private Q_SLOTS:
                      .alpha(),
                  255);
 
-        // 5. And an empty label changes nothing: no unread state must not
-        //    put a mark of any kind in the menu bar.
+        // 5. An empty label changes nothing.
         QCOMPARE(TrayIcon::macTemplateBadged(base, QString{}).size(),
                  base.size());
     }
 };
 
 
-// ── Ghost notifications (2026-09-01) ─────────────────────────────────────
-//
-// Only the call ring was ever closed. A message notification stayed in the
-// notification centre after its room had been read — here, in another
-// client, or on a phone — so the desktop went on asserting that something
-// was waiting when nothing was. That teaches a person to stop believing the
-// notification area, which is how a real message then gets missed.
+// Reading a room (here or on another client) withdraws its delivered
+// notifications, so the notification area does not claim unread messages
+// that were read.
 void NotificationManagerTest::readingARoomWithdrawsItsGhostNotifications()
 {
     NotificationManager manager;
@@ -961,19 +889,17 @@ void NotificationManagerTest::readingARoomWithdrawsItsGhostNotifications()
 
     manager.closeRoomNotifications(QStringLiteral("!read:x"));
 
-    // Both of the read room's notifications are gone; the other room's is
-    // untouched — reading one conversation must not silence another.
+    // The read room's notifications are gone; another room's are untouched.
     QCOMPARE(manager.pendingPayloadCountForTest(), 1);
 
-    // And an unknown room is a no-op rather than a clear-everything.
+    // An unknown room is a no-op, not a clear-everything.
     manager.closeRoomNotifications(QStringLiteral("!nothing:x"));
     QCOMPARE(manager.pendingPayloadCountForTest(), 1);
     manager.closeRoomNotifications(QString{});
     QCOMPARE(manager.pendingPayloadCountForTest(), 1);
 }
 
-// The ring is not a message and owns its own lifetime. Closing it because the
-// room it rings in was read would silence a call nobody answered.
+// The call ring is not closed because its room was read.
 void NotificationManagerTest::withdrawingSparesTheIncomingCallRing()
 {
     NotificationManager manager;
@@ -990,13 +916,9 @@ void NotificationManagerTest::withdrawingSparesTheIncomingCallRing()
 }
 
 
-// ── Notification actions ────────────────────────────────────────────────
-//
-// The whole hazard here is TIME. A card sits on the desktop for as long as
-// the user leaves it, and they can switch accounts or sign out while it is
-// there. So every action has to carry the account the card was raised FOR,
-// and the app layer compares that against the live one — a reply sent under
-// the wrong identity succeeds, which is exactly why nothing would report it.
+// Notification actions carry the account the card was raised for, and the
+// app compares it against the live account: a card can outlive an account
+// switch or sign-out, and a reply under the wrong identity would succeed.
 
 void NotificationManagerTest::anActionCarriesTheAccountTheCardWasRaisedFor()
 {
@@ -1011,8 +933,8 @@ void NotificationManagerTest::anActionCarriesTheAccountTheCardWasRaisedFor()
     auto context = baseContext();
     manager.processEvent(event, context);
 
-    // No DBus daemon under test, so the delivery records no id of its own —
-    // stand in for the Notify() reply exactly as the other action cases do.
+    // No DBus daemon, so stand in for the Notify() reply as the other action
+    // cases do.
     QVariantMap p;
     p.insert(QStringLiteral("roomId"), QStringLiteral("!room:example.org"));
     p.insert(QStringLiteral("eventId"), QStringLiteral("$msg:example.org"));
@@ -1020,8 +942,7 @@ void NotificationManagerTest::anActionCarriesTheAccountTheCardWasRaisedFor()
     p.insert(QStringLiteral("accountUserId"), QStringLiteral("@ann:example.org"));
     manager.recordPayloadForTest(11, p);
 
-    // The account CHANGES while the card is still on screen. This is the
-    // case the guard exists for.
+    // The account changes while the card is on screen.
     manager.setAccountUserId(QStringLiteral("@bea:example.org"));
 
     QSignalSpy spy(&manager, &NotificationManager::markReadRequested);
@@ -1036,10 +957,9 @@ void NotificationManagerTest::anActionCarriesTheAccountTheCardWasRaisedFor()
     QCOMPARE(spy.first().at(1).toString(), QStringLiteral("!room:example.org"));
 }
 
-// An inline reply arrives in TWO parts on some daemons: ActionInvoked with
-// the action id, then NotificationReplied with the text. Forgetting the
-// payload on the first would leave the second with no room to send to — and
-// it would only ever fail on the desktop nobody tested.
+// Some daemons deliver an inline reply in two parts (ActionInvoked, then
+// NotificationReplied with the text), so the payload is kept until the text
+// arrives.
 void NotificationManagerTest::anInlineReplyKeepsThePayloadUntilTheTextArrives()
 {
     NotificationManager manager;
@@ -1063,11 +983,10 @@ void NotificationManagerTest::anInlineReplyKeepsThePayloadUntilTheTextArrives()
     QCOMPARE(spy.count(), 1);
     QCOMPARE(spy.first().at(0).toString(), QStringLiteral("@ann:example.org"));
     QCOMPARE(spy.first().at(1).toString(), QStringLiteral("!room:example.org"));
-    // A reply to a threaded message belongs in that thread (§8), and the
-    // root has been in the payload since the click routing landed.
+    // A reply to a threaded message goes to that thread.
     QCOMPARE(spy.first().at(2).toString(), QStringLiteral("$root:example.org"));
     QCOMPARE(spy.first().at(3).toString(), QStringLiteral("on my way"));
-    // Consumed: a second submission of the same card sends nothing.
+    // Consumed: a second submission sends nothing.
     QCOMPARE(manager.pendingPayloadCountForTest(), 0);
 }
 
@@ -1087,11 +1006,9 @@ void NotificationManagerTest::anEmptyInlineReplySendsNothing()
     QCOMPARE(spy.count(), 0);
 }
 
-// 2026-09-05: "if message is read, in client can you make kde notification
-// go away too". It was meant to — closeRoomNotifications runs when a room's
-// unread clears — but the popup EXPIRING (freedesktop reason 1) forgot the
-// payload, and an expired notification is exactly what KDE keeps in its
-// history. Expired stays withdrawable; dismissed and closed are gone.
+// An expired notification (freedesktop reason 1, kept in KDE's history) stays
+// withdrawable until its room is read; dismissed and closed ones are
+// forgotten.
 void NotificationManagerTest::anExpiredNotificationStaysWithdrawableUntilTheRoomIsRead()
 {
     NotificationManager manager;
@@ -1118,9 +1035,8 @@ void NotificationManagerTest::anExpiredNotificationStaysWithdrawableUntilTheRoom
     QCOMPARE(manager.pendingPayloadCountForTest(), 0);
 }
 
-// The tray balloon is the delivery on Windows and macOS (no freedesktop
-// daemon; until 2026-09-05 those builds showed nothing at all). One balloon
-// at a time, so a click routes to the payload delivered last.
+// The tray balloon is the delivery on Windows and macOS. One balloon at a
+// time, so a click routes to the payload delivered last.
 void NotificationManagerTest::aTrayBalloonClickOpensTheRoomItWasRaisedFor()
 {
     NotificationManager manager;
@@ -1141,16 +1057,9 @@ void NotificationManagerTest::aTrayBalloonClickOpensTheRoomItWasRaisedFor()
     QCOMPARE(opened.count(), 1);
 }
 
-// ── A balloon outlives the account that raised it ────────────────────────
-//
-// clearPending() is the sign-out / account-switch sweep, and its own comment
-// says "forget queued click payloads". It forgot ONE of them. On Windows and
-// macOS the tray balloon IS the delivery, and its payload lives in its own
-// member rather than in the id-keyed map the sweep cleared — so a balloon
-// still on screen after a switch kept routing its click into the PREVIOUS
-// account's room. The DBus path was never exposed to this: clearing the map
-// leaves its click with nothing to resolve to. Same hazard the account id on
-// every notification action exists for, one delivery path short.
+// clearPending() (sign-out / account switch) also forgets the tray balloon's
+// payload, which lives outside the id-keyed map; otherwise a click routes into
+// the previous account's room.
 void NotificationManagerTest::signingOutForgetsTheTrayBalloonsClick()
 {
     NotificationManager manager;
@@ -1161,7 +1070,7 @@ void NotificationManagerTest::signingOutForgetsTheTrayBalloonsClick()
     p.insert(QStringLiteral("threadRootId"), QString{});
     manager.deliverThroughTrayForTest(p);
 
-    // Sign out, or switch accounts, while the balloon is still on screen.
+    // Sign out or switch accounts while the balloon is on screen.
     manager.clearPending();
 
     QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
@@ -1171,20 +1080,13 @@ void NotificationManagerTest::signingOutForgetsTheTrayBalloonsClick()
              "the balloon's click payload");
 }
 
-// ── A popup that has not been shown yet is still a ghost ─────────────────
-//
-// deliver() parks a notification for up to kAvatarWaitMs while the room's
-// avatar is fetched — the cold case, a room whose picture is not cached yet.
-// closeRoomNotifications only ever scanned the DELIVERED payloads, so a room
-// read inside that window (here, on a phone, or through Mark as read) still
-// got its popup a moment later, for a conversation the user had just read.
-// That is exactly the ghost the withdrawal exists to prevent, arriving from
-// the one direction it could not see.
+// A popup still parked waiting for its room avatar is dropped when the room
+// is read, not shown a moment later.
 void NotificationManagerTest::readingARoomDropsAPopupStillWaitingForItsAvatar()
 {
     NotificationManager manager;
-    // An avatar that never arrives and never reports failure: the delivery
-    // parks in the wait queue exactly as it does behind a slow media fetch.
+    // An avatar that never arrives or fails parks the delivery in the wait
+    // queue, as a slow media fetch does.
     manager.setAvatarProvider([](const QString &, bool) { return QImage(); },
                               [](const QString &) { return false; });
 
@@ -1193,7 +1095,7 @@ void NotificationManagerTest::readingARoomDropsAPopupStillWaitingForItsAvatar()
     manager.processEvent(incomingText(), context);
     QCOMPARE(manager.avatarWaitCountForTest(), 1);
 
-    // A second room's notification is waiting too, and must survive.
+    // A second room's notification is waiting too and must survive.
     TimelineEvent other = incomingText();
     other.roomId = QStringLiteral("!other:example.org");
     other.eventId = QStringLiteral("$ev2:example.org");
@@ -1205,34 +1107,17 @@ void NotificationManagerTest::readingARoomDropsAPopupStillWaitingForItsAvatar()
              "reading a room left its not-yet-shown notification queued, so it "
              "pops up after the room has already been read");
 
-    // And the other room is untouched: reading one conversation must not
-    // silence another, in this queue as in the delivered map.
+    // The other room is untouched.
     manager.closeRoomNotifications(QStringLiteral("!other:example.org"));
     QCOMPARE(manager.avatarWaitCountForTest(), 0);
 }
 
 
-// ── §8: A NOTIFICATION MUST NOT CARRY THE COMPOSITE TIMELINE ID ──────────
-//
-// A thread reply does not reach this class with its room id. The SDK's
-// thread timeline is addressed by the composite `room + US + "thread" + US +
-// root` and runs through the SAME diff pipeline as a room, so
-// applyTimelineDiff() stamps that composite into TimelineEvent::roomId for
-// every item it builds. AppController maps it for the notification CONTEXT
-// and hands the event through untouched, so the payload was built from it.
-//
-// The click then assigns that value to app.currentRoomId. Navigation
-// succeeds, the header changes, and the room loads NOTHING, because there is
-// no such room — reported from Windows, where the tray balloon is the only
-// delivery, as "it sends me to the room and it just doesn't load anything".
-// The same value would reach sendThreadReply() from an inline reply and
-// markRoomRead() from Mark as read, and it is why closeRoomNotifications()
-// could not withdraw the card when the room was read: it compares against a
-// real room id.
-//
-// Driven through processEvent(), the production entry point, and observed on
-// the payload the delivery actually carries — asserting the helper alone
-// would prove only that the helper works, not that anything calls it.
+// A thread reply's notification names its real room, not the composite
+// thread timeline id the diff pipeline stamps into TimelineEvent::roomId.
+// The payload feeds app.currentRoomId, sendThreadReply(), markRoomRead() and
+// closeRoomNotifications(), all of which need a real room id. Driven through
+// processEvent() and observed on the delivered payload.
 void NotificationManagerTest::aThreadReplyNotifiesForItsRoomNotItsTimelineId()
 {
     const QString room = QStringLiteral("!room:example.org");
@@ -1243,8 +1128,8 @@ void NotificationManagerTest::aThreadReplyNotifiesForItsRoomNotItsTimelineId()
              "case cannot see the defect it exists for");
 
     NotificationManager manager;
-    // An avatar that never arrives parks the delivery, which is the only
-    // way to read a built payload without a live notification daemon.
+    // An avatar that never arrives parks the delivery, the only way to read a
+    // built payload without a live daemon.
     manager.setAvatarProvider([](const QString &, bool) { return QImage(); },
                               [](const QString &) { return false; });
 
@@ -1267,17 +1152,14 @@ void NotificationManagerTest::aThreadReplyNotifiesForItsRoomNotItsTimelineId()
                  .arg(payload.value(QStringLiteral("roomId")).toString())));
     QCOMPARE(payload.value(QStringLiteral("threadRootId")).toString(), root);
 
-    // ...and because the payload names the real room, reading it withdraws
-    // the card. On the unfixed code this scan compared a room id against a
-    // composite and matched nothing.
+    // Because the payload names the real room, reading it withdraws the card.
     manager.closeRoomNotifications(room);
     QVERIFY2(manager.avatarWaitCountForTest() == 0,
              "reading the room did not withdraw its thread notification, "
              "because the payload's room id is not the room's id");
 
-    // A thread copy that arrives without its root still opens the thread:
-    // the composite carries the root, and dropping the reader into the room
-    // with no thread open is strictly worse.
+    // A thread copy without its root still opens the thread (the composite
+    // carries the root).
     TimelineEvent rootless = incomingText(QStringLiteral("second"));
     rootless.eventId = QStringLiteral("$ev2:example.org");
     rootless.roomId = timelineId;
@@ -1287,9 +1169,8 @@ void NotificationManagerTest::aThreadReplyNotifiesForItsRoomNotItsTimelineId()
     QCOMPARE(manager.avatarWaitPayloadForTest(0)
                  .value(QStringLiteral("threadRootId")).toString(), root);
 
-    // AND THE ORDINARY CASE IS UNTOUCHED, which is the whole safety claim:
-    // a real room id contains no unit separator, so nothing about a normal
-    // notification changes shape.
+    // The ordinary case is unchanged: a real room id contains no unit
+    // separator.
     manager.closeRoomNotifications(room);
     TimelineEvent plain = incomingText();
     plain.eventId = QStringLiteral("$ev3:example.org");
@@ -1300,12 +1181,8 @@ void NotificationManagerTest::aThreadReplyNotifiesForItsRoomNotItsTimelineId()
                 .value(QStringLiteral("threadRootId")).toString().isEmpty());
 }
 
-// The same property at the DELIVERY the reporter is actually using. On
-// Windows and macOS there is no freedesktop daemon: the tray balloon is the
-// notification, and its one retained payload is what a click resolves to.
-// openRequested is this class's contract with QML — Main.qml assigns its
-// first argument straight to app.currentRoomId — so no producer may put a
-// timeline id into it, including one this class does not own.
+// The same property for the tray balloon: openRequested's first argument is
+// assigned to app.currentRoomId by Main.qml, so it is never a timeline id.
 void NotificationManagerTest::aTrayBalloonClickNeverRoutesToATimelineId()
 {
     const QString room = QStringLiteral("!tray:example.org");
@@ -1331,27 +1208,15 @@ void NotificationManagerTest::aTrayBalloonClickNeverRoutesToATimelineId()
     QCOMPARE(opened.at(0).at(2).toString(), root);
 }
 
-// A NOTIFICATION WITH NO ROOM MUST STILL REACH QML.
-//
-// Raised in review, against a first cut of the click-routing fix that gated
-// the emit on a non-empty room id. Roomless notifications are real and their
-// whole purpose is to bring the window forward: "%1 wants to verify a session.
-// Open Lightning to review it." is the one people actually click, and the
-// account-mismatch notice is another. qml/Main.qml calls raiseIntoView()
-// BEFORE it looks at the room id, so swallowing the signal here makes those
-// notices do nothing at all, on the one platform where this path has always
-// worked, with no log line to say why.
-//
-// The gate is the PAYLOAD, which is what both delivery paths always meant and
-// what sign-out clears.
+// A notification with no room (e.g. a verification request) still reaches QML
+// on click: Main.qml raises the window before looking at the room id. The gate
+// is the payload, which sign-out clears.
 void NotificationManagerTest::aNotificationWithNoRoomStillBringsTheWindowForward()
 {
     NotificationManager manager;
     QSignalSpy opened(&manager, &NotificationManager::openRequested);
 
-    // Shaped like showGeneric()'s payload: it DOES insert roomId, empty,
-    // alongside accountUserId. The branch under test is the empty ROOM, not
-    // an absent key, and an absent key would take the same path anyway.
+    // Shaped like showGeneric()'s payload, with an empty roomId present.
     QVariantMap p;
     p.insert(QStringLiteral("roomId"), QString{});
     p.insert(QStringLiteral("eventId"), QString{});
@@ -1363,22 +1228,15 @@ void NotificationManagerTest::aNotificationWithNoRoomStillBringsTheWindowForward
     QVERIFY2(opened.at(0).at(0).toString().isEmpty(),
              "a roomless notification invented a room to open");
 
-    // ...and an EMPTY payload is still refused, which is what sign-out leaves
-    // behind and the reason a check exists here at all.
+    // An empty payload (what sign-out leaves) is still refused.
     QSignalSpy afterClear(&manager, &NotificationManager::openRequested);
     manager.clearPending();
     QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
     QCOMPARE(afterClear.count(), 0);
 }
 
-// EVERY SLOT THESE CASES DRIVE BY NAME MUST STILL EXIST.
-//
-// Seventeen call sites invoke these through QMetaObject::invokeMethod and
-// discard the bool it returns. A rename would make all seventeen silent
-// no-ops, and the assertions after them would pass vacuously: "nothing was
-// opened" is exactly what a case expects when the click never happened. One
-// guard covers every site, which is cheaper and harder to forget than
-// wrapping each call. Raised in review.
+// Every slot these cases invoke by name still exists: invokeMethod's return is
+// ignored at the call sites, so a rename would turn their assertions vacuous.
 void NotificationManagerTest::everySlotTheseCasesDriveByNameStillExists()
 {
     NotificationManager manager;

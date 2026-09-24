@@ -1,10 +1,7 @@
-// v0.6.5: focused coverage for EmojiCatalog::recentEmoji — the small
-// additive Q_PROPERTY exposing the persisted MRU recent-emoji list directly
-// (for a future quick-react strip) alongside the existing filtered/paged
-// GridView model. Complements EmojiCatalogTest.cpp's
-// recentPersistenceAndBound, which already covers SettingsManager's own
-// storage; this suite is scoped to the new accessor's own contract: order,
-// filtering of invalid entries, and the change signal.
+// EmojiCatalog::recentEmoji, the Q_PROPERTY exposing the persisted MRU list
+// alongside the GridView model: order, filtering of invalid entries and the
+// change signal. EmojiCatalogTest::recentPersistenceAndBound covers
+// SettingsManager's storage.
 
 #include "app/SettingsManager.h"
 #include "models/EmojiCatalog.h"
@@ -32,9 +29,8 @@ private Q_SLOTS:
         QCoreApplication::setApplicationName(QStringLiteral("recent"));
     }
 
-    // Each case starts from a clean store — QSettings is app-global, so
-    // recents recorded by one case would otherwise leak into the next
-    // (which is exactly how the filter case first failed at integration).
+    // Each case starts from a clean store: QSettings is app-global, so recents
+    // would leak between cases.
     void init() { QSettings().clear(); }
 
     void withoutSettingsReturnsEmpty()
@@ -54,17 +50,16 @@ private Q_SLOTS:
         QCOMPARE(catalog.recentEmoji(),
                  QStringList({ QStringLiteral("❤️"), QStringLiteral("😀") }));
 
-        // Re-using an existing entry moves it back to the front rather than
-        // duplicating it — same MRU contract as the GridView bucket.
+        // Re-using an entry moves it to the front rather than duplicating it,
+        // as in the GridView bucket.
         catalog.recordUse(QStringLiteral("😀"));
         QCOMPARE(catalog.recentEmoji(),
                  QStringList({ QStringLiteral("😀"), QStringLiteral("❤️") }));
     }
 
-    // A corrupted or legacy settings entry (not in the current catalogue —
-    // e.g. from an older Unicode revision, or plain garbage) must never
-    // reach a consumer of this property, exactly like the GridView bucket's
-    // own indexOf() guard in EmojiCatalog::rebuild().
+    // A corrupted or legacy entry (not in the current catalogue) never reaches
+    // a consumer, matching the GridView bucket's indexOf() guard in
+    // EmojiCatalog::rebuild().
     void filtersEntriesNotInTheCatalogue()
     {
         SettingsManager settings;
@@ -74,10 +69,8 @@ private Q_SLOTS:
         QCOMPARE(catalog.recentEmoji(), QStringList({ QStringLiteral("😀") }));
     }
 
-    // 2026-09-20 composer/picker GUI audit, finding 9. The default category
-    // is "Recently Used" and rebuild() has no fallback, so the FIRST emoji
-    // picker a fresh account opens drew an empty grid under "No recently
-    // used emoji" with the whole catalogue one click away.
+    // A fresh account's picker does not open on an empty "Recently Used"
+    // grid; rebuild() has no fallback of its own.
     void afreshCatalogueDoesNotOpenOnAnEmptyRecentlyUsed()
     {
         SettingsManager settings;
@@ -90,13 +83,12 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral(
                      "the picker opens on '%1' and it is EMPTY")
                         .arg(catalog.category())));
-        // The tab is not gone: it is still first in the rail and still the
-        // place an empty state belongs.
+        // The tab still exists, first in the rail, and holds the empty state.
         QCOMPARE(catalog.categories().constFirst(),
                  QStringLiteral("Recently Used"));
     }
 
-    // …and the moment there IS something to show, that is where it opens.
+    // ...and once there are recents, the picker opens there.
     void acatalogueWithRecentsStillStartsOnRecentlyUsed()
     {
         SettingsManager settings;
@@ -107,10 +99,9 @@ private Q_SLOTS:
         QCOMPARE(catalog.rowCount(), 1);
     }
 
-    // A settings entry the catalogue cannot resolve is NOT a recent. It is
-    // dropped by rebuild(), so counting it would hand the user the empty
-    // grid this fallback exists to prevent — the same filter both halves
-    // must apply or "there are recents" and "the grid has rows" disagree.
+    // An entry the catalogue cannot resolve is not a recent: rebuild() drops
+    // it, so counting it would reopen the empty grid. Both halves apply the
+    // same filter.
     void astaleRecentEntryDoesNotCountAsARecent()
     {
         SettingsManager settings;

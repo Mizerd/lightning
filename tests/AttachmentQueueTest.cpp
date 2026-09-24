@@ -1,7 +1,7 @@
-// v0.5.9: attachment pipeline tests — file validation (directories,
-// unreadable, empty, oversized, MIME from content), queue state machine
-// (dispatch, success removal, failure + retry), and lifecycle safety
-// (room switch and sign-out clear the tray; stale completions ignored).
+// Attachment pipeline: file validation (directories, unreadable, empty,
+// oversized, MIME from content), the queue state machine (dispatch, success
+// removal, failure and retry), and lifecycle safety (room switch and sign-out
+// clear the tray; stale completions are ignored).
 
 #include "matrix/MatrixClient.h"
 #include "models/MessageComposer.h"
@@ -60,10 +60,8 @@ public:
 
     bool supportsAttachmentSend() const override { return true; }
     qint64 maxUploadSize() const override { return serverLimit; }
-    // Shares `lastDurationMs` with the video path below: what matters is
-    // what the SEND declared, whichever call carried it. The audio defect
-    // was that this parameter did not exist, so an attached song went out
-    // with no duration and every player drew "0:00".
+    // Shares `lastDurationMs` with the video path: what matters is the
+    // duration the send declared, so players do not show "0:00".
     quint64 sendAttachment(const QString &, const QString &,
                            const QString &mime, const QString &,
                            int, int, bool, qint64 durationMs) override
@@ -76,9 +74,8 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
-    // v0.7 video round: records exactly what the send path declared, so a
-    // test can prove the poster and the video geometry reached the client
-    // rather than merely that "a send happened".
+    // Records what the video send path declared, so a test can prove the
+    // poster and geometry reached the client.
     int videoSends = 0;
     QByteArray lastThumbnail;
     int lastThumbWidth = 0;
@@ -116,8 +113,7 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
-    // v0.7 thread parity: records the voice send so a test can prove the
-    // preflight ran BEFORE the client was asked to send anything.
+    // Records the voice send so a test can prove the preflight ran first.
     int voiceSends = 0;
     QString lastVoiceRoom;
     quint64 sendVoiceMessage(const QString &roomId, const QString &,
@@ -156,8 +152,8 @@ QByteArray tinyPng()
 }
 
 // Minimal ISO base-media (MP4) header: an `ftyp` box with the `isom` brand.
-// Enough for MIME detection; deliberately NOT a decodable clip — the poster
-// hook stands in for the decoder in every test here.
+// Enough for MIME detection, not a decodable clip; the poster hook stands in
+// for the decoder.
 QByteArray tinyMp4Header()
 {
     return QByteArray::fromHex(
@@ -228,11 +224,9 @@ private Q_SLOTS:
         QCOMPARE(composer.attachments()->rowCount(), 0);
     }
 
-    // An UNKNOWN server limit (0 — not advertised, not answered yet, or the
-    // lookup failed) must not reject anything locally. Before this round a
-    // fabricated 100 MiB ceiling stood in, so a 120 MiB file was refused
-    // even when the server would have accepted it. Fails on the old code:
-    // this file is deliberately larger than that former ceiling.
+    // An unknown server limit (0: not advertised or not yet answered) must not
+    // reject anything locally; this file exceeds the old fabricated 100 MiB
+    // ceiling.
     void unknownServerLimitDoesNotRejectLocally()
     {
         FakeClient client;
@@ -243,7 +237,7 @@ private Q_SLOTS:
         QSignalSpy rejected(&composer, &MessageComposer::attachmentRejected);
 
         QTemporaryDir dir;
-        // 101 MiB: over the removed 100 MiB fallback, under nothing real.
+        // 101 MiB: over the old fallback ceiling, under no real limit.
         QFile f(dir.filePath(QStringLiteral("huge.bin")));
         QVERIFY(f.open(QIODevice::WriteOnly));
         QVERIFY(f.resize(101ll * 1024 * 1024));
@@ -254,8 +248,8 @@ private Q_SLOTS:
         QCOMPARE(composer.attachments()->rowCount(), 1);
     }
 
-    // m.upload.size is the largest ACCEPTED payload, so exactly-at-limit
-    // must pass while one byte more must not.
+    // m.upload.size is the largest accepted payload: exactly at the limit
+    // passes, one byte more does not.
     void exactlyAtServerLimitIsAllowed()
     {
         FakeClient client;
@@ -279,9 +273,8 @@ private Q_SLOTS:
         QCOMPARE(composer.attachments()->rowCount(), 1);
     }
 
-    // Voice messages had NO preflight at all: an oversized recording went
-    // straight to an upload the server would refuse. Fails on the old code,
-    // where voiceSends would be 1.
+    // Voice messages are preflighted against the server limit before any
+    // upload.
     void voiceMessageIsPreflightedAgainstServerLimit()
     {
         FakeClient client;
@@ -298,13 +291,12 @@ private Q_SLOTS:
                                   QVariantList{});
         QCOMPARE(rejected.count(), 1);
         QCOMPARE(client.voiceSends, 0);
-        // The refused recording is reclaimed, never orphaned on disk.
+        // The refused recording is deleted, not orphaned.
         QVERIFY(!QFile::exists(rec));
     }
 
-    // A voice send that fails AFTER the user has switched rooms must not
-    // surface over the room they are now looking at. Fails on the old code,
-    // which discarded the roomId (Q_UNUSED) and emitted unconditionally.
+    // A voice send failing after the user switched rooms must not surface in
+    // the room they are now in.
     void lateVoiceFailureDoesNotBleedIntoAnotherRoom()
     {
         FakeClient client;
@@ -326,13 +318,12 @@ private Q_SLOTS:
         Q_EMIT client.attachmentQueueFinished(op, QStringLiteral("!a:example.org"),
                                               false, QString());
         QCOMPARE(rejected.count(), 0);
-        // Cleanup is unconditional even though reporting was suppressed.
+        // Cleanup happens even though reporting was suppressed.
         QVERIFY(!QFile::exists(rec));
     }
 
-    // The same failure, with the user still in the originating room, MUST
-    // be reported — proving the scoping suppresses the wrong context only,
-    // not the notice itself.
+    // With the user still in the originating room, the failure is reported:
+    // the scoping suppresses only the wrong context.
     void voiceFailureInCurrentRoomIsStillReported()
     {
         FakeClient client;
@@ -409,7 +400,7 @@ private Q_SLOTS:
         QCOMPARE(client.fileSends, 1);
         QCOMPARE(composer.attachments()->rowCount(), 1); // dispatching
 
-        // Success: the SDK local echo owns it now; tray entry leaves.
+        // Success: the SDK local echo owns it now; the tray entry leaves.
         Q_EMIT client.attachmentQueueFinished(
             client.lastOpId, QStringLiteral("!room:example.org"), true, {});
         QCOMPARE(composer.attachments()->rowCount(), 0);
@@ -444,14 +435,8 @@ private Q_SLOTS:
         QCOMPARE(client.fileSends, 2);
     }
 
-    // ── v0.7 video round: send-side posters ──────────────────────────────
-    // A video is postered from the file the user picked before it is
-    // dispatched, and the poster plus the geometry and duration the decoder
-    // THE AUDIO DEFECT, end to end on the C++ side: an attached song is
-    // decoded for its LENGTH (there is no frame to grab), and that length
-    // reaches the send. It used to reach nothing — sendAttachment had no
-    // parameter for it — so the event went out with no duration and every
-    // player drew "0:00" beside a correct size.
+    // An attached song is decoded for its length (there is no frame), and
+    // that length reaches the send.
     void audioSendCarriesItsDecodedDuration()
     {
         FakeClient client;
@@ -476,17 +461,15 @@ private Q_SLOTS:
                  "an audio attachment was never decoded, so nothing could "
                  "have learned its duration");
 
-        // What the decoder reports for a file with no video track: no
-        // poster, no frame geometry, and a real length.
+        // What the decoder reports without a video track: no poster, no frame
+        // geometry, a real length.
         composer.attachments()->applyPoster(capturedTag, {}, {}, {}, 185000);
         composer.send();
         QCOMPARE(client.fileSends, 1);
         QCOMPARE(client.lastDurationMs, 185000);
     }
 
-    // AND AN UNDECODABLE ONE STILL SENDS. A corrupt or unsupported file
-    // reports nothing; the attachment must go out anyway, with the duration
-    // absent rather than the send refused.
+    // An undecodable file still sends, without a duration.
     void audioThatCannotBeDecodedStillSends()
     {
         FakeClient client;
@@ -508,7 +491,9 @@ private Q_SLOTS:
         QCOMPARE(client.lastDurationMs, 0);
     }
 
-    // reported are what the send path declares on the Matrix event.
+    // A video is postered from the picked file before dispatch, and the
+    // poster plus the decoder's geometry and duration are what the send
+    // declares on the Matrix event.
     void videoSendCarriesExtractedPoster()
     {
         FakeClient client;
@@ -536,9 +521,7 @@ private Q_SLOTS:
         // Extraction started on add, not on send.
         QVERIFY(!capturedTag.isEmpty());
 
-        // Pressing send while the poster is still decoding must NOT
-        // dispatch — a video without its poster is exactly the event this
-        // round exists to stop sending.
+        // Send while the poster is still decoding must not dispatch.
         composer.send();
         QCOMPARE(client.videoSends, 0);
         QCOMPARE(client.fileSends, 0);
@@ -554,18 +537,18 @@ private Q_SLOTS:
         QCOMPARE(client.lastThumbnail, poster);
         QCOMPARE(client.lastThumbWidth, 320);
         QCOMPARE(client.lastThumbHeight, 180);
-        // The decoded frame is the only honest source of the video's own
-        // dimensions on the send side.
+        // The decoded frame is the only source of the video's dimensions on
+        // the send side.
         QCOMPARE(client.lastVideoWidth, 1920);
         QCOMPARE(client.lastVideoHeight, 1080);
         QCOMPARE(client.lastDurationMs, 4200);
-        // 16:9 in, 16:9 out — the poster never distorts the frame.
+        // 16:9 in, 16:9 out: the poster never distorts the frame.
         QCOMPARE(client.lastThumbWidth * client.lastVideoHeight,
                  client.lastThumbHeight * client.lastVideoWidth);
     }
 
-    // Thumbnail extraction failing is not send failure: the video goes out
-    // without a poster rather than being stuck in the tray forever.
+    // Failed poster extraction does not fail the send: the video goes without
+    // a poster.
     void videoSendsWithoutPosterWhenExtractionFails()
     {
         FakeClient client;
@@ -586,7 +569,7 @@ private Q_SLOTS:
         composer.send();
         QCOMPARE(client.videoSends, 0);
 
-        // The decoder gave up: empty poster, no geometry, no duration.
+        // The decoder gave up: no poster, geometry or duration.
         composer.attachments()->applyPoster(capturedTag, {}, {}, {}, 0);
 
         QCOMPARE(client.videoSends, 1);
@@ -598,8 +581,8 @@ private Q_SLOTS:
         QCOMPARE(client.lastDurationMs, 0);
     }
 
-    // A poster arriving with nobody waiting on it must not send anything,
-    // and a second callback for the same job must not send twice.
+    // A poster with no pending send dispatches nothing, and a duplicate
+    // callback does not send twice.
     void posterWithoutSendRequestDoesNotDispatch()
     {
         FakeClient client;
@@ -618,7 +601,7 @@ private Q_SLOTS:
             writeFile(dir, QStringLiteral("clip.mp4"), tinyMp4Header());
         composer.addAttachment(QUrl::fromLocalFile(path));
 
-        // Poster resolves before the user ever pressed send.
+        // The poster resolves before send was pressed.
         composer.attachments()->applyPoster(capturedTag, tinyJpeg(),
                                             QSize(64, 36), QSize(640, 360), 1000);
         QCOMPARE(client.videoSends, 0);
@@ -633,7 +616,7 @@ private Q_SLOTS:
         QCOMPARE(client.videoSends, 1);
     }
 
-    // An unknown tag (the entry was removed while decoding) is ignored.
+    // A poster for a removed entry (unknown tag) is ignored.
     void posterForRemovedEntryIsIgnored()
     {
         FakeClient client;
@@ -655,8 +638,7 @@ private Q_SLOTS:
         QCOMPARE(client.videoSends, 0);
     }
 
-    // Non-video attachments are untouched by the poster machinery: no
-    // extraction is requested and they still take the plain send path.
+    // Non-video attachments request no poster and take the plain send path.
     void nonVideoAttachmentsNeverRequestAPoster()
     {
         FakeClient client;
@@ -731,7 +713,7 @@ private Q_SLOTS:
         composer.setClient(&client);
         composer.setRoomId(QStringLiteral("!room:example.org"));
 
-        // Direct in-memory path used by clipboard paste.
+        // The in-memory path used by clipboard paste.
         const QString reason = composer.attachments()->addImageData(
             tinyPng(), QStringLiteral("image/png"), 1, 1);
         QVERIFY(reason.isEmpty());

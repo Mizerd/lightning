@@ -1,25 +1,21 @@
-// v0.7: offscreen visual-verification suite. Replaces several "NOT TESTED
-// (needs a display)" checklist items with real automated coverage by
-// rendering representative surfaces headlessly (QT_QPA_PLATFORM=offscreen),
-// grabbing deterministic snapshots, and asserting colour properties.
+// Offscreen visual-verification suite: renders representative surfaces
+// headlessly (QT_QPA_PLATFORM=offscreen) and asserts colour properties on
+// sampled pixels.
 //
-// What this proves without a human:
+// What this proves:
 //   * each design theme paints its own background/sidebar/surface/accent
 //     tokens (a light theme is never rendered near-black, and vice versa);
-//   * a real Fusion-styled ComboBox popup inherits the themed window palette
-//     rather than the default system palette — the "dropdown goes black /
-//     wrong colour on theme switch" regression;
+//   * a real Fusion-styled ComboBox popup inherits the themed application
+//     palette rather than the system palette;
 //   * a real Button and TextField chrome follow the theme;
 //   * initials avatars render on their deterministic palette colour.
 //
 // Snapshots are written to $LIGHTNING_SNAPSHOT_DIR (or the build dir) as PNGs
-// so a human can eyeball them later; the test itself asserts on sampled
-// pixels so it fails loudly if a surface renders with the wrong colour.
+// for inspection.
 //
-// Delegate-heavy views (the room-list / rail ListViews) are deliberately not
-// pixel-asserted here: the offscreen QPA does not incubate view delegates, so
-// their pixels are not deterministic. Their design correctness is covered by
-// the QML contract tests and the structural checks at the end of this file.
+// Delegate-heavy views are not pixel-asserted: the offscreen QPA does not
+// incubate view delegates deterministically. The QML contract tests and the
+// structural checks at the end of this file cover them.
 
 #include <QtTest/QtTest>
 
@@ -274,9 +270,8 @@ private Q_SLOTS:
             qUtf8Printable(QStringLiteral("%1: accent rendered %2 expected %3")
                 .arg(name, accentPix.name(), accentTok.name())));
 
-        // Polarity guard: a light theme's surface must be genuinely light,
-        // a dark theme's genuinely dark. Catches a whole class of "wrong
-        // palette / near-black dropdown" regressions.
+        // Polarity guard: a light theme's surface must be light, a dark
+        // theme's dark.
         const int surfaceLuma = qRound(0.299 * surfacePix.red()
             + 0.587 * surfacePix.green() + 0.114 * surfacePix.blue());
         if (light)
@@ -298,12 +293,10 @@ private Q_SLOTS:
         window->hide();
     }
 
-    // Regression guard for the dropdown-goes-wrong-colour bug: a Fusion
-    // ComboBox popup resolves its palette from the APPLICATION palette, which
-    // an ApplicationWindow item palette does not reach. After the app applies
-    // the theme to QGuiApplication (AppController::applyControlPalette, wired
-    // from Main.qml), the popup must follow the theme polarity. This drives
-    // the real C++ method, then reads the popup's resolved palette.
+    // A Fusion ComboBox popup resolves its palette from the application
+    // palette, which an ApplicationWindow item palette does not reach. After
+    // AppController::applyControlPalette the popup must follow the theme
+    // polarity; this drives the real method and reads the popup's palette.
     void comboPopupFollowsAppliedThemePalette_data()
     {
         QTest::addColumn<int>("themeId");

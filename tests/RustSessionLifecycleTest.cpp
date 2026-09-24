@@ -109,10 +109,8 @@ void RustSessionLifecycleTest::passwordLoginStorePolicy()
              Reason::ExistingStoreNeedsRestore);
 }
 
-// The central OAuth safety property: a device the authorization server just
-// created must never be attached to a crypto store that belongs to a
-// different device. This is the same class of bug that password login was
-// fixed for in v0.5.5, reached by a different route — OAuth only learns the
+// A device the authorization server just created must never be attached to a
+// crypto store that belongs to a different device. OAuth only learns the
 // account after the code exchange, so the check happens in phase B.
 void RustSessionLifecycleTest::oauthLoginStorePolicy()
 {
@@ -187,11 +185,9 @@ void RustSessionLifecycleTest::oauthReauthorizationKeepsItsOwnStore()
                                    QStringLiteral("SAMEDEVICE")),
              StoreBlockReason::None);
 
-    // And critically: refusing the sign-in must NOT invite a destructive
-    // local reset. The store this refusal protects belongs to a real device
-    // whose keys are still valid — the remedy is activating that account from
-    // the switcher, not deleting it. Offering "reset" here would turn a
-    // correct safety refusal into the data-loss bug it exists to prevent.
+    // Refusing the sign-in must not suggest a destructive local reset: the
+    // protected store belongs to a real device whose keys are still valid,
+    // and the remedy is activating that account from the switcher.
     QVERIFY(!matrix::rust_session::suggestsLocalReset(
         StoreBlockReason::ExistingStoreNeedsRestore));
     // The reasons that DO warrant a reset are the ones where nothing

@@ -1,9 +1,7 @@
-// v0.6.5 (SPEC 1a/1d): source-contract proof for the redesigned message and
-// room context menus. Pins the exact grouping/conditionals/wiring that
-// MenuSystemQmlTest cannot see (it proves the shared AppMenu/AppMenuItem
-// *language*, not which application surface uses which rows). Modeled on
-// QmlBindingContractTest.cpp's read()/bounded-block scanning style; never
-// weakens an assertion, only adds new ones for the new SPEC 1a/1d rows.
+// Source contract for the message and room context menus: the grouping,
+// conditionals and wiring that MenuSystemQmlTest (which proves the shared
+// AppMenu/AppMenuItem language) cannot see. Uses bounded-block scanning in
+// the style of QmlBindingContractTest.cpp.
 
 #include <QRegularExpression>
 #include <QtTest/QtTest>
@@ -21,28 +19,17 @@ class ContextMenuContractTest : public QObject
                                                : QString{};
     }
 
-    // The `moreMenu` AppMenu through the Delete item's own action — the
-    // entire message-context-menu row list, so a bounded absence check (no
-    // standalone "React" row) can never false-positive on the earlier hover
-    // action bar's own React IconButton (which also uses "add_reaction").
+    // The `moreMenu` AppMenu through the Delete item's action: the whole row
+    // list, so an absence check cannot match the hover bar's React button
+    // (which also uses "add_reaction").
     static QString moreMenuBlock(const QString &delegate)
     {
         const int start = delegate.indexOf(QStringLiteral("id: moreMenu"));
         if (start < 0) return {};
-        // The Delete item's action, which is the last row of this menu.
-        // It moved from app.composer.redact to the TIMELINE MODEL's own
-        // redactEvent: app.composer is the ROOM composer, so in the thread
-        // panel the deletion was addressed to the live room timeline, which
-        // hides threaded events and could not find the item — deleting your
-        // own thread reply reported a send failure and never sent.
-        //
-        // 2026-09-08: the marker moved again, for the same reason it moved
-        // before. Delete now asks first (B022), so its call lives inside the
-        // confirmation's closure and reads `redactEvent(id)`. The end of this
-        // block is still "the Delete item's action"; only its spelling
-        // changed. Worth noting that when the marker vanished this test did
-        // not say so usefully -- every case failed on an empty block with no
-        // message -- which is why each QVERIFY below now names it.
+        // The Delete item's action is the menu's last row. It goes through the
+        // timeline model's redactEvent (app.composer is the room composer and
+        // cannot see thread items) inside the confirmation's closure. Each
+        // QVERIFY below names this marker so a missing block reports clearly.
         const int end = delegate.indexOf(
             QStringLiteral("root.timelineModel.redactEvent(id)"),
             start);
@@ -50,17 +37,9 @@ class ContextMenuContractTest : public QObject
         return delegate.mid(start, end - start);
     }
 
-    // The `roomMenu` AppMenu, including the Leave room item's own action —
-    // bounded by the trailing comment after the AppMenu's closing brace so
-    // the block is never truncated exactly at content it also asserts.
-    // The room menu moved OUT of RoomDelegate.qml into RoomActionsMenu.qml
-    // when the Channels layout needed the same menu — one menu with two
-    // hosts, rather than 160 duplicated lines that drift. The invariants
-    // below are unchanged; only the file they live in is, so this reads the
-    // whole component instead of slicing a block out of the row.
-    //
-    // `delegate` is still taken so the call sites read the same and so the
-    // row itself is still required to exist and to own the menu.
+    // The room menu lives in RoomActionsMenu.qml, shared by both room-list
+    // layouts, so this reads the whole component. `delegate` is still taken
+    // so the row is required to exist and own the menu.
     static QString roomMenuBlock(const QString &delegate)
     {
         if (!delegate.contains(QStringLiteral("RoomActionsMenu {")))
@@ -69,7 +48,7 @@ class ContextMenuContractTest : public QObject
     }
 
 private Q_SLOTS:
-    // ---- 1a: message context menu ----
+    // ---- message context menu ----
 
     void moreMenuUsesSpecWidth()
     {
@@ -100,19 +79,18 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral(
             "emojis: app.emojiCatalog.recentEmoji || []")));
         QVERIFY(block.contains(QStringLiteral("onPicked: (emoji) => {")));
-        // Through the MODEL, not the room composer: in the thread panel
-        // app.composer addresses the live room timeline, which hides threaded
-        // events, so a reaction there was a silent no-op.
+        // Through the model, not the room composer: in the thread panel
+        // app.composer addresses the room timeline, which hides threaded
+        // events.
         QVERIFY(block.contains(QStringLiteral(
             "root.timelineModel.toggleReaction(root.menuEventId, emoji)")));
         QVERIFY(block.contains(QStringLiteral("onMorePressed: {")));
         QVERIFY(block.contains(QStringLiteral(
             "root.openReactionPickerFor(root.menuEventId, bubbleRow)")));
 
-        // The liveness guard matches React's real current condition
-        // (permalink non-empty AND not redacted), not a permalink-only check.
-        // v0.7 perf round: the menu moved to a lazily-created root-level
-        // Component (16 spaces shallower), so the continuation indent is 28.
+        // The liveness guard matches React's real condition (permalink
+        // non-empty and not redacted). The menu is a lazily created root-level
+        // Component, so the continuation indent is 28.
         QVERIFY(block.contains(QStringLiteral(
             "root.timelineModel.messagePermalink(\n"
             "                            root.menuEventId).length === 0")));
@@ -120,10 +98,8 @@ private Q_SLOTS:
             "root.timelineModel.messageDetails(\n"
             "                            root.menuEventId).redacted)")));
 
-        // The standalone "React" row is gone from the dropdown — bounded to
-        // this block so it cannot match the earlier, unrelated hover action
-        // bar's own React IconButton (also "add_reaction", outside this
-        // block since it precedes "id: moreMenu" in the file).
+        // No standalone "React" row in the dropdown; bounded to this block so
+        // the hover bar's React button (before "id: moreMenu") cannot match.
         QCOMPARE(block.count(QStringLiteral("iconName: \"add_reaction\"")), 0);
     }
 
@@ -139,9 +115,8 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("accel: \"R\"")));
         QVERIFY(block.contains(QStringLiteral("accel: \"T\"")));
         QVERIFY(block.contains(QStringLiteral("accel: \"Ctrl+C\"")));
-        // The mock hints ↑ on Edit (a composer-history convention this app
-        // does not have; a Key_Up shortcut would also steal menu arrow
-        // navigation) — the honest binding and keycap are E.
+        // Edit's accelerator is E: a Key_Up shortcut would steal menu arrow
+        // navigation, and there is no composer-history convention here.
         QVERIFY(block.contains(QStringLiteral("accel: \"E\"")));
         QVERIFY(!block.contains(QStringLiteral("accel: \"↑\"")));
     }
@@ -155,9 +130,8 @@ private Q_SLOTS:
                  "markers (id: moreMenu, or the Delete item's redactEvent "
                  "call) has moved, so every assertion below is testing an "
                  "empty string");
-        // Keys cannot attach to a Menu (a Popup, not an Item) — the
-        // accelerators are Shortcuts scoped to the open menu, one per key,
-        // and never a Key_Up binding (menu navigation owns that).
+        // Keys cannot attach to a Menu (a Popup), so accelerators are
+        // Shortcuts scoped to the open menu, never a Key_Up binding.
         QVERIFY(!block.contains(QStringLiteral("Keys.onPressed")));
         QVERIFY(block.count(QStringLiteral("Shortcut {")) == 4);
         QVERIFY(block.count(QStringLiteral("enabled: moreMenu.opened")) == 4);
@@ -170,16 +144,13 @@ private Q_SLOTS:
         QVERIFY(!block.contains(QStringLiteral("Qt.Key_Up")));
         QVERIFY(block.count(QStringLiteral(
             "root.copyToClipboard(\n")) >= 1);
-        // Edit's keyboard path reuses the exact same three-argument call the
-        // Edit row's onTriggered uses.
+        // Edit's keyboard path reuses the row's exact three-argument call.
         QVERIFY(block.count(QStringLiteral("app.composer.beginEdit(")) == 2);
     }
 
-    // v0.6.6 UX rework: GIF starring is no longer a dropdown row at all — it
-    // moved to a Discord-style hover star overlaid on the GIF media itself
-    // (see GifHoverStarContractTest.cpp). Pin the absence so it can never
-    // silently come back as a second, redundant activation surface
-    // alongside the hover star.
+    // GIF starring is a hover star on the media (see
+    // GifHoverStarContractTest.cpp), not a menu row; a second activation
+    // surface must not return.
     void starGifIsNotAMenuItem()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
@@ -194,14 +165,10 @@ private Q_SLOTS:
         QVERIFY(!block.contains(QStringLiteral("qsTr(\"Unstar GIF\")")));
     }
 
-    // v0.7.1: the crash-fix round split this in two. A short/continuation
-    // room-timeline row cannot contain the ~32px bar under root's clip
-    // (see MessageDelegate.qml line 13), so that host's bar is now ONE
-    // shared instance in TimelinePane.qml (id: sharedMessageActionBar,
-    // covered by MessageActionBarFitTest.cpp), leaving only the thread
-    // panel's own always-safe (clip: false, a real ListView) in-row bar —
-    // and its React/Reply/More, never Thread, which was always hidden
-    // there (`visible: !root.inThreadPanel`) — inside this file.
+    // Room-timeline rows share one action bar in TimelinePane.qml (id:
+    // sharedMessageActionBar, covered by MessageActionBarFitTest.cpp), since a
+    // short row cannot contain it under root's clip. This file keeps only the
+    // thread panel's in-row bar (React/Reply/More, never Thread).
     void messageActionBarUsesSpecChrome()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
@@ -212,22 +179,19 @@ private Q_SLOTS:
         const QString block = delegate.mid(start, end - start);
         QVERIFY(block.contains(QStringLiteral("radius: AppTheme.radiusTile")));
         QVERIFY(block.contains(QStringLiteral("border.color: AppTheme.borderStrong")));
-        // Five buttons now: Hide (image and sticker rows only), React, Reply,
-        // Edit (own editable messages only, 2026-09-05), More. Hide leads,
-        // which is where Element's own bar puts it on an image row — it is
-        // the only action there that is about the picture rather than about
-        // the message.
+        // Five buttons: Hide (image and sticker rows only, leading, as in
+        // Element), React, Reply, Edit (own editable messages only), More.
         QCOMPARE(block.count(QStringLiteral("radius: AppTheme.radiusControl")), 5);
         QVERIFY2(block.contains(QStringLiteral("objectName: \"messageEditButton\"")),
                  "the Edit control is not on the action bar");
         QVERIFY2(block.contains(QStringLiteral("objectName: \"messageHideMediaButton\"")),
                  "the local hide-image control is not on the action bar");
-        // v0.7 perf round: the menu is created lazily, so the open state is
-        // surfaced through the delegate's moreMenuOpen proxy property.
+        // The menu is created lazily, so its open state is surfaced through the
+        // delegate's moreMenuOpen property.
         QVERIFY(block.contains(QStringLiteral("active: root.moreMenuOpen")));
     }
 
-    // ---- 1d: room context menu ----
+    // ---- room context menu ----
 
     void roomMenuUsesSpecWidth()
     {
@@ -243,9 +207,8 @@ private Q_SLOTS:
             "menuWidth: AppTheme.menuWidthRoom")));
     }
 
-    // Element classic's Favourite toggle, and the two things that keep it
-    // honest: it is hidden on a backend that cannot write room tags, and it
-    // sends the value to WRITE rather than asking the row to toggle itself.
+    // The Favourite toggle is hidden where the backend cannot write room tags,
+    // and it sends the value to write rather than toggling locally.
     void roomMenuOffersFavouritesOnlyWhereTheBackendCanWriteTheTag()
     {
         const QString delegate = read(QStringLiteral("RoomDelegate.qml"));
@@ -258,14 +221,11 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("objectName: \"roomFavouriteItem\"")));
         QVERIFY(block.contains(QStringLiteral(
             "visible: app.roomList.roomFavouritesSupported")));
-        // The row never flips the flag itself — it asks for the OPPOSITE of
-        // what the model currently reports, and the model waits for the
-        // backend. A bare `root.setFavourite()` or a local assignment here
-        // would be an optimistic apply.
+        // The row asks for the opposite of what the model reports and waits
+        // for the backend; a local assignment would be an optimistic apply.
         QVERIFY(block.contains(QStringLiteral(
             "onTriggered: root.setFavourite(!root.isFavourite)")));
-        // An ASSIGNMENT only — `root.isFavourite ?` is the read above and
-        // must not trip this.
+        // An assignment only; the `root.isFavourite ?` read must not trip this.
         QVERIFY(!block.contains(
             QRegularExpression(QStringLiteral("root\\.isFavourite\\s*=(?!=)"))));
         QVERIFY(delegate.contains(QStringLiteral("signal setFavourite(bool on)")));
@@ -284,9 +244,9 @@ private Q_SLOTS:
             "menuWidth: AppTheme.menuWidthFlyout")));
         QVERIFY(block.contains(QStringLiteral(
             "submenuIconName: \"notifications\"")));
-        // Re-queried on show and on the settings manager's own change signal;
-        // opening also re-polls the server rule (a guarded no-op on
-        // backends without server push-rule support).
+        // Re-queried on show and on the settings manager's change signal;
+        // opening also re-polls the server rule (a no-op without server push
+        // rules).
         QVERIFY(block.contains(QStringLiteral(
             "currentMode = app.settings.roomNotificationMode(root.roomId)")));
         const int aboutToShow =
@@ -298,13 +258,10 @@ private Q_SLOTS:
             "app.requestRoomNotificationMode(root.roomId)")));
         QVERIFY(block.contains(QStringLiteral(
             "function onRoomNotificationModeChanged(roomId) {")));
-        // FOUR radio rows since v0.7, each a pure binding — never an
-        // imperative assignment (AppMenuItem itself never self-toggles
-        // radioSelected; the owner must not either). Mode 1 is labeled for
-        // what the SDK rule actually does: mentions AND keyword rules keep
-        // firing. Mode 3 ("Follow account default") was added so this
-        // flyout can represent the same states Room Information offers —
-        // without it a room set to mode 3 showed NO selected radio here.
+        // Four radio rows, each a pure binding (AppMenuItem never
+        // self-toggles, and the owner must not either). Mode 1 is labelled for
+        // what the SDK rule does (mentions and keywords still fire); mode 3
+        // ("Follow account default") matches Room Information's states.
         QCOMPARE(block.count(QStringLiteral("radio: true")), 4);
         QVERIFY(block.contains(
             QStringLiteral("text: qsTr(\"Follow account default\")")));
@@ -325,7 +282,7 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral(
             "radioSelected: notificationsFlyout.currentMode === 2")));
         QVERIFY(!block.contains(QStringLiteral("radioSelected =")));
-        // The writes are signal-routed, not direct app/app.settings calls.
+        // Writes are signal-routed, not direct app/app.settings calls.
         QVERIFY(block.contains(QStringLiteral("root.setNotificationMode(0)")));
         QVERIFY(block.contains(QStringLiteral("root.setNotificationMode(1)")));
         QVERIFY(block.contains(QStringLiteral("root.setNotificationMode(2)")));
@@ -333,25 +290,10 @@ private Q_SLOTS:
         QVERIFY(!block.contains(QStringLiteral("app.setRoomNotificationMode")));
     }
 
-    // Every surface that talks about per-room notification modes phrases
-    // itself from the backend's real capability
-    // (app.serverRoomNotificationModes): "saved to your account" wording
-    // iff the backend writes the account's push rules — demoted to an
-    // honest "kept on this device" while the room's last write is known to
-    // have failed — and the exact pre-existing local-only wording
-    // otherwise. Identical picker strings in the flyout and Room
-    // Information; the Settings → Notifications caption carries the same
-    // conditional, with its push-registration sentence unconditional
-    // (that stays true on every backend).
-    // A non-MenuItem child of an AppMenu sizes ITSELF, and if it does not,
-    // it wraps at its own implicitWidth and paints outside the panel.
-    // Measured 2026-09-20 in the running app: the notifications disclaimer
-    // rendered as ONE line cut mid-word at the panel border ("Local
-    // setting: it does not chang"), with no ellipsis, because a wrapping
-    // Text does not elide. A source contract, not a geometric one, because
-    // the offscreen QQuickMenu sizes this item where the running one does
-    // not — the running app is where the defect lives and where its
-    // captures were taken.
+    // A non-MenuItem child of an AppMenu must size itself, or a wrapping Text
+    // takes its own implicitWidth, paints past the panel and does not elide.
+    // A source contract: the offscreen QQuickMenu sizes this item where the
+    // running app does not.
     void theNotificationDisclaimerBindsItsWidthToTheFlyout()
     {
         const QString menu = read(QStringLiteral("RoomActionsMenu.qml"));
@@ -390,10 +332,12 @@ private Q_SLOTS:
             QStringLiteral("settings (server push rules).");
         const QString failedFragment1 =
             QStringLiteral("Couldn't save to the server");
-        // v0.7: the failure line now also states that the write is retried
-        // on reconnect. The admission of failure must still come FIRST and
-        // unqualified, which is what this fragment pins; the retry promise
-        // is checked separately below.
+        // Notification-mode wording follows the backend's real capability
+        // (app.serverRoomNotificationModes): "saved to your account" only when
+        // push rules are written, "kept on this device" while the last write
+        // failed, the local-only wording otherwise; the same in the flyout,
+        // Room Information and Settings. The failure line also promises a
+        // retry on reconnect, but the admission of failure must come first.
         const QString failedFragment2 =
             QStringLiteral("kept on this device.");
         const QString retryFragment =
@@ -413,12 +357,11 @@ private Q_SLOTS:
             QVERIFY(source.contains(retryFragment));
             QVERIFY(source.contains(localFragment1));
             QVERIFY(source.contains(localFragment2));
-            // Never over-promise: no "synced with" phrasing anywhere (there
-            // is no live push-rule watcher yet).
+            // No "synced with" wording: there is no live push-rule watcher.
             QVERIFY(!source.contains(QStringLiteral("Synced with")));
         }
-        // The failed-write demotion is driven by the per-room state the
-        // controller tracks, re-queried through each surface's refresh.
+        // The failed-write demotion follows the per-room state the controller
+        // tracks.
         QVERIFY(block.contains(QStringLiteral("notificationsFlyout.syncFailed")));
         QVERIFY(block.contains(QStringLiteral(
             "app.roomNotificationModeSyncFailed(root.roomId)")));
@@ -430,9 +373,8 @@ private Q_SLOTS:
         QVERIFY(roomInfo.contains(QStringLiteral("? qsTr(\"Notifications\")")));
         QVERIFY(roomInfo.contains(
             QStringLiteral(": qsTr(\"Notifications (this device)\")")));
-        // Settings → Notifications: same capability gate, its own "are
-        // saved to your account" / device-only variants, and the
-        // unconditional push-registration sentence.
+        // Settings > Notifications: same capability gate, its own variants, and
+        // the unconditional push-registration sentence.
         QVERIFY(settings.contains(capabilityGate));
         QVERIFY(settings.contains(QStringLiteral("are saved")));
         QVERIFY(settings.contains(QStringLiteral(
@@ -464,28 +406,16 @@ private Q_SLOTS:
 
     void everyPreviewRestoreUsesTheKeyTheDismissalUsed()
     {
-        // A dismissed preview is remembered under an ownership key built
-        // from a ROOM ID and the event's action key. Restoring it looks that
-        // key up -- and looking up a key nobody dismissed is not an error,
-        // it is a silent no-op. So a restore that computes its room id
-        // differently from the dismissal produces a button that does
-        // nothing, with no warning anywhere.
-        //
-        // That shipped: the inline "Show preview" passed the VIEW's roomId
-        // while dismissal, lookup and the context menu's undo all pass
-        // `previewRoomId` (app.currentRoomId). Reported as "this button does
-        // nothing".
+        // A dismissed preview is remembered under a key built from a room id
+        // and the event's action key, and a lookup of a key nobody dismissed is
+        // a silent no-op. Every verb must use `previewRoomId`
+        // (app.currentRoomId), not the view's roomId.
         const QString src = read(QStringLiteral("MessageDelegate.qml"));
         QVERIFY(!src.isEmpty());
 
-        // Anchored on the CALL, not on a fixed window after a name: a
-        // comment inside the call has moved a fixed-offset scan past its
-        // target four times in this repository.
-        // EVERY verb that keys the same store, not just restore. Dismiss,
-        // request, retry and the lookup all build the ownership key the same
-        // way, and flipping ANY of them to the view's roomId reintroduces
-        // the identical silent no-op. A contract that covered only the one
-        // that broke would be a contract about history.
+        // Anchored on the call, not a fixed window after a name. Every verb
+        // that keys the store (dismiss, request, retry, lookup, restore) is
+        // checked.
         static const QRegularExpression call(
             QStringLiteral("(?:dismiss|restore|request|retry|)"
                            "[Pp]reviewForEvent\\s*\\(([^)]*)\\)"));
@@ -501,10 +431,7 @@ private Q_SLOTS:
                          "previewRoomId, so it can never find the dismissal "
                          "it is meant to undo: %1").arg(args.simplified())));
         }
-        // found > 0, or a renamed function turns this into a scan that
-        // passes by matching nothing.
-        // An EXACT count, not a floor: a floor is satisfied by the sites
-        // that already pass while a new one slips in unchecked.
+        // An exact count: a floor would let a new unchecked site slip in.
         QCOMPARE(found, 6);
     }
 
@@ -535,8 +462,8 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("signal setNotificationMode(int mode)")));
         QVERIFY(delegate.contains(QStringLiteral("signal copyRoomLink()")));
         QVERIFY(delegate.contains(QStringLiteral("signal leaveRoomRequested()")));
-        // app.roomInfo.roomId is never touched by this delegate — the leave
-        // adapter must act on an explicit id, never the panel's own binding.
+        // The delegate never touches app.roomInfo.roomId; leave acts on an
+        // explicit id.
         QVERIFY(!delegate.contains(QStringLiteral("app.roomInfo.roomId")));
         QVERIFY(!delegate.contains(QStringLiteral("app.roomInfo.leaveRoom")));
     }
@@ -554,30 +481,16 @@ private Q_SLOTS:
         const QString keysBlock = delegate.mid(keysStart, keysEnd - keysStart);
         QVERIFY(keysBlock.contains(QStringLiteral("model.membership === \"joined\"")));
         QVERIFY(keysBlock.contains(QStringLiteral("roomMenu.popup()")));
-        // The pre-existing right-click gate is untouched.
+        // The existing right-click gate is untouched.
         QVERIFY(delegate.contains(QStringLiteral(
             "enabled: model.membership === \"joined\"")));
         QVERIFY(delegate.contains(QStringLiteral("onTapped: roomMenu.popup()")));
     }
 
-    // THE DESTRUCTIVE CONFIRMATION USES THE APP'S OWN BUTTONS AND CAN BE
-    // DISMISSED BY CLICKING AWAY.
-    //
-    // Reported from a screenshot: the Delete/Cancel pair were bare
-    // `Button {}`, so they rendered as Qt Basic's square flat grey — two
-    // identical controls, the irreversible one indistinguishable from the
-    // safe one, inside a dialog whose every sibling uses the AppTheme
-    // ladder. AppButton's own header names `dangerPrimary` as the kind
-    // "for the confirm button of a destructive dialog", so the component
-    // existed for this and the call site simply never used it.
-    //
-    // And the dialog closed on Escape only, so the reflex every other modal
-    // here honours — press outside to back out — did nothing. That is safe
-    // to allow precisely because the only committing path is an explicit
-    // press on the destructive button.
-    //
-    // Asserted against the scanned extent of the dialog, so a bare Button
-    // somewhere else in this very large file cannot pass or fail it.
+    // The delete confirmation uses AppButton (`dangerPrimary` for the
+    // destructive action) rather than bare Qt Basic buttons, and closes on a
+    // press outside; that is safe because committing needs an explicit press
+    // on the destructive button. Scoped to the dialog's extent.
     void theDestructiveConfirmUsesAppButtonsAndClosesOnPressOutside()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
@@ -589,7 +502,7 @@ private Q_SLOTS:
         const int end = delegate.indexOf(
             QStringLiteral("messageDestructiveConfirmAccept"), start);
         QVERIFY2(end > start, "the accept button was not found after the dialog");
-        // Take the whole block including the accept button's own body.
+        // The whole block including the accept button's body.
         const QString block = delegate.mid(start, (end - start) + 400);
         QVERIFY2(block.contains(QStringLiteral("messageDestructiveConfirmCancel")),
                  "the scanned extent is missing the cancel button");
@@ -600,9 +513,8 @@ private Q_SLOTS:
                  "the committing button must be dangerPrimary, not a bare Button");
         QVERIFY2(block.contains(QStringLiteral("kind: \"secondary\"")),
                  "the cancel button must be a secondary AppButton");
-        // The thing that regressed: a plain Button anywhere in this block.
-        // Written as a search for the declaration, so `AppButton {` does not
-        // match it.
+        // No plain `Button {` declaration in this block (`AppButton {` does not
+        // match).
         QVERIFY2(!block.contains(QStringLiteral("\n                    Button {")),
                  "a bare Button is back in the destructive confirm; it renders "
                  "as the Qt Basic default and ignores the AppTheme ladder");

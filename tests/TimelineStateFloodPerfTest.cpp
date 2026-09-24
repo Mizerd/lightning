@@ -1,49 +1,18 @@
-// Measurement for the reported "many consecutive room-activity state
-// changes (e.g. a user changing their display name 50-100 times with no
-// messages in between) makes scrolling up die" defect.
+// Measures the cost of state-activity grouping (TimelineModel::
+// stateGroupLeaderRow / stateGroupEntriesFrom / emitPresentationGroupingChanged)
+// under a long run of contiguous state changes, against the same row count of
+// ordinary messages, at the TimelineModel level only.
+// TimelineStateFloodQmlPerfTest.cpp covers the QML side.
 //
-// This is a MEASUREMENT test, not a fix. It quantifies the cost of the
-// existing state-activity grouping mechanism (TimelineModel::
-// stateGroupLeaderRow / stateGroupEntriesFrom / emitPresentationGroupingChanged,
-// see src/models/TimelineModel.cpp) under a long run of contiguous
-// m.room.member-style state changes, and contrasts it with the same row
-// count of ordinary messages, at the TimelineModel level only (no QML
-// engine, no delegate instantiation — see TimelineStateFloodQmlPerfTest.cpp
-// for the QML-level follow-up, and the completion report for what each
-// file does and does not cover).
+// Only the group leader's StateGroupEntriesRole query builds the entries
+// list; every other row returns an empty list in O(1). So hydrating N rows
+// once is linear. emitPresentationGroupingChanged widens dataChanged() to the
+// whole contiguous run on every insertion, so building a group of n one
+// append at a time costs O(n²) entries in total.
 //
-// CORRECTED (this file's first version over-predicted the cost — see the
-// completion report for the wrong reading and how it was found): only the
-// GROUP LEADER row's TimelineModel::data(..., StateGroupEntriesRole) query
-// actually rebuilds the entries list — every non-leader row short-circuits
-// to an empty list in O(1) (`if (leader != raw) return QVariantList{};`,
-// TimelineModel.cpp). So:
-//   - Hydrating N freshly-queried rows once costs exactly N total entries
-//     produced (all from the one leader), not N² — LINEAR, not quadratic.
-//   - TimelineModel::emitPresentationGroupingChanged still WIDENS
-//     dataChanged() to cover the WHOLE contiguous run on every insertion
-//     into it (this part of the original reading was right, and is proven
-//     directly below) — but replaying the entries role over that widened
-//     range only re-derives real content from the ONE leader row each time,
-//     so the cumulative cost of building a group of n one append at a time
-//     is O(n²) (an arithmetic series, Σk), not O(n³).
-//   - At the measured n=100, that cumulative cost is ~5,049 "entries units"
-//     and ~4.5ms of wall time — real, but far too small on its own to
-//     explain "scrolling up kinda dies". What the widened dataChanged range
-//     DOES still do, regardless of how cheap the C++ call underneath it is,
-//     is force every one of the (up to n) already-instantiated
-//     MessageDelegate rows in that range to re-evaluate their
-//     `model.stateGroupEntries` / `model.stateGroupId` / `model.stateGroupLeader`
-//     property bindings (MessageDelegate.qml:50,511,513) on every single
-//     insertion — a QML-layer cost this pure-C++ test cannot see. See
-//     TimelineStateFloodQmlPerfTest.cpp for that measurement.
-//
-// Every metric below is an OBSERVABLE proxy for real work, not a guess:
-//   - "entries produced" is the exact size of the QVariantList that
-//     TimelineModel::data(..., StateGroupEntriesRole) returns.
-//   - the dataChanged() range width is read directly off the signal
-//     TimelineModel actually emits — the same signal QML's role bindings
-//     in MessageDelegate.qml re-evaluate against.
+// Metrics are observable: "entries produced" is the size of the list the
+// entries role returns, and range widths are read off the real dataChanged()
+// signal.
 
 #include "matrix/MatrixClient.h"
 #include "models/TimelineModel.h"
@@ -127,10 +96,7 @@ public:
 };
 
 // Sums TimelineModel::data(row, StateGroupEntriesRole).toList().size() over
-// [first, last] — the exact list every state-change row's MessageDelegate
-// rebuilds via `model.stateGroupEntries` (MessageDelegate.qml:50). Only the
-// range's group leader (if any) actually contributes a nonzero size; every
-// other row short-circuits to an empty list in O(1).
+// [first, last]. Only the range's group leader contributes a nonzero size.
 qint64 replayEntriesRoleOverRange(TimelineModel *model, int first, int last)
 {
     qint64 total = 0;
@@ -153,40 +119,24 @@ private Q_SLOTS:
     void init();
     void cleanup();
 
-    // Test 1: one-time hydration cost (what N freshly-created MessageDelegate
-    // rows would each pay once, e.g. right after a roomId switch or a batch
-    // reset) is LINEAR in row count for a contiguous state group — only the
-    // leader row's entries-role query does real work — and stays linear
-    // (zero) for the same row count of ordinary messages. This is a
-    // regression guard: if a future change makes every row (not just the
-    // leader) rebuild the full entries list, this test starts failing with
-    // an n² total instead of n.
+    // One-time hydration cost is linear in row count for a contiguous state
+    // group (only the leader does real work) and zero for messages.
     void hydrationCostIsLinearForStateGroupsAndForMessages();
 
-    // The composition counters the opt-in scroll trace reports. They exist so
-    // a "scrolling died in this room" report can be ANSWERED rather than
-    // guessed at: rows=1200/stateRows=1100/stateGroups=3 and
-    // rows=1200/stateRows=4 are different defects and the row count alone
-    // cannot tell them apart. Counts only — never ids, bodies or senders.
+    // The composition counters the opt-in scroll trace reports, which tell a
+    // state-flood room from a merely long one. Counts only, never ids, bodies
+    // or senders.
     void compositionCountersReportStateRowsAndGroups();
 
-    // Test 2: TimelineModel::emitPresentationGroupingChanged widens
-    // dataChanged() to cover the WHOLE contiguous state-change run on every
-    // single insertion into it, regardless of insertion position — proven
-    // directly off the real signal. Because only the leader's entries query
-    // does real work, the CUMULATIVE cost of building a group of n state
-    // changes one row at a time is O(n²) (an arithmetic series), not O(1)
-    // (which a well-behaved incremental design would cost) and not O(n³).
+    // emitPresentationGroupingChanged widens dataChanged() to the whole
+    // contiguous state run on every insertion, so building a group of n one
+    // row at a time costs O(n²) in total.
     void perAppendDataChangedRangeCoversWholeContiguousGroup();
     void cumulativeAppendCostGrowsQuadraticallyForStateChanges();
     void perAppendCostIsConstantForOrdinaryMessages();
 
-    // Test 3: the same pathology under batched delivery, matching how
-    // backward pagination actually delivers pages (onEventsPrepended /
-    // onEventsInsertedAt, one signal per page). Confirms the mechanism is
-    // not merely a one-event-at-a-time artifact: even in pages of 20, each
-    // new page's dataChanged() range re-covers the ENTIRE accumulated
-    // group, not just the new page.
+    // The same under batched prepends, as backward pagination delivers them:
+    // each page's dataChanged() range re-covers the entire accumulated group.
     void perBatchPrependReplaysWholeAccumulatedGroupEachPage();
 
 private:
@@ -238,9 +188,8 @@ void TimelineStateFloodPerfTest::hydrationCostIsLinearForStateGroupsAndForMessag
 
         QElapsedTimer timer;
         timer.start();
-        // What N freshly-instantiated MessageDelegate rows each cost once,
-        // at creation, via their unconditional
-        // `model.stateGroupEntries` / stateGroupId / stateGroupLeader bindings.
+        // What N freshly created MessageDelegate rows each cost once via their
+        // grouping bindings.
         qint64 totalEntries = 0;
         for (int row = 0; row < n; ++row) {
             m_model->data(m_model->index(row), TimelineModel::StateGroupLeaderRole);
@@ -307,11 +256,8 @@ void TimelineStateFloodPerfTest::perAppendDataChangedRangeCoversWholeContiguousG
         m_client->mirror.append(next);
         Q_EMIT m_client->eventAppended(kRoom, next);
 
-        // The group is rows [0, i] after this append (i+1 rows). Assert the
-        // signal actually observed by QML's role bindings spans the WHOLE
-        // group, not just the newly touched row(s) — this is the mechanism,
-        // read directly off the real signal, not inferred. MEASURED and
-        // confirmed passing against the real implementation.
+        // The group is rows [0, i] after this append: the signal spans the
+        // whole group, not just the touched row(s).
         QCOMPARE(lastFirst, 0);
         QCOMPARE(lastLast, i);
     }
@@ -328,11 +274,8 @@ void TimelineStateFloodPerfTest::cumulativeAppendCostGrowsQuadraticallyForStateC
             [&](const QModelIndex &tl, const QModelIndex &br, const QList<int> &roles) {
                 if (!roles.contains(TimelineModel::StateGroupEntriesRole))
                     return;
-                // What every row's stateGroupEntries binding in the affected
-                // range re-evaluates to, exactly as QML would on this signal.
-                // Only the leader (row 0, always in range here) contributes
-                // a nonzero amount; every other row in the range is an O(1)
-                // empty-list re-evaluation this counter does not weight.
+                // What every row's stateGroupEntries binding in the range
+                // re-evaluates to on this signal; only the leader contributes.
                 totalReplayedEntries +=
                     replayEntriesRoleOverRange(m_model, tl.row(), br.row());
             });
@@ -359,16 +302,9 @@ void TimelineStateFloodPerfTest::cumulativeAppendCostGrowsQuadraticallyForStateC
           static_cast<long long>(expected), static_cast<long long>(elapsedNs));
     QCOMPARE(totalReplayedEntries, expected);
 
-    // n=100: expected is 5,049 — real, quadratic-in-n cumulative cost (a
-    // linear-total mechanism would be flat at ~n=100; this is ~50x that),
-    // but measured at ~4.5ms of wall time for the whole 99-append sequence
-    // on the machine this was authored on — nowhere near enough on its own
-    // to explain a reported scrolling freeze. See
-    // TimelineStateFloodQmlPerfTest.cpp for the QML-layer measurement this
-    // motivates: the widened dataChanged RANGE (proven above to cover the
-    // whole group every time) forces every already-instantiated delegate in
-    // it to re-evaluate its grouping property bindings, regardless of how
-    // cheap the underlying C++ call is for a non-leader row.
+    // n=100 gives 5,049: quadratic, but only a few milliseconds of wall time.
+    // The QML-side cost of the widened range is measured in
+    // TimelineStateFloodQmlPerfTest.cpp.
     QVERIFY(totalReplayedEntries > qint64(n) * 10);
 }
 
@@ -397,21 +333,15 @@ void TimelineStateFloodPerfTest::perAppendCostIsConstantForOrdinaryMessages()
 
     qInfo("incremental append (ordinary messages) n=%d totalReplayedEntries=%lld widestRange=%d",
           n, static_cast<long long>(totalReplayedEntries), widestRange);
-    // No row is ever a state change, so stateGroupEntriesFrom's O(1)
-    // -1-leader short-circuit applies everywhere: zero entries produced,
-    // and the dataChanged range never widens beyond the two rows touched by
-    // a single append. MEASURED and confirmed passing — the direct control
-    // proving this pathology is specific to state-change grouping, not "any
-    // 100 rows are slow".
+    // Control: no state changes, so zero entries and the range never widens
+    // beyond the two rows a single append touches.
     QCOMPARE(totalReplayedEntries, qint64(0));
     QVERIFY(widestRange <= 2);
 }
 
 void TimelineStateFloodPerfTest::perBatchPrependReplaysWholeAccumulatedGroupEachPage()
 {
-    // Matches backward pagination: older pages arrive prepended, in the
-    // page size the SDK actually returns (representative page size; the
-    // real value is backend-controlled and not fixed here).
+    // Older pages arrive prepended; 20 is a representative page size.
     const int pageSize = 20;
     const int pages = 5; // 100 total state changes, none of them messages.
 
@@ -431,10 +361,7 @@ void TimelineStateFloodPerfTest::perBatchPrependReplaysWholeAccumulatedGroupEach
 
     int loaded = 0;
     for (int page = 0; page < pages; ++page) {
-        // TimelineModel::onEventsPrepended expects `events` oldest-first
-        // (it internally prepends back-to-front to land them in that
-        // order) — matching TimelineModel::onEventsPrepended's real call
-        // shape, this is one atomic batch per page.
+        // onEventsPrepended expects `events` oldest-first; one batch per page.
         QList<TimelineEvent> older;
         older.reserve(pageSize);
         for (int i = 0; i < pageSize; ++i)
@@ -445,11 +372,8 @@ void TimelineStateFloodPerfTest::perBatchPrependReplaysWholeAccumulatedGroupEach
         loaded += pageSize;
         Q_EMIT m_client->eventsPrepended(kRoom, older);
 
-        // Every page after the first must observe a dataChanged range that
-        // covers the FULL accumulated group so far, not just the new page,
-        // because the two already-loaded state-change rows immediately
-        // adjacent to the insertion point pull emitPresentationGroupingChanged's
-        // expand-while-loop across the whole existing run. MEASURED.
+        // Every page's dataChanged range covers the full accumulated group,
+        // not just the new page.
         QVERIFY(!observedRangeWidths.isEmpty());
         QCOMPARE(observedRangeWidths.last(), loaded);
     }

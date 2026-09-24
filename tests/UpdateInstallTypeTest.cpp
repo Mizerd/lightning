@@ -1,9 +1,7 @@
 // Lightning secure update system: install-type identity.
 //
-// The install type decides whether Lightning may install anything at all,
-// so every detection branch is exercised through the injectable
-// environment — no setenv races, and no branch that only the packaging
-// pipeline could reach in practice goes untested.
+// The install type decides whether Lightning may install anything at all, so
+// every detection branch is exercised through the injectable environment.
 
 #include "update/InstallType.h"
 
@@ -120,21 +118,14 @@ private slots:
     void appImageMagicIsReadFromTheFile();
 };
 
-// ── The portable strategy must be PROVEN, never reached by fallback ─────
+// ── The portable strategy must be proven, never reached by fallback ─────
 //
-// windows-portable is the compiled-in value for all three Windows packages,
-// because they are built from one tree; only the installer that placed the
-// files corrects it, by writing `.lightning-install-type`. The NSIS script
-// writes that file without checking the write succeeded, so an INSTALLED copy
-// whose marker is missing used to fall through to portable — the one strategy
-// that swaps the whole directory. It would move `.lightning-install-root` into
-// the backup, leaving an ARP entry that can never uninstall, and relocate the
-// user's data root so they appear signed out.
-//
-// A portable copy always ships `portable.marker`; the installed packages never
-// do. So the fallback now needs that positive evidence, and without it reports
-// Unknown: the update is still offered, it is simply not APPLIED with a
-// strategy that was never confirmed.
+// windows-portable is the compiled-in value for all three Windows packages;
+// only the installer's `.lightning-install-type` corrects it. An installed
+// copy whose marker is missing must not fall through to portable (which swaps
+// the whole directory), so portable needs `portable.marker` as positive
+// evidence and otherwise reports Unknown: the update is offered but not
+// applied.
 void UpdateInstallTypeTest::portableIsRefusedWithoutItsOwnMarker()
 {
     // A real portable copy: no install-type marker, but portable.marker is
@@ -466,25 +457,18 @@ void UpdateInstallTypeTest::installMarkerNeverNamesANonWindowsType()
     QCOMPARE(empty.type, InstallType::WindowsSetup);
 }
 
-// ISSUE #14. A per-machine MSI or setup installation must be upgraded in the
-// per-machine context, elevated; anything else leaves a second copy beside it.
-// The scope marker is the only thing that knows, so every way it could be
-// misread is pinned here: only the two installer types, only on Windows, and
-// only the exact word "machine" -- a missing marker (every installation made
-// by 0.9.9 or older) must stay per-user, or those users would be handed a UAC
-// prompt for an update that never needed one.
+// A per-machine MSI or setup installation must be upgraded in the per-machine
+// context, elevated. The scope marker is read only for the two installer
+// types, only on Windows, and only as the exact word "machine"; a missing
+// marker stays per-user.
 void UpdateInstallTypeTest::scopeMarkerMakesAWindowsInstallerCopyPerMachine_data()
 {
-    // The COMPILE-TIME id is the type marker too, so every row lands on the
-    // type it names on EVERY platform. That matters for the off-Windows rows:
-    // off Windows the type marker is ignored, and with a compiled-in
-    // windows-portable those rows used to land on portable -- where the scope
-    // branch never runs, guard or no guard, so they could not see the Windows
-    // guard at all (mutation m3 survived them). Now they reach an MSI / setup
-    // type whose "machine" marker WOULD be honoured if the guard were missing.
+    // The compile-time id is the type marker too, so every row lands on the
+    // type it names on every platform, and the off-Windows rows reach an
+    // MSI/setup type where a missing Windows guard would show.
     //
     // `registered` is what HKLM names as a per-machine directory. "machine" is
-    // believed only when it names THIS directory: the marker alone is
+    // believed only when it names this directory: the marker alone is
     // user-writable in a per-user installation.
     QTest::addColumn<QString>("typeMarker");
     QTest::addColumn<QString>("scopeMarker");
@@ -612,10 +596,9 @@ void UpdateInstallTypeTest::scopeIdsMatchTheHelperOption()
 
 void UpdateInstallTypeTest::automaticInstallAgreesWithTheUpdaterHelper()
 {
-    // Two independent policies, one promise. Lightning must never offer an
-    // automatic install for a mode the helper refuses at argument parsing
-    // (ModeNotSelfInstallable), and must never withhold one the helper would
-    // happily perform. macos-dmg is the case that used to disagree.
+    // Lightning must never offer an automatic install for a mode the helper
+    // refuses at argument parsing (ModeNotSelfInstallable), and never withhold
+    // one the helper would perform.
     for (const InstallType type : kAllTypes) {
         const QString id = installTypeId(type);
         const updater::UpdaterMode mode = updater::modeFromString(id);

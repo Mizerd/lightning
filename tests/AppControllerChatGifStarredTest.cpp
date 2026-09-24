@@ -1,26 +1,16 @@
-// v0.6.6 review (M2): AppController::isChatGifStarred/unstarChatGif's
-// two-tier design (a fast, exact session-only check backed by
-// GifStarredStore::isStarredThisSession, falling back to a durable,
-// content-hash check through MediaBridge::cachedFullContentHash — see
-// GifStarredStore's "DURABLE STARRED-STATE DESIGN" class comment) had NO
-// executable coverage before this file: MediaBridgeTest.cpp and
-// GifStarredStoreTest.cpp each test their own class in isolation, and
-// neither exercises the AppController glue that actually answers the
-// question the timeline hover star asks. This drives a real AppController
-// (mock backend) with its MediaBridge repointed at a small controllable
-// FakeClient (MockMatrixClient's fetchMedia only serves fixed fixtures in
-// screenshot-demo mode, unsuitable for arbitrary GIF bytes here), proving:
-//   - the session-hit tier answers immediately for a GIF just starred in
-//     this run;
-//   - the durable tier answers true for a COMPLETELY DIFFERENT mediaKey
-//     whose cached full bytes happen to be the same starred content — never
-//     persisting that second mediaKey anywhere;
-//   - the durable answer goes false again after unstar();
-//   - the durable answer goes false again after clearAll() — the same
-//     map-before-model ordering guarantee GifStarredStoreTest.cpp's
-//     sessionMapIsAlreadyClearedWhenCountChangedFires pins for the OLD
-//     session-only answer must still hold for the NEW two-tier one, since
-//     unstarChatGif/isChatGifStarred both read isStarredThisSession() first.
+// AppController::isChatGifStarred/unstarChatGif's two-tier answer: a fast
+// session check (GifStarredStore::isStarredThisSession) backed by a durable
+// content-hash check via MediaBridge::cachedFullContentHash (see
+// GifStarredStore's "DURABLE STARRED-STATE DESIGN" comment). Drives a real
+// AppController with its MediaBridge repointed at a controllable FakeClient
+// (MockMatrixClient only serves fixed fixtures). Checks:
+//   - the session tier answers immediately for a GIF just starred;
+//   - the durable tier answers true for a different mediaKey whose cached
+//     bytes are the same content, without persisting that key;
+//   - both go false after unstar() and after clearAll(), relying on the same
+//     map-before-model ordering
+//     GifStarredStoreTest::sessionMapIsAlreadyClearedWhenCountChangedFires
+//     pins.
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
@@ -42,10 +32,8 @@
 
 namespace {
 
-// Mirrors AccountSwitchTest.cpp's own FakeSecretStore: an in-memory,
-// always-available secret backend so saveSession()/switchToAccount() do not
-// depend on a real Secret Service/libsecret being reachable in this test
-// environment.
+// An in-memory, always-available secret backend (as in AccountSwitchTest),
+// so saveSession()/switchToAccount() need no real Secret Service.
 class FakeSecretStore final : public SecretStore
 {
     Q_OBJECT
@@ -83,11 +71,9 @@ private:
     QHash<QString, QString> m_values;
 };
 
-// Minimal controllable MatrixClient (mirrors MediaBridgeTest.cpp's own
-// FakeClient) — swapped into a real AppController's MediaBridge after
-// construction so the durable tier's MediaBridge::cachedFullContentHash has
-// real, arbitrary, controllable cached bytes to hash, without depending on
-// MockMatrixClient's screenshot-demo fixture set.
+// Minimal controllable MatrixClient (as in MediaBridgeTest), swapped into the
+// controller's MediaBridge so the durable tier has arbitrary cached bytes to
+// hash.
 class FakeClient final : public MatrixClient
 {
     Q_OBJECT
@@ -113,7 +99,7 @@ public:
                           QStringLiteral("image/gif"), QString());
     }
 
-    // Pure virtuals (inert — never exercised by this suite).
+    // Inert pure virtuals.
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -157,14 +143,10 @@ private Q_SLOTS:
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());
-        // XDG_DATA_HOME too, not just CONFIG: GifStarredStore's directory
-        // comes from matrix::app_data::starredGifsDir() -> accountRoot() ->
-        // appDataBase(), which reads XDG_DATA_HOME — NOT from QSettings.
-        // Without this the suite writes a real starred-GIF store into the
-        // developer's actual ~/.local/share, beside their real account, and
-        // the persisted index makes a later case in this same file depend
-        // on whether an earlier one finished cleanly. Mirrors
-        // AccountSwitchTest's own isolation.
+        // XDG_DATA_HOME as well as config: GifStarredStore's directory comes
+        // from matrix::app_data::appDataBase(), which reads XDG_DATA_HOME, not
+        // QSettings. Otherwise the suite writes into the real ~/.local/share
+        // and cases depend on each other.
         QVERIFY(m_dataHome.isValid());
         qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
         qputenv("XDG_DATA_HOME", m_dataHome.path().toUtf8());
@@ -179,9 +161,8 @@ private Q_SLOTS:
 
     void twoTierAnswerSessionHitDurableHitFalseAfterUnstarAndClearAll()
     {
-        // Declared BEFORE the controller so it is destroyed AFTER it:
-        // MediaBridge holds a raw pointer to this client, and reversing
-        // the order leaves that pointer dangling through ~AppController.
+        // Declared before the controller so it is destroyed after it:
+        // MediaBridge holds a raw pointer to this client.
         FakeClient fake;
         AppController app(AppController::MockBackend);
         FakeSecretStore secrets;
@@ -196,11 +177,11 @@ private Q_SLOTS:
 
         app.mediaBridge()->setClient(&fake);
 
-        // A minimal real GIF (magic + logical-screen-descriptor width/height
-        // — gif::validateGifBytes' smallest accepted shape).
+        // A minimal real GIF (magic plus logical-screen width/height, the
+        // smallest shape gif::validateGifBytes accepts).
         const QByteArray gif = QByteArray("GIF89a\x10\x00\x10\x00", 10);
 
-        // --- Tier 1: session hit, immediately after starring. ---
+        // --- Tier 1: session hit right after starring ---
         QSignalSpy starFinished(app.gif()->starredStore(),
                                 &GifStarredStore::starFinished);
         app.gif()->starredStore()->starBytes(QStringLiteral("mk-original"), gif);
@@ -208,11 +189,9 @@ private Q_SLOTS:
         QVERIFY(starFinished.at(0).at(1).toBool());
         QVERIFY(app.isChatGifStarred(QStringLiteral("mk-original")));
 
-        // --- Tier 2: durable hit for a COMPLETELY DIFFERENT mediaKey (a
-        // second message carrying the identical GIF bytes) that the session
-        // map has never seen — only reachable once MediaBridge has that
-        // key's full bytes cached, exactly like an ordinary inline preview
-        // fetch would produce.
+        // --- Tier 2: durable hit for a different mediaKey carrying identical
+        // bytes, unseen by the session map, once MediaBridge has that key's
+        // full bytes cached (as an inline preview fetch would). ---
         QVERIFY(!app.gif()->starredStore()->isStarredThisSession(
             QStringLiteral("mk-duplicate")));
         app.mediaBridge()->mediaSource(QStringLiteral("mk-duplicate"),
@@ -220,37 +199,27 @@ private Q_SLOTS:
         QCOMPARE(fake.fetches.size(), 1);
         fake.succeed(fake.fetches.first().opId, gif);
         QVERIFY(app.isChatGifStarred(QStringLiteral("mk-duplicate")));
-        // Still never entered the session map — the durable tier answered,
-        // not the fast one.
+        // Still not in the session map: the durable tier answered.
         QVERIFY(!app.gif()->starredStore()->isStarredThisSession(
             QStringLiteral("mk-duplicate")));
 
-        // --- False after unstar(): removing the ONLY starred hash must
-        // flip BOTH the session-tier row and the durable-tier row false,
-        // since they both resolve to the same content hash.
+        // --- unstar(): removing the only starred hash flips both tiers false,
+        // since both resolve to the same content hash. ---
         app.unstarChatGif(QStringLiteral("mk-original"));
         QVERIFY(!app.isChatGifStarred(QStringLiteral("mk-original")));
         QVERIFY(!app.isChatGifStarred(QStringLiteral("mk-duplicate")));
 
-        // --- False after clearAll(): re-star, confirm the durable tier
-        // sees it again, then Clear All (Settings -> Privacy & security)
-        // and confirm it drops back to false — the same map-before-model
-        // countChanged ordering GifStarredStoreTest.cpp's
-        // sessionMapIsAlreadyClearedWhenCountChangedFires pins for the
-        // session-only answer must hold here too, since unstarChatGif/
-        // isChatGifStarred both consult isStarredThisSession() first.
+        // --- clearAll() (Settings > Privacy & security): re-star, confirm the
+        // durable tier sees it, clear, and confirm false. ---
         app.gif()->starredStore()->starBytes(QStringLiteral("mk-original"), gif);
         QVERIFY(app.isChatGifStarred(QStringLiteral("mk-duplicate")));
         app.gif()->starredStore()->clearAll();
         QVERIFY(!app.isChatGifStarred(QStringLiteral("mk-original")));
         QVERIFY(!app.isChatGifStarred(QStringLiteral("mk-duplicate")));
 
-        // --- The DURABLE unstar branch, which is the headline of the bug
-        // this whole two-tier answer exists to fix ("after a restart you
-        // can never unstar from the timeline"). Every unstar above went
-        // through the session map, so tier 2's unstar was untested. Star
-        // via one key, then unstar via a DIFFERENT key the session map has
-        // never seen — only the content-hash tier can resolve it.
+        // --- Durable unstar: star via one key, unstar via a different key the
+        // session map has never seen (the after-restart case); only the
+        // content-hash tier can resolve it. ---
         app.gif()->starredStore()->starBytes(QStringLiteral("mk-original"), gif);
         QCOMPARE(app.gif()->starredStore()->count(), 1);
         QVERIFY(!app.gif()->starredStore()->isStarredThisSession(
@@ -264,13 +233,10 @@ private Q_SLOTS:
         QVERIFY(!app.isChatGifStarred(QStringLiteral("mk-original")));
     }
 
-    // review H1a: nothing to hash when the store has never starred
-    // anything — the durable tier must never even ask MediaBridge.
+    // With nothing ever starred, the durable tier never asks MediaBridge.
     void neverStarredAnswersFalseWithoutHashingAnything()
     {
-        // Declared BEFORE the controller so it is destroyed AFTER it:
-        // MediaBridge holds a raw pointer to this client, and reversing
-        // the order leaves that pointer dangling through ~AppController.
+        // Declared before the controller so it is destroyed after it.
         FakeClient fake;
         AppController app(AppController::MockBackend);
         FakeSecretStore secrets;
@@ -294,16 +260,10 @@ private Q_SLOTS:
                  qint64(0));
     }
 
-    // v0.7.x: the star-fetch RESULT must be claimed, not assumed.
-    //
-    // MediaBridge::fetchFullForStar is media-generic and gained a second
-    // caller when forwarding landed (ForwardController re-fetches the source
-    // payload so it can re-upload it). The handler in AppController::setClient
-    // used to act on EVERY answer, so every forwarded image would have
-    // written its decrypted bytes into this account's on-disk saved-media
-    // store, appeared in the Saved tab, consumed the 200-item budget, and
-    // rendered the row's star as filled — none of which the user asked for,
-    // and which §6 forbids outside the explicit-export exception in §7.
+    // A star-fetch result must be claimed, not assumed:
+    // MediaBridge::fetchFullForStar is shared with other callers (e.g.
+    // ForwardController), and acting on every answer would write forwarded
+    // images' decrypted bytes into the saved store.
     void aFetchNotRequestedByStarChatGifWritesNothing()
     {
         FakeClient fake;
@@ -322,8 +282,7 @@ private Q_SLOTS:
         QSignalSpy starFinished(app.gif()->starredStore(),
                                 &GifStarredStore::starFinished);
 
-        // A fetch this account never asked to star — exactly what a forward
-        // issues through the same media-generic entry point.
+        // A fetch this account never asked to star, as a forward issues.
         const QByteArray gif = QByteArray("GIF89a\x10\x00\x10\x00", 10);
         app.mediaBridge()->fetchFullForStar(QStringLiteral("mk-forwarded"));
         QVERIFY(!fake.fetches.isEmpty());
@@ -333,7 +292,7 @@ private Q_SLOTS:
         QCOMPARE(app.gif()->starredStore()->count(), before);
         QCOMPARE(starFinished.count(), 0);
 
-        // ...while a fetch the account DID request still stars normally.
+        // ...while a requested fetch still stars.
         app.starChatGif(QStringLiteral("mk-wanted"));
         QVERIFY(fake.fetches.size() >= 2);
         fake.succeed(fake.fetches.last().opId, gif);
@@ -342,11 +301,9 @@ private Q_SLOTS:
         QVERIFY(starFinished.at(0).at(1).toBool());
     }
 
-    // 2026-08-18 tester report #2: Copy image. Same broadcast signal, a
-    // THIRD consumer — the pending-key discipline must hold in both
-    // directions (a copy fetch must not star, a star fetch must not
-    // copy), a real image must land on the clipboard in both
-    // representations, and junk bytes must be refused by magic sniffing.
+    // Copy image rides the same broadcast: a copy fetch must not star and a
+    // star fetch must not copy, the clipboard gets both representations, and
+    // junk bytes are refused by magic sniffing.
     void copyImagePutsBothRepresentationsOnTheClipboard()
     {
         FakeClient fake;
@@ -383,10 +340,10 @@ private Q_SLOTS:
 
         QTRY_COMPARE(copied.count(), 1);
         QVERIFY(copied.at(0).at(0).toBool());
-        // The copy fetch did NOT star anything.
+        // The copy fetch starred nothing.
         QCOMPARE(app.gif()->starredStore()->count(), starsBefore);
         QCOMPARE(starFinished.count(), 0);
-        // Clipboard carries the decoded raster AND the original bytes.
+        // The clipboard carries the decoded raster and the original bytes.
         const QMimeData *mime =
             QGuiApplication::clipboard()->mimeData();
         QVERIFY(mime);
@@ -394,11 +351,9 @@ private Q_SLOTS:
         QCOMPARE(mime->data(QStringLiteral("image/png")), png);
     }
 
-    // 2026-08-18 review find: the bridge dedups in-flight fetches by
-    // key, so starring and copying the SAME not-yet-cached image yields
-    // exactly ONE broadcast — the handler must service BOTH claims. The
-    // pre-fix handler consumed the copy claim and returned, leaving the
-    // star stranded pending forever with no result and no feedback.
+    // The bridge dedups in-flight fetches by key, so starring and copying the
+    // same uncached image yields one broadcast; the handler must service both
+    // claims.
     void starAndCopyRacingOnOneKeyBothComplete()
     {
         FakeClient fake;
@@ -471,7 +426,7 @@ private:
 
 };
 
-// QTEST_MAIN (QGuiApplication, offscreen): the copy-image cases assert on
-// the real clipboard, which a guiless QCoreApplication does not have.
+// QTEST_MAIN (QGuiApplication, offscreen): the copy cases need a real
+// clipboard.
 QTEST_MAIN(AppControllerChatGifStarredTest)
 #include "AppControllerChatGifStarredTest.moc"

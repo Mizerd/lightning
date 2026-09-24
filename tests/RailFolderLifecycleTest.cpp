@@ -1,28 +1,16 @@
 // When a rail folder exists, and when it stops existing.
 //
-// Rokas asked for one rule — "if a Space folder is empty, delete it" — and the
-// whole difficulty is in the word EMPTY. A folder holds SPACE IDS, and the
-// rail draws the intersection of those ids with the Spaces the account
-// currently knows about. During a cold start, an initial sync or an account
-// switch that intersection is legitimately empty for a folder that is full, so
-// a rule keyed on what the rail RENDERED would delete a hand-made arrangement
-// every time the app opened. Emptiness is therefore a fact about the STORE,
-// and it is judged only at the moment of a write that took the last member
-// away.
+// An empty Space folder is deleted. A folder holds Space ids and the rail
+// draws their intersection with the Spaces the account currently knows,
+// which is legitimately empty during a cold start, initial sync or account
+// switch. So emptiness is judged on the store, only at a write that removed
+// the last member.
 //
-// The other half of this suite is the defect that made empty folders appear in
-// the first place. `RailEntryModel::commitReorder` named EVERY folder row in
-// the arrangement it committed, including collapsed ones whose members it had
-// never rendered — and a folder that is named with an empty list is REPLACED,
-// which is exactly the guarantee `applyArrangement` documents in the other
-// direction. So any reorder drag emptied every collapsed folder: its Spaces
-// fell out to the end of the rail and an empty tile stayed behind. With the
-// deletion rule above, that same drag would have DELETED the folder outright,
-// which is why the two land together.
-//
-// The gesture cases drive the real drag through the model — beginDrag /
-// hoverGap / endDrag — rather than calling the store, because the store has
-// always behaved correctly here and it was its CALLER that broke the contract.
+// `RailEntryModel::commitReorder` must not name folders whose members it did
+// not render (collapsed folders, unsynced members): a named folder's list is
+// taken as the whole truth by `applyArrangement`, so a reorder would empty
+// (and now delete) them. The gesture cases drive the real drag (beginDrag /
+// hoverGap / endDrag) rather than the store.
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
@@ -211,10 +199,9 @@ private Q_SLOTS:
 
     void aFolderWhoseSpacesHaveNotResolvedYetIsNeverDeleted()
     {
-        // THE TRAP. `arrange()` shows the stored ids INTERSECTED with the
-        // Spaces the account knows about, and that intersection is empty for
-        // every folder during a cold start. Judging emptiness there would
-        // delete the whole arrangement before the first sync landed.
+        // `arrange()` shows stored ids intersected with known Spaces, which is
+        // empty for every folder during a cold start; judging emptiness there
+        // would delete the whole arrangement.
         SettingsManager settings;
         RailLayoutStore store(&settings);
         const QString work = store.createFolder(QStringLiteral("Work"));
@@ -258,12 +245,9 @@ private Q_SLOTS:
 
     void aCollapsedFolderSurvivesAReorderDragThatNeverShowedIt()
     {
-        // FAILS ON THE UNFIXED TREE. commitReorder named the collapsed
-        // folder in the arrangement with an empty member list — the rail
-        // cannot render a collapsed folder's members, so nothing could ever
-        // fill that list — and applyArrangement takes a named folder's list
-        // as the whole truth. The folder was emptied by a drag that never
-        // touched it, and with the deletion rule above it would be gone.
+        // A reorder must not name a collapsed folder with an empty member list
+        // (the rail cannot render its members), or the folder is emptied by a
+        // drag that never touched it.
         FakeClient client;
         client.roomList = {
             spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A")),
@@ -308,10 +292,8 @@ private Q_SLOTS:
 
     void anOpenFolderKeepsAMemberThatHasNotResolvedYet()
     {
-        // The same defect in its quiet costume: an OPEN folder holding one
-        // Space that exists and one that has not synced renders a single
-        // member row, so an arrangement that spoke for the folder with only
-        // the rendered ids destroyed the other one.
+        // An open folder holding one synced and one unsynced Space renders one
+        // member row; the arrangement must not drop the other.
         FakeClient client;
         client.roomList = {
             spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A")),
@@ -345,19 +327,9 @@ private Q_SLOTS:
                  "though it were empty");
     }
 
-    // A SPACE YOU ARE IN, WHOSE ROOMS YOU ARE NOT IN, IS STILL SELECTED.
-    //
-    // SpaceManager::rebuild ends by dropping the rail selection when the
-    // selected id is not "known". It used to ask `m_membership`, which is
-    // populated inside the transitive descendant walk at the moment a joined
-    // child ROOM is found — so a Space with no joined rooms had no key, and
-    // every rebuild cleared the selection. RoomsPanel binds the column's
-    // scopeSpaceId to it, so the reader was thrown back to Home.
-    //
-    // Two ordinary cases land exactly here, and both are the moment you most
-    // want the Space view open: a Space you just created, and a public Space
-    // joined from Explore before joining any of its rooms — the view you need
-    // in order to reach Lobby and join them.
+    // A Space you are in, with no joined rooms, stays selected across
+    // rebuilds (a new Space, or one joined from Explore before its rooms);
+    // "known" must not depend on having found a joined child room.
     void aSpaceWithNoJoinedRoomsKeepsTheRailSelection()
     {
         FakeClient client;
@@ -376,9 +348,8 @@ private Q_SLOTS:
                  "the reader is thrown back to Home");
     }
 
-    // ...AND THE GUARD STILL DOES ITS JOB. Fixing the case above by deleting
-    // the guard would leave a selection pointing at a Space the account has
-    // left, which is what it was written to prevent.
+    // ...and the guard still drops a selection pointing at a Space the
+    // account has left.
     void aSpaceTheAccountHasLeftStillLosesTheRailSelection()
     {
         FakeClient client;

@@ -1,21 +1,8 @@
-// v0.7.2: the audio card's embedded cover-art box must keep the ARTWORK'S
-// aspect at every size.
-//
-// The box exists so a square album cover renders square (a fixed ratio used
-// to crop the top and bottom off most covers). The first version of it
-// bounded only the HEIGHT:
-//
-//     implicitHeight: Math.min(width * ih / iw, 420)   // width = full card
-//
-// which is exactly the aspect match it was meant to provide, right up until
-// the cap engages. A TALL cover then gets a box that is still full card
-// width but only 420 tall, and PreserveAspectFit paints the artwork small
-// and centred with dead card surface down both sides — "doesn't fit
-// normally". Bounding BOTH axes and deriving the width from the capped
-// height keeps box and artwork the same shape.
-//
-// This drives the real qml/AudioPlayerCard.qml with real images, so it
-// measures the shipped geometry rather than a copy of the expression.
+// The audio card's cover-art box keeps the artwork's aspect at every size.
+// Bounding only the height lets a tall cover get a full-width box capped at
+// 420 tall, with PreserveAspectFit leaving dead space at both sides; both
+// axes are bounded and the width derives from the capped height. Drives the
+// real qml/AudioPlayerCard.qml with real images.
 
 #include <QtTest/QtTest>
 
@@ -39,8 +26,8 @@ class AudioCoverArtAspectTest : public QObject
 private:
     QTemporaryDir m_dir;
 
-    // A solid image of an exact size, written to disk so the QML Image
-    // reports honest implicitWidth/implicitHeight.
+    // A solid image of an exact size, on disk, so the QML Image reports true
+    // implicit dimensions.
     QUrl makeImage(const QString &name, int w, int h)
     {
         QImage image(w, h, QImage::Format_RGB32);
@@ -56,9 +43,8 @@ private:
         QQuickItem *box = nullptr;
     };
 
-    // Instantiates the production card with a plain file:// artwork URL.
-    // artworkSource is a plain string property, so this exercises the box
-    // geometry without needing a decrypted media payload.
+    // Instantiates the production card with a file:// artwork URL;
+    // artworkSource is a plain string, so no decrypted payload is needed.
     Card makeCard(const QUrl &artwork, qreal cardWidth)
     {
         Card card;
@@ -88,12 +74,9 @@ AudioPlayerCard { objectName: "card" }
         card.box = card.item->findChild<QQuickItem *>(
             QStringLiteral("audioCoverArtBox"));
 
-        // The Image loads asynchronously; the box's size follows its implicit
-        // size, so wait for a non-fallback shape rather than a fixed delay.
-        // Spun by hand rather than with QTRY_VERIFY: that macro returns void
-        // on timeout, which this helper cannot do. A timeout here is not
-        // failed here either — the caller's assertions report it in terms of
-        // the geometry actually under test.
+        // The Image loads asynchronously; wait for a non-fallback shape.
+        // Spun by hand because QTRY_VERIFY returns void; a timeout is left to
+        // the caller's geometry assertions to report.
         QQuickItem *image = card.item->findChild<QQuickItem *>(
             QStringLiteral("audioCoverArtwork"));
         if (image) {
@@ -114,7 +97,7 @@ private Q_SLOTS:
         QVERIFY(m_dir.isValid());
     }
 
-    // A square cover in a card wide enough for it: box is square.
+    // A square cover in a wide enough card gets a square box.
     void aSquareCoverGetsASquareBox()
     {
         Card card = makeCard(makeImage(QStringLiteral("sq.png"), 600, 600), 360);
@@ -122,13 +105,12 @@ private Q_SLOTS:
         QVERIFY2(card.box != nullptr, "the cover art box was not created");
         QTRY_VERIFY(card.box->width() > 1);
         QCOMPARE(card.box->width(), card.box->height());
-        // 360 card - 6px margin each side.
+        // 360 card minus 6px margin each side.
         QCOMPARE(card.box->width(), 348.0);
     }
 
-    // THE REGRESSION. A tall cover exceeds the 420 edge cap. Height-only
-    // capping left the box full width (348) at 420 tall — ratio 1.21 against
-    // the artwork's 3.0. Both axes must be bounded so the shape survives.
+    // A tall cover past the 420 edge cap keeps its aspect: both axes are
+    // bounded.
     void aTallCoverKeepsItsAspectWhenTheCapEngages()
     {
         Card card = makeCard(makeImage(QStringLiteral("tall.png"), 400, 1200),
@@ -152,7 +134,7 @@ private Q_SLOTS:
                                 .arg(ratio)));
     }
 
-    // A wide cover is bounded by the card, not by the cap, and still matches.
+    // A wide cover is bounded by the card, not the cap, and still matches.
     void aWideCoverIsBoundedByTheCard()
     {
         Card card = makeCard(makeImage(QStringLiteral("wide.png"), 1200, 400),
@@ -165,8 +147,7 @@ private Q_SLOTS:
         QCOMPARE(card.box->height(), 116.0);
     }
 
-    // No artwork: the box takes no space at all, so a plain audio row stays
-    // compact.
+    // No artwork: the box takes no space.
     void noArtworkLeavesNoBox()
     {
         Card card = makeCard(QUrl(), 360);
@@ -176,18 +157,10 @@ private Q_SLOTS:
         QCOMPARE(card.box->height(), 0.0);
     }
 
-    // A POSITION FLOORS, A TOTAL ROUNDS, AND THEY ARE NOT ONE CLOCK.
-    //
-    // The collapsed summary line rounds (`embedDurationText`) and this card
-    // floored BOTH numbers, so a 25.7 s voice message read "0:26" on the
-    // line and "0:25" on the card that line opens. Rounding both — the
-    // first attempt at this, and it shipped — fixed that and broke the
-    // elapsed clock, which then claimed time that had not passed and would
-    // reach the total half a second before the audio ended.
-    //
-    // 25700 and 25400 straddle the boundary in both directions, so neither
-    // half can pass by luck, and each is asserted against BOTH functions so
-    // a fixture cannot go green by calling the one it wants.
+    // A position floors and a total rounds. The summary line rounds the
+    // duration, so the card must too; rounding the elapsed clock as well
+    // would claim time that has not passed. 25700 and 25400 straddle the
+    // boundary both ways, and each is checked against both functions.
     void aPositionFloorsAndATotalRounds()
     {
         Card card = makeCard(QUrl(), 360);
@@ -201,40 +174,30 @@ private Q_SLOTS:
             return called ? out.toString() : QStringLiteral("<not called>");
         };
 
-        // The total: 25.7 s of audio IS 26 seconds long, which is what the
-        // summary line that opens this card says.
+        // The total: 25.7 s of audio is 26 seconds, as the summary line says.
         QCOMPARE(call("formatDuration", 25700), QStringLiteral("0:26"));
         QCOMPARE(call("formatDuration", 25400), QStringLiteral("0:25"));
         // The position: at 25.7 s you have not reached 0:26.
         QCOMPARE(call("formatPosition", 25700), QStringLiteral("0:25"));
         QCOMPARE(call("formatPosition", 25400), QStringLiteral("0:25"));
-        // Neither may leak past 59 into a bare "0:60".
+        // Neither leaks past 59 into "0:60".
         QCOMPARE(call("formatDuration", 59600), QStringLiteral("1:00"));
         QCOMPARE(call("formatPosition", 60000), QStringLiteral("1:00"));
         QCOMPARE(call("formatDuration", 0), QStringLiteral("0:00"));
         QCOMPARE(call("formatPosition", 0), QStringLiteral("0:00"));
     }
 
-    // A RECEIVED VOICE MESSAGE'S WAVEFORM WAS A SOLID BLOCK, and every test
-    // over this card passed while it was.
-    //
-    // The delegate read `Math.min(1, wf[at])` against buckets that
-    // rust/src/timeline.rs normalises to 0..=100 (downsample_waveform) and
-    // RustTimelineIngest.cpp preserves by dropping anything outside that
-    // range. So every bucket of amplitude >= 1 clamped to full height and
-    // only a literal zero showed the 0.12 floor: the "real MSC3245
-    // waveform" this card advertises could not draw a waveform at all.
-    //
-    // Asserted as SHAPE, not as specific heights: bars must DIFFER from one
-    // another, the loud one must beat the quiet one, and none may fill the
-    // strip. A test pinning exact pixels would pass on a block of any
-    // uniform height.
+    // The received waveform draws its buckets rather than a solid block.
+    // rust/src/timeline.rs normalises buckets to 0..100 and
+    // RustTimelineIngest.cpp keeps that range, so clamping with
+    // Math.min(1, v) saturates every non-zero bucket. Asserted as shape: bars
+    // differ, loud beats quiet, none fills the strip.
     void theWaveformDrawsItsBucketsInsteadOfClampingThemToABlock()
     {
         Card card = makeCard(QUrl(), 360);
         QVERIFY(card.item != nullptr);
 
-        // Ascending buckets across the 0..=100 range the ingest produces.
+        // Ascending buckets across the ingest's 0..100 range.
         QVariantList wf;
         for (int amp : { 0, 5, 12, 25, 40, 55, 70, 85, 100 })
             wf.append(amp);
@@ -246,8 +209,7 @@ private Q_SLOTS:
         QVERIFY2(row != nullptr, "the waveform row was not created");
         QTRY_VERIFY(row->isVisible() && row->width() > 1);
 
-        // findChild cannot reach Repeater delegates; walk the Row's own
-        // children instead.
+        // findChild cannot reach Repeater delegates; walk the Row's children.
         QList<qreal> heights;
         const auto kids = row->childItems();
         for (QQuickItem *kid : kids) {
@@ -266,12 +228,9 @@ private Q_SLOTS:
         }
         const qreal strip = row->height();
 
-        // COUNT THE DISTINCT HEIGHTS, and do not merely check that the bars
-        // differ. Under the clamp they DO differ: bucket 0 still lands on
-        // the 0.12 floor while every other bucket saturates to 1.0, so a
-        // min-versus-max assertion passes on the broken code. It did, on the
-        // first version of this case. Nine ascending buckets must produce a
-        // spread of heights, not two.
+        // Count distinct heights: under the clamp bucket 0 still sits on the
+        // floor while the rest saturate, so a min-vs-max check alone passes.
+        // Nine ascending buckets must give a spread.
         QSet<int> distinct;
         for (qreal h : heights)
             distinct.insert(qRound(h * 4.0));  // quarter-pixel buckets
@@ -285,8 +244,8 @@ private Q_SLOTS:
         QVERIFY2(hi <= strip + 0.5,
                  qPrintable(QStringLiteral("a bar is %1px on a %2px strip")
                                 .arg(hi).arg(strip)));
-        // The loudest bucket is 100, which IS the full strip; the quietest
-        // must sit on the 0.12 floor and nowhere near it.
+        // The loudest bucket (100) is the full strip; the quietest sits on the
+        // 0.12 floor.
         QVERIFY2(lo < strip * 0.3,
                  qPrintable(QStringLiteral(
                      "the quietest bar is %1px of a %2px strip")

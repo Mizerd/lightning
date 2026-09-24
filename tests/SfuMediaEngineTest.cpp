@@ -1,15 +1,6 @@
-// 2026-08-23: the SFU media engine, driven for the first time.
-//
-// This class had NO test of any kind while it became the engine every call
-// runs through: the .well-known discovery fix made `preferredCallLane` return
-// "matrixrtc" instead of falling back to the legacy 1:1 lane, so
-// SfuMediaEngine::start() went from unreachable to the default path in one
-// commit — and the reporter's next run died instantly on pressing call.
-//
-// Everything here runs in TEST SOURCE MODE: synthetic audio/video and
-// fakesinks, no microphone, no camera, no display server. What it exercises
-// is the part that is Lightning's own — pipeline construction, the crypto pad
-// probes, the per-sender key rings, and teardown — not the network.
+// SfuMediaEngine tests. Everything runs in test-source mode (synthetic
+// audio/video, fakesinks; no microphone, camera or display server): pipeline
+// construction, the crypto pad probes, per-sender key rings and teardown.
 #include "calls/SfuMediaEngine.h"
 
 #include "calls/CallFrameCryptor.h"
@@ -39,23 +30,15 @@
 
 namespace {
 
-/// How many frames reach a sink when exactly ONE buffer is ever pushed into a
-/// LIVE pipeline whose input caps say `framerate=(fraction)0/1`.
-///
-/// That is the desktop-capture shape, and the whole of the reported freeze.
-/// PipeWire delivers a buffer when the screen CHANGES, so its caps carry 0/1
-/// and on a still screen there simply IS no second buffer. `videorate`
-/// decides for each output timestamp which of the previous and NEXT inputs is
-/// nearer, so it cannot emit anything until a second one arrives — it returns
-/// 0 here, however long the wait. An aggregator that emits on its own output
-/// deadline returns a steady stream from the first buffer.
-///
-/// -1 means the harness itself did not run.
+/// How many frames reach a sink when exactly one buffer is pushed into a live
+/// pipeline whose caps say `framerate=0/1` (the desktop-capture shape: PipeWire
+/// delivers only when the screen changes). `videorate` needs a second input
+/// before it can emit anything, so it returns 0; an aggregator with its own
+/// output deadline emits from the first buffer. -1 means the harness failed.
 int framesFromASingleCaptureBuffer(const QString &rateStage, int waitMs)
 {
-    // The production shape, minus the tee and the encoder: what is under test
-    // is the rate stage's ability to START, and everything downstream of it
-    // only ever sees what it produced.
+    // Production shape minus the tee and encoder: only the rate stage's
+    // ability to start is under test.
     const QString description =
         QStringLiteral("appsrc name=src is-live=true format=time "
                        "do-timestamp=true ! videoconvert ! videoscale ! %1 "
@@ -90,8 +73,7 @@ int framesFromASingleCaptureBuffer(const QString &rateStage, int waitMs)
         return -1;
     }
 
-    // The portal's own caps shape (BGRA, framerate 0/1), at a size small
-    // enough that the scaling and conversion cost nothing.
+    // The portal's caps shape (BGRA, 0/1), small enough to cost nothing.
     constexpr int kW = 64;
     constexpr int kH = 48;
     GstCaps *caps = gst_caps_from_string(
@@ -115,7 +97,7 @@ int framesFromASingleCaptureBuffer(const QString &rateStage, int waitMs)
         gst_buffer_new_allocate(nullptr, kW * kH * 4, nullptr);
     gst_buffer_memset(buffer, 0, 0x40, kW * kH * 4);
     gst_app_src_push_buffer(GST_APP_SRC(src), buffer); // takes ownership
-    // ...and NOTHING ELSE is ever pushed. That is the still desktop.
+    // Nothing else is pushed: a still desktop.
     QTest::qWait(waitMs);
     const int frames = seen->load();
 
@@ -127,9 +109,8 @@ int framesFromASingleCaptureBuffer(const QString &rateStage, int waitMs)
     return frames;
 }
 
-/// The engine's own source, read once. Some invariants here are about HOW the
-/// engine talks to GStreamer — which pad property it trusts — and a behaviour
-/// test cannot see that: two Lightning engines agree on the wrong answer.
+/// The engine's own source, for invariants about how it talks to GStreamer
+/// that a behaviour test between two engines cannot see.
 QByteArray engineSource()
 {
     QFile file(QStringLiteral(LIGHTNING_SFU_ENGINE_SOURCE));
@@ -140,11 +121,8 @@ QByteArray engineSource()
 #define SOURCE_UNDER_TEST engineSource()
 } // namespace
 
-/// Collects Qt log output for the duration of one test.
-///
-/// The diagnostics this fixture is about ARE log lines — that is the whole
-/// deliverable for a defect nobody here can reproduce — so asserting on them
-/// is asserting on the feature, not on incidental output.
+/// Collects Qt log output for the duration of one test. The diagnostics under
+/// test are log lines, so asserting on them asserts the feature.
 class LogCapture
 {
 public:
@@ -193,10 +171,7 @@ private:
     static void handler(QtMsgType type, const QMessageLogContext &context,
                         const QString &message)
     {
-        // LOCKED, because a pad probe logs from a GStreamer streaming
-        // thread. The two tests that use this today never publish, so it has
-        // never raced — which is exactly the state in which a lock is cheap
-        // and its absence is a trap for whoever writes the third one.
+        // Locked: pad probes log from GStreamer streaming threads.
         if (LogCapture *self = instance()) {
             QMutexLocker lock(&self->m_mutex);
             self->m_lines.append(message);
@@ -210,15 +185,9 @@ private:
     LogCapture *m_outer = nullptr;
 };
 
-/// THE REAL DECRYPT PROBE, fed hand-built frames: appsrc -> fakesink with
-/// SfuMediaEngine's own receive probe installed on the appsrc's src pad
-/// (installDecryptProbeForTest, which calls the production installer).
-///
-/// Exists because a server-injected frame is something only an SFU writes:
-/// a two-engine loopback never produces one, and a test of a classification
-/// FUNCTION alone proves nothing about whether the probe reaches it (§16's
-/// row-window lesson). Everything asserted through this goes through the
-/// same branch a live call does.
+/// The real decrypt probe fed hand-built frames: appsrc -> fakesink with the
+/// production receive probe installed on appsrc's src pad. Server-injected
+/// frames only come from an SFU, so a two-engine loopback cannot produce them.
 class DecryptProbeRig
 {
 public:
@@ -237,7 +206,7 @@ public:
             return;
         GstPad *srcPad = gst_element_get_static_pad(m_src, "src");
         engine.installDecryptProbeForTest(srcPad, video, streamId);
-        // Counts what the probe let THROUGH, downstream of it.
+        // Counts what the probe let through.
         GstPad *sinkPad = gst_element_get_static_pad(sink, "sink");
         m_passed = new std::atomic<int>(0);
         gst_pad_add_probe(
@@ -268,8 +237,8 @@ public:
         m_pts += 20 * GST_MSECOND;
         gst_app_src_push_buffer(GST_APP_SRC(m_src), buffer); // takes it
     }
-    /// Push EOS and wait for it at the sink: every frame pushed before it
-    /// has then been through the probe, on appsrc's own streaming thread.
+    /// Push EOS and wait for it at the sink, so every earlier frame has been
+    /// through the probe.
     bool drain()
     {
         gst_app_src_end_of_stream(GST_APP_SRC(m_src));
@@ -284,7 +253,7 @@ public:
         return eos;
     }
     int passed() const { return m_passedView ? m_passedView->load() : -1; }
-    /// Tear down, which frees the probe context (its final summary line).
+    /// Tear down, which frees the probe context (and logs its summary).
     void finish()
     {
         if (!m_pipeline)
@@ -305,7 +274,7 @@ private:
 };
 
 /// livekit-server's `OpusSilenceFrame` (pkg/sfu/downtrack.go): f8 ff fe and
-/// 77 zeros -- what the SFU injects into an audio track on a mute.
+/// 77 zeros, injected into an audio track on mute.
 QByteArray opusSilenceFrame()
 {
     QByteArray silence(80, '\0');
@@ -315,8 +284,8 @@ QByteArray opusSilenceFrame()
     return silence;
 }
 
-/// A livekit-shaped room trailer (base62, 43 bytes) whose last byte is 'R',
-/// 82 -- the `keyIndex= 82` of the 2026-09-23 Firefox report.
+/// A livekit-shaped room trailer (base62, 43 bytes) whose last byte is 'R'
+/// (key index 82).
 QByteArray roomTrailer()
 {
     return QByteArray("k3P9dQ2mZ7xW4vB8nT1cY6hJ0fL5sG2aE9rU3oKqXiR");
@@ -350,22 +319,8 @@ private slots:
         QCOMPARE(SfuMediaEngine::statsTraceIntervalMs(QStringLiteral("9999")), 600000);
     }
 
-    // A CALL THAT CAPTURES A DEAD DEVICE LOOKS EXACTLY LIKE A HEALTHY ONE.
-    //
-    // 2026-09-16: one direction of a call was inaudible and the entire
-    // crypto path was searched for it — key indices, target devices, Olm
-    // identities, RED wrapping, room power levels. The capture was bound to a
-    // USB interface whose line inputs had no microphone on them, and every
-    // indicator this engine has said the call was fine, because `opusenc`
-    // turns a silent buffer into a real frame and the encrypt probe counts it
-    // like any other. `frames encrypted ... count= 500 dropped= 0` is what a
-    // whole call of silence looks like.
-    //
-    // FAIL-ON-OLD: delete `handleMicLevelAt`'s body down to a bare
-    // `m_micPeakDb = peakDb;` and the three signal cases below fail
-    // (0 emissions against 1); revert the `%6` level stage out of the audio
-    // description and `theCaptureChainMeasuresItsOwnLevel` fails on a chain
-    // with no `miclevel` in it. Both measured.
+    // A capture of a dead device must be reported: opusenc turns silence into
+    // real frames, so encrypt/transport counters look healthy either way.
     void aSustainedlySilentCaptureIsReported()
     {
         SfuMediaEngine engine;
@@ -378,14 +333,14 @@ private slots:
         QCOMPARE(spy.count(), 0);
         QVERIFY(!engine.microphoneSilentForTest());
 
-        // The window closes exactly on the boundary, not a report later.
+        // The window closes exactly on the boundary.
         engine.handleMicLevelAt(-350.0, SfuMediaEngine::kMicSilenceWindowMs);
         QCOMPARE(spy.count(), 1);
         QCOMPARE(spy.takeFirst().at(0).toBool(), true);
         QVERIFY(engine.microphoneSilentForTest());
     }
 
-    // The pause between two sentences is not a broken microphone.
+    // A pause between sentences is not a broken microphone.
     void aQuietMomentIsNotASilentMicrophone()
     {
         SfuMediaEngine engine;
@@ -400,8 +355,7 @@ private slots:
         QVERIFY(!engine.microphoneSilentForTest());
     }
 
-    // And it clears itself, or a device that comes back keeps a warning for
-    // the rest of the call — the failure remoteMediaBlocked was fixed for.
+    // The notice clears when the device comes back.
     void aMicrophoneThatComesBackClearsTheNotice()
     {
         SfuMediaEngine engine;
@@ -416,8 +370,7 @@ private slots:
         QVERIFY(!engine.microphoneSilentForTest());
     }
 
-    // MUTE IS SILENCE BY REQUEST. Judging it would put a warning on the one
-    // state where silence is the correct outcome.
+    // Mute is requested silence and is never reported.
     void aMutedMicrophoneIsNeverReportedAsSilent()
     {
         SfuMediaEngine engine;
@@ -431,10 +384,8 @@ private slots:
         QVERIFY(!engine.microphoneSilentForTest());
     }
 
-    // Muting clears a raised notice at once. `level` sits after the valve,
-    // so a muted capture posts no levels and the muted branch of
-    // handleMicLevelAt() is never reached (seen live: the badge stayed up
-    // for over a minute after muting). FAIL-ON-OLD: no clear on mute.
+    // Muting clears a raised notice at once: `level` sits after the valve, so
+    // a muted capture posts no further levels.
     void mutingClearsARaisedSilenceNoticeWithoutAnotherLevelReport()
     {
         SfuMediaEngine engine;
@@ -449,7 +400,7 @@ private slots:
         QCOMPARE(spy.count(), 2);
         QCOMPARE(spy.takeLast().at(0).toBool(), false);
 
-        // Unmuting starts a fresh window: one silent report is not a verdict.
+        // Unmuting starts a fresh window.
         engine.setMicrophoneMuted(false);
         engine.handleMicLevelAt(-350.0,
                                 SfuMediaEngine::kMicSilenceWindowMs + 5000);
@@ -457,26 +408,20 @@ private slots:
         QCOMPARE(spy.count(), 1);
     }
 
-    // The threshold, stated as a boundary rather than as a number in prose.
+    // The silence threshold, pinned as a boundary.
     void theSilenceCeilingIsAPeakNoSpeechStaysUnder()
     {
-        // -60 dBFS is below any speech peak and above a real room's noise
-        // floor; `level` reports true digital silence as -350. MEASURED, not
-        // assumed: `gst-launch-1.0 audiotestsrc wave=silence ! level` posts
-        // `peak=(GValueArray)< -349.99999992181608 >`. That matters because
-        // -350 was briefly mistaken for a parser sentinel and nearly guarded
-        // out of the silence detector.
+        // -60 dBFS is below any speech peak and above a room's noise floor.
+        // `level` reports digital silence as -350 (its floor), not a sentinel.
         QCOMPARE(SfuMediaEngine::micSilenceSince(-59.0, -1, 1000), qint64(-1));
         QCOMPARE(SfuMediaEngine::micSilenceSince(-61.0, -1, 1000), qint64(1000));
-        // The mark is CARRIED, not restamped, or the window could never close.
+        // The mark is carried, not restamped, or the window could never close.
         QCOMPARE(SfuMediaEngine::micSilenceSince(-61.0, 1000, 5000),
                  qint64(1000));
-        // And one audible report clears it outright.
+        // One audible report clears it.
         QCOMPARE(SfuMediaEngine::micSilenceSince(-20.0, 1000, 5000),
                  qint64(-1));
-        // t=0 IS A LEGAL INSTANT. With 0 as the "audible" sentinel the first
-        // report of a silent capture erased its own mark and the window
-        // started one report late -- which is exactly how this was caught.
+        // t=0 is a legal instant and must not read as "no mark".
         QCOMPARE(SfuMediaEngine::micSilenceSince(-350.0, -1, 0), qint64(0));
         QVERIFY(SfuMediaEngine::micSilenceReached(
             0, SfuMediaEngine::kMicSilenceWindowMs));
@@ -487,10 +432,8 @@ private slots:
             1000, 1000 + SfuMediaEngine::kMicSilenceWindowMs));
     }
 
-    // AND THE MEASUREMENT HAS TO BE IN THE CHAIN PRODUCTION BUILDS, not in
-    // one the test composed to resemble it. Three defects in this repository
-    // came from a test that assembled its own pipeline string; this asks the
-    // engine for the bin it really published and looks inside it.
+    // The level meter is in the bin the engine actually published, not in a
+    // pipeline the test composed.
     void theCaptureChainMeasuresItsOwnLevel()
     {
         GstElementFactory *factory = gst_element_factory_find("level");
@@ -507,21 +450,14 @@ private slots:
         QVERIFY(engine.hasPublishedBinForTest(QStringLiteral("cid-audio")));
         QVERIFY(engine.publishedBinHasElementForTest(
             QStringLiteral("cid-audio"), QStringLiteral("miclevel")));
-        // The encoder is still downstream of it: the level reported is what
-        // the far end receives, not what the device produced before gain.
+        // The encoder is downstream: the level is what the far end receives.
         QVERIFY(engine.publishedBinHasElementForTest(
             QStringLiteral("cid-audio"), QStringLiteral("audioenc")));
         engine.stop();
     }
 
-    // AND THE STAGES REACH THE CHAIN PRODUCTION ACTUALLY BUILDS.
-    //
-    // captureMixMatrix() being right proves nothing about publishAudio()
-    // using it — the exact gap that shipped a per-application share which
-    // had never parsed (CLAUDE.md §16). This asserts the string the engine
-    // handed GStreamer, and that GStreamer accepted it.
-    //
-    // FAIL-ON-OLD: drop `%7`/`%8` from the description and both halves fail.
+    // The multi-input stages reach the description publishAudio() actually
+    // hands GStreamer, and GStreamer accepts it.
     void theCaptureChainKeepsItsOrdinaryShapeForAnOrdinaryMicrophone()
     {
         SfuMediaEngine engine;
@@ -532,16 +468,13 @@ private slots:
         QCOMPARE(failed.count(), 0);
         const QString built = engine.lastAudioDescriptionForTest();
         QVERIFY(!built.isEmpty());
-        // No device, so no multi-input stages: byte-for-byte the chain that
-        // shipped before this existed.
+        // No device, so no multi-input stages.
         QVERIFY2(!built.contains(QStringLiteral("mix-matrix")),
                  qPrintable(built.left(200)));
         QVERIFY2(!built.contains(QStringLiteral("channel-mask")),
                  qPrintable(built.left(200)));
         QVERIFY(built.contains(QStringLiteral("audio/x-raw,channels=1")));
-        // AND THE CAPTURE QUEUE IS BOUNDED. A default `queue` holds one
-        // second and never leaks it, which is precisely the delay the far
-        // end reported. FAIL-ON-OLD: drop the properties and this fails.
+        // The capture queue is bounded and leaky; a default queue holds 1 s.
         QVERIFY2(built.contains(QStringLiteral("leaky=downstream")),
                  qPrintable(built.left(300)));
         QVERIFY2(built.contains(QStringLiteral("max-size-time=100000000")),
@@ -549,21 +482,9 @@ private slots:
         engine.stop();
     }
 
-    // THE MULTI-INPUT CHAIN IS HANDED TO GSTREAMER FOR REAL.
-    //
-    // captureMixMatrix() returning the right string proves nothing about
-    // whether GStreamer ACCEPTS it: the property spelling, the `(float)`
-    // serialization and the nested `<<…>>` array syntax are all things a
-    // string comparison cannot check. If any of them is wrong,
-    // `gst_parse_bin_from_description` fails and publishAudio emits
-    // `audio_source_failed` — no microphone at all, for exactly the users
-    // this targets. That is the recorded publishShareAudio shape (CLAUDE.md
-    // §16): a test that composes something RESEMBLING what production
-    // composes proves nothing.
-    //
-    // FAIL-ON-OLD: corrupt the matrix (drop a `(float)` cast, or use `[..]`
-    // for the array) and this fails at the parse, where the string-equality
-    // tests still pass.
+    // The multi-input chain parses and runs in GStreamer: a string comparison
+    // cannot check property spelling, `(float)` serialization or `<<…>>` array
+    // syntax, and a parse failure means no microphone at all.
     void theMultiInputChainParsesAndRuns()
     {
         SfuMediaEngine engine;
@@ -579,7 +500,7 @@ private slots:
         QVERIFY2(built.contains(
                      QStringLiteral("channels=4,channel-mask=(bitmask)0x0")),
                  qPrintable(built.left(200)));
-        // The parse is the assertion: a bad matrix never gets this far.
+        // The parse is the assertion.
         QVERIFY2(failed.count() == 0,
                  failed.isEmpty()
                      ? "no failure"
@@ -590,20 +511,9 @@ private slots:
         engine.stop();
     }
 
-    // THE MICROPHONE'S ELEMENT ORDER IS A LIVE-VALIDATED CONTRACT, not a
-    // preference. On Linux `pulsesrc` must come FIRST.
-    //
-    // Measured on the shipped 0.9.7 AppImage (2026-09-16, PipeWire 1.6.6):
-    // with a device preference set, `pipewiresrc` never left `connecting` and
-    // published ZERO rtp packets — reproduced against two different devices —
-    // while the no-preference path through `pulsesrc` carried 500. The
-    // AppImage bundles gst-plugin-pipewire 1.4.2 against a 1.6.6 daemon and
-    // mishandles `target-object`; the host's own 1.6.6 element is fine with
-    // the identical value, so it is the bundled element and not our value.
-    //
-    // FAIL-ON-OLD: swap the two back and this fails, which is the whole point
-    // — the old order shipped and cost every AppImage user their microphone
-    // the moment they chose one in settings.
+    // On Linux `pulsesrc` must come before `pipewiresrc`: a bundled
+    // gst-plugin-pipewire 1.4 against a 1.6 daemon mishandles `target-object`
+    // and never leaves `connecting` once a device is chosen.
     void theMicrophonePrefersPulseOverPipeWireOnLinux()
     {
 #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
@@ -612,9 +522,7 @@ private slots:
         const QStringList order = SfuMediaEngine::microphoneElementsForTest();
         QVERIFY2(!order.isEmpty(), "no microphone elements offered at all");
         QCOMPARE(order.first(), QStringLiteral("pulsesrc"));
-        // pipewiresrc STAYS, as the fallback for a host with no
-        // pipewire-pulse, where it is the only element that can carry a
-        // device choice.
+        // pipewiresrc stays as the fallback for hosts without pipewire-pulse.
         QVERIFY2(order.contains(QStringLiteral("pipewiresrc")),
                  qPrintable(order.join(QLatin1Char(','))));
 #endif
@@ -633,8 +541,8 @@ private slots:
 
     void restartingDoesNotLeakTheOldSession()
     {
-        // The engine is ONE object reused call after call, so a second start
-        // must tear the first down rather than stack a second pipeline.
+        // The engine is reused across calls; a second start must tear the
+        // first down rather than stack a second pipeline.
         SfuMediaEngine engine;
         engine.setTestSourceMode(true);
         for (int i = 0; i < 3; ++i) {
@@ -647,7 +555,7 @@ private slots:
 
     void publishingAudioAndVideoBuildsRealPipelines()
     {
-        // THE reproduction path: this is what pressing "call" reaches.
+        // The path pressing "call" reaches.
         SfuMediaEngine engine;
         engine.setTestSourceMode(true);
         QSignalSpy failed(&engine, &SfuMediaEngine::failed);
@@ -656,8 +564,7 @@ private slots:
         engine.publishAudio(QStringLiteral("cid-audio"));
         engine.publishVideo(QStringLiteral("cid-video"), /*screenShare=*/false,
                             /*nodeId=*/-1);
-        // A failure here is a category string, never a crash and never
-        // silence.
+        // A failure is a category string, never a crash or silence.
         for (const QList<QVariant> &args : failed) {
             qWarning() << "engine reported failure:"
                        << args.at(0).toString();
@@ -668,22 +575,17 @@ private slots:
 
     void anOfferIsOnlyMadeOnceThereIsMediaAndThenCarriesIt()
     {
-        // THE defect behind "calls insta fail". webrtcbin raises
-        // on-negotiation-needed the moment it reaches PLAYING, which
-        // ensurePeer does before any track exists — so the offer built from
-        // that signal had NO media section. We sent a 98-byte SDP with no
-        // `m=` line right after declaring a track to the SFU, and LiveKit
-        // answered Leave(reason=6 STATE_MISMATCH) every time.
-        //
-        // Two things are asserted: no offer at all before a track is linked,
-        // and once one is, an offer that actually contains media.
+        // webrtcbin raises on-negotiation-needed on reaching PLAYING, before
+        // any track exists; an offer built then has no media section and
+        // LiveKit answers STATE_MISMATCH. Assert no offer before a track is
+        // linked, and a media-bearing offer after.
         SfuMediaEngine engine;
         engine.setTestSourceMode(true);
         QSignalSpy offers(&engine, &SfuMediaEngine::localDescription);
         QSignalSpy failed(&engine, &SfuMediaEngine::failed);
 
         engine.start();
-        // A moment for the PLAYING transition to raise negotiation-needed.
+        // Let the PLAYING transition raise negotiation-needed.
         QTest::qWait(400);
         QCOMPARE(failed.count(), 0);
         QCOMPARE(offers.count(), 0);   // deferred, nothing to offer yet
@@ -692,9 +594,8 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(offers.count() > 0, 5000);
         QCOMPARE(failed.count(), 0);
 
-        // The publisher's offer must describe the audio track. An SDP with no
-        // media section is ~98 bytes; a real Opus offer is far larger and
-        // says so explicitly.
+        // The publisher offer must describe the audio track (an SDP with no
+        // media section is ~98 bytes).
         bool sawPublisherOffer = false;
         for (const QList<QVariant> &args : offers) {
             if (args.at(0).toInt() != 0)
@@ -730,9 +631,8 @@ private slots:
 
     void encryptionArmedBeforeMediaExistsIsSafe()
     {
-        // The order the controller actually uses: require encryption, clear
-        // keys, THEN publish. With no key installed the probes must drop
-        // frames rather than crash or leak cleartext.
+        // The controller's order: require encryption, clear keys, then
+        // publish. With no key the probes must drop frames, never leak them.
         SfuMediaEngine engine;
         engine.setTestSourceMode(true);
         QSignalSpy failed(&engine, &SfuMediaEngine::failed);
@@ -744,7 +644,7 @@ private slots:
         engine.publishVideo(QStringLiteral("cid-video"), false, -1);
         QTest::qWait(200);   // let some frames actually flow through a probe
         QCOMPARE(failed.count(), 0);
-        // Still no key, so still not claiming encryption.
+        // Still no key, so not claiming encryption.
         QVERIFY(!engine.encryptionActive());
         engine.stop();
     }
@@ -767,14 +667,8 @@ private slots:
         QVERIFY(!engine.encryptionActive());
     }
 
-    // THE FOUR DECISIVE FACTS MUST BE SAYABLE.
-    //
-    // A tester on Windows reported "someone joined and I cannot hear them"
-    // and could not capture a thing, because the failures that produce that
-    // symptom happened in silence: setInboundKey discarded a key without a
-    // word, and the sid-to-device binding refused without a word. These
-    // assert the sentences, because the next occurrence has to diagnose
-    // itself from one log.
+    // Every key arrival and refusal, and every refused sid-to-device binding,
+    // is logged: silent failures there look like "I cannot hear them".
     void theKeyLaneSaysWhetherAKeyArrivedOrWasRefused()
     {
         LogCapture log;
@@ -788,8 +682,7 @@ private slots:
                  qPrintable(log.text()));
         QVERIFY2(log.contains("@a:example.org:DEV"), qPrintable(log.text()));
 
-        // Said ONCE. The controller re-reconciles the key lane on a refresh
-        // tick, and a diagnostic that repeats is one a reader skips.
+        // Logged once; the key lane is re-reconciled on every refresh tick.
         const int first = log.count("media key ARRIVED");
         engine.setInboundKey(QStringLiteral("@a:example.org:DEV"), 0,
                              QByteArray(32, 'k'));
@@ -813,15 +706,14 @@ private slots:
         SfuMediaEngine engine;
         engine.setTestSourceMode(true);
         engine.start();
-        // This join is what makes a key usable: without it the key sits in
-        // one ring and the frames consult another, and everything else looks
-        // healthy.
+        // Without this binding the key sits in one ring and frames consult
+        // another.
         engine.noteParticipantIdentity(QString(),
                                        QStringLiteral("@a:example.org:DEV"));
         QVERIFY2(log.contains("could NOT be bound to a sending stream"),
                  qPrintable(log.text()));
         log.clear();
-        // The working case must stay quiet, or the diagnostic is noise.
+        // The working case stays quiet.
         engine.noteParticipantIdentity(QStringLiteral("PA_sid"),
                                        QStringLiteral("@a:example.org:DEV"));
         QVERIFY2(!log.contains("could NOT be bound"), qPrintable(log.text()));
@@ -845,8 +737,8 @@ private slots:
         engine.setTestSourceMode(true);
         engine.start();
         engine.setOutboundKey(-1, QByteArray(32, 'k'));
-        // 256, not 99: the ring is 256 indices since 2026-09-23 (element-call
-        // rotates modulo 256), so 99 is a legal index now.
+        // 256, not 99: the ring has 256 indices (element-call rotates
+        // modulo 256).
         engine.setOutboundKey(256, QByteArray(32, 'k'));
         QVERIFY(!engine.encryptionActive());
         engine.stop();
@@ -854,8 +746,8 @@ private slots:
 
     void screenShareWithoutASourceIsRefusedNotGuessed()
     {
-        // A negative PipeWire node id means "whatever PipeWire feels like",
-        // which is how you publish the wrong monitor.
+        // A negative PipeWire node id means "any source", which publishes the
+        // wrong monitor.
         SfuMediaEngine engine;
         engine.setTestSourceMode(false);   // the real source path
         QSignalSpy failed(&engine, &SfuMediaEngine::failed);
@@ -868,21 +760,9 @@ private slots:
         engine.stop();
     }
 
-    // NEITHER BACKEND MAY CALL gst_init ITSELF.
-    //
-    // GST_PLUGIN_PATH is read DURING gst_init, once. There are two media
-    // backends and each used to run its own `gst_init_check` from its own
-    // `std::call_once`, with only the SFU one setting the bundled plugin
-    // path — and AppController probes the OTHER one first. So on a packaged
-    // build the first init scanned the builder's sysroot (absent on a user's
-    // machine), registered nothing, and the SFU engine's later init was a
-    // no-op. The result was a client with the engine compiled in and 25
-    // plugins beside it reporting `missing_element:webrtcbin`: no call
-    // button, and an incoming call offering only Decline and Dismiss.
-    //
-    // A source scan, because the defect is WHICH FUNCTION RUNS FIRST and
-    // that cannot be observed from inside one process that has already
-    // initialised GStreamer. It fails on the tree that had two inits.
+    // Neither media backend may call gst_init itself: GST_PLUGIN_PATH is read
+    // once, during the first init, and it must be the bundled path. Checked in
+    // source because which init runs first cannot be observed in-process.
     void neitherMediaBackendInitialisesGstreamerItself()
     {
         const QString root = QStringLiteral(SOURCE_DIR "/src/calls/");
@@ -892,11 +772,8 @@ private slots:
             QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(root + name));
             QString source = QString::fromUtf8(file.readAll());
             QVERIFY(!source.isEmpty());
-            // COMMENTS STRIPPED FIRST. Both files EXPLAIN this defect in
-            // prose directly above the fix, so a ban read off the raw text
-            // always finds the token it forbids and fails on correct code —
-            // the self-referential-ban trap this repo has hit repeatedly.
-            // Whole-line `//` only, which is where every mention lives.
+            // Strip whole-line comments first: both files explain this defect
+            // in prose above the fix, so a raw-text ban would match them.
             source.remove(QRegularExpression(QStringLiteral("(?m)^[ \\t]*//.*$")));
             QVERIFY2(source.contains(QStringLiteral("runtimeAvailable")),
                      "the comment stripper ate the file, so this ban is "
@@ -911,8 +788,7 @@ private slots:
                      qPrintable(QStringLiteral("%1 does not go through the "
                                                "shared bootstrap").arg(name)));
         }
-        // And the bootstrap applies the path BEFORE it initialises. The order
-        // is the whole point: reversed, it is exactly the bug above.
+        // The bootstrap sets the plugin path before it initialises.
         QFile boot(root + QStringLiteral("GstBootstrap.cpp"));
         QVERIFY(boot.open(QIODevice::ReadOnly));
         QString source = QString::fromUtf8(boot.readAll());
@@ -925,15 +801,9 @@ private slots:
                  "bundled plugin path, which is the defect it exists to fix");
     }
 
-    // EVERY PLATFORM CAN ACTUALLY CAPTURE, and each one names an element that
-    // exists there. A source fragment naming a Linux-only element is what made
-    // Windows and macOS silently call-less: the pipeline could never be built,
-    // so a share reported success and carried nothing.
-    //
-    // Compile-time branches, so this asserts the branch THIS build took —
-    // which is the only one it can observe. The other two are asserted by the
-    // packaging validation, which greps the shipped plugin DLLs for the
-    // element names (the Windows and macOS jobs in lightning-deploy).
+    // Each platform names a capture element that exists there. Compile-time
+    // branches, so only this build's branch is observable; packaging
+    // validation checks the others against the shipped plugins.
     void everyPlatformNamesACaptureSourceItActuallyHas()
     {
         const QString camera = SfuMediaEngine::cameraSource();
@@ -941,12 +811,9 @@ private slots:
         QVERIFY(!camera.isEmpty());
         QVERIFY(!screen.isEmpty());
 #if defined(Q_OS_WIN)
-        // ksvideosrc/gdiscreencapsrc, not mfvideosrc/d3d11screencapturesrc:
-        // the mediafoundation and d3d11 plugins do not load in the packaging
-        // toolchain, so those elements are not shipped. The property names
-        // differ between the two families — `monitor`/`cursor` here versus
-        // `monitor-index`/`show-cursor` there — so naming the wrong pair is a
-        // pipeline that never builds.
+        // ksvideosrc/gdiscreencapsrc: the mediafoundation and d3d11 plugins do
+        // not load in the packaging toolchain. Their property names differ
+        // (`monitor`/`cursor` vs `monitor-index`/`show-cursor`).
         QCOMPARE(camera, QStringLiteral("ksvideosrc"));
         QVERIFY(screen.startsWith(QStringLiteral("gdiscreencapsrc")));
         QVERIFY2(screen.contains(QStringLiteral("monitor=")),
@@ -965,8 +832,7 @@ private slots:
         QCOMPARE(camera, QStringLiteral("v4l2src"));
         QVERIFY(screen.startsWith(QStringLiteral("pipewiresrc")));
 #endif
-        // NEVER a Linux element off Linux, and never a Windows one on Linux.
-        // The branches are what this test exists to keep honest.
+        // Never a Linux element off Linux, nor a Windows one on Linux.
 #if !defined(Q_OS_LINUX)
         QVERIFY2(!camera.contains(QStringLiteral("v4l2"))
                      && !screen.contains(QStringLiteral("pipewire")),
@@ -975,51 +841,28 @@ private slots:
 #endif
     }
 
-    // THE screen-share defect. The portal grants a node id AND a descriptor
-    // to the PipeWire remote that node lives in (OpenPipeWireRemote); the
-    // handshake used to stop before that call and hand `pipewiresrc path=<n>`
-    // the id alone. That element resolves `path` against the CALLER's default
-    // remote, where a portal node need not appear at all — so the pipeline
-    // reaches PLAYING, reports no error, and never produces a buffer. A black
-    // share that claims success, in both directions of the report.
-    // THE CAMERA'S MJPG CHAIN, AND THE FALLBACK THAT MUST NOT BREAK IT.
-    //
-    // A USB webcam at 1280x720 in raw YUY2 is 18.4 MB/s, which saturates USB
-    // 2.0 and lands at 10 fps — the reported ceiling. The fix is to negotiate
-    // the camera's MJPG mode instead, which means putting `image/jpeg` in
-    // front of a decoder rather than the raw capsfilter that used to sit
-    // directly after the source and made an MJPG mode impossible to
-    // negotiate at all.
-    //
-    // Two properties, and the second is the one that protects every machine
-    // that works today: the JPEG chain must actually BUILD where its elements
-    // exist, and where they do not, the raw chain must still build so the
-    // camera falls back instead of failing.
+    // The camera prefers its MJPG mode (raw YUY2 at 720p saturates USB 2.0 at
+    // 10 fps). The JPEG chain must build where its elements exist, and the raw
+    // chain must still build where they do not.
     void theCameraJpegChainBuildsWhereItsElementsExist()
     {
         const bool available = SfuMediaEngine::jpegCameraChainAvailable();
 
-        // The probe must agree with reality rather than with a hardcoded
-        // list: it is answering "does THIS build have a JPEG decoder", and a
-        // packaged build that forgot to stage libgstjpeg must come back
-        // false rather than claiming a chain it cannot build.
+        // The probe must match reality: a build without libgstjpeg reports
+        // false.
         GstElementFactory *jpegdec = gst_element_factory_find("jpegdec");
         QCOMPARE(available, jpegdec != nullptr);
         if (jpegdec)
             gst_object_unref(jpegdec);
 
         if (available) {
-            // It parses as a real bin, which is what the engine does with it.
+            // It parses as a real bin, as the engine uses it.
             const QString entry = SfuMediaEngine::cameraJpegEntry();
             QVERIFY2(entry.contains(QStringLiteral("image/jpeg")),
                      "the chain must ASK for jpeg, or the camera's MJPG mode "
                      "can never be negotiated");
-            // `jpegenc` stands in for the CAMERA, because the property
-            // under test is "this chain accepts an MJPG source". A plain
-            // videotestsrc emits raw video and cannot link to an
-            // `image/jpeg` filter at all — a harness that used one would
-            // fail on correct code, which is the trap this repo has already
-            // recorded twice about probe sources.
+            // `jpegenc` stands in for an MJPG camera; raw videotestsrc output
+            // cannot link to an `image/jpeg` filter.
             const QString description =
                 QStringLiteral("videotestsrc name=capsrc ! jpegenc ! ")
                 + entry + QStringLiteral(" ! fakesink");
@@ -1037,9 +880,8 @@ private slots:
             gst_object_unref(bin);
         }
 
-        // THE FALLBACK. Whatever the JPEG probe says, the raw entry has to
-        // build — it is what every camera without an MJPG mode uses, and
-        // what the engine rebuilds on when the JPEG description fails.
+        // The raw fallback always builds: it serves cameras without MJPG and
+        // is what the engine retries when the JPEG description fails.
         const QString rawDescription =
             QStringLiteral("videotestsrc name=capsrc ! ")
             + SfuMediaEngine::captureEntryFilter(false)
@@ -1058,18 +900,9 @@ private slots:
         gst_object_unref(rawBin);
     }
 
-    // THE CAMERA A SANDBOX CAN ACTUALLY HAVE.
-    //
-    // `v4l2src` needs the raw `/dev/video*` node. A Flatpak has none: there
-    // is no camera-only device permission, `--device=all` is the only static
-    // route to one and Flathub rejects it. So a packaged Flatpak has working
-    // audio, working screen sharing, and a camera button that cannot ever
-    // produce a frame — which is what the xdg Camera portal exists to fix,
-    // and it needs NO new sandbox permission at all.
-    //
-    // NOT LIVE-VALIDATED and it cannot be from this machine: there is no
-    // webcam here (`/dev/video*` is empty). What this pins is the SHAPE of
-    // the element, which is the part that has silently broken before.
+    // In a sandbox the camera comes from the xdg Camera portal's PipeWire
+    // remote: a Flatpak has no `/dev/video*`. Pins the element's shape; not
+    // live-validated.
     void aSandboxedCameraCapturesThroughThePortalsPipeWireRemote()
     {
         const QString direct = SfuMediaEngine::cameraSource();
@@ -1077,16 +910,11 @@ private slots:
         QVERIFY(!direct.isEmpty());
         QVERIFY(!portal.isEmpty());
 
-        // THE DEFAULT IS UNCHANGED. Every desktop build, and every build on a
-        // platform with no portal, keeps exactly the source it has always
-        // had — the only camera path that has ever been live-validated.
+        // Without a portal fd, the source is unchanged.
         QCOMPARE(SfuMediaEngine::cameraSource(-1), direct);
 
 #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-        // No portal on these platforms: the capture element opens the device
-        // itself and the OS gates it. An fd must change nothing, or a stray
-        // value would rewrite a working camera into an element that is not
-        // even shipped there.
+        // No portal on these platforms: an fd must change nothing.
         QCOMPARE(portal, direct);
 #else
         QCOMPARE(direct, QStringLiteral("v4l2src"));
@@ -1097,15 +925,9 @@ private slots:
                  qPrintable(QStringLiteral("the portal's remote descriptor is "
                                            "not passed: %1").arg(portal)));
 
-        // AND DELIBERATELY NO `path=`, which is the one place this differs
-        // from the screen share and the difference is not cosmetic. The
-        // ScreenCast portal grants ONE node, so its source names it. The
-        // CAMERA portal grants a remote in which only camera nodes are
-        // visible and the node is chosen by connecting (`autoconnect`, on by
-        // default). A node id here could only have come from the HOST's own
-        // PipeWire remote, and naming it inside the portal's remote resolves
-        // to nothing: a pipeline that plays and emits no buffer, which is the
-        // exact failure the screen share shipped once.
+        // No `path=`: the Camera portal grants a remote whose nodes are chosen
+        // by autoconnect, so a host node id would resolve to nothing and the
+        // pipeline would play without ever producing a buffer.
         QVERIFY2(!portal.contains(QStringLiteral("path=")),
                  qPrintable(QStringLiteral(
                      "a node id from another remote cannot name a node in the "
@@ -1114,14 +936,9 @@ private slots:
                  "autoconnect is what selects the camera on this route; "
                  "turning it off leaves the stream connected to nothing");
 
-        // MIN-BUFFERS IS PINNED HERE TOO, and for the same reason it is
-        // pinned on the share: gst-plugin-pipewire's DEFAULT_MIN_BUFFERS was
-        // 8 through 1.4.x and is 1 from 1.6, the element asks for
-        // RANGE(default, min-buffers, max-buffers), and PipeWire >= 1.6
-        // rejects a range it cannot intersect with the source's. Inheriting
-        // the default lets whichever plugin version a package happens to
-        // bundle decide whether the camera negotiates at all. 1 intersects
-        // every ceiling a source can offer.
+        // min-buffers is pinned: gst-plugin-pipewire's default changed from 8
+        // to 1 in 1.6, and PipeWire >= 1.6 rejects a buffer range it cannot
+        // intersect with the source's. 1 intersects every ceiling.
         QVERIFY2(portal.contains(QStringLiteral("min-buffers=1")),
                  "the portal camera must pin min-buffers, not inherit the "
                  "bundled plugin's version-dependent default");
@@ -1133,42 +950,19 @@ private slots:
                          "measured to stop a PipeWire capture entirely")
                                     .arg(banned)));
         }
-        // The property that froze the screen share on its first frame. It was
-        // shipped on reasoning alone once; it must not arrive here the same
-        // way.
+        // keepalive-time froze the capture on its first frame.
         QVERIFY2(!portal.contains(QStringLiteral("keepalive-time")),
                  "keepalive-time is back; it was measured to freeze a "
                  "PipeWire capture on its first frame");
 #endif
     }
 
-    // A PORTAL CAMERA MUST NOT BE OFFERED THE MJPG CHAIN, and the reason is
-    // that the ladder cannot catch its own failure.
-    //
-    // `cameraJpegEntry()` is an `image/jpeg` capsfilter, and the fallback
-    // beside it triggers on a description that fails to PARSE. A description
-    // containing that capsfilter parses perfectly against any source; what
-    // fails is NEGOTIATION, at PLAYING, by which point the ladder is over and
-    // the camera is simply dead. The direct elements are known to advertise
-    // MJPG beside raw — that is the measured justification for the chain
-    // existing. What a portal camera node offers is not known and is not
-    // testable from this machine, so it gets the raw entry.
-
-    // THE PORTAL CAMERA MUST NEVER SEE A FIXED FRAME RATE.
-    //
-    // Measured 2026-09-23 on Fedora 44 inside the published Flathub build
-    // (runtime pipewiresrc 1.4.9, host PipeWire 1.6.9, USB 2.0 camera): the
-    // old chain pinned `framerate=30/1` in the camera limits; it propagated
-    // up through videoscale/videorate into pipewiresrc, which asked PipeWire
-    // for a mode the camera lacks, and PipeWire refused with
-    // `error set output format: -22` — no capture buffer, camera_failed, on
-    // every Flathub install. Removing ONLY the fixed rate made the same chain
-    // negotiate (YUY2 640x480 at 30 on that camera, GRAY8 640x360 on its IR
-    // sensor). A caps list was measured too and is refused below: this
-    // element does not move past a first alternative the device cannot meet.
-    //
-    // The whole DESCRIPTION is checked, not the helpers alone, because a
-    // fixed rate anywhere in it reaches the source.
+    // The portal camera never sees a fixed frame rate anywhere in its
+    // description: a pinned rate propagates to pipewiresrc, and PipeWire
+    // refuses a mode the camera lacks (`error set output format: -22`).
+    // It also gets the raw entry, not the MJPG chain: the fallback only
+    // catches parse failures, and an unsupported `image/jpeg` fails later at
+    // negotiation.
     void thePortalCameraNeverPinsAFrameRateOnPipeWire()
     {
         const QString portalDescription =
@@ -1184,26 +978,24 @@ private slots:
                      "a fixed frame rate reaches pipewiresrc and PipeWire "
                      "refuses the camera (-22): %1").arg(portalDescription)));
 
-        // ONE structure: a list dies on a camera that cannot meet its first
-        // alternative.
+        // One caps structure: a list dies on a camera that cannot meet its
+        // first alternative.
         const QString entry = SfuMediaEngine::portalCameraEntry();
         QVERIFY2(!entry.contains(QLatin1Char(';')),
                  qPrintable(QStringLiteral("a caps list in front of "
                                            "pipewiresrc: %1").arg(entry)));
         QVERIFY(entry.contains(QStringLiteral("video/x-raw")));
-        // A RANGE with a floor: PipeWire fixates a range to its smallest
-        // mode, and without the floor that was 160x120.
+        // A range with a floor: PipeWire fixates a range to its smallest mode.
         QVERIFY(entry.contains(QStringLiteral("width=(int)[640,")));
 
-        // The rate is still bounded, just not pinned — and it is still the
-        // element other code finds by name.
+        // The rate is bounded, not pinned, and keeps the element name other
+        // code looks up.
         const QString rate = SfuMediaEngine::cameraRateStage(true);
         QVERIFY(rate.contains(QStringLiteral("max-rate=30")));
         QVERIFY(rate.contains(QStringLiteral("name=vidrate")));
         QVERIFY(rate.contains(QStringLiteral("skip-to-first=true")));
 
-        // THE DIRECT ROUTE IS UNCHANGED: v4l2src negotiates per mode itself
-        // and is the live-validated path.
+        // The direct (v4l2src) route is unchanged.
         QCOMPARE(SfuMediaEngine::cameraRateStage(false),
                  SfuMediaEngine::videoRateStage(false));
         QVERIFY(SfuMediaEngine::cameraLimitsCaps(false)
@@ -1224,15 +1016,8 @@ private slots:
                                 .arg(QString::fromUtf8(gate))));
     }
 
-    // THE STORED DEVICE CHOICE MUST NOT BE APPLIED TO A PORTAL CAMERA.
-    //
-    // The choice comes from QMediaDevices, which enumerates the HOST's
-    // devices; the portal's pipewiresrc is connected to a DIFFERENT PipeWire
-    // remote whose node ids and serials are the portal's own. Resolving a
-    // host id into `target-object=` there names a node that does not exist in
-    // that remote, which kills the camera outright — the precise hazard
-    // CaptureDeviceSelection.h refuses to take when it says Qt and GStreamer
-    // ids are not one namespace.
+    // The stored device choice is not applied to a portal camera: it is a
+    // host device id, and the portal's PipeWire remote has its own ids.
     void aPortalCameraIsNotBoundToAHostDeviceId()
     {
         const QByteArray source = SOURCE_UNDER_TEST;
@@ -1253,25 +1038,15 @@ private slots:
         QVERIFY2(withFd.contains(QStringLiteral("fd=7")),
                  qPrintable(QStringLiteral("no remote fd in: %1").arg(withFd)));
         QVERIFY(withFd.contains(QStringLiteral("path=42")));
-        // The fd must come BEFORE the path: pipewiresrc resolves the path
-        // against whichever remote it has been given.
+        // The fd comes before the path: pipewiresrc resolves the path against
+        // whichever remote it has been given.
         QVERIFY(withFd.indexOf(QStringLiteral("fd="))
                 < withFd.indexOf(QStringLiteral("path=")));
 
-        // With no remote there is nothing to do but ask the default one — but
-        // it must not silently claim a descriptor it does not have.
-        // MIN-BUFFERS IS PINNED, ON BOTH BRANCHES, and it is the difference
-        // between a share starting and dying at negotiation.
-        //
-        // gst-plugin-pipewire's DEFAULT_MIN_BUFFERS was 8 through 1.4.x and is
-        // 1 from 1.6. A compositor caps its screencast buffers low (KWin 6.6
-        // offers RANGE(3, 2, 4)), and PipeWire 1.6 rejects a request whose
-        // minimum exceeds the source's maximum with -EINVAL, surfaced as
-        // "error alloc buffers: Invalid argument". A bundled 1.4.2 element
-        // therefore fails against a 1.6 daemon while the host's own plugin
-        // works -- measured: 8 and 5 fail, 4 and 1 allocate. Inheriting the
-        // default means the bundle's GStreamer version silently decides
-        // whether screen sharing works at all.
+        // Pinned on both branches: gst-plugin-pipewire's default changed from
+        // 8 to 1 in 1.6, KWin offers at most 4 buffers, and PipeWire 1.6
+        // rejects a minimum above the source's maximum ("error alloc buffers:
+        // Invalid argument").
         QVERIFY2(withFd.contains(QStringLiteral("min-buffers=1")),
                  "the fd branch must pin min-buffers, not inherit the "
                  "bundled plugin's version-dependent default");
@@ -1281,26 +1056,8 @@ private slots:
                  "the no-fd branch must pin min-buffers too");
         QVERIFY(!withoutFd.contains(QStringLiteral("fd=")));
         QVERIFY(withoutFd.contains(QStringLiteral("path=42")));
-        // THE OLD BAN ON min-buffers IS RE-SCOPED, NOT OVERRULED, and the
-        // distinction is the point.
-        //
-        // What was refuted: `min-buffers=8`, shipped on reasoning alone as a
-        // fix for the one-frame OPENING STALL, which made it strictly worse —
-        // no frame arrived at all. That result stands.
-        //
-        // What is claimed now is a different value against a different defect,
-        // and it EXPLAINS the old one rather than contradicting it. A
-        // compositor caps its screencast buffers low (KWin 6.6: RANGE(3, 2, 4))
-        // and PipeWire 1.6 rejects a request whose minimum exceeds the source's
-        // maximum. `min-buffers=8` therefore cannot negotiate at all on such a
-        // host — which is exactly "no frame arrived". The old round read a
-        // symptom correctly and attributed it to the property being SET rather
-        // than to the value being too HIGH.
-        //
-        // So the ban keeps its teeth where it earned them: a value above the
-        // ceiling a real source offers stays forbidden. Measured on a live
-        // 1.6.6 daemon: 8 and 5 fail with "error alloc buffers: Invalid
-        // argument", 4 and 1 allocate.
+        // Values above what a compositor offers (KWin: RANGE(3, 2, 4)) stop
+        // the capture entirely.
         for (const QString &banned : { QStringLiteral("min-buffers=5"),
                                        QStringLiteral("min-buffers=6"),
                                        QStringLiteral("min-buffers=7"),
@@ -1311,21 +1068,15 @@ private slots:
                          "it was measured to stop the capture entirely")
                                     .arg(banned)));
         }
-        // The SECOND property shipped here on reasoning alone, and the second
-        // to kill the capture: `keepalive-time` made the share freeze on its
-        // FIRST frame and never recover, and the local self-view — tee'd off
-        // the capture, so it indicts the capture and not the network — sat on
-        // "Waiting for the picture". The opening hold is fixed DOWNSTREAM
-        // instead (videoRateStage), where no PipeWire pool and no PipeWire
-        // thread loop is touched.
+        // keepalive-time froze the share on its first frame; the opening hold
+        // is handled downstream in videoRateStage instead.
         QVERIFY2(!withFd.contains(QStringLiteral("keepalive-time")),
                  "keepalive-time is back; it was measured to freeze the "
                  "capture on its first frame");
     }
 
-    // The engine takes ownership of the descriptor, so a refusal must close
-    // it. Otherwise every declined or too-late share leaks one fd, and a user
-    // who opens the picker repeatedly runs the process out of descriptors.
+    // The engine owns the descriptor, so a refusal must close it or every
+    // declined share leaks an fd.
     void arefusedScreenShareClosesTheDescriptorItWasGiven()
     {
         int fds[2] = { -1, -1 };
@@ -1335,8 +1086,7 @@ private slots:
         engine.setTestSourceMode(false);
         QSignalSpy failed(&engine, &SfuMediaEngine::failed);
         engine.start();
-        // A negative node id is refused (the portal decides the source), and
-        // the descriptor still has to be released.
+        // A negative node id is refused, and the descriptor is still released.
         engine.publishVideo(QStringLiteral("cid-screen"),
                             /*screenShare=*/true, /*nodeId=*/-1, fds[0]);
         QCOMPARE(failed.count(), 1);
@@ -1346,33 +1096,10 @@ private slots:
         ::close(fds[1]);
     }
 
-    // Discord shows the sharer their own share, and it is the only way to
-    // learn that a share is carrying pixels without asking the other end.
-    // The self-view is a branch off the capture, keyed so it can never
-    // collide with a LiveKit id.
-    // The single thing that decides whether a received track can be
-    // attributed to anyone. LiveKit's server PACKS the participant sid and
-    // the track id into one msid stream id, and taking it whole produced a
-    // name that matched neither the media key (installed per participant)
-    // nor the video sink (attached per participant) — so a remote
-    // participant was silent AND invisible at the same time.
-    //
-    // The literals are the reference's, not this implementation's: the
-    // separator is `trackIdSeparator = "|"` in livekit's pkg/rtc/utils.go
-    // and the split is livekit-client's unpackStreamId().
-    // A REAL encrypted call between two engines, in LiveKit's own topology.
-    //
-    // Engine A's PUBLISHER is wired to engine B's SUBSCRIBER — which is
-    // exactly the shape of a LiveKit call, because the SFU offers on the
-    // subscriber and answers on the publisher. Nothing here is mocked below
-    // the signalling: real webrtcbin, real ICE, real DTLS-SRTP, real Opus,
-    // real AES-GCM frame encryption on the pad probes.
-    //
-    // It exists because "no audio" and "no connection" are indistinguishable
-    // from the outside and have nothing in common. If this passes, the
-    // pipeline, the negotiation and the crypto are sound end to end and a
-    // failure against a real SFU is an INTEROP fault; if it fails, the fault
-    // is here and needs no server to find.
+    // A real encrypted call between two engines in LiveKit's topology: A's
+    // publisher wired to B's subscriber, with real webrtcbin, ICE, DTLS-SRTP,
+    // Opus and AES-GCM frame encryption. If this passes, a failure against a
+    // real SFU is an interop fault.
     void anEncryptedCallBetweenTwoEnginesCarriesFrames()
     {
         SfuMediaEngine sender;
@@ -1434,10 +1161,8 @@ private slots:
         sender.start();
         receiver.start();
 
-        // The SAME key on both sides, as a real call has after the
-        // to-device exchange. Encryption REQUIRED, so a frame without a
-        // usable key is dropped rather than sent in the clear — if the
-        // format were wrong this test would see zero decrypted frames.
+        // The same key on both sides, with encryption required: a wrong frame
+        // format would show as zero decrypted frames.
         const QByteArray key(32, 'k');
         sender.setEncryptionRequired(true);
         receiver.setEncryptionRequired(true);
@@ -1450,15 +1175,13 @@ private slots:
             trackArrived,
             qPrintable(QStringLiteral("no media pad; failure=%1").arg(failure)),
             45000);
-        // The receiver's ring is named for the sid the SDP carried; bind the
-        // name the key went in under to it, exactly as SfuCallController does
-        // from the participant list.
+        // Bind the key's name to the sid the SDP carried, as SfuCallController
+        // does from the participant list.
         receiver.noteParticipantIdentity(arrivedStream,
                                          QStringLiteral("sender-device"));
 
-        // Frames on the wire, and frames decrypted at the far end. Zero
-        // encrypted means the capture or the encoder never ran; encrypted
-        // but zero decrypted means the connection or the format is wrong.
+        // Zero encrypted means the capture or encoder never ran; encrypted but
+        // zero decrypted means the connection or format is wrong.
         QTRY_VERIFY2_WITH_TIMEOUT(
             sender.framesEncrypted() > 0,
             qPrintable(QStringLiteral("nothing reached the wire; failure=%1")
@@ -1473,63 +1196,36 @@ private slots:
                            .arg(failure)),
             30000);
 
-        // AND THE CAPTURE'S OWN LEVEL REACHED THE ENGINE.
-        //
-        // Asserted HERE and not in a pipeline of its own, because a publisher
-        // with no connected peer stalls after its first buffer: webrtcbin
-        // has nowhere to put the data, the queue upstream fills, and `level`
-        // never completes one 200 ms interval, so it posts nothing. A
-        // standalone version of this test therefore failed on correct code.
-        // This is the only harness in the file where media actually moves,
-        // which makes it the only place the claim can be made honestly.
-        //
-        // FAIL-ON-OLD: drop the GST_MESSAGE_ELEMENT branch from onBusMessage
-        // and the peak stays at its initial 0 — measured.
+        // The capture's level reaches the engine. Asserted here because only
+        // this harness moves media: a publisher with no peer stalls after its
+        // first buffer and `level` never posts.
         QTRY_VERIFY2_WITH_TIMEOUT(
             sender.micPeakDbForTest() < 0.0,
             qPrintable(QStringLiteral("no level report reached the engine; "
                                       "encrypted=%1")
                            .arg(sender.framesEncrypted())),
             30000);
-        // Test-source mode publishes a 0.05 sine, about -26 dBFS: audible,
-        // and nowhere near the ceiling a dead device sits under.
+        // Test-source mode publishes a 0.05 sine, about -26 dBFS.
         QVERIFY2(sender.micPeakDbForTest()
                      > SfuMediaEngine::kMicSilenceCeilingDb,
                  qPrintable(QStringLiteral("a 0.05 sine measured %1 dBFS")
                                 .arg(sender.micPeakDbForTest())));
         QVERIFY(!sender.microphoneSilentForTest());
 
-        // THE RECEIVE BIN IS REGISTERED, which is what makes retiring it
-        // possible at all. Nothing tracked these before: a bin stayed in the
-        // subscriber pipeline for the whole call, and `remoteTrackRemoved`
-        // was a signal no code emitted.
+        // The receive bin is registered, so it can be retired later.
         QCOMPARE(receiver.receiveBinsForTest(), 1);
 
         sender.stop();
         receiver.stop();
 
-        // AND STOPPING LEAVES NOTHING RUNNING. The bins go with the
-        // pipeline; what must not survive is an outstanding teardown, which
-        // is the invariant awaitPublishTeardowns() exists for and which a
-        // retired receive bin now also counts against.
+        // Stopping leaves no outstanding teardown.
         QCOMPARE(receiver.pendingTeardownsForTest(), 0);
         QCOMPARE(sender.pendingTeardownsForTest(), 0);
     }
 
-    // AN UNKEYED SENDER IS REPORTED AS UNKEYED, NOT AS A DECRYPTION FAILURE.
-    //
-    // THE DEFECT: the receive probe asked an ENGINE-WIDE flag whether a key
-    // existed, and that flag is set by ANY sender's key. So the moment one
-    // participant was keyed, every incoming track claimed to have one — and
-    // a joiner whose key never arrived took the "decryption failed" branch.
-    // Both branches drop the frame, so the media was the same; the LOG named
-    // the wrong cause, on the one report ("someone joined and I cannot hear
-    // them") this whole round exists to make diagnosable.
-    //
-    // Driven end to end rather than through the predicate, because a policy
-    // test that calls the policy function proves nothing about whether
-    // production reaches it (§16, and it has already shipped a no-op here).
-    // This runs a real encrypted call and reads what the log actually said.
+    // An unkeyed sender is reported as unkeyed, not as a decryption failure:
+    // the probe must check the sender's own key ring, not an engine-wide flag
+    // set by any sender's key. Driven end to end through a real call.
     void anUnkeyedSenderIsReportedAsUnkeyedRatherThanUndecryptable()
     {
         SfuMediaEngine sender;
@@ -1580,13 +1276,8 @@ private slots:
                 [&](const QString &, const QString &, const QString &) {
                     trackArrived = true;
                 });
-        // THE ANNOUNCEMENT, not a log line, and not the policy struct called
-        // directly. Every other case over the badge drives
-        // `BlockedRunPolicy::note()` itself, which is the row-window lesson
-        // verbatim: a policy test that invokes the policy proves nothing
-        // about whether production ever reaches it. This one runs real frames
-        // through the real probe in a real engine and watches the signal the
-        // call controller listens to.
+        // Watch the signal the call controller listens to, driven by real
+        // frames through the real probe.
         QSignalSpy blocked(&receiver, &SfuMediaEngine::remoteMediaBlocked);
         QVERIFY(blocked.isValid());
 
@@ -1598,10 +1289,8 @@ private slots:
         sender.setEncryptionRequired(true);
         receiver.setEncryptionRequired(true);
         sender.setOutboundKey(3, key);
-        // A KEY FOR SOMEBODY ELSE. This is the whole fixture: the engine now
-        // holds a key, so the old engine-wide flag reads true, but the ring
-        // the arriving frames will consult is empty and is never bound —
-        // which is exactly the state of a joiner whose key did not arrive.
+        // A key for somebody else: the engine holds a key, but the ring the
+        // arriving frames consult is empty.
         receiver.setInboundKey(QStringLiteral("a-different-participant"), 3,
                                key);
 
@@ -1610,8 +1299,7 @@ private slots:
             trackArrived,
             qPrintable(QStringLiteral("no media pad; failure=%1").arg(failure)),
             45000);
-        // Frames must actually reach the probe, or the assertion below is
-        // vacuous in the direction that matters.
+        // Frames must reach the probe, or the assertion below is vacuous.
         QTRY_VERIFY2_WITH_TIMEOUT(
             receiver.framesDropped() > 0,
             qPrintable(QStringLiteral("nothing was dropped, so the probe "
@@ -1632,9 +1320,8 @@ private slots:
                                 .arg(log.text())));
         QCOMPARE(receiver.framesDecrypted(), quint64(0));
 
-        // AND THE UI IS TOLD, with the reason that sends a reader to key
-        // DISTRIBUTION rather than to key agreement. Queued to the engine's
-        // thread, so it is waited for rather than read.
+        // The UI is told, with a key-distribution reason. Queued to the
+        // engine's thread, so wait for it.
         QTRY_VERIFY2_WITH_TIMEOUT(
             blocked.count() > 0,
             qPrintable(QStringLiteral(
@@ -1653,27 +1340,10 @@ private slots:
         receiver.stop();
     }
 
-    // 2026-09-19 — THE OPPOSITE ASYMMETRY, AND IT HAD NO COVERAGE AT ALL.
-    //
-    // The case above is `required && !haveKey`: the frame is dropped,
-    // counted and announced. Its mirror, `!required && !haveKey`, PASSES the
-    // frame through and counts it as a success — and before this round
-    // nothing in `src/` or `tests/` ever exercised it: `setEncryptionRequired
-    // (false)` appears in no production caller and in no test, so every
-    // engine test that touched crypto set it true.
-    //
-    // What the branch actually does when the peer IS encrypting: ciphertext
-    // goes into the depayloader, `frames in the clear` climbs, and
-    // `framesDecrypted()` counts frames that were never decrypted. The user
-    // hears silence on a call the client is telling them is fine. It fails
-    // in the SAFE direction — garbage downstream, never a plaintext leak —
-    // which is why the fix is an instrument and not a drop: refusing media
-    // on a two-byte heuristic would turn a reporting gap into an
-    // interoperability failure.
-    //
-    // This is the real probe, in a real engine, on real encrypted frames
-    // produced by another real engine. A policy test that calls the window
-    // itself would prove nothing about whether production reaches it.
+    // A peer encrypting into a call we believe is clear (`!required &&
+    // !haveKey`) passes ciphertext through; the engine must be able to report
+    // it. It fails safe (garbage, never plaintext), so it is instrumented
+    // rather than dropped on a two-byte heuristic.
     void aPeerEncryptingIntoACallWeBelieveIsClearIsReported()
     {
         SfuMediaEngine sender;
@@ -1731,10 +1401,8 @@ private slots:
         sender.start();
         receiver.start();
 
-        // THE WHOLE FIXTURE. The sender encrypts; the receiver requires
-        // nothing (the engine's default, and the state a call in a room with
-        // no `m.room.encryption` is in) and is given NO inbound key, so the
-        // ring its frames will consult is empty.
+        // The sender encrypts; the receiver requires nothing (a room without
+        // `m.room.encryption`) and has no inbound key.
         sender.setEncryptionRequired(true);
         sender.setOutboundKey(3, QByteArray(32, 'k'));
         QCOMPARE(receiver.framesArrivingEncryptedOnAClearCall(), quint64(0));
@@ -1744,9 +1412,8 @@ private slots:
             trackArrived,
             qPrintable(QStringLiteral("no media pad; failure=%1").arg(failure)),
             45000);
-        // Frames must actually take the clear path, or everything below is
-        // vacuous. This counter is the one the branch bumps — and its name,
-        // `framesDecrypted`, is itself part of what made the state invisible.
+        // Frames must take the clear path, or everything below is vacuous.
+        // `framesDecrypted` is the counter that branch bumps.
         QTRY_VERIFY2_WITH_TIMEOUT(
             receiver.framesDecrypted() > 100,
             qPrintable(QStringLiteral("only %1 frames reached the clear "
@@ -1757,10 +1424,8 @@ private slots:
             45000);
         QCOMPARE(receiver.framesDropped(), quint64(0));
 
-        // A RATE, NOT A COUNT. `looksEncrypted` is a two-byte structural
-        // test that real cleartext passes by chance, so "some frames looked
-        // encrypted" is not a finding — "nearly all of them did" is, and no
-        // false-positive trickle reaches nine in ten.
+        // A rate, not a count: `looksEncrypted` is a two-byte heuristic that
+        // real cleartext sometimes passes.
         const quint64 passed = receiver.framesDecrypted();
         const quint64 shaped = receiver.framesArrivingEncryptedOnAClearCall();
         QVERIFY2(shaped * 10 >= passed * 9,
@@ -1778,28 +1443,16 @@ private slots:
                            .arg(shaped).arg(log.text())),
             15000);
 
-        // AND IT IS NOT THE BLOCKED BADGE. These frames were not blocked —
-        // they were passed on — so reusing `remoteMediaBlocked` would tell
-        // the call header something untrue about what happened to them, and
-        // that badge is not even instantiated on a call the client believes
-        // is unencrypted. What to SHOW the user here is an open decision;
-        // this case pins only that the engine can now say it.
+        // Not the blocked badge: these frames were passed on, not blocked.
+        // What to show the user is still open; this pins only the report.
         QCOMPARE(blocked.count(), 0);
 
         sender.stop();
         receiver.stop();
     }
 
-    // A TRACK THAT APPEARS MID-CALL MUST REACH THE RECEIVER.
-    //
-    // The reported defect: A is in a call, B joins later, and A never hears
-    // B — while B hears A, and A rejoining fixes it. On the wire that is a
-    // SECOND subscriber offer carrying a section that was not in the first,
-    // which is a renegotiation the receiver has to answer while its peer
-    // connection is already up and carrying media.
-    //
-    // The engine-to-engine loopback above only ever negotiates once, so this
-    // path had no coverage at all.
+    // A track published mid-call reaches the receiver: a second subscriber
+    // offer adds a section that must be answered while media is flowing.
     void aSecondTrackPublishedMidCallReachesTheReceiver()
     {
         SfuMediaEngine sender;
@@ -1864,8 +1517,7 @@ private slots:
         sender.setEncryptionRequired(true);
         receiver.setEncryptionRequired(true);
         sender.setOutboundKey(3, key);
-        // Keyed by the stream id the publisher's msid carries (the cid),
-        // which is what the receive probe looks the ring up by.
+        // Keyed by the stream id the publisher's msid carries (the cid).
         receiver.setInboundKey(QStringLiteral("first"), 3, key);
         receiver.setInboundKey(QStringLiteral("second"), 3, key);
 
@@ -1879,19 +1531,14 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(
             receiver.framesDecrypted() > decryptedBefore, 15000);
 
-        // DEAFEN FIRST, so the track that is about to arrive has to obey a
-        // promise made before its bin existed. `setOutputMuted` sweeps the
-        // pipeline by element-name PREFIX and cannot reach a bin that is not
-        // there yet, so the only thing that can honour it is the apply in
-        // onPadAdded — which asked for `outvol_<stream>` while the bin named
-        // its element `outvol_<stream>_<trackKey>`, found nothing, and left
-        // the new track audible.
-        //
-        // ON THE BROKEN TREE: receiveMutedForTest("second") is 0.
+        // Deafen first, so the arriving track must honour a mute set before
+        // its bin existed. Only the apply in onPadAdded can do that, and it
+        // must look up the element by its full `outvol_<stream>_<trackKey>`
+        // name.
         receiver.setOutputMuted(true);
 
-        // ...and now the "B joins" half: a section that was not in the first
-        // offer, negotiated while the connection is up and carrying media.
+        // Now publish a section that was not in the first offer, while the
+        // connection is carrying media.
         sender.publishAudio(QStringLiteral("second"));
         QTRY_VERIFY2_WITH_TIMEOUT(
             arrived.size() >= 2,
@@ -1911,40 +1558,8 @@ private slots:
         receiver.stop();
     }
 
-    // A received track must be attributed by the pad's OWN msid/mid, never by
-    // a media-section index derived from the pad name.
-    //
-    // webrtcbin numbers its src pads over the media it produces, while a
-    // LiveKit subscriber offer carries a DATA CHANNEL in section 0 — so
-    // `src_0` indexed the data channel, which has no `msid`, and every
-    // received track came out unattributed into its own empty key ring.
-    // Measured against a real SFU as `streamId = "mline:0"`: keys correct,
-    // every frame undecryptable, the remote participant permanently silent
-    // and invisible.
-    //
-    // The engine's own loopback (anEncryptedCallBetweenTwoEnginesCarriesFrames)
-    // could not catch it: two Lightning engines negotiate audio in section 0,
-    // so the wrong index accidentally agreed with the right one.
-    // ENCRYPTED VP8 SURVIVES PAYLOAD -> DEPAYLOAD, which GStreamer's own
-    // rtpvp8pay cannot do.
-    //
-    // rtpvp8pay reads the VP8 bitstream to build its descriptor — partition0's
-    // size, a keyframe's 0x9d 0x01 0x2a start code, then bool-decoded
-    // segmentation fields out of the compressed partition. LiveKit and Element
-    // Call encrypt the whole encoded frame, leaving only 10 header bytes of a
-    // keyframe (3 of a delta) in the clear, so the payloader gets ciphertext,
-    // fails, and posts STREAM/ENCODE. Observed live as a screen share that
-    // publishes exactly one frame and a camera that publishes none.
-    //
-    // This drives a real vp8enc, encrypts each frame exactly as the engine's
-    // pad probe does, payloads with OUR element, depayloads, decrypts, and
-    // requires the bytes back. It fails on rtpvp8pay by construction.
-    // Reported from a live log ("participant volume had nowhere to land",
-    // hundreds of times for one participant) and from a Windows tester
-    // whose "volume 0" never muted: the controller applies a participant's
-    // stored volume as soon as it knows the stream, which is BEFORE the
-    // receive bin exists, and nothing applied it again. The volume is now
-    // remembered and lands when the bin is built; the diagnostic fires once.
+    // A participant volume set before the receive bin exists is remembered
+    // and applied when the bin is built; the miss is logged once.
     void aVolumeChosenBeforeTheTrackArrivesLandsWhenItDoes()
     {
         LogCapture log;
@@ -1969,15 +1584,13 @@ private slots:
                     }
                     receiver.applyRemoteDescription(
                         SfuMediaEngine::Target::Subscriber, kind, sdp);
-                    // The publisher sets its sink pad's msid to the CID it
-                    // was given (SfuMediaEngine::publishAudio), and the
-                    // receiver keys the stream by the first msid token — so
-                    // the stream id is known the moment the offer is applied,
-                    // before any pad, bin or frame exists on this side.
+                    // The publisher's msid is its cid and the receiver keys the
+                    // stream by it, so the stream id is known before any pad,
+                    // bin or frame exists here.
                     if (offeredStream.isEmpty()) {
                         offeredStream = QStringLiteral("cid-loopback-audio");
                         receiver.setParticipantVolume(offeredStream, 0);
-                        // Twice: the second miss must not be a second story.
+                        // Twice: the second miss must not log again.
                         receiver.setParticipantVolume(offeredStream, 0);
                     }
                 });
@@ -2024,18 +1637,14 @@ private slots:
             45000);
         QVERIFY2(!offeredStream.isEmpty(), "the offer carried no msid");
         QCOMPARE(arrivedStream, offeredStream);
-        // The bin exists now, and the volume chosen before it did is on it.
+        // The bin exists now, and carries the earlier volume.
         QTRY_COMPARE_WITH_TIMEOUT(receiver.receiveVolumeForTest(arrivedStream),
                                   0.0, 5000);
         // A later change goes straight to the element.
         log.clear();
         receiver.setParticipantVolume(arrivedStream, 100);
         QVERIFY(receiver.receiveVolumeForTest(arrivedStream) > 0.0);
-        // AND IT SAYS SO. The only observable this path used to have was the
-        // "nowhere to land" warning, so a landing could be argued only from
-        // silence — which is also what a control nobody calls produces. A
-        // live GUI run reads this line; without it, that run is asserting on
-        // an absence.
+        // The landing is logged, so a live run can assert on it.
         QVERIFY2(log.contains("participant volume applied"),
                  qPrintable(QStringLiteral("no landing line; log was:\n%1")
                                 .arg(log.text())));
@@ -2044,9 +1653,7 @@ private slots:
                                            "count; log was:\n%1")
                                 .arg(log.text())));
         QCOMPARE(log.count("participant volume applied"), 1);
-        // The same value again is not news: a slider drag re-sends one
-        // percentage many times, and the rate limit is what keeps this from
-        // becoming the flood the warning above had to be limited for.
+        // The same value again is not logged: a slider drag re-sends it.
         receiver.setParticipantVolume(arrivedStream, 100);
         QCOMPARE(log.count("participant volume applied"), 1);
         // A real change is.
@@ -2057,6 +1664,8 @@ private slots:
         QCOMPARE(receiver.receiveVolumeForTest(arrivedStream), -1.0);
     }
 
+    // Encrypted VP8 survives payload -> depayload through our payloader.
+    // GStreamer's rtpvp8pay parses the bitstream and fails on ciphertext.
     void encryptedVp8SurvivesOurPayloader()
     {
         lightning::rtp::registerVp8Payloader();
@@ -2114,8 +1723,7 @@ private slots:
                 const QByteArray cipher =
                     sender.encryptFrame(plain, kind, 0x1234, 90 * (i + 1));
                 QVERIFY2(!cipher.isEmpty(), "a real VP8 frame failed to encrypt");
-                // The bytes the payloader would carry must come back whole
-                // through a decrypt, which is what the far end does.
+                // The payloaded bytes must decrypt back to the plain frame.
                 QCOMPARE(receiver.decryptFrame(cipher, kind), plain);
                 ++checked;
             }
@@ -2129,58 +1737,9 @@ private slots:
                                            "produced").arg(checked)));
     }
 
-    // THE SCREEN-SHARE PIPELINE PARSES, self-view branch and all.
-    //
-    // Test-source mode builds a different, simpler description, so the shape a
-    // real share actually uses — a `tee` feeding both the encoder and an
-    // appsink preview — was never parsed by anything until it ran on a user's
-    // desktop. A typo or a bad element name there is a share that dies on its
-    // first frame with a bus error, which is precisely how this path failed
-    // before. Parsed here with a videotestsrc standing in for pipewiresrc, so
-    // no portal, no display server and no capture are needed.
-    // OUR PAYLOADER'S PACKETS ROUND-TRIP THROUGH GStreamer's own depayloader,
-    // and carry the descriptor libwebrtc and LiveKit expect.
-    //
-    // The picture id is the part that is not optional in practice: libwebrtc
-    // always sends one, and LiveKit's SFU REWRITES the descriptor when it
-    // forwards (codecmunger/vp8.go), computing the header size from that very
-    // field. With no picture id its idea of the header no longer matches ours
-    // and everything after the first frame is corrupted — the far end shows
-    // one frame and then nothing.
-    // THE KEYFRAME FLAG WE ENCRYPT BY MUST MATCH THE BITSTREAM.
-    //
-    // We choose how many header bytes to leave in the clear from
-    // GST_BUFFER_FLAG_DELTA_UNIT (10 for a keyframe, 3 for a delta). Element
-    // and every other libwebrtc client decide the same thing from the VP8
-    // frame tag's P bit — `frame[0] & 0x1`, 0 meaning keyframe. If those two
-    // ever disagree, the two ends encrypt and decrypt from different offsets
-    // and authentication fails.
-    //
-    // It would be invisible between two Lightning clients, which share the
-    // same rule and so agree even when both are wrong. It is exactly the shape
-    // of "Element shows one frame and freezes": the keyframe, where the two
-    // rules coincide, decodes; every delta after it does not.
-    // A STRICT RECEIVER RECOVERS EVERY FRAME, not just the first.
-    //
-    // GStreamer's depayloader completes a frame on the marker bit and is
-    // forgiving about the rest, so two Lightning clients can agree on a stream
-    // a libwebrtc receiver would reject. This reassembles our own packets the
-    // way libwebrtc does — a frame STARTS on the descriptor's S bit, ENDS on
-    // the RTP marker, and its payload is everything after the descriptor —
-    // and requires each rebuilt frame to equal the encoder's output byte for
-    // byte. "Element renders one frame and freezes" is what a receiver does
-    // when only the first frame reassembles.
-    // A KEYFRAME REQUEST MUST REACH THE ENCODER THROUGH OUR PAYLOADER.
-    //
-    // A subscriber that joins after the stream started holds no reference
-    // frame, so it asks for one: the SFU sends a PLI, webrtcbin turns it into
-    // an upstream `GstForceKeyUnit` event, and it has to travel through the
-    // payloader to vp8enc. If it does not, that subscriber waits for a
-    // keyframe that only arrives on the encoder's own schedule — and with
-    // `keyframe-max-dist=60` on the screen-share encoder that is seconds away,
-    // or never if the request is what the encoder was waiting for. The far end
-    // sits on "waiting for media" while every counter on this side looks
-    // healthy and an independent subscriber counts megabits arriving.
+    // A keyframe request (PLI -> upstream GstForceKeyUnit) must reach vp8enc
+    // through our payloader, or a late subscriber waits for the encoder's own
+    // keyframe schedule.
     void aKeyframeRequestReachesTheEncoderThroughOurPayloader()
     {
         lightning::rtp::registerVp8Payloader();
@@ -2206,8 +1765,8 @@ private slots:
         GstElement *pay = gst_bin_get_by_name(GST_BIN(pipeline), "pay");
         QVERIFY(sink && pay);
 
-        // Drain the opening keyframe and a few deltas, so what follows can
-        // only be a keyframe the REQUEST produced.
+        // Drain the opening keyframe and a few deltas, so the next keyframe
+        // can only come from the request.
         const auto pullFrameStart = [&sink]() -> int {
             for (int i = 0; i < 400; ++i) {
                 GstSample *sample = nullptr;
@@ -2228,7 +1787,7 @@ private slots:
                         if (p[1] & 0x80)
                             header += (p[2] & 0x80) ? 2 : 1;
                     }
-                    // Only a frame's FIRST packet carries the VP8 frame tag.
+                    // Only a frame's first packet carries the VP8 frame tag.
                     if ((p[0] & 0x10) != 0 && len > header)
                         isKey = (p[header] & 0x01) ? 0 : 1;
                     gst_rtp_buffer_unmap(&rtp);
@@ -2272,6 +1831,8 @@ private slots:
                  "that joins mid-stream would never receive a decodable frame");
     }
 
+    // Reassembled as libwebrtc does (start on S, end on marker), every frame
+    // must equal the encoder's output; GStreamer's depayloader is more lenient.
     void aStrictReceiverRecoversEveryFrameWeSend()
     {
         lightning::rtp::registerVp8Payloader();
@@ -2378,6 +1939,8 @@ private slots:
         }
     }
 
+    // GST_BUFFER_FLAG_DELTA_UNIT (which picks our clear-header length) must
+    // match the VP8 frame tag's P bit that other clients decrypt by.
     void theDeltaFlagAgreesWithTheVp8Bitstream()
     {
         const QString desc = QStringLiteral(
@@ -2434,6 +1997,8 @@ private slots:
         QCOMPARE(disagreements, 0);
     }
 
+    // Our packets round-trip through GStreamer's depayloader and carry a
+    // 15-bit picture id, which LiveKit's SFU needs to rewrite the descriptor.
     void ourPayloaderEmitsTheDescriptorLibwebrtcExpects()
     {
         lightning::rtp::registerVp8Payloader();
@@ -2506,25 +2071,20 @@ private slots:
 
         QVERIFY2(packets >= 6, qPrintable(QStringLiteral(
                      "only %1 packets were produced").arg(packets)));
-        // One start and one marker per frame, and a DISTINCT picture id per
-        // frame — a constant id is what a munging SFU cannot forward.
+        // One start and one marker per frame, and a distinct picture id per
+        // frame: a munging SFU cannot forward a constant one.
         QCOMPARE(starts, markers);
         // Chrome starts the picture id at a random value, never 0: the SFU
-        // seeds its wrap handler with `PictureID - 1` and Init(-1) is an edge
-        // no real stream presents it with.
+        // seeds its wrap handler with `PictureID - 1`.
         QVERIFY2(!pictureIds.contains(0),
                  "the picture id sequence started at 0");
         QVERIFY2(pictureIds.size() == starts,
                  qPrintable(QStringLiteral("%1 frames carried %2 distinct "
                                            "picture ids")
                                 .arg(starts).arg(pictureIds.size())));
-        // THE RTP TIMESTAMP MUST ADVANCE PER FRAME.
-        //
-        // GStreamer's own depayloader completes a frame on the MARKER bit and
-        // barely looks at the clock, so a stalled timestamp round-trips
-        // between two Lightning clients perfectly. libwebrtc's jitter buffer
-        // groups by timestamp: frames sharing one become a single picture, and
-        // the far end renders once and then freezes.
+        // The RTP timestamp advances per frame: libwebrtc's jitter buffer
+        // groups frames by timestamp, while GStreamer's depayloader only
+        // looks at the marker bit.
         QVERIFY2(frameTimestamps.size() >= 3,
                  "too few frames to judge the timestamps");
         for (int i = 1; i < frameTimestamps.size(); ++i) {
@@ -2535,16 +2095,9 @@ private slots:
         }
     }
 
-    // THE ENCODER IS GIVEN A FIXED CADENCE, never a range containing 0/1.
-    //
-    // A desktop capture negotiates `framerate=(fraction)0/1` — PipeWire
-    // delivers on damage, not on a clock. Measured straight off the portal:
-    //   video/x-raw, format=BGRA, width=3840, height=2160,
-    //   framerate=(fraction)0/1, max-framerate=(fraction)59/1
-    // A range including 0/1 lets that negotiate through to `vp8enc`, which
-    // then has no rate to plan against and no steady cadence to emit. Every
-    // WebRTC sender encodes at a fixed rate, and a receiver's jitter buffer is
-    // built for one.
+    // The encoder gets a fixed cadence, never a range containing 0/1: a
+    // desktop capture negotiates `framerate=0/1` (PipeWire delivers on
+    // damage), and vp8enc needs a rate to plan against.
     void theVideoCapsPinAFixedFramerate()
     {
         for (const bool screenShare : { true, false }) {
@@ -2569,18 +2122,9 @@ private slots:
         }
     }
 
-    // A LIVE CAPTURE'S BUS ERROR IS STILL NOT A FAILURE.
-    //
-    // `onBusMessage` logs and never raises, and that has to stay true: a
-    // pipeline posts errors during ordinary teardown, and under load this
-    // suite once saw three of them on a healthy key install. Turning those
-    // into failures tore down working calls, which is why the general version
-    // was reverted within the hour. What is new is a NARROW escalation, and
-    // every clause of it is asserted here from the other side.
-    //
-    // UNFIXED TREE: does not compile — there was no publishFailed at all, and
-    // that IS the defect: a camera that could not negotiate left the button
-    // lit for the rest of the call with the reason only in a log.
+    // A bus error from a live or unknown bin is not a publish failure:
+    // pipelines post errors during ordinary teardown. Only the narrow case of
+    // a capture that never delivered is escalated.
     void aBusErrorFromALiveOrUnknownBinIsNotAPublishFailure()
     {
         SfuMediaEngine engine;
@@ -2595,43 +2139,32 @@ private slots:
 
         engine.publishVideo(QStringLiteral("cid-video"), /*screenShare=*/false,
                             /*nodeId=*/-1);
-        // Test-source mode publishes a videotestsrc, which really does
-        // deliver buffers — so this bin's capture is ALIVE and an error from
-        // it is a transient in something else.
+        // videotestsrc delivers buffers, so this capture is alive and an error
+        // from it is a transient elsewhere.
         QTest::qWait(400);
         engine.handlePublishError(QStringLiteral("cid-video"));
         QCOMPARE(publish.count(), 0);
 
-        // The "once unpublished, the cid is not reportable" clause USED to be
-        // asserted here and had to be lifted out: unpublishing this bin
-        // deadlocks. See theUnpublishOfALiveVideoBinDeadlocks() below, which
-        // reproduces it on demand. The rule itself is still covered, against
-        // an audio bin, by publishingTwiceUnderOneIdIsIgnored().
+        // The "unpublished cid is not reportable" clause is covered against an
+        // audio bin in publishingTwiceUnderOneIdIsIgnored(); unpublishing this
+        // bin deadlocks (see unpublishingALiveVideoBinDoesNotDeadlock()).
         engine.stop();
     }
 
-    /// THE VOLUME CURVE: 0-100 is literal, 100-200 expands to 100-1000.
-    ///
-    /// One linear scale could not serve both jobs. Attenuation must stay 1:1
-    /// or every setting below unity means something other than it says; boost
-    /// needs to reach 1000%, because a straight 0-200 slider tops out at
-    /// +6 dB — "above 100% barely any difference" — while a straight 0-1000
-    /// slider puts every useful setting in its first tenth.
+    /// Volume curve: 0-100 is literal, 100-200 expands to 100-1000%.
+    /// Attenuation must stay 1:1; a linear 0-200 slider would top out at +6 dB.
     void theVolumeCurveIsLiteralBelowUnityAndExpandsAbove()
     {
-        // Attenuation: untouched, including the ends. 0 must be exactly 0 —
-        // silence is the one setting a curve must never approximate.
+        // Attenuation is untouched; 0 must be exactly 0.
         QCOMPARE(SfuMediaEngine::audioFactorPercent(0), 0);
         QCOMPARE(SfuMediaEngine::audioFactorPercent(1), 1);
         QCOMPARE(SfuMediaEngine::audioFactorPercent(50), 50);
         QCOMPARE(SfuMediaEngine::audioFactorPercent(99), 99);
-        // Unity is unity on both sides of the join, so the curve has no step
-        // in it at the one point the user is most likely to sit on.
+        // Unity on both sides of the join, so there is no step at 100.
         QCOMPARE(SfuMediaEngine::audioFactorPercent(100), 100);
         // Boost: the far end of the slider is the element's own ceiling.
         QCOMPARE(SfuMediaEngine::audioFactorPercent(200), 1000);
-        // And monotonic in between, with the midpoint where the straight
-        // line says it is.
+        // Monotonic in between, with the midpoint on the straight line.
         QCOMPARE(SfuMediaEngine::audioFactorPercent(150), 550);
         QCOMPARE(SfuMediaEngine::audioFactorPercent(101), 109);
         // Out of range saturates rather than wrapping or extrapolating past
@@ -2640,19 +2173,8 @@ private slots:
         QCOMPARE(SfuMediaEngine::audioFactorPercent(10000), 1000);
     }
 
-    /// THE RENEGOTIATED OFFER MUST STOP ADVERTISING THE STOPPED TRACK.
-    ///
-    /// This is the assertion closest to what the far end actually reads.
-    /// Retiring the transceiver locally is necessary but not sufficient: what
-    /// makes Element drop the tile is the next OFFER no longer carrying that
-    /// track's msid. Until it does, the old share is a corpse the SFU goes on
-    /// listing — "its like the first one doesnt stop" — and the new share
-    /// arrives while the remote is still rendering the dead one, which is the
-    /// blank screen.
-    ///
-    /// Mute cannot do this job and is not a substitute: a mute removes
-    /// nothing, so the stopped track stays in the participant's track list
-    /// forever. Only renegotiating without it takes it off the wire.
+    /// The renegotiated offer stops advertising an unpublished track's msid;
+    /// that is what makes the far end drop the tile. A mute removes nothing.
     void theOfferAfterUnpublishNoLongerAdvertisesTheTrack()
     {
         SfuMediaEngine engine;
@@ -2708,19 +2230,9 @@ private slots:
                 firstOffer = call.value(2).toString();
         }
 
-        // THE SECTION MUST SURVIVE AND GO INACTIVE — both halves matter, and
-        // this is the shape the far end actually obeys.
-        //
-        // Releasing the request pad alone drops our msid but leaves the
-        // section `a=sendrecv`: measured before the fix as
-        //   before  m=video ... | a=sendrecv
-        //   after   m=video ... | a=sendrecv     <- msid gone, still sending
-        // which tells the remote there is a video section we are sending on
-        // with nothing behind it. That is a tile that never goes away.
-        //
-        // And an m= section may never be REMOVED from an SDP: the count has
-        // to stay stable across renegotiation, so a shrinking offer would be
-        // its own protocol fault rather than a fix.
+        // The section survives but goes inactive. Releasing the request pad
+        // alone drops the msid but leaves `a=sendrecv`, and an m= section may
+        // never be removed from an SDP.
         QCOMPARE(sections(last), sections(firstOffer));
         QVERIFY2(firstOffer.contains(QStringLiteral("a=sendrecv"))
                      || firstOffer.contains(QStringLiteral("a=sendonly")),
@@ -2734,28 +2246,15 @@ private slots:
         engine.stop();
     }
 
-    /// STOPPING A SHARE MUST RETIRE ITS TRANSCEIVER, not just quiesce our
-    /// own pipeline.
-    ///
-    /// Quiescing is invisible to everyone else. The m= section stays in the
-    /// SDP, so the far end keeps rendering the last frame it received — a
-    /// frozen picture that only leaving the call clears — and the next share
-    /// is offered as an ADDITIONAL section rather than reusing the one just
-    /// vacated. A live capture of three shares in one session showed the
-    /// answer growing 2 -> 3 -> 4 sections with nothing ever removed, which
-    /// is the whole of "stopping doesnt stop the stream ... in element a
-    /// blank screen remains and starting to share again doesnt work".
-    ///
-    /// One sink pad on the publisher webrtcbin is one outgoing track and so
-    /// one m= section. The count must come back DOWN, and a re-publish must
-    /// not stack on top of the old one.
+    /// Stopping a share retires its transceiver: the m= section count comes
+    /// back down, and a re-publish reuses the slot instead of stacking.
+    /// Otherwise the far end keeps rendering the last frame.
     void stoppingAPublishRetiresItsTransceiver()
     {
         SfuMediaEngine engine;
         engine.setTestSourceMode(true);
         engine.start();
-        // -1, not 0: the publisher webrtcbin is built lazily on the first
-        // publish, so before one there is no peer connection to count at all.
+        // -1, not 0: the publisher webrtcbin is built lazily on first publish.
         QCOMPARE(engine.publisherTrackSlotsForTest(), -1);
 
         engine.publishVideo(QStringLiteral("cid-share"), /*screenShare=*/false,
@@ -2763,8 +2262,8 @@ private slots:
         QTest::qWait(400);
         QCOMPARE(engine.publisherTrackSlotsForTest(), 1);
 
-        // The teardown is deliberately asynchronous (see the deadlock case
-        // below), so the count falls a moment later rather than on return.
+        // Teardown is asynchronous (see the deadlock case below), so the count
+        // falls shortly after return.
         engine.unpublish(QStringLiteral("cid-share"));
         int slotCount = -1;
         for (int i = 0; i < 60; ++i) {
@@ -2780,9 +2279,7 @@ private slots:
                      "and go on showing a frozen frame")
                                 .arg(slotCount)));
 
-        // AND THE NEXT SHARE MUST NOT STACK. Two slotCount here is the reported
-        // growth, with the new share landing on a section the far end is not
-        // rendering.
+        // The next share must not stack on a new section.
         engine.publishVideo(QStringLiteral("cid-share-2"),
                             /*screenShare=*/false, /*nodeId=*/-1);
         QTest::qWait(400);
@@ -2790,38 +2287,14 @@ private slots:
         engine.stop();
     }
 
-    /// UNPUBLISHING A LIVE VIDEO BIN MUST NOT DEADLOCK.
+    /// Unpublishing a live video bin must not deadlock: the state change on
+    /// the main thread waited for a stream lock held by a pad probe on the
+    /// streaming thread. The pad is blocked with an IDLE probe and the state
+    /// change runs via gst_element_call_async.
     ///
-    /// It did, and this case hung for the full 120 s CTest timeout before the
-    /// fix — which times out the whole binary rather than failing one case,
-    /// so it ran behind an env opt-in until it was green. From the core dump:
-    ///
-    ///   main thread   unpublish -> gst_element_set_state_func
-    ///                 -> gst_bin_change_state_func
-    ///                 -> gst_bin_src_pads_activate -> gst_pad_set_active
-    ///                 -> activate_mode_internal
-    ///                 -> __pthread_mutex_lock          [wants stream lock]
-    ///   queue1:src    gst_queue_loop -> vp8enc -> our RtpVp8Payloader
-    ///                 -> gst_pad_chain_data_unchecked
-    ///                 -> do_probe_callbacks -> g_cond_wait   [holds it]
-    ///
-    /// On the GUI thread in production: "stop screen share and my feed stays
-    /// frozen ... the only way to clear it is rejoin the call", corroborated
-    /// from the far side by Element playing its share-start jingle the FIRST
-    /// time and never again — the track was never withdrawn.
-    ///
-    /// Fixed by blocking the pad with a GST_PAD_PROBE_TYPE_IDLE probe (which
-    /// by construction fires only when no push is in flight) and doing the
-    /// state change from gst_element_call_async, off any streaming thread.
-    ///
-    /// THE 400 ms WAIT IS THE TEST. Unpublishing before the bin streams does
-    /// not reproduce it — publishingTwiceUnderOneIdIsIgnored() does exactly
-    /// that and passed throughout. Do not shorten it.
-    ///
-    /// Two reorderings do NOT fix it and were each built, run and reverted:
-    /// unlinking from webrtcbin before set_state(NULL), and unparenting
-    /// before set_state(NULL). Both stall at the identical GST_STATES line,
-    /// because neither stops a push already in flight.
+    /// The 400 ms wait is the test: unpublishing before the bin streams does
+    /// not reproduce it. Reordering unlink/unparent before set_state(NULL) does
+    /// not fix it, since neither stops a push already in flight.
     void unpublishingALiveVideoBinDoesNotDeadlock()
     {
         SfuMediaEngine engine;
@@ -2831,30 +2304,17 @@ private slots:
                             /*nodeId=*/-1);
         QTest::qWait(400);
         engine.unpublish(QStringLiteral("cid-video"));
-        // Reaching here at all is the assertion — the unfixed tree never
-        // returned from the line above. The republish proves the teardown
-        // left nothing behind that blocks the cid being used again, which is
-        // the reported "turn it off and on again ... doesnt work again".
+        // Reaching here is the assertion. The republish proves the cid can be
+        // reused.
         engine.publishVideo(QStringLiteral("cid-video"), /*screenShare=*/false,
                             /*nodeId=*/-1);
         QTest::qWait(200);
         engine.stop();
     }
 
-    /// NOTHING POPS EITHER PIPELINE BUS, SO NOTHING MAY BE LEFT ON ONE.
-    ///
-    /// The engine sets a sync handler on each pipeline's bus and installs no
-    /// watch, and there is no GLib main loop behind them — so a handler that
-    /// returns GST_BUS_PASS parks every message in the bus's async queue for
-    /// the whole call. Every STATE_CHANGED there holds a reference on the
-    /// element that posted it, which keeps a bin alive past its own
-    /// teardown, and a long call accumulates thousands.
-    ///
-    /// The same defect has been found and fixed twice in this subsystem
-    /// already (GstCallMediaBackend's busSyncHandler drops "after
-    /// inspection"; ShareAudioSources flushes its device-monitor bus for the
-    /// identical reason), which is why it is worth an assertion rather than
-    /// a comment.
+    /// Nothing pops either pipeline bus (sync handler, no watch, no main
+    /// loop), so the handler must not leave messages queued: each
+    /// STATE_CHANGED holds a ref on its element and a long call piles them up.
     void thePipelineBusesAreNotLeftToAccumulate()
     {
         SfuMediaEngine engine;
@@ -2863,8 +2323,7 @@ private slots:
         engine.publishAudio(QStringLiteral("cid-audio"));
         engine.publishVideo(QStringLiteral("cid-video"), /*screenShare=*/false,
                             /*nodeId=*/-1);
-        // Long enough for both pipelines to reach PLAYING, which is where
-        // the STATE_CHANGED flood comes from.
+        // Long enough for both pipelines to reach PLAYING.
         QTest::qWait(600);
         QVERIFY2(engine.busesWithPendingMessagesForTest() == 0,
                  "a pipeline bus is holding messages nobody will ever read: "
@@ -2873,20 +2332,10 @@ private slots:
         engine.stop();
     }
 
-    /// AN ENGINE DESTROYED MID-TEARDOWN MUST LEAVE NOTHING RUNNING.
-    ///
-    /// unpublish() defers the bin's state change onto a GStreamer thread —
-    /// the only shape that does not deadlock (see the case above) — and that
-    /// step UNPARENTS the bin before it stops it. Between those two lines
-    /// the bin is running and no longer a child of the pipeline, so
-    /// destroyPeer() cannot reach it: it walks the pipeline. Its crypto pad
-    /// probes hold raw pointers into the engine (CryptoProbeCtx says so),
-    /// so a bin still pushing buffers after the engine's members are
-    /// destroyed reads freed memory.
-    ///
-    /// The counter is shared deliberately, so this case can keep reading it
-    /// after the engine is gone — which is the only moment the invariant
-    /// means anything.
+    /// An engine destroyed mid-teardown leaves nothing running. The deferred
+    /// teardown unparents the bin before stopping it, so destroyPeer() cannot
+    /// reach it, and its crypto probes hold raw pointers into the engine. The
+    /// counter is shared so it can be read after the engine is gone.
     void anEngineDestroyedMidTeardownLeavesNothingRunning()
     {
         std::shared_ptr<const std::atomic<int>> outstanding;
@@ -2898,14 +2347,14 @@ private slots:
             engine.publishVideo(QStringLiteral("cid-video"),
                                 /*screenShare=*/false, /*nodeId=*/-1);
             engine.publishAudio(QStringLiteral("cid-audio"));
-            // THE WAIT IS PART OF THE CASE: unpublishing a bin that has not
-            // begun streaming does not exercise the deferred path at all.
+            // The wait matters: a bin that has not started streaming does not
+            // take the deferred path.
             QTest::qWait(400);
             outstanding = engine.teardownCounterForTest();
             engine.unpublish(QStringLiteral("cid-video"));
             engine.unpublish(QStringLiteral("cid-audio"));
-            // NO event loop from here to the closing brace: the teardowns
-            // are genuinely in flight when the destructor runs.
+            // No event loop from here to the closing brace: the teardowns are
+            // in flight when the destructor runs.
             armed = outstanding->load();
         }
         QVERIFY2(armed > 0,
@@ -2921,19 +2370,10 @@ private slots:
         QCOMPARE(outstanding->load(), 0);
     }
 
-    /// A TEARDOWN COMPLETION FROM A CLOSED SESSION MUST NOT TOUCH THE NEXT.
-    ///
-    /// The completion is marshalled to the GUI thread, and it used to carry
-    /// the cid alone while every other marshalled callback in the engine
-    /// carries (token, generation) and is filtered by tokenIsLive(). So
-    /// after unpublish -> stop -> start it landed on the NEW session and did
-    /// two things there: closed the descriptor registered under that cid,
-    /// and asked the new publisher to renegotiate.
-    ///
-    /// The descriptor is what this asserts, because it is exact. A share
-    /// republished under the same cid is ordinary — the cid is the client's
-    /// own track id — and having its PipeWire remote closed underneath it
-    /// kills the capture with nothing in the log to explain why.
+    /// A teardown completion from a closed session must not touch the next
+    /// one: completions carry (token, generation) and are filtered by
+    /// tokenIsLive(), or they close the new session's descriptor under the
+    /// same cid.
     void aTeardownCompletionFromAClosedSessionLeavesTheNextAlone()
     {
         int fds[2] = { -1, -1 };
@@ -2946,22 +2386,19 @@ private slots:
         engine.publishVideo(cid, /*screenShare=*/false, /*nodeId=*/-1);
         QTest::qWait(400);
         engine.unpublish(cid);
-        // stop() waits for the teardown, so by here the completion has been
-        // POSTED to this thread's event queue and is waiting for a spin.
+        // stop() waits for the teardown, so the completion is now queued on
+        // this thread.
         engine.stop();
 
-        // A new session, and a new track published under the same cid with a
-        // real descriptor of its own. fds[0] is handed over; fds[1] stays
-        // ours. The plain video shape is used deliberately — descriptor
-        // registration does not depend on the screen-share branch, and this
-        // is the shape the rest of the suite exercises.
+        // A new session publishing the same cid with its own descriptor.
+        // fds[0] is handed over; fds[1] stays ours.
         engine.start();
         engine.publishVideo(cid, /*screenShare=*/false, /*nodeId=*/-1, fds[0]);
         QVERIFY2(::fcntl(fds[0], F_GETFD) != -1,
                  "the new share's descriptor was closed before the stale "
                  "completion could even land, so this case proves nothing");
 
-        // NOW let the stale completion land.
+        // Now let the stale completion land.
         QTest::qWait(400);
         QVERIFY2(::fcntl(fds[0], F_GETFD) != -1,
                  "a teardown completion from the previous call closed the "
@@ -2971,28 +2408,17 @@ private slots:
         ::close(fds[1]);
     }
 
-    /// A PUBLISH THAT CANNOT LINK MUST LEAVE NOTHING BEHIND.
-    ///
-    /// publishAudio and publishVideo both unwind their failure — remove the
-    /// cid, stop the bin, unparent it — and publishShareAudio did none of
-    /// it: the bin stayed in m_publishedBins and stayed parented in the
-    /// publisher pipeline, so the caller was told the publish failed while
-    /// the cid was permanently taken and a dead bin sat in a live pipeline
-    /// until the call ended. None of the three gave the webrtcbin request
-    /// pad back either, and a webrtcbin sink pad IS a transceiver: the next
-    /// offer advertises an m= section with nothing behind it, which is the
-    /// never-clearing empty tile at the far end.
-    ///
-    /// The failure is INJECTED because it cannot be staged: webrtcbin always
-    /// grants a sink_%u request pad and the caps always intersect.
+    /// A publish that cannot link leaves nothing behind: the cid is freed, the
+    /// bin unparented and the webrtcbin request pad released (a leftover sink
+    /// pad is a transceiver, i.e. an empty m= section). The failure is
+    /// injected because webrtcbin always grants the pad.
     void aPublishThatCannotLinkLeavesNothingRegistered()
     {
         SfuMediaEngine engine;
         engine.setTestSourceMode(true);
         QSignalSpy failed(&engine, &SfuMediaEngine::failed);
         engine.start();
-        // One real track first, so the slot count below is a measurement of
-        // the failed publish rather than of an empty publisher.
+        // One real track first, so the slot count measures the failed publish.
         engine.publishAudio(QStringLiteral("cid-audio"));
         QTest::qWait(300);
         QCOMPARE(engine.publisherTrackSlotsForTest(), 1);
@@ -3012,8 +2438,7 @@ private slots:
                  "the webrtcbin request pad was not given back, so the next "
                  "offer carries an m=audio section with nothing behind it");
 
-        // ...and the cid is genuinely free again, which is the whole point
-        // of unwinding rather than merely reporting.
+        // The cid is free again.
         engine.publishShareAudio(QStringLiteral("cid-share-audio"));
         QTest::qWait(300);
         QVERIFY2(engine.hasPublishedBinForTest(
@@ -3024,14 +2449,8 @@ private slots:
         engine.stop();
     }
 
-    // ...and a publish that genuinely never prerolls IS reported — without
-    // ending the call, which is the whole reason this is not `failed()`.
-    //
-    // Staged with a PipeWire node id nothing can resolve and no portal
-    // remote, which is the exact shape the camera was in before 7f5cd06: the
-    // source cannot negotiate, the bin never reaches PLAYING, the capture
-    // delivers zero buffers, and nothing is ever encoded or sent while the
-    // control stays lit.
+    // A publish that never prerolls is reported without ending the call.
+    // Staged with an unresolvable PipeWire node id and no portal remote.
     void aCaptureThatNeverStartsIsReportedAndTheCallSurvives()
     {
         GstElementFactory *factory = gst_element_factory_find("pipewiresrc");
@@ -3049,8 +2468,7 @@ private slots:
                             /*pipewireFd=*/-1);
         for (int i = 0; i < 100 && publish.count() == 0; ++i)
             QTest::qWait(100);
-        // A CALL IS NEVER ENDED BY A CAPTURE DEVICE. True whichever way the
-        // environment went, so it is asserted before anything is skipped.
+        // A capture device never ends a call; asserted before any skip.
         QCOMPARE(fatal.count(), 0);
         if (publish.count() == 0) {
             engine.stop();
@@ -3061,31 +2479,16 @@ private slots:
                  QStringLiteral("cid-doomed"));
         QCOMPARE(publish.at(0).at(1).toString(),
                  QStringLiteral("screen_share_failed"));
-        // ONE report, not a storm: a failed pipeline posts errors repeatedly
-        // and the user needs one message.
+        // One report, not a storm.
         QTest::qWait(600);
         QCOMPARE(publish.count(), 1);
         engine.stop();
     }
 
-    // THE RATE STAGE MUST NOT CHANGE THE PICTURE'S GEOMETRY.
-    //
-    // This is the regression that shipped and had to be reverted. A
-    // `compositor` was put here to kill videorate's first-buffer hold, and it
-    // did — but COMPOSITOR IS NOT A SCALER. It paints each input at its
-    // native size at xpos/ypos on an output canvas, so a 3840x2160 desktop
-    // against the 1920x1080 canvas the size ceiling negotiates arrived as the
-    // TOP-LEFT QUARTER of the screen. Reported as "shares only 1/4 of my
-    // screen".
-    //
-    // The mechanical signature is exact and is what this asserts: a stage
-    // that only re-times leaves the frame size alone, so videoscale upstream
-    // has already met the ceiling and SINK width == SRC width. A stage that
-    // composites accepts the full 4K on its sink and emits 1920 — sink != src
-    // — and the difference IS the cropping.
-    //
-    //   measured on the reverted-to tree:  sink 1920  src 1920   (ok)
-    //   measured on the compositor tree:   sink 3840  src 1920   (crop)
+    // The rate stage must not change the picture's geometry. A stage that only
+    // re-times leaves sink width == src width; `compositor` (tried once to fix
+    // the opening hold) is not a scaler and crops a 4K capture to its top-left
+    // quarter.
     void theRateStageNeverCropsTheCapture()
     {
         for (bool screenShare : {false, true}) {
@@ -3095,12 +2498,8 @@ private slots:
                 QStringLiteral(
                     "videotestsrc num-buffers=2 "
                     "! video/x-raw,width=3840,height=2160,framerate=30/1 "
-                    // NO `name=` OF ITS OWN. The stage names its own element
-                    // now (videoRateStage() — tickShareKeepAlive() finds the
-                    // injection point by that name), and gst_parse takes the
-                    // FIRST `name=` in an element spec, so appending a second
-                    // one here left the element called `vidrate` and this
-                    // test looking up a name nothing had.
+                    // No `name=` here: videoRateStage() names its own element
+                    // and gst_parse keeps the first `name=`.
                     "! videoconvert ! videoscale ! %1 "
                     "! video/x-raw,width=[1,1920],height=[1,1080],"
                     "framerate=30/1 ! fakesink name=out")
@@ -3126,12 +2525,8 @@ private slots:
             QVERIFY2(rate,
                      "the rate stage no longer builds an element called "
                      "`vidrate` — see videoRateStage()");
-            // ITERATE the pads; do NOT ask for a static "sink". compositor's
-            // sink pads are REQUEST pads named sink_%u, so
-            // gst_element_get_static_pad(rate, "sink") returns null for
-            // exactly the element this test exists to catch — which made an
-            // earlier revision of it SKIP on the broken tree and pass. That
-            // is the whole failure mode this file keeps rediscovering.
+            // Iterate the pads: compositor's sink pads are request pads
+            // (sink_%u), so a static "sink" lookup would return null.
             const auto widthOf = [](GstIterator *it) {
                 int width = 0;
                 GValue item = G_VALUE_INIT;
@@ -3156,10 +2551,8 @@ private slots:
             gst_element_set_state(pipeline, GST_STATE_NULL);
             gst_object_unref(pipeline);
 
-            // NOT a skip. The pipeline reached PLAYING, so both sides have
-            // negotiated; a zero here means this test could not read what it
-            // claims to measure, and a test that cannot measure must fail
-            // rather than quietly report success.
+            // Not a skip: both sides negotiated at PLAYING, so a zero means
+            // the test could not measure.
             QVERIFY2(sinkWidth > 0 && srcWidth > 0,
                      qPrintable(QStringLiteral(
                          "could not read negotiated caps for rate stage %1 "
@@ -3182,13 +2575,9 @@ private slots:
         }
     }
 
-    // The opening hold is a KNOWN, OPEN defect, not a shipped property, and
-    // this pins the fact rather than a wished-for fix: videorate emits
-    // nothing from a single capture buffer, which is why a share can take
-    // ~1 s (busy desktop) to 10 s (still one) to appear. If this ever starts
-    // failing, the hold has been fixed and this case should be inverted —
-    // but only alongside theRateStageNeverCropsTheCapture(), because the last
-    // attempt to fix the hold is what caused the crop.
+    // Pins a known open defect: videorate emits nothing from a single capture
+    // buffer. If this starts failing the hold is fixed; invert it only
+    // together with theRateStageNeverCropsTheCapture().
     void theOpeningHoldIsStillPresentAndUnfixed()
     {
         const int frames =
@@ -3197,13 +2586,8 @@ private slots:
         QCOMPARE(frames, 0);
     }
 
-    // THE SIZE CEILING MUST STAY BEHIND THE RATE STAGE.
-    //
-    // Splitting the capsfilter so the size range sits BEFORE the rate stage
-    // was measured to negotiate 2580x1080 from a 3440x1440 source — the 1920
-    // ceiling simply violated, and a 4K share then encoded far larger than
-    // the declared track. One capsfilter, after the rate stage, in both
-    // branches.
+    // One capsfilter, after the rate stage: a size range before it lets a
+    // 3440x1440 source negotiate past the 1920 ceiling.
     void theSingleCapsfilterFollowsTheRateStage()
     {
         for (const bool screenShare : { true, false }) {
@@ -3224,24 +2608,18 @@ private slots:
                      "the rate stage or the limits are missing entirely");
             QVERIFY2(rateAt < capsAt,
                      "the size ceiling is applied before the rate stage");
-            // And exactly ONE occurrence of that capsfilter, or the ceiling
-            // is being negotiated twice.
+            // Exactly one occurrence, or the ceiling is negotiated twice.
             QCOMPARE(desc.count(limits), 1);
         }
     }
 
-    // THE BADGE'S OWN DECISION, WITH BOTH WRONG ANSWERS THAT SHIPPED PINNED
-    // AS CASES. This asserts the ANNOUNCEMENT, not a log line — the crypto
-    // probe's other tests assert log lines, and a log line is exactly what
-    // did not change when the badge went from "one bad frame" to "fifty in a
-    // row", so they passed on both broken versions.
+    // The blocked badge's decision policy. Asserts the announcement rather
+    // than a log line.
     void theBlockedBadgeNeedsARateNotABadFrameOrARun()
     {
         using Policy = SfuMediaEngine::BlockedRunPolicy;
 
-        // CASE 1 — THE DEFECT THE MAINTAINER REPORTED. A live four-party
-        // call measured `decrypt failed count= 1 passed= 3101`. One frame in
-        // three thousand must never put a warning on screen.
+        // One bad frame in three thousand never raises the badge.
         {
             Policy p;
             bool raise = false;
@@ -3255,10 +2633,8 @@ private slots:
             QVERIFY(!p.announced);
         }
 
-        // CASE 2 — THE HOLE THE FIRST FIX HAD. A consecutive-run gate is
-        // reset by ANY good frame, so a stream delivering one usable frame in
-        // every fifty never badges: the user hears garbage and the call looks
-        // perfect. 98% failure must raise.
+        // A consecutive-run gate is reset by any good frame; a stream with one
+        // usable frame in fifty (98% failure) must still raise.
         {
             Policy p;
             bool raise = false;
@@ -3273,8 +2649,8 @@ private slots:
                      "defect it replaced");
         }
 
-        // CASE 3 — a total key mismatch badges, and reasonably fast. Nothing
-        // before kMinObserved, and raised by the time the window is full.
+        // A total key mismatch raises: nothing before kMinObserved, raised by
+        // the time the window is full.
         {
             Policy p;
             bool raise = false;
@@ -3286,8 +2662,7 @@ private slots:
             QCOMPARE(raisedAt, Policy::kMinObserved - 1);
         }
 
-        // CASE 4 — IT COMES OFF AGAIN. A participant whose keys arrive must
-        // not keep a "cannot be decrypted" mark for the rest of the call.
+        // It clears once keys arrive.
         {
             Policy p;
             bool raise = false;
@@ -3303,9 +2678,8 @@ private slots:
             QVERIFY(!p.announced);
         }
 
-        // CASE 5 — HYSTERESIS. A stream held exactly at the raise threshold
-        // must not flap: once raised, it stays raised until the failure rate
-        // falls all the way to the clear threshold.
+        // Hysteresis: once raised it stays raised until the failure rate
+        // falls to the clear threshold.
         {
             Policy p;
             bool raise = false;
@@ -3322,31 +2696,15 @@ private slots:
             QVERIFY(p.announced);
         }
 
-        // And the thresholds are ordered, or the two above are vacuous.
+        // The thresholds are ordered, or the cases above are vacuous.
         QVERIFY(Policy::kClearPercent < Policy::kRaisePercent);
         QVERIFY(Policy::kMinObserved <= Policy::kWindow);
     }
 
-    // EVERY QUEUE ON EVERY LIVE MEDIA PATH IS BOUNDED, AND LEAKY UNLESS IT
-    // CARRIES RTP INTO A DEPAYLOADER. A SOURCE SCAN, ACROSS THREE FILES.
-    //
-    // `queue` defaults to max-size-time=1000000000 with leaky=no. On a live
-    // path that is a permanent latency bomb: one moment of a consumer falling
-    // behind fills it, and because it never leaks the backlog stays for the
-    // rest of the call. Found and fixed on the SFU lane's audio capture queue
-    // on 2026-09-16 after a live report of ~1 s of one-directional delay —
-    // and that fix bounded ONE of the eleven queues this project ships.
-    //
-    // THE FIRST VERSION OF THIS SWEEP READ ONE FILE, AND A REVIEW FOUND FOUR
-    // MORE BARE QUEUES OUTSIDE IT while the commit that added it claimed
-    // "every queue on a live path": the share-audio publish path, and the
-    // whole 1:1 lane in `GstCallMediaBackend` — capture AND receive — which
-    // is installed in every WebRTC build and is the same defect in the other
-    // lane. A sweep is only as wide as what it reads, and a count assertion
-    // over too few files is a confident wrong answer.
-    //
-    // Per-file counts, so a queue that MOVES between these files cannot keep
-    // the total right while leaving a hole.
+    // Every queue on a live media path is bounded, and leaky unless it
+    // carries RTP into a depayloader: a default `queue` holds 1 s and never
+    // leaks it. Source scan with per-file counts across all three files that
+    // build pipelines, so a queue moving between files cannot hide.
     void everyLiveQueueIsBoundedAndLeaky()
     {
         struct Lane { const char *path; int expected; };
@@ -3356,18 +2714,8 @@ private slots:
             { SOURCE_DIR "/src/calls/GstCallMediaBackend.cpp", 2 },
         };
 
-        // A PIPELINE queue, not a C++ identifier called `queue`. Matching
-        // `\bqueue\s` reported `queue = gst_bin_get_by_name(...)` as an
-        // unbounded pipeline queue the moment this file gained a variable of
-        // that name. A pipeline queue is followed by a pad separator or by
-        // one of its own properties.
-        // ANY property, not a list of the ones used today: naming them
-        // leaves a queue whose FIRST property is something else (say
-        // `use-buffering=`) silently unmatched, and the per-file count would
-        // not notice because it would be unchanged. A pipeline queue is
-        // followed by a pad separator or by `something=`; the C++ identifier
-        // that made the first version fail is followed by ` = `, and `=` is
-        // not a lowercase letter.
+        // A pipeline queue is followed by a pad separator or by any
+        // `property=`; a C++ variable named `queue` is followed by ` = `.
         static const QRegularExpression queueElement(QStringLiteral(
             "\\bqueue(?=\\s+(?:!|[a-z][a-z0-9-]*=))"));
 
@@ -3377,10 +2725,9 @@ private slots:
             QString code = QString::fromUtf8(file.readAll());
             QVERIFY(!code.isEmpty());
             code.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
-            // Splice adjacent string literals, so a queue whose properties
-            // continue on the next source line reads as one element. The
-            // pattern is quote-whitespace-quote, which cannot match the
-            // `", "` separating entries in an element-name array.
+        // Splice adjacent string literals so a queue's properties on the next
+        // source line read as one element. Quote-whitespace-quote cannot match
+        // the `", "` between array entries.
             code.remove(QRegularExpression(QStringLiteral("\"\\s*\"")));
 
             int found = 0;
@@ -3399,11 +2746,9 @@ private slots:
                              "bound: '%2'")
                                         .arg(QString::fromUtf8(lane.path),
                                              props.trimmed())));
-                // THE ONE EXEMPTION, and it is narrow on purpose: a queue
-                // feeding a VIDEO depayloader holds RTP packets, so leaking
-                // corrupts the bitstream — and the drop is downstream of
-                // webrtcbin, which therefore sends no PLI. Its latency
-                // protection is the appsink's own `drop=true`.
+                // Exempt: a queue feeding a video depayloader holds RTP, and
+                // leaking there corrupts the bitstream downstream of webrtcbin
+                // (no PLI). The appsink's `drop=true` bounds its latency.
                 if (next.contains(QStringLiteral("rtpvp8depay")))
                     continue;
                 QVERIFY2(props.contains(QStringLiteral("leaky=downstream")),
@@ -3418,20 +2763,9 @@ private slots:
         }
     }
 
-    // THE SHAPE THE DEFECT ACTUALLY HAS, taken from a live log rather than
-    // imagined.
-    //
-    // Every occurrence in the maintainer's receiving client, across two days
-    // and five different stream ids, is the same: a burst of about ten
-    // undecryptable frames within ~160 ms of a NEW sender's stream appearing,
-    // and then nothing at all — no `count= 50`, no `count= 100`, ever —
-    // against 5074 and 103203 frames that passed. That is frames arriving
-    // before that sender's key is installed.
-    //
-    // 0.9.7 badged on the first of those ten, which is the defect the
-    // maintainer reported: a warning every time a peer joins. The sizing
-    // evidence belongs in the suite, not only in a doc, or the next person to
-    // tune these thresholds has nothing to tune them against.
+    // The live shape: about ten undecryptable frames within ~160 ms of a new
+    // sender's stream appearing (before its key is installed), then none.
+    // That burst must never raise the badge.
     void theLiveBurstAtAStreamsStartNeverRaisesTheBadge()
     {
         using Policy = SfuMediaEngine::BlockedRunPolicy;
@@ -3446,9 +2780,7 @@ private slots:
         QCOMPARE(announcements, 0);
         QVERIFY(!p.announced);
 
-        // And the burst must not be able to badge even if it is the ONLY
-        // thing seen so far — a stream that delivers ten frames and stops is
-        // not a stream anybody is failing to hear.
+        // Nor may the burst raise it when it is all that has been seen.
         Policy fresh;
         for (int i = 0; i < 10; ++i)
             fresh.note(/*failed=*/true, &raise);
@@ -3456,20 +2788,9 @@ private slots:
         QCOMPARE(fresh.failurePercent(), -1);
     }
 
-    // THE CAMERA MUST NAME ITS SOURCE, and this is a source scan because the
-    // choice is a one-word literal whose consequence is invisible everywhere
-    // else.
-    //
-    // `autovideosrc` picks by RANK, and on a PipeWire desktop `pipewiresrc`
-    // outranks `v4l2src` — so it always selected pipewiresrc with no `path`
-    // and no `target-object`, because only the screen-share branch has a
-    // portal node to give it. Against the pinned `framerate=(fraction)30/1`
-    // that is `-22 (Invalid argument)` -> not-negotiated: zero capture
-    // buffers, nothing encoded, a declared camera track carrying nothing.
-    // Bus errors here are logged and deliberately never raised as failures,
-    // so the camera button stayed lit and the reason existed only in the log.
-    //
-    // ON THE BROKEN TREE this reports `autovideosrc`.
+    // The camera names its source instead of `autovideosrc`: by rank that
+    // picks pipewiresrc with no target on a PipeWire desktop, which fails to
+    // negotiate and produces no buffers.
     void theCameraNamesARealSourceRatherThanAutodetecting()
     {
         const QString engine = QString::fromUtf8(engineSource());
@@ -3506,7 +2827,7 @@ private slots:
             selfView, 12345u,
             QStringLiteral("videoconvert ! videoscale"),
                 SfuMediaEngine::captureEntryFilter(false));
-        // The payloader must be OURS: rtpvp8pay parses the bitstream and
+        // The payloader must be ours: rtpvp8pay parses the bitstream and
         // cannot carry an encrypted frame.
         QVERIFY2(description.contains(
                      QLatin1String(lightning::rtp::vp8PayloaderName())),
@@ -3523,8 +2844,7 @@ private slots:
             g_error_free(error);
         QVERIFY2(bin, qPrintable(QStringLiteral(
                           "screen-share pipeline does not parse: %1").arg(why)));
-        // The self-view branch has to survive: it is the only way a sharer
-        // can tell their share is carrying pixels.
+        // The self-view branch must survive.
         GstElement *preview = gst_bin_get_by_name(GST_BIN(bin), "selfvidsink");
         QVERIFY2(preview, "the self-view branch is missing from the share");
         gst_object_unref(preview);
@@ -3544,22 +2864,9 @@ private slots:
         QVERIFY2(!pane.contains(QStringLiteral("m_streamForMline.value(mline)")),
                  "a pad-name index still indexes the SDP section map");
 
-        // A MID MAY NEVER BE THE TRACK KEY while the SDP still holds a track
-        // sid for that section.
-        //
-        // This is the Windows receive failure. The pad's `msid` property is
-        // webrtcbin's own extraction and how much of it is filled in has
-        // moved between GStreamer releases — the dev shell is 1.26.11, the
-        // packaged Windows runtime 1.28.5 — so on a user's machine the
-        // property came back empty and the fallback used the transceiver mid
-        // AS THE KEY. Keys arrive addressed by `TR_…`, so the ring named "1"
-        // was one nobody had keyed and every frame failed with `passed=0`:
-        // audio silent, video absent, the connection healthy, and the sending
-        // end (and Element in the same room) perfectly fine.
-        //
-        // The section's track sid is in the SDP text, which is identical on
-        // every platform and which this engine already parses for the
-        // participant and the mid. The fallback must read THAT first.
+        // A mid may never be the track key while the SDP holds a track sid
+        // for that section. The pad's `msid` property varies between
+        // GStreamer releases; the SDP text does not, so read the sid from it.
         const int fromSdp = pane.indexOf(
             QStringLiteral("trackMid = engine->m_trackForMline.value("));
         QVERIFY2(fromSdp > 0,
@@ -3570,15 +2877,13 @@ private slots:
         QVERIFY2(fromMid < 0 || fromMid > fromSdp,
                  "a media-section mid is taken as the track key before the "
                  "SDP's own track sid is consulted");
-        // ...and the SDP scan has to be extracting it in the first place.
+        // ...and the SDP scan must extract it.
         QVERIFY2(pane.contains(
                      QStringLiteral("trackSid = SfuMediaEngine::trackSidFromMsid")),
                  "the SDP scan records no per-section track sid, so the "
                  "fallback above has nothing to read");
-        // All THREE section maps are one record of one subscriber
-        // description and must be dropped together. Section mids are small
-        // integers that repeat across calls, so an entry left behind is not
-        // merely useless — it is a plausible-looking wrong answer.
+        // All three section maps describe one subscriber description and are
+        // cleared together: section mids repeat across calls.
         for (const char *map : { "m_streamForMline.clear()",
                                  "m_midForMline.clear()",
                                  "m_trackForMline.clear()" }) {
@@ -3589,21 +2894,10 @@ private slots:
         }
     }
 
-    // A CHOSEN WINDOW must reach a capture element, not fall through to the
-    // monitor one.
-    //
-    // Windows has no element that can capture a window: `gdiscreencapsrc`
-    // takes a `monitor` index and a crop rectangle, and
-    // `d3d11screencapturesrc`, which has `window-handle`, is in the plugin
-    // this toolchain cannot load. So Lightning compiles its own
-    // (WindowCaptureSrc.h) and the routing has to be pinned — a handle
-    // silently ignored is a share that says "window" and sends the whole
-    // desktop, which is a privacy failure rather than a cosmetic one.
-    //
-    // Source-scanned because the branch is `#if defined(Q_OS_WIN)`: this
-    // suite runs on Linux, where calling the function can only ever return
-    // the pipewiresrc form. `everyPlatformNamesACaptureSourceItActuallyHas`
-    // above is the same shape for the same reason.
+    // A chosen window on Windows routes to Lightning's own window capture
+    // element (gdiscreencapsrc cannot capture a window); ignoring the handle
+    // would share the whole desktop. Source-scanned because the branch is
+    // Windows-only.
     void aChosenWindowRoutesToTheWindowCaptureElement()
     {
         const QString pane = QString::fromUtf8(SOURCE_UNDER_TEST);
@@ -3623,41 +2917,28 @@ private slots:
                  "the window branch does not name Lightning's capture "
                  "element, so it cannot be the one that runs");
 
-        // And the refusal above it must not reject a window: a handle is a
-        // source in its own right and carries no node id. THREE kinds now —
-        // a portal node, a window handle and (Linux, no portal) an X11 root
-        // rectangle — and the guard is correct only when it refuses none of
-        // them on its own.
+        // The node-id guard must not refuse the other source kinds: a window
+        // handle or (Linux, no portal) an X11 root rectangle.
         QVERIFY2(pane.contains(QStringLiteral(
                      "if (nodeId < 0 && windowHandle == 0 "
                      "&& !captureRect.isValid()) {")),
                  "the no-source refusal rejects a share that carries one of "
                  "the three source kinds but no node id");
 
-        // The element has to be REGISTERED, or naming it in a pipeline
-        // description fails at parse time — the same trap the VP8 payloader
-        // is registered against, in the same place.
+        // The element must be registered, or the description fails to parse.
         QVERIFY2(pane.contains(
                      QStringLiteral("wincap::registerWindowCaptureSrc()")),
                  "the window capture element is never registered");
     }
 
-    // THE LINUX NO-PORTAL FALLBACK'S CAPTURE, which is the one branch of this
-    // function a Linux test can actually CALL rather than source-scan.
-    //
-    // On a desktop with no xdg-desktop-portal there was previously no way to
-    // share a screen and no way to choose one. The fallback picks a whole
-    // display, and a display under X11 is a RECTANGLE OF THE ROOT WINDOW —
-    // there is no monitor index to pass, so the arithmetic below is the whole
-    // correctness of the feature: get it wrong and the share is offset,
-    // cropped, or of the wrong monitor entirely.
+    // The Linux no-portal fallback captures an X11 root-window rectangle; the
+    // arithmetic is the whole correctness of the feature.
     void theLinuxNoPortalFallbackCapturesAnX11RootRectangle()
     {
 #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
         QSKIP("the X11 fallback branch does not exist off Linux");
 #else
-        // A second monitor at an offset, which is the case that catches an
-        // origin dropped on the floor.
+        // A second monitor at an offset.
         const QString source = SfuMediaEngine::screenShareSource(
             /*nodeId=*/1, /*pipewireFd=*/-1, /*windowHandle=*/0,
             QRect(100, 50, 1280, 720));
@@ -3669,11 +2950,8 @@ private slots:
                  "the one thing this session does not have");
         QVERIFY(source.contains(QStringLiteral("startx=100")));
         QVERIFY(source.contains(QStringLiteral("starty=50")));
-        // INCLUSIVE, and this is the assertion that would catch the obvious
-        // mistake. Read off the shipped plugin and then measured against it:
-        // `startx=100 endx=1379` negotiates `width=(int)1280`. Writing
-        // `endx = x + width` instead would capture one column too many from
-        // the NEXT monitor, silently.
+        // ximagesrc's edges are inclusive: `startx=100 endx=1379` gives
+        // width 1280.
         QVERIFY2(source.contains(QStringLiteral("endx=1379")),
                  qPrintable(QStringLiteral("endx is not the inclusive right "
                                            "edge: %1").arg(source)));
@@ -3681,28 +2959,21 @@ private slots:
                  qPrintable(QStringLiteral("endy is not the inclusive bottom "
                                            "edge: %1").arg(source)));
 
-        // A DISPLAY AT THE ORIGIN still has to name its edges rather than
-        // leaving them at the element's "0 means the whole screen" default,
-        // which on a multi-monitor root captures every monitor at once.
+        // A display at the origin still names its edges; 0 means "whole
+        // root", which spans every monitor.
         const QString atOrigin = SfuMediaEngine::screenShareSource(
             0, -1, 0, QRect(0, 0, 1920, 1080));
         QVERIFY(atOrigin.contains(QStringLiteral("endx=1919")));
         QVERIFY(atOrigin.contains(QStringLiteral("endy=1079")));
 
-        // THE PORTAL PATH IS UNTOUCHED. This fallback exists only for a
-        // session that has no portal, and it must not be able to displace one
-        // that does — with no rectangle, the source is exactly what it was.
+        // The portal path is unchanged when no rectangle is given.
         const QString portal = SfuMediaEngine::screenShareSource(42, 7);
         QVERIFY(portal.startsWith(QStringLiteral("pipewiresrc")));
         QVERIFY(!portal.contains(QStringLiteral("ximagesrc")));
         QVERIFY(portal.contains(QStringLiteral("fd=7")));
 
-        // EVERY PROPERTY NAME EXISTS. `gst_parse_launch` fails outright on an
-        // unknown property, so a plausible-looking name from the wrong
-        // element family is a screen share that can never start — the
-        // `monitor` versus `monitor-index` lesson, on the element this branch
-        // actually uses. Parsing stops at NULL state, so no X server is
-        // touched and nothing is captured.
+        // Every property name exists: gst_parse_launch fails on an unknown
+        // one. Parsing stays at NULL, so no X server is touched.
         if (!SfuMediaEngine::elementAvailable(
                 SfuMediaEngine::x11ScreenCaptureElementName())) {
             QSKIP("ximagesrc is not in this machine's GStreamer registry");
@@ -3722,19 +2993,13 @@ private slots:
 #endif
     }
 
-    // The capability probe behind the fallback, which is what decides whether
-    // the picker is offered at all.
-    //
-    // "ximagesrc ships in gst-plugins-good and is very likely there" is how a
-    // share reports success and carries nothing: the element has to be asked
-    // for, in the RUNNING registry, before the user is shown a picker and
-    // made to choose.
+    // The fallback's capability probe asks the running registry, before the
+    // picker is offered.
     void theCaptureElementProbeAsksTheRealRegistry()
     {
         QCOMPARE(QLatin1String(SfuMediaEngine::x11ScreenCaptureElementName()),
                  QLatin1String("ximagesrc"));
-        // Something the engine already REQUIRES, so a false here would mean
-        // no call could be made at all and the probe is what is broken.
+        // An element the engine already requires.
         QVERIFY2(SfuMediaEngine::elementAvailable("videotestsrc"),
                  "the probe cannot see an element the engine requires, so it "
                  "would refuse every capability it is asked about");
@@ -3750,8 +3015,7 @@ private slots:
         QCOMPARE(SfuMediaEngine::participantIdFromMsid(
                      QStringLiteral("PA_abc123|TR_xyz789 TR_xyz789")),
                  QStringLiteral("PA_abc123"));
-        // Unpacked (protocol 0, and the shape every hand-written test used):
-        // still the participant, unchanged.
+        // Unpacked (protocol 0): still the participant.
         QCOMPARE(SfuMediaEngine::participantIdFromMsid(
                      QStringLiteral("PA_abc123 TR_xyz789")),
                  QStringLiteral("PA_abc123"));
@@ -3759,34 +3023,30 @@ private slots:
         QCOMPARE(SfuMediaEngine::participantIdFromMsid(
                      QStringLiteral("PA_abc123")),
                  QStringLiteral("PA_abc123"));
-        // A leading separator names no participant: better empty (which
-        // routes and decrypts NOTHING) than a confident wrong id.
+        // A leading separator names no participant; empty routes and decrypts
+        // nothing.
         QCOMPARE(SfuMediaEngine::participantIdFromMsid(
                      QStringLiteral("|TR_xyz789 TR_xyz789")),
                  QString());
         QCOMPARE(SfuMediaEngine::participantIdFromMsid(QString()), QString());
 
-        // The other half of the same line, and the one a media key is
-        // addressed by. Both shapes LiveKit emits must yield the track sid.
+        // The track sid, which media keys are addressed by, from both shapes.
         QCOMPARE(SfuMediaEngine::trackSidFromMsid(
                      QStringLiteral("PA_abc123|TR_xyz789 TR_xyz789")),
                  QStringLiteral("TR_xyz789"));
         QCOMPARE(SfuMediaEngine::trackSidFromMsid(
                      QStringLiteral("PA_abc123 TR_xyz789")),
                  QStringLiteral("TR_xyz789"));
-        // Nothing that looks like a track sid: EMPTY, so the caller can tell
-        // it must look elsewhere. Returning the token anyway would put a
-        // participant sid where a track key belongs.
+        // Nothing that looks like a track sid: empty, so the caller looks
+        // elsewhere.
         QCOMPARE(SfuMediaEngine::trackSidFromMsid(
                      QStringLiteral("PA_abc123")),
                  QString());
         QCOMPARE(SfuMediaEngine::trackSidFromMsid(QString()), QString());
     }
 
-    // A media key names a Matrix DEVICE; a frame names a LiveKit sid. Those
-    // two facts arrive in either order, so the ring has to be the SAME object
-    // under both names or whichever arrived first is stranded — the keys in
-    // one ring and the frames consulting another.
+    // A media key names a Matrix device and a frame names a LiveKit sid; they
+    // arrive in either order and must converge on one ring.
     void aKeyAndAStreamIdConvergeOnOneRingInEitherOrder()
     {
         {
@@ -3844,13 +3104,8 @@ private slots:
         engine.stop();
     }
 
-    // A LIVEKIT-SHAPED SUBSCRIBER OFFER MUST BE ANSWERED EVERY TIME.
-    //
-    // LiveKit's subscriber connection is the PRIMARY one: the server offers
-    // a data channel BEFORE anyone is publishing, and adds a media section
-    // to a LATER offer when someone does. It refuses to renegotiate while an
-    // answer is outstanding, so an offer we fail to answer is a subscriber
-    // connection that never receives another track for the rest of the call.
+    // Every LiveKit-shaped subscriber offer is answered: the server will not
+    // renegotiate while an answer is outstanding.
     void everyLiveKitSubscriberOfferIsAnswered()
     {
         const QString fp = QStringLiteral(
@@ -3989,20 +3244,10 @@ private slots:
         engine.stop();
     }
 
-    // THE CAMERA FREEZE, reproduced as arithmetic rather than pinned as a
-    // string.
-    //
-    // videorate starts its output clock at SEGMENT START, not at the first
-    // buffer's timestamp. A publish bin joins a pipeline that has been
-    // PLAYING since the call was joined, and the Windows camera and monitor
-    // sources both stamp with the pipeline's RUNNING TIME — so the first
-    // buffer carries the age of the call and videorate owes thirty duplicate
-    // frames for every second of it, which it emits as fast as the encoder
-    // will take them. One picture, at full rate, with every counter healthy.
-    //
-    // This drives the REAL rate stage the engine builds, so it fails the
-    // moment `skip-to-first` is dropped from it: against the unfixed stage
-    // the second case emits 5247 buffers instead of 27.
+    // videorate starts its output clock at segment start, and the Windows
+    // sources stamp with pipeline running time, so a late-published bin would
+    // be back-filled with duplicates for the whole call age. Drives the real
+    // rate stage (`skip-to-first`).
     void theRateStageDoesNotBackFillFromSegmentStart()
     {
         struct Counter {
@@ -4082,8 +3327,8 @@ private slots:
             return frames;
         };
 
-        // A publish that starts with the pipeline: one second of input at
-        // 10 fps becomes about one second at 30.
+        // A publish starting with the pipeline: 1 s at 10 fps becomes ~1 s at
+        // 30.
         const int fresh = measure(0);
         QVERIFY2(fresh > 0, "the rate stage produced nothing at all");
         QVERIFY2(fresh < 60,
@@ -4091,10 +3336,8 @@ private slots:
                                            "for 1 s of input")
                                 .arg(fresh)));
 
-        // The same input, published into a call that has been up for three
-        // minutes. The source stamps with running time, so the first buffer
-        // carries 174 s. Nothing about the INPUT changed, so nothing about
-        // the output count may either.
+        // The same input into a call up for 174 s: the output count must not
+        // change.
         const int late = measure(174 * GST_SECOND);
         QVERIFY2(late > 0, "the rate stage produced nothing at all");
         QVERIFY2(late < fresh + 60,
@@ -4107,26 +3350,10 @@ private slots:
                                 .arg(fresh)));
     }
 
-    // A SHARED WINDOW THAT NEVER REPAINTS STILL HAS TO REACH THE FAR END.
-    //
-    // A PipeWire screencast delivers ON DAMAGE and `videorate` emits nothing
-    // until a SECOND buffer arrives, so a still window is one captured frame
-    // and no published video at all — measured live on 2026-09-12 against a
-    // static file manager, where the receiving client sat on "Waiting for the
-    // picture" indefinitely while `capture delivered frames count= 1`.
-    //
-    // This drives the REAL rate stage and chains into the REAL injection pad
-    // (`SfuMediaEngine::keepAliveInjectionPad`, the same call production
-    // makes), so it fails if the element loses its name or the injection
-    // point moves. The control case in the same run is what makes it a
-    // regression test rather than a demonstration: without the injection the
-    // count must be ZERO, which is the defect itself.
-    //
-    // WHAT IT DOES NOT COVER, stated rather than implied: it does not call
-    // tickShareKeepAlive(), so it would pass if the timer were never armed.
-    // theKeepAlivePtsNeverLeavesTheSourcesTimebase covers the arithmetic and
-    // theRealPublishDescriptionStillOffersAnInjectionPad covers the lookup;
-    // arming is reachable only from a live publish and stays uncovered.
+    // A still window must still publish: PipeWire delivers on damage and
+    // videorate needs a second buffer, so the keep-alive injects repeats into
+    // the rate stage's real injection pad. The control case (no injection)
+    // must publish zero. Arming the timer (tickShareKeepAlive) is not covered.
     void aStillScreenStillPublishesAPicture()
     {
         struct Counter {
@@ -4147,9 +3374,8 @@ private slots:
             }
             if (!pipeline || !src || !rate || !caps || !sink)
                 return -1;
-            // framerate=0/1 IS the screencast's own shape: variable, on
-            // damage. A fixed input rate would let videorate start from the
-            // caps alone and the defect would not reproduce.
+            // framerate=0/1 is the screencast's own shape; a fixed input rate
+            // would not reproduce the hold.
             GstCaps *inCaps = gst_caps_new_simple(
                 "video/x-raw", "format", G_TYPE_STRING, "BGRA", "width",
                 G_TYPE_INT, 64, "height", G_TYPE_INT, 64, "framerate",
@@ -4190,8 +3416,7 @@ private slots:
                 GST_BUFFER_DTS(buffer) = pts;
                 gst_app_src_push_buffer(GST_APP_SRC(src), buffer);
             };
-            // The ONE frame a still window produces, and nothing else — no
-            // EOS, because a live share never sends one.
+            // The one frame a still window produces; no EOS, as in a live share.
             push(0);
             QTest::qWait(200);
 
@@ -4204,16 +3429,9 @@ private slots:
                     delete counter;
                     return -2;   // the injection point is gone
                 }
-                // The rate stage's OWN SINK PAD, chained into exactly as
-                // tickShareKeepAlive() does it — not its upstream peer, which
-                // is where the sampling probe goes.
-                // gst_pad_push from an IDLE probe on the upstream peer is the
-                // obvious alternative and it DEADLOCKS — an IDLE probe is a
-                // blocking probe, so the push waits inside the callback for a
-                // block only that callback can lift. This test hung for 300 s
-                // on that shape before the engine was corrected, which is the
-                // reason it drives the real mechanism rather than asserting
-                // on a string.
+                // Chain into the rate stage's own sink pad, as
+                // tickShareKeepAlive() does. Pushing from an IDLE probe on the
+                // upstream peer deadlocks (the probe blocks the push).
                 for (int i = 1; rateSink && i <= 10; ++i) {
                     GstBuffer *repeat =
                         gst_buffer_new_allocate(nullptr, 64 * 64 * 4, nullptr);
@@ -4238,8 +3456,7 @@ private slots:
             return frames;
         };
 
-        // THE CONTROL IS THE DEFECT. One buffer and no help publishes
-        // nothing whatever, which is why the keep-alive exists at all.
+        // Control: one buffer and no help publishes nothing.
         const int alone = measure(false);
         QCOMPARE(alone, 0);
 
@@ -4257,39 +3474,21 @@ private slots:
                                 .arg(helped)));
     }
 
-    // THE KEEP-ALIVE MUST STAY IN THE SOURCE'S TIMEBASE, AND THE FIRST
-    // VERSION DID NOT.
-    //
-    // It stamped the injected frame with the PIPELINE's running time, on the
-    // stated premise that the source stamps its buffers the same way. Two of
-    // the four screen-share sources do — `pipewiresrc` and
-    // `gdiscreencapsrc` — and two deliberately do NOT:
-    // `LightningWindowCaptureSrc` counts frames from zero, and `ximagesrc`
-    // was measured doing the same (screenShareSource() records both, and
-    // videoRateStage() says outright that the capture element "must keep its
-    // zero-based timeline"). Injecting a running-time PTS into a zero-based
-    // stream makes videorate owe a duplicate for every frame of the whole
-    // call age and then drop every real frame that follows: a transient stall
-    // becomes a permanently dead share, on the two platforms that never had
-    // the defect the keep-alive exists to fix.
-    //
-    // This drives the ARITHMETIC rather than a pipeline, because that is
-    // where the mistake lives and a fixture whose pipeline clock is also ~0
-    // cannot tell the two rules apart — which is exactly why the first
-    // regression test could not see it. Found in review, not by me.
+    // The keep-alive PTS stays in the source's timebase: some sources
+    // (LightningWindowCaptureSrc, ximagesrc) are zero-based, and a running-time
+    // PTS would make videorate drop every real frame after it. Tested on the
+    // arithmetic, since a fixture pipeline's clock is also ~0.
     void theKeepAlivePtsNeverLeavesTheSourcesTimebase()
     {
-        // A zero-based source three frames in, at a call that has been up for
-        // 174 s — the real number from the Windows camera log in §16.
+        // A zero-based source three frames in, on a call up for 174 s.
         const quint64 sampled = 3 * (GST_SECOND / 30);
         const quint64 at = SfuMediaEngine::keepAlivePts(
             sampled, /*sampledPtsValid=*/true, /*elapsedMs=*/600,
             /*lastInjectedPts=*/0, /*lastInjectedPtsValid=*/false);
         QVERIFY2(GST_CLOCK_TIME_IS_VALID(at), "no timestamp was produced");
         QCOMPARE(at, sampled + 600 * GST_MSECOND);
-        // The whole point: it stays near the SOURCE's clock, so a real frame
-        // arriving afterwards is still ahead of it. A running-time stamp on a
-        // 174 s-old call would be three orders of magnitude further out.
+        // It stays near the source's clock, so the next real frame is ahead
+        // of it.
         QVERIFY2(at < 174 * GST_SECOND,
                  qPrintable(QStringLiteral(
                                 "the injected PTS is %1 ns for a source whose "
@@ -4299,25 +3498,20 @@ private slots:
                                 .arg(at)
                                 .arg(sampled)));
 
-        // Strictly increasing, even when two injections fall between one pair
-        // of samples and the anchor has not moved.
+        // Strictly increasing even when the anchor has not moved.
         const quint64 again = SfuMediaEngine::keepAlivePts(
             sampled, true, 600, at, true);
         QVERIFY2(again > at, "two injections produced a non-advancing PTS");
 
-        // A source that gave no PTS gives nothing to anchor to, and guessing
-        // one is the bug. Refuse.
+        // No source PTS means nothing to anchor to: refuse.
         QVERIFY2(!GST_CLOCK_TIME_IS_VALID(SfuMediaEngine::keepAlivePts(
                      0, /*sampledPtsValid=*/false, 600, 0, false)),
                  "the keep-alive invented a timestamp for a source that "
                  "supplied none");
     }
 
-    // The injection point is found by NAME in the real publish description,
-    // which is the coupling that breaks silently when the pipeline is
-    // rearranged — and it degrades to "a still share publishes nothing",
-    // the defect the keep-alive was written for. So ask the REAL description
-    // for the pad, exactly as publishVideo() does.
+    // The injection point is found by name in the real publish description,
+    // as publishVideo() does.
     void theRealPublishDescriptionStillOffersAnInjectionPad()
     {
         const QString description = SfuMediaEngine::videoPipelineDescription(
@@ -4345,15 +3539,9 @@ private slots:
                  "the real publish description no longer contains an element "
                  "called `vidrate`, so the screen-share keep-alive has "
                  "nowhere to inject and a still window publishes nothing");
-        // AND ITS PEER, because the feature needs BOTH pads and losing the
-        // second one fails silently. publishVideo() installs the sampling
-        // probe on `gst_pad_get_peer(rateSink)`; with no peer at parse time
-        // the probe is never installed, no frame is ever sampled, the tick
-        // never injects — and `keepSink` is still set, so the timer runs at
-        // 5 Hz doing nothing at all. Graceful fallback and silent absence,
-        // which is the shape this lane has shipped four times. Raised in
-        // review; `decodebin`'s delayed linking is how a parse-time peer
-        // actually goes missing here.
+        // And its peer: publishVideo() installs the sampling probe there, and
+        // without it the keep-alive silently never injects (decodebin's
+        // delayed linking can leave it missing at parse time).
         GstPad *peer = gst_pad_get_peer(pad);
         QVERIFY2(peer,
                  "`vidrate` has no upstream peer at parse time, so the "
@@ -4364,32 +3552,24 @@ private slots:
         gst_object_unref(bin);
     }
 
-    // WHAT RESOLUTION A SHARED WINDOW IS PUBLISHED AT.
-    //
-    // The element itself is `#ifdef Q_OS_WIN`, but this rule is not: it is
-    // compiled on every platform precisely so the arithmetic that decides a
-    // share's shape can be held to account from a machine that has no
-    // Windows. Two independent clamps used to do this job, and a 3840x2100
-    // window came out as 1920x1080 — a 16:9 rectangle holding a 1.83:1
-    // picture, with everything in it stretched.
+    // A shared window's publish size keeps its aspect and never upscales.
+    // Compiled on every platform so it is testable off Windows.
     void fitIntoKeepsTheAspectAndNeverUpscales()
     {
         using lightning::wincap::fitInto;
 
-        // The real case from the Windows report: a maximised Brave window on
-        // a 4K display, against the 1080p publish ceiling. 1050, not 1080.
+        // A maximised 3840x2100 window against the 1080p ceiling: 1050, not
+        // 1080.
         const auto brave = fitInto(3840, 2100, 1920, 1080);
         QCOMPARE(brave.width, 1920);
         QCOMPARE(brave.height, 1050);
 
-        // A window already inside the ceiling keeps its own size. Publishing
-        // it larger would spend bitrate on invented pixels.
+        // A window inside the ceiling keeps its size.
         const auto small = fitInto(800, 600, 1920, 1080);
         QCOMPARE(small.width, 800);
         QCOMPARE(small.height, 600);
 
-        // Odd edges are rounded DOWN to even, because VP8 subsamples chroma
-        // by two. The second Windows case was a 1557x1213 File Explorer.
+        // Odd edges round down to even (VP8 subsamples chroma by two).
         const auto explorer = fitInto(1557, 1213, 4000, 4000);
         QCOMPARE(explorer.width, 1556);
         QCOMPARE(explorer.height, 1212);
@@ -4416,59 +3596,36 @@ private slots:
         QCOMPARE(fitInto(-4, -4, 1920, 1080).height, 0);
     }
 
-    // THE GARBLING DEFECT, pinned at its root.
-    //
-    // The element advertises a RANGE on its src pad, so fixation can land
-    // anywhere downstream permits — measured on a real Windows run, 1920x1080
-    // for a 3840x2100 window. It then went on allocating and copying a buffer
-    // of the WINDOW's size, because it implemented no `set_caps` and never
-    // learned what it had agreed to. Downstream reads a buffer at the stride
-    // the CAPS imply, so every displayed row was half a source row and only
-    // the top quarter of the window was ever consumed.
-    //
-    // Source-scanned because the whole file is `#ifdef Q_OS_WIN` and this
-    // suite runs on Linux: the same shape as
-    // `aChosenWindowRoutesToTheWindowCaptureElement` above, for the same
-    // reason.
+    // The share scale stage, CPU and opt-in GPU, is well formed.
     void theGpuScaleStageIsWellFormedAndOptIn()
     {
-        // BOTH BRANCHES, because the GPU one is opt-in and would otherwise
-        // be first exercised by whoever set the variable — a malformed caps
-        // string fails at pipeline build, which is a bad place to learn.
+        // Both branches: a malformed GPU caps string would otherwise surface
+        // only at pipeline build for whoever enabled it.
         for (int h : { 720, 1080, 1440, 2160 }) {
             const QString cpu = SfuMediaEngine::shareScaleStage(h, false);
-            // EXACT, and it is the threaded single pass now. `videoconvert
-            // ! videoscale` walked the pixels TWICE on ONE thread and took
-            // 3.66 s of wall time per 5 s of 4K video — 73% of realtime
-            // before the encoder started, so the chain could not keep up.
+            // One threaded pass: `videoconvert ! videoscale` walks the pixels
+            // twice on one thread and cannot keep up at 4K.
             QCOMPARE(cpu, QStringLiteral("videoconvertscale n-threads=4"));
 
             const QString gpu = SfuMediaEngine::shareScaleStage(h, true);
-            // Imports the compositor's buffer rather than asking for system
-            // memory, which is the whole point: a plain video/x-raw request
-            // forces a readback of every frame at CAPTURE size.
+            // Imports the compositor's buffer instead of reading back every
+            // frame at capture size.
             QVERIFY2(gpu.startsWith(QStringLiteral("glupload")),
                      qPrintable(gpu));
-            // THE CONVERT IS LOAD-BEARING. The portal hands over
-            // `format=DMA_DRM` — an opaque DRM-modifier buffer, not a
-            // sampleable colour format — so without glcolorconvert the
-            // scaler has nothing to filter and the share goes out BLACK.
-            // Measured on a real capture: negotiation succeeded, frames
-            // flowed, picture empty.
+            // glcolorconvert is required: the portal delivers `DMA_DRM`, an
+            // opaque buffer the scaler cannot sample, and the share goes out
+            // black.
             QVERIFY2(gpu.contains(QStringLiteral("glcolorconvert")),
                      qPrintable(QStringLiteral(
                          "no glcolorconvert: a DMA_DRM buffer reaches the "
                          "scaler unconverted and the share is black: %1")
                              .arg(gpu)));
-            // texture-target=2D IS LOAD-BEARING. A DMA-BUF imported as an
-            // EGLImage arrives as GL_TEXTURE_EXTERNAL_OES; without pinning
-            // the target, glcolorconvert may pass it through and
-            // glcolorscale samples it as 2D and reads nothing — frames
-            // flow, encoder runs, picture black.
-            // THE FALLBACK MUST NOT BE (ANY). It matches memory:DMABuf with
-            // ANY modifier, so a linear preference listed first is silently
-            // defeated and a block-linear buffer reaches the GL import,
-            // which goes out black with every counter healthy.
+            // texture-target=2D is required: a DMA-BUF imports as
+            // GL_TEXTURE_EXTERNAL_OES, which glcolorscale would sample as
+            // empty.
+            // No `(ANY)` fallback: it matches DMA-BUF at any modifier, so a
+            // block-linear buffer could bypass the linear preference and
+            // import as black.
             const QString entry = SfuMediaEngine::captureEntryFilter(true);
             QVERIFY2(!entry.contains(QStringLiteral("video/x-raw(ANY)")),
                      qPrintable(QStringLiteral(
@@ -4483,8 +3640,7 @@ private slots:
                          "no texture-target pin: an external-oes texture can "
                          "reach the scaler and the share goes out black: %1")
                              .arg(gpu)));
-            // And it must be pinned BEFORE the scaler, or the conversion
-            // has already been skipped by the time it matters.
+            // Pinned before the scaler, or the conversion is already skipped.
             QVERIFY2(gpu.indexOf(QStringLiteral("texture-target=2D"))
                          < gpu.indexOf(QStringLiteral("glcolorscale")),
                      qPrintable(QStringLiteral(
@@ -4501,14 +3657,12 @@ private slots:
                          "after the download anyway: %1").arg(gpu)));
             QVERIFY2(gpu.contains(QStringLiteral("gldownload")),
                      qPrintable(gpu));
-            // RANGES, so a window smaller than the ceiling is still never
-            // upscaled — the same property the CPU path has.
+            // Ranges, so a smaller window is never upscaled.
             QVERIFY2(gpu.contains(QStringLiteral("[1,%1]").arg(h)),
                      qPrintable(gpu));
             QVERIFY2(gpu.contains(QStringLiteral("[1,%1]").arg((h * 16) / 9)),
                      qPrintable(gpu));
-            // ASCII digits, same as the caps: this string goes to the same
-            // C parser.
+            // ASCII digits: the string goes to GStreamer's C parser.
             for (QChar c : gpu) {
                 QVERIFY2(!c.isDigit() || (c >= QLatin1Char('0')
                                           && c <= QLatin1Char('9')),
@@ -4516,13 +3670,10 @@ private slots:
             }
         }
 
-        // THE ENTRY FILTER, which is what actually broke the first attempt.
-        // Both forms pin the PAR — an unfixated PAR is taken to its minimum,
-        // 1/2147483647, and overflows videoscale — but only the GPU form
-        // lets a non-system memory feature through, and without that
-        // pipewiresrc is asked for a downloaded buffer before glupload can
-        // import anything. Measured on a real capture as
-        // "no more input formats", and the share never started.
+        // The entry filter. Both forms pin the PAR (an unfixated PAR is taken
+        // to 1/2147483647 and overflows videoscale); only the GPU form admits
+        // a non-system memory feature, or pipewiresrc is asked for a
+        // downloaded buffer before glupload can import it.
         const QString cpuEntry = SfuMediaEngine::captureEntryFilter(false);
         const QString gpuEntry = SfuMediaEngine::captureEntryFilter(true);
         for (const QString &f : { cpuEntry, gpuEntry }) {
@@ -4534,27 +3685,8 @@ private slots:
         }
         QVERIFY2(!cpuEntry.contains(QStringLiteral("(ANY)")),
                  "the CPU path stopped pinning system memory");
-        // LINEAR REQUIRED, NOT MERELY PREFERRED — and the earlier version
-        // of this case asserted the PREFERENCE, which is why the defect
-        // looked covered while it was live. It required the linear modifier
-        // to appear before a `video/x-raw(ANY)` fallback, reasoning that
-        // caps are an ordered preference list. They are, and that is exactly
-        // the problem: `(ANY)` matches every caps feature INCLUDING
-        // memory:DMABuf at any modifier, so the peer was free to decline the
-        // first entry and take the second. It did — the compositor answered
-        // `drm-format=AR24:0x0300000000606014`, NVIDIA block-linear, which
-        // imports as an empty texture and publishes a black share with every
-        // counter healthy.
-        //
-        // So the fallback must not be able to carry a DMA-BUF at all. Either
-        // a LINEAR one the GL chain can import, or plain system memory.
-        // THE CPU FALLBACK IS ONE THREADED PASS, and both properties are
-        // load-bearing rather than tidy. Measured 4K -> 1080p over 5 s of
-        // video: `videoconvert ! videoscale` took 3.66 s of WALL time, i.e.
-        // 73% of realtime for the convert alone, before the encoder's
-        // ~2.35 s. Serially that is ~6 s of work per 5 s of video, so the
-        // stage cannot keep up and the share stutters.
-        // `videoconvertscale n-threads=4` is 1.65 s at the same total CPU.
+        // The CPU fallback is one threaded pass (`videoconvertscale
+        // n-threads=4`); two serial passes at 4K cannot keep up in realtime.
         {
             const QString cpu = SfuMediaEngine::shareScaleStage(1080, false);
             QVERIFY2(cpu.contains(QStringLiteral("videoconvertscale")),
@@ -4566,25 +3698,20 @@ private slots:
                          "the CPU fallback is single-threaded again, which "
                          "cannot keep up with a 4K capture: %1").arg(cpu)));
         }
-        // THE PATH IS LINUX-ONLY, and on Windows it would not merely fail
-        // to help — `libgstopengl.dll` is not in the staged plugin set, so
-        // gst_parse_launch would fail on an unknown element and there would
-        // be NO SCREEN SHARE AT ALL. Pinned so nobody widens the gate
-        // without also staging the plugin and answering the system-memory
-        // premise in point 3 of the comment on the accessor.
+        // The GPU path is Linux-only: `libgstopengl.dll` is not staged on
+        // Windows, so the description would fail to parse and there would be
+        // no screen share at all.
 #if defined(Q_OS_LINUX)
         // The env var is readable here, so the gate is the platform alone.
         QVERIFY2(SfuMediaEngine::shareScaleStage(1080, true)
                      .contains(QStringLiteral("glupload")),
                  "the GPU stage stopped using glupload on Linux");
-        // AND THE PROBE MUST NAME THE ELEMENT, not answer a boolean. A
-        // packaged build that forgot one plugin is the likeliest way this
-        // path dies, and "GPU unavailable" would send the next person
-        // hunting the driver instead of the plugin list.
+        // The probe names the missing element rather than answering a
+        // boolean, so a packaging gap points at the plugin list.
         {
             const QString missing = SfuMediaEngine::missingGpuShareElement();
-            // In the dev shell every GL element is present, so this is the
-            // "nothing missing" answer; the point is that it is a NAME.
+            // In the dev shell nothing is missing; the point is that the
+            // answer is a name.
             QVERIFY2(missing.isEmpty()
                          || missing.startsWith(QStringLiteral("gl")),
                      qPrintable(QStringLiteral(
@@ -4605,33 +3732,15 @@ private slots:
                  qPrintable(QStringLiteral(
                      "the GPU entry filter stopped requiring a linear "
                      "DMA-BUF: %1").arg(gpuEntry)));
-        // (The case that used to sit here REQUIRED `video/x-raw(ANY)`,
-        // arguing that without it "the compositor's buffer can never be
-        // imported". Together with the ordering case above, the two
-        // assertions enforced the defect from both sides: one demanded the
-        // linear entry come first, the other demanded the fallback that let
-        // the peer skip it. A block-linear buffer is not importable here, so
-        // refusing DMA-BUF and taking system memory is the CORRECT outcome,
-        // not a regression.)
 
-        // DEFAULT ON where the platform can carry it — this case used to
-        // assert the opposite ("opt-in, and it has never been measured on a
-        // real capture"), which was true until the path was confirmed
-        // working on a real desktop. What keeps that safe is not the
-        // default but the LADDER: intent here, availability probed
-        // separately, and a parse failure falling back once. So the thing
-        // worth pinning is that wanting the GPU and being able to use it
-        // stay two different questions.
+        // GPU scaling is requested by default where the platform can carry it;
+        // availability is probed separately and a parse failure falls back.
 #if defined(Q_OS_LINUX)
         QVERIFY2(SfuMediaEngine::shareGpuScalingRequested(),
                  "the GPU share path is no longer attempted by default");
 #endif
-        // THE PROBE'S FAILING BRANCH, DRIVEN FOR REAL. An earlier version
-        // of this asserted over missingGpuShareElement() directly, which in
-        // the dev shell always answers "nothing missing" — so the branch
-        // that matters was unreachable and the assertion passed on a
-        // deliberately broken probe. A mutation check caught it. The names
-        // are a parameter now precisely so this can be exercised.
+        // Drive the probe's failing branch: the names are a parameter so the
+        // "missing" answer is reachable in a dev shell that has everything.
         QVERIFY2(SfuMediaEngine::firstMissingElement(
                      {QByteArrayLiteral("queue")}).isEmpty(),
                  "the probe reports a present element as missing");
@@ -4649,31 +3758,19 @@ private slots:
                      "a GL element name: %1").arg(missingNow)));
     }
 
-    // The GPU/CPU ladder must not re-point the CAMERA at share policy.
-    //
-    // THIS IS A REGRESSION CASE AND IT FAILED ON THE FIRST VERSION OF THE
-    // LADDER. That version chose the fallback stage as
-    // `useGpu ? shareStage : shareScaleStage(m_shareMaxHeight, false)`, and
-    // `useGpu` is false for EVERY camera publish — so the camera silently
-    // stopped using its own `videoconvert ! videoscale` and started using
-    // the share's, sized by the share's max height. Harmless in effect
-    // today, since the CPU branch ignores the height and the elements are
-    // equivalent, which is exactly why nothing noticed.
+    // The camera keeps its own scale stage (`videoconvert ! videoscale`); the
+    // GPU/CPU ladder's fallback must not substitute the share's stage.
     void theCameraKeepsItsOwnScaleStageWhateverTheShareIsDoing()
     {
-        // The two stages must be DISTINGUISHABLE, or this case cannot fail.
+        // The two stages must be distinguishable, or this case cannot fail.
         const QString shareCpu = SfuMediaEngine::shareScaleStage(2160, false);
         const QString cameraStage = QStringLiteral("videoconvert ! videoscale");
         QVERIFY2(shareCpu != cameraStage,
                  "the share and camera CPU stages became identical, so this "
                  "case can no longer detect the camera being re-pointed");
 
-        // THE DECISION ITSELF, not a description we handed the answer to.
-        // The first version of this case built a description while passing
-        // the camera stage in as an argument — so it asserted that
-        // videoPipelineDescription() uses what it is given, which was never
-        // in doubt, and it PASSED with the bug reintroduced. A mutation
-        // check caught that.
+        // Assert the decision itself, not a description built from a stage
+        // passed in by the test.
         QCOMPARE(SfuMediaEngine::cpuFallbackScaleStage(false, 2160),
                  cameraStage);
         QCOMPARE(SfuMediaEngine::cpuFallbackScaleStage(true, 2160), shareCpu);
@@ -4684,10 +3781,8 @@ private slots:
 
     void shareCapsAndBitrateAreRightAtEveryOfferedQuality()
     {
-        // ALL NINE COMBINATIONS, against the real derivation rather than a
-        // hardcoded copy of the expected string. The two existing caps cases
-        // in this file build their own "[1,1920]"/"[1,1080]" literals, so
-        // they cannot see a regression in this arithmetic.
+        // All nine combinations, against the real derivation rather than
+        // hardcoded strings.
         struct Row { int h; int fps; int w; };
         const QList<Row> rows = {
             { 720, 15, 1280 },  { 720, 30, 1280 },  { 720, 60, 1280 },
@@ -4698,9 +3793,7 @@ private slots:
         for (const Row &r : rows) {
             const QString caps = SfuMediaEngine::shareLimitsCaps(r.h, r.fps);
 
-            // RANGES, or videoscale would upscale a small window to the
-            // ceiling — the "never upscaled" property the pipeline depends
-            // on.
+            // Ranges, or videoscale would upscale a small window.
             QVERIFY2(caps.contains(QStringLiteral("width=(int)[1,%1]")
                                        .arg(r.w)),
                      qPrintable(QStringLiteral("wrong width range at %1p%2: "
@@ -4709,18 +3802,17 @@ private slots:
             QVERIFY2(caps.contains(QStringLiteral("height=(int)[1,%1]")
                                        .arg(r.h)),
                      qPrintable(caps));
-            // FIXED framerate, never a range: a range including 0/1 leaves
-            // vp8enc no rate to plan against.
+            // Fixed framerate: a range including 0/1 leaves vp8enc no rate to
+            // plan against.
             QVERIFY2(caps.contains(QStringLiteral("framerate=(fraction)%1/1")
                                        .arg(r.fps)),
                      qPrintable(caps));
-            // FIXED PAR: an un-fixated PAR is taken to 1/2147483647 and
+            // Fixed PAR: an unfixated PAR is taken to 1/2147483647 and
             // overflows videoscale.
             QVERIFY2(caps.contains(
                          QStringLiteral("pixel-aspect-ratio=(fraction)1/1")),
                      qPrintable(caps));
-            // ASCII digits. The caps go to a C parser, so a localised digit
-            // would not parse at all.
+            // ASCII digits: a localised digit would not parse.
             for (QChar c : caps) {
                 QVERIFY2(!c.isDigit() || (c >= QLatin1Char('0')
                                           && c <= QLatin1Char('9')),
@@ -4728,14 +3820,12 @@ private slots:
             }
 
             const QString enc = SfuMediaEngine::shareEncoderStage(r.h, r.fps);
-            // The keyframe interval is in FRAMES and must track the rate, or
-            // 60 frames means 2 s at 30 fps and 4 s at 15.
+            // The keyframe interval is in frames and must track the rate.
             QVERIFY2(enc.contains(QStringLiteral("keyframe-max-dist=%1")
                                       .arg(2 * r.fps)),
                      qPrintable(enc));
-            // And the bitrate stays inside the band. The ceiling matters:
-            // there is no congestion control on this lane, and end-usage=cbr
-            // pads to hit whatever it is told.
+            // The bitrate stays inside the band: this lane has no congestion
+            // control and end-usage=cbr pads to its target.
             static const QRegularExpression rate(
                 QStringLiteral("target-bitrate=(\\d+)"));
             const QRegularExpressionMatch m = rate.match(enc);
@@ -4747,8 +3837,7 @@ private slots:
                                     .arg(r.h).arg(r.fps)));
         }
 
-        // 1080p30 is the reference and must be unchanged from what shipped,
-        // or every existing share silently changes quality.
+        // 1080p30 is the reference and must not change.
         QVERIFY(SfuMediaEngine::shareEncoderStage(1080, 30)
                     .contains(QStringLiteral("target-bitrate=3000000")));
         QVERIFY(SfuMediaEngine::shareLimitsCaps(1080, 30)
@@ -4757,22 +3846,12 @@ private slots:
 
     void shareAudioIsOfferedOnlyWhenSomethingCanActuallyCaptureIt()
     {
-        // The availability answer must come from the SHIPPED plugin set, not
-        // from the platform macro. Which capture plugin a package carries is
-        // a packaging fact this code cannot see -- Windows stages both wasapi
-        // and wasapi2, and a build could ship neither -- so the question is
-        // asked of GStreamer at runtime.
-        //
-        // The two branches are asserted separately BECAUSE either can be the
-        // truth on a given machine, and a test that only covered the
-        // available branch would silently stop testing anything on a build
-        // without the element.
+        // Availability comes from the plugins actually present, not the
+        // platform macro: a package may ship any subset of capture plugins.
         const bool available = SfuMediaEngine::shareAudioAvailable();
 
-        // Whatever the answer, it must agree with whether an element that
-        // can do the job is actually present. Recomputed here from the
-        // factories rather than copied from the implementation, so the two
-        // can disagree and be caught.
+        // Recomputed from the factories rather than copied from the
+        // implementation, so the two can disagree.
         const char *const kCandidates[] = {
 #if defined(Q_OS_WIN)
             "wasapi2src", "wasapisrc",
@@ -4788,26 +3867,13 @@ private slots:
                 anyPresent = true;
             }
         }
-        // TWO CAPTURES, NOT ONE, since 2026-09-06: per-application capture
-        // does not go through a loopback element at all, and a machine with
-        // PipeWire but no `pulsesrc` can capture perfectly well. Asserting
-        // equality against the loopback list alone was green on every tree
-        // here and red on exactly the configuration the change was written
-        // for — §16's standing shape.
+        // Per-application capture does not use a loopback element, so a
+        // PipeWire machine without `pulsesrc` is also a yes.
         const bool perApplication =
             lightning::shareaudio::perApplicationCaptureAvailable();
-        // AND IT MUST NOT SILENTLY REFUSE ON A MACHINE THAT CAN DO IT.
-        //
-        // The first cut asked GstDeviceMonitor for the class
-        // "Stream/Output/Audio" — but a monitor filter matches a PROVIDER by
-        // the classes it advertises, and the PipeWire provider advertises
-        // Audio/Source, Audio/Sink and Video/Source. So the monitor would not
-        // start, `perApplicationCaptureAvailable()` was false on a live
-        // PipeWire desktop with every plugin present, and every share took
-        // the old echoing path. Nothing failed; the feature was simply inert.
-        //
-        // Conditional on purpose: vacuous on a machine with no PipeWire (CI),
-        // and a real assertion on one that has it.
+        // A device-monitor filter matches a provider by the classes it
+        // advertises, and PipeWire's provider does not advertise
+        // "Stream/Output/Audio". Vacuous without PipeWire (CI), real with it.
         const bool haveProvider =
             gst_device_provider_factory_find("pipewiredeviceprovider")
             != nullptr;
@@ -4838,15 +3904,12 @@ private slots:
                  qPrintable(QStringLiteral(
                      "shareAudioAvailable()=%1 but loopback=%2 perApp=%3")
                      .arg(available).arg(anyPresent).arg(perApplication)));
-        // Neither arm may be vacuous in the direction that matters: whichever
-        // capture this machine has, the answer must be yes.
+        // Whichever capture this machine has, the answer must be yes.
         if (anyPresent || perApplication)
             QVERIFY(available);
 
-        // And the refusal is HONEST when it cannot: publishing share audio
-        // with no peer must add no bin and must not pretend it did. A track
-        // announced to the SFU and never fed is worse than no track, because
-        // the far end renders a participant who is sharing silence.
+        // With no peer, publishing share audio adds no bin: a track announced
+        // and never fed shows the far end a participant sharing silence.
         SfuMediaEngine engine;
         engine.publishShareAudio(QStringLiteral("cid-share-audio"));
         QVERIFY2(!engine.hasPublishedBinForTest(
@@ -4854,6 +3917,9 @@ private slots:
                  "share audio registered a bin without a publisher peer");
     }
 
+    // The window capture element implements set_caps and sizes buffers from
+    // the negotiated caps; downstream reads at the caps' stride, so a buffer of
+    // the window's own size garbles the picture. Source-scanned (Windows-only).
     void theWindowCaptureLearnsTheSizeItNegotiated()
     {
         QFile file(QStringLiteral(SOURCE_DIR "/src/calls/WindowCaptureSrc.cpp"));
@@ -4866,102 +3932,66 @@ private slots:
                  "the element installs no set_caps vfunc, so it cannot learn "
                  "the frame size it negotiated");
 
-        // The buffer's size must come from the NEGOTIATED fields, never from
-        // a fresh measurement of the window.
+        // The buffer size comes from the negotiated fields, never a fresh
+        // measurement of the window.
         QVERIFY2(source.contains(QStringLiteral(
                      "static_cast<gsize>(self->outWidth) * self->outHeight")),
                  "the frame size is no longer computed from the negotiated "
                  "output size");
 
-        // The capture measures the WINDOW rect, because that is what
-        // PrintWindow draws. Sizing a surface to the client rect while
-        // printing the whole window is what put the frame in the top of the
-        // picture and cut the same number of pixels off the bottom.
-        // The CALL form, with its open paren. Banning the bare token matches
-        // the comment that explains why the client rect is wrong, which is
-        // the "a ban regex matching a token named in a COMMENT" trap this
-        // repository has already paid for once.
+        // The capture measures the window rect, because that is what
+        // PrintWindow draws. Match the call form, since a comment may name
+        // the bare token.
         QVERIFY2(!source.contains(QStringLiteral("GetClientRect(")),
                  "the capture is measuring the client rect again while "
                  "PrintWindow draws the whole window");
 
-        // And the fit is the shared rule, not a pair of clamps written here.
+        // The fit uses the shared rule.
         QVERIFY2(source.contains(QStringLiteral("wincap::fitInto(")),
                  "the element no longer uses the shared fitting rule");
     }
-    // ── The camera's MJPG entry ──────────────────────────────────────────
-    //
-    // A USB camera advertises image/jpeg beside raw, and MJPG is the only
-    // mode that fits 720p30 through USB 2.0 — raw YUY2 at 1280x720 is
-    // 18.4 MB/s and negotiates down to 10 fps, which is the reported Windows
-    // camera defect. The raw entry filter sits directly after the source, so
-    // image/jpeg cannot satisfy the first element downstream and no MJPG mode
-    // can ever be chosen.
+    // The camera's MJPG entry: MJPG is the only mode that fits 720p30 through
+    // USB 2.0, and it can only be chosen if the first element downstream of
+    // the source accepts image/jpeg.
     void theCameraJpegEntryDecodesExplicitlyAndKeepsThePixelAspectPin()
     {
         const QString entry = SfuMediaEngine::cameraJpegEntry();
 
-        // It must ACCEPT image/jpeg at the top, or the source cannot offer an
-        // MJPG mode in the first place — which is the whole defect.
+        // It must accept image/jpeg, or the source cannot offer MJPG.
         QVERIFY2(entry.contains(QStringLiteral("image/jpeg")),
                  "the camera entry does not accept MJPG, so a camera still "
                  "cannot negotiate one");
 
-        // EXPLICIT jpegdec, never decodebin. decodebin here is refuted with
-        // evidence (§16): it builds, then logs "Delayed linking failed" and
-        // the capture dies of an internal data stream error, because its pads
-        // appear only once data flows. jpegdec has static pads and links at
-        // parse time.
+        // Explicit jpegdec, never decodebin: decodebin's pads appear only once
+        // data flows, so delayed linking fails and the capture dies.
         QVERIFY2(entry.contains(QStringLiteral("jpegdec")),
                  "the MJPG entry does not decode explicitly");
         QVERIFY2(!entry.contains(QStringLiteral("decodebin")),
                  "decodebin is refuted for this chain — delayed linking kills "
                  "the capture; use jpegdec, which links at parse time");
 
-        // The PAR pin has to survive the decode. A source that fixates no
-        // pixel-aspect-ratio of its own hands videoscale a range whose
-        // minimum is 1/2147483647, and that is an integer overflow rather
-        // than a squashed picture.
+        // The PAR pin survives the decode (an unfixated PAR overflows
+        // videoscale).
         QVERIFY2(entry.contains(
                      QStringLiteral("pixel-aspect-ratio=(fraction)1/1")),
                  "the MJPG entry dropped the pixel-aspect-ratio pin that the "
                  "raw entry applies");
 
-        // And it ends in raw video, because everything downstream — the scale
-        // stage, the rate stage, the encoder — expects that.
+        // It ends in raw video, which everything downstream expects.
         QVERIFY(entry.contains(QStringLiteral("video/x-raw")));
     }
 
-    // WINDOWS MUST PREFER THE CAPTURE THAT LEAVES US OUT.
-    //
-    // Reported repeatedly: sharing a screen with sound sends the other
-    // participants their own voices back. On Linux that was fixed by
-    // capturing each playing application and excluding this process; Windows
-    // kept `wasapi2src loopback=true`, which is the endpoint mix and cannot
-    // leave a contributor out, so the echo simply stayed there.
-    //
-    // WASAPI can do it at the OS level: `loopback-mode=exclude-process-tree`
-    // with `loopback-target-pid` set captures everything except the named
-    // process tree. Read out of the shipped element's own source rather than
-    // assumed, including the part that makes it easy to get wrong: the mode
-    // is only consulted when the PID is non-zero, so naming the enum without
-    // the pid silently does nothing at all.
-    //
-    // This is a source contract rather than a behaviour test because
-    // `wasapi2src` does not exist on the machine that runs CI here, so the
-    // selection cannot be exercised. What it pins is the part a later edit
-    // could quietly undo: that the excluding entry comes FIRST, and that it
-    // carries both halves.
+    // Windows share audio prefers `wasapi2src` with
+    // `loopback-mode=exclude-process-tree` and our pid, so participants do not
+    // hear themselves back. The mode is ignored unless the pid is non-zero.
+    // Source contract: wasapi2src is not available on CI.
     void windowsShareAudioPrefersExcludingOurOwnProcess()
     {
         const QByteArray src = SOURCE_UNDER_TEST;
         QVERIFY2(!src.isEmpty(), "engine source unreadable");
 
-        // KEYED ON THE CANDIDATE ENTRIES, NOT ON PROSE. The first cut of
-        // this test searched for "loopback-mode=exclude-process-tree" and
-        // matched the COMMENT above the table, so reordering the entries left
-        // it passing. A source scan that can match its own explanation is not
-        // a test; these two strings appear only in the table itself.
+        // Keyed on the table entries themselves, not on prose a comment could
+        // also contain.
         const int excluding = src.indexOf("{ \"wasapi2src\", \"loopback-target-pid\"");
         const int plain = src.indexOf("{ \"wasapi2src\", \"loopback\",");
         QVERIFY2(excluding >= 0,
@@ -4975,8 +4005,7 @@ private slots:
                  "that excludes us, so every Windows share takes the echoing "
                  "path");
 
-        // The enum without the pid is a no-op in the element, so both must
-        // be present and the pid must be interpolated, not a literal.
+        // The enum without the pid is a no-op, so the pid must be interpolated.
         const int pidProp = src.indexOf("loopback-target-pid=%1", excluding);
         QVERIFY2(pidProp > excluding && pidProp < plain,
                  "exclude-process-tree is set without a target pid, which the "
@@ -4987,30 +4016,13 @@ private slots:
                  "exclude mode");
     }
 
-    // A SHARE-AUDIO BRANCH MUST PARSE ON ITS OWN, and this is the only test
-    // that can tell. ShareAudioSourcesTest links Qt6::Core alone by design,
-    // so every assertion it makes about these descriptions is a string
-    // comparison — and a string comparison cannot see that GStreamer refuses
-    // the string.
-    //
-    // FOUND LIVE 2026-09-07, during a real two-party call with a screen
-    // share: `share audio: could not build a branch for a new application:
-    // no element "audio"`, once for every application that started playing
-    // during the share. The branch ended in a bare `! audio/x-raw,...`, which
-    // parses only when something follows it — mixedSourceDescription() always
-    // appends `! sharemixer.`, so the initial set built fine and hid it,
-    // while the dynamic path in rescanShareAudioSources() passes the branch
-    // to gst_parse_bin_from_description() with nothing after it and GStreamer
-    // reads the caps as an element name.
-    //
-    // FAIL-ON-OLD: with the trailing `capsfilter` replaced by the bare caps,
-    // the first QVERIFY2 below fails with that exact message.
+    // A share-audio branch parses on its own, as rescanShareAudioSources()
+    // builds it for an application that starts playing mid-share. Bare
+    // trailing caps parse only when something follows them.
     void aShareAudioBranchParsesStandaloneTheWayTheDynamicPathBuildsIt()
     {
-        // Same gate as the composition case below, and for the same reason:
-        // `pipewiresrc` is a separate package, so a host with `webrtcbin` and
-        // without it would fail here with a parse error that says nothing
-        // about the regression being guarded.
+        // `pipewiresrc` is a separate package; skip rather than fail with an
+        // unrelated parse error.
         for (const char *needed : { "pipewiresrc", "queue", "audioconvert",
                                     "audioresample", "capsfilter" }) {
             GstElementFactory *factory = gst_element_factory_find(needed);
@@ -5026,8 +4038,8 @@ private slots:
             lightning::shareaudio::applicationBranchDescription(s, 0);
         QVERIFY(!branch.isEmpty());
 
-        // Exactly what SfuMediaEngine::rescanShareAudioSources() does when an
-        // application starts playing while a share is already running.
+        // As rescanShareAudioSources() does when an application starts playing
+        // during a share.
         GError *error = nullptr;
         GstElement *bin = gst_parse_bin_from_description(
             branch.toUtf8().constData(), TRUE, &error);
@@ -5045,9 +4057,7 @@ private slots:
                      "during a share is silently left out of it")
                      .arg(message)));
 
-        // And the whole description still parses, which is the path that was
-        // already working; asserted here so a fix to one cannot break the
-        // other.
+        // The whole description still parses.
         const QString whole = lightning::shareaudio::mixedSourceDescription(
             { s }) + QStringLiteral(" ! fakesink");
         GError *wholeError = nullptr;
@@ -5064,36 +4074,14 @@ private slots:
         QVERIFY2(wholeMessage.isEmpty(), qPrintable(wholeMessage));
     }
 
-    // THE STRING PRODUCTION PUBLISHES, NOT ONE THAT RESEMBLES IT.
-    //
-    // The test above appends `" ! fakesink"` to the mixed description and
-    // proved the mixer chain is well formed. `publishShareAudio()` appended
-    // something else entirely — `" name=sharesrc ! queue ! …"` — and a
-    // description ending in a pad REFERENCE takes no assignment: GStreamer
-    // answers `unexpected reference "shareaudiomix" - ignoring` and the bin
-    // is never built. So per-application share audio could not work on ANY
-    // machine where the device monitor starts, which is every PipeWire
-    // desktop, and no test could see it because none of them composed what
-    // production composed.
-    //
-    // Reported from a 0.9.5 flatpak on 2026-09-14: choosing a screen to
-    // share dropped the reporter out of the call, with
-    // `share audio pipeline parse failed: referência inesperada
-    // "shareaudiomix"` in their log.
-    //
-    // FAIL-ON-OLD: restoring `name=sharesrc` into encodedTrackDescription's
-    // format string fails this with that exact message.
+    // The share-audio track as publishShareAudio() composes it parses. A
+    // description ending in a pad reference takes no `name=` assignment, so
+    // appending one breaks the whole bin.
     void theWholeShareAudioTrackParsesTheWayPublishShareAudioComposesIt()
     {
-        // THE ELEMENTS THIS CASE NEEDS, named individually. The suite-wide
-        // gate only requires `webrtcbin`; a host that has it but is missing
-        // one of these would fail here with a parse error that says nothing
-        // about the regression being guarded, which is how a skip becomes a
-        // false alarm. Same discipline as the vp8 and pipewiresrc skips
-        // elsewhere in this file.
-        // `pipewiresrc` is in the list because it is the one most likely to
-        // be absent: the others ship in gst-plugins-base/good, and it is a
-        // separate package. `mixedSourceDescription` emits one per stream.
+        // Name each needed element: the suite gate only requires webrtcbin,
+        // and a missing plugin should skip, not fail with an unrelated parse
+        // error. `pipewiresrc` is the most likely to be absent.
         for (const char *needed : { "audiomixer", "audiotestsrc", "audioconvert",
                                     "audioresample", "capsfilter", "valve",
                                     "opusenc", "rtpopuspay", "pipewiresrc" }) {
@@ -5121,9 +4109,8 @@ private slots:
             return message;
         };
 
-        // THE PER-APPLICATION PATH — the one that was broken. Two streams
-        // and none, because a share that starts before anything is playing
-        // is the ordinary case and carries the silence floor alone.
+        // Per-application path, with two streams and with none (a share that
+        // starts before anything plays carries only the silence floor).
         lightning::shareaudio::Stream other;
         other.serial = QStringLiteral("307");
         for (const QList<lightning::shareaudio::Stream> &streams :
@@ -5144,9 +4131,8 @@ private slots:
                          .arg(streams.size()).arg(message)));
         }
 
-        // AND THE SINGLE-ELEMENT PATH still composes, which is what every
-        // fallback source (pulsesrc, wasapi2src, the test source) is. It was
-        // never broken; asserted so a fix to one cannot break the other.
+        // The single-element path (pulsesrc, wasapi2src, test source) still
+        // composes.
         const QString single = lightning::shareaudio::encodedTrackDescription(
             QStringLiteral("audiotestsrc name=sharesrc is-live=true "
                            "wave=silence"),
@@ -5154,11 +4140,8 @@ private slots:
         QVERIFY2(parseFailure(single).isEmpty(),
                  qPrintable(parseFailure(single)));
 
-        // THE CAPTURE ELEMENT MUST NAME ITSELF. Nothing appends
-        // `name=sharesrc` any more, and `handleBusMessage` recognises a
-        // device that will not open by that name — so a candidate that drops
-        // it silently loses the one warning that says the microphone or the
-        // loopback device was already held by something else.
+        // Each capture candidate names itself `sharesrc`: handleBusMessage
+        // recognises a device that will not open by that name.
         const QByteArray src = SOURCE_UNDER_TEST;
         QVERIFY2(!src.isEmpty(), "engine source unreadable");
         for (const char *element :
@@ -5173,53 +4156,29 @@ private slots:
         }
     }
 
-    /// A KEY THAT REACHED NOBODY MUST NOT BECOME THE KEY WE ENCRYPT UNDER.
-    ///
-    /// Measured live 2026-09-16: a call rotated to index 4 with
-    /// `targets= 0 sfuPeers= 0` while the room membership on the very next log
-    /// line still read two participants. The send was never dispatched, the
-    /// engine adopted the key anyway, and every frame after that was encrypted
-    /// under a key the peer had never received. Element reported "media from
-    /// someone here cannot be decrypted"; this side reported
-    /// `frames encrypted ... dropped= 0` the whole time, which is why it read
-    /// as a mystery rather than a key bug.
-    ///
-    /// FAIL-ON-OLD: drop the `if (adopt)` guard around setCurrentKeyIndex() in
-    /// SfuMediaEngine::setOutboundKey and the middle QCOMPARE reads 2.
+    /// A key that reached nobody is installed but not adopted for encryption;
+    /// otherwise every later frame is encrypted under a key no peer has.
     void anUndeliveredKeyIsInstalledButNotAdopted()
     {
         SfuMediaEngine engine;
-        // The first key of a call is undeliverable by definition -- nobody
-        // else has joined yet -- and must still be adopted, or we encrypt
-        // under nothing at all.
+        // The first key of a call is undeliverable (nobody else has joined)
+        // and must still be adopted.
         engine.setOutboundKey(1, QByteArray(32, 'a'));
         QCOMPARE(engine.adoptedOutboundKeyIndexForTest(), 1);
 
-        // The defect: a rotation that reached nobody while a peer still holds
-        // index 1. The key is installed in the ring, but we keep sending
-        // under the one somebody can actually read.
+        // A rotation that reached nobody while a peer holds index 1: installed
+        // in the ring, but we keep sending under index 1.
         engine.setOutboundKey(2, QByteArray(32, 'b'), /*adopt=*/false);
         QCOMPARE(engine.adoptedOutboundKeyIndexForTest(), 1);
 
-        // And once a distribution really reaches someone, we move.
+        // Once a distribution reaches someone, we move.
         engine.setOutboundKey(3, QByteArray(32, 'c'), /*adopt=*/true);
         QCOMPARE(engine.adoptedOutboundKeyIndexForTest(), 3);
     }
 
-    // 2026-09-23 — THE SFU'S OWN FRAMES ARE NOT A DECRYPTION FAILURE.
-    //
-    // livekit-server injects 50 unencrypted Opus silence frames into an
-    // encrypted track when its publisher mutes, each ending in the room's
-    // `sif_trailer`. This probe used to fail every one as `bad-iv-length`
-    // (keyIndex = the trailer's last byte), spend the stream's diagnosis line
-    // on it, and count all 50 toward the "cannot be decrypted" badge -- which
-    // a DTX-sparse stream then tips over 90%: five real frames and a mute is
-    // 50 of 55. Driven through the REAL probe.
-    //
-    // MUTATION-PROVEN (2026-09-23): with the classification in cryptoProbe()
-    // disabled this fails at framesServerInjected (0); with injected frames
-    // counted but still fed to the badge window it fails at the badge
-    // assertion ("raised the badge: undecryptable").
+    // livekit-server injects unencrypted Opus silence frames ending in the
+    // room's `sif_trailer` when a publisher mutes. They are dropped apart,
+    // not counted as decryption failures and never fed to the badge window.
     void aServerInjectedBurstIsDroppedApartAndNeverBadges()
     {
         SfuMediaEngine engine;
@@ -5230,9 +4189,8 @@ private slots:
         engine.setServerInjectedTrailer(roomTrailer());
         QCOMPARE(engine.serverInjectedTrailer(), roomTrailer());
 
-        // A sender under the SAME key at index 82, so every real frame ends
-        // in 'R' exactly as the trailer does: only an exact match separates
-        // them.
+        // Real frames under index 82 also end in 'R', so only an exact trailer
+        // match separates them.
         CallFrameCryptor sender;
         QVERIFY(sender.setKey(82, key));
         sender.setCurrentKeyIndex(82);
@@ -5258,8 +4216,8 @@ private slots:
                                            "counted as drops: %1\n%2")
                                 .arg(engine.framesDropped())
                                 .arg(log.text())));
-        // Dropped, NOT handed to the decoder: the SFU is outside the trust
-        // boundary and nothing here whitelists its payloads.
+        // Dropped, not handed to the decoder: the SFU is outside the trust
+        // boundary.
         QCOMPARE(rig.passed(), 5);
         QVERIFY2(!log.contains("will not DECRYPT"),
                  qPrintable(log.text()));
@@ -5272,8 +4230,8 @@ private slots:
                          "a mute's injected frames raised the badge: %1")
                                     .arg(call.at(1).toString())));
         }
-        // Positive control: the same harness DOES see a raise when frames
-        // really fail, so the silence above is not a dead signal path.
+        // Positive control: the harness does see a raise when frames really
+        // fail.
         {
             QSignalSpy control(&engine, &SfuMediaEngine::remoteMediaBlocked);
             DecryptProbeRig failing(engine, stream);
@@ -5286,9 +4244,8 @@ private slots:
                      QStringLiteral("undecryptable"));
         }
 
-        // The burst length and the histogram reach the log when the stream
-        // ends -- a muted sender sends nothing after the burst, so no later
-        // frame would ever write them.
+        // The burst summary is logged when the stream ends, since a muted
+        // sender sends nothing afterwards.
         rig.finish();
         QVERIFY2(log.contains("server-injected burst")
                      && log.text().contains(QRegularExpression(
@@ -5299,9 +4256,8 @@ private slots:
                  qPrintable(log.text()));
     }
 
-    // CONTROL: the SAME frames with NO trailer armed still fail exactly as
-    // the 2026-09-23 report did. Without this the case above could pass on a
-    // probe that simply stopped looking at failures.
+    // Control: the same frames with no trailer armed still fail as
+    // bad-iv-length.
     void withoutATrailerTheSameFramesStillFailAsBadIvLength()
     {
         SfuMediaEngine engine;
@@ -5323,8 +4279,8 @@ private slots:
         QVERIFY2(log.contains("will not DECRYPT: reason= bad-iv-length "
                               "keyIndex= 82"),
                  qPrintable(log.text()));
-        // The new detail line names the shape a capture needs: the LiveKit
-        // silence payload, a base62 tail, and a trailer that was not armed.
+        // The detail line names the LiveKit silence payload, a base62 tail and
+        // an unarmed trailer.
         QVERIFY2(log.text().contains(QRegularExpression(QStringLiteral(
                      "decrypt failed detail .*reason= bad-iv-length size= 123 "
                      "ivLenByte= \\d+ keyIndexByte= 82 .*silenceShape= true "
@@ -5335,7 +4291,8 @@ private slots:
         QCOMPARE(log.count("decrypt failed detail"), 6);
     }
 
-    // AN OVERSIZED OR ABSENT TRAILER DISARMS; A CALL'S TRAILER DIES WITH IT.
+    // An oversized or absent trailer disarms; the trailer is cleared with the
+    // call's keys.
     void theTrailerIsBoundedAndClearedWithTheKeys()
     {
         SfuMediaEngine engine;
@@ -5372,10 +4329,7 @@ private slots:
         QVERIFY(engine.serverInjectedTrailer().isEmpty());
     }
 
-    // ONE DIAGNOSIS LINE PER FAILURE REASON, not one per stream. The first
-    // failure used to spend the only line, so a later failure of a DIFFERENT
-    // kind -- which sends a reader somewhere else entirely -- was never
-    // named. FAIL-ON-OLD: the `no-key-for-index` line is missing.
+    // One diagnosis line per failure reason, not per stream.
     void eachFailureReasonGetsItsOwnDiagnosisLine()
     {
         SfuMediaEngine engine;
@@ -5406,8 +4360,7 @@ private slots:
     }
 
     // Key arrivals have their own bounded log and do not use up the shared
-    // once-per-subject diagnosis set (512 entries). FAIL-ON-OLD: 600
-    // arrivals filled it and the bind diagnosis below was never logged.
+    // once-per-subject diagnosis set (512 entries).
     void keyArrivalsDoNotSilenceOtherDiagnoses()
     {
         LogCapture log;
@@ -5428,9 +4381,8 @@ private slots:
                  "key arrivals used up the diagnosis set");
     }
 
-    // AN ELEMENT PEER'S KEY AT INDEX 200 DECRYPTS ITS FRAMES, END TO END
-    // through the engine's ring and the real probe. FAIL-ON-OLD: the ring
-    // refused index 200 ("REFUSED by the cryptor") and every frame dropped.
+    // An Element peer's key at index 200 decrypts its frames end to end
+    // through the engine's ring and the real probe.
     void aSenderKeyedAtIndex200IsDecryptedThroughTheProbe()
     {
         SfuMediaEngine engine;

@@ -1,29 +1,12 @@
-// Gap test G2 (0.6.5 design round, Wave 2): pins the SettingsScreen own-
-// session verification-card visibility complement that the c259b60 fix
-// established but never had a dedicated test for. Before that fix, a
-// verification failure raised before a flow id existed (no cross-signing
-// identity, a failed request send, not signed in) landed in the hidden
-// "active flow" card while the "start" row's condition also hid it — an
-// invisible failure with no visible feedback at all. The fix made the two
-// conditions exact complements of `verificationActive`/`verificationState`,
-// and gave Cancel a negatively-defined visibility so a newly added
-// non-terminal state can never silently lose the only escape hatch again.
+// SettingsScreen own-session verification visibility. Whenever no flow is
+// running, exactly one start affordance is visible: the trust card's on
+// crypto-supporting backends, the legacy "Verify this session" row
+// otherwise, never both. The flow presentation is the exact complement, so a
+// failure raised before a flow id exists is still shown, and Cancel has a
+// negatively defined visibility so a new non-terminal state cannot lose it.
 //
-// v0.6.5 (Wave 2 integration): the new sessionsTrustCard (SPEC 1r) embeds its
-// own Verify start affordance (TrustCard.showVerify), gated on crypto-
-// backend support. That made the legacy "Verify this session" row's start
-// condition ADD a third clause — `&& !(app.cryptoHealth &&
-// app.cryptoHealth.cryptoSupported)` — so it only covers backends without
-// the card. The complement invariant this test pins is therefore no longer
-// "the start row and the flow card are exact complements of each other" in
-// isolation; it is "exactly one start affordance is visible whenever no
-// flow is running — the trust card's on crypto-supporting backends, the
-// legacy row otherwise, never both". The flow-card and Cancel predicates
-// are unchanged.
-//
-// This scans against the PREDICATES with whitespace/formatting collapsed to
-// single spaces — never exact indentation — so it survives incidental
-// reflow.
+// Predicates are compared with whitespace collapsed, so reflow does not
+// matter.
 #include <QFile>
 #include <QRegularExpression>
 #include <QtTest>
@@ -40,9 +23,7 @@ private:
         return QString::fromUtf8(f.readAll());
     }
 
-    // Collapse all whitespace (spaces, tabs, newlines, indentation) to single
-    // spaces so a predicate wrapped, re-indented, or reflowed by the ongoing
-    // restyle still matches — only the boolean predicate text itself is
+    // Collapse all whitespace to single spaces so only the predicate text is
     // pinned, never its formatting.
     static QString normalized(const QString &s)
     {
@@ -59,11 +40,8 @@ private Q_SLOTS:
         QVERIFY2(!src.isEmpty(), "could not read SettingsScreen.qml");
         const QString norm = normalized(src);
 
-        // The legacy "Verify this session" row is hidden whenever a flow is
-        // active or has ever produced a non-empty state (never shown at the
-        // same time as the flow card below), AND ALSO whenever the new
-        // sessionsTrustCard already offers its own Verify affordance for
-        // this backend — the two start controls must never coexist.
+        // The legacy row is hidden whenever a flow is active or has a state,
+        // and whenever the trust card offers its own Verify for this backend.
         const QString startRow = normalized(QStringLiteral(
             "visible: !app.verificationActive "
             "&& app.verificationState === \"\" "
@@ -74,19 +52,15 @@ private Q_SLOTS:
                  "the flow-card complement ANDed with the trust-card's "
                  "crypto-backend gate");
 
-        // v0.7.x: the flow PRESENTATION moved out of this page into the
-        // shared focused modal (VerificationDialog + VerificationPanel), so
-        // the remaining two predicates are pinned in their new homes. The
-        // invariants are unchanged — only the file they live in moved.
+        // The flow presentation lives in the shared modal (VerificationDialog
+        // + VerificationPanel), so its predicates are pinned there.
         const QString dialogSrc =
             read(QStringLiteral(QML_DIR "/VerificationDialog.qml"));
         QVERIFY2(!dialogSrc.isEmpty(), "could not read VerificationDialog.qml");
         const QString dialogNorm = normalized(dialogSrc);
 
-        // The flow presentation is the EXACT complement of the start row:
-        // any non-empty state OR an active flow shows it. This is the
-        // c259b60 fix itself — a failure raised before a flow id existed
-        // used to satisfy neither condition and vanish silently.
+        // The flow presentation is the exact complement of the start row: any
+        // non-empty state or an active flow shows it.
         const QString flowPresent = normalized(QStringLiteral(
             "readonly property bool flowPresent: "
             "app.verificationActive || app.verificationState !== \"\""));
@@ -95,14 +69,9 @@ private Q_SLOTS:
                  "this must stay the exact complement of the start row's "
                  "condition");
 
-        // And it must actually DRIVE the dialog: a predicate nothing opens
-        // on would satisfy the scan above while showing the user nothing.
-        //
-        // The handler MIRRORS flowPresent (open AND close). An edge-only
-        // "open if present" latched: terminal states leave the state string
-        // set, so flowPresent stayed true and a dialog the user closed could
-        // never reopen — not even for an incoming request from another
-        // client. Pinning the mirror shape keeps that from coming back.
+        // And it must drive the dialog, mirroring flowPresent (open and
+        // close): terminal states keep the state string set, so an edge-only
+        // open would leave a closed dialog unable to reopen.
         QVERIFY2(dialogNorm.contains(normalized(QStringLiteral(
                      "onFlowPresentChanged: _syncOpenState()"))),
                  "VerificationDialog must track flowPresent, not just its "
@@ -112,10 +81,8 @@ private Q_SLOTS:
                  "_syncOpenState must CLOSE when the flow state clears, or "
                  "Dismiss leaves the dialog open on an empty panel");
 
-        // flowIsLive must come from the state string alone. AppController
-        // keeps the flow id set at done/cancelled/failed, so ORing
-        // verificationActive in made a finished flow look live: no close
-        // affordance and closePolicy stuck at NoAutoClose.
+        // flowIsLive comes from the state string alone: the flow id stays set
+        // at done/cancelled/failed.
         QVERIFY2(!dialogNorm.contains(normalized(QStringLiteral(
                      "readonly property bool flowIsLive: "
                      "app.verificationActive"))),
@@ -140,9 +107,8 @@ private Q_SLOTS:
                  "as a positive list of in-progress states");
     }
 
-    // v0.7.x: the verification NUDGES are dismissible, and dismissal must
-    // silence only the badges — never the Sessions page's statement of fact,
-    // and never by claiming the session is verified.
+    // Dismissing the verification nudges silences only the badges, never the
+    // Sessions page's statement, and never claims the session is verified.
     void verificationWarningIsDismissibleAndBadgeScoped()
     {
         const QString rail = read(QStringLiteral(QML_DIR "/SpacesRail.qml"));

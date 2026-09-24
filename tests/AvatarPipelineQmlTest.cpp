@@ -1,16 +1,12 @@
-// v0.7: avatar pipeline suite. Renders the production Avatar.qml through the
-// real MediaBridge + MediaImageProvider stack (fake network only) and proves
-// the explicit result states:
-//   * loading shows the circular skeleton — no initials flash, no random
-//     colour flash;
-//   * a successfully decoded avatar renders over a TRANSPARENT background:
-//     transparent pixels reveal the surrounding surface, never the generated
-//     fallback colour (the live regression: a pink disk behind a transparent
-//     PNG);
-//   * missing/failed avatars show the deterministic per-identity initials
-//     fallback, keyed on the stable user id so a late display-name
-//     resolution cannot recolour the person;
-//   * an avatar URL change resets cleanly (no stale bitmap, fresh states).
+// Avatar pipeline: renders the production Avatar.qml through the real
+// MediaBridge + MediaImageProvider stack (fake network only) and checks the
+// result states:
+//   * loading shows the circular skeleton, with no initials or colour flash;
+//   * a decoded avatar renders over a transparent background: transparent
+//     pixels reveal the surrounding surface, never the fallback colour;
+//   * missing or failed avatars show initials coloured by the stable user id,
+//     so a late display-name resolution cannot recolour the person;
+//   * an avatar URL change resets cleanly (no stale bitmap).
 #include <QtTest/QtTest>
 
 #include <QBuffer>
@@ -111,11 +107,9 @@ private:
     MediaBridge *m_bridge;
 };
 
-// A synthetic avatar whose LEFT half is opaque red and whose RIGHT half is
-// fully transparent, with a soft alpha edge between them. After circular
-// masking, the transparent right half sits INSIDE the visible circle — the
-// exact shape that exposed the fallback colour behind a real transparent
-// PNG.
+// A synthetic avatar: left half opaque red, right half fully transparent,
+// with a soft alpha edge. After circular masking the transparent half sits
+// inside the visible circle.
 QByteArray halfTransparentPng(int edge)
 {
     QImage image(edge, edge, QImage::Format_ARGB32);
@@ -172,9 +166,8 @@ private:
         QStringList warnings;
     };
 
-    // Core stack without any Avatar yet: needed by the tests that must
-    // manipulate the bridge (pre-marked failures) or spawn several Avatars
-    // against ONE bridge (canonical-fetch sharing, churn soak).
+    // Core stack without an Avatar: for tests that manipulate the bridge
+    // (pre-marked failures) or spawn several Avatars against one bridge.
     bool prepareCore(Harness &h)
     {
         h.client = std::make_unique<FakeClient>();
@@ -201,8 +194,7 @@ private:
         QSignalSpy createdSpy(h.engine.get(),
                               &QQmlApplicationEngine::objectCreated);
         // Initial properties mirror production: the delegate binds
-        // mxc/name/colorKey declaratively before Component.onCompleted runs
-        // its first refresh().
+        // mxc/name/colorKey before Component.onCompleted's first refresh().
         h.engine->setInitialProperties({
             { QStringLiteral("size"), size },
             { QStringLiteral("name"), name },
@@ -231,8 +223,7 @@ private:
         return prepareCore(h) && loadAvatar(h, size, mxc, name, colorKey);
     }
 
-    // Additional Avatar instances against the SAME engine/bridge (delegate
-    // churn, shared-fetch tests).
+    // Additional Avatar instances against the same engine and bridge.
     static QQuickItem *spawnAvatar(Harness &h, QQmlComponent &component,
                                    int size, const QString &mxc,
                                    const QString &name,
@@ -260,9 +251,8 @@ private:
         return h.avatar->property("presentationState").toString();
     }
 
-    // v0.7.1: every avatar identity is fetched at ONE canonical edge
-    // regardless of the requested render size, so there is exactly one
-    // fetch per identity; the helper keeps its call shape for clarity.
+    // Every avatar identity is fetched at one canonical edge regardless of
+    // render size, so there is one fetch per identity.
     static int finalEdgeFetchIndex(const Harness &h, const QString &mxc,
                                    int size)
     {
@@ -276,9 +266,8 @@ private:
     }
 
 private Q_SLOTS:
-    // The core live regression: a decoded avatar with transparent pixels
-    // must reveal the surrounding surface, not the generated fallback
-    // colour, at every common avatar size.
+    // A decoded avatar's transparent pixels reveal the surrounding surface,
+    // not the fallback colour, at every common size.
     void transparentAvatarRevealsSurfaceNotFallback()
     {
         for (int size : { 24, 32, 48 }) {
@@ -312,20 +301,20 @@ private Q_SLOTS:
                 return QColor(frame.pixel(int((20 + x) * dpr),
                                           int((20 + y) * dpr)));
             };
-            // Inside the circle, transparent half → the window surface.
+            // Inside the circle, transparent half: the window surface.
             const QColor rightInside = sample(size * 0.72, size * 0.5);
             QVERIFY2(colorsClose(rightInside, kSurface),
                      qPrintable(QStringLiteral(
                          "size %1: transparent avatar region was %2, expected "
                          "the surface colour %3 (fallback fill leaked through)")
                          .arg(size).arg(rightInside.name(), kSurface.name())));
-            // Inside the circle, opaque half → the avatar's own pixels.
+            // Inside the circle, opaque half: the avatar's own pixels.
             const QColor leftInside = sample(size * 0.3, size * 0.5);
             QVERIFY2(colorsClose(leftInside, QColor(220, 30, 30), 40),
                      qPrintable(QStringLiteral(
                          "size %1: opaque avatar region was %2")
                          .arg(size).arg(leftInside.name())));
-            // Outside the circle (corner) → the surface, no square backing.
+            // Outside the circle (corner): the surface, no square backing.
             const QColor corner = sample(1, 1);
             QVERIFY2(colorsClose(corner, kSurface),
                      qPrintable(QStringLiteral(
@@ -335,23 +324,11 @@ private Q_SLOTS:
         }
     }
 
-    // No avatar at all → deterministic initials fallback keyed on the
-    // stable identity: the same user id keeps the same colour even when the
-    // visible name changes (MXID → resolved display name).
-    // ── THE LAST KNOWN PICTURE, FOR THE ROWS THE BRIDGE CANNOT SERVE ────
-    //
-    // `MediaBridge` fetches through whichever client is ACTIVE, so an
-    // INACTIVE account's avatar is not slow to arrive — it cannot arrive at
-    // all, because its bytes live on that account's homeserver. Every row
-    // but one in the account switcher therefore fell back to initials for
-    // ever, and even the live account showed initials for the first moments
-    // of every launch, because the media cache is a QHash in RAM and
-    // nothing persisted it.
-    //
-    // Asserted on the STORE rather than through a rendered row, because the
-    // rendering half is `Avatar.fallbackSource` and is covered by the
-    // component's own contract; what had to exist first is a picture that
-    // survives the process.
+    // The last known avatar per account is persisted. MediaBridge fetches
+    // through the active client, so an inactive account's avatar cannot be
+    // fetched at all, and the in-memory media cache is empty at launch.
+    // Asserted on the store; rendering it is Avatar.fallbackSource's own
+    // contract.
     void aStoredAvatarSurvivesTheProcessAndIsForgottenWithTheAccount()
     {
         QTemporaryDir home;
@@ -364,11 +341,9 @@ private Q_SLOTS:
                  "an account with nothing stored must report nothing, so the "
                  "row keeps its honest initials");
 
-        // A real PNG: the store refuses anything that is not a raster image
-        // this client already accepts, by SHAPE and not by a list of
-        // spellings (§6 — an image-class payload beginning with '<' is
-        // markup, and listing the spellings tells an attacker what to
-        // avoid).
+        // A real PNG: the store accepts only raster images this client already
+        // accepts, judged by shape, not by a list of spellings (an image-class
+        // payload starting with '<' is markup).
         QImage image(8, 8, QImage::Format_ARGB32);
         image.fill(Qt::red);
         QByteArray png;
@@ -384,27 +359,25 @@ private Q_SLOTS:
         const QString url = store.avatarUrlFor(uid);
         QVERIFY2(url.startsWith(QStringLiteral("file://")),
                  qPrintable(QStringLiteral("not a local file url: %1").arg(url)));
-        // A SECOND STORE, reading what the first wrote: this is the whole
-        // property — the picture outlives the object that fetched it.
+        // A second store reads what the first wrote: the picture outlives the
+        // object that fetched it.
         AccountAvatarStore reopened;
         QCOMPARE(reopened.avatarUrlFor(uid), url);
 
-        // REFUSALS. Markup, an over-cap payload and an unusable id are all
-        // declined rather than written, and `store` reports false so a
-        // caller can tell "stored" from "declined".
+        // Markup, an over-cap payload and an unusable id are declined, and
+        // `store` returns false so callers can tell "declined" from "stored".
         QVERIFY2(!store.store(uid, QByteArray("<svg xmlns=\"http://x\"></svg>")),
                  "markup was accepted as an avatar");
         QVERIFY2(!store.store(uid, QByteArray(AccountAvatarStore::kMaxBytes + 1, '\x89')),
                  "an over-cap payload was accepted");
         QVERIFY2(!store.store(QStringLiteral("not-a-user-id"), png),
                  "an unusable account id produced a file");
-        // …and none of them replaced the good picture.
+        // ...and none replaced the good picture.
         QCOMPARE(store.avatarUrlFor(uid), url);
 
-        // SIGNING OUT TAKES IT. The store is app-level on purpose — reading
-        // account B's picture while A is live is the entire point — so it is
-        // NOT swept by the account-directory removal and must be told (§6:
-        // sign-out must not leave the account's data on disk).
+        // Sign-out removes it. The store is app-level (reading account B's
+        // picture while A is live is its purpose), so account-directory
+        // removal does not sweep it.
         QVERIFY(store.forget(uid));
         QVERIFY(store.avatarUrlFor(uid).isEmpty());
         // "Target absent" and "removed" are different outcomes.
@@ -432,8 +405,8 @@ private Q_SLOTS:
         QCOMPARE(a.warnings, QStringList{});
     }
 
-    // A failed fetch falls back to initials (geometry preserved), and a
-    // later cache completion still promotes to the real image.
+    // A failed fetch falls back to initials (geometry preserved), and a later
+    // cache completion still promotes to the real image.
     void failedFetchFallsBackThenRecovers()
     {
         Harness h;
@@ -454,8 +427,8 @@ private Q_SLOTS:
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // Changing the avatar URL resets failure state and swaps bitmaps
-    // without showing the previous user's image (delegate reuse safety).
+    // Changing the avatar URL resets failure state and never shows the
+    // previous user's image (delegate reuse).
     void avatarUrlChangeResetsCleanly()
     {
         Harness h;
@@ -488,12 +461,10 @@ private Q_SLOTS:
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // v0.7.1 live regression: an Avatar instantiated WHILE its cache key is
-    // failure-marked (the room-header case — another surface's failed fetch
-    // poisoned the key before this Avatar ever existed) must show honest
-    // initials immediately, never an eternal skeleton, and must recover to
-    // ready on its own once the transient window expires — with ZERO user
-    // interaction.
+    // An Avatar created while its cache key is failure-marked (another
+    // surface's fetch failed first) shows initials immediately, never an
+    // endless skeleton, and recovers by itself once the transient window
+    // expires.
     void avatarCreatedUnderFailureMarkShowsInitialsThenAutoRecovers()
     {
         Harness h;
@@ -506,15 +477,15 @@ private Q_SLOTS:
 
         QVERIFY(loadAvatar(h, 32, mxc, QStringLiteral("Matas"),
                            QStringLiteral("@matas:x")));
-        // Immediately "failed" (initials) — the suppressed avatarSource()
-        // returned "" but avatarFailureCategory reported the mark.
+        // Immediately "failed": avatarSource() returned "" and
+        // avatarFailureCategory reported the mark.
         QCOMPARE(state(h), QStringLiteral("failed"));
         auto *initials = h.avatar->findChild<QQuickItem *>(
             QStringLiteral("avatarInitials"));
         QVERIFY(initials && initials->isVisible());
 
-        // Autonomous recovery: the watchdog sweep emits mediaRetryable,
-        // the Avatar re-dispatches, the fetch succeeds.
+        // Recovery: the watchdog sweep emits mediaRetryable, the Avatar
+        // re-dispatches and the fetch succeeds.
         h.bridge->setFailureRetryMsForTest(1);
         QTest::qWait(5);
         h.bridge->checkInflightTimeouts();
@@ -525,9 +496,8 @@ private Q_SLOTS:
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // v0.7.1: one identity rendered at four different sizes against one
-    // bridge is exactly ONE client fetch, and every consumer reaches ready
-    // from that single canonical-edge payload.
+    // One identity at four sizes against one bridge is one client fetch, and
+    // every consumer reaches ready from it.
     void oneIdentityAtManySizesSharesOneFetchAndAllReachReady()
     {
         Harness h;
@@ -565,11 +535,9 @@ private Q_SLOTS:
         qDeleteAll(avatars);
     }
 
-    // v0.7.1 mini-soak: delegate-reuse churn (create/destroy/mxc-swap)
-    // against injected failures and stranded (watchdog-reclaimed) fetches.
-    // After quiescing, ZERO avatars may remain in "loading", and the
-    // bridge's in-flight and queue counts must both be zero — the
-    // "reliability degrades the longer the app runs" regression.
+    // Delegate churn (create/destroy/mxc swap) against injected failures and
+    // stranded fetches: after quiescing no avatar is still loading and the
+    // bridge's in-flight and queue counts are zero.
     void delegateChurnQuiescesWithNoEternalLoading()
     {
         Harness h;
@@ -591,14 +559,14 @@ private Q_SLOTS:
         QList<QQuickItem *> live;
         int resolved = 0;
         // Deterministic mixed outcomes: most succeed, some fail, some are
-        // stranded for the watchdog to reclaim.
+        // stranded for the watchdog.
         const auto resolveOutcomes = [&](bool strandSome, bool failSome) {
             while (resolved < h.client->fetches.size()) {
                 const auto &f = h.client->fetches.at(resolved);
                 if (failSome && resolved % 5 == 2)
                     h.client->fail(f.opId, QStringLiteral("network"));
                 else if (strandSome && resolved % 7 == 3)
-                    ; // never answered — reclaimed by the watchdog
+                    ; // never answered; reclaimed by the watchdog
                 else
                     h.client->succeed(f.opId, png);
                 ++resolved;
@@ -624,8 +592,8 @@ private Q_SLOTS:
             }
             resolveOutcomes(true, true);
             if (i % 25 == 24) {
-                // Reclaim stranded slots (transient timeout marks), then
-                // resolve whatever the pump re-dispatched.
+                // Reclaim stranded slots, then resolve what the pump
+                // re-dispatched.
                 h.bridge->setInflightTimeoutMsForTest(0);
                 h.bridge->checkInflightTimeouts();
                 h.bridge->setInflightTimeoutMsForTest(45 * 1000);
@@ -635,17 +603,16 @@ private Q_SLOTS:
         }
         QCoreApplication::processEvents();
 
-        // Quiesce. First reclaim the fetches stranded since the last
-        // boundary (0ms timeout also reclaims whatever the sweep inside
-        // this call re-dispatched — the rounds below recover those), then
-        // sweep-and-resolve with the NORMAL in-flight timeout so live
-        // re-dispatches are answered, not reclaimed.
+        // Quiesce: reclaim fetches stranded since the last boundary (a 0ms
+        // timeout also reclaims what this sweep re-dispatches; later rounds
+        // recover those), then sweep and resolve with the normal timeout so
+        // live re-dispatches are answered.
         h.bridge->setFailureRetryMsForTest(0);
         h.bridge->setInflightTimeoutMsForTest(0);
         h.bridge->checkInflightTimeouts();
         h.bridge->setInflightTimeoutMsForTest(45 * 1000);
         for (int round = 0; round < 10; ++round) {
-            h.bridge->checkInflightTimeouts(); // sweep → re-dispatch
+            h.bridge->checkInflightTimeouts(); // sweep, then re-dispatch
             resolveOutcomes(false, false);
             QCoreApplication::processEvents();
         }
@@ -658,8 +625,8 @@ private Q_SLOTS:
                     != QStringLiteral("loading"),
                 "an avatar stayed in eternal loading after quiescing", 5000);
         }
-        // With every mark swept and every fetch answered, the survivors
-        // all reach the real bitmap.
+        // With every mark swept and fetch answered, all survivors reach the
+        // real bitmap.
         for (auto *item : std::as_const(live)) {
             QTRY_COMPARE_WITH_TIMEOUT(
                 item->property("presentationState").toString(),

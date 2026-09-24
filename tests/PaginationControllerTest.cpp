@@ -1,8 +1,7 @@
-// v0.5.11: deterministic tests for the backward-pagination controller —
-// single-flight (including the dispatch-to-loading window), viewport-fill
-// budget and no-progress stop, reached-start behavior, retry after failure,
-// and stale-result isolation across room switches, timeline resets and
-// sign-out.
+// The backward-pagination controller: single-flight (including the
+// dispatch-to-loading window), viewport-fill budget and no-progress stop,
+// reached-start behaviour, retry after failure, and stale-result isolation
+// across room switches, timeline resets and sign-out.
 
 #include "matrix/MatrixClient.h"
 #include "models/PaginationController.h"
@@ -47,10 +46,9 @@ public:
     QHash<QString, State> states;
     bool timelineActive = true;
     bool failureTransient = false;
-    // The page that just completed handed the timeline events and every one
-    // of them was dropped by the timeline filter — MatrixRTC churn, in
-    // production. Drives the same completion-settle skip the Rust backend
-    // does, so a scripted filtered run behaves as the real one does.
+    // The completed page's events were all dropped by the timeline filter
+    // (MatrixRTC churn in production); drives the same completion-settle skip
+    // as the Rust backend.
     bool fullyFiltered = false;
     int loadOlderCalls = 0;
     QString lastLoadRoom;
@@ -85,12 +83,9 @@ public:
         Q_EMIT paginationStateChanged(roomId);
         QCoreApplication::processEvents();
     }
-    // Rows that reach the MODEL without the shape PaginationController counts
-    // (eventsPrepended / eventInsertedAt at index 0). This is the production
-    // case on the Rust backend: a batch's item diffs come from a task
-    // independent of the one that reports pagination idle, through a capped
-    // 100 ms poll, so they can miss the controller's request window entirely
-    // while the reader plainly sees them.
+    // Rows that reach the model without the prepend shape the controller
+    // counts. On the Rust backend a batch's item diffs arrive via a separate
+    // task through a 100 ms poll and can miss the request window entirely.
     void insertUnattributed(const QString &roomId, int count)
     {
         for (int i = 0; i < count; ++i)
@@ -419,29 +414,19 @@ private Q_SLOTS:
         controller.setClient(&client);
         controller.setRoomId(kRoomA);
 
-        // The "loading" poll event has not arrived yet; the controller's
-        // own single-flight must still hold.
+        // The "loading" poll event has not arrived yet; the controller's own
+        // single-flight must still hold.
         controller.requestViewportFill();
         controller.requestViewportFill();
         controller.requestNearTop();
         QCOMPARE(client.loadOlderCalls, 1);
     }
 
-    // A DISPATCHED BATCH THAT THE BACKEND NEVER ACKNOWLEDGES MUST NOT LATCH
-    // THE ROOM ON "LOADING" FOR THE REST OF THE VISIT.
-    //
-    // m_requestActive was cleared only by loading -> idle/failed, a room
-    // switch, or a synchronous dispatch failure. Rust's `paginate_back`
-    // returns Ok WITHOUT enqueuing anything in two real cases -- the start of
-    // history is already reached, and another request holds its single-flight
-    // -- and the bridge's event queue is bounded, so a poll stall can drop the
-    // terminal event outright. In all three the flag latched: busy() stayed
-    // true, presentationState stayed Loading (so no Retry was even offered),
-    // and every later request was suppressed as a duplicate of one that had
-    // already died.
-    //
-    // No `beginLoading` here on purpose: total silence after the dispatch is
-    // exactly the reported shape.
+    // A dispatched batch the backend never acknowledges does not leave the
+    // room stuck on "loading": `paginate_back` can return Ok without enqueuing
+    // anything (start reached, or another request in flight), and a bounded
+    // event queue can drop the terminal event. No `beginLoading` here: total
+    // silence after the dispatch is the case.
     void aBatchTheBackendNeverAcknowledgesIsAbandoned()
     {
         FakeClient client;
@@ -457,14 +442,13 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 2000);
         QCOMPARE(controller.presentationState(), PaginationController::Hidden);
 
-        // And the reader can ask again -- the point of clearing the flight.
+        // The reader can ask again.
         controller.requestNearTop();
         QCOMPARE(client.loadOlderCalls, 2);
     }
 
-    // Abandoning is NOT a completion. Nothing was delivered, so reporting one
-    // would tell the view a page landed and let the near-top continuation
-    // chain off a page that never existed.
+    // Abandoning is not a completion: reporting one would let the near-top
+    // continuation chain off a page that never existed.
     void anAbandonedBatchReportsNoCompletion()
     {
         FakeClient client;
@@ -481,10 +465,8 @@ private Q_SLOTS:
         QVERIFY(!controller.nearTopRunActive());
     }
 
-    // An automatic fill whose pages never arrive must stop asking, exactly as
-    // one whose pages arrive empty does: initialContentSettled is gated on
-    // the fill stopping, so without this the room never becomes presentable
-    // and every layout pass re-dispatches into the same silence.
+    // An automatic fill whose pages never arrive stops, as one whose pages
+    // arrive empty does: initialContentSettled waits for the fill to stop.
     void abandonedFillsEventuallyStopTheFillLoop()
     {
         FakeClient client;
@@ -493,7 +475,7 @@ private Q_SLOTS:
         controller.setRequestWatchdogForTest(5);
         controller.setRoomId(kRoomA);
 
-        // Twelve strikes, matching the empty-page budget above.
+        // Twelve strikes, matching the empty-page budget.
         for (int i = 0; i < 12 && !controller.fillStopped(); ++i) {
             controller.requestViewportFill();
             QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 2000);
@@ -502,9 +484,8 @@ private Q_SLOTS:
         QVERIFY(controller.initialContentSettled());
     }
 
-    // The watchdog must never touch a batch that completed normally: it is a
-    // last resort, not a deadline. A fill that DELIVERED must not be charged
-    // a no-progress strike a few seconds later.
+    // The watchdog never touches a batch that completed normally; a fill that
+    // delivered is not charged a no-progress strike later.
     void aCompletedBatchIsNeverAbandonedAfterwards()
     {
         FakeClient client;
@@ -582,16 +563,9 @@ private Q_SLOTS:
         controller.setClient(&client);
         controller.setRoomId(kRoomA);
 
-        // Sixty empty pages before the fill gives up — two, then twelve
-        // (2026-09-05), now the bound the 2026-09-15 round already granted an
-        // EMPTY timeline, granted to every filtered run (2026-09-16).
-        //
-        // MatrixRTC membership churn is filtered out of the timeline at the
-        // SDK, so such a page costs only its fetch, adds no delegate, and
-        // skips the completion settle — while ADVANCING the cursor towards
-        // the first real message. A room whose churn run is longer than the
-        // budget is a room the reader has to scroll by hand, which is what
-        // both reports said.
+        // Filtered pages (MatrixRTC churn dropped at the SDK) cost only their
+        // fetch and advance the cursor towards real messages, so a filtered
+        // run gets the larger kMaxFilteredRunStrikes budget.
         const int bound = PaginationController::kMaxFilteredRunStrikes;
         QVERIFY2(bound > 12,
                  "a filtered run must outlast the ordinary no-progress bound");
@@ -619,17 +593,8 @@ private Q_SLOTS:
         QCOMPARE(client.loadOlderCalls, dispatched + 1); // user gesture allowed
     }
 
-    // THE 2026-09-16 REPORT AT THIS LAYER: the room is NOT empty. One message
-    // is loaded and the rest of the viewport is blank, and the fill is
-    // walking a run of history the timeline filter empties.
-    //
-    // Until this round the larger allowance was keyed on the timeline holding
-    // exactly zero events, so one loaded message put the room back on the
-    // ordinary twelve — the same reader experience as the empty room the
-    // 2026-09-15 round fixed, from the same cause, one message short of the
-    // condition that was written for it.
-    //
-    // FAIL-ON-OLD: on the unfixed tree this stops at twelve.
+    // A filtered run is walked with the larger budget even when a message is
+    // already on screen, not only when the timeline is empty.
     void aFilteredRunIsWalkedEvenWithAMessageAlreadyOnScreen()
     {
         FakeClient client;
@@ -641,18 +606,14 @@ private Q_SLOTS:
         controller.setTimelineModel(&model);
         controller.setRoomId(kRoomA);
 
-        // One message loaded — "only a single image loads". This single row
-        // is the entire difference between this case and the empty room the
-        // 2026-09-15 round fixed.
+        // One message loaded.
         controller.requestViewportFill();
         client.beginLoading(kRoomA);
         client.completeBatch(kRoomA, 1, false);
         QCOMPARE(model.eventCount(), 1);
 
-        // Then the churn run. `fullyFiltered` is what the Rust backend
-        // reports for such a page and is why it costs no completion settle,
-        // so the loop below is the production shape rather than a fast
-        // approximation of it.
+        // Then the churn run. `fullyFiltered` is what the Rust backend reports
+        // for such a page (and why it costs no completion settle).
         client.fullyFiltered = true;
         for (int i = 0; i < 20; ++i) {
             controller.requestViewportFill();
@@ -666,11 +627,9 @@ private Q_SLOTS:
         QCOMPARE(controller.emptyFillPages(), 20);
     }
 
-    // The counter QML compares across two fill attempts must only move for a
-    // page that really COMPLETED empty — never for a productive page, and
-    // never for one that reached the start of history. Without that the pane
-    // cannot tell a filtered page from a dispatch that went nowhere, which is
-    // the distinction the whole fix turns on.
+    // The counter QML compares across fill attempts moves only for a page that
+    // completed empty: not for a productive page, and not for one that reached
+    // the start of history.
     void emptyFillPagesCountsOnlyPagesThatCompletedWithNothing()
     {
         FakeClient client;
@@ -684,33 +643,26 @@ private Q_SLOTS:
         client.completeBatch(kRoomA, 0, false);
         QCOMPARE(controller.emptyFillPages(), 1);
 
-        // A productive page is not an empty one, and must not move it.
+        // A productive page does not move it.
         controller.requestViewportFill();
         client.beginLoading(kRoomA);
         client.completeBatch(kRoomA, 5, false);
         QCOMPARE(controller.emptyFillPages(), 1);
 
-        // Neither is reaching the start of history: there was nothing left to
-        // walk, so continuing would be pointless rather than progress.
+        // Nor does reaching the start of history.
         controller.requestViewportFill();
         client.beginLoading(kRoomA);
         client.completeBatch(kRoomA, 0, true);
         QCOMPARE(controller.emptyFillPages(), 1);
 
-        // And a room (re)open starts the comparison over.
+        // A room (re)open resets it.
         controller.setRoomId(kRoomB);
         QCOMPARE(controller.emptyFillPages(), 0);
     }
 
-    // The per-room viewport-fill cap bounds CONSECUTIVE unproductive fills,
-    // not fills per room.
-    //
-    // Reported 2026-08-31: an archived room whose recent history is a long
-    // run of routine state stopped loading and the reader had to expand the
-    // activity group by hand to get any further. Those pages insert rows and
-    // render at no height, so eight of them left the viewport still unfilled
-    // and the cap had already been spent — "fill budget exhausted requests= 8"
-    // with the real messages still beyond the run.
+    // The per-room viewport-fill cap bounds consecutive unproductive fills,
+    // not fills per room: pages of routine state add rows at no height, and
+    // the real messages lie beyond them.
     void aProductiveViewportFillRefundsThePerRoomBudget()
     {
         FakeClient client;
@@ -718,8 +670,7 @@ private Q_SLOTS:
         controller.setClient(&client);
         controller.setRoomId(kRoomA);
 
-        // Twenty fills, every one productive — the collapsed-run shape, where
-        // each page adds rows the reader cannot see.
+        // Twenty productive fills, each adding rows the reader cannot see.
         int dispatched = 0;
         for (int i = 0; i < 20; ++i) {
             const int before = client.loadOlderCalls;
@@ -739,7 +690,7 @@ private Q_SLOTS:
         QCOMPARE(dispatched, 20);
     }
 
-    // And the bound is still a bound: pages that add nothing stop it.
+    // The bound still holds: pages that add nothing stop the loop.
     void consecutiveEmptyViewportFillsStillStopTheLoop()
     {
         FakeClient client;
@@ -747,10 +698,8 @@ private Q_SLOTS:
         controller.setClient(&client);
         controller.setRoomId(kRoomA);
 
-        // Derived from the header rather than restated, because this case is
-        // about the bound EXISTING, not about its value — it read `< 30`
-        // against a bound of 12 and went stale the moment 2026-09-16 raised
-        // the filtered-run allowance to 60.
+        // Derived from the header: this case is about the bound existing, not
+        // its value.
         const int bound = PaginationController::kMaxFilteredRunStrikes;
         int dispatched = 0;
         for (int i = 0; i < bound + 10; ++i) {
@@ -775,24 +724,21 @@ private Q_SLOTS:
         PaginationController controller;
         controller.setClient(&client);
         controller.setRoomId(kRoomA);
-        // These drive the bounded continuation synchronously with
-        // processEvents(); production paces it with a delay so real row
-        // growth can be re-checked first (see
+        // These drive the continuation synchronously with processEvents();
+        // production delays it so real row growth can be re-checked first (see
         // nearTopContinuationKeysOnRealRowGrowthNotPrependSignals).
         controller.setNearTopContinuationDelayForTest(0);
 
-        // One completed initial fill so later NearTop is not redirected to fill.
+        // One completed initial fill, so later NearTop is not redirected to
+        // fill.
         controller.requestViewportFill();
         client.beginLoading(kRoomA);
         client.completeBatch(kRoomA, 3, false);
         const int afterInitial = client.loadOlderCalls; // == 1
 
-        // A SINGLE near-top approach now drives a controller-owned, strictly
-        // bounded continuation through filtered (zero-visible-row) pages: each
-        // completed empty page schedules exactly one more, up to
-        // kMaxNearTopEmptyStrikes, then latches. Complete each dispatched page
-        // empty and count them; the loop terminates when no further page is
-        // auto-dispatched.
+        // One near-top approach drives a bounded continuation through filtered
+        // (zero-visible-row) pages: each empty completion schedules one more,
+        // up to kMaxNearTopEmptyStrikes, then latches.
         QSignalSpy completions(&controller,
                                &PaginationController::paginationCompleted);
         controller.requestNearTop(/*userInitiated=*/true);
@@ -805,32 +751,24 @@ private Q_SLOTS:
             client.completeBatch(kRoomA, 0, false); // empty (filtered) page
             QCoreApplication::processEvents();      // fire the continuation
         }
-        // Derived from the policy constant, never a literal: the bound moved
-        // from 4 to 12 when call-membership filtering made empty pages the
-        // norm, and a hard-coded copy here just fails without saying why.
+        // Derived from the policy constant, never a literal.
         QCOMPARE(dispatched, PaginationController::kMaxNearTopEmptyStrikes);
-        // willContinue reports whether THIS empty completion scheduled the run's
-        // next batch: true for every strike but the last, false for the one
-        // that latches. No anchor logic listens any more (TimelinePane.qml keeps ONE
-        // position-preserving mechanism and consumes no pagination signal); it
-        // remains the controller's own completion contract, and it now means
-        // "scheduled", not "will certainly fetch" — the continuation re-checks
-        // real row growth before dispatching.
+        // willContinue says whether this empty completion scheduled the next
+        // batch: true for every strike but the last. It means "scheduled", not
+        // "will certainly fetch": the continuation re-checks row growth first.
         const int bound = PaginationController::kMaxNearTopEmptyStrikes;
         QCOMPARE(completions.count(), bound);
-        // Every strike but the last says it scheduled another; the last one
-        // latches and says it did not.
+        // Every strike but the last scheduled another; the last latches.
         for (int i = 0; i < bound; ++i)
             QCOMPARE(completions.at(i).at(2).toBool(), i < bound - 1);
 
-        // The continuation has latched: no further automatic dispatch spins.
+        // Latched: no further automatic dispatch.
         const int capped = client.loadOlderCalls;
         controller.requestNearTop(false);
         QCoreApplication::processEvents();
         QCOMPARE(client.loadOlderCalls, capped);
 
-        // A genuine user scroll gesture (a deliberate NEW approach to the top)
-        // re-arms the bound and dispatches again.
+        // A user gesture (a new approach to the top) re-arms the bound.
         controller.requestNearTop(true);
         QCOMPARE(client.loadOlderCalls, capped + 1);
 
@@ -843,20 +781,15 @@ private Q_SLOTS:
         QCOMPARE(client.loadOlderCalls, afterInsert + 1);
     }
 
-    // The reported defect: reaching the top starts a rapid loop of
-    // "completed added=0 reached_start=false -> requested reason=near_top".
-    // A single approach must dispatch a BOUNDED number of filtered pages and
-    // then STOP on its own, without any further user or geometry input.
+    // One approach to the top dispatches a bounded number of filtered pages and
+    // then stops on its own, with no further input.
     void zeroProgressNearTopPagesDoNotLoopForever()
     {
         FakeClient client;
         PaginationController controller;
         controller.setClient(&client);
         controller.setRoomId(kRoomA);
-        // These drive the bounded continuation synchronously with
-        // processEvents(); production paces it with a delay so real row
-        // growth can be re-checked first (see
-        // nearTopContinuationKeysOnRealRowGrowthNotPrependSignals).
+        // Synchronous continuation (see above).
         controller.setNearTopContinuationDelayForTest(0);
 
         controller.requestViewportFill();
@@ -864,11 +797,9 @@ private Q_SLOTS:
         client.completeBatch(kRoomA, 5, false); // initial visible history
         const int afterInitial = client.loadOlderCalls;
 
-        // One near-top approach, then let the controller drive itself: every
-        // dispatched page returns zero visible rows and is NOT at the start
-        // (the SDK is paging through thread-only history). Simulate the async
-        // completion of whatever the controller dispatches, but issue NO
-        // further requestNearTop — the loop, if any, must be the controller's.
+        // One near-top approach, then the controller drives itself: every page
+        // returns zero visible rows and is not at the start. No further
+        // requestNearTop is issued; any loop must be the controller's.
         controller.requestNearTop(true);
         int pages = 0;
         for (int guard = 0; guard < 50; ++guard) {
@@ -883,33 +814,29 @@ private Q_SLOTS:
                 && client.loadOlderCalls == afterInitial + pages)
                 break; // settled: no new dispatch pending
         }
-        // Strictly bounded — it stopped on its own well under a spin.
+        // Strictly bounded: it stopped on its own.
         QVERIFY2(pages <= PaginationController::kMaxNearTopEmptyStrikes,
                  qPrintable(QStringLiteral("filtered pages=%1 (bound %2)")
                                 .arg(pages)
                                 .arg(PaginationController::kMaxNearTopEmptyStrikes)));
         QVERIFY(pages >= 1); // it did try at least once
 
-        // And it stays stopped with no further input.
+        // And it stays stopped.
         const int settled = client.loadOlderCalls;
         for (int i = 0; i < 5; ++i)
             QCoreApplication::processEvents();
         QCOMPARE(client.loadOlderCalls, settled);
     }
 
-    // Bounded continuation still SURFACES visible history: a run of filtered
-    // pages followed by a page that adds visible events resets the bound and
-    // stops the continuation (the reader now sees older messages).
+    // A filtered run followed by a page that adds visible events resets the
+    // bound and stops the continuation.
     void nearTopContinuationSurfacesVisibleHistoryAndResets()
     {
         FakeClient client;
         PaginationController controller;
         controller.setClient(&client);
         controller.setRoomId(kRoomA);
-        // These drive the bounded continuation synchronously with
-        // processEvents(); production paces it with a delay so real row
-        // growth can be re-checked first (see
-        // nearTopContinuationKeysOnRealRowGrowthNotPrependSignals).
+        // Synchronous continuation (see above).
         controller.setNearTopContinuationDelayForTest(0);
 
         controller.requestViewportFill();
@@ -936,17 +863,10 @@ private Q_SLOTS:
         QCOMPARE(client.loadOlderCalls, afterVisible);
     }
 
-    // The reported loading storm: "it keeps loading old messages each time I
-    // scroll up, so that causes the lag and jitter". A live trace showed
-    // "completed added=0 reached_start=false" on EVERY page and four pages per
-    // approach, in a room that was visibly filling with history — so the
-    // "filtered page" classification the continuation rests on was wrong, and
-    // the continuation was buying batches nobody needed.
-    //
-    // The fix keys the classification on rows the reader actually gained. All
-    // three cases matter: growth visible when the batch completes, growth that
-    // lands during the continuation's window, and a genuinely filtered page
-    // that must still be paged through.
+    // The continuation classifies a page as filtered by rows the reader
+    // actually gained, not prepend signals. Three cases: growth visible at
+    // completion, growth landing during the continuation's delay, and a
+    // genuinely filtered page that must still be paged through.
     void nearTopContinuationKeysOnRealRowGrowthNotPrependSignals()
     {
         FakeClient client;
@@ -959,16 +879,16 @@ private Q_SLOTS:
         controller.setRoomId(kRoomA);
         controller.setNearTopContinuationDelayForTest(40);
 
-        // Initial history, so NearTop is not redirected to the initial fill and
-        // the unattributed inserts below have somewhere to land.
+        // Initial history, so NearTop is not redirected to the initial fill
+        // and the unattributed inserts have somewhere to land.
         controller.requestViewportFill();
         client.beginLoading(kRoomA);
         client.completeBatch(kRoomA, 5, false);
         QCOMPARE(model.rowCount(), 5);
         int calls = client.loadOlderCalls;
 
-        // (1) The rows are in the model by the time the batch completes. One
-        // deliberate approach must cost exactly ONE batch.
+        // (1) The rows are in the model at completion: one approach costs one
+        // batch.
         controller.requestNearTop(true);
         QCOMPARE(client.loadOlderCalls, calls + 1);
         calls = client.loadOlderCalls;
@@ -982,9 +902,8 @@ private Q_SLOTS:
                      "a page that added 20 rows still bought %1 more batches")
                      .arg(client.loadOlderCalls - calls)));
 
-        // (2) The rows land only AFTER the batch was classified — the async
-        // case the continuation delay exists for. The continuation must cancel
-        // itself rather than fetch a page the reader did not need.
+        // (2) The rows land after classification: the continuation cancels
+        // itself instead of fetching an unneeded page.
         controller.requestNearTop(true);
         QCOMPARE(client.loadOlderCalls, calls + 1);
         calls = client.loadOlderCalls;
@@ -998,9 +917,8 @@ private Q_SLOTS:
                      "a late-delivered page still bought %1 more batches")
                      .arg(client.loadOlderCalls - calls)));
 
-        // (3) A page that genuinely produced nothing (thread-only / hidden
-        // history) must still continue, or filtered history is stranded and the
-        // reader can never reach past it.
+        // (3) A page that produced nothing still continues, or filtered
+        // history is stranded.
         controller.requestNearTop(true);
         QCOMPARE(client.loadOlderCalls, calls + 1);
         calls = client.loadOlderCalls;
@@ -1011,13 +929,9 @@ private Q_SLOTS:
         QCOMPARE(model.rowCount(), rowsBefore);
     }
 
-    // The PRODUCTION delay, with no test override. Every other test overrides
-    // it, so without this a regression setting the default to 0 (restoring the
-    // four-batches-per-approach amplification) or to something enormous
-    // (stalling filtered backfill) would pass the whole suite. Asserts the
-    // default is long enough to observe a late row delivery — the real Rust
-    // bridge ordering, where a batch's item diffs arrive from a task
-    // independent of the one reporting pagination idle, through a 100 ms poll.
+    // The production continuation delay (no test override) is long enough to
+    // observe a late row delivery: the Rust bridge's item diffs arrive via a
+    // separate task through a 100 ms poll.
     void continuationDelayDefaultOutlivesALateRowDelivery()
     {
         FakeClient client;
@@ -1028,7 +942,7 @@ private Q_SLOTS:
         controller.setClient(&client);
         controller.setTimelineModel(&model);
         controller.setRoomId(kRoomA);
-        // No setNearTopContinuationDelayForTest() — this is the shipped value.
+        // No setNearTopContinuationDelayForTest(): the shipped value.
 
         controller.requestViewportFill();
         client.beginLoading(kRoomA);
@@ -1040,9 +954,8 @@ private Q_SLOTS:
         client.beginLoading(kRoomA);
         client.completeBatch(kRoomA, 0, false); // classified as filtered...
 
-        // The continuation must still be pending here: if the default were 0 it
-        // would already have dispatched, and the reader would be paying for a
-        // page the batch had in fact delivered.
+        // The continuation is still pending here; with a zero delay it would
+        // have dispatched a page the batch had in fact delivered.
         QCOMPARE(client.loadOlderCalls, calls + 1);
         QVERIFY2(controller.busy(),
                  "a scheduled continuation must keep the loading state up, or "
@@ -1076,17 +989,9 @@ private Q_SLOTS:
         QCOMPARE(client.loadOlderCalls, 4);
     }
 
-    // UPDATED 2026-08-31. This used to pin "two PRODUCTIVE fills exhaust a
-    // budget of two", and that rule is what stopped an archived room from
-    // loading: its recent history is a long run of routine state, every page
-    // inserts rows and renders at no height, so the viewport is still
-    // unfilled when the cap runs out and the reader has to expand the
-    // activity group by hand to reach anything older.
-    //
-    // The cap now bounds CONSECUTIVE UNPRODUCTIVE fills, which is what it
-    // meant all along — it exists to stop a request storm, and a page that
-    // added rows is not a storm. The invisible-progress case is bounded on
-    // the QML side instead, where the viewport height is known.
+    // The fill budget bounds consecutive unproductive fills: productive fills
+    // (even invisible ones) do not spend it. Invisible progress is bounded on
+    // the QML side, where the viewport height is known.
     void fillBudgetBoundsConsecutiveUnproductiveFills()
     {
         FakeClient client;
@@ -1216,15 +1121,9 @@ private Q_SLOTS:
 
     void finishBatchNotifiesPresentationStateSoQmlBindingsDoNotFreeze()
     {
-        // Regression test: a QML binding (e.g. TimelinePane.qml's
-        // pagination header) only re-reads presentationState() when
-        // stateChanged() fires — it never polls. finishBatch() used to
-        // drop m_requestActive to false (the input to busy()/
-        // presentationState()) without emitting stateChanged() itself,
-        // so the last value any such binding observed stayed "Loading"
-        // forever even though a fresh presentationState() call already
-        // returned "Hidden". Verified against the real QML in
-        // TimelinePaneQmlTest.cpp; this pins the underlying signal.
+        // finishBatch() emits stateChanged(): QML bindings on
+        // presentationState() only re-read on that signal, never poll.
+        // TimelinePaneQmlTest covers the QML side.
         FakeClient client;
         PaginationController controller;
         controller.setClient(&client);
@@ -1251,8 +1150,8 @@ private Q_SLOTS:
         controller.setRoomId(kRoomA);
         QSignalSpy completed(&controller, &PaginationController::paginationCompleted);
 
-        // Legacy path (TimelineModel::requestOlder) started a batch without
-        // the controller; it must still report busy and completion.
+        // A batch started without the controller (TimelineModel::requestOlder)
+        // still reports busy and completion.
         client.beginLoading(kRoomA);
         QVERIFY(controller.busy());
         controller.requestNearTop();
@@ -1288,15 +1187,9 @@ private Q_SLOTS:
         QTRY_VERIFY(controller.highlightedEventId().isEmpty());
     }
 
-    // A THREAD NOTIFICATION'S ROOT IS CONTEXT, NOT A DESTINATION.
-    //
-    // The destination is the thread panel, which is already open by the time
-    // this runs. Letting the room timeline hunt for the root cost up to
-    // kMaxNavigationBatches real backward paginations and dragged the
-    // reader's room view through months of history — reported as a
-    // notification click that "started scrolling backwards" until it reached
-    // the previous month. So: take the row when it is free, and do nothing
-    // at all when it is not. Not a failure either; nothing failed.
+    // A thread notification's root is context: the thread panel is already
+    // open, so the room timeline takes the row if it is loaded and never
+    // paginates to find it. Not finding it is not a failure.
     void contextRevealTakesALoadedRowAndNeverPaginatesForOne()
     {
         FakeClient client;
@@ -1310,13 +1203,13 @@ private Q_SLOTS:
         controller.setRoomId(kRoomA);
         QSignalSpy located(&controller, &PaginationController::targetLocated);
 
-        // NOT loaded: no request, no landing, and no notice.
+        // Not loaded: no request, no landing, no notice.
         controller.revealIfLoaded(QStringLiteral("$august-root:example.org"));
         QCOMPARE(client.loadOlderCalls, 0);
         QCOMPARE(located.count(), 0);
         QVERIFY(controller.navigationMessage().isEmpty());
 
-        // Loaded: free context, taken.
+        // Loaded: taken.
         const QString rootId = QStringLiteral("$root:example.org");
         client.timelines[kRoomA] = { makeEvent(rootId) };
         model.setRoomId(QString());
@@ -1328,9 +1221,9 @@ private Q_SLOTS:
         QVERIFY(located.first().at(2).toBool());
     }
 
-    // And it must never displace a jump the reader actually asked for. The
-    // notification handler opens the thread and reveals the root on the same
-    // turn, so an in-flight reply search is exactly the state it meets.
+    // A context reveal never displaces a jump the reader asked for (the
+    // notification handler reveals the root on the same turn a reply search
+    // may be running).
     void contextRevealYieldsToANavigationTheReaderAskedFor()
     {
         FakeClient client;
@@ -1347,8 +1240,8 @@ private Q_SLOTS:
         controller.jumpToEvent(wanted);
         QCOMPARE(client.loadOlderCalls, 1);
 
-        // A root that IS loaded, arriving mid-search. It must not land, and
-        // it must not steal the search's target.
+        // A loaded root arriving mid-search must not land or steal the
+        // search's target.
         client.beginLoading(kRoomA);
         client.completeEvents(kRoomA,
                               { makeEvent(QStringLiteral("$root:example.org")) },
@@ -1425,20 +1318,16 @@ private Q_SLOTS:
         controller.jumpToEvent(QStringLiteral("$missing:example.org"));
         client.beginLoading(kRoomA);
         client.completeBatch(kRoomA, 0, true);
-        // A request now stays logically active briefly after the backend
-        // reports idle, because SDK idle and timeline diffs arrive on
-        // independent polling lanes and a page is not observable until the
-        // rows land. The outcome is therefore reached on a later turn.
+        // A request stays active briefly after the backend reports idle (SDK
+        // idle and timeline diffs arrive on separate polling lanes), so the
+        // outcome arrives on a later turn.
         QTRY_VERIFY_WITH_TIMEOUT(!controller.navigationMessage().isEmpty(),
                                  2000);
     }
 
-    // C5b/B4: jumpToEvent() dereferenced m_client unconditionally after
-    // request(), which returns WITHOUT dispatching when there is no client —
-    // so this exact sequence was a null dereference (its sibling in
-    // restoreScrollAnchor() has always guarded m_client). A controller with a
-    // room and a model but no client is reachable: setRoomId() does not
-    // require one, and setClient(nullptr) is a legal teardown.
+    // jumpToEvent() with no client fails with a message instead of
+    // dereferencing null: request() returns without dispatching then, and
+    // setClient(nullptr) is a legal teardown.
     void jumpToEventWithoutAClientFailsHonestlyInsteadOfCrashing()
     {
         TimelineModel model;
@@ -1447,11 +1336,10 @@ private Q_SLOTS:
         controller.setRoomId(kRoomA);
         QVERIFY(controller.navigationMessage().isEmpty());
 
-        // On the unfixed tree this line segfaults.
         controller.jumpToEvent(QStringLiteral("$missing:example.org"));
 
-        // A missing client can never deliver a completion, so the target must
-        // not be left pending behind a click that appeared to do nothing.
+        // No client can deliver a completion, so the target is not left
+        // pending.
         QCOMPARE(controller.navigationMessage(),
                  PaginationController::unavailableTargetMessage());
         QVERIFY(controller.highlightedEventId().isEmpty());
@@ -1469,10 +1357,8 @@ private Q_SLOTS:
         controller.setRoomId(kRoomA);
 
         controller.jumpToEvent(QStringLiteral("$missing:example.org"));
-        // Wait for each request to actually be issued before completing it:
-        // the post-idle settling window means back-to-back synchronous
-        // completions would all fold into the first request and the batch
-        // budget would never be spent.
+        // Wait for each request before completing it: back-to-back completions
+        // would fold into the first request within the post-idle window.
         for (int batch = 0; batch < 8; ++batch) {
             QTRY_COMPARE_WITH_TIMEOUT(client.loadOlderCalls, batch + 1, 2000);
             client.beginLoading(kRoomA);
@@ -1557,14 +1443,9 @@ private Q_SLOTS:
         QCOMPARE(latest.count(), 1);
     }
 
-    // nearTopRunActive() is a DIAGNOSTIC/test surface: no production code
-    // reads it since the staging window it once gated was removed (the
-    // window froze the view during a held near-top approach; see
-    // PaginationController.h). The transitions are still worth pinning as
-    // the controller's own run-lifetime contract: true only for the
-    // NearTop reason (never ViewportFill), true across the bounded
-    // continuation's wait window, and false again once the run genuinely
-    // ends (no continuation scheduled).
+    // nearTopRunActive() is a diagnostic surface: true only for NearTop (never
+    // ViewportFill), across the bounded continuation's wait, and false once
+    // the run ends.
     void nearTopRunActiveReflectsRequestAndBoundedContinuationOnly()
     {
         FakeClient client;
@@ -1591,17 +1472,13 @@ private Q_SLOTS:
         controller.requestNearTop(true);
         QVERIFY(controller.nearTopRunActive());
         client.beginLoading(kRoomA);
-        // ...through to a batch that added visible rows, which ends the run
-        // (no continuation) with nothing further scheduled.
+        // ...to a batch that added visible rows, which ends the run.
         client.completeBatch(kRoomA, 3, false);
         QVERIFY(!controller.nearTopRunActive());
 
-        // A filtered (zero-visible-rows) page schedules a bounded
-        // continuation: nearTopRunActive must stay true across that wait,
-        // not just across the network round trip. Rows landing just after
-        // classification (the async case the continuation delay exists for)
-        // cancel it, so the run then reads as genuinely ended rather than
-        // dispatching a page the reader did not need.
+        // A filtered page schedules a continuation and the run stays active
+        // across that wait; rows landing just after classification cancel it,
+        // and the run ends.
         controller.requestNearTop(true);
         QVERIFY(controller.nearTopRunActive());
         client.beginLoading(kRoomA);
@@ -1615,12 +1492,9 @@ private Q_SLOTS:
                  "ended, not still active");
     }
 
-    // A scroll-anchor RESTORE can spend up to kMaxNavigationBatches real
-    // backward paginations before it locates its target — comfortably five to
-    // fifteen seconds. Retiring the landing in the view cannot help, because
-    // the landing does not exist yet while the reader is scrolling: the
-    // restore arms one AFTERWARDS and yanks them back to where the room
-    // opened. The reader's gesture has to be able to reach the controller.
+    // Cancelling navigation stops a slow scroll-anchor restore (up to
+    // kMaxNavigationBatches paginations) from landing later and yanking the
+    // reader back; the reader's gesture reaches the controller.
     void cancellingNavigationStopsASlowRestoreFromEverLanding()
     {
         FakeClient client;
@@ -1635,8 +1509,7 @@ private Q_SLOTS:
         client.beginLoading(kRoomA);
         client.completeBatch(kRoomA, 5, false);
 
-        // The reader had a position in this room, and its event is NOT
-        // loaded — exactly the case that goes out to the network.
+        // The anchor event is not loaded, so the restore goes to the network.
         controller.saveScrollAnchor(kRoomA, QStringLiteral("$deep-anchor"),
                                     120.0, /*followingLatest=*/false);
         QSignalSpy located(&controller, &PaginationController::targetLocated);
@@ -1646,8 +1519,8 @@ private Q_SLOTS:
         // The reader scrolls. Their gesture reaches the controller.
         controller.cancelNavigation();
 
-        // Now let a batch complete that DOES contain the anchor event.
-        // Without the cancel this emits targetLocated and teleports the view.
+        // A batch containing the anchor completes; without the cancel it
+        // would emit targetLocated.
         client.beginLoading(kRoomA);
         client.completeEvents(kRoomA,
                               { makeEvent(QStringLiteral("$deep-anchor")) },
@@ -1655,16 +1528,15 @@ private Q_SLOTS:
         QTest::qWait(50);
         QCOMPARE(located.count(), 0);
 
-        // Retired, not merely paused: later batches never revive it.
+        // Retired, not paused: later batches never revive it.
         client.beginLoading(kRoomA);
         client.completeBatch(kRoomA, 5, true);
         QTest::qWait(50);
         QCOMPARE(located.count(), 0);
     }
 
-    // The cancel is scoped to an in-flight navigation. An explicit reply jump
-    // issued afterwards must still work, or "I scrolled once" would silently
-    // disable jumping for the rest of the session.
+    // The cancel only affects an in-flight navigation; later reply jumps
+    // still work.
     void cancellingNavigationDoesNotDisableLaterJumps()
     {
         FakeClient client;

@@ -1,8 +1,8 @@
-// v0.5.11: deterministic tests for the automatic read-receipt coordinator —
-// receipts only under the full visibility conjunction (window active,
-// timeline visible, near bottom, room open), debounce cancellation on focus
-// loss / scroll-away / room switch / sign-out, local-echo and failed-send
-// ineligibility, duplicate suppression and never-regress ordering.
+// The automatic read-receipt coordinator: receipts only under the full
+// visibility conjunction (window active, timeline visible, near bottom, room
+// open), debounce cancellation on focus loss / scroll-away / room switch /
+// sign-out, local-echo and failed-send ineligibility, duplicate suppression
+// and never-regress ordering.
 
 #include "matrix/MatrixClient.h"
 #include "models/ReadReceiptCoordinator.h"

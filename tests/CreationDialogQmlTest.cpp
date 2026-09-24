@@ -1,18 +1,12 @@
-// Creation UX proof for the redesigned NewConversationDialog: the Space tab
-// instantiates NO encryption control while the Room tab does (tabs are
-// Loaders, not visible-toggled columns); a tab switch clears the SHARED
-// UserSearchModel and hands focus to the new tab's first field; Create stays
-// disabled until the name is non-blank and the single error banner surfaces
-// the controller's errorMessage; the controller's busy state disables submit
-// while Cancel stays enabled; existing-DM reuse rows render BEFORE the
-// clearly-secondary "start anyway" action; and Down/Down/Return in the
-// search field selects the second result.
-//
-// Pattern note: this uses the focused-scene approach (like ComposerQmlTest)
-// rather than the full Main.qml shell (SettingsShellQmlTest), because the
-// dialog lives on Overlay.overlay and needs a deterministic FakeClient
-// injected into app.conversations — busy/search/existing-DM state the
-// full-shell mock backend cannot script.
+// NewConversationDialog: the Space tab instantiates no encryption control
+// while the Room tab does (tabs are Loaders); a tab switch clears the shared
+// UserSearchModel and focuses the new tab's first field; Create is disabled
+// until the name is non-blank and the one error banner shows the
+// controller's errorMessage; busy disables submit but not Cancel;
+// existing-DM reuse rows render before the secondary "start anyway" action;
+// Down/Down/Return in search selects the second result. A focused scene (as
+// in ComposerQmlTest) with a FakeClient injected into app.conversations,
+// since the full-shell mock cannot script this state.
 
 #include <QtTest/QtTest>
 
@@ -164,8 +158,8 @@ private:
         return nullptr;
     }
 
-    // Popup contents live in the Overlay's visual tree, not the QObject
-    // parent chain, so findChild alone cannot see them.
+    // Popup contents live in the Overlay's visual tree, which findChild cannot
+    // walk.
     QQuickItem *item(const char *name) const
     {
         if (auto *hit = m_window->findChild<QQuickItem *>(QLatin1String(name)))
@@ -197,8 +191,8 @@ private:
 
     void openDialog(const char *mode)
     {
-        // openDialog(startMode, options) — options optional from QML but
-        // the meta-invocation must match the full arity.
+        // openDialog(startMode, options): options are optional in QML, but
+        // meta-invocation must match the full arity.
         QVERIFY(QMetaObject::invokeMethod(
             m_dialog, "openDialog",
             Q_ARG(QVariant, QVariant(QLatin1String(mode))),
@@ -254,7 +248,7 @@ private slots:
         m_dialog = m_root->findChild<QObject *>(QStringLiteral("creationDialog"));
         QVERIFY(m_dialog);
 
-        // Deterministic backend: script busy/search/existing-DM behavior.
+        // Deterministic backend for busy, search and existing-DM state.
         conversations()->setClient(m_fake);
         conversations()->userSearch()->setDebounceMs(1);
     }
@@ -271,8 +265,8 @@ private slots:
         QCOMPARE(m_warnings, QStringList{});
     }
 
-    // (a) The Space tab instantiates NO encryption control; the Room tab
-    // does. Loaders guarantee non-instantiation, not mere invisibility.
+    // (a) The Space tab instantiates no encryption control; the Room tab does.
+    // Loaders guarantee non-instantiation, not just invisibility.
     void spaceTabInstantiatesNoEncryptionControl()
     {
         openDialog("space");
@@ -289,16 +283,15 @@ private slots:
         QVERIFY(roomChip);
         QMetaObject::invokeMethod(roomChip, "click");
         QTRY_VERIFY(item("roomTab"));
-        // Loader teardown releases the old tab through deferred deletion —
-        // let the event loop run it before asserting non-existence.
+        // Loader teardown is deferred; let the event loop run it first.
         QTRY_VERIFY(!item("spaceTab"));
         QVERIFY(item("roomEncryptSwitch"));
         QVERIFY(subtreeHasClassName(item("roomTab"), "AppSwitch"));
         closeDialog();
     }
 
-    // (b) A tab switch clears the shared search model and moves focus to
-    // the new tab's first field.
+    // (b) A tab switch clears the shared search model and focuses the new
+    // tab's first field.
     void tabSwitchClearsSearchAndMovesFocus()
     {
         openDialog("dm");
@@ -317,16 +310,16 @@ private slots:
         QVERIFY(roomChip);
         QMetaObject::invokeMethod(roomChip, "click");
         QTRY_VERIFY(item("roomNameField"));
-        // Shared model cleared…
+        // Shared model cleared...
         QCOMPARE(conversations()->userSearch()->query(), QString());
         QCOMPARE(conversations()->userSearch()->state(), QStringLiteral("idle"));
-        // …and focus handed to the Room tab's first field.
+        // ...and focus on the Room tab's first field.
         QTRY_VERIFY(item("roomNameField")->hasActiveFocus());
         closeDialog();
     }
 
-    // (c) Create stays disabled until the name is non-blank; the blank-after-
-    // edit hint appears; the single banner surfaces controller errors.
+    // (c) Create is disabled until the name is non-blank; a blank-after-edit
+    // hint appears; the one banner shows controller errors.
     void createDisabledUntilNameAndErrorBannerShows()
     {
         openDialog("room");
@@ -344,7 +337,7 @@ private slots:
         QTest::keyClick(m_window, Qt::Key_Backspace);
         QTRY_COMPARE(nameField->property("text").toString(), QString());
         QVERIFY(!create->property("enabled").toBool());
-        // Blank after an edit → inline validation hint.
+        // Blank after an edit: inline validation hint.
         QTRY_VERIFY(item("roomNameHint")->isVisible());
 
         // The single error banner mirrors the controller's errorMessage.
@@ -359,8 +352,8 @@ private slots:
         closeDialog();
     }
 
-    // (d) Busy disables submit; Cancel stays enabled; a failure surfaces in
-    // the banner and ends the busy state.
+    // (d) Busy disables submit; Cancel stays enabled; a failure shows in the
+    // banner and ends busy.
     void busyDisablesSubmitButNeverCancel()
     {
         openDialog("room");
@@ -374,7 +367,7 @@ private slots:
         const int before = m_fake->createRoomCalls;
         QMetaObject::invokeMethod(create, "click");
         QCOMPARE(m_fake->createRoomCalls, before + 1);
-        // Private default submits encrypted && !public; the optional avatar
+        // The private default submits encrypted && !public; the optional avatar
         // never reaches the backend's create call.
         QCOMPARE(m_fake->lastRoomOptions.value(QStringLiteral("name")).toString(),
                  QStringLiteral("Test room"));
@@ -397,9 +390,9 @@ private slots:
         closeDialog();
     }
 
-    // (e)+(f) Down/Down/Return selects the SECOND search result; with an
-    // existing DM the reuse row renders BEFORE the clearly-secondary
-    // "start anyway" action and the primary start button is not shown.
+    // (e)+(f) Down/Down/Return selects the second result; with an existing DM
+    // the reuse row renders before "start anyway", and the primary start
+    // button is hidden.
     void keyboardSelectsSecondResultAndReuseComesFirst()
     {
         QVariantMap dm;
@@ -434,7 +427,7 @@ private slots:
         QCOMPARE(m_dialog->property("selectedDisplayName").toString(),
                  QStringLiteral("Alice Two"));
 
-        // Existing-DM reuse first, secondary escape hatch below, no primary.
+        // Reuse first, the secondary escape hatch below, no primary.
         QCOMPARE(conversations()->existingDms().size(), 1);
         auto *reuseRow = item("existingDmRow_0");
         auto *openBtn = item("existingDmOpen_0");
@@ -446,8 +439,7 @@ private slots:
                  QStringLiteral("secondary"));
         auto *primary = item("dmStartButton");
         QVERIFY(!primary || !primary->isVisible());
-        // Ordering settles with layout polish; poll rather than assert the
-        // very first frame.
+        // Ordering settles with layout polish; poll.
         QTRY_VERIFY(reuseRow->mapToScene(QPointF(0, 0)).y()
                     < anyway->mapToScene(QPointF(0, 0)).y());
 
@@ -455,8 +447,8 @@ private slots:
         closeDialog();
     }
 
-    // (g) SPEC 1u: the omnibox offers a "Create room" suggestion for plain
-    // text and "#name" (seeding the Room tab), but never for "@" text.
+    // (g) The omnibox offers "Create room" for plain text and "#name" (seeding
+    // the Room tab), never for "@" text.
     void omniboxSuggestsCreatingARoomForNonAtText()
     {
         openDialog("dm");

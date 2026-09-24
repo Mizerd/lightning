@@ -15,10 +15,9 @@
 
 namespace {
 
-// A dictionary that knows exactly what a case needs it to know, and COUNTS
-// what it was asked. The count is half the point: the policy this suite
-// guards is mostly about words the checker must never ask about at all, and
-// "no range came back" is also what a broken tokenizer produces.
+// A dictionary that knows exactly what a case needs and counts lookups: most
+// of the policy is about words the checker must never ask about, and "no
+// range came back" is also what a broken tokenizer produces.
 class FakeBackend : public SpellBackend
 {
 public:
@@ -54,7 +53,7 @@ public:
     QString m_language = QStringLiteral("en-US");
 };
 
-// Convenience: the checker plus a borrowed pointer to the backend inside it.
+// The checker plus a borrowed pointer to its backend.
 struct Fixture
 {
     SpellChecker checker;
@@ -79,16 +78,10 @@ QString qmlSource(const QString &name)
     return QString::fromUtf8(file.readAll());
 }
 
-// CODE LINES ONLY, and this is not fussiness: the first version of the ban
-// below failed on a correct tree because the composer's own comment NAMES
-// the flag it must never set. That is the fourth time a scan in this
-// repository has matched a token in a comment.
-//
-// Whole-line only, deliberately. A "strip trailing comments" regex is a
-// parser — `//` appears inside string literals (every URL has one) and a
-// negated character class happily eats newlines — so this drops a line only
-// when it BEGINS with a comment marker, which is what every explanatory
-// block in these two files looks like. It cannot silently swallow code.
+// Code lines only: the composer's own comment names the flag it must never
+// set. Whole-line only, deliberately: a trailing-comment stripper is a parser
+// (`//` appears in URLs), so this drops only lines that begin with a comment
+// marker and can never swallow code.
 QString qmlCodeLines(const QString &source)
 {
     QStringList kept;
@@ -107,29 +100,21 @@ QString qmlCodeLines(const QString &source)
 
 } // namespace
 
-// Two things this suite defends, and they are different in kind.
-//
-// 1. THE COMPOSER MUST NEVER TELL THE PLATFORM TO STOP PREDICTING.
-//    `Qt.ImhNoPredictiveText` and `Qt.ImhSensitiveData` each switch off the
-//    platform's own prediction, autocorrect and IME learning. Neither has
-//    ever been set on either composer, and this suite is what keeps that
-//    from being an accident. It is a source scan, so it holds for the
-//    composers as written rather than for one instantiated in a harness.
-//
-// 2. WHAT THE SPELL CHECKER IS ALLOWED TO ASK ABOUT. A chat message is full
-//    of correctly-spelled things that are not words — mxids, aliases, URLs,
-//    code, versions — and a checker that underlines them is one the user
-//    turns off. Every skip rule here is a rule a dictionary would otherwise
-//    reject.
+// Two different things are defended:
+// 1. The composers never set `Qt.ImhNoPredictiveText` or
+//    `Qt.ImhSensitiveData`, which switch off the platform's prediction,
+//    autocorrect and IME learning. A source scan, so it holds for the
+//    composers as written.
+// 2. What the spell checker may ask about: mxids, aliases, URLs, code and
+//    versions are correct but not words, and underlining them makes users
+//    turn the checker off.
 class ComposerSpellTest : public QObject
 {
     Q_OBJECT
 
 private Q_SLOTS:
 
-    // ---- 1: input method hints ----------------------------------------
-
-    // ── v0.9 spell-checking round: exclusions, Unicode ranges, language ──
+    // ---- 1: input method hints ----
 
     void codeIsNeverChecked()
     {
@@ -150,15 +135,15 @@ private Q_SLOTS:
     {
         Fixture f({ QStringLiteral("hello") });
         // A rich TextEdit's getText() separates paragraphs with U+2029, not
-        // '\n'. A lone backtick in one paragraph must not swallow the next.
+        // '\n'; a lone backtick in one paragraph must not swallow the next.
         const QString rich = QStringLiteral("a ` stray") + QChar::ParagraphSeparator
             + QStringLiteral("teh");
         const QVariantList ranges = f.checker.misspelledRanges(rich);
         QCOMPARE(ranges.size(), 1);
         QCOMPARE(ranges.first().toMap().value(QStringLiteral("start")).toInt(),
                  rich.indexOf(QStringLiteral("teh")));
-        // ```teh``` on its own line is an inline span (CommonMark: an info
-        // string may not contain backticks), not a fence over the rest.
+        // ```teh``` on its own line is an inline span (a CommonMark info
+        // string may not contain backticks), not a fence.
         const QString span = QStringLiteral("```teh```\nteh");
         const QVariantList afterSpan = f.checker.misspelledRanges(span);
         QCOMPARE(afterSpan.size(), 1);
@@ -210,8 +195,8 @@ private Q_SLOTS:
         QList<int> starts;
         for (const QVariant &v : ranges)
             starts << v.toMap().value(QStringLiteral("start")).toInt();
-        // `_teh_` is deliberately NOT checked: an underscore marks an
-        // identifier far more often than emphasis in a chat.
+        // `_teh_` is not checked: underscores mark identifiers more often than
+        // emphasis in chat.
         QCOMPARE(starts, (QList<int>{ 2, 10, 17 }));
     }
 
@@ -296,8 +281,8 @@ private Q_SLOTS:
         QVERIFY(!checker.available());
         QCOMPARE(checker.unavailableReason(), QStringLiteral("no-dictionary"));
         QVERIFY(checker.misspelledRanges(QStringLiteral("labas hello")).isEmpty());
-        // The picker still offers what the platform CAN check, so the user
-        // has a way out of a preference the machine cannot honour.
+        // The picker still offers what the platform can check, so the user has
+        // a way out of a preference the machine cannot honour.
         QCOMPARE(checker.availableLanguages(),
                  (QStringList{ QStringLiteral("en-US"), QStringLiteral("lt-LT") }));
         QCOMPARE(checker.languageOptions().size(), 3);
@@ -338,14 +323,13 @@ private Q_SLOTS:
         QCOMPARE(SpellChecker::labelForTag(QString()), QString());
     }
 
-    // 2026-09-02, from a live report: the command popup drew ~15 two-line
-    // rows out of a Column while its own height stopped at eight, so the
-    // tail rendered BELOW the panel, outside the background and unreachable.
+    // The command popup is a clipped, scrollable list whose height covers its
+    // rows; a Column overflowed below the panel.
     void theCommandPopupClipsItsRowsAndCanScroll()
     {
         const QString popup = qmlCodeLines(qmlSource(QStringLiteral("SlashCommandPopup.qml")));
         QVERIFY2(!popup.isEmpty(), "SlashCommandPopup.qml missing");
-        // A real list, not a Column that can overflow its own panel.
+        // A real list, not a Column that can overflow.
         QVERIFY(popup.contains(QStringLiteral("ListView {")));
         QVERIFY(popup.contains(QStringLiteral("id: commandList")));
         QVERIFY(popup.contains(QStringLiteral("clip: true")));
@@ -353,7 +337,7 @@ private Q_SLOTS:
         // The keyboard drives the list, and the list follows it.
         QVERIFY(popup.contains(QStringLiteral(
             "commandList.positionViewAtIndex(currentIndex, ListView.Contain)")));
-        // The row height must cover BOTH lines a row draws.
+        // The row height covers both lines a row draws.
         const QRegularExpression rowH(
             QStringLiteral("rowH:\\s*AppTheme\\.scaled\\((\\d+)\\)"));
         const QRegularExpressionMatch m = rowH.match(popup);
@@ -363,8 +347,7 @@ private Q_SLOTS:
                                 .arg(m.captured(1))));
     }
 
-    // The two rich-only toolbar chips are two characters wide; AppButton's
-    // 72px minimum turned each into a gap in the toolbar row.
+    // The two rich-only toolbar chips are chips, not 72px AppButton gaps.
     void theRichToolbarChipsAreChipsNotButtonWidthGaps()
     {
         const QString bar = qmlCodeLines(qmlSource(QStringLiteral("MessageComposerBar.qml")));
@@ -373,7 +356,7 @@ private Q_SLOTS:
                                      QStringLiteral("composerFormat_orderedlist") }) {
             const int at = bar.indexOf(QStringLiteral("objectName: \"") + name);
             QVERIFY2(at > 0, qPrintable(name));
-            // Anchored on the declaration, not on a fixed window after it.
+            // Anchored on the declaration, not a fixed window.
             const int end = bar.indexOf(QStringLiteral("onClicked"), at);
             QVERIFY(end > at);
             QVERIFY2(bar.mid(at, end - at).contains(QStringLiteral("minWidth: 0")),
@@ -381,8 +364,8 @@ private Q_SLOTS:
         }
     }
 
-    // The rich editor's placeholder must go the moment the document draws
-    // anything — an empty list item has no characters and still shows "1.".
+    // The rich editor's placeholder hides as soon as the document draws
+    // anything; an empty list item has no characters but still shows "1.".
     void bothRichComposersGateTheirPlaceholderOnTheDocument()
     {
         const QString bar = qmlCodeLines(qmlSource(QStringLiteral("MessageComposerBar.qml")));
@@ -395,8 +378,8 @@ private Q_SLOTS:
         QVERIFY(thread.contains(QStringLiteral(
             "app.richComposer.documentIsBlank(threadRichInput.textDocument)")));
         QVERIFY(thread.contains(QStringLiteral("placeholderText: panel.threadRichBlank")));
-        // A format toggle changes no characters, so it must refresh the flag
-        // itself or the placeholder would linger under a list marker.
+        // A format toggle changes no characters, so it refreshes the flag
+        // itself.
         QVERIFY(bar.contains(QStringLiteral("root.refreshRichBlank()")));
         QVERIFY(thread.contains(QStringLiteral("panel.refreshThreadRichBlank()")));
     }
@@ -411,12 +394,9 @@ private Q_SLOTS:
             QVERIFY2(!raw.isEmpty(),
                      qPrintable(QStringLiteral("could not read %1").arg(name)));
             const QString source = qmlCodeLines(raw);
-            // Anchored on the EXPRESSION, never on a window of characters
-            // after a name: a comment added above the declaration must not
-            // be able to move the assertion off its target. The presence of
-            // the declaration is also the stripper's own found>0 guard — a
-            // stripper that had eaten the file would fail here rather than
-            // pass the two bans vacuously.
+            // Anchored on the expression, so a comment above cannot move the
+            // assertion. The declaration's presence is also the stripper's
+            // found>0 guard, so the two bans cannot pass vacuously.
             QVERIFY2(source.contains(QStringLiteral("inputMethodHints:")),
                      qPrintable(QStringLiteral(
                          "%1 no longer declares inputMethodHints; the ban "
@@ -433,7 +413,7 @@ private Q_SLOTS:
         QCOMPARE(found, static_cast<int>(files.size()));
     }
 
-    // ---- 2: what gets asked, and what never does ------------------------
+    // ---- 2: what gets asked, and what never does ----
 
     void aMisspelledWordIsReportedWithItsExactRange()
     {
@@ -450,9 +430,9 @@ private Q_SLOTS:
     {
         QTest::addColumn<QString>("text");
         QTest::addColumn<QString>("token");
-        // Each row is a real thing a Matrix message carries, containing one
-        // token a dictionary would certainly reject. The token must never be
-        // looked up at all — not merely go un-underlined.
+        // Each row is something a Matrix message carries, containing one token
+        // a dictionary would reject. The token must never be looked up, not
+        // merely go un-underlined.
         QTest::newRow("url")
             << QStringLiteral("see https://smetoniss.net/qq now")
             << QStringLiteral("smetoniss");
@@ -500,12 +480,10 @@ private Q_SLOTS:
     {
         QFETCH(QString, text);
         QFETCH(QString, token);
-        // A dictionary that knows NOTHING, so the only reason a token can go
-        // unreported is that the tokenizer refused to ask about it.
+        // A dictionary that knows nothing, so a token goes unreported only if
+        // the tokenizer refused to ask.
         Fixture f(QStringList{});
-        // The control word is the found>0 guard: it proves this text was
-        // actually walked, so a tokenizer that had quietly stopped producing
-        // words could not pass every row.
+        // The control word is the found>0 guard: it proves the text was walked.
         const QString probe = text + QStringLiteral(" wrold");
         const QVariantList ranges = f.checker.misspelledRanges(probe);
         QVERIFY2(f.backend->m_asked.contains(QStringLiteral("wrold")),
@@ -528,8 +506,8 @@ private Q_SLOTS:
         QVERIFY(f.checker.misspelledRanges(text, 11).isEmpty());
         // Caret inside it: same.
         QVERIFY(f.checker.misspelledRanges(text, 8).isEmpty());
-        // Caret at its leading edge counts as inside, because a Backspace
-        // from there is still editing this word.
+        // Caret at its leading edge counts as inside: Backspace from there
+        // still edits this word.
         QVERIFY(f.checker.misspelledRanges(text, 6).isEmpty());
         // Caret elsewhere: reported.
         QCOMPARE(f.checker.misspelledRanges(text, 2).size(), 1);
@@ -540,12 +518,10 @@ private Q_SLOTS:
     void aMentionRangeIsNeverSpellChecked()
     {
         Fixture f;
-        // A display name is a person's name, not English, and the composer
-        // keeps mentions as plain text with a semantic range over them.
-        // The fixture's dictionary knows none of these, so all four words are
-        // rejected without the mention range; with it, only the two outside
-        // it are. Both halves are asserted, so a skip rule that dropped
-        // EVERYTHING would fail here rather than look like a pass.
+        // A display name is not English; mentions are plain text with a
+        // semantic range. Without the range all four words are rejected, with
+        // it only the two outside; both halves are asserted so a rule that
+        // drops everything fails.
         const QString text = QStringLiteral("Rokas Smetoniss said so");
         QCOMPARE(f.checker.misspelledRanges(text).size(), 4);
         const QVariantList mention{ QVariantMap{ { "start", 0 },
@@ -565,13 +541,11 @@ private Q_SLOTS:
         QCOMPARE(hit.value("word").toString(), QStringLiteral("wrold"));
         QCOMPARE(hit.value("start").toInt(), 6);
         QCOMPARE(hit.value("length").toInt(), 5);
-        // A position at a word's trailing edge still names that word — a
-        // right-click just past the last letter means that word, and so does
-        // a caret sitting there.
+        // A position at a word's trailing edge names that word (a right-click
+        // just past the last letter, or a caret there).
         QCOMPARE(f.checker.wordAt(text, 5).value("word").toString(),
                  QStringLiteral("hello"));
-        // A position genuinely in whitespace names nothing rather than
-        // guessing at the nearest word.
+        // A position in whitespace names nothing.
         const QString spaced = QStringLiteral("hello   wrold");
         QCOMPARE(f.checker.wordAt(spaced, 6).value("word").toString(),
                  QString{});
@@ -588,8 +562,8 @@ private Q_SLOTS:
         QCOMPARE(spy.count(), 1);
         QCOMPARE(f.backend->m_added,
                  QStringList{ QStringLiteral("Lightnink") });
-        // The cached "wrong" must not survive: this is the whole reason the
-        // cache is cleared rather than one key removed.
+        // The cached "wrong" must not survive, which is why the cache is
+        // cleared rather than one key removed.
         QVERIFY(f.checker.misspelledRanges(text).isEmpty());
     }
 
@@ -607,8 +581,8 @@ private Q_SLOTS:
     void oneWordIsLookedUpOnceHoweverOftenItIsTyped()
     {
         Fixture f;
-        // A composer re-checks the whole draft on every keystroke; the
-        // dictionary lookup is the expensive half of that.
+        // The whole draft is re-checked per keystroke; lookups are the
+        // expensive half.
         const QString text =
             QStringLiteral("wrold wrold wrold wrold wrold");
         f.checker.misspelledRanges(text);
@@ -638,7 +612,7 @@ private Q_SLOTS:
         QVERIFY(f.checker.suggestions(QStringLiteral("qqq")).isEmpty());
     }
 
-    // ---- 3: the tray badge --------------------------------------------
+    // ---- 3: the tray badge ----
 
     void theTrayBadgeSaysOnlyWhatIsKnown_data()
     {
@@ -663,14 +637,12 @@ private Q_SLOTS:
 
     void aBusyRoomDoesNotRepaintTheTrayIconPerMessage()
     {
-        // The recorded objection to a badge was that it is "a per-message
-        // rasterization for a number the tooltip already carries". The
-        // answer is this: above nine, the drawn string stops changing, so
-        // the repaint condition — the label changed — is false.
+        // Above nine the drawn label stops changing, so the repaint condition
+        // (label changed) is false and no per-message rasterization happens.
         QCOMPARE(TrayIcon::badgeLabel(40, true), TrayIcon::badgeLabel(41, true));
         QCOMPARE(TrayIcon::badgeLabel(10, true),
                  TrayIcon::badgeLabel(9999, true));
-        // ...and it IS still true across the boundaries that matter.
+        // ...and it still changes across the boundaries that matter.
         QVERIFY(TrayIcon::badgeLabel(9, true) != TrayIcon::badgeLabel(10, true));
         QVERIFY(TrayIcon::badgeLabel(0, true) != TrayIcon::badgeLabel(0, false));
         QVERIFY(TrayIcon::badgeLabel(0, true) != TrayIcon::badgeLabel(1, true));

@@ -1,26 +1,21 @@
-// v0.7.x reusable User-Interactive Authentication + device sign-out —
-// UiaController policy against the scriptable MockMatrixClient UIA surface.
-// Pins:
+// Reusable User-Interactive Authentication + device sign-out: UiaController
+// policy against MockMatrixClient's UIA surface. Pins:
 //   * a no-challenge sign-out completes end-to-end (busy flips, the exact
 //     device ids reach the backend, signOutFinished reports ok);
-//   * the CURRENT device is refused as a guard — signing out this session
-//     is the normal logout flow, never a device deletion;
-//   * a real UIA challenge opens the password prompt, a wrong password
-//     reopens it with retry offered, cancel closes it terminally and a
-//     stale later answer is refused;
-//   * terminal failure categories surface as their honest messages;
-//   * the OAuth management-URL path hands over exactly the scripted URL and
-//     an undeterminable URL is a reported failure, not silence;
-//   * sign-out / account switch mid-challenge clears the challenge so a
-//     later account can never answer it.
+//   * the current device is refused: signing out this session is the normal
+//     logout flow, never a device deletion;
+//   * a UIA challenge opens the password prompt, a wrong password reopens it
+//     with retry offered, cancel closes it and a stale answer is refused;
+//   * terminal failure categories surface as their messages;
+//   * the OAuth management-URL path hands over exactly the scripted URL, and
+//     an undeterminable URL is a reported failure;
+//   * sign-out / account switch mid-challenge clears the challenge.
 //
-// CREDENTIAL RULES: the password passes through submitPassword() transiently
-// and is never retained — see the structural assertion in
-// passwordIsNeverRetainedInControllerState().
+// The password passes through submitPassword() transiently and is never
+// retained (see passwordIsNeverRetainedInControllerState()).
 //
-// HONEST SCOPE: policy and wiring only. Real /delete_devices UIA round trips
-// against a homeserver and MAS/OAuth account consoles are NOT exercised here
-// and are NOT TESTED.
+// Policy and wiring only: real /delete_devices round trips and MAS/OAuth
+// consoles are not exercised here.
 
 #include "app/UiaController.h"
 #include "matrix/MockMatrixClient.h"
@@ -246,12 +241,9 @@ private Q_SLOTS:
         ctl.submitPassword(kGoodSecret);
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kSignalTimeoutMs);
 
-        // Structural: the controller exposes NO property that could carry
-        // the submitted password — its state is booleans and stage names
-        // only. Credential non-retention below this boundary (the C++
-        // transit buffer and the Rust scrub) is enforced by design in those
-        // layers, not observable from here; this pins the QML-facing
-        // surface. Scan every metaobject property's readable value.
+        // The controller exposes no property that could carry the password
+        // (its state is booleans and stage names). Retention below this
+        // boundary is not observable here; this pins the QML-facing surface.
         const QMetaObject *mo = ctl.metaObject();
         for (int i = 0; i < mo->propertyCount(); ++i) {
             const QMetaProperty prop = mo->property(i);

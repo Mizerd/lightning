@@ -1,8 +1,7 @@
-// v0.7.x Discover / Join: RoomDirectorySearchModel (debounce, paging,
-// stale-op rejection) and RoomDiscoveryController (resolve preview, join
-// and knock outcomes, honest error categories, wait-for-room navigation,
-// bounded space-children cache, sign-out invalidation) against the
-// scriptable MockMatrixClient surface.
+// Discover / Join: RoomDirectorySearchModel (debounce, paging, stale-op
+// rejection) and RoomDiscoveryController (resolve preview, join and knock
+// outcomes, error categories, wait-for-room navigation, bounded
+// space-children cache, sign-out invalidation) against MockMatrixClient.
 
 #include "app/RoomDiscoveryController.h"
 #include "matrix/MockMatrixClient.h"

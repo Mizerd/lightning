@@ -1,10 +1,8 @@
-// Support-diagnostics redaction. The export exists so a user can paste
-// Lightning's state into a bug report; the whole point is that doing so is
-// safe. These tests deliberately INJECT credential-shaped values into every
-// free-text field the report carries and prove none of them survive, and
-// separately prove the report still contains the metadata that makes it worth
-// exporting at all — a filter that redacted everything would pass a
-// leak-only test.
+// Support-diagnostics redaction: the export must be safe to paste into a bug
+// report. Credential-shaped values are injected into every free-text field
+// and none may survive, and the report must still contain the metadata that
+// makes it useful (a filter that redacted everything would pass a leak-only
+// test).
 #include "app/SessionDiagnostics.h"
 
 #include <QCryptographicHash>
@@ -50,11 +48,9 @@ void SessionDiagnosticsTest::hashIsStableNonReversibleAndShort()
 
 void SessionDiagnosticsTest::hashIsNotReversibleByDictionaryAttack()
 {
-    // The property that matters for a bundle designed to be pasted in public:
-    // a Matrix ID is drawn from a small space, so an UNSALTED hash could be
-    // reversed by hashing candidate IDs. With a per-report salt, an attacker
-    // holding the report cannot reproduce the value without it, and two
-    // reports about the same account do not link.
+    // A Matrix ID is drawn from a small space, so an unsalted hash could be
+    // reversed. With a per-report salt the value cannot be reproduced without
+    // the salt, and two reports about the same account do not link.
     const QString id = QStringLiteral("@alice:example.org");
     const QByteArray saltA = newReportSalt();
     const QByteArray saltB = newReportSalt();
@@ -153,9 +149,8 @@ void SessionDiagnosticsTest::reportNeverLeaksInjectedSecrets()
 {
     Report r;
     // Every field that carries backend-authored free text gets a credential
-    // pushed into it. None of these are values the app would legitimately
-    // place here — that is the point: the filter is the backstop for a field
-    // we misjudged, or one added later.
+    // pushed into it: the filter is the backstop for a misjudged or newly
+    // added field.
     r.appVersion = QStringLiteral("0.6.4");
     r.backendName = QStringLiteral("rust");
     r.rustSdkVersion =

@@ -4,12 +4,10 @@
 
 using lightning::startup::shouldRejectForNoDisplay;
 
-// The DISPLAY / WAYLAND_DISPLAY preflight must fire ONLY on X11/Wayland
-// platforms (Unix, excluding macOS) and only when no display is reachable and
-// the caller has not forced a QPA platform. On Windows and macOS the native
-// plugin needs neither variable, so startup must never be rejected there — that
-// was the bug that made a normal double-click on Windows exit with
-// "no graphical display available".
+// The DISPLAY / WAYLAND_DISPLAY preflight fires only on X11/Wayland platforms
+// (Unix, excluding macOS), only when no display is reachable and the caller
+// has not forced a QPA platform. On Windows and macOS the native plugin needs
+// neither variable, so startup is never rejected there.
 class StartupChecksTest : public QObject
 {
     Q_OBJECT
@@ -46,7 +44,7 @@ private slots:
     void windowsNoDisplay_accepted()
     {
         // Windows: DISPLAY / WAYLAND_DISPLAY absent (the normal case) must be
-        // accepted — this is the regression the guard fixes.
+        // accepted.
         QVERIFY(!shouldRejectForNoDisplay(/*requires*/ false, false, false));
     }
 

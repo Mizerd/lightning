@@ -1,10 +1,7 @@
-// The opt-in sync-latency tracer (LIGHTNING_SYNC_TRACE).
-//
-// What matters about a diagnostic is that it is honest, cheap when off, and
-// bounded. These cases pin exactly that: it is inert unless enabled, it never
-// records a room id, a stage it did not observe reports -1 rather than a
-// fabricated 0, its journey table cannot grow without bound, and a sync gap
-// past the threshold is reported rather than silently swallowed.
+// The opt-in sync-latency tracer (LIGHTNING_SYNC_TRACE): inert unless
+// enabled, never records a room id, reports -1 for a stage it did not
+// observe, keeps a bounded journey table, and reports a sync gap past the
+// threshold.
 
 #include "app/SyncLatencyTracer.h"
 

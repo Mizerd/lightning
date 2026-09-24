@@ -1,14 +1,10 @@
-// v0.7.4: typed m.room.member profile changes.
+// Typed m.room.member profile changes: the bridge sends the typed change and
+// an empty body, and the sentence is built here (translatable, with the
+// actor's resolved display name).
 //
-// The Rust bridge stopped phrasing these events: an English sentence built
-// down there could be neither translated nor written with the ACTOR's
-// resolved display name, and it forced the old/new names through a field
-// (`body`) that every other row uses for message text. The bridge now sends
-// the typed change and an EMPTY body, and the sentence is built here.
-//
-// This is the sentence matrix plus the two things that make it safe: names
-// are untrusted plain text that never becomes markup, and a change we cannot
-// phrase degrades to an honest general form instead of printing empty quotes.
+// The sentence matrix plus two safety rules: names are untrusted plain text
+// that never becomes markup, and a change we cannot phrase degrades to a
+// general form instead of printing empty quotes.
 
 #include "matrix/MatrixClient.h"
 #include "models/TimelineModel.h"
@@ -294,10 +290,8 @@ void ProfileActivityTest::longNamesAreCarriedVerbatim()
 
 void ProfileActivityTest::markupInANameIsNeverRichText()
 {
-    // A display name is attacker-chosen text. The sentence carries it
-    // VERBATIM — the row renders as PlainText, so the literal characters are
-    // what the reader sees. Nothing here escapes, encodes, or builds markup:
-    // producing html at all is what would make this dangerous.
+    // A display name is attacker-chosen text. The sentence carries it verbatim
+    // and the row renders as PlainText; nothing here builds markup.
     const QString hostile =
         QStringLiteral("<b>bold</b><img src=x onerror=alert(1)>");
     const TimelineEvent e = makeProfileChange(
@@ -308,12 +302,9 @@ void ProfileActivityTest::markupInANameIsNeverRichText()
     QVERIFY(sentence.contains(hostile));
     QVERIFY(!sentence.contains(QStringLiteral("&lt;")));
 
-    // And the row itself never offers a formatted body, so no delegate can
-    // route this through the rich-text renderer by accident. The actor is
-    // resolved by the model, not by this call, so the fixture has to KNOW
-    // the name the sentence above was built with — otherwise the row falls
-    // back to the localpart and the comparison measures the resolver rather
-    // than the markup.
+        // The row never offers a formatted body. The fixture must know the
+        // actor's name, or the row falls back to the localpart and the
+        // comparison measures the resolver instead of the markup.
     m_client->displayNames.insert(kActor, QStringLiteral("Bob"));
     m_client->mirror = { e };
     m_model->setRoomId(kRoom);

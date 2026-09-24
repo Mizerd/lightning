@@ -1,5 +1,5 @@
-// v0.7 voice round: the waveform bucket math behind MSC3245 sends. Pure
-// static helper — no capture chain, no audio backend, headless-safe.
+// The waveform bucket math behind MSC3245 voice sends. Pure static helper: no
+// capture chain, no audio backend, headless-safe.
 
 #include "media/VoiceRecorder.h"
 

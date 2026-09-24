@@ -1,10 +1,7 @@
-// v0.5.7: CacheStore plaintext-security regression tests.
-//
-// The invariant under test: decrypted encrypted-room plaintext is
-// memory-only. Every CacheStore write path must refuse a TimelineEvent
-// whose isEncrypted flag is set — even after the SDK decrypted it, even
-// for local echoes, edits, or reply previews — and the unique marker
-// body must never appear anywhere in the cache.sqlite file.
+// CacheStore plaintext security. Decrypted encrypted-room plaintext is
+// memory-only: every write path refuses a TimelineEvent with isEncrypted set
+// (even decrypted, and for local echoes, edits and reply previews), and the
+// marker body never appears in the cache.sqlite file.
 
 #include "storage/CacheStore.h"
 
@@ -96,7 +93,7 @@ QString CacheStoreSecurityTest::databaseFilePath() const
 
 void CacheStoreSecurityTest::plainEventRoundTrips()
 {
-    // Sanity: the unencrypted path (HTTP/mock backends) is unchanged.
+    // The unencrypted path (HTTP/mock backends) is unchanged.
     m_store->appendEvent(plainEvent(QStringLiteral("$plain"),
                                     QStringLiteral("plain body")));
     const auto loaded = m_store->loadTimeline(kRoom);
@@ -143,12 +140,12 @@ void CacheStoreSecurityTest::encryptedEditNotPersisted()
 
 void CacheStoreSecurityTest::encryptedReplacementPurgesPlaceholder()
 {
-    // A plaintext placeholder row exists (e.g. from an older run)…
+    // A plaintext placeholder row exists (e.g. from an older run)...
     m_store->appendEvent(plainEvent(QStringLiteral("local:txn9"),
                                     QStringLiteral("placeholder")));
     QCOMPARE(m_store->loadTimeline(kRoom).size(), 1);
-    // …and its encrypted replacement must delete it rather than upsert
-    // decrypted plaintext.
+    // ...and its encrypted replacement deletes it rather than upserting
+    // plaintext.
     m_store->replaceEventId(QStringLiteral("local:txn9"),
                             encryptedEvent(QStringLiteral("$real"), kMarker));
     QVERIFY(m_store->loadTimeline(kRoom).isEmpty());
@@ -166,10 +163,9 @@ void CacheStoreSecurityTest::encryptedReplyPreviewNotPersisted()
 
 void CacheStoreSecurityTest::encryptedMediaMetadataNotPersisted()
 {
-    // v0.5.9: media rows from encrypted rooms — filename, media key, MIME —
-    // must be refused exactly like text plaintext. Decrypted media bytes
-    // themselves never reach CacheStore at all (the media bridge is
-    // memory-only), so metadata is the only thing that could leak here.
+    // Encrypted-room media rows (filename, media key, MIME) are refused like
+    // text. Decrypted media bytes never reach CacheStore (the media bridge is
+    // memory-only), so metadata is the only possible leak here.
     const QString marker = QStringLiteral("LIGHTNING_MEDIA_CACHE_TEST_059");
     TimelineEvent media = encryptedEvent(QStringLiteral("$encmedia"), marker);
     media.type = TimelineEvent::Image;
@@ -196,8 +192,8 @@ void CacheStoreSecurityTest::encryptedMediaMetadataNotPersisted()
 
 void CacheStoreSecurityTest::markerNeverAppearsInDatabaseFile()
 {
-    // After all the attempts above, scan the raw database bytes: the
-    // unique marker plaintext must not exist anywhere in cache.sqlite.
+        // After all the attempts above, the marker must not exist anywhere in
+        // the raw cache.sqlite bytes.
     m_store->appendEvent(encryptedEvent(QStringLiteral("$final"), kMarker));
     RoomInfo encryptedRoom;
     encryptedRoom.id = kRoom;

@@ -1,8 +1,7 @@
-// v0.6.1: GIF search controller. Drives the full request lifecycle with a fake
-// transport (canned responses, no network, no key) — debounce, cancellation,
-// stale-result rejection, provider switching, pagination, dedup, safe-search
-// re-run, and the MissingKey / Offline / RateLimited / ProviderError / NoResults
-// states.
+// GIF search controller, driven with a fake transport (canned responses, no
+// network or key): debounce, cancellation, stale-result rejection, provider
+// switching, pagination, dedup, safe-search re-run, and the MissingKey /
+// Offline / RateLimited / ProviderError / NoResults states.
 
 #include "gif/GifSearchController.h"
 #include "gif/GifResultModel.h"
@@ -110,7 +109,7 @@ private Q_SLOTS:
 
 void GifSearchControllerTest::defaultResolutionUsesEnvNotHardcoded()
 {
-    // Keyless build + no runtime override => both providers unconfigured.
+    // Keyless build with no runtime override: both providers unconfigured.
     qunsetenv("LIGHTNING_GIPHY_API_KEY");
     qunsetenv("LIGHTNING_KLIPY_API_KEY");
     {
@@ -265,10 +264,9 @@ void GifSearchControllerTest::safeSearchChangeReRuns()
 void GifSearchControllerTest::keyNeverAppearsInSignals()
 {
     makeController();
-    // Neither the state signal payloads nor any exposed property carry the key.
-    // The controller's public surface has no key accessor at all; assert the
-    // configured() boolean is all that leaks, and the model rows carry only
-    // provider CDN URLs (no api_key on GIPHY media URLs).
+    // No state signal payload or exposed property carries the key: only the
+    // configured() boolean is exposed, and model rows carry provider CDN URLs
+    // without api_key.
     gif->showTrending();
     transport->complete(transport->lastOp(), true, 200,
                         giphyBody({ "a" }), QStringLiteral("ok"));

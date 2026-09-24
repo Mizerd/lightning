@@ -5,21 +5,16 @@
 
 using namespace lightning::shareaudio;
 
-// The decision that removes the echo.
+// Which application streams a share with sound captures.
 //
-// Sharing with sound used to capture the default sink's MONITOR — the whole
-// post-mix output — so Lightning's own playback of the other participants
-// went straight back out and they heard themselves (tester report
-// 2026-09-06 §3, confirmed twice). A monitor cannot leave a contributor out;
-// the fix is to capture each playing application on its own and simply not
-// capture ourselves.
+// Capturing the default sink's monitor would send Lightning's own playback of
+// the other participants back to them, so each playing application is
+// captured on its own and Lightning's own streams are excluded.
 //
-// What is tested here is the DECISION and the pipeline SHAPE: which streams
-// are eligible, and what the description built from them contains. What is
-// NOT tested here, and is not tested anywhere: the dynamic half — the rescan
-// bookkeeping, the branch cap, the poll's own start and stop — which needs a
-// live PipeWire graph, and the echo removal itself, which needs a far end.
-// Both are reported NOT TESTED rather than implied by this file's existence.
+// Tested here: which streams are eligible and the shape of the pipeline
+// description. Not tested anywhere: the rescan bookkeeping, branch cap and
+// poll lifecycle (need a live PipeWire graph), and the echo removal itself
+// (needs a far end).
 class ShareAudioSourcesTest : public QObject
 {
     Q_OBJECT
@@ -41,8 +36,8 @@ private:
     }
 
 private slots:
-    // THE CASE THE DEFECT IS. Our own playback must never be captured,
-    // whichever way the node identifies itself.
+    // Our own playback must never be captured, whichever way the node
+    // identifies itself.
     void ourOwnPlaybackIsNeverCaptured()
     {
         const qint64 ours = 4242;
@@ -55,19 +50,10 @@ private slots:
                                  ours, QStringList{QStringLiteral("Lightning")}));
     }
 
-    // THE BELT HAD THE WRONG NAME ON IT, AND SO COULD NEVER FASTEN.
-    //
-    // The name check exists for one case: a node of ours that carries no
-    // `application.process.id`, where the pid guard cannot fire. It used to
-    // be handed QCoreApplication::applicationName() alone, which is
-    // "matrix-client" (src/main.cpp), while a live share on 2026-09-07
-    // logged its own sources as `app= "lightning-matrix"` — the BINARY name.
-    // So the one process the belt existed to exclude was the one name it did
-    // not have, and had the pid ever gone missing the echo would have come
-    // straight back with a check in place that looked like it was working.
-    //
-    // FAIL-ON-OLD: with the parameter narrowed back to a single name, the
-    // binary-name case below captures our own playback.
+    // The name check covers a node of ours with no `application.process.id`
+    // (where the pid guard cannot fire). It must match every spelling of our
+    // name: the application name ("matrix-client") and the binary name
+    // ("lightning-matrix").
     void everySpellingOfOurOwnNameIsExcluded()
     {
         const QStringList ours{ QStringLiteral("matrix-client"),
@@ -100,20 +86,17 @@ private slots:
                                 QStringList{QStringLiteral("Lightning")}));
     }
 
-    // A stream we cannot TARGET is not a stream we can capture. `pipewiresrc`
-    // resolves a stream node by `object.serial` and by nothing else — given a
-    // name it runs happily and carries digital silence (measured) — so an
-    // absent or malformed serial must be refused rather than guessed at.
+    // A stream we cannot target cannot be captured: `pipewiresrc` resolves a
+    // stream node only by `object.serial` (given a name it carries silence),
+    // so an absent or malformed serial is refused.
     void aStreamWithoutAUsableSerialIsRefused()
     {
         QVariantMap noSerial = streamProps(99, QStringLiteral("Firefox"));
         noSerial.remove(QStringLiteral("object.serial"));
         QVERIFY(!streamIsForeign(noSerial, 1, QStringList{QStringLiteral("Lightning")}));
 
-        // And a serial that is not a plain number never reaches a parse
-        // string: it is interpolated into gst_parse_bin_from_description,
-        // where "42 ! fakesink" would be a different pipeline, not a bad
-        // target.
+        // A serial that is not a plain number never reaches the parse string,
+        // where "42 ! fakesink" would be a different pipeline.
         for (const QString &bad : { QStringLiteral("42 ! fakesink"),
                                     QStringLiteral("4 2"),
                                     QStringLiteral("abc"),
@@ -149,10 +132,8 @@ private slots:
         QVERIFY(!streamIsForeign(p, 1, QStringList{QStringLiteral("Lightning")}));
     }
 
-    // THE FLOOR. A share started before anything is playing — "share, then
-    // press play" — must still hand the Opus encoder a timeline, or the
-    // track publishes and then carries nothing, which is worse than the echo
-    // it replaces.
+    // A share started before anything is playing must still hand the Opus
+    // encoder a timeline, or the track publishes and carries nothing.
     void theDescriptionAlwaysCarriesASilenceFloor()
     {
         const QString empty = mixedSourceDescription({});
@@ -168,10 +149,9 @@ private slots:
         QVERIFY(one.contains(QLatin1String("target-object=77")));
     }
 
-    // The mixer's own output has to be the LAST chain in the description,
-    // because the caller appends its encoder with a bare `! `: gst_parse
-    // continues whichever chain was written last, so a source written after
-    // the mixer would quietly swallow the encoder.
+    // The mixer's output must be the last chain: the caller appends its
+    // encoder with a bare `! `, and gst_parse continues the last-written
+    // chain.
     void theMixerOutputIsTheLastChain()
     {
         Stream a;
@@ -197,11 +177,9 @@ private slots:
         QCOMPARE(feeders, 3); // silence floor + two applications
     }
 
-    // §16: `min-buffers` is PINNED, never inherited — the default moved from
-    // 8 to 1 between gst-plugin-pipewire 1.4 and 1.6 and 8 cannot negotiate
-    // against a source offering fewer. And `on-disconnect=eos` is what lets a
-    // departing application retire its own branch instead of leaving a silent
-    // pad the mixer waits on for the rest of the share.
+    // `min-buffers` is pinned, never inherited (the default changed from 8 to
+    // 1 between gst-plugin-pipewire 1.4 and 1.6). `on-disconnect=eos` lets a
+    // departing application retire its own branch.
     void everyApplicationBranchPinsWhatItMustNotInherit()
     {
         Stream s;
@@ -210,18 +188,14 @@ private slots:
         QVERIFY(branch.contains(QLatin1String("min-buffers=1")));
         QVERIFY(branch.contains(QLatin1String("on-disconnect=eos")));
         QVERIFY(branch.contains(QLatin1String("target-object=9551")));
-        // Both load-bearing for a live source joining a running aggregator:
-        // `do-timestamp` puts the buffers on the pipeline's running time (an
-        // application that started ten minutes into the share has its own
-        // idea of time), and a leaky queue means one slow branch drops its
-        // own buffers instead of back-pressuring the mixer everyone shares.
+        // `do-timestamp` puts the buffers on the pipeline's running time, and
+        // a leaky queue lets a slow branch drop its own buffers instead of
+        // back-pressuring the shared mixer.
         QVERIFY(branch.contains(QLatin1String("do-timestamp=true")));
         QVERIFY(branch.contains(QLatin1String("leaky=downstream")));
         QVERIFY(applicationBranchDescription(Stream{}, 0).isEmpty());
-        // AND THE SERIAL IS CHECKED HERE, not only where a Stream is read
-        // from PipeWire. These builders are public and take a caller-built
-        // Stream, so a value that would change the parse string rather than
-        // the target must be refused at the point it is interpolated.
+        // The serial is also checked here: these builders are public and take
+        // a caller-built Stream.
         Stream hostile;
         hostile.serial = QStringLiteral("1 ! fakesink");
         QVERIFY(applicationBranchDescription(hostile, 0).isEmpty());

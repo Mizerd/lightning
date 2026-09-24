@@ -1,22 +1,12 @@
-// Regression coverage for the ThreadPanel.qml pagination-anchor port: before
-// this checkpoint, qml/ThreadPanel.qml had NO scroll-anchor capture/restore
-// mechanism at all for its own backward-pagination path
-// (app.thread.model.requestOlder(), a plain ListView prepend) — the exact
-// class of bug TimelinePane.qml's captureAnchor()/restoreCapturedAnchor()
-// exists to prevent ("a fixed contentY would make the whole conversation
-// jump", see TimelinePane.qml's own comment), left unaddressed in the
-// sibling thread view. This test drives the REAL ThreadPanel.qml through a
-// genuine near-top thread-reply pagination and proves the ported mechanism
-// holds, including 9a0e41a's fix semantics: the restore reads the LIVE
-// contentY at restore time and applies a RELATIVE shift, so a reader still
-// scrolling when the page lands is never snapped back to a stale position.
+// ThreadPanel.qml's backward pagination (app.thread.model.requestOlder(), a
+// ListView prepend) must keep the reader's place, like TimelinePane's
+// captureAnchor()/restoreCapturedAnchor(). The restore reads the live
+// contentY and applies a relative shift, so a reader still scrolling when
+// the page lands is not snapped back.
 //
-// Mirrors TimelinePaneQmlTest.cpp's
-// paginationAnchorRestorePreservesConcurrentScroll methodology (direct
-// contentY write standing in for a continuing touchpad gesture — see that
-// test's own comment for why that is a faithful stand-in), adapted to
-// ThreadPanel's replyList/app.thread.model instead of
-// TimelinePane's timeline/app.pagination.
+// Same method as TimelinePaneQmlTest's
+// paginationAnchorRestorePreservesConcurrentScroll (a direct contentY write
+// stands in for a continuing gesture), adapted to ThreadPanel's replyList.
 #include <QtTest/QtTest>
 
 #include <QGuiApplication>
@@ -72,11 +62,8 @@ private:
 private Q_SLOTS:
     void initTestCase()
     {
-        // Sandbox BEFORE the first AppController exists. Without this the
-        // test opens the developer's real matrix-client.conf: logging in as
-        // the mock user calls setActiveAccountUserId() for an id with no
-        // saved record, which removes the real `activeAccount` key — so
-        // running the suite would silently sign the maintainer out.
+        // Sandbox before the first AppController exists, or logging in as the
+        // mock user would remove the real config's `activeAccount` key.
         QVERIFY(m_configHome.isValid());
         QVERIFY(m_dataHome.isValid());
         qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
@@ -104,15 +91,10 @@ private Q_SLOTS:
             MatrixClient::threadTimelineId(kGeneral, rootId);
 
         mock->setPaginationDelayForTest(60);
-        // Replace the small built-in fixture with 30 synthetic replies —
-        // comfortably exceeds the test viewport, same reasoning as
-        // TimelinePaneQmlTest.cpp's own fixture sizing. resetTimelineForTest
-        // is a generic (roomId-string, events) store; feeding it the
-        // COMPOSITE thread timeline id (already the model's roomId(), since
-        // the thread is Ready) makes TimelineModel::onTimelineReset reload
-        // exactly like it would for a real room, without disturbing
-        // ThreadController's own state (it only reacts to timelineReset
-        // while Opening, not once Ready).
+        // Replace the built-in fixture with 30 replies, more than the
+        // viewport. Resetting the composite thread timeline id reloads the
+        // model like a real room without disturbing ThreadController (it
+        // only reacts to timelineReset while Opening).
         QList<TimelineEvent> events;
         for (int i = 0; i < 30; ++i) {
             TimelineEvent e;
@@ -164,12 +146,9 @@ private Q_SLOTS:
                                           Q_ARG(int, 0 /*ListView.Beginning*/)));
         QCoreApplication::processEvents();
 
-        // Real near-top request — exactly what ThreadPanel.qml's
-        // onMovementEnded/afterWheelSettled dispatch. The mock flips
-        // paginating() synchronously inside loadOlderMessages() (same
-        // mechanism the room timeline relies on), so the new Connections{
-        // target: app.thread.model }.onPaginationChanged handler in
-        // ThreadPanel.qml calls captureAnchor() before this returns.
+        // A real near-top request. The mock flips paginating() synchronously,
+        // so ThreadPanel's onPaginationChanged handler captures the anchor
+        // before this returns.
         const int countBefore = replyList->property("count").toInt();
         controller.thread()->model()->requestOlder();
         QCoreApplication::processEvents();
@@ -222,38 +201,16 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
-    // ── 2026-09-18: the thread root card lost characters out of the middle
-    //    of the message ──────────────────────────────────────────────────
+    // ── The thread root card never draws wider than its column ───────────
     //
-    // Seen on the running client at 140 %: a root reading "discriminator ping
-    // for the space-tree refresh test" rendered as "discriminator ping for
-    // the space-t" / "refresh test". Not elided and not clipped-but-present —
-    // the characters "ree" were not drawn anywhere, and nothing on screen
-    // said so.
+    // The body Label (a fillWidth child of a ColumnLayout anchored to the
+    // card) came out at the layout's implicit width, wrapped for that, and
+    // the card's `clip: true` cut the overhang out of the middle of the text.
+    // Scale-free rule: nothing in the root card may be wider than its column.
     //
-    // Instrumented rather than guessed at. A probe on the live item reported
-    // `body w=377  colW=292  cardW=316  contentW=372`: the body Label, a
-    // `Layout.fillWidth` child of a ColumnLayout that is ANCHORED to a 316px
-    // card, came out 377px wide — the layout's own IMPLICIT width, which the
-    // header row's contents set. So the text wrapped for 377 and the card's
-    // `clip: true` ate the overhang. The same probe after the fix reads
-    // `body w=292  colW=292`.
-    //
-    // The rule asserted here is the one that was violated, and it is scale-
-    // free: **nothing in the root card may be wider than the column that
-    // holds it.** Pixel values are deliberately absent — they are a property
-    // of the window size this test happens to use.
-    //
-    // AND THIS IS AN INVARIANT GUARD, NOT A REGRESSION TEST. Removing either
-    // cap leaves it PASSING: offscreen, with the panel as the window's root
-    // item, the layout gives the body 292 whether or not it is capped. The
-    // live panel is a SplitView child, and only there did the body come out
-    // at its own content width. Both mutations were run (each with the QML
-    // module rebuilt, since a load test reads the COMPILED module) and both
-    // passed, so this case must not be quoted as coverage for the defect —
-    // it holds the invariant, and the numbers above are the evidence.
-    // What it CAN catch is the same shape reappearing under conditions the
-    // harness does reach, and the day it starts failing it means something.
+    // This is an invariant guard, not a regression test: offscreen, with the
+    // panel as the window's root, the body gets the right width with or
+    // without the caps. The overflow reproduced only as a SplitView child.
     void theThreadRootCardNeverDrawsWiderThanItsColumn()
     {
         AppController controller(AppController::MockBackend);
@@ -279,10 +236,8 @@ private Q_SLOTS:
         QVERIFY(root != nullptr);
 
         QQuickWindow window;
-        // NARROW ON PURPOSE. The panel is 340px on the maintainer's desktop
-        // at 140 %, and the overflow is only visible once the card is too
-        // small for the header's natural width — at 700px everything fits
-        // and a broken build passes.
+        // Narrow on purpose: the overflow only appears once the card is too
+        // small for the header's natural width.
         window.resize(340, 700);
         root->setParentItem(window.contentItem());
         root->setSize(QSizeF(window.width(), window.height()));

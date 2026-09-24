@@ -1,8 +1,8 @@
-// v0.7.x drafts: account/room/thread scoping, the encrypted-room
-// memory-only policy (never QSettings, fail-closed for unknown rooms),
-// debounce staleness (a cleared or switched-away draft can never be
-// resurrected by a late timer), send/clear retirement, reply-target and
-// mention-ref restoration, and account isolation.
+// Drafts: account/room/thread scoping, the encrypted-room memory-only policy
+// (never QSettings, fail-closed for unknown rooms), debounce staleness (a
+// late timer cannot resurrect a cleared or switched-away draft), retirement
+// on send/clear, reply-target and mention-ref restoration, and account
+// isolation.
 
 #include "app/DraftStore.h"
 #include "app/SettingsManager.h"
@@ -155,8 +155,8 @@ private Q_SLOTS:
                      .toString(),
                  QStringLiteral("plain"));
 
-        // Encrypted room: memory only — gone after the wipe, and nothing
-        // ever reached QSettings.
+        // Encrypted room: memory only; gone after the wipe and never in
+        // QSettings.
         store.save(kEncryptedRoom, kEncryptedRoom,
                    textDraft(QStringLiteral("secret sentence")));
         QCOMPARE(store.load(kEncryptedRoom)
@@ -167,18 +167,16 @@ private Q_SLOTS:
         store.clearMemoryDrafts();
         QVERIFY(store.load(kEncryptedRoom).isEmpty());
 
-        // Unknown room: fail closed → memory only.
+        // Unknown room: fail closed to memory.
         const QString unknown = QStringLiteral("!nowhere:mock.local");
         store.save(unknown, unknown, textDraft(QStringLiteral("limbo")));
         QVERIFY(settings.roomDraft(unknown).isEmpty());
         store.clearMemoryDrafts();
         QVERIFY(store.load(unknown).isEmpty());
 
-        // Review H1: a room PRESENT in the list whose encryption state has
-        // not synced yet (encryptionKnown=false — the mock join mirrors
-        // the real first-sync window) must also fail closed to memory:
-        // encrypted=false without encryptionKnown is "unknown", never
-        // "plaintext is fine".
+        // A listed room whose encryption state has not synced
+        // (encryptionKnown=false, as in the first-sync window) also fails
+        // closed: encrypted=false without encryptionKnown is unknown.
         const QString fresh = QStringLiteral("!fresh:mock.local");
         QSignalSpy joined(&client, &MatrixClient::roomJoinFinished);
         client.joinRoomByIdOrAlias(fresh, {});
@@ -275,8 +273,8 @@ private Q_SLOTS:
 
         composer.setRoomId(kPlainRoom);
         composer.setText(QStringLiteral("room A text"));
-        // Switch immediately — the save happens synchronously here and the
-        // pending timer is stopped, so nothing can land under B's key.
+        // Switch immediately: the save happens synchronously and the pending
+        // timer is stopped, so nothing lands under B's key.
         composer.setRoomId(kEncryptedRoom);
         QTest::qWait(1300);
         QVERIFY(store.load(kEncryptedRoom).isEmpty());
@@ -312,14 +310,12 @@ private Q_SLOTS:
         QCOMPARE(composer.text(), QStringLiteral("replying to that"));
         QCOMPARE(composer.replyingToEventId(), QStringLiteral("$target"));
         QCOMPARE(composer.replyingToSender(), QStringLiteral("Bob"));
-        // 2026-08-18 review find: the banner thumbnail's media key must
-        // survive the same round trip the text fields do — restore used
-        // to drop it, silently hiding the thumbnail after a room switch.
+        // The reply banner's thumbnail media key survives the round trip like
+        // the text fields.
         QCOMPARE(composer.replyingToMediaKey(), QStringLiteral("$target"));
 
-        // Entering edit mode replaces the text with the edited event's
-        // body; leaving the room in that state must NOT save the edit body
-        // as a draft — the pre-edit draft is what survives.
+        // Edit mode replaces the text with the edited body; leaving the room
+        // then must not save that as a draft; the pre-edit draft survives.
         composer.beginEdit(QStringLiteral("$edited"),
                            QStringLiteral("old message body"));
         composer.setRoomId(QString());
@@ -339,8 +335,8 @@ private Q_SLOTS:
         store.setSettings(&settings);
         store.setClient(&client);
 
-        // A valid ref whose slice matches, and a corrupted one that does
-        // not — only the valid one may come back.
+        // A valid ref whose slice matches, and a corrupted one that does not;
+        // only the valid one comes back.
         QVariantMap draft;
         draft.insert(QStringLiteral("text"),
                      QStringLiteral("hi @Bob and @Eve"));
@@ -383,8 +379,7 @@ private Q_SLOTS:
         thread.setClient(&client);
         thread.setDraftStore(&store);
 
-        // Roots come from the seeded mock timeline; any event id works as
-        // a root for composer-draft purposes.
+        // Any event id works as a root for composer-draft purposes.
         thread.openThread(kPlainRoom, QStringLiteral("$root1"));
         thread.setText(QStringLiteral("thread one draft"));
         thread.openThread(kPlainRoom, QStringLiteral("$root2"));
@@ -423,8 +418,7 @@ private Q_SLOTS:
                      .toString(),
                  QStringLiteral("alice draft"));
 
-        // Another account must not see it — and its own writes must not
-        // leak back.
+        // Another account does not see it, and its writes do not leak back.
         activateAccount(settings, QStringLiteral("@second:mock.local"));
         store.clearMemoryDrafts();
         QVERIFY(store.load(kPlainRoom).isEmpty());

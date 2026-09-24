@@ -1,31 +1,12 @@
 // A rail tile's unread badge must count exactly what that tile's view lists.
 //
-// Reported 2026-08-31: two important direct messages were missed outright.
-// The rail said there was something unread, the user clicked through, and the
-// message was in neither place — "when I click on home it shows 1 notification
-// on space, when I click on space, 1 notification at home, but nowhere do I
-// see the notifications, in channels mode".
+//   A. The Direct Messages tile (a pseudo row synthesised in RailEntryModel)
+//      must carry an unreadTotal.
+//   B. Home counts only what the Channels Home view lists.
+//   C. The "Other rooms" tile counts the unparented rooms it lists.
 //
-// Three separate defects produced that one symptom, and each has its own case
-// below:
-//
-//   A. The Direct Messages tile is a PSEUDO row synthesised in RailEntryModel
-//      with no unreadTotal key at all, so it read 0 forever. An unread DM had
-//      no way to show anywhere in the rail. This is the one that costs
-//      messages, because a DM is the thing you cannot afford to miss.
-//
-//   B. Home's total summed EVERY joined non-space room — DMs included, rooms
-//      inside Spaces included — while the Channels Home view lists only
-//      non-DM rooms that no Space's view will list. So the badge counted
-//      rooms that tile is structurally unable to show.
-//
-//   C. The "Other rooms" tile hardcoded its total to 0, and it is the one
-//      scope that does list unparented rooms.
-//
-// The invariant these pin is deliberately layout-aware, and that is not a
-// hack: Home must stop counting DMs precisely WHEN the DMs have a tile of
-// their own to be counted on. Classic has no People tab, so Classic's Home
-// legitimately still means "everything".
+// The rule is layout-aware: Classic has no People tab, so Classic's Home
+// still counts everything.
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
@@ -137,10 +118,8 @@ QList<RoomInfo> workspace(int spaceRoomUnread, int looseUnread, int dmUnread,
 }
 
 /// The rail as the user sees it: entryId -> unreadTotal, straight off
-/// RailEntryModel, which is what SpacesRail.qml binds its badge to. Reading
-/// the presentation model rather than SpaceManager is deliberate — the People
-/// tile's total never existed at that layer, so a SpaceManager-only assertion
-/// could not have caught defect A.
+/// RailEntryModel, which SpacesRail.qml binds its badge to (the People tile's
+/// total does not exist at the SpaceManager layer).
 QHash<QString, int> railUnread(const RailEntryModel &rail)
 {
     QHash<QString, int> out;
@@ -286,12 +265,8 @@ void UnreadBadgeAttributionTest::homeCountsTheDirectMessagesItListsAgain()
 {
     load(workspace(0, 0, /*dm*/ 3), /*channels*/ true);
 
-    // Until 2026-09-05 this was 0, because Home did not list the DM once it
-    // had a tile of its own. Home lists the joined DMs again now (a Direct
-    // Messages group after Rooms, at the maintainer's request), so its badge
-    // counts them again — a badge counts what its view lists, and a room in
-    // two views is counted by both tiles, exactly as a room under two Spaces
-    // already is.
+    // Home lists the joined DMs (a Direct Messages group after Rooms), so its
+    // badge counts them; a room in two views is counted by both tiles.
     QCOMPARE(railUnread(*m_rail).value(SpaceManager::allRoomsId()), 3);
     QVERIFY(channelRoomIds(*m_channels, SpaceManager::allRoomsId())
                 .contains(kDm));
@@ -311,11 +286,8 @@ void UnreadBadgeAttributionTest::homeStopsCountingRoomsThatBelongToASpace()
 
 void UnreadBadgeAttributionTest::classicHomeStillCountsEverythingBecauseItListsEverything()
 {
-    // Classic has no Direct Messages tab — it reaches DMs through a filter
-    // chip over one list — so Home is genuinely where an unread DM is found,
-    // and dropping it from Home's total there would hide it completely. The
-    // rule is not "Home never counts DMs"; it is "a tile counts what it
-    // lists".
+    // Classic reaches DMs through a filter chip over one list, so Home is
+    // where an unread DM is found and counts it.
     load(workspace(/*space room*/ 4, /*loose*/ 2, /*dm*/ 3),
          /*channels*/ false);
 
@@ -342,10 +314,8 @@ void UnreadBadgeAttributionTest::otherRoomsTileCountsTheRoomsItLists()
 
 void UnreadBadgeAttributionTest::everyUnreadIsReachableFromSomeTile()
 {
-    // Three unreads, one of each kind, live at once. For every one of them
-    // there must be a tile that both counts it and lists it. This is the case
-    // that would have caught the report: it fails if any unread is countable
-    // nowhere, and equally if it is counted somewhere it cannot be found.
+    // One unread of each kind: for every one there must be a tile that both
+    // counts it and lists it.
     load(workspace(/*space room*/ 1, /*loose*/ 1, /*dm*/ 1),
          /*channels*/ true);
 
@@ -354,7 +324,7 @@ void UnreadBadgeAttributionTest::everyUnreadIsReachableFromSomeTile()
         { kGeneral, kWork },
         { kLoose,   SpaceManager::orphansId() },
         { kDm,      SpaceManager::peopleId() },
-        { kDm,      SpaceManager::allRoomsId() }, // listed at Home too (2026-09-05)
+        { kDm,      SpaceManager::allRoomsId() }, // listed at Home too
     };
 
     for (const auto &pair : expected) {
@@ -367,10 +337,8 @@ void UnreadBadgeAttributionTest::everyUnreadIsReachableFromSomeTile()
                                 .arg(pair.tile, pair.room)));
     }
 
-    // Nothing may be counted into a tile that cannot show it. Home keeps the
-    // loose room and, since 2026-09-05, the DM — it lists both — and must
-    // drop the Space's room, so its total is those two and not the
-    // account's.
+    // Nothing is counted into a tile that cannot show it: Home keeps the loose
+    // room and the DM and drops the Space's room.
     QCOMPARE(unread.value(SpaceManager::allRoomsId()), 2);
     const QStringList home =
         channelRoomIds(*m_channels, SpaceManager::allRoomsId());

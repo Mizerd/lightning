@@ -1,9 +1,8 @@
-// v0.7: active-account switch lifecycle tests. Boot a real AppController on
-// the mock backend and drive the full switch path: activate a saved account,
-// switch to another, confirm the room/composer targets clear, the switching
-// state toggles, the login screen is never shown mid-switch, logout falls
-// back to a remaining account, and background-account removal leaves the
-// active session alone.
+// Active-account switch lifecycle, on a real AppController with the mock
+// backend: activate a saved account, switch, check that room/composer
+// targets clear, the switching state toggles, the login screen never shows
+// mid-switch, logout falls back to a remaining account, and removing a
+// background account leaves the active session alone.
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
@@ -55,21 +54,14 @@ public:
         return m_values.value(userId + QLatin1Char('/') + key);
     }
 
-    // A keyring that LOCKS AFTER STARTUP, which is the state §6 is about:
-    // every read comes back empty and the backend can say so. isAvailable()
-    // deliberately stays true — it is a construction-time probe and cannot
-    // see a collection that locked later, which is the entire reason
-    // lastReadFailed() exists. Off by default, so every other case in this
-    // file behaves exactly as before.
+    // A keyring that locks after startup: every read comes back empty and the
+    // backend says so. isAvailable() stays true because it is a
+    // construction-time probe, which is why lastReadFailed() exists.
     void setLocked(bool locked) { m_locked = locked; }
 
-    // THE SUBSTITUTED-FALLBACK SHAPE, which is a different thing entirely.
-    // When a native backend is compiled in but probes unavailable at startup,
-    // SecretStore substitutes InsecureFallbackSecretStore, whose
-    // lastReadFailed() is `m_substitutedForNative || m_lastReadFailed` — so it
-    // is PERMANENTLY true while every read still succeeds from the INI. A
-    // classifier that infers "usable" from "the backend seems fine" locks such
-    // a machine out of every account it has. Off by default.
+    // The substituted-fallback shape: when a native backend probes
+    // unavailable, SecretStore substitutes InsecureFallbackSecretStore, whose
+    // lastReadFailed() is permanently true while reads still succeed.
     void setPermanentlyUnvouched(bool unvouched) { m_unvouched = unvouched; }
 
     bool lastReadFailed() const override
@@ -135,9 +127,7 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // 2026-09-05: "when i went into another room the message select was
-    // still active". A selection belongs to the room it was started in, so
-    // leaving that room leaves the mode too.
+    // A message selection belongs to its room; leaving the room ends it.
     void switchingRoomsEndsAMessageSelection()
     {
         AppController app(AppController::MockBackend);
@@ -160,12 +150,9 @@ private Q_SLOTS:
         QCOMPARE(app.forward()->selectedCount(), 0);
     }
 
-    // v0.6.5: opening a room hydrates its member roster exactly once per
-    // account session — the roster feeds the displayNameFor cache that
-    // mention chips, reply headers, and thread summaries resolve through
-    // (before this, only the member panel or an @-composition ever fetched
-    // it, so plain reading kept bare localparts). A switch/logout clears
-    // the once-per-room memory so the next account hydrates afresh.
+    // Opening a room hydrates its member roster once per account session (it
+    // feeds the displayNameFor cache for mentions, reply headers and thread
+    // summaries). A switch or logout clears that memory.
     void roomOpenHydratesMemberRosterOncePerSession()
     {
         AppController app(AppController::MockBackend);
@@ -194,20 +181,18 @@ private Q_SLOTS:
         QTest::qWait(10);
         QCOMPARE(rosters.count(), 1);
 
-        // A FAILED fetch un-marks the room: the next open retries instead
-        // of failing closed for the whole session (the mock always answers
-        // ok=true, so the failure is injected through the same signal the
-        // backend would emit).
+        // A failed fetch un-marks the room so the next open retries. The mock
+        // always succeeds, so the failure is injected through the backend's
+        // signal.
         QVariantMap failed;
         failed.insert(QStringLiteral("ok"), false);
         Q_EMIT client->roomMembersReceived(0, roomA, failed);
-        // (the injected emission itself is rosters #2)
+        // (the injected emission is roster #2)
         app.setCurrentRoomId(QString());
         app.setCurrentRoomId(roomA);
-        QTRY_COMPARE(rosters.count(), 3); // the retry actually fired
+        QTRY_COMPARE(rosters.count(), 3); // the retry fired
 
-        // A different account starts fresh: the once-per-room memory died
-        // with the detached session.
+        // A different account starts fresh.
         app.switchToAccount(kBob);
         QTRY_VERIFY(!app.accountSwitching());
         app.setCurrentRoomId(roomA);
@@ -245,8 +230,8 @@ private Q_SLOTS:
         });
 
         app.switchToAccount(kBob);
-        // Switching state is set synchronously and the room target is gone
-        // before the previous session could route anything.
+        // Switching state is set synchronously and the room target is cleared
+        // before the previous session can route anything.
         QVERIFY(app.accountSwitching());
         QVERIFY(app.currentRoomId().isEmpty());
 
@@ -264,12 +249,9 @@ private Q_SLOTS:
                  QStringLiteral("bob-token-fixture"));
     }
 
-    // The live regression: after A -> B, the switcher popover kept the
-    // pre-switch isActive flags because the accounts LIST property never
-    // re-notified on an active-account change — clicking A hit the
-    // "already active" guard and silently did nothing, trapping the user
-    // on B. Drive A -> B -> A -> B -> A through the same decision inputs
-    // the QML rows use and assert the list refreshes on every hop.
+    // After A -> B the accounts list must re-notify, or the switcher keeps
+    // stale isActive flags and clicking A hits the "already active" guard.
+    // Drives A -> B -> A -> B -> A through the QML rows' decision inputs.
     void repeatedSwitchingKeepsEveryRowSelectable()
     {
         AppController app(AppController::MockBackend);
@@ -299,17 +281,15 @@ private Q_SLOTS:
 
         const QStringList hops = { kBob, kAlice, kBob, kAlice };
         for (const QString &target : hops) {
-            // The switcher's model refresh contract: the list property must
-            // have re-notified since the last switch, so the QML Repeater
-            // is looking at CURRENT flags, not the previous account's.
+            // The list property re-notified since the last switch, so the QML
+            // Repeater sees current flags.
             QSignalSpy listRefreshed(app.accounts(),
                                      &AccountManager::accountsChanged);
             QSignalSpy activeChanged(app.accounts(),
                                      &AccountManager::activeUserIdChanged);
 
-            // The QML row's click guard inputs (live state, fresh list):
-            // the target row must NOT present as active, so the click
-            // reaches switchToAccount.
+            // The target row must not present as active, so its click reaches
+            // switchToAccount.
             const QVariantMap targetRow = rowState(target);
             QVERIFY(!targetRow.isEmpty());
             QCOMPARE(targetRow.value(QStringLiteral("isActive")).toBool(),
@@ -336,8 +316,8 @@ private Q_SLOTS:
                      false);
         }
 
-        // Five hops later both credentials are intact and nothing is stuck
-        // in the switching state.
+        // After five hops both credentials are intact and nothing is stuck
+        // switching.
         QVERIFY(!app.accountSwitching());
         QCOMPARE(app.settings()->accessTokenFor(kAlice),
                  QStringLiteral("alice-token-fixture"));
@@ -345,15 +325,8 @@ private Q_SLOTS:
                  QStringLiteral("bob-token-fixture"));
     }
 
-    // THE REPORT (2026-09-18, an AppImage): "if i switch account, close the
-    // app, open it again it opens in the wrong account (i think its the one i
-    // signed into as the very first)". The whole cycle on one registry: the
-    // account the user switched TO must be the account the NEXT launch opens.
-    //
-    // This is the PROMISE, not the mechanism, and it passes on the unfixed
-    // tree — QTRY_* spins the event loop, and one iteration is all QSettings
-    // needs to flush a switch that was never explicitly synced. The durability
-    // half is pinned where no event loop can hide it, by
+    // The account switched to is the one the next launch opens. This pins the
+    // promise; durability without an event loop is pinned by
     // AccountRegistryTest::theActiveAccountIsOnDiskTheMomentItChanges.
     void theSwitchedToAccountIsTheOneTheNextLaunchOpens()
     {
@@ -361,7 +334,7 @@ private Q_SLOTS:
             AppController app(AppController::MockBackend);
             FakeSecretStore secrets;
             app.settings()->setSecretStore(&secrets);
-            // alice is "the one signed into as the very first".
+            // alice is the first account signed into.
             app.settings()->saveSession(kHsOne, kAlice,
                                         QStringLiteral("ALICEDEV"),
                                         QStringLiteral("alice-token-fixture"));
@@ -378,7 +351,7 @@ private Q_SLOTS:
             QCOMPARE(app.settings()->activeAccountUserId(), kBob);
         }
 
-        // "open it again": a fresh process reading the same registry.
+        // A fresh process reading the same registry.
         AppController relaunched(AppController::MockBackend);
         QCOMPARE(relaunched.settings()->activeAccountUserId(), kBob);
         QTRY_COMPARE(relaunched.auth()->currentUserId(), kBob);
@@ -419,9 +392,8 @@ private Q_SLOTS:
         QTRY_VERIFY(!app.accountSwitching());
         QTRY_COMPARE(app.auth()->currentUserId(), kBob);
 
-        // The mock backend does not remove the account record on logout
-        // (the Rust backend does); drop it here so the fallback set is
-        // realistic.
+        // The mock does not remove the account record on logout (the Rust
+        // backend does); drop it so the fallback set is realistic.
         app.settings()->clearSessionForAccount(kBob);
         app.auth()->logout();
 
@@ -457,7 +429,7 @@ private Q_SLOTS:
         QCOMPARE(app.currentScreen(), AppController::LoginScreen);
         QCOMPARE(app.settings()->activeAccountUserId(), kAlice);
 
-        // Back returns to a healthy shell — no stale error, live session.
+        // Back returns to a healthy shell: no stale error, live session.
         app.showMain();
         QCOMPARE(app.currentScreen(), AppController::MainScreen);
         QVERIFY(app.auth()->isLoggedIn());
@@ -505,12 +477,9 @@ private Q_SLOTS:
         QVERIFY(QDir(bobRoot).exists());
     }
 
-    // v0.6.6 (review CRITICAL-1): a genuine sign-out — the common case,
-    // reached via AuthManager::logout(), not "remove account" — must delete
-    // the client-local starred-GIF store for the account that WAS active.
-    // Real (server) logout already deletes the Rust crypto store this same
-    // way; this is the app-level store's own equivalent, exercised here
-    // through AppController::onLoggedOut regardless of backend.
+    // A genuine sign-out (AuthManager::logout()) deletes the starred-GIF store
+    // of the account that was active, as server logout deletes the crypto
+    // store.
     void signOutDeletesStarredGifStore()
     {
         AppController app(AppController::MockBackend);
@@ -531,25 +500,18 @@ private Q_SLOTS:
 
         app.auth()->logout();
 
-        // The mock backend never clears the saved account record on
-        // logout (see logoutContinuesWithRemainingAccount's own comment),
-        // so with only one saved account onLoggedOut()'s fallback loop
-        // finds that SAME account again and signs back in — a real-world
-        // quirk of this backend, not what this test is about. What matters
-        // for CRITICAL-1 is that the directory was actually deleted (never
-        // just incidentally emptied by something that runs later): a fresh
-        // re-login's openStarredStoreFor() never recreates a directory by
-        // merely opening it (creation is deferred to the first real star),
-        // so the deletion is still observable afterward.
+        // The mock never clears the account record on logout, so with one saved
+        // account the fallback signs the same account back in. What matters is
+        // that the directory was deleted: reopening the store does not create
+        // it (creation waits for the first star), so the deletion stays
+        // observable.
         QTRY_VERIFY(!app.accountSwitching());
         QVERIFY(!QDir(starredDir).exists());
         QCOMPARE(app.gif()->starredStore()->count(), 0);
     }
 
-    // "Remove account" on the currently-ACTIVE, logged-in account routes
-    // through the exact same AuthManager::logout() path as a plain sign-out
-    // (AppController::removeAccount's active branch) — the starred-GIF
-    // store must be deleted there too, and the switch falls back to the
+    // Removing the active account goes through the same logout path, so the
+    // starred-GIF store is deleted there too and the app falls back to the
     // remaining account.
     void removingActiveAccountDeletesStarredGifStore()
     {
@@ -578,10 +540,8 @@ private Q_SLOTS:
         QVERIFY(!QDir(aliceStarredDir).exists());
     }
 
-    // Background-account removal: the explicit starred-gifs cleanup fires
-    // for the removed account, and — the point of this test — a DIFFERENT
-    // account's starred store is never touched, even though the removed
-    // account is resolved from a saved record and not the live session.
+    // Removing a background account (resolved from its saved record) deletes
+    // its starred store and never touches another account's.
     void removingBackgroundAccountDeletesOnlyItsStarredGifStore()
     {
         AppController app(AppController::MockBackend);
@@ -597,11 +557,9 @@ private Q_SLOTS:
         QTRY_VERIFY(!app.accountSwitching());
         QTRY_COMPARE(app.auth()->currentUserId(), kBob);
 
-        // Alice is a BACKGROUND account here (bob is active) — give her a
-        // starred-gif file directly on disk (content-addressed, exactly
-        // the shape GifStarredStore itself writes) without ever opening a
-        // live store for her, since only the active account's store is
-        // ever open.
+        // Alice is a background account; write her starred file directly in
+        // GifStarredStore's content-addressed shape, since only the active
+        // account's store is ever open.
         const QString aliceStarredDir = matrix::app_data::starredGifsDir(kAlice);
         QVERIFY(QDir().mkpath(aliceStarredDir));
         QFile aliceGif(aliceStarredDir + QStringLiteral("/") + QString(64, QLatin1Char('a'))
@@ -610,7 +568,7 @@ private Q_SLOTS:
         aliceGif.write("GIF89a\x10\x00\x10\x00", 10);
         aliceGif.close();
 
-        // Bob (the ACTIVE account) has his own real starred GIF.
+        // Bob (active) has his own starred GIF.
         const QByteArray gif = QByteArray("GIF89a\x10\x00\x10\x00", 10);
         app.gif()->starredStore()->starBytes(QStringLiteral("mk"), gif);
         QCOMPARE(app.gif()->starredStore()->count(), 1);
@@ -620,27 +578,20 @@ private Q_SLOTS:
         app.removeAccount(kAlice); // background account
 
         QVERIFY(!QDir(aliceStarredDir).exists());
-        // Bob's store — a completely different account's data — survives
-        // untouched, both on disk and in the live (still-open) instance.
+        // Bob's store survives, on disk and in the live instance.
         QVERIFY(QDir(bobStarredDir).exists());
         QCOMPARE(app.gif()->starredStore()->count(), 1);
         QCOMPARE(app.auth()->currentUserId(), kBob);
     }
 
-    // The mirror image of the deletion tests, pinning the m_accountSwitching
-    // gate itself: a LIVE-session account SWITCH is not a sign-out, and must
-    // never delete the outgoing account's starred store. Without the gate in
-    // AppController::onLoggedOut (detachSession emits loggedOut mid-switch)
-    // every switch would silently destroy the outgoing account's decrypted
-    // GIFs — and before this test, removing that gate left every suite
-    // green.
+    // A live account switch is not a sign-out and must never delete the
+    // outgoing account's starred store; detachSession emits loggedOut
+    // mid-switch, so onLoggedOut is gated on m_accountSwitching.
     void switchingAccountsPreservesTheOutgoingStarredGifStore()
     {
-        // Self-cleaning fixture: earlier cases in this binary legitimately
-        // leave starred files behind (the suite shares one XDG home), and
-        // this test's premise is that BOTH accounts start with none.
-        // Guard against an empty path: QDir(QString()) resolves to "." and
-        // removeRecursively() would then eat the working directory.
+        // Clean both accounts' directories first (the suite shares one XDG
+        // home). Guard against an empty path: QDir(QString()) is ".", and
+        // removeRecursively() would delete the working directory.
         const QString aliceDirToClean = matrix::app_data::starredGifsDir(kAlice);
         const QString bobDirToClean = matrix::app_data::starredGifsDir(kBob);
         QVERIFY(!aliceDirToClean.isEmpty());
@@ -673,31 +624,25 @@ private Q_SLOTS:
         QTRY_VERIFY(!app.accountSwitching());
         QTRY_COMPARE(app.auth()->currentUserId(), kBob);
 
-        // Alice's directory AND her actual stored bytes survive the switch.
+        // Alice's directory and bytes survive the switch.
         QVERIFY(QDir(aliceStarredDir).exists());
         QVERIFY(QFile::exists(aliceStarredDir + QStringLiteral("/")
                               + aliceGifFile));
-        // The live store instance now belongs to Bob: his (empty) directory,
-        // none of Alice's rows. QTRY: the open for the incoming account
-        // rides onLoginSucceeded, which the mock delivers through a
-        // deferred hop after accountSwitching flips false.
+        // The live store now belongs to Bob. QTRY: the open rides
+        // onLoginSucceeded, which the mock delivers after accountSwitching
+        // flips false.
         QTRY_COMPARE(app.gif()->starredStore()->currentDirectory(),
                      matrix::app_data::starredGifsDir(kBob));
         QCOMPARE(app.gif()->starredStore()->count(), 0);
-        // And the survival assertions hold STILL — the open of Bob's store
-        // must not have deleted or mutated Alice's data as a side effect.
+        // Opening Bob's store did not touch Alice's data.
         QVERIFY(QDir(aliceStarredDir).exists());
         QVERIFY(QFile::exists(aliceStarredDir + QStringLiteral("/")
                               + aliceGifFile));
     }
 
-    // 2026-09-08 audit: the Spaces rail's arrangement is a JSON blob of
-    // Matrix Space room ids and the folder names the user typed for them,
-    // and it leaked between accounts three ways — setAppearanceValue
-    // mirrored every write into a bare device-global key, appearanceValue
-    // then served that key to a fresh account, and RailLayoutStore's own
-    // process-lifetime cache was never invalidated on a switch (it has no
-    // loggedOut connection at all, unlike its sibling SpaceChannelModel).
+    // The Spaces rail arrangement (Space ids and folder names) must not leak
+    // between accounts: no device-global mirror key, and RailLayoutStore's
+    // cache is invalidated on a switch.
     void theRailArrangementDoesNotFollowTheUserIntoTheNextAccount()
     {
         AppController app(AppController::MockBackend);
@@ -721,9 +666,8 @@ private Q_SLOTS:
         QCOMPARE(rail->folders().size(), 1);
         QCOMPARE(rail->folderOf(aliceSpace), folder);
 
-        // No device-global copy: the mirrored key is what made a fresh
-        // account read the previous one's Spaces, and what survived
-        // "remove this account from this computer".
+        // No device-global copy: it let a fresh account read the previous
+        // one's Spaces and survived account removal.
         {
             QSettings raw;
             QVERIFY2(!raw.contains(QString::fromLatin1(
@@ -740,7 +684,7 @@ private Q_SLOTS:
         QVERIFY2(app.railLayout()->folderOf(aliceSpace).isEmpty(),
                  "the next account inherited the previous one's Space ids");
 
-        // Bob's own arrangement is his, and Alice's survives untouched.
+        // Bob's arrangement is his; Alice's survives.
         const QString bobSpace = QStringLiteral("!bob-space:two.example");
         const QString bobFolder =
             app.railLayout()->createFolder(QStringLiteral("Personal"));
@@ -755,12 +699,9 @@ private Q_SLOTS:
         QVERIFY(app.railLayout()->folderOf(bobSpace).isEmpty());
     }
 
-    // 2026-09-08 audit: "Remove account" aimed at the ACTIVE account
-    // returned early and delegated to a plain sign-out, so the recursive
-    // local wipe never ran — the account directory (whose NAME is the
-    // Matrix localpart), its cache.sqlite and any divergent second store
-    // root were left standing, while the identical button on a background
-    // account deleted every one of them.
+    // Removing the active account still runs the recursive local wipe (the
+    // account directory, named after the Matrix localpart, cache.sqlite and
+    // any second store root), as it does for a background account.
     void removingTheActiveAccountStillDeletesItsLocalState()
     {
         AppController app(AppController::MockBackend);
@@ -775,9 +716,9 @@ private Q_SLOTS:
         QTRY_VERIFY(!app.accountSwitching());
         QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
 
-        // Real local state for Alice: starring a GIF creates her account
-        // directory, and cache.sqlite is the file only the recursive wipe
-        // removes (it is deliberately preserved by removeAccountRustState).
+        // Real local state: a starred GIF creates the account directory, and
+        // cache.sqlite is removed only by the recursive wipe
+        // (removeAccountRustState preserves it).
         const QByteArray gif = QByteArray("GIF89a\x10\x00\x10\x00", 10);
         app.gif()->starredStore()->starBytes(QStringLiteral("mk"), gif);
         const QString aliceRoot = matrix::app_data::accountRoot(kAlice);
@@ -798,30 +739,28 @@ private Q_SLOTS:
 
         app.removeAccount(kAlice);
 
-        // The wipe completes on the sign-out this had to wait for.
+        // The wipe completes after the sign-out it waits for.
         QTRY_VERIFY2(!QDir(aliceRoot).exists(),
                      "removing the signed-in account left its local data — "
                      "the account directory is named after the localpart");
         QVERIFY(!app.settings()->hasSavedAccount(kAlice));
         QVERIFY(app.settings()->accessTokenFor(kAlice).isEmpty());
 
-        // Never widened: the other account is untouched, record and files.
+        // Never widened: the other account is untouched.
         QVERIFY(app.settings()->hasSavedAccount(kBob));
         QVERIFY(QFile::exists(bobRoot + QStringLiteral("/cache.sqlite")));
         QTRY_COMPARE(app.auth()->currentUserId(), kBob);
     }
 
-    // 2026-09-08 audit: lastReadFailed() returned a CONSTANT, so a
-    // truncated or unparsable settings file answered every read empty and
-    // called that a fact. secretBackendUnavailable() then said "I can
-    // answer", an empty token read as "no saved sign-in", and the user is
-    // routed to a destructive reset prompt for a config-file problem —
-    // exactly the conflation SecretStore.h's own comment exists to prevent.
+    // An unparsable fallback settings file must report a failed read, not
+    // answer every read empty; otherwise an empty token reads as "no saved
+    // sign-in" and the user is sent to a destructive reset for a config
+    // problem.
     void anUnreadableFallbackSecretStoreReportsThatItsReadFailed()
     {
         const QString appName = QCoreApplication::applicationName();
-        // A private application name, so the malformed file this writes is
-        // never the settings file the rest of this suite runs against.
+        // A private application name, so this malformed file is never the
+        // suite's own settings file.
         QCoreApplication::setApplicationName(
             QStringLiteral("account-switch-test-corrupt-secrets"));
         QString path;
@@ -834,12 +773,12 @@ private Q_SLOTS:
             QFile file(path);
             QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
             // A line with no '=' outside a comment: QSettings reports
-            // FormatError and answers every value() with an empty QVariant.
+            // FormatError and answers every value() empty.
             file.write("[secrets]\nthis line has no equals sign\n");
         }
         {
-            // NOT substituted for a native store: the only thing that can
-            // make this report a failed read is the read itself.
+            // Not substituted for a native store: only the read itself can
+            // report failure.
             InsecureFallbackSecretStore store(nullptr, false);
             QCOMPARE(store.readSecret(kAlice, QStringLiteral("accessToken")),
                      QString());
@@ -848,10 +787,9 @@ private Q_SLOTS:
                      "fact about the account");
             QVERIFY(!store.lastError().isEmpty());
         }
-        // And a healthy store still reports a clean miss as a clean miss —
-        // otherwise the fix would shut the destructive path for everyone.
-        // Its own application name again, so the malformed file above
-        // cannot be what it is reading.
+        // A healthy store still reports a clean miss as a clean miss, or the
+        // destructive path would be closed for everyone. Uses its own
+        // application name again.
         QFile::remove(path);
         QCoreApplication::setApplicationName(
             QStringLiteral("account-switch-test-healthy-secrets"));
@@ -876,19 +814,11 @@ private Q_SLOTS:
         QCoreApplication::setApplicationName(appName);
     }
 
-    // ---- an unreadable credential store is not a signed-out account ------
-    //
-    // §6: "no readable access token" is NOT "no account". A locked keyring or
-    // an unavailable session bus makes EVERY lookup come back empty, and the
-    // switcher used to answer that with "your sign-in has expired" — advice
-    // that is a CLOSED LOOP, because the fresh password login it asks for is
-    // refused by matrix::rust_session::passwordLoginBlockReason as
-    // ExistingStoreNeedsRestore ("login redirected to switch"), which sends
-    // the user straight back to the switch that just refused.
-    //
-    // HttpBackend rather than MockBackend throughout this block: the mock
-    // holds no real credentials and the classifier exempts it, so a mock
-    // fixture cannot reach the branch under test at all.
+    // ---- an unreadable credential store is not a signed-out account ----
+    // A locked keyring or missing session bus makes every lookup empty. That
+    // must not read as "sign-in expired": a fresh password login is refused
+    // as ExistingStoreNeedsRestore, which loops back to the switch. Uses
+    // HttpBackend because the classifier exempts the mock.
     void aLockedKeyringIsNotAnExpiredSignIn()
     {
         AppController app(AppController::HttpBackend);
@@ -919,25 +849,15 @@ private Q_SLOTS:
                  "one action that advice asks for is refused as "
                  "ExistingStoreNeedsRestore and lands the user back here");
 
-        // And the session the user already had is untouched. Switching
-        // DETACHES before it restores, so proceeding on a token that cannot
-        // be read would have cost them the account they were using.
+        // The current session is untouched: switching detaches before it
+        // restores.
         QVERIFY(!app.accountSwitching());
         QCOMPARE(app.settings()->activeAccountUserId(), kAlice);
     }
 
-    // A MACHINE WITH NO KEYRING AT ALL MUST STILL SWITCH ACCOUNTS.
-    //
-    // Raised in review against a first cut that classified an account by
-    // "not signed out AND the backend seems fine" rather than by a
-    // successful read. When a native backend is compiled in but probes
-    // unavailable, SecretStore substitutes the insecure fallback, whose
-    // lastReadFailed() is permanently true while every read succeeds from
-    // the INI. That first cut therefore classified EVERY account Unreadable
-    // and refused EVERY switch, on exactly the no-session-bus Linux
-    // configuration §16 records real users running — advising them to unlock
-    // a keyring that does not exist. The fallback's own header promises
-    // twice that it keeps working; this case holds us to that.
+    // A machine with no keyring must still switch accounts: the substituted
+    // insecure fallback reports lastReadFailed() permanently while reads
+    // succeed, so classification must rest on a successful read.
     void aMachineWithNoKeyringStillSwitchesAccounts()
     {
         AppController app(AppController::HttpBackend);
@@ -969,11 +889,8 @@ private Q_SLOTS:
                               : errors.first().first().toString())));
     }
 
-    // The other half, so the fix cannot have simply made the classifier
-    // blind: with a backend that CAN answer, an account whose token is
-    // genuinely gone is still refused with exactly that message. This case
-    // passes on the unfixed tree too — it is the non-regression guard, not
-    // the regression test.
+    // Non-regression guard: with a readable backend, an account whose token
+    // is genuinely gone is still reported as expired.
     void anAccountWithNoTokenAndAReadableBackendIsStillExpired()
     {
         AppController app(AppController::HttpBackend);
@@ -986,8 +903,7 @@ private Q_SLOTS:
                                     QStringLiteral("BOBDEV"),
                                     QStringLiteral("bob-token-fixture"));
         app.settings()->setActiveAccountUserId(kAlice);
-        // Bob's token really is gone, and the store is healthy enough to
-        // say so.
+        // Bob's token is gone and the store can say so.
         QVERIFY(secrets.clearAccountSecrets(kBob));
         QVERIFY(!app.settings()->secretBackendUnavailable());
 
@@ -1003,16 +919,9 @@ private Q_SLOTS:
         QCOMPARE(app.settings()->activeAccountUserId(), kAlice);
     }
 
-    // The sign-out fallback made the same conflation SILENTLY. With the
-    // keyring locked every remaining account reads tokenless, so all of them
-    // were skipped as signed-out and the user landed on a login form for
-    // accounts that are perfectly intact — where a password login is then
-    // refused as ExistingStoreNeedsRestore.
-    //
-    // The login screen is still where they land, because nothing can be
-    // restored while the credential store cannot be read. What must change
-    // is that they are told WHICH failure this is, instead of being shown a
-    // login form with no explanation at all.
+    // Signing out into a locked keyring still lands on the login screen
+    // (nothing can be restored), but says which failure it is instead of
+    // skipping every account as signed out.
     void aSignOutIntoALockedKeyringSaysWhichFailureItIs()
     {
         AppController app(AppController::HttpBackend);

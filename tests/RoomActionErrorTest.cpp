@@ -3,18 +3,10 @@
 #include <QFile>
 #include <QtTest/QtTest>
 
-// B021: three room-menu writes were silent when the server refused them.
-//
-// `rust/src/lib.rs` enqueues `room_action_error` for favourite, mark_read,
-// marked_unread and read_receipt. The C++ handler swallowed all four with a
-// qCWarning, so a refused Favourite left the menu looking as though it had
-// worked: the list did not change, which the reader cannot tell apart from a
-// slow sync.
-//
-// Two halves are pinned here, because either alone would be decoration. The
-// mapping itself, and — since a mapping nothing calls is dead code covered by
-// a passing test, which is a recorded trap in this project — a source
-// contract that the production handler actually consults it and emits.
+// A server refusal of a room-menu write (favourite, mark_read, marked_unread,
+// read_receipt: `room_action_error` from rust/src/lib.rs) must reach the
+// user. Pinned: the mapping itself, and a source contract that the
+// production handler consults it and emits.
 class RoomActionErrorTest : public QObject
 {
     Q_OBJECT
@@ -56,14 +48,9 @@ private Q_SLOTS:
         QVERIFY(matrix::room_action::userFacingError(QString{}).isEmpty());
     }
 
-    // A MAPPING NOTHING CALLS IS DEAD CODE COVERED BY A PASSING TEST.
-    //
-    // The cases above run against the function directly, which says nothing
-    // about whether the production handler reaches it. The handler lives in
-    // RustSdkMatrixClient.cpp, a translation unit that needs the FFI, a tokio
-    // runtime and a live client to construct, so this asserts the call site
-    // in the source instead — the same shape as the other source contracts in
-    // this suite family.
+    // The production handler (in RustSdkMatrixClient.cpp, which needs the FFI
+    // and a live client to construct) must call the mapping, so the call site
+    // is asserted in source.
     void theProductionHandlerConsultsItAndReports()
     {
         QFile file(QStringLiteral(SRC_DIR "/src/matrix/RustSdkMatrixClient.cpp"));
@@ -86,22 +73,12 @@ private Q_SLOTS:
                  "nothing reaches the status strip");
     }
 
-    // AN OVERFLOW MUST REPAIR THE STREAM, NOT ONLY ANNOUNCE THAT IT BROKE.
-    //
-    // The Rust->C++ queue drops its OLDEST entries at EVENT_QUEUE_CAP and
-    // injects one `queue_overflow` marker. What it carries is POSITIONAL —
-    // timeline diffs at an index, room-list index diffs — so after a drop
-    // every later op addresses a vector that never received the earlier
-    // ones, and only some of that is detectable: an out-of-range index is
-    // caught by DiffOutcome::Invalid, but a dropped Set (a send-state
-    // update, a decryption, an edit) or a dropped insert followed by
-    // in-range ops passes every bounds check in silence. Nothing in the
-    // payload carries a sequence number that would reveal the gap.
-    //
-    // The handler used to log, emit a banner and return. It must re-snapshot
-    // with the two primitives this file already uses for DETECTED damage.
-    // Same source-scan shape and reason as the case above: the handler needs
-    // the FFI, a tokio runtime and a live client to construct.
+    // A queue overflow must repair the stream, not only announce it. The
+    // Rust->C++ queue drops its oldest entries at EVENT_QUEUE_CAP and injects
+    // one `queue_overflow` marker; the payload is positional (timeline diffs,
+    // room-list index diffs) and a dropped Set or insert can pass every bounds
+    // check, so the handler must re-snapshot with the primitives used for
+    // detected damage. Source scan, for the same reason as above.
     void anOverflowResyncsRatherThanOnlyReporting()
     {
         QFile file(QStringLiteral(SRC_DIR "/src/matrix/RustSdkMatrixClient.cpp"));
@@ -112,9 +89,8 @@ private Q_SLOTS:
         QVERIFY2(branch > 0,
                  "the queue_overflow branch is gone; this contract is pinned "
                  "to a handler that no longer exists");
-        // Bounded, and the bound is ASSERTED: an unbounded read would be
-        // satisfied by the resync call that lives elsewhere in this very
-        // large file, which is the opposite of what this pins.
+        // Bounded to the branch, so the resync call elsewhere in this large
+        // file cannot satisfy it.
         const int end = source.indexOf(QStringLiteral("\nvoid RustSdkMatrixClient::"),
                                        branch);
         QVERIFY2(end > branch,

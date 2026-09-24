@@ -1,17 +1,13 @@
-// v0.7.1: sanitizer for incoming Matrix formatted bodies. Proves the
-// allowlist is fail-closed (dangerous tags/attributes/schemes are stripped),
-// that matrix.to mentions become internal "mention:" links with resolved
-// display names and self-mention emphasis, and that ordinary formatting and
-// http(s) links survive.
+// MessageHtml, the sanitizer for incoming Matrix formatted bodies: the
+// allowlist is fail-closed (dangerous tags, attributes and schemes are
+// stripped), matrix.to mentions become internal "mention:" links with resolved
+// names, and ordinary formatting and http(s) links survive.
 //
-// v0.7.4 adds the code-block segmentation half (MessageHtml::segments). The
-// cases below are chosen from the shapes that actually broke the timeline or
-// that a hostile body can construct: a terminal transcript, one line far
-// wider than any pane, hundreds of lines, whitespace that IS the program,
-// non-Latin and emoji inside code, HTML-looking text that must stay literal,
-// blocks interleaved with prose, the segment/byte bounds, and the language
-// token grammar. The last of these is a security boundary, not cosmetics:
-// `class` is sender-chosen text and only a validated token may ever reach a
+// Also code-block segmentation (MessageHtml::segments): terminal transcripts,
+// very long lines, many lines, significant whitespace, non-Latin and emoji,
+// HTML-looking text that must stay literal, interleaved prose, the
+// segment/byte bounds, and the language token grammar. The last is a security
+// boundary: `class` is sender-chosen, so only a validated token may reach a
 // label or an accessible name.
 
 #include "models/MessageHtml.h"
@@ -30,9 +26,8 @@ QList<MessageHtml::Segment> segments(const QString &html)
     return MessageHtml::segments(html, nullptr, QString());
 }
 
-// The text of the n-th CodeBlock segment, or a null string when there is no
-// such segment (so a failing assertion reports "empty" rather than aborting
-// on an out-of-range index).
+// The text of the n-th CodeBlock segment, or a null string when there is none
+// (so a failure reports "empty" instead of aborting on the index).
 QString codeAt(const QList<MessageHtml::Segment> &segs, int nth)
 {
     int seen = 0;
@@ -91,11 +86,7 @@ private Q_SLOTS:
                  QStringLiteral("<span>x</span>"));
     }
 
-    // ── v0.9 spoilers (spec §11.36) ─────────────────────────────────────
-    //
-    // Before this landed the sanitizer stripped data-mx-spoiler with every
-    // other attribute and KEPT the text — every incoming spoiler arrived
-    // pre-revealed. The regression bar here is therefore the covered case.
+    // Spoilers (data-mx-spoiler) render covered by default.
 
     void aCoveredSpoilerIsASolidSlabBehindItsOwnToggleAnchor()
     {
@@ -106,12 +97,11 @@ private Q_SLOTS:
             nullptr, QString(), style, /*revealSpoilers=*/false);
         // The internal toggle anchor, never a browser target.
         QVERIFY(out.contains(QStringLiteral("href=\"spoiler:toggle\"")));
-        // Cover = background AND text in the same ink: the run is a slab.
+        // Cover = background and text in the same ink: the run is a slab.
         QVERIFY(out.contains(
             QStringLiteral("background-color:#22262e;color:#22262e")));
-        // The text is still present (selection copies it — same as
-        // Element); what hides it is the ink, which is the covered
-        // contract this case pins.
+        // The text is still present (selection copies it, as in Element);
+        // the ink hides it.
         QVERIFY(out.contains(QStringLiteral("the twist")));
         QVERIFY(out.contains(QStringLiteral("</span></a>")));
     }
@@ -125,7 +115,7 @@ private Q_SLOTS:
             nullptr, QString(), style, /*revealSpoilers=*/true);
         QVERIFY(out.contains(QStringLiteral("href=\"spoiler:toggle\"")));
         QVERIFY(out.contains(QStringLiteral("background-color:#22262e")));
-        // Revealed: the text ink is NOT the cover ink.
+        // Revealed: the text ink is not the cover ink.
         QVERIFY(!out.contains(
             QStringLiteral("background-color:#22262e;color:#22262e")));
     }
@@ -169,7 +159,7 @@ private Q_SLOTS:
             QStringLiteral("<span data-mx-spoiler=\"why\">x</span>")));
         QVERIFY(covered(
             QStringLiteral("<span DATA-MX-SPOILER>x</span>")));
-        // A LOOKALIKE attribute must not become a spoiler.
+        // A lookalike attribute must not become a spoiler.
         QVERIFY(!covered(
             QStringLiteral("<span data-mx-spoilerish>x</span>")));
         QVERIFY(!covered(
@@ -192,16 +182,12 @@ private Q_SLOTS:
                  QStringLiteral("hi "));
     }
 
-    // MSC2545 inline custom emoji are the ONE image this sanitizer emits,
-    // and the permission is deliberately narrow: an image is rendered only
-    // when it CLAIMS to be an emoticon and is addressed by `mxc:`, which
-    // cannot be fetched except through Lightning's authenticated media path.
-    // Everything the old blanket rule protected is still protected.
+    // MSC2545 inline custom emoji are the one image this sanitizer emits: only
+    // when marked as an emoticon and addressed by `mxc:`, which can only be
+    // fetched through the authenticated media path.
     void onlyMarkedMxcEmoticonsSurvive()
     {
-        // SELF-CLOSING, which is what MSC2545's own example uses and what
-        // every real sender emits. The first version of this test used the
-        // bare `>` form and passed while the app rendered nothing.
+        // Self-closing, as MSC2545's example and real senders use.
         const QString kept = sanitize(QStringLiteral(
             "a <img data-mx-emoticon src=\"mxc://e.org/blob\" "
             "alt=\":blob:\" title=\":blob:\" height=\"32\" /> b"));
@@ -211,16 +197,15 @@ private Q_SLOTS:
                  qPrintable(kept));
         QVERIFY2(kept.contains(QStringLiteral("alt=\":blob:\"")),
                  qPrintable(kept));
-        // The SENDER'S height is not honoured: it is remote input deciding
-        // how much of the reader's message list one glyph occupies.
+        // The sender's height is not honoured: remote input must not decide
+        // how much space one glyph takes.
         QVERIFY2(!kept.contains(QStringLiteral("height=\"32\"")),
                  qPrintable(kept));
 
         for (const QString &hostile : {
                  // Unmarked: not an emoticon, not rendered.
                  QStringLiteral("<img src=\"mxc://e.org/blob\">"),
-                 // Marked but remote: the tracking pixel the old rule
-                 // existed to stop.
+                 // Marked but remote: a tracking pixel.
                  QStringLiteral("<img data-mx-emoticon src=\"https://t/x.png\">"),
                  QStringLiteral("<img data-mx-emoticon src=\"http://t/x.png\">"),
                  QStringLiteral("<img data-mx-emoticon src=\"//t/x.png\">"),
@@ -236,8 +221,8 @@ private Q_SLOTS:
             QVERIFY2(!out.contains(QStringLiteral("<img")), qPrintable(out));
         }
 
-        // Event handlers and stray attributes never survive, because the
-        // emitted tag is REBUILT from validated parts rather than filtered.
+        // Event handlers and stray attributes never survive: the tag is
+        // rebuilt from validated parts, not filtered.
         const QString rebuilt = sanitize(QStringLiteral(
             "<img data-mx-emoticon src=\"mxc://e.org/b\" onerror=\"e()\" "
             "onload=\"e()\" style=\"position:fixed\" class=\"x\">"));
@@ -247,9 +232,8 @@ private Q_SLOTS:
         QVERIFY2(!rebuilt.contains(QStringLiteral("class")), qPrintable(rebuilt));
     }
 
-    // The resolved form must never be what the EDIT path reads back, or an
-    // edit would send a local image:// URL to the room. sanitize() keeps the
-    // mxc; resolveInlineImages() is a separate, render-only step.
+    // resolveInlineImages() is a separate render-only step: sanitize() keeps
+    // the mxc, so the edit path never sends a local image:// URL.
     void resolvingAnEmojiNeverChangesWhatAnEditWouldSend()
     {
         const QString safe = sanitize(QStringLiteral(
@@ -263,8 +247,8 @@ private Q_SLOTS:
         QVERIFY(rendered.contains(QStringLiteral("image://lightning-media/")));
         QVERIFY2(!rendered.contains(QStringLiteral("data-mx-emoticon src=\"mxc")),
                  qPrintable(rendered));
-        // ...and the input is untouched, so the memo the edit path reads is
-        // still the mxc form.
+        // The input is untouched, so the memo the edit path reads keeps the
+        // mxc form.
         QVERIFY(safe.contains(QStringLiteral("mxc://e.org/b")));
 
         // Media not cached yet: the shortcode is shown, not a broken image.
@@ -333,11 +317,9 @@ private Q_SLOTS:
             "<a href=\"mention:@bob:example.org\">@Bob Builder</a>"));
     }
 
-    // 2026-09-05: considered and REFUSED — the label the sender wrote inside
-    // the anchor is never the pill's name. "@admin" linking to
-    // @attacker:evil must read as @attacker. The tester's "@dim became
-    // @obscurus" is answered by the profile resolver in TimelineModel, not
-    // by trusting the sender's text.
+    // The label the sender wrote inside a mention anchor never names the pill:
+    // "@admin" linking to @attacker:evil must read as @attacker. Names come
+    // from the room/profile resolver.
     void theSendersAnchorLabelNeverNamesThePill()
     {
         const QString out = sanitize(QStringLiteral(
@@ -373,12 +355,9 @@ private Q_SLOTS:
 
     void mentionStyleIsInkAndWeightNotABox()
     {
-        // With theme ink supplied the mention is coloured and semibold, with
-        // the anchor underline suppressed — and NO background. Qt 6.11 paints
-        // an inline background as a square, full-line-height slab that it
-        // will neither round nor pad (probed directly), which is what made a
-        // tag read as a box drawn around the name. If a future change wants a
-        // chip back, it needs a real inline QML renderer, not this CSS.
+        // With theme ink the mention is coloured and semibold, with the anchor
+        // underline suppressed and no background: Qt paints an inline
+        // background as an unrounded full-line-height slab.
         const QString out = MessageHtml::sanitize(
             QStringLiteral(
                 "<a href=\"https://matrix.to/#/@bob:example.org\">bob</a>"),
@@ -394,8 +373,8 @@ private Q_SLOTS:
 
     void theAccentIsSpentOnlyOnAMentionOfYou()
     {
-        // The semantic split the two inks exist for: everyone else takes the
-        // link ink, so the accent stays meaningful when it does appear.
+        // Other users' mentions take the link ink, keeping the accent
+        // meaningful.
         const MessageHtml::MentionStyle style{QStringLiteral("#ffd447"),
                                               QStringLiteral("#9295f5")};
         const QString me = MessageHtml::sanitize(
@@ -415,8 +394,8 @@ private Q_SLOTS:
 
     void mentionInkFallsBackToTheAccentWhenNoLinkInkIsPushed()
     {
-        // A theme that pushes only one ink must still render legibly rather
-        // than dropping back to Qt's built-in link blue.
+        // A theme pushing only one ink still renders legibly, not in Qt's
+        // default link blue.
         const QString out = MessageHtml::sanitize(
             QStringLiteral(
                 "<a href=\"https://matrix.to/#/@bob:example.org\">bob</a>"),
@@ -427,10 +406,8 @@ private Q_SLOTS:
 
     void externalLinksCarryTheThemeInk()
     {
-        // Message links were never given a colour, so Qt painted them in its
-        // built-in #0000ff — a hard blue that is close to unreadable on the
-        // dark timeline grounds. The underline is deliberately kept: it is
-        // what separates a URL from a mention now that both are inked.
+        // Message links get the link ink instead of Qt's default #0000ff; the
+        // underline stays, since it separates a URL from a mention.
         const QString out = MessageHtml::sanitize(
             QStringLiteral("see <a href=\"https://matrix.org/\">spec</a>"),
             nullptr, QString(),
@@ -444,8 +421,8 @@ private Q_SLOTS:
 
     void unstyledBodiesAreUnchangedByTheInkPath()
     {
-        // No theme pushed yet (cold start): every anchor must come back
-        // exactly as it did before, with no empty style attribute.
+        // No theme pushed yet (cold start): anchors come back unchanged, with
+        // no empty style attribute.
         const QString out = MessageHtml::sanitize(
             QStringLiteral("see <a href=\"https://matrix.org/\">spec</a> and "
                            "<a href=\"https://matrix.to/#/@bob:e.org\">b</a>"),
@@ -457,9 +434,8 @@ private Q_SLOTS:
 
     void mentionStyleCannotBreakOutOfTheAttribute()
     {
-        // Hostile "colors" are escaped; the model additionally validates
-        // opaque hex literals before they get here. Checked on both inks,
-        // since the link ink now reaches a second emit site (external links).
+        // Hostile "colors" are escaped (the model also validates opaque hex
+        // first), on both inks.
         const QString mention = MessageHtml::sanitize(
             QStringLiteral(
                 "<a href=\"https://matrix.to/#/@bob:example.org\">bob</a>"),
@@ -489,12 +465,10 @@ private Q_SLOTS:
                  QStringLiteral("just text"));
     }
 
-    // ---- v0.7.4 code-block segmentation -------------------------------
-
-    // The guard the whole design rests on: an ordinary message must take the
-    // fast path and come back byte-identical to sanitize(). If this ever
-    // drifts, every existing message renders differently depending on which
-    // entry point the model happened to read.
+    // Code-block segmentation.
+    //
+    // An ordinary message takes the fast path and is byte-identical to
+    // sanitize(), so rendering never depends on which entry point was used.
     void bodyWithoutACodeBlockIsExactlyOneSanitizedRichTextSegment()
     {
         const QStringList bodies = {
@@ -516,8 +490,8 @@ private Q_SLOTS:
         }
     }
 
-    // The report that started this: a `dig` transcript. Every line survives,
-    // in order, as one plain-text block — no markup, no re-escaping.
+    // A `dig` transcript: every line survives, in order, as one plain-text
+    // block, with no markup and no re-escaping.
     void terminalTranscriptBecomesOnePlainTextBlock()
     {
         const QString html = QStringLiteral(
@@ -537,8 +511,7 @@ private Q_SLOTS:
         const QString code = codeAt(segs, 0);
         const QStringList lines = code.split(QLatin1Char('\n'));
         QCOMPARE(lines.size(), 8);
-        // Entities decoded exactly once: the angle brackets are literal
-        // characters of the transcript and never markup again.
+        // Entities decoded exactly once: the angle brackets are literal.
         QVERIFY(lines.at(0).startsWith(QStringLiteral("; <<>> DiG")));
         QCOMPARE(lines.at(3),
                  QStringLiteral(";; ->>HEADER<<- opcode: QUERY, status: "
@@ -552,9 +525,8 @@ private Q_SLOTS:
         QVERIFY(!code.endsWith(QLatin1Char('\n')));
     }
 
-    // The exact shape that escaped the timeline: one line far wider than any
-    // pane. It must arrive whole (the renderer scrolls it), not truncated and
-    // not wrapped by the parser.
+    // One line far wider than any pane arrives whole (the renderer scrolls
+    // it), neither truncated nor wrapped by the parser.
     void oneVeryLongLineSurvivesWholeAndUnbroken()
     {
         const QString line(5000, QLatin1Char('x'));
@@ -581,8 +553,8 @@ private Q_SLOTS:
         QCOMPARE(out.last(), QStringLiteral("line 149"));
     }
 
-    // Indentation IS the program in Python/YAML. Tabs, runs of spaces and
-    // &nbsp; padding all have to reach the renderer unchanged.
+    // Indentation is significant (Python/YAML): tabs, space runs and &nbsp;
+    // padding reach the renderer unchanged.
     void whitespaceIsPreservedExactly()
     {
         const QString html = QStringLiteral(
@@ -598,8 +570,8 @@ private Q_SLOTS:
         QCOMPARE(lines.at(0), QStringLiteral("def f(x):"));
         QCOMPARE(lines.at(1), QStringLiteral("\tif x:"));
         QCOMPARE(lines.at(2), QStringLiteral("        return    x"));
-        // &nbsp; becomes a real space: a code block wants columns, not a
-        // non-breaking glyph the monospace layout would treat differently.
+        // &nbsp; becomes a real space, which a monospace layout treats as a
+        // column.
         QCOMPARE(lines.at(3), QStringLiteral("  # padded"));
         QCOMPARE(languageAt(segs, 0), QStringLiteral("python"));
     }
@@ -620,8 +592,8 @@ private Q_SLOTS:
                  QStringLiteral("print(\"h\u00e9llo \U0001F60A\")"));
     }
 
-    // A numeric entity for an astral code point must decode to the one
-    // character, not to a lone surrogate or a replacement glyph.
+    // A numeric entity for an astral code point decodes to one character, not
+    // a lone surrogate or replacement glyph.
     void numericEntitiesDecodeToRealCharacters()
     {
         const QString code = codeAt(
@@ -630,9 +602,8 @@ private Q_SLOTS:
         QCOMPARE(code, QStringLiteral("a\U0001F600bAc"));
     }
 
-    // HTML-shaped text inside a code block is TEXT. It arrives decoded, and
-    // the renderer shows it with Text.PlainText, so it can never become
-    // markup a second time.
+    // HTML-shaped text inside a code block arrives decoded and is rendered as
+    // PlainText, so it never becomes markup again.
     void htmlLookingCodeArrivesAsLiteralText()
     {
         const QString code = codeAt(
@@ -646,9 +617,7 @@ private Q_SLOTS:
                                 "a && b"));
     }
 
-    // Decoding is ONE pass. "&amp;lt;" was written to display the literal
-    // string "&lt;" and must not become "<" — a second pass would resurrect
-    // markup out of text the sender deliberately escaped.
+    // Decoding is one pass: "&amp;lt;" displays "&lt;", never "<".
     void entityDecodingDoesNotRunTwice()
     {
         QCOMPARE(codeAt(segments(QStringLiteral(
@@ -656,9 +625,8 @@ private Q_SLOTS:
                  QStringLiteral("&lt;b&gt;"));
     }
 
-    // A REAL (unescaped) drop-with-content element inside a <pre> is still
-    // dropped with its content: a <script> body is not source the sender
-    // asked us to display.
+    // A real drop-with-content element inside a <pre> (e.g. <script>) is still
+    // dropped with its content.
     void dropWithContentStillDropsInsideACodeBlock()
     {
         QCOMPARE(codeAt(segments(QStringLiteral(
@@ -666,8 +634,8 @@ private Q_SLOTS:
                  QStringLiteral("ab"));
     }
 
-    // Senders emit one <br> per line inside a <pre>; every other tag in
-    // there is markup noise whose text still flows.
+    // Senders emit one <br> per line inside a <pre>; other tags there are
+    // noise whose text still flows.
     void brInsideACodeBlockBecomesANewlineAndOtherTagsAreDropped()
     {
         QCOMPARE(codeAt(segments(QStringLiteral(
@@ -691,9 +659,8 @@ private Q_SLOTS:
         QCOMPARE(segs.at(4).text, QStringLiteral("after"));
     }
 
-    // Two blocks with nothing but layout markup between them must NOT
-    // produce an empty rich-text segment (which would render as a blank line
-    // between the two cards).
+    // Two blocks separated only by layout markup produce no empty rich-text
+    // segment (a blank line between the cards).
     void adjacentBlocksDoNotEmitAnEmptyRichTextSegmentBetweenThem()
     {
         const auto segs = segments(QStringLiteral(
@@ -703,9 +670,8 @@ private Q_SLOTS:
         QCOMPARE(countOf(segs, MessageHtml::SegmentKind::CodeBlock), 2);
     }
 
-    // Inline <code> that is NOT inside a <pre> stays inline in the rich-text
-    // segment and keeps its existing rendering, even when a fenced block sits
-    // immediately next to it.
+    // Inline <code> outside a <pre> stays inline in the rich-text segment,
+    // even next to a fenced block.
     void inlineCodeAdjacentToAFencedBlockStaysInline()
     {
         const auto segs = segments(QStringLiteral(
@@ -730,8 +696,8 @@ private Q_SLOTS:
         QVERIFY(segs.at(0).language.isEmpty());
     }
 
-    // A <pre> inside dropped content is not a code block at all — nothing in
-    // there is rendered, so the fast path must stay on the fast path.
+    // A <pre> inside dropped content is not a code block, so the fast path
+    // applies.
     void preInsideDroppedContentIsNotACodeBlock()
     {
         const QString html = QStringLiteral(
@@ -744,7 +710,7 @@ private Q_SLOTS:
         QVERIFY(!segs.at(0).text.contains(QStringLiteral("old code")));
     }
 
-    // ---- language token grammar (a security boundary) -----------------
+    // Language token grammar (a security boundary).
 
     void validLanguageTokensAreAccepted()
     {
@@ -768,8 +734,8 @@ private Q_SLOTS:
 
     void hostileOrOversizedClassesYieldNoLanguage()
     {
-        // An event-handler-shaped class: refused twice over — it carries no
-        // language- prefix, and '=' is not in the token grammar.
+        // An event-handler-shaped class: no language- prefix, and '=' is not
+        // in the grammar.
         QVERIFY(languageAt(segments(QStringLiteral(
                     "<pre><code class=\"onclick=x\">x</code></pre>")), 0)
                     .isEmpty());
@@ -781,8 +747,7 @@ private Q_SLOTS:
         QVERIFY(languageAt(segments(
                     QStringLiteral("<pre><code class=\"language-") + long40
                     + QStringLiteral("\">x</code></pre>")), 0).isEmpty());
-        // A quote inside the value (single-quoted attribute) must not escape
-        // into the label.
+        // A quote inside a single-quoted value must not escape into the label.
         QVERIFY(languageAt(segments(QStringLiteral(
                     "<pre><code class='language-ru\"st'>x</code></pre>")), 0)
                     .isEmpty());
@@ -807,10 +772,9 @@ private Q_SLOTS:
         }
     }
 
-    // ---- bounds -------------------------------------------------------
-
-    // At most 64 segments. Past that the parser simply stops emitting; it
-    // never grows without bound and never crashes.
+    // Bounds.
+    //
+    // At most 64 segments; past that the parser stops emitting.
     void segmentCountIsBounded()
     {
         QString html;
@@ -822,9 +786,8 @@ private Q_SLOTS:
         QCOMPARE(segs.size(), 64);
     }
 
-    // At most 256 KiB of code text per message. The second block here would
-    // cross the line, so it is dropped whole rather than truncated into a
-    // program that is not the one that was sent.
+    // At most 256 KiB of code text per message: the block that would cross the
+    // limit is dropped whole, not truncated into a different program.
     void codeTextVolumeIsBounded()
     {
         const QString first(200000, QLatin1Char('a'));
@@ -837,11 +800,11 @@ private Q_SLOTS:
         QCOMPARE(codeAt(segs, 0).size(), 200000);
     }
 
-    // Malformed markup degrades into fewer segments, never into a crash or
-    // an unbounded loop.
+    // Malformed markup degrades into fewer segments, never a crash or an
+    // unbounded loop.
     void malformedCodeMarkupFailsClosed()
     {
-        // Unclosed <pre>: the sender's markup ran out, the code did not.
+        // Unclosed <pre>: the markup ran out, the code did not.
         QCOMPARE(codeAt(segments(QStringLiteral("<pre><code>one\ntwo")), 0),
                  QStringLiteral("one\ntwo"));
         // A stray </pre> outside any block is noise.
@@ -858,40 +821,15 @@ private Q_SLOTS:
                  0);
     }
 
-    // ── The scan is LINEAR, and that is a security property ────────────
-    //
-    // Tag parsing used to answer "where does this tag end?" with an
-    // indexOf('>') from the current position — linear in the REST of the
-    // body — while every loop advances by ONE character when a '<' turns
-    // out not to be a tag. A formatted_body of "<a" repeated is therefore
-    // N^2/4 QChar reads on the GUI thread, inside TimelineModel::data(), from
-    // a message any user can send in any room. containsCodeBlock() made it
-    // worse by running on the UNTRUNCATED body.
-    //
-    // WHY A CLOCK AND NOT A COUNTER. There is no branch to assert on: the
-    // old code produced exactly the same OUTPUT, byte for byte, it just took
-    // half a minute over it. Complexity IS the defect, so complexity is what
-    // the case has to measure, and a fixture that merely finishes proves
-    // nothing.
-    //
-    // THE MARGIN, MEASURED rather than estimated (both payloads run against
-    // the pre-fix and post-fix parser, standalone, on this machine):
-    //
-    //     payload   unfixed -O2   fixed -O2   fixed -O0(=this build)
-    //     storm A     24742 ms       6 ms          56 ms
-    //     storm B     24626 ms       7 ms          63 ms
-    //
-    // The budget is 1500 ms. That is ~24x above the cost this build actually
-    // pays — a whole -j18 CTest run cannot stretch a single-threaded 60 ms
-    // of QChar scanning by twenty-four times — and ~16x below the unfixed
-    // cost, which the optimizer FAVOURS (a Debug build of the old parser is
-    // slower still). A tighter budget would buy nothing: the two costs differ
-    // by three orders of magnitude, not by a factor.
+    // Tag scanning is linear: a body of "<a" repeated used to cost O(N^2)
+    // character reads on the GUI thread (in TimelineModel::data()), from a
+    // message anyone can send. The output never changed, so the case measures
+    // time. Measured: unfixed ~24.7 s at -O2, fixed ~60 ms at -O0; the 1500 ms
+    // budget is ~24x above the fixed cost and ~16x below the unfixed one.
     void aTagStormWithNoClosingBracketIsScannedInLinearTime()
     {
-        // "<pre" gets past containsCodeBlock's cheap `contains("<pre")`
-        // reject so the real scan runs; with no '>' anywhere it is never a
-        // tag, so every '<' after it is a literal the loop steps over.
+        // "<pre" passes containsCodeBlock's cheap reject so the real scan
+        // runs; with no '>' anywhere, every later '<' is a literal.
         const QString hostile =
             QStringLiteral("<pre") + QStringLiteral("<a").repeated(600000);
         QElapsedTimer clock;
@@ -901,17 +839,13 @@ private Q_SLOTS:
         QVERIFY2(ms < 1500,
                  qPrintable(QStringLiteral("tag storm took %1 ms — the scan "
                                            "is quadratic again").arg(ms)));
-        // And it is still a message: one RichText segment, no code block.
+        // Still a message: one RichText segment, no code block.
         QCOMPARE(countOf(segs, MessageHtml::SegmentKind::CodeBlock), 0);
     }
 
-    // The same defect wearing its other costume, and the one a bare "is
-    // there any '>' left?" check does NOT fix: a '>' that EXISTS but is far
-    // away. "</" is a '<' that passes the tag-start rule and then fails to
-    // parse, so the loop advances one character and the next one searches to
-    // that same distant '>' again — and, before the rewrite, copied the
-    // whole remainder twice per attempt (mid(), then mid(1)) to find out.
-    // Fails on any tree that only remembers "no '>' remains".
+    // The other shape: a '>' that exists but is far away. "</" passes the
+    // tag-start rule and then fails to parse, so each attempt must not rescan
+    // (or copy) to that distant '>'.
     void aTagStormWithADistantClosingBracketIsAlsoLinear()
     {
         const QString hostile = QStringLiteral("<script><pre></script>")
@@ -928,9 +862,8 @@ private Q_SLOTS:
         QCOMPARE(countOf(segs, MessageHtml::SegmentKind::CodeBlock), 0);
     }
 
-    // The rewrite must not have changed what any of these shapes RENDER as.
-    // Every '<' below is a literal character, and the sanitizer escapes
-    // exactly that character and keeps scanning the rest of the text.
+    // The linear scan renders these shapes exactly as before: each literal '<'
+    // is escaped and scanning continues.
     void malformedTagShapesKeepTheirExactTextOutput()
     {
         QCOMPARE(sanitize(QStringLiteral("<a<a<a")),
@@ -938,10 +871,10 @@ private Q_SLOTS:
         QCOMPARE(sanitize(QStringLiteral("</ >")), QStringLiteral("&lt;/ >"));
         QCOMPARE(sanitize(QStringLiteral("</></>")),
                  QStringLiteral("&lt;/>&lt;/>"));
-        // A '>' further along does not retroactively make the earlier '<'
-        // a tag; the whole run is one tag once one exists.
+        // A later '>' does not make an earlier '<' a tag retroactively; the
+        // whole run is one tag once one exists.
         QCOMPARE(sanitize(QStringLiteral("<a<b>x")), QStringLiteral("x"));
-        // "< " is text, not a broken tag, and never was.
+        // "< " is text, not a broken tag.
         QCOMPARE(sanitize(QStringLiteral("a < b > c")),
                  QStringLiteral("a &lt; b > c"));
         // A real tag after a storm of literals is still parsed.
@@ -949,16 +882,9 @@ private Q_SLOTS:
                  QStringLiteral("&lt;/&lt;/<b>hi</b>"));
     }
 
-    // A NUMBERED LIST THAT CONTINUES MUST KEEP ITS NUMBERS.
-    //
-    // Reported 2026-09-07: "Your message changed to 1. on everything after
-    // reloading". A numbered list whose items carry nested bullets is not one
-    // list in HTML but several, and every markdown generator continues them
-    // with `start`. Attributes were stripped from every allowed tag, so each
-    // continuation restarted and a four point list rendered "1. 1. 1. 1.".
-    //
-    // FAIL-ON-OLD: with the `ol` branch removed, `start` is dropped and the
-    // first assertion fails.
+    // An ordered list keeps its `start` number: markdown generators continue a
+    // list split by nested bullets with `start`, and stripping it restarts
+    // every continuation at 1.
     void anOrderedListKeepsTheNumberItContinuesFrom()
     {
         const QString out = sanitize(QStringLiteral(
@@ -968,12 +894,11 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral(
                      "the continuation lost its start, so it renders as 1 "
                      "again: %1").arg(out)));
-        // The list that genuinely starts at one carries no attribute.
+        // A list starting at one carries no attribute.
         QVERIFY(out.startsWith(QStringLiteral("<ol>")));
 
-        // Not a plain bounded number: the attribute is dropped, never
-        // echoed. Zero and negatives included, because they are not a
-        // position in a list.
+        // Not a plain bounded positive number: the attribute is dropped, never
+        // echoed.
         for (const QString &bad : { QStringLiteral("-4"),
                                     QStringLiteral("0"),
                                     QStringLiteral("99999999999"),
@@ -988,20 +913,15 @@ private Q_SLOTS:
                                     .arg(bad, got)));
         }
 
-        // AND THE VALUE IS NEVER PASSED THROUGH AS TEXT. This one parses to
-        // a legitimate 2, so keeping the attribute is right; what must not
-        // survive is everything the sender attached to it. Re-emitting from
-        // the parsed integer is what guarantees that, and it is the reason
-        // the value is not simply copied.
+        // A valid value is re-emitted from the parsed integer, so nothing the
+        // sender attached to it survives.
         const QString hostile = sanitize(QStringLiteral(
             "<ol start=\"2\" onclick=\"evil()\" style=\"x\"><li>x</li></ol>"));
         QCOMPARE(hostile, QStringLiteral("<ol start=\"2\"><li>x</li></ol>"));
     }
 
-    // ── @room ────────────────────────────────────────────────────────────
-    // A whole-room mention has no matrix.to link to become an anchor, so it
-    // is plain body text in both render paths and was rendering as plain body
-    // text — the reported "it isn't styled like all the other tags".
+    // @room: a whole-room mention has no matrix.to link, so it is inked as a
+    // mention without becoming an anchor.
     void roomMentionIsInkedWithoutBecomingALink()
     {
         const QString ink = QStringLiteral("#ff8800");
@@ -1010,14 +930,13 @@ private Q_SLOTS:
         QVERIFY(out.contains(QStringLiteral("color:#ff8800")));
         QVERIFY(out.contains(QStringLiteral("font-weight:600")));
         QVERIFY(out.contains(QStringLiteral("@room")));
-        // A span, never an anchor: there is no profile behind @room, and a
-        // link would invite a click that can only fail.
+        // A span, never an anchor: there is no profile behind @room.
         QVERIFY(!out.contains(QStringLiteral("<a ")));
         QVERIFY(!out.contains(QStringLiteral("href")));
         // The surrounding text survives intact.
         QVERIFY(out.startsWith(QStringLiteral("hey ")));
         QVERIFY(out.endsWith(QStringLiteral(" look")));
-        // No ink configured means no styling rather than a broken span.
+        // No ink configured means no styling, not a broken span.
         QCOMPARE(MessageHtml::markRoomMention(QStringLiteral("@room"),
                                               QString()),
                  QStringLiteral("@room"));
@@ -1033,8 +952,7 @@ private Q_SLOTS:
         QCOMPARE(mark(QStringLiteral("@roomba")), QStringLiteral("@roomba"));
         QCOMPARE(mark(QStringLiteral("bot@room.example")),
                  QStringLiteral("bot@room.example"));
-        // Never inside a tag — rewriting there would corrupt the markup. A
-        // naive replace would hit this attribute.
+        // Never inside a tag: a naive replace would hit this attribute.
         const QString tag =
             QStringLiteral("<a href=\"https://x/@room\">click</a> @room");
         const QString marked = mark(tag);

@@ -1,10 +1,9 @@
-// GIF provider key configuration source of truth (the runtime-screenshot
-// regression: both providers showed "off" because only the shell launcher —
-// not the application — read lightning-gif.env). Covers the safe env-file
-// parser, the environment > env-file > build-key precedence with
-// empty-never-overrides, discovery via LIGHTNING_GIF_ENV_FILE, controller
-// refresh signaling for a picker opened before configuration, one-provider
-// configurations, and that no fixture key value ever reaches the log stream.
+// GIF provider key configuration: the application itself reads
+// lightning-gif.env, not only the shell launcher. Covers the safe env-file
+// parser, environment > env file > build key precedence where empty never
+// overrides, discovery via LIGHTNING_GIF_ENV_FILE, controller refresh for a
+// picker opened before configuration, one-provider setups, and that no
+// fixture key value reaches the log.
 
 #include <QtTest/QtTest>
 
@@ -95,8 +94,7 @@ private slots:
                  QStringLiteral("last"));
         QVERIFY(!values.contains(QStringLiteral("BAD NAME")));
         QVERIFY(!values.contains(QString()));
-        // Nothing shell-like is ever evaluated: the invalid lines simply
-        // don't exist in the result.
+        // Nothing shell-like is evaluated; invalid lines are simply absent.
         QCOMPARE(values.size(), 4);
     }
 
@@ -125,8 +123,8 @@ private slots:
         QCOMPARE(resolved.source, KeySourceClass::Environment);
         QCOMPARE(resolved.key, QStringLiteral("env-fixture-value"));
 
-        // An EMPTY environment value falls back to the file (never
-        // overrides a valid lower-precedence source).
+        // An empty environment value falls back to the file; empty never
+        // overrides a lower-precedence source.
         qputenv("LIGHTNING_GIPHY_API_KEY", "   ");
         resolved = resolveProviderKeyDetailed(QStringLiteral("giphy"));
         QCOMPARE(resolved.source, KeySourceClass::EnvFile);
@@ -138,9 +136,8 @@ private slots:
         qputenv("LIGHTNING_GIF_ENV_FILE", emptyFile.toUtf8());
         qunsetenv("LIGHTNING_GIPHY_API_KEY");
         resolved = resolveProviderKeyDetailed(QStringLiteral("giphy"));
-        // A source build has no compiled key, so this resolves to the build
-        // key when one is embedded and absent otherwise — never the empty
-        // file value pretending to be configured.
+        // A source build has no compiled key, so this is the build key when
+        // embedded and absent otherwise, never the empty file value.
         if (!resolved.configured())
             QCOMPARE(resolved.source, KeySourceClass::Absent);
         else
@@ -156,7 +153,7 @@ private slots:
         QVERIFY(klipy.configured());
         QCOMPARE(klipy.source, KeySourceClass::EnvFile);
         const auto giphy = resolveProviderKeyDetailed(QStringLiteral("giphy"));
-        // giphy has no env/file source here; only a compiled key could
+        // giphy has no env or file source here; only a compiled key could
         // configure it.
         QVERIFY(giphy.source == KeySourceClass::Absent
                 || giphy.source == KeySourceClass::BuildKey);
@@ -165,13 +162,12 @@ private slots:
     void controllerRefreshRecoversAPickerOpenedBeforeConfiguration()
     {
         LogCapture logs;
-        // Constructed with no configuration at all: both providers off —
-        // the runtime failure from the screenshot.
+        // Constructed with no configuration: both providers off.
         GifSearchController controller;
         QVERIFY(!controller.providerConfigured(QStringLiteral("giphy")));
         QVERIFY(!controller.providerConfigured(QStringLiteral("klipy")));
 
-        // Configuration becomes available (env file appears / env set).
+        // Configuration becomes available (env file appears or env is set).
         const QString file = writeEnvFile(
             "LIGHTNING_GIPHY_API_KEY=" + kGiphyFixture + "\n"
             "LIGHTNING_KLIPY_API_KEY=" + kKlipyFixture + "\n");

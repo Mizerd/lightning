@@ -1,20 +1,19 @@
-// v0.7.x pinned messages (`m.room.pinned_events`) — PinnedMessagesController
-// policy. Pins:
+// Pinned messages (`m.room.pinned_events`): PinnedMessagesController policy.
+// Pins:
 //   * snapshot ingestion (entries / ids / total / truncated / canPin) and the
 //     complete-id-list contract that answers isPinned();
-//   * a FAILED read keeps the last known list rather than erasing it;
+//   * a failed read keeps the last known list rather than erasing it;
 //   * canTogglePin offers exactly the action that applies, and nothing at all
-//     without the room's real pin permission or while a write is in flight;
-//   * a pin/unpin is never applied optimistically — the authoritative list is
-//     re-read after the write, on success AND on failure;
+//     without the room's pin permission or while a write is in flight;
+//   * a pin/unpin is never applied optimistically: the list is re-read after
+//     the write, on success and on failure;
 //   * a remote pin change re-reads rather than trusting a pushed payload;
 //   * room switch and sign-out drop the list, and answers for the previous
 //     room can never repaint the current one;
 //   * the /state fallback probe is spent once per room, not once per refresh.
 //
-// HONEST SCOPE: policy and wiring only. Real `m.room.pinned_events` round
-// trips, out-of-window event resolution against a homeserver, and Element
-// interoperability are NOT exercised here and are NOT TESTED.
+// Policy and wiring only: real round trips, out-of-window event resolution
+// and Element interoperability are not exercised here.
 
 #include "app/PinnedMessagesController.h"
 #include "matrix/MatrixClient.h"

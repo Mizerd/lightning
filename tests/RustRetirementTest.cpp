@@ -1,21 +1,10 @@
-// Retiring a Rust client must not happen on the thread that draws the window.
+// Retiring a Rust client (`mx_rust_shutdown_tasks`, and `mx_rust_destroy`
+// dropping the tokio runtime) must not happen on the GUI thread.
 //
-// It used to. `mx_rust_shutdown_tasks` joins managed tasks under budgets and
-// `mx_rust_destroy` drops the tokio runtime — which blocks until every
-// in-flight `spawn_blocking` finishes, SQLite closes included — and both ran
-// inside `RustSdkMatrixClient::releaseRustHandle()`, on the GUI thread,
-// reached from `AppController::switchToAccount`. That is the reported
-// multi-second freeze on an account switch.
-//
-// The obvious test — "an account switch is fast" — is the one that cannot
-// catch a regression, because on a small account the teardown is a few
-// milliseconds whether it blocks or not. Measured on two real fixture
-// accounts: 1-4 ms. A test built on that would pass on the old code.
-//
-// So this measures the PROPERTY instead: the caller returns while the work is
-// still outstanding. It uses a REAL Rust client with a real tokio runtime and
-// a real on-disk store, because a fake would not have the runtime whose drop
-// is the expensive part.
+// "An account switch is fast" cannot catch a regression: a small store closes
+// in milliseconds either way. So this measures the property that the caller
+// returns while the work is still outstanding, with a real Rust client,
+// runtime and on-disk store.
 
 #include "matrix/RustSdkMatrixClient.h"
 #include "matrix_rust.h"
@@ -41,18 +30,10 @@ class RustRetirementTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    // THE ONE THAT WOULD HAVE CAUGHT THE FREEZE.
-    //
-    // NOT a time budget. An empty store closes in about a millisecond, so a
-    // "returned in under 250 ms" assertion passes whether the work ran inline
-    // or not — verified by mutation: making retirement synchronous again left
-    // that version of this test green. It was measuring nothing.
-    //
-    // The property that actually distinguishes the two is that the work is
-    // STILL OUTSTANDING when the caller returns. Done inline, the pool is
-    // empty by then and `waitForRustRetirement(0)` reports drained; deferred,
-    // it cannot. Several clients are handed over so the answer does not
-    // depend on winning a race against a single fast close.
+    // The work is still outstanding when the caller returns: done inline, the
+    // pool would be empty and `waitForRustRetirement(0)` would report drained.
+    // Several clients are handed over so the answer does not depend on
+    // winning a race against one fast close.
     void retiringClientsLeavesTheWorkOutstanding()
     {
         QTemporaryDir dir;
@@ -77,10 +58,8 @@ private Q_SLOTS:
         QVERIFY(RustSdkMatrixClient::waitForRustRetirement(60000));
     }
 
-    // Rapid switching hands over several clients before any has finished.
-    // Each owns its own store, so they must all close — a retirement that
-    // dropped one on the floor would leave a tokio runtime and an open
-    // SQLite store behind for the life of the process.
+    // Rapid switching hands over several clients; each owns its own store and
+    // all must close.
     void severalClientsCanBeRetiredAtOnce()
     {
         QTemporaryDir dir;

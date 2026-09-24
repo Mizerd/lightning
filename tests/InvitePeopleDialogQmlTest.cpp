@@ -1,16 +1,8 @@
-// v0.6.5: proof for the redesigned InvitePeopleDialog token-field chips
-// (SPEC 1t). This dialog previously had zero dedicated coverage — only
-// ThemeTokensTest's hex-literal scan touched the file at all.
-//
-// Selection is driven directly through the shared UserPicker's userSelected
-// signal (bypassing live search debounce/network, exactly like the
-// production onUserSelected handler is wired) so the test stays fast and
-// deterministic while still exercising the real chip/count/dispatch path
-// against a real AppController(MockBackend) — no FakeClient needed, since
-// nothing here depends on search results or member-list fetch timing: the
-// invited ids are fabricated identities absent from the mock room's member
-// map, so the already-member pre-check (unchanged by this restyle) never
-// engages either path.
+// InvitePeopleDialog token-field chips. Selection goes through the shared
+// UserPicker's userSelected signal (as the production handler is wired),
+// bypassing search debounce and network, against a real
+// AppController(MockBackend). The invited ids are absent from the mock
+// room's member map, so the already-member pre-check never engages.
 
 #include <QtTest/QtTest>
 
@@ -86,16 +78,15 @@ private:
         return findItem(m_window->contentItem(), QLatin1String(name));
     }
 
-    // Simulates the shared UserPicker choosing a result: emits its
-    // userSelected(userId, displayName, avatarUrl) signal directly, exactly
-    // as a real click/Enter on a search result row would.
+    // Emits the shared UserPicker's userSelected(userId, displayName,
+    // avatarUrl) directly, as a click or Enter on a result row would.
     void selectUser(const QString &userId, const QString &displayName)
     {
         auto *picker = m_window->findChild<QObject *>(
             QStringLiteral("invitePeoplePicker"));
         QVERIFY(picker);
-        // QML-declared signals expose exact QString parameters — QVariant
-        // args make invokeMethod miss the overload entirely.
+        // QML-declared signals take exact QString parameters; QVariant args
+        // make invokeMethod miss the overload.
         QVERIFY(QMetaObject::invokeMethod(
             picker, "userSelected",
             Q_ARG(QString, userId),
@@ -174,9 +165,8 @@ private slots:
         QVERIFY(submit);
         QVERIFY(!submit->property("enabled").toBool());
 
-        // "@erin"/"@frank" are absent from the mock room's member map, so
-        // this exercises the "new invite" branch, not the already-member
-        // short-circuit (unchanged by this restyle; not re-tested here).
+        // "@erin"/"@frank" are not room members, so this is the new-invite
+        // branch.
         selectUser(QStringLiteral("@erin:mock.local"), QStringLiteral("Erin"));
         auto *chip0 = item("inviteChip_0");
         QVERIFY(chip0);
@@ -216,18 +206,15 @@ private slots:
         QTRY_VERIFY(submit->property("enabled").toBool());
         QMetaObject::invokeMethod(submit, "click");
 
-        // The mock backend honestly reports outgoing invites unsupported
-        // (MatrixClient::inviteUsers base returns opId 0), so per-user
-        // pending rows never populate here. What the click MUST prove on
-        // this backend: the {id,name,avatar} chips were reduced to a plain
-        // non-empty id list and the controller call went through to the
-        // backend gate — that exact path sets the not-supported error.
+        // The mock reports outgoing invites unsupported
+        // (MatrixClient::inviteUsers returns opId 0), so no pending rows
+        // appear. The click must still reduce the chips to a non-empty id list
+        // and reach the backend gate, which sets the not-supported error.
         QTRY_VERIFY(!conversations()->errorMessage().isEmpty());
         QVERIFY(conversations()->errorMessage().contains(
             QStringLiteral("not supported")));
         QVERIFY(conversations()->inviteResults().isEmpty());
-        // And the reduction itself stays pinned in source: ids only,
-        // never the chip objects.
+        // The reduction is also pinned in source: ids only, never chip objects.
         QFile dialogFile(QStringLiteral(QML_DIR "/InvitePeopleDialog.qml"));
         QVERIFY(dialogFile.open(QIODevice::ReadOnly));
         const QString dialogSrc = QString::fromUtf8(dialogFile.readAll());

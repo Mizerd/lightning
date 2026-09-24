@@ -1,11 +1,8 @@
-// v0.5.19: deterministic tests for the device-aware timeline wheel-scroll
-// policy. The offscreen QPA platform used by the QML tests never incubates
-// ListView delegates, so geometry-dependent scroll behaviour cannot be driven
-// through the real view. The scroll MATH therefore lives in
-// TimelineScrollController and is exercised here in isolation: per-notch
-// distance and ordering, coalescing, partial-delta accumulation, direction
-// reversal, the pixel-delta vs angle-delta distinction, bound clamping, and
-// motion cancellation.
+// The timeline wheel-scroll policy in TimelineScrollController, tested in
+// isolation because the offscreen QPA does not incubate list delegates:
+// per-notch distance and ordering, coalescing, partial-delta accumulation,
+// direction reversal, pixel-delta vs angle-delta, bound clamping and motion
+// cancellation.
 
 #include "models/TimelineScrollController.h"
 
@@ -24,8 +21,7 @@ class TimelineScrollControllerTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    // The new default must be Fast, and a single physical notch must move
-    // farther than the modest Standard (≈ 0.5.18) distance.
+    // The default is Fast, and one notch moves farther than Standard.
     void defaultSpeedIsFastAndFartherThanStandard()
     {
         TimelineScrollController c;
@@ -42,13 +38,12 @@ private Q_SLOTS:
         QVERIFY(standard > 0.0);
         QVERIFY(fast > standard);
         QVERIFY(veryFast > fast);
-        // The default (Fast) notch is a meaningful fraction of the viewport —
-        // several message lines, not the couple of lines 0.5.18 produced.
+        // A Fast notch is a meaningful fraction of the viewport (several
+        // lines).
         QVERIFY(fast >= 0.25 * kViewport);
     }
 
-    // Per-notch distance scales with the viewport but stays within absolute
-    // bounds — never hardcoded to one display size.
+    // Per-notch distance scales with the viewport within absolute bounds.
     void notchDistanceIsViewportRelativeAndBounded()
     {
         TimelineScrollController c;
@@ -62,38 +57,36 @@ private Q_SLOTS:
         QVERIFY(c.notchDistance(0.0) > 0.0);
     }
 
-    // One notch moves by roughly the per-notch distance (upward = toward the
-    // top = contentY decreases).
+    // One notch moves by the per-notch distance (upward = contentY
+    // decreases).
     void oneNotchMovesFullNotchDistance()
     {
         TimelineScrollController c;
         const double start = 5000.0;
         const double per = c.notchDistance(kViewport);
-        // Wheel up: angleDelta +120 → contentY decreases by one notch.
+        // Wheel up: angleDelta +120 decreases contentY by one notch.
         const double up = c.wheelTargetY(+kNotch, start, kMinY, kMaxY, kViewport);
         QVERIFY(qFuzzyCompare(up, start - per));
     }
 
-    // Several quick same-direction notches coalesce into one extended target,
-    // not independent per-event jumps.
+    // Quick same-direction notches coalesce into one extended target.
     void repeatedNotchesCoalesce()
     {
         TimelineScrollController c;
         const double start = 5000.0;
         const double per = c.notchDistance(kViewport);
-        // Three notches upward while the animation is still "in flight"
-        // (endMotion() not called between them).
+        // Three upward notches while the motion is in flight (no endMotion()
+        // between them).
         c.wheelTargetY(+kNotch, start, kMinY, kMaxY, kViewport);
         c.wheelTargetY(+kNotch, start - per, kMinY, kMaxY, kViewport);
         const double target = c.wheelTargetY(+kNotch, start - 2 * per,
                                              kMinY, kMaxY, kViewport);
-        // Target extended by three notches from the original position.
+        // The target is three notches from the original position.
         QVERIFY(qFuzzyCompare(target, start - 3 * per));
         QVERIFY(c.motionActive());
     }
 
-    // Partial / high-resolution angle deltas contribute proportionally and
-    // accumulate rather than being dropped.
+    // Partial (high-resolution) angle deltas accumulate proportionally.
     void partialAngleDeltasAccumulate()
     {
         TimelineScrollController c;
@@ -107,8 +100,8 @@ private Q_SLOTS:
         QVERIFY(qFuzzyCompare(target, start - per));
     }
 
-    // A direction reversal redirects from the live position immediately rather
-    // than unwinding a queued opposite-direction target.
+    // A direction reversal redirects from the live position rather than
+    // unwinding a queued target.
     void oppositeDirectionRedirects()
     {
         TimelineScrollController c;
@@ -118,29 +111,29 @@ private Q_SLOTS:
         const double upTarget = c.wheelTargetY(+kNotch, start, kMinY, kMaxY,
                                                kViewport);
         QVERIFY(qFuzzyCompare(upTarget, start - per));
-        // Now reverse: wheel down while the view has moved to, say, 4950.
+        // Reverse while the view is at, say, 4950.
         const double live = 4950.0;
         const double downTarget = c.wheelTargetY(-kNotch, live, kMinY, kMaxY,
                                                  kViewport);
-        // Redirected from the LIVE position, not extended from upTarget.
+        // Redirected from the live position, not extended from upTarget.
         QVERIFY(qFuzzyCompare(downTarget, live + per));
         QVERIFY(downTarget > live);
     }
 
-    // Pixel-delta touchpad input is applied directly, NOT multiplied by the
-    // notch distance.
+    // Pixel-delta (touchpad) input applies directly, not multiplied like a
+    // notch.
     void pixelDeltaIsNotMultipliedLikeNotch()
     {
         TimelineScrollController c;
         const double start = 5000.0;
-        // A 50px two-finger movement upward moves ~50px, nowhere near a notch.
+        // A 50 px upward movement moves ~50 px.
         const double target = c.pixelTargetY(50.0, start, kMinY, kMaxY);
         QVERIFY(qFuzzyCompare(target, start - 50.0));
         const double per = c.notchDistance(kViewport);
         QVERIFY(qAbs(start - target) < 0.5 * per);   // clearly sub-notch.
     }
 
-    // Pixel input cancels any coalesced wheel motion so the two paths never
+    // Pixel input cancels coalesced wheel motion, so the two paths never
     // fight over contentY.
     void pixelDeltaCancelsWheelMotion()
     {
@@ -151,11 +144,11 @@ private Q_SLOTS:
         QVERIFY(!c.motionActive());
     }
 
-    // The top bound clamps; no negative / invalid content position.
+    // The top bound clamps.
     void clampsAtTopBound()
     {
         TimelineScrollController c;
-        // Near the top, a big upward gesture cannot go below minY.
+        // Near the top, a large upward gesture cannot pass minY.
         const double target = c.wheelTargetY(+10.0 * kNotch, 50.0,
                                              kMinY, kMaxY, kViewport);
         QCOMPARE(target, kMinY);
@@ -172,8 +165,7 @@ private Q_SLOTS:
         QCOMPARE(target, kMaxY);
     }
 
-    // Content shorter than the viewport (maxY < minY) pins to the top and
-    // never yields an invalid position.
+    // Content shorter than the viewport (maxY < minY) pins to the top.
     void shortContentPinsToTop()
     {
         TimelineScrollController c;
@@ -184,8 +176,8 @@ private Q_SLOTS:
         QCOMPARE(down, 0.0);
     }
 
-    // cancel()/endMotion() clear the coalescing state so the next notch starts
-    // from the live position.
+    // cancel()/endMotion() clear coalescing, so the next notch starts from
+    // the live position.
     void cancelResetsCoalescing()
     {
         TimelineScrollController c;
@@ -194,7 +186,7 @@ private Q_SLOTS:
         QVERIFY(c.motionActive());
         c.cancel();
         QVERIFY(!c.motionActive());
-        // After cancel, a new notch bases off the supplied live position.
+        // After cancel, a new notch bases on the supplied live position.
         const double target = c.wheelTargetY(+kNotch, 4000.0, kMinY, kMaxY,
                                              kViewport);
         QVERIFY(qFuzzyCompare(target, 4000.0 - per));
@@ -210,10 +202,8 @@ private Q_SLOTS:
         QCOMPARE(spy.count(), 2);        // true → false
     }
 
-    // The bounded per-gesture scroll diagnostics gate follows the
-    // LIGHTNING_SCROLL_TRACE environment variable, read once at construction.
-    // Off by default so a normal run never emits the trace; on when set so a
-    // physical tester can capture one summary line per gesture.
+    // The per-gesture scroll diagnostics follow LIGHTNING_SCROLL_TRACE, read
+    // once at construction; off by default.
     void scrollTraceGateFollowsEnvironment()
     {
         qunsetenv("LIGHTNING_SCROLL_TRACE");
@@ -226,8 +216,7 @@ private Q_SLOTS:
         qunsetenv("LIGHTNING_SCROLL_TRACE");
     }
 
-    // An out-of-range persisted value falls back to Fast rather than an
-    // undefined speed.
+    // An out-of-range persisted speed falls back to Fast.
     void invalidSpeedFallsBackToFast()
     {
         TimelineScrollController c;
@@ -239,7 +228,7 @@ private Q_SLOTS:
         QCOMPARE(c.wheelSpeed(), TimelineScrollController::VeryFast);
     }
 
-    // The selected speed actually changes the discrete-notch distance.
+    // The speed setting changes the discrete-notch distance.
     void speedAffectsDiscreteNotchDistance()
     {
         TimelineScrollController c;
@@ -250,12 +239,12 @@ private Q_SLOTS:
         c.setWheelSpeed(TimelineScrollController::VeryFast);
         const double vfTarget = c.wheelTargetY(+kNotch, 5000.0, kMinY, kMaxY,
                                                kViewport);
-        // Very fast moves the target farther up (smaller contentY) than
-        // Standard for the same single notch.
+        // Very fast moves farther (smaller contentY) than Standard for one
+        // notch.
         QVERIFY(vfTarget < stdTarget);
     }
 
-    // The speed setting must NOT rescale pixel-delta touchpad input.
+    // The speed setting does not rescale pixel-delta input.
     void speedDoesNotRescalePixelDelta()
     {
         TimelineScrollController c;
@@ -267,17 +256,11 @@ private Q_SLOTS:
         QVERIFY(qFuzzyCompare(stdPx, 5000.0 - 50.0));
     }
 
-    // ── v0.6.0: wheel motion engine (continuous smoothness) ─────────────
-    // The 0.5.19 chunkiness inside one tall wrapped delegate was caused by
-    // restarting a fixed-duration OutCubic animation per notch: slow notch
-    // cadences produced stop-start bursts (OutCubic ends at zero velocity),
-    // fast cadences re-ran the whole remaining distance in a fresh 140 ms.
-    // The engine below integrates position toward the coalesced target with
-    // continuous velocity; these tests drive advanceMotion() deterministically
-    // (16 ms frames) — the same code the frame ticker runs.
-
-    // One notch produces MANY monotonic intermediate positions, not one step
-    // per notch — the property a delegate taller than the viewport exposes.
+    // Wheel motion engine: position is integrated toward the coalesced target
+    // with continuous velocity, driven here by advanceMotion() in 16 ms frames
+    // (the code the frame ticker runs).
+    //
+    // One notch produces many monotonic intermediate positions, not one step.
     void motionProgressesThroughIntermediatePositions()
     {
         TimelineScrollController c;
@@ -291,7 +274,7 @@ private Q_SLOTS:
         for (int i = 0; i < frames.count(); ++i) {
             const double y = frames.at(i).at(0).toDouble();
             QVERIFY2(y > prev - 0.001, "position must advance monotonically");
-            // No single frame may cover the whole notch in one visible jump.
+            // No single frame covers most of the notch.
             QVERIFY2(y - prev < 0.6 * (target - 5000.0),
                      "one frame covered most of the notch — chunky");
             prev = y;
@@ -299,17 +282,15 @@ private Q_SLOTS:
         QVERIFY(qFuzzyCompare(prev, target));
     }
 
-    // Same-direction notches arriving at a realistic cadence (150 ms) keep
-    // the motion alive continuously — never a full stop between notches, and
-    // the frame after a new notch moves at least as fast as the frame before
-    // it (velocity is preserved or raised, never reset).
+    // Same-direction notches at a realistic cadence (150 ms) keep the motion
+    // alive, and velocity is preserved or raised, never reset.
     void repeatedNotchesPreserveContinuousVelocity()
     {
         TimelineScrollController c;
         c.setWheelSpeed(TimelineScrollController::VeryFast);
         c.wheelNotch(-kNotch, 5000.0, kMinY, kMaxY, kViewport);
         double before = 0.0;
-        // ~150 ms of frames: motion must still be active when notch 2 lands.
+        // ~150 ms of frames: motion is still active when notch 2 lands.
         for (int i = 0; i < 9; ++i) {
             const double y0 = c.positionYForTest();
             QVERIFY2(c.advanceMotion(16.0), "motion stopped between notches");
@@ -338,8 +319,8 @@ private Q_SLOTS:
                  "reversal did not redirect immediately");
     }
 
-    // Motion settles in bounded time with no asymptotic tail, emits exactly
-    // one settle signal, and leaves no ticker running afterwards.
+    // Motion settles in bounded time, emits one settle signal, and leaves no
+    // ticker running.
     void motionSettlesWithinBoundedTimeAndStopsCleanly()
     {
         TimelineScrollController c;
@@ -360,7 +341,7 @@ private Q_SLOTS:
         QVERIFY(qFuzzyCompare(c.positionYForTest(), c.targetYForTest()));
     }
 
-    // A stalled frame (long dt) may not integrate one giant visible jump.
+    // A stalled frame (long dt) does not integrate one giant jump.
     void stalledFrameDoesNotJump()
     {
         TimelineScrollController c;
@@ -373,9 +354,8 @@ private Q_SLOTS:
         QVERIFY2(moved < 0.6 * total, "stalled frame jumped most of the way");
     }
 
-    // QML re-clamps emitted positions against live geometry; when it reports
-    // a bound was hit, the engine adopts the clamped position and settles
-    // instead of pushing into the bound.
+    // When QML reports a bound was hit, the engine adopts the clamped position
+    // and settles.
     void boundReportSettlesMotion()
     {
         TimelineScrollController c;
@@ -389,31 +369,20 @@ private Q_SLOTS:
         QCOMPARE(c.positionYForTest(), kMinY);
     }
 
-    // Backward-pagination anchor restore (TimelinePane.qml's
-    // maintainViewAnchor() — since the v0.7.2 anchor unification this one
-    // function covers both async growth compensation and a backward-
-    // pagination prepend; there is no longer a separate
-    // restoreCapturedAnchor()) translates an in-flight discrete-wheel glide
-    // instead of cancelling it. The shift must move the integrated position
-    // AND the coalesced target by the same amount, so remaining distance to
-    // travel is unchanged and the glide continues to a destination that
-    // moved with the prepended content — never frozen partway through.
-    // Before translateActiveMotion() existed, the QML restore path called
-    // cancel() unconditionally here, which froze the glide mid-flight: the
-    // confirmed root cause of "scroll up snaps me half the distance back"
-    // while older history is loading.
+    // translateActiveMotion() shifts an in-flight glide (position and target
+    // together) by a prepend's height, so the remaining distance is unchanged
+    // and the glide finishes at a destination that moved with the content,
+    // rather than being cancelled mid-flight.
     void translateActiveMotionPreservesRemainingDistance()
     {
         TimelineScrollController c;
         c.setWheelSpeed(TimelineScrollController::VeryFast);
-        // Several quick same-direction notches: a real coalesced glide with
-        // substantial remaining distance still queued, exactly like a
-        // reader spinning the wheel while a near-top request is in flight.
+        // A real coalesced glide with remaining distance, as when the reader
+        // spins the wheel during a near-top request.
         for (int i = 0; i < 4; ++i)
             c.wheelNotch(+kNotch, 5000.0, kMinY, kMaxY, kViewport);
         QVERIFY(c.motionActive());
-        // Advance partway through the glide — mirrors the pagination batch
-        // landing while the reader is still mid-flight.
+        // Advance partway, as when the batch lands mid-flight.
         for (int i = 0; i < 3; ++i)
             c.advanceMotion(16.0);
         QVERIFY(c.motionActive());
@@ -423,24 +392,21 @@ private Q_SLOTS:
         const double targetBefore = c.targetYForTest();
         c.translateActiveMotion(shift);
 
-        // Motion is untouched structurally: still active, same remaining
-        // distance, just relocated by the prepend's height.
+        // Still active, same remaining distance, relocated by the shift.
         QVERIFY(c.motionActive());
         QVERIFY(qFuzzyCompare(c.targetYForTest() - c.positionYForTest(),
                               remainingBefore));
         QVERIFY(qFuzzyCompare(c.targetYForTest(), targetBefore + shift));
 
-        // Let it finish: it must land exactly on the shifted target, never
-        // on a frozen/truncated position.
+        // It lands exactly on the shifted target.
         while (c.motionActive())
             c.advanceMotion(16.0);
         QVERIFY(qFuzzyCompare(c.positionYForTest(), c.targetYForTest()));
         QVERIFY(qFuzzyCompare(c.positionYForTest(), targetBefore + shift));
     }
 
-    // No motion in flight -> nothing to translate. The QML caller falls back
-    // to a plain cancel() + relative contentY write in that case, so this
-    // must be a true no-op rather than fabricating motion.
+    // With no motion in flight there is nothing to translate: a true no-op
+    // (the QML caller then writes contentY itself).
     void translateActiveMotionIsNoOpWhenNotActive()
     {
         TimelineScrollController c;
@@ -451,8 +417,7 @@ private Q_SLOTS:
         QCOMPARE(c.targetYForTest(), 0.0);
     }
 
-    // A zero shift (a pagination batch that inserted no visible rows) must
-    // leave an in-flight glide completely untouched.
+    // A zero shift leaves an in-flight glide untouched.
     void translateActiveMotionWithZeroDeltaChangesNothing()
     {
         TimelineScrollController c;
@@ -465,8 +430,8 @@ private Q_SLOTS:
         QCOMPARE(c.targetYForTest(), target);
     }
 
-    // animateTo (keyboard paging) uses the same engine: motion engages
-    // synchronously, progresses through intermediate frames, and settles.
+    // animateTo (keyboard paging) uses the same engine: engages synchronously,
+    // progresses through frames, and settles.
     void animateToDrivesSameEngine()
     {
         TimelineScrollController c;
@@ -479,9 +444,8 @@ private Q_SLOTS:
         QCOMPARE(c.positionYForTest(), 5800.0);
     }
 
-    // cancel() (room switch, Jump to latest, reply navigation, restore) stops
-    // the engine immediately: no further frames, no settle signal — the
-    // programmatic caller owns contentY from here.
+    // cancel() stops the engine immediately with no further frames and no
+    // settle signal; the programmatic caller owns contentY.
     void cancelStopsEngineWithoutSettleSignal()
     {
         TimelineScrollController c;
@@ -498,8 +462,8 @@ private Q_SLOTS:
         QCOMPARE(settled.count(), 0);
     }
 
-    // The pixel-delta touchpad path stays direct and precise, and stops any
-    // in-flight engine motion (the platform owns momentum there).
+    // The pixel path stays direct and stops any in-flight engine motion (the
+    // platform owns momentum there).
     void pixelPathStopsEngine()
     {
         TimelineScrollController c;
@@ -511,7 +475,7 @@ private Q_SLOTS:
         QVERIFY(!c.tickerRunningForTest());
     }
 
-    // Changing the speed mid-motion is safe and takes effect on the next notch.
+    // Changing speed mid-motion is safe and applies from the next notch.
     void speedChangeDuringMotionIsSafe()
     {
         TimelineScrollController c;
@@ -520,19 +484,17 @@ private Q_SLOTS:
         QVERIFY(c.motionActive());
         c.setWheelSpeed(TimelineScrollController::VeryFast);   // no crash
         const double perVf = c.notchDistance(kViewport);
-        // Next same-direction notch extends using the NEW distance.
+        // The next same-direction notch extends using the new distance.
         const double before = c.targetYForTest();
         const double after = c.wheelTargetY(+kNotch, 4000.0, kMinY, kMaxY,
                                             kViewport);
         QVERIFY(qFuzzyCompare(after, before - perVf));
     }
 
-    // ── v0.6.1: geometry, finiteness, and controller-independence hardening ──
-
-    // A delegate taller than the viewport is the case that exposed 0.5.19
-    // chunkiness. Even at Very fast over a tall viewport (largest bounded
-    // notch), a single notch must still produce many monotonic frames, none
-    // covering most of the distance in one visible jump.
+    // Geometry, finiteness and controller independence.
+    //
+    // Even at Very fast over a tall viewport (the largest bounded notch), a
+    // notch produces many monotonic frames, none covering most of it.
     void tallDelegateStillProducesSmoothFrames()
     {
         TimelineScrollController c;
@@ -556,10 +518,8 @@ private Q_SLOTS:
         QVERIFY(qFuzzyCompare(prev, target));
     }
 
-    // Repeated notches at a SLOW cadence (each settles before the next) must
-    // each be individually smooth — the old fixed-duration OutCubic restart
-    // produced stop-start bursts here. Every notch yields several frames and
-    // no single-frame lurch.
+    // Notches at a slow cadence (each settling before the next) are each
+    // smooth: several frames and no single-frame lurch.
     void slowCadenceNotchesStaySmooth()
     {
         TimelineScrollController c;
@@ -581,9 +541,8 @@ private Q_SLOTS:
         }
     }
 
-    // Content shrinking mid-motion (e.g. a link preview collapses, a room
-    // trims history): QML re-clamps the emitted position and reports the bound.
-    // The engine settles exactly at the clamped position — never past it.
+    // Content shrinking mid-motion: QML reports the new bound and the engine
+    // settles exactly at the clamped position.
     void contentShrinkDuringMotionDoesNotOverscroll()
     {
         TimelineScrollController c;
@@ -591,20 +550,19 @@ private Q_SLOTS:
         c.wheelNotch(-kNotch, 5000.0, kMinY, /*maxY*/ 10000.0, kViewport);
         c.advanceMotion(16.0);
         const double target = c.targetYForTest();
-        // Content shrank so the new bottom is above the in-flight target.
+        // The content shrank so the new bottom is above the in-flight target.
         const double newMax = target - 40.0;
         c.notifyBoundReached(newMax);
         QVERIFY(!c.motionActive());
         QVERIFY(!c.tickerRunningForTest());
         QCOMPARE(c.positionYForTest(), newMax);
-        // No residual motion can push past the shrunk bound.
+        // No residual motion pushes past the shrunk bound.
         QVERIFY(!c.advanceMotion(16.0));
         QVERIFY(c.positionYForTest() <= newMax);
     }
 
-    // The main timeline and thread panel own independent controllers
-    // (app.timelineScroll / app.threadScroll). Driving one must never move or
-    // engage the other.
+    // The main timeline and thread panel controllers are independent; driving
+    // one never moves the other.
     void mainAndThreadControllersAreIndependent()
     {
         TimelineScrollController main;
@@ -615,11 +573,11 @@ private Q_SLOTS:
         QVERIFY(!thread.motionActive());       // thread untouched
         QVERIFY(!thread.tickerRunningForTest());
 
-        // Advancing main leaves thread's state at its defaults.
+        // Advancing main leaves the thread controller at its defaults.
         main.advanceMotion(16.0);
         QCOMPARE(thread.positionYForTest(), 0.0);
 
-        // Now drive the thread; main keeps its own in-flight target.
+        // Drive the thread; main keeps its own target.
         const double mainTarget = main.targetYForTest();
         thread.setWheelSpeed(TimelineScrollController::VeryFast);
         thread.wheelNotch(+kNotch, 800.0, kMinY, kMaxY, kViewport);
@@ -632,9 +590,8 @@ private Q_SLOTS:
         QVERIFY(main.motionActive());
     }
 
-    // Across a stress sequence (extreme deltas, huge room, reversals, a
-    // stalled frame, bound clamps) the integrated position and target must
-    // never become NaN/Inf.
+    // Across a stress sequence (extreme deltas, huge room, reversals, a stall,
+    // bound clamps) position and target stay finite.
     void positionsAndTargetsStayFinite()
     {
         TimelineScrollController c;
@@ -658,28 +615,16 @@ private Q_SLOTS:
         QVERIFY(qIsFinite(c.targetYForTest()));
     }
 
-    // Timeline anchor fix (v0.6.5 round 3 — "an image pops up while
-    // scrolling up and the view jumps by a lot"): TimelinePane.qml's
-    // maintainViewAnchor() now compensates asynchronous row growth ABOVE the
-    // tracked anchor DURING an active gesture, not only at settle, by
-    // calling translateActiveMotion() with the exact pixel delta the anchor
-    // row's own y moved (a delegate's estimated height being replaced by its
-    // real one on creation, matching the ListView cacheBuffer comment in
-    // TimelinePane.qml predicting this exact fix). Two rows growing in the
-    // SAME gesture (the maintainer's "if there is an image above the
-    // previous image it jumps even more up" report) call
-    // translateActiveMotion() TWICE in succession, once per growth batch.
-    // This proves the two corrections compose additively — remaining
-    // distance to the target is preserved across BOTH corrections and the
-    // final settle lands on the fully-composed target — rather than the
-    // second overwriting or losing the first.
+    // Two growth corrections in one gesture (two images above the anchor
+    // resolving) compose additively via translateActiveMotion(): remaining
+    // distance is preserved across both and the glide settles on the fully
+    // composed target.
     void translateActiveMotionComposesAcrossRepeatedGrowthCorrections()
     {
         TimelineScrollController c;
         c.setWheelSpeed(TimelineScrollController::VeryFast);
-        // A real coalesced glide with substantial remaining distance still
-        // queued, exactly like a reader spinning the wheel upward while
-        // media above resolves.
+        // A coalesced upward glide with remaining distance, as media above
+        // resolves.
         for (int i = 0; i < 4; ++i)
             c.wheelNotch(+kNotch, 5000.0, kMinY, kMaxY, kViewport);
         QVERIFY(c.motionActive());
@@ -689,9 +634,8 @@ private Q_SLOTS:
             c.targetYForTest() - c.positionYForTest();
         const double targetBefore = c.targetYForTest();
 
-        // First image row resolves: its estimated height (a text-row
-        // average, ~50px) is replaced by its real reserved height (~320px)
-        // — a ~270px growth above the anchor.
+        // The first image row resolves: its estimated height (~50 px) becomes
+        // its real height (~320 px), ~270 px of growth above the anchor.
         constexpr double firstGrowth = 270.0;
         c.translateActiveMotion(firstGrowth);
         QVERIFY(c.motionActive());
@@ -700,8 +644,7 @@ private Q_SLOTS:
         QVERIFY(qFuzzyCompare(c.targetYForTest(),
                               targetBefore + firstGrowth));
 
-        // A second, stacked image row above it resolves in the SAME
-        // gesture — the exact "jumps even more up" scenario.
+        // A second image row above it resolves in the same gesture.
         c.advanceMotion(16.0);
         const double remainingMid = c.targetYForTest() - c.positionYForTest();
         constexpr double secondGrowth = 300.0;
@@ -712,8 +655,8 @@ private Q_SLOTS:
         QVERIFY(qFuzzyCompare(c.targetYForTest(),
                               targetBefore + firstGrowth + secondGrowth));
 
-        // Settling lands on the fully-composed target: both corrections
-        // survive to the end, neither lost nor double-applied.
+        // It settles on the fully composed target: neither correction lost nor
+        // doubled.
         while (c.motionActive())
             c.advanceMotion(16.0);
         QVERIFY(qFuzzyCompare(c.positionYForTest(), c.targetYForTest()));
@@ -721,10 +664,7 @@ private Q_SLOTS:
                               targetBefore + firstGrowth + secondGrowth));
     }
 
-    // Direction-agnostic companion: growth compensation must compose
-    // correctly for a DOWNWARD glide too — content growing above an anchor
-    // shifts contentY and the coalesced target the same way regardless of
-    // which direction the reader is currently scrolling.
+    // Growth compensation composes the same way during a downward glide.
     void translateActiveMotionComposesDuringDownwardGlide()
     {
         TimelineScrollController c;

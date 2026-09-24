@@ -1,12 +1,8 @@
-// Full-view Settings proof against the production Main window: opening
-// Settings hides the ENTIRE chat shell (spaces rail, room list, timeline,
-// composer) and any right-side panel, and fills the application content
-// area; entering it from an open Room Information / People / Thread state
-// clears that state; closing restores the chat shell and the selected room
-// with the right panel remaining None. The Appearance controls (featured
-// theme cards with fixed palettes, instant switching, match-system,
-// message-layout, text-size) are exercised inside the real full-view
-// settings, including the 1374x944 no-horizontal-clipping contract.
+// Full-view Settings against the production Main window: opening Settings
+// hides the whole chat shell and any right-side panel and fills the content
+// area; closing restores the shell and the selected room. The Appearance
+// controls (featured theme cards, match-system, message layout, text size)
+// are exercised in place, including no horizontal clipping at 1374x944.
 
 #include <QtTest/QtTest>
 
@@ -71,10 +67,8 @@ int channelDelta(const QColor &a, const QColor &b)
 constexpr int kTolerance = 8;
 constexpr int kSignalTimeoutMs = 5000;
 
-// WCAG 2.1 relative luminance and contrast, on the sRGB values a token
-// carries. Kept local rather than shared with ThemeTokensTest: that suite
-// reads qml/AppTheme.qml as TEXT, and what is asserted here is the colour a
-// live control actually resolved under a live theme.
+// WCAG 2.1 relative luminance and contrast of a colour a live control
+// resolved (ThemeTokensTest works on the QML literals instead).
 double relativeLuminance(const QColor &c)
 {
     auto channel = [](double v) {
@@ -92,11 +86,8 @@ double contrastRatio(const QColor &a, const QColor &b)
     return (qMax(la, lb) + 0.05) / (qMin(la, lb) + 0.05);
 }
 
-// CIE L* of a rendered colour. The right measure for two FILLS, where a
-// contrast RATIO flatters a pair that the eye reads as one slab: #2E3440 on
-// #3B4252 is 1.24:1 and clearly two surfaces, while #D2E5D6 on #D4E6D8 is
-// 1.01:1 and is not. ThemeTokensTest carries the same helper over the
-// literals; this one works on the colour a live item actually resolved.
+// CIE L* of a rendered colour: the right measure for two fills, where a
+// contrast ratio can call two clearly distinct surfaces nearly equal.
 double lstarOf(const QColor &c)
 {
     const double y = relativeLuminance(c);
@@ -138,9 +129,8 @@ private:
         return findItem(m_window->contentItem(), QLatin1String(name));
     }
 
-    // EVERY item of that name, not the first. Repeater delegates all share
-    // one objectName, and `findChild` stops at the first hit -- which is how
-    // a sweep over a list silently becomes a check on its first row.
+    // Every item with that name: Repeater delegates share one objectName and
+    // findChild stops at the first.
     static void collectItems(QQuickItem *parent, const QString &name,
                              QList<QQuickItem *> &out)
     {
@@ -160,9 +150,8 @@ private:
         return out;
     }
 
-    // A Popup is a QObject, NOT a QQuickItem, so neither findChild<QQuickItem*>
-    // nor a childItems() walk can ever reach one by name -- its popupItem is
-    // reparented onto the overlay and carries no objectName of its own.
+    // A Popup is a QObject, not a QQuickItem; its popupItem is reparented to
+    // the overlay without an objectName, so look it up as a QObject.
     QObject *popup(const char *name) const
     {
         return m_window->findChild<QObject *>(QLatin1String(name));
@@ -177,15 +166,9 @@ private:
         return expr.evaluate().value<QColor>();
     }
 
-    // Bring `target` inside its nearest Flickable ancestor's viewport, but
-    // ONLY when it is actually outside it — scrolling an already-visible
-    // control would move the page under tests that assert positions.
-    //
-    // Settings pages grew taller in the 2026-08-21 UI round, and a click at
-    // an item's scene centre then landed OUTSIDE the window. Qt reports that
-    // as "Mouse event at X, Y occurs outside target window" and drops it, so
-    // the suite failed on a control that works perfectly — the click simply
-    // never arrived. A user scrolls before clicking; so does this.
+    // Scroll `target` into its nearest Flickable's viewport only if it is
+    // outside it (scrolling a visible control would move positions other
+    // tests assert). A click outside the window is dropped by Qt.
     void ensureVisible(QQuickItem *target)
     {
         QQuickItem *flick = target->parentItem();
@@ -209,10 +192,8 @@ private:
         QCoreApplication::processEvents();
     }
 
-    // Y within the nearest Flickable's contentItem — i.e. the position that
-    // does NOT change when the page scrolls. Reflow guards must measure this
-    // rather than a scene coordinate, or a scroll (which is not a reflow)
-    // reads as content having moved.
+    // Y within the nearest Flickable's contentItem, which does not change on
+    // scroll. Reflow guards measure this, since a scroll is not a reflow.
     qreal contentPosY(QQuickItem *target) const
     {
         QQuickItem *flick = target->parentItem();
@@ -255,16 +236,9 @@ private slots:
     {
         QVERIFY(m_configHome.isValid());
         qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
-        // AND THE DATA HOME, which was missing and is not the same thing.
-        // The org/app names below scope QSettings, but AppDataPaths does not
-        // read them — it composes its own root — so anything this suite
-        // writes through that path landed in the REAL user data directory,
-        // under the account slug `alice_mock.local` that the mock login
-        // produces. Found on 2026-09-12: one interrupted run of
-        // starredGifsSettingsRowReflectsStoreAndClearAllEmptiesIt left a
-        // starred GIF on disk, and every run after it failed that case's
-        // opening "0 image(s), 0 B" comparison — a suite that had made
-        // itself permanently red with no code change anywhere.
+        // Also isolate the data home: AppDataPaths composes its own root and
+        // ignores the QSettings org/app names, so writes would otherwise land
+        // in the real user data directory and leak between runs.
         QVERIFY(m_dataHome.isValid());
         qputenv("XDG_DATA_HOME", m_dataHome.path().toUtf8());
         QCoreApplication::setOrganizationName(
@@ -279,14 +253,9 @@ private slots:
                 [this](const QList<QQmlError> &warnings) {
                     for (const auto &w : warnings) {
                         const QString text = w.toString();
-                        // The mock backend hands out media URLs on a host that
-                        // does not resolve, and timeline rows now activate
-                        // their media whenever they are genuinely inside the
-                        // viewport — including in an offscreen run, where the
-                        // previous virtualized view never instantiated them at
-                        // all. That is a DNS failure in the fixture, not a QML
-                        // defect, and it must not mask real warnings: only
-                        // this exact unreachable-host message is dropped.
+                        // Mock media URLs use an unresolvable host, and rows in
+                        // the viewport activate their media; drop only that
+                        // exact DNS warning.
                         if (text.contains(QLatin1String(
                                 "QQuickImage: Host mock.local not found")))
                             continue;
@@ -304,7 +273,7 @@ private slots:
         m_window = qobject_cast<QQuickWindow *>(
             createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY(m_window);
-        // The screenshot geometry from the runtime evidence.
+        // The window size from the original screenshot.
         m_window->setWidth(1374);
         m_window->setHeight(944);
         QVERIFY(QTest::qWaitForWindowExposed(m_window));
@@ -325,12 +294,9 @@ private slots:
         delete m_controller;
     }
 
-    // 2026-08-18 tester report #2: "GIF settings reset every close/launch"
-    // (Win11). The persisted VALUES were fine; the suspicion is the
-    // combos' creation-time indexOfValue binding showing defaults. This
-    // case runs FIRST among the slots so the Settings screen instantiates
-    // fresh with non-default values already stored — exactly the relaunch
-    // shape the tester saw.
+    // The GIF settings combos show persisted non-default values on the first
+    // open (creation-time indexOfValue bindings showed defaults). Runs first so
+    // Settings instantiates fresh with the values already stored.
     void gifSettingsCombosDisplayPersistedValuesOnFirstOpen()
     {
         m_controller->settings()->setGifAutoplay(2);        // Never
@@ -351,9 +317,8 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(
             provider->property("currentValue").toString(),
             QStringLiteral("klipy"), 3000);
-        // Restore the shared shell state for the section-sensitive tests
-        // that follow (they expect a fresh Settings open on the default
-        // section with the chat shell visible beneath).
+        // Restore the shared shell state for the tests that follow (fresh
+        // Settings on the default section, chat shell beneath).
         m_controller->showSettingsSection(QStringLiteral("appearance"));
         QCoreApplication::processEvents();
         m_controller->showMain();
@@ -374,8 +339,7 @@ private slots:
         m_controller->showSettings();
         QCoreApplication::processEvents();
 
-        // The entire chat shell disappears — rail, room list, timeline,
-        // composer — and Settings fills the content area.
+        // The whole chat shell disappears and Settings fills the content area.
         QVERIFY(!rail->isVisible());
         QVERIFY(!rooms->isVisible());
         QVERIFY(!timeline->isVisible());
@@ -394,8 +358,8 @@ private slots:
 
     void settingsHasNoHorizontalClippingAt1374()
     {
-        // All three featured theme cards are fully inside the content
-        // area, and the appearance column never overflows horizontally.
+        // Every featured theme card fits in the content area, and the
+        // appearance column never overflows horizontally.
         const qreal windowWidth = m_window->contentItem()->width();
         for (int id : { 11, 8, 9, 10 }) {
             auto *card = item(qPrintable(
@@ -420,22 +384,10 @@ private slots:
 
     void featuredThemeCardsPaintTheirRealPalettes()
     {
-        // Every featured card now reads AppTheme.paletteForTheme(id) — no
-        // card carries a colour of its own. Assert against the SAME raw
-        // per-theme literals that function returns, so this test moves with
-        // a palette retune instead of pinning yesterday's copy of it.
-        //
-        // Read the underscore literals, never the routed aliases
-        // (AppTheme.stormDeep/bolt are `storm ? _sto* : <active theme>`, so
-        // they only equal Storm's value while Storm is active — sampling
-        // those would compare each card against whatever theme the test
-        // happens to run under).
-        //
-        // History: cards 8/9/10 used to hold hand-copied hex literals and
-        // had drifted far enough that Indigo Night and Deep Teal previewed
-        // a room list lighter than their canvas while both real themes ship
-        // it darker. The literals — and this test's copies of them — are
-        // gone; drift is now structurally impossible.
+        // Each featured card reads AppTheme.paletteForTheme(id). Compare
+        // against the raw per-theme underscore literals that function returns,
+        // not the routed aliases (e.g. stormDeep), which only hold Storm's
+        // value while Storm is active.
         struct Expect {
             const char *preview;
             const char *accentBar;
@@ -475,11 +427,8 @@ private slots:
 
     void selectedThemeCardRingIsNotClipped()
     {
-        // The selection glow (3px accent-soft, drawn outside the card) and
-        // the keyboard focus ring (2px at -6..-4) must render in full. The
-        // old clip:true rectangular scissor shaved both to corner crescents
-        // plus a one-device-pixel sliver protruding into the card gap — the
-        // live "line sticking out beside Indigo Night" defect.
+        // The selection glow (3 px, outside the card) and the focus ring
+        // (2 px at -6..-4) render in full, not clipped by the card.
         m_controller->settings()->setTheme(SettingsManager::IndigoNightTheme);
         QCoreApplication::processEvents();
         auto *card = item("featuredThemeCard_9");
@@ -488,10 +437,8 @@ private slots:
 
         const QImage selected = m_window->grabWindow();
         QVERIFY(!selected.isNull());
-        // Mid-height, ~1.5px outside the right edge: inside the glow band.
-        // Storm: the glow is bolt at 18% alpha compositing over the
-        // stormDeep content backdrop — compute that blend as the expected
-        // sample instead of the old themed accentSoft.
+        // Mid-height, ~1.5 px outside the right edge, inside the glow band.
+        // Storm's glow is bolt at 18% over stormDeep; expect that blend.
         const QColor glowInk = themeColor("bolt");
         const QColor glowBase = themeColor("stormDeep");
         const QColor glowBlend(
@@ -509,36 +456,19 @@ private slots:
         card->forceActiveFocus();
         QTRY_VERIFY(card->hasActiveFocus());
         const QImage focused = m_window->grabWindow();
-        // The focus band is only 2px wide (-6..-4); sample a single column
-        // squarely inside it.
+        // Sample one column inside the 2 px focus band.
         const QPointF focusPoint =
             card->mapToScene(QPointF(card->width() + 4.5, card->height() / 2));
-        // Storm: focus rings in Settings ink bolt.
+        // Settings focus rings use bolt under Storm.
         QVERIFY2(channelDelta(sampleAvg(focused,
                       QRect(int(focusPoint.x()), int(focusPoint.y()) - 1, 1, 2)),
                       themeColor("bolt")) <= kTolerance,
                  "focus ring invisible outside the card edge");
     }
 
-    // A RADIO YOU CANNOT SEE IS NOT A RADIO — AND IT ONLY FAILED IN THE
-    // LIGHT PALETTES.
-    //
-    // The resting ring on the four featured cards was AppTheme.stormTextFaint,
-    // which routes to each palette's DISABLED ink. Measured on a real screen
-    // against cardFoot (stormCanvas) in all eleven themes: 1.60:1 in
-    // Lightning Light, 1.76 in Warm, 2.27 in Moss Light — against the 3:1
-    // WCAG 1.4.11 asks of a component boundary — while Storm sat at 4.41 and
-    // every dark theme passed, which is exactly why nobody saw it. A token
-    // that is fine on eight palettes and invisible on three is the shape this
-    // project keeps shipping, so the assertion runs over ALL ELEVEN rather
-    // than over the one the suite happens to be in.
-    //
-    // The ring is read off the LIVE control (border.color on the real
-    // Rectangle under the real theme), never off a token name: a test that
-    // read AppTheme.stormTextMuted would pass while the QML still asked for
-    // stormTextFaint.
-    //
-    // UNFIXED TREE: fails on Lightning Light at 1.60:1.
+    // The unselected theme card's radio ring clears 3:1 (WCAG 1.4.11) against
+    // the card foot on every theme. Read off the live control under each
+    // live theme, not off a token name.
     void theUnselectedThemeCardRadioRingClearsThreeToOneOnEveryTheme()
     {
         const int restore = m_controller->settings()->theme();
@@ -554,8 +484,8 @@ private slots:
             m_controller->settings()->setTheme(
                 static_cast<SettingsManager::Theme>(id));
             QCoreApplication::processEvents();
-            // Any featured card that is NOT the active theme, so the ring
-            // is in its resting state and not the accent fill.
+            // A featured card that is not the active theme, so the ring is
+            // in its resting state.
             const int cardId = (id == 9) ? 8 : 9;
             auto *radio = item(qPrintable(
                 QStringLiteral("themeCardRadio_%1").arg(cardId)));
@@ -566,10 +496,7 @@ private slots:
                                 QStringLiteral("border.color"));
             const QColor ring = expr.evaluate().value<QColor>();
             QVERIFY(ring.isValid());
-            // The LIVE foot, not the token this card once asked for. It
-            // painted stormCanvas when this case was written and paints
-            // stormPanel since the card-vs-page fix below; a probe pinned to
-            // a token name goes on answering about a surface nobody draws.
+            // The live foot fill, not a token name.
             auto *foot = item(qPrintable(
                 QStringLiteral("themeCardFoot_%1").arg(cardId)));
             QVERIFY2(foot, qPrintable(QStringLiteral(
@@ -593,9 +520,7 @@ private slots:
                              .arg(ring.name(), footColor.name())
                              .arg(ratio, 0, 'f', 2)));
         }
-        // Assert the COUNT of what actually varied, never the count of loop
-        // iterations: a palette that never applied would otherwise be graded
-        // against the previous one eleven times over.
+        // Assert how many palettes were actually checked, not loop iterations.
         QCOMPARE(checked, 11);
         qInfo("theme-card radio ring: worst %.2f:1 (%s)",
               worst, qPrintable(worstWhere));
@@ -605,37 +530,15 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // ── A CARD THE COLOUR OF THE PAGE IS NOT A CARD ─────────────────────
-    //
-    // SettingsCard painted stormCanvas over a page painted stormDeep. Under
-    // Storm those are two literals (_stoCanvas #121655 on _stoDeep #02051D);
-    // under every other theme BOTH route to the palette's `background`, so
-    // the card was the page and only its 1px border was left. Measured on a
-    // real rendered window before the fix, card against page: Storm 1.22:1
-    // and the other ten 1.00:1 EXACTLY. On Moss Light the border is #D2E2D6
-    // on #D2E5D6 (1.02:1) as well, so the whole Privacy page read as one
-    // flat green slab.
-    //
-    // Both fills are read off LIVE items — the card's own background
-    // Rectangle and the screen's ground Rectangle — never off token names,
-    // which would pass on the unfixed tree because the tokens themselves
-    // were fine; what was wrong was which of them the card asked for.
-    //
-    // 5.0 dL* is a floor, not a target: measured after the fix the worst
-    // real palette is Nordic at 6.3 and the rest run 8.8 to 17.4, so this
-    // catches a NEW palette (or a re-routed token) that flattens the plane
-    // without relitigating the existing ones. A lightness separation rather
-    // than a contrast ratio, for the reason lstarOf() gives.
-    //
-    // UNFIXED TREE: fails on the first non-Storm theme at 0.0 dL*.
+    // A SettingsCard is visible against the page on every theme: its fill
+    // must differ from the page by at least 5 dL* (read off the live card and
+    // ground Rectangles). Under non-Storm themes the old tokens both resolved
+    // to the palette background.
     void theSettingsCardIsVisibleAgainstThePageOnEveryTheme()
     {
         const int restore = m_controller->settings()->theme();
-        // Appearance, not Privacy: every SettingsCard in the file is built
-        // whatever the section, so the section does not change what is
-        // measured — but the cases after this one click Appearance controls,
-        // and leaving the screen somewhere else makes their clicks land on a
-        // hidden item. A test must hand the next one the state it found.
+        // Appearance: the section does not change what is measured, but later
+        // cases click Appearance controls, so leave the screen there.
         m_controller->showSettingsSection(QStringLiteral("appearance"));
         QCoreApplication::processEvents();
 
@@ -674,8 +577,7 @@ private slots:
                              .arg(sep, 0, 'f', 1)
                              .arg(contrastRatio(fill, page), 0, 'f', 2)));
         }
-        // Assert the COUNT of what actually varied, never the count of loop
-        // iterations.
+        // Assert how many palettes were actually checked.
         QCOMPARE(checked, 11);
         qInfo("settings card vs page: worst %.1f dL* (%s)",
               worst, qPrintable(worstWhere));
@@ -685,31 +587,10 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // ── AND THE THEME PICKER'S OWN CARDS WERE STILL THE PAGE ────────────
-    //
-    // The case above fixed SettingsCard. The four featured theme cards are
-    // not SettingsCards — they are bespoke Rectangles in a Flow — so the same
-    // routing kept them invisible for another round: `stormCanvas` over a
-    // page painted `stormDeep`, and on ten of eleven palettes BOTH resolve to
-    // the palette's `background`. Measured 2026-09-20, card fill against
-    // page: 1.0000:1 on the ten and 1.2204:1 on Storm.
-    //
-    // It is worse here than it was there, because the card whose theme is IN
-    // EFFECT previews that same background in its top half as well — so on a
-    // fresh Moss Light profile the Moss Light card was the page from edge to
-    // edge, and its 1px `stormBorder` hairline measured 1.02:1. The Deep Teal
-    // card next to it, previewing a dark palette on a light page, read 12.56.
-    //
-    // Both halves are asserted, off LIVE items and never off token names:
-    // the body has to be a different plane from the page, and the resting
-    // EDGE — which is what draws the card silhouette across the preview half,
-    // where the fill cannot help — has to clear the 3:1 WCAG 1.4.11 asks of a
-    // component boundary. `stormBorder` cleared that on ZERO of eleven and
-    // `stormBorderStrong` on two; `stormTextMuted`, the ink the radio ring in
-    // this same card foot already carries, clears on all eleven at a floor of
-    // 4.59 (Warm).
-    //
-    // UNFIXED TREE: fails on the first non-Storm theme at 0.0 dL*.
+    // The featured theme cards (bespoke, not SettingsCards) are visible
+    // against the page too: the body must be a different plane from the page,
+    // and the resting edge must clear 3:1, since it draws the silhouette
+    // across the preview half. Read off live items.
     void theFeaturedThemeCardIsVisibleAgainstThePageOnEveryTheme()
     {
         const int restore = m_controller->settings()->theme();
@@ -718,8 +599,7 @@ private slots:
 
         auto *ground = item("settingsPageGround");
         QVERIFY2(ground, "no live settings page ground rectangle");
-        // All four, not the first: a Repeater delegate is exactly the shape
-        // that gets checked once and assumed for its siblings.
+        // All four cards, not just the first Repeater delegate.
         const int cardIds[] = { 9, 8, 10, 11 };
 
         const int themes[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
@@ -747,9 +627,7 @@ private slots:
                 QVERIFY2(outline, qPrintable(QStringLiteral(
                              "no themeCardOutline_%1 under theme %2")
                                  .arg(cardId).arg(id)));
-                // Guard the premise. This case is about the RESTING edge;
-                // a card that happens to be live carries the bolt instead
-                // and would pass on a broken token.
+            // Resting edge only: a live card carries the bolt edge instead.
                 if (card->property("cardIsLive").toBool())
                     continue;
 
@@ -797,13 +675,11 @@ private slots:
                 ++measured;
             }
         }
-        // Assert the COUNT of what actually varied, never the count of loop
-        // iterations — and the pages have to be eleven DIFFERENT colours or
-        // this measured one palette eleven times.
+        // Assert the counts: eleven distinct page colours (not one palette
+        // measured eleven times)...
         QCOMPARE(distinctPages.size(), 11);
-        // Four cards, eleven themes, minus the one card that is live under
-        // its own theme (Moss Light, Indigo Night, Deep Teal and Storm are
-        // all featured, so exactly four of the 44 are skipped).
+        // ...and 40 cards measured: 44 minus the one live card per featured
+        // theme.
         QCOMPARE(measured, 40);
         qInfo("featured theme card: worst %.1f dL* (%s), worst edge %.2f:1 (%s)",
               worstSep, qPrintable(worstSepWhere),
@@ -814,22 +690,10 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // ── A THEME IS IN EFFECT EVEN WHEN NOBODY PICKED IT ─────────────────
-    //
-    // "Match system light/dark" is theme 0, and 0 is not any card id — so on
-    // the FRESH-PROFILE DEFAULT `selectedTheme` was false for all four cards
-    // and the picker marked nothing at all. The theme actually running is
-    // Moss Light or Indigo Night, and both of those ARE featured cards, so
-    // the answer was on screen the whole time and simply unmarked.
-    //
-    // It is a third state, not a second name for selection. The assertions
-    // are therefore about the DIFFERENCE between the two: a card in effect
-    // gets the bolt edge and the bolt RING, a card the user chose gets the
-    // bolt edge and the FILLED radio, and `Accessible.checked` stays false
-    // for the first — which is why the state also has to be in the name.
-    //
-    // UNFIXED TREE: `cardIsLive` does not exist, so it reads false on every
-    // card and the "exactly one is live" assertion fails with 0.
+    // With match-system on (theme 0), the card whose theme is actually in
+    // effect is marked as live (bolt edge and ring) without being reported as
+    // chosen: no filled radio, `Accessible.checked` false, and the state in
+    // its accessible name.
     void theThemeInEffectIsMarkedWhenMatchSystemIsOn()
     {
         const int restore = m_controller->settings()->theme();
@@ -840,8 +704,8 @@ private slots:
             static_cast<SettingsManager::Theme>(0));
         QCoreApplication::processEvents();
 
-        // Read the answer out of the singleton rather than assuming which
-        // way the platform reports the system scheme.
+        // Read the effective theme from the singleton rather than assuming the
+        // platform's scheme.
         QQmlExpression effExpr(qmlContext(m_window), m_window,
                                QStringLiteral("AppTheme.effectiveTheme"));
         const int effective = effExpr.evaluate().toInt();
@@ -888,8 +752,8 @@ private slots:
             const QColor ring = ringExpr.evaluate().value<QColor>();
             const QColor bolt = themeColor("bolt");
             if (isLive) {
-                // The ring says "running"; the FILL is what would say
-                // "you picked this", and nobody did.
+                // The ring says "running"; only a filled radio would say
+                // "chosen".
                 QCOMPARE(ring, bolt);
                 QVERIFY2(ringFill.alpha() == 0,
                          qPrintable(QStringLiteral(
@@ -905,9 +769,8 @@ private slots:
         QCOMPARE(live, 1);
         QCOMPARE(chosen, 0);
 
-        // The state has to be readable, not only visible. An ATTACHED
-        // property is not a QObject property, so `property("Accessible.name")`
-        // comes back null and every assertion below it would pass on nothing.
+        // An attached property is not a QObject property, so read it through
+        // a QQmlExpression.
         auto attached = [](QQuickItem *it, const char *what) {
             QQmlExpression expr(qmlContext(it), it,
                                 QStringLiteral("Accessible.%1")
@@ -933,8 +796,7 @@ private slots:
         QVERIFY2(!attached(liveCard, "checked").toBool(),
                  "a theme the system chose must not report itself checked");
 
-        // And the other half of the contrast: a card the user DID choose
-        // fills its radio and reports checked.
+        // A card the user did choose fills its radio and reports checked.
         m_controller->settings()->setTheme(
             static_cast<SettingsManager::Theme>(10));
         QCoreApplication::processEvents();
@@ -955,24 +817,8 @@ private slots:
             static_cast<SettingsManager::Theme>(restore));
         QCoreApplication::processEvents();
     }
-    // ── AND NEITHER IS A SELECTION PILL THAT IS NEVER DRAWN ─────────────
-    //
-    // Same family, same root: the selected nav row filled stormSelection,
-    // which is _stoSelection under Storm and the palette's `hover` under
-    // every other theme — a tint designed to sit on `surface`, not on the
-    // page the nav column paints. Measured on screen before the fix, fill
-    // against the column: Lightning Light 1.01:1 (0.4 dL*), Moss Light
-    // 1.01:1 (0.4), Warm 1.03:1 (1.0). The selected section was signalled by
-    // the bolt caret and a bold label alone.
-    //
-    // 4.0 dL* is the floor because Moss Light is genuinely the hardest case
-    // even after the fix — `selectedHover` puts it at 5.5 where the next
-    // worst is Lightning Light at 10.5 and the dark themes run 18.7 to 37.0.
-    // Moss Light's `selected` would have been 3.4 and `hover` 0.4, so the
-    // floor is set where it separates the fix from both of the tokens that
-    // do not work rather than where it flatters the result.
-    //
-    // UNFIXED TREE: fails on Lightning Light at 0.4 dL*.
+    // The selected nav row's fill is visible against the nav column on every
+    // theme (at least 4 dL*; Moss Light is the hardest at ~5.5).
     void theSelectedNavRowHasAVisibleFillOnEveryTheme()
     {
         const int restore = m_controller->settings()->theme();
@@ -983,9 +829,8 @@ private slots:
         auto *fill = item("settingsNavRowFill_appearance");
         auto *column = item("settingsNavColumn");
         QVERIFY2(row && fill && column, "the appearance nav row is not live");
-        // Guard the premise: an unhighlighted row paints "transparent", and
-        // a transparent sample would read as pure black and PASS on every
-        // light theme while testing nothing at all.
+        // Guard the premise: an unhighlighted row is transparent, which would
+        // sample as black and pass on light themes.
         QVERIFY2(row->property("highlighted").toBool(),
                  "the appearance nav row is not the highlighted one");
 
@@ -1038,8 +883,7 @@ private slots:
         QCOMPARE(int(m_controller->settings()->theme()), 10);
         QTRY_VERIFY(themeColor("accent") != before);
 
-        // Storm (11) — the brand card, first/primary in the featured row —
-        // switches instantly like every other featured card.
+        // Storm switches instantly like every other featured card.
         auto *stormCard = item("featuredThemeCard_11");
         QVERIFY(stormCard);
         clickItem(stormCard);
@@ -1056,11 +900,8 @@ private slots:
 
     void indigoNightLeadsAndTheMiniRowNeverDuplicatesAFeaturedCard()
     {
-        // Indigo Night is the flagship as of 2026-08-25 (maintainer's call),
-        // so it sorts first among the featured cards. Storm led until then;
-        // it is still featured and still the shell's own chrome, and the
-        // secondary "MORE THEMES" row must never render any featured card a
-        // second time.
+        // Indigo Night sorts first among the featured cards, and "More themes"
+        // never repeats a featured card.
         auto *flow = item("featuredThemeFlow");
         QVERIFY(flow);
         auto *indigoCard = item("featuredThemeCard_9");
@@ -1074,12 +915,8 @@ private slots:
                      || (stormCard->y() == indigoCard->y()
                          && stormCard->x() > indigoCard->x()),
                  "Storm must sort after Indigo Night in the featured row");
-        // "MORE THEMES" only lists the 7 non-featured presets — Storm is
-        // never duplicated there. Moss (8) is the WRONG sanity check here:
-        // it is itself one of the four featured cards (8/9/10/11), so the
-        // filter correctly excludes it too — asserting its presence would
-        // fail by design, not prove anything about Storm. Lightning Light
-        // (1) is a genuinely non-featured preset and must still be listed.
+        // "More themes" lists only the 7 non-featured presets. Moss (8) is
+        // featured, so check a non-featured preset (Lightning Light) instead.
         QVERIFY2(!item("miniThemeCard_11"),
                  "Storm must not also render in the MORE THEMES row");
         QVERIFY2(item("miniThemeCard_1"),
@@ -1088,29 +925,18 @@ private slots:
 
     void interactingWithOrdinaryRowsNeverReflowsContentBelow()
     {
-        // v0.6.5 (C8): pressing, focusing, or toggling an ORDINARY settings
-        // row/control must never drag content below it down. An exhaustive
-        // static read of the whole SettingsScreen.qml file (the file that
-        // motivated this test) found no reproducible hover/press/focus-
-        // driven reflow anywhere in the current code — every focus ring and
-        // selection glow is drawn as an absolute overlay
-        // (anchors.fill + negative anchors.margins), never a Layout
-        // sibling, and every control's implicitHeight is a hard constant.
-        // This guard exists to keep it that way. It deliberately does NOT
-        // cover the three INTENTIONAL disclosure expanders (recovery
-        // diagnostics, Danger Zone Show/Hide, session verification reveal)
-        // — their whole job is to grow the content below them.
+        // Pressing, focusing or toggling an ordinary settings control must not
+        // move content below it: focus rings and glows are overlays and
+        // implicit heights are constant. The intentional disclosure expanders
+        // are not covered.
         m_controller->settings()->setTheme(SettingsManager::IndigoNightTheme);
         QCoreApplication::processEvents();
 
-        // Anchor: the message-layout control sits below the featured/mini
-        // theme cards AND the match-system row. Neither toggling the
-        // match-system switch nor keyboard-focusing a theme card may move
-        // it even one pixel.
+        // The message-layout control sits below the theme cards and the
+        // match-system row; toggling or focusing those must not move it.
         auto *anchor = item("messageLayoutControl");
         QVERIFY(anchor);
-        // Scroll-invariant: clickItem() may scroll a control into view,
-        // and a scroll is not a reflow.
+        // Content-relative: clickItem() may scroll, which is not a reflow.
         const qreal anchorY = contentPosY(anchor);
 
         auto *matchSwitch = item("matchSystemSwitch");
@@ -1127,8 +953,8 @@ private slots:
         QTRY_VERIFY(mossCard->hasActiveFocus());
         QCOMPARE(contentPosY(anchor), anchorY);
 
-        // The Timeline card: "Show room activity" sits directly above the
-        // wheel-speed combo. Toggling the checkbox must not move the combo.
+        // Toggling "Show room activity" must not move the wheel-speed combo
+        // below it.
         auto *wheelCombo = item("timelineWheelSpeedCombo");
         QVERIFY(wheelCombo);
         const qreal comboY = contentPosY(wheelCombo);
@@ -1178,11 +1004,8 @@ private slots:
         QCoreApplication::processEvents();
         QCOMPARE(slider->property("value").toInt(), 120);
 
-        // 2026-08-15 report: past ~115% both thumbs flipped to boltInk
-        // (near-black navy) and read as disabled. The thumb rides the
-        // fill's boundary, never sits on it — it stays white across the
-        // whole range. This fails on the pre-fix visualPosition > 0.5
-        // ternary.
+        // The slider thumbs stay white across the whole range (past ~115% they
+        // flipped to a dark ink and read as disabled).
         m_controller->settings()->setTextScale(140);
         QCoreApplication::processEvents();
         auto *handle = slider->property("handle").value<QQuickItem *>();
@@ -1222,14 +1045,8 @@ private slots:
                  QStringLiteral("none"));
     }
 
-    // ── Room info tabs wrap instead of running off the panel ──────────────
-    //
-    // Reported with a screenshot: six tabs in a narrow panel "go off screen,
-    // they should wrap to another line or something". The single strip is
-    // kept while it fits and a two-row pair takes over when it overflows —
-    // driven by the REAL layout at two real widths, not by poking the policy
-    // property, because a wrap that never triggers looks exactly like one
-    // that does in a test that sets `tabsWrap` by hand.
+    // Room info tabs wrap into two rows when the panel is too narrow, driven
+    // by the real layout at real widths rather than by setting `tabsWrap`.
     void roomInfoTabsWrapIntoTwoRowsWhenThePanelIsNarrow()
     {
         auto *timeline = timelinePane();
@@ -1252,21 +1069,17 @@ private slots:
                      "the single strip must be shown while it fits");
         QVERIFY(!item("roomInfoTabsRow0"));
 
-        // Narrow: the strip collapses and two rows carry every tab. The
-        // fixture's four tabs (236 px) fit the 260 px floor, so give it the
-        // Pinned tab the real backend always offers — five tabs is the
-        // reported shape — by turning pins on and re-opening the room so
-        // `pinnedAvailable` re-reads it.
+        // Narrow: the strip collapses and two rows carry every tab. Four tabs
+        // fit the 260 px floor, so enable pins and re-open the room to get the
+        // Pinned tab (five tabs).
         auto *mock = m_controller->findChild<MockMatrixClient *>();
         QVERIFY(mock);
         mock->mockSupportsPinnedMessages = true;
-        // `supported` is read live off the client; the binding learns of a
-        // change through this signal, which is what the backend announces.
+        // `supported` is read live; the binding learns of the change through
+        // this signal.
         Q_EMIT m_controller->pinned()->supportedChanged();
-        // The Pinned tab also needs the panel to be showing the room the pin
-        // controller tracks — what openForRoom() sets when the (i) button
-        // opens the panel, done here by hand because the mock shell opened
-        // it at the state level above.
+        // The Pinned tab also needs the panel showing the room the pin
+        // controller tracks (openForRoom() does this in production).
         m_controller->roomInfo()->setRoomId(QStringLiteral("!general:mock.local"));
         m_controller->pinned()->setRoomId(QStringLiteral("!general:mock.local"));
         QTRY_COMPARE(strip->property("model").toList().size(), 5);
@@ -1276,9 +1089,8 @@ private slots:
                      qPrintable(QStringLiteral("natural %1 px in %2 px, %3 tabs")
                                     .arg(strip->implicitWidth()).arg(strip->width())
                                     .arg(strip->property("model").toList().size())));
-        // It LEAVES the layout rather than collapsing to zero height: a
-        // zero-height row whose maximum was bound to its own implicit height
-        // is what made the panel's ColumnLayout loop.
+        // The strip leaves the layout rather than collapsing to zero height,
+        // which made the panel's ColumnLayout loop.
         QTRY_VERIFY2(!strip->isVisible(),
                      "the single strip must leave the layout when wrapped");
         auto *row0 = item("roomInfoTabsRow0");
@@ -1294,7 +1106,7 @@ private slots:
                           + row1->property("model").toList().size();
         QCOMPARE(split, all);
         QVERIFY(row0->property("model").toList().size() >= 2);
-        // Neither half may itself overflow the panel, or nothing was gained.
+        // Neither row may itself overflow the panel.
         QVERIFY(!row0->property("overflowing").toBool());
         QVERIFY(!row1->property("overflowing").toBool());
 
@@ -1308,22 +1120,10 @@ private slots:
         m_controller->roomInfo()->setRoomId(QString());
     }
 
-    // ── Opening the panel at a wrap width must not tear the layout mid-pass ─
-    //
-    // Two core dumps on 2026-09-06, both on the (i) click: the tab strip's
-    // `overflowing` was settled by the same layout pass that then rewrote
-    // the wrapped-rows Repeater's model, rebuilding delegate trees from
-    // inside the layout engine's iteration (see RoomInfoPanel.qml's note on
-    // tabsWrap for the stack). The previous case opens WIDE and narrows
-    // later, which never makes the wrap decision on the panel's first pass.
-    // This one does what the reader did: open at a width that already needs
-    // the wrap, several times, then sweep across the threshold both ways.
-    //
-    // HONEST SCOPE: this does NOT reproduce the crash — offscreen drives no
-    // continuous frames, so the layout settles instead of re-running every
-    // frame (it passes on the unfixed tree, under ASan too). It is a
-    // behaviour gate: opening straight into the wrapped state must build
-    // the two rows and survive the threshold in both directions.
+    // Opening the panel at a width that already needs the wrap, repeatedly,
+    // then crossing the threshold both ways. Rewriting the rows' model during
+    // the layout pass crashed in production; offscreen does not reproduce the
+    // crash, so this is a behaviour gate for opening straight into the wrap.
     void roomInfoOpeningAtAWrapWidthDoesNotTearTheLayoutMidPass()
     {
         auto *timeline = timelinePane();
@@ -1340,9 +1140,8 @@ private slots:
         QVERIFY(strip);
         QTRY_COMPARE(strip->property("model").toList().size(), 5);
 
-        // Stored narrow BEFORE the open, as for a reader whose panel was
-        // last dragged narrow: the wrap decision lands on the panel's very
-        // first layout pass.
+        // Stored narrow before the open, so the wrap decision lands on the
+        // panel's first layout pass.
         m_controller->settings()->setSidePanelWidth(260);
         for (int round = 0; round < 6; ++round) {
             QVERIFY(timeline->setProperty("infoOpen", true));
@@ -1381,14 +1180,9 @@ private slots:
         m_controller->roomInfo()->setRoomId(QString());
     }
 
-    // ── Settings is built once and kept ──────────────────────────────────
-    //
-    // Reported: "when i open settings it takes like a second to open the
-    // menu". The loader used to follow the current screen, rebuilding the
-    // whole screen on every open. The pinned mechanism is identity: the SAME
-    // item survives a close and serves the next open, hidden in between —
-    // and a section requested while it is alive still lands, which used to
-    // ride on Component.onCompleted alone.
+    // Settings is built once and kept: the same item survives a close and
+    // serves the next open, and a section requested while it is alive still
+    // lands.
     void settingsStaysBuiltBetweenOpensAndStillLandsOnTheRequestedSection()
     {
         auto *loader = item("settingsViewLoader");
@@ -1410,7 +1204,7 @@ private slots:
         QCOMPARE(loader->property("item").value<QObject *>(), first);
         QCOMPARE(first->property("section").toString(),
                  QStringLiteral("sessions"));
-        // Focus lands in the screen on a re-open, not left on the composer.
+        // On re-open, focus lands in the screen, not on the composer.
         QTRY_VERIFY(first->property("activeFocus").toBool());
 
         m_controller->showSettingsSection(QStringLiteral("appearance"));
@@ -1421,11 +1215,9 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // Found in review of the kept-alive screen: its window-level Escape
-    // Shortcut used to die with the screen. Kept alive and hidden, it stayed
-    // armed — and two enabled Shortcuts on one sequence make Qt fire
-    // NEITHER, so Escape stopped closing the info panel on the main screen.
-    // Driven with a real key on the window, after a real open and close.
+    // Escape still closes the info panel after Settings has been opened: the
+    // kept-alive screen's Escape Shortcut must be disabled while hidden, or
+    // two enabled Shortcuts on one sequence make Qt fire neither.
     void escapeStillClosesTheInfoPanelAfterSettingsHasBeenOpened()
     {
         m_controller->showSettings();
@@ -1443,10 +1235,8 @@ private slots:
                  int(AppController::MainScreen));
     }
 
-    // "add an option for custom display name color, not just a few premade
-    // options": a tenth swatch opens the colour picker, and Apply is the one
-    // server write — the picker reports every drag step. The written value
-    // must be a colour that is none of the nine slots.
+    // A custom name colour (the tenth swatch opens a picker) reaches the
+    // server once, on Apply, as a colour that matches none of the nine slots.
     void aCustomNameColourReachesTheServerOnApply()
     {
         auto *mock = m_controller->findChild<MockMatrixClient *>();
@@ -1460,7 +1250,7 @@ private slots:
         QVERIFY(!picker->isVisible());
         clickItem(swatch);
         QTRY_VERIFY(picker->isVisible());
-        // The picker's own signal, as a drag would raise it.
+        // The picker's own signal, as a drag raises it.
         QVERIFY(QMetaObject::invokeMethod(picker, "picked",
                                           Q_ARG(QColor, QColor(0x12, 0x34, 0x56))));
         QCoreApplication::processEvents();
@@ -1479,16 +1269,14 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // The panel is hidden with the rest of the chat shell while Settings is
-    // up, and COMES BACK with its section when Settings closes — reported:
-    // "if I go to settings and back to the room it closes the preview". It
-    // used to stay closed by design (99c9e12); the maintainer reversed that.
+    // The info panel hides with the chat shell while Settings is up and comes
+    // back with its section when Settings closes.
     void openSettingsFromRoomInfoHidesThePanelAndRestoresIt()
     {
         auto *timeline = timelinePane();
         QVERIFY(timeline);
-        // Simulate the member/info panel at the state level (its content is
-        // a Rust-backend surface; the state machine is what matters here).
+        // Simulate the info panel at the state level (its content is a
+        // Rust-backend surface).
         QVERIFY(timeline->setProperty("infoOpen", true));
         auto *panel = item("roomInfoPanel");
         QVERIFY(panel);
@@ -1542,14 +1330,8 @@ private slots:
                  QStringLiteral("none"));
     }
 
-    // ── SPEC 1v: header, "Compact" label, search + inline controls ────────
-    //
-    // The header was a 44 px title bar; the room header band it replaces on
-    // screen is AppTheme.headerBandHeight (60). Reported: "the top part where
-    // it says Lightning is thicker than the one in settings … so opening
-    // settings feels more smooth and less changy". The invariant is EQUALITY
-    // with the band it swaps in for, read off the live room header rather
-    // than a literal, so the two cannot drift apart again.
+    // The Settings header is exactly as tall as the room header band it
+    // replaces on screen, read off the live room header.
 
     void headerIsAsTallAsTheRoomHeaderBandItReplaces()
     {
@@ -1585,18 +1367,9 @@ private slots:
         }
     }
 
-    // THE QUICK SWITCHER'S SECTION LIST IS A HAND-KEPT COPY, and on
-    // 2026-09-12 it was found three behind: `shortcuts` and `updates` had
-    // never been in it and `sound` had just arrived, so the one surface whose
-    // entire job is "type a name, land on it" could not reach three of the
-    // ten sections. Nothing could have caught that — the switcher builds its
-    // rows from a local array and every row it does build works.
-    //
-    // A SOURCE scan, not a loaded-engine one, deliberately: the engine here
-    // loads the COMPILED module and the two lists are two literals in two
-    // files. Both halves assert a non-zero count first, because a scan whose
-    // pattern stops matching passes vacuously and would then agree with
-    // anything.
+    // The quick switcher offers every Settings section the nav has. Both are
+    // literal lists in two files, so this is a source scan; each half asserts
+    // a non-zero count first so a broken pattern cannot pass.
     void theQuickSwitcherOffersEverySettingsSectionTheNavHas()
     {
         const QString qmlDir = QStringLiteral(QML_DIR);
@@ -1613,8 +1386,8 @@ private slots:
         QVERIFY2(!settings.isEmpty(), "SettingsScreen.qml unreadable");
         QVERIFY2(!switcher.isEmpty(), "QuickSwitcher.qml unreadable");
 
-        // The nav rows. `property string sectionKey: ""` declares it, so the
-        // pattern requires a non-empty value and skips the declaration.
+        // Nav rows; the pattern requires a non-empty value to skip the
+        // property declaration.
         QSet<QString> navKeys;
         QRegularExpression navRe(
             QStringLiteral("sectionKey:\\s*\"([A-Za-z]+)\""));
@@ -1636,12 +1409,9 @@ private slots:
         while (defIt.hasNext())
             switcherKeys.insert(defIt.next().captured(1));
 
-        // THE FLOOR IS THE NAV-ROW COUNT, not a comfortable margin under it.
-        // The two sets only have to be EQUAL below, so a floor of 8 against
-        // ten real sections would let two sections vanish from BOTH files and
-        // still pass — which is the same vacuity the floor exists to prevent.
-        // Raise this with the sections; `SettingsScreen.qml`'s
-        // `sectionTitle()` is the list.
+        // The floor is the real section count, so sections cannot vanish from
+        // both files unnoticed. Keep in step with SettingsScreen.qml's
+        // `sectionTitle()`.
         static constexpr int kSections = 10;
         QVERIFY2(navKeys.size() >= kSections,
                  qPrintable(QStringLiteral("only %1 nav rows matched, expected "
@@ -1684,8 +1454,8 @@ private slots:
         QTest::keyClick(m_window, Qt::Key_Comma, Qt::ControlModifier);
         QTRY_VERIFY(search->hasActiveFocus());
 
-        // "room activity" matches exactly one entry (Appearance's "Show
-        // room activity") — the nav narrows to that one section.
+        // "room activity" matches only Appearance's "Show room activity", so
+        // the nav narrows to that section.
         const bool activityBefore = m_controller->settings()->showRoomActivity();
         search->setProperty("text", QStringLiteral("room activity"));
         QCoreApplication::processEvents();
@@ -1700,15 +1470,14 @@ private slots:
         auto *resultRow = item("settingsSearchResult_0");
         QVERIFY(resultRow);
 
-        // The inline control is the SAME SettingsManager property the real
-        // Appearance-pane control binds — flipping it here must flip the
-        // backend directly.
+        // The inline control binds the same SettingsManager property as the
+        // Appearance control.
         auto *inlineToggle = item("settingsSearchInlineShowRoomActivity_0");
         QVERIFY(inlineToggle);
         QVERIFY(inlineToggle->isVisible());
         QMetaObject::invokeMethod(inlineToggle, "toggled");
         QCOMPARE(m_controller->settings()->showRoomActivity(), !activityBefore);
-        // Restore so later tests are not affected by ordering.
+        // Restore for later tests.
         QMetaObject::invokeMethod(inlineToggle, "toggled");
         QCOMPARE(m_controller->settings()->showRoomActivity(), activityBefore);
 
@@ -1719,25 +1488,8 @@ private slots:
         QTRY_VERIFY(accountNav->isVisible());
     }
 
-    // A SEARCH THAT MATCHES NOTHING MUST NOT LEAVE SETTINGS WITH NO
-    // SETTINGS IN IT.
-    //
-    // Reported by measurement, not by reading: type "zzqqxx" in the search
-    // field, press Escape, press Ctrl+, — Settings reopens showing "No
-    // matching settings" over an EMPTY nav column. Not Account, not
-    // Appearance, not even About, which is otherwise always there. Two
-    // causes, one per half of this case:
-    //
-    //   * every SettingsNavRow is gated on its section having a match, and
-    //     with zero matches every gate is false at once; and
-    //   * the screen is a warm Loader kept alive between opens, so the text
-    //     in the field outlives the screen that was closed on top of it.
-    //
-    // The only way out was the small clear button inside the field.
-    //
-    // UNFIXED TREE: fails on the first QTRY_VERIFY (the nav is hidden while
-    // the query matches nothing) and again after the reopen (the query is
-    // still in the field).
+    // A search matching nothing never leaves Settings with an empty nav, and
+    // the query does not survive closing the (kept-alive) screen.
     void aQueryThatMatchesNothingNeverLeavesTheNavEmpty()
     {
         m_controller->showSettingsSection(QStringLiteral("appearance"));
@@ -1761,7 +1513,7 @@ private slots:
         QVERIFY2(aboutNav->isVisible(),
                  "a query matching nothing hid even About");
 
-        // And the stale query does not survive the screen being closed.
+        // The stale query does not survive closing the screen.
         m_controller->showMain();
         QCoreApplication::processEvents();
         QTRY_COMPARE(search->property("text").toString(), QString());
@@ -1773,19 +1525,8 @@ private slots:
                  "Settings reopened still filtered by the previous query");
     }
 
-    // THE CALL DEVICES LIVE IN "Sound & video" AND ARE NOT LEFT BEHIND.
-    //
-    // UNFIXED TREE: fails on the first assertion — there was no "sound"
-    // section at all, and the microphone, output and camera pickers were a
-    // sub-heading at the BOTTOM of Notifications, which is not a place anyone
-    // looks for a microphone.
-    //
-    // Both halves matter. The first proves the pickers ARRIVED; the second
-    // proves they LEFT, because a move that quietly became a copy gives the
-    // application two places to change one device and no way to tell which
-    // one the user is looking at. Driven through real section switches on the
-    // real screen rather than read off the source, so a pane that exists but
-    // never becomes visible still fails.
+    // The call device pickers live in "Sound & video" and are no longer in
+    // Notifications, driven through real section switches.
     void theCallDevicesLiveInTheSoundSectionAndLeaveNotifications()
     {
         m_controller->showSettingsSection(QStringLiteral("sound"));
@@ -1796,15 +1537,13 @@ private slots:
         QTRY_VERIFY2(devices->isVisible(),
                      "the call device pickers are not shown by the sound "
                      "section");
-        // Enumeration is lazy on purpose (Qt Multimedia costs real time on a
-        // PipeWire desktop); the section being on screen is what arms it.
+        // Enumeration is lazy (Qt Multimedia is slow on PipeWire); showing the
+        // section arms it.
         QVERIFY2(devices->property("activated").toBool(),
                  "the device pickers were never activated, so they enumerate "
                  "nothing and render three empty combo boxes");
 
-        // The media playback level had no home in Settings at all before this
-        // — the only way to change it was to find a media card and drag its
-        // hover popup.
+        // The media playback level has a home in Settings.
         auto *mediaLevel = item("mediaVolumeSettingSlider");
         QVERIFY2(mediaLevel, "the sound section has no media playback level");
         QVERIFY(mediaLevel->isVisible());
@@ -1815,24 +1554,17 @@ private slots:
                      "the call device pickers are still shown by Notifications "
                      "— the move left a copy behind");
 
-        // The ringer deliberately STAYED: it is gated on the desktop
-        // notification switch and sits beside the notification sound, so
-        // Notifications is its real home rather than a leftover.
+        // The ringer stays in Notifications, beside the notification sound it
+        // is gated with.
         auto *ring = item("ringForCallsCheck");
         QVERIFY(ring);
         QTRY_VERIFY(ring->isVisible());
 
-        // DELIBERATELY LEFT OPEN. Cases in this file run in declaration
-        // order and several of the later ones click a nav row without
-        // opening Settings first — they inherit it from whatever ran before.
-        // Closing it here put starredGifsSettingsRowReflectsStoreAnd… on a
-        // hidden screen, whose items map to window coordinates outside the
-        // window ("Mouse event at 421, 1716 occurs outside target window").
+        // Settings is left open on purpose: later cases click nav rows without
+        // opening Settings and inherit it from the case before.
     }
 
-    // The section is reachable by SEARCH, not only by finding its nav row.
-    // A settings page nobody can search is a settings page people ask about
-    // in chat instead, and the words below are the ones they type.
+    // The sound section is reachable by search with the words people type.
     void searchingForAMicrophoneFindsTheSoundSection()
     {
         m_controller->showSettings();
@@ -1853,16 +1585,13 @@ private slots:
                                         .arg(QLatin1String(term))));
         }
 
-        // Cleared, and Settings left OPEN — see the note above.
+        // Cleared, and Settings left open (see above).
         search->setProperty("text", QString());
         QCoreApplication::processEvents();
     }
 
-    // v0.6.6 (review HIGH-2): the client-local starred-GIF store gets its
-    // own visible count/size row (never folded into Favorites/Recents,
-    // which hold no actual file bytes) and a confirmed destructive Clear
-    // All — this is real GifStarredStore state, real QML bindings, and a
-    // real Dialog, not a source-scan pin.
+    // The starred-GIF store has its own count/size row and a confirmed Clear
+    // All, exercised with real GifStarredStore state and a real Dialog.
     void starredGifsSettingsRowReflectsStoreAndClearAllEmptiesIt()
     {
         auto *navRow = item("settingsNavRow_privacy");
@@ -1883,8 +1612,7 @@ private slots:
         store->starBytes(QStringLiteral("mk-settings-test"), gif);
         QCoreApplication::processEvents();
 
-        // The row is a live binding off the store's own count/totalBytes
-        // properties — no manual refresh needed.
+        // The row binds live to the store's count/totalBytes.
         QCOMPARE(summary->property("text").toString(),
                  QStringLiteral("1 image(s), 10 B — kept on this device only and removed when you sign out of this account."));
         QVERIFY(clearButton->property("enabled").toBool());
@@ -1896,8 +1624,8 @@ private slots:
         QVERIFY(confirmDialog);
         QVERIFY(confirmDialog->property("visible").toBool());
 
-        // accept() drives the exact same onAccepted path a real "Yes" click
-        // would, without depending on the modal popup's screen position.
+        // accept() runs the same onAccepted path as a real "Yes" click,
+        // independent of the popup's screen position.
         QMetaObject::invokeMethod(confirmDialog, "accept");
         QCoreApplication::processEvents();
 
@@ -1907,18 +1635,13 @@ private slots:
         QVERIFY(!clearButton->property("enabled").toBool());
     }
 
-    // The by-id palette resolver and the live semantic aliases must agree,
-    // for every theme and every key. They drifted once already — the
-    // resolver fell back to a translucent accent where the aliases fall back
-    // to `selected` / `borderStrong`, so a Settings preview card painted
-    // chrome the running theme never renders — and now the custom-theme
-    // editor's whole preview is painted from the resolver, which makes a
-    // second divergence a whole fake window rather than one card.
+    // The by-id palette resolver (used for preview cards and the custom-theme
+    // editor's preview) agrees with the live semantic aliases for every theme
+    // and key.
     void previewPaletteMatchesLiveTokens()
     {
         // Left: key in paletteForTheme(). Right: the live AppTheme alias it
-        // must equal. They are spelled the same on purpose; the pair list
-        // exists so a key can never be added to one side alone.
+        // must equal. Paired so a key cannot be added to one side only.
         const QStringList keys = {
             QStringLiteral("background"),      QStringLiteral("rail"),
             QStringLiteral("sidebar"),         QStringLiteral("surface"),
@@ -1973,16 +1696,8 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // THE DEFECT THIS PINS: Settings > Account carried a Profile BANNER
-    // editor and no way at all to change your profile PICTURE or to write
-    // your own bio. You could read everyone else's bio and edit nobody's,
-    // including your own, because the own-avatar path did not exist end to
-    // end (no FFI, no client method, no controller command) and the bio
-    // manager shipped with no editor anywhere.
-    //
-    // It navigates to the section rather than reading the .qml as text: a
-    // source scan cannot tell whether a control is REACHABLE, and these
-    // blocks sit inside the account section's own loader.
+    // Settings > Account offers a profile picture and a bio editor, checked by
+    // navigating to the section (a source scan cannot tell reachability).
     void accountSectionOffersAPictureAndABioEditor()
     {
         m_controller->showSettingsSection(QStringLiteral("account"));
@@ -2003,10 +1718,8 @@ private slots:
         QVERIFY2(item("saveOwnBioButton") != nullptr,
                  "the bio can be typed but never saved");
 
-        // The editor must FOLLOW the stored value rather than being written
-        // imperatively — an imperative assignment to `text` would destroy
-        // that binding and leave the box showing a bio the account no
-        // longer has.
+        // The editor follows the stored bio through a binding; an imperative
+        // write to `text` would destroy it.
         QCOMPARE(bioField->property("text").toString(),
                  m_controller->bio() ? m_controller->bio()->ownBio()
                                      : QString());
@@ -2016,22 +1729,9 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // A REFUSED "Stop ignoring" USED TO SAY NOTHING AT ALL.
-    //
-    // ModerationController reports every ignore/unignore outcome on
-    // ignoreActionFinished, and until this round its ONLY consumer in the
-    // whole tree was MemberProfilePopover — which filters on its own userId
-    // and is not open when this button is pressed. So a server refusal, a
-    // rate limit or a dead connection left the row exactly where it was with
-    // no explanation, which reads as a dead button. The list is bound to
-    // `ignoredUsers` and only changes on success, so it was never dishonest;
-    // it was silent, and silence about a write the user asked for is its own
-    // defect (§6: never report a cleanup as successful when it removed
-    // nothing — and never report nothing at all).
-    //
-    // Driven through the real signal rather than a source scan, so this fails
-    // if the Connections block is removed, mis-named, or wired to a property
-    // the label does not read.
+    // A refused "Stop ignoring" is shown in the Ignored users card
+    // (ModerationController::ignoreActionFinished), driven through the real
+    // signal so a mis-wired Connections block fails.
     void aRefusedStopIgnoringIsShownInTheIgnoredUsersCard()
     {
         m_controller->showSettings();
@@ -2046,9 +1746,8 @@ private slots:
                  "write, so a failed 'Stop ignoring' is silent");
         QVERIFY(!notice->isVisible());
 
-        // The card records who it asked about when the button is pressed;
-        // stand in for that press, then deliver the refusal the controller
-        // would have emitted.
+        // Stand in for the button press (the card records who it asked
+        // about), then deliver the controller's refusal.
         const QString target = QStringLiteral("@spam:example.org");
         card->setProperty("unignoreUserId", target);
         auto *moderation = m_controller->moderation();
@@ -2071,8 +1770,8 @@ private slots:
                  "it");
         QCOMPARE(notice->property("text").toString(), refusal);
 
-        // A different user's outcome — the profile popover's own ignore
-        // button, say — must not paint an error into this card.
+        // Another user's outcome (e.g. from the profile popover) must not
+        // paint an error into this card.
         card->setProperty("unignoreError", QString());
         card->setProperty("unignoreUserId", target);
         QVERIFY(QMetaObject::invokeMethod(
@@ -2082,7 +1781,7 @@ private slots:
         QCoreApplication::processEvents();
         QCOMPARE(card->property("unignoreError").toString(), QString());
 
-        // And a success clears the notice rather than leaving a stale one.
+        // A success clears the notice.
         card->setProperty("unignoreError", refusal);
         QVERIFY(QMetaObject::invokeMethod(
             moderation, "ignoreActionFinished", Qt::DirectConnection,
@@ -2099,26 +1798,10 @@ private slots:
             item("spacesRail") && item("spacesRail")->isVisible(), 3000);
     }
 
-    // ── THE PAGE NAMED THE WRONG DEFAULT, AND THE WRONG ONE WAS THE
-    // PRIVATE ONE ───────────────────────────────────────────────────────
-    //
-    // The help text under the notification-preview combo read "Sender only
-    // (the default) never shows message text in notifications", while
-    // SettingsManager::notificationPreview() has returned 0 = Sender and
-    // message since 8e4977d1 (2026-08-22). So the app told a reader that
-    // their desktop was NOT showing message bodies at a moment when it was:
-    // a promise about disclosure that it did not keep.
-    //
-    // The default is read from a SCRATCH SettingsManager with its own empty
-    // store, not from the live one this suite has been writing to, and the
-    // mode NAMES are read off the live combo's own model — so the case
-    // asserts the page against the code rather than against a string a
-    // future round can move out from under it. The negative half matters as
-    // much as the positive one: the old sentence named a mode that was not
-    // the default, and only "does not claim the wrong one" catches that.
-    //
-    // UNFIXED TREE: fails with `"Sender only" is described as the default,
-    // but the default is 0 = "Sender and message"`.
+    // The notification-preview help names the mode that is actually the
+    // default. The default comes from a scratch SettingsManager with an empty
+    // store and the mode names from the live combo, and the text must not
+    // call any other mode the default.
     void theNotificationHelpNamesTheModeThatIsActuallyTheDefault()
     {
         m_controller->showSettingsSection(QStringLiteral("notifications"));
@@ -2130,8 +1813,7 @@ private slots:
         const QVariantList modes = combo->property("model").toList();
         QCOMPARE(modes.size(), 3);
 
-        // A store nothing has ever written, so the getter answers with its
-        // own documented default rather than with this suite's history.
+        // A never-written store, so the getter returns its own default.
         const QString appName = QCoreApplication::applicationName();
         QCoreApplication::setApplicationName(
             QStringLiteral("settings-shell-qml-default-probe"));
@@ -2171,17 +1853,9 @@ private slots:
                          .arg(modes.at(defaultMode).toString())));
     }
 
-    // ── EVERY SEARCH ENTRY MUST POINT AT SOMETHING THAT EXISTS ──────────
-    //
-    // The anchors are what makes a result click go anywhere, and a typo in
-    // one is invisible: the row still highlights, still reads as a button,
-    // and silently does nothing — which is the defect they were added to
-    // fix. So the whole index is resolved against the LIVE pane, all
-    // seventy, and the COUNT is asserted rather than "no failures seen"
-    // (a loop over an index that failed to load passes vacuously).
-    //
-    // UNFIXED TREE: there are no anchors at all, so this fails on the first
-    // entry.
+    // Every settings search index entry resolves its anchor to a live control
+    // in the content pane; a typo would leave a result that does nothing.
+    // Asserts the resolved count.
     void everySearchIndexEntryResolvesItsAnchorToALiveControl()
     {
         auto *screen = item("settingsScreenRoot");
@@ -2210,9 +1884,7 @@ private slots:
                            + QStringLiteral("\" (no such item)"));
                 continue;
             }
-            // And it must live in the CONTENT PANE. An anchor that resolved
-            // to something in the nav column or a dialog would scroll the
-            // page to a position that means nothing.
+            // It must be in the content pane, not the nav column or a dialog.
             bool inPane = false;
             for (QQuickItem *p = hit; p; p = p->parentItem()) {
                 if (p == pane) {
@@ -2232,27 +1904,14 @@ private slots:
                      "search entries whose anchor names no live control in "
                      "the settings content pane: %1")
                          .arg(bad.join(QStringLiteral("; ")))));
-        // Assert the COUNT of what actually resolved, never the count of
-        // loop iterations.
+        // Assert the count actually resolved.
         QCOMPARE(resolved, index.size());
     }
 
-    // ── CLICKING A RESULT FOR THE SECTION YOU ARE ON DID NOTHING ────────
-    //
-    // The tap did `root.section = entry.section`, and when that IS the
-    // current section Qt emits no change, so nothing happened at all.
-    // Measured on a real window: searched "rail depth" from Appearance,
-    // clicked the result, and the 1440x1280 content region came back
-    // BYTE-IDENTICAL — 0 differing pixels. It is the common case, not the
-    // corner one: Appearance is the landing section and supplies 26 of the
-    // 70 entries.
-    //
-    // Asserted on the SCROLL and on the halo, not on "the section is still
-    // appearance", which was already true on the broken tree. The click is
-    // a real mouse press on the result's TITLE — not on the row centre,
-    // where the rail-depth entry's own inline segmented control lives.
-    //
-    // UNFIXED TREE: fails on `contentY moved`, at 0.
+    // Clicking a result in the section you are already on still scrolls to
+    // the control and lights the halo (setting the same section emits no
+    // change). Clicks the result's title, not the row centre, where an inline
+    // control may sit.
     void aSearchResultInTheSectionYouAreAlreadyOnStillTakesYouToTheControl()
     {
         m_controller->showSettingsSection(QStringLiteral("appearance"));
@@ -2291,8 +1950,8 @@ private slots:
                 break;
             QTest::qWait(10);
         }
-        // Read everything, THEN put the query back, THEN assert: a case
-        // that fails here must not hand the next one a filtered nav.
+        // Read everything, restore the query, then assert, so a failure does
+        // not leave a filtered nav.
         const qreal contentY = flick->property("contentY").toReal();
         const qreal haloOpacity = halo->opacity();
         const qreal haloY = halo->y();
@@ -2307,8 +1966,7 @@ private slots:
                      "the control is at %1 and the viewport shows %2..%3")
                          .arg(target).arg(contentY)
                          .arg(contentY + flick->height())));
-        // And the click is acknowledged even when it had nowhere to scroll:
-        // the halo rings the control it named.
+        // The halo acknowledges the click even with nothing to scroll.
         QVERIFY2(haloOpacity > 0.5,
                  "the reveal halo never lit, so a click on a control already "
                  "on screen still has no feedback");
@@ -2318,14 +1976,8 @@ private slots:
                          .arg(haloY).arg(target)));
     }
 
-    // ── AND A RESULT IN ANOTHER SECTION LANDED AT THE TOP OF IT ─────────
-    //
-    // `onSectionChanged` sets contentY = 0, so a breadcrumb naming a
-    // sub-group dropped the reader at the top of a very long page and left
-    // them to find the control themselves.
-    //
-    // UNFIXED TREE: fails with contentY 0 and the control far below the
-    // viewport.
+    // A result in another section lands on the control, not at the top of the
+    // page (`onSectionChanged` resets contentY).
     void aSearchResultInAnotherSectionLandsOnTheControlNotTheTopOfThePage()
     {
         m_controller->showSettingsSection(QStringLiteral("appearance"));
@@ -2369,25 +2021,9 @@ private slots:
                      "%2..%3").arg(top).arg(contentY).arg(contentY + viewH)));
     }
 
-    // ── AND THE HOVER ON THOSE ROWS IS fea70c63's DEFECT, ONE SCREEN
-    // AWAY ──────────────────────────────────────────────────────────────
-    //
-    // A search result sits in the same nav column as the section rows, over
-    // the same ground, and painted its hover in the same stormSelection —
-    // the palette's `hover`, a tint designed to sit on `surface` and not on
-    // a page. Measured against that column before the fix: Lightning Light
-    // 0.40 dL*, Moss Light 0.45, Warm 0.99. There is no bolt caret and no
-    // bold label on a result row, so on the three light themes the row had
-    // NO hover state at all.
-    //
-    // The fill is read off the live Rectangle with a real pointer over it,
-    // never off a token name — the tokens were fine, the question is which
-    // one the row asks for. 4.0 dL* is the floor the nav pill uses, and the
-    // worst real palette after the fix is Moss Light at 5.49; `selected`
-    // would be 3.4 there and `hover` 0.45, so the floor separates the fix
-    // from both tokens that do not work.
-    //
-    // UNFIXED TREE: fails on Lightning Light at 0.40 dL*.
+    // A search result row's hover fill is visible against the nav column on
+    // every theme (at least 4 dL*, as for the nav pill), read off the live
+    // Rectangle under a real pointer.
     void theSearchResultHoverIsVisibleOnEveryTheme()
     {
         const int restore = m_controller->settings()->theme();
@@ -2402,17 +2038,16 @@ private slots:
         auto *column = item("settingsNavColumn");
         QVERIFY2(row && column, "the first search result is not live");
 
-        // Away first, then on: an unconditional move event, whatever the
-        // previous case left the pointer sitting on.
+        // Move away and back, so a move event is delivered whatever the
+        // previous case left.
         QTest::mouseMove(m_window, QPoint(m_window->width() - 4, 4));
         QCoreApplication::processEvents();
         const QPointF centre = row->mapToScene(
             QPointF(row->width() / 2, row->height() / 2));
         QTest::mouseMove(m_window, centre.toPoint());
         QCoreApplication::processEvents();
-        // Guard the premise the way the nav case does: an unhovered row
-        // paints "transparent", which samples as pure black and would PASS
-        // on every light theme while testing nothing.
+        // Guard the premise: an unhovered row is transparent and would sample
+        // as black.
         QTRY_VERIFY2(
             row->property("color").value<QColor>().alpha() == 255,
             "the pointer never reached the result row, so its resting "
@@ -2447,9 +2082,8 @@ private slots:
                         .arg(sep, 0, 'f', 2)
                         .arg(contrastRatio(fill, nav), 0, 'f', 2));
         }
-        // Put the shell back BEFORE asserting: a case that fails mid-loop
-        // must not hand the next one a stray theme, a live query and a
-        // pointer parked on a row.
+        // Restore before asserting, so a failure does not leak a theme, a
+        // query or a hovered pointer.
         m_controller->settings()->setTheme(
             static_cast<SettingsManager::Theme>(restore));
         search->setProperty("text", QString());
@@ -2463,28 +2097,10 @@ private slots:
               worst, qPrintable(worstWhere));
     }
 
-    // ── THE ACCOUNT PAGE DID NOT FIT THE WINDOW THE APP ITSELF ALLOWS ───
-    //
-    // Main.qml declares minimumWidth 640. At 640x420 the Account page was
-    // clipped with no horizontal scrollbar — `contentFlick` sets no
-    // contentWidth and clips — so the "+" custom swatch, "Use theme
-    // colour" (the ONLY way to clear a custom name colour) and the
-    // display-name "Edit" button were off-screen and unreachable, and the
-    // name-colour help paragraph was cut mid-word at the window edge.
-    //
-    // One cause, three symptoms: a RowLayout of nine swatches, the custom
-    // slot, a spacer and a button has an unshrinkable ~470 px minimum, and
-    // that minimum propagates up through the ColumnLayout the wrapping help
-    // Label sizes itself to. The whole column, not just the row, was wider
-    // than the card.
-    //
-    // Geometric, on real delegates, in x — a source scan cannot see this
-    // and neither can a screenshot at the default size. Everything is
-    // measured against the CARD, not the window, because a control inside
-    // the window but hanging out of its own card is still wrong.
-    //
-    // UNFIXED TREE: fails on the swatch row, ~470 px wide inside a ~330 px
-    // card.
+    // The Account page fits the app's own minimum window (640 px wide): every
+    // control stays inside its card, measured in x on real delegates. A
+    // RowLayout of swatches had an unshrinkable minimum that widened the whole
+    // column.
     void theAccountPageFitsTheApplicationsOwnMinimumWindow()
     {
         const int w = m_window->width();
@@ -2533,8 +2149,7 @@ private slots:
                         .arg(QLatin1String(p.what)).arg(left).arg(right));
         }
 
-        // Restore before asserting — a failure here must not leave the next
-        // case running in a 640x420 window.
+        // Restore the window size before asserting.
         m_window->setWidth(w);
         m_window->setHeight(h);
         QCoreApplication::processEvents();
@@ -2550,22 +2165,9 @@ private slots:
                      "measure").arg(checked)));
     }
 
-    // ── TWO SHORTCUTS THAT RENDER AS THE SAME STRING ────────────────────
-    //
-    // The action-name column was the only cell with fillWidth, so it took
-    // the entire shortfall while the 132 px keycap and the Change button
-    // kept theirs, and it ELIDED. At 640x520 "Open the quick switcher" and
-    // "Open the quick switcher in command mode" both read "Open the …", so
-    // there was no way to tell which shortcut the Change button beside them
-    // was about to rebind.
-    //
-    // Asserted as "nothing is shortened", not as "these two differ": four
-    // rows begin "Show or hide", three "Mark the", four "Open the", and a
-    // case that pins one pair would pass while the other nine collide. The
-    // second half proves the first is not vacuous — if `truncated` ever
-    // stops reporting, the distinctness check still bites.
-    //
-    // UNFIXED TREE: fails with `"Open the quick switcher" is shortened`.
+    // No shortcut name is elided at 640x520: several names share long
+    // prefixes, so elision makes rows indistinguishable. The distinctness
+    // check keeps the case meaningful if `truncated` stops reporting.
     void noShortcutNameIsShortenedIntoAnotherShortcutsName()
     {
         const int w = m_window->width();
@@ -2623,20 +2225,9 @@ private slots:
                          .arg(checked).arg(rows)));
     }
 
-    // ── PLACE THE INK, NOT THE BOX ──────────────────────────────────────
-    //
-    // The rail-depth segmented control sat about 8 px right of the label it
-    // belongs to: every Label in that card starts its ink at spacing4 from
-    // the card's content edge, while a SegmentedControl segment is
-    // `text + 24`, so its first glyph is 12 px inside its own left edge.
-    // Measured in Lightning Dark: label x=300, help paragraph x=301, the
-    // checkbox above x=303, the control x=309.
-    //
-    // The comparison is between real INK positions on live delegates, so it
-    // keeps holding if SegmentedControl's padding ever changes — which is
-    // the whole reason not to assert the 12 in the QML.
-    //
-    // UNFIXED TREE: fails at ~8 px out.
+    // The rail-depth segmented control's ink lines up with its label's ink
+    // (a segment's first glyph is inset by its padding), compared on live
+    // delegates so padding changes do not matter.
     void theRailDepthControlLinesUpWithItsOwnLabel()
     {
         m_controller->showSettingsSection(QStringLiteral("appearance"));
@@ -2650,8 +2241,8 @@ private slots:
         QTRY_VERIFY(ink->width() > 0 && label->width() > 0);
 
         const qreal labelInk = label->mapToScene(QPointF(0, 0)).x();
-        // The segment centres its label, so its first glyph is half the
-        // slack in from the content item's own left edge.
+        // The segment centres its label, so the first glyph is half the slack
+        // in from its content item's left edge.
         const qreal segInk =
             ink->mapToScene(QPointF(0, 0)).x()
             + (ink->width() - ink->implicitWidth()) / 2.0;
@@ -2664,17 +2255,8 @@ private slots:
                          .arg(qAbs(segInk - labelInk), 0, 'f', 1)));
     }
 
-    // ── ONE PARAGRAPH SET SOLID AMONG PARAGRAPHS THAT ARE NOT ───────────
-    //
-    // The "Message search index" description omitted lineHeight, so twelve
-    // lines of body copy rendered at Qt's default 17 px leading against
-    // 25-26 px for every other paragraph on the same page. Measured
-    // baseline-to-baseline on a real window.
-    //
-    // Compared against a NEIGHBOUR rather than against a constant: what was
-    // wrong is that it disagreed with the page around it.
-    //
-    // UNFIXED TREE: fails with the index paragraph at lineHeight 1.0.
+    // The search-index help paragraph uses the same leading as its
+    // neighbours, compared against a neighbour rather than a constant.
     void theSearchIndexHelpParagraphLeadsLikeItsNeighbours()
     {
         m_controller->showSettingsSection(QStringLiteral("privacy"));
@@ -2698,40 +2280,12 @@ private slots:
                      "its neighbours lead at %2").arg(lead).arg(wantLead)));
     }
 
-    // ── EVERY PARAGRAPH ON THE PAGE LEADS THE SAME, AND THE COUNT SAYS SO ─
-    //
-    // The case above fixed ONE paragraph. An audit then found twenty-four
-    // more wrapping Labels in this file with no `lineHeight` at all, set
-    // solid at Qt's default ~17 px among paragraphs leading at 25-26. Fixing
-    // them one at a time is how the next one gets missed, so this is a
-    // SWEEP — and it asserts the COUNT it swept, because §16's standing
-    // lesson is that a check which can come back silently short is itself
-    // the defect, not its symptom. A pattern that stops matching would
-    // otherwise pass over an empty set.
-    //
-    // THE INCLUSION RULE, which the sweep implements literally:
-    //
-    //   A Label in SettingsScreen.qml is BODY COPY when it sets `wrapMode`
-    //   — i.e. it can produce more than one line — UNLESS it opts out by
-    //   being (a) clamped to one line with `maximumLineCount: 1`, (b) a
-    //   monospace value readout (`font.family: AppTheme.monoFont`), or
-    //   (c) marked `// not-body-copy:` with a reason.
-    //
-    // `wrapMode` is not an arbitrary choice of criterion: AppTheme's own
-    // token comment beside `lineHeightBody` already defines the contract as
-    // "every WRAPPING text item; single-line chrome keeps the default". The
-    // three carve-outs are the categories that are NOT body copy — a chip
-    // or badge is a single line, a monospace value must not be re-led, and
-    // anything else has to say so out loud instead of drifting off quietly.
-    //
-    // Source text, not live items, and deliberately: two thirds of these
-    // paragraphs are behind a `visible:` binding, another section, or a
-    // backend capability the mock does not report, so a runtime sweep could
-    // only ever reach a subset — and a subset cannot support a count. The
-    // live half of the evidence is the case below, which measures a
-    // newly-swept Label's real rendered leading on a real delegate.
-    //
-    // UNFIXED TREE: fails listing 24 paragraphs set solid.
+    // Every wrapping paragraph in SettingsScreen.qml sets body leading. A
+    // Label is body copy when it sets `wrapMode`, unless it opts out with
+    // `maximumLineCount: 1`, a monospace font, or a `// not-body-copy:` marker
+    // with a reason. A source sweep, because many paragraphs are unreachable
+    // at runtime in the mock; it asserts the counts it swept. The next case
+    // measures rendered leading on a live delegate.
     void everyWrappingParagraphInSettingsSetsBodyLeading()
     {
         QFile file(QStringLiteral(QML_DIR) + QStringLiteral("/SettingsScreen.qml"));
@@ -2740,9 +2294,7 @@ private slots:
         const QStringList lines =
             QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'));
 
-        // Braces, with string literals and line comments removed first: a
-        // `//` inside a sentence and a `{` inside a translated string both
-        // shift the depth otherwise.
+        // Brace depth with string literals and line comments removed first.
         static const QRegularExpression dq(QStringLiteral("\"(\\\\.|[^\"\\\\])*\""));
         static const QRegularExpression sq(QStringLiteral("'(\\\\.|[^'\\\\])*'"));
         static const QRegularExpression lc(QStringLiteral("//.*$"));
@@ -2769,8 +2321,8 @@ private slots:
         for (int i = 0; i < lines.size(); ++i) {
             if (!labelOpen.match(lines.at(i)).hasMatch())
                 continue;
-            // The block's own properties are the ones at depth 1; anything
-            // deeper belongs to a nested MouseArea, ToolTip or Rectangle.
+            // The block's own properties are at depth 1; deeper ones belong to
+            // nested items.
             QHash<QString, QString> own;
             bool optOut = false;
             int depth = 0;
@@ -2823,11 +2375,8 @@ private slots:
             }
         }
 
-        // THE COUNT, BEFORE THE VERDICT. A sweep whose pattern rots reports
-        // "nothing wrong" with a straight face; these three numbers are what
-        // make that impossible. The floors are floors, not the current
-        // values, so ordinary editing does not make this case red — but
-        // losing two thirds of the file to a parser change does.
+        // Assert the counts before the verdict, so a broken pattern cannot
+        // pass. Floors, not exact values.
         QVERIFY2(wrapping >= 110,
                  qPrintable(QStringLiteral(
                      "the sweep found only %1 wrapping Labels in a file that "
@@ -2848,24 +2397,10 @@ private slots:
                                 .arg(solid.join(QStringLiteral("\n  ")))));
     }
 
-    // ── AND ONE OF THEM, MEASURED WHERE IT IS ACTUALLY DRAWN ────────────
-    //
-    // The sweep above is source text. This is the other half: a Label the
-    // sweep just fixed, on a live delegate, measured in PIXELS. The number
-    // compared is `contentHeight / lineCount / font.pixelSize` — the
-    // rendered line box as a multiple of the type size — because the two
-    // Labels in this card are at DIFFERENT sizes (textBody 14 and textMeta
-    // 12), so their absolute line boxes must differ while their leading
-    // must not. It fails on the unfixed tree for the reason the page looked
-    // wrong, not because a property is spelled differently.
-    //
-    // The numbers are ratios of the TYPE SIZE, not multipliers of
-    // `lineHeightBody`: a 12 px line's natural box is ~17 px, so solid text
-    // measures ~1.42x and body leading measures 1.5 x 1.42 = ~2.13x. The
-    // non-vacuity floor is 1.8 because it has to fall BETWEEN those two —
-    // 1.35 would have been cleared by a reference that was itself solid.
-    //
-    // UNFIXED TREE: fails at 1.4286x against 2.125x (measured 2026-09-20).
+    // A swept Label's rendered leading matches the paragraph in its card,
+    // compared as `contentHeight / lineCount / pixelSize` since the two use
+    // different font sizes. Solid text measures ~1.42x and body leading
+    // ~2.13x, so the non-vacuity floor is 1.8.
     void theIndexedMessageCountLeadsLikeTheParagraphInItsOwnCard()
     {
         m_controller->showSettingsSection(QStringLiteral("privacy"));
@@ -2891,8 +2426,7 @@ private slots:
         m_controller->showSettingsSection(QStringLiteral("appearance"));
         QCoreApplication::processEvents();
 
-        // Not vacuous: the reference must itself be at body leading, or two
-        // solid paragraphs would agree with each other and pass.
+        // Not vacuous: the reference must itself be at body leading.
         QVERIFY2(wantLead >= 1.8,
                  qPrintable(QStringLiteral(
                      "the reference paragraph draws at %1x its type size, so "
@@ -2906,28 +2440,10 @@ private slots:
                          .arg(sweptLead).arg(wantLead)));
     }
 
-    // ── A GRADE WITH NO PAIR ON IT IS NOT A GRADE ───────────────────────
-    //
-    // The theme editor's readability column is pinned at 304 px on any
-    // window 1380 or wider, and every row put a whole sentence and a
-    // numeric column on ONE line. So the numbers were intact and the thing
-    // they were about was not: "The Spaces rail against the room list" read
-    // "The Spaces rail against the …", "Main text on the conversation …",
-    // and a reader could not tell which pair was being graded — which is
-    // the panel's entire job.
-    //
-    // BOTH FAMILIES, on real delegates, at the width the report came from:
-    // the picker's live readout (a role is open) and the findings list
-    // (nothing is open, and three inks are forced onto the background so
-    // the list has rows at all). `truncated` is Qt's own answer to "did
-    // this elide" — not a guess from a string length — so it measures the
-    // laid-out text rather than the source.
-    //
-    // The rows are still a CONSTANT height, which is what the report row's
-    // own comment demands: `noQmlWarnings` below and `qml-component-load`
-    // are what hold the no-layout-loop half of that.
-    //
-    // UNFIXED TREE: fails naming every row that is shortened.
+    // Every theme-editor readability row shows its full pair description at
+    // a 1380 px window (a 304 px column), in both the live readout
+    // and the findings list, using Qt's `truncated`. Rows stay a constant
+    // height.
     void everyReadabilityRowSaysWhichPairItIsGrading()
     {
         const int w = m_window->width();
@@ -2980,9 +2496,8 @@ private slots:
             return seen;
         };
 
-        // 1) The live readout, one role at a time. `rail` carries the row
-        //    the report named — "The Spaces rail against the room list" —
-        //    and the three ink roles carry the longest sentences there are.
+        // 1) The live readout, one role at a time; `rail` and the ink roles
+        //    carry the longest sentences.
         const char *roles[] = { "rail", "textPrimary", "textSecondary",
                                 "textMuted" };
         for (const char *role : roles) {
@@ -2995,10 +2510,8 @@ private slots:
             checkedPicker += sweep("themeRoleCheckLabel", "live readout");
         }
 
-        // 2) The findings list. It is empty on a clean palette by design
-        //    (`everyReadabilityCheckPassesOnEveryShippedPreset`), so three
-        //    inks are painted onto the background colour: ratio 1.0, which
-        //    fails the three longest ink checks in the table.
+        // 2) The findings list, empty on a clean palette; paint three inks onto
+        //    the background (ratio 1.0) so it has rows.
         dialog->setProperty("editingRole", QString());
         dialog->setProperty("reportOpen", true);
         QCoreApplication::processEvents();
@@ -3009,12 +2522,8 @@ private slots:
         QCoreApplication::processEvents();
         checkedReport = sweep("themeReadabilityRowLabel", "findings list");
 
-        // WHAT THE TALLER ROW COSTS, recorded rather than asserted: the
-        // number of findings visible at once is a judgement Rokas owns, and
-        // pinning it here would make an ordinary copy edit red. The rows
-        // being IDENTICAL is the part that is a contract -- that is what
-        // "still a constant" means, and a row that grew from its own text
-        // would break it.
+        // Row heights are recorded, not asserted, except that they are all
+        // identical (a constant row height).
         QList<qreal> rowHeights;
         for (QQuickItem *row : items("themeReadabilityRow")) {
             if (row->isVisible())
@@ -3034,8 +2543,8 @@ private slots:
                                   .arg(height).arg(rowHeights.first()));
         }
 
-        // Restore before asserting: a failure must not leave the editor
-        // open, the window at 1920, or a grey palette on disk.
+        // Restore before asserting: no open editor, 1920 window or grey
+        // palette may leak.
         store->resetAll();
         loader->setProperty("active", false);
         QCoreApplication::processEvents();
@@ -3054,9 +2563,8 @@ private slots:
                  qPrintable(QStringLiteral(
                      "only %1 findings rows were on screen to measure")
                          .arg(checkedReport)));
-        // The sweep is only as good as the sentences it saw: the two
-        // longest phrases in the table are the ones that were cut, and a
-        // pass that never rendered them would prove nothing.
+        // The two longest phrases must have been rendered, or the sweep proves
+        // nothing.
         QVERIFY2(phrases.contains(QStringLiteral(
                      "The Spaces rail against the room list")),
                  "the row the report named was never rendered");
@@ -3076,23 +2584,13 @@ private slots:
         QCOMPARE(m_warnings, QStringList{});
     }
 
-    // ---- the selected nav row's caret sits INSIDE the row ----
+    // The selected nav row's caret sits inside the row.
 
     void theNavCaretDoesNotStraddleTheSelectionCorner()
     {
-        // REPORTED FROM A REAL DESKTOP, 2026-09-13: the bolt caret looked
-        // broken. It was anchored at `leftMargin: -2`, deliberately
-        // overhanging the row -- and against a radiusTile background that put
-        // an 11px glyph across the pill's ROUNDED CORNER, half on the
-        // selection fill and half on the panel behind it. An overhang only
-        // reads as a caret if it clears the curve, which at this radius and
-        // this glyph size it never did.
-        //
-        // Geometry, not a source scan: this loads the real component and
-        // measures the caret against its own row, so it fails on the old
-        // negative margin for the actual reason rather than on a spelling.
-        // Self-sufficient: earlier cases leave a search term in the field,
-        // and a narrowed nav hides every row that does not match.
+        // A negative margin put the caret across the pill's rounded corner.
+        // Measured against its own row on the real component. Opens Settings
+        // itself: earlier cases may leave a search term narrowing the nav.
         m_controller->showSettings();
         QCoreApplication::processEvents();
         if (auto *search = item("settingsSearchField")) {

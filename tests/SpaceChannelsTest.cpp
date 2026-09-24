@@ -1,36 +1,19 @@
-// The Channels navigation layout: SpaceChannelModel's flat, GLOBAL list of
-// Space folders.
+// The Channels navigation layout: SpaceChannelModel's flat, global list of
+// Space folders. What it guarantees:
 //
-// What this suite defends, and why each item is a defect that would look like
-// a working channel list:
-//
-//  * IT WORKS AT HOME. The previous design scoped everything to the active
-//    Space and produced nothing without one, so the host silently fell back to
-//    Classic — a user who chose a navigation layout got the other one. There is
-//    no `spaceId` on this model any more, and there is nothing for one to mean.
-//  * FLAT BY SPACE. A subspace is a joined Space like any other and gets its
-//    own folder; it is never a nested category under its parent, and its rooms
-//    are never listed under the parent as well. The parent's folder holds its
-//    DIRECT children and nothing else.
-//  * NOTHING JOINED IS UNREACHABLE. A room with no joined Space parent is in
-//    "Rooms". A room in two Spaces is in both folders, because that is what
-//    "this Space contains it" means.
-//  * A DIRECT MESSAGE IS NEVER SCOPED BY A SPACE, and it has a group of its
-//    own. Matrix gives no way for a DM to be a Space's child, so a scope that
-//    dropped DMs dropped them everywhere — and the People chip, whose entire
-//    result set is DMs, then produced a column of two navigation rows over
-//    blank space. Reported as "in channels mode people tab does nothing".
-//    Classic reached the same conclusion first (RoomListModel).
-//  * A FILTER MISS IS NOT AN EMPTY ACCOUNT. `empty` answers one question only;
-//    `matchCount` answers the other, so the column can say which of the two it
-//    is instead of rendering silence.
-//  * ORDER IS STABLE. Spaces follow the rail's arrangement, rooms follow their
-//    Space's `m.space.child` order, and "Rooms" is sorted by name. A channel
-//    list that reorders itself when somebody speaks is not a channel list.
-//  * A COLLAPSED FOLDER STILL REPORTS WHAT IT HIDES, and collapse survives a
-//    rebuild because it is stored, not held in a delegate.
-//  * A SEARCH OPENS EVERYTHING and puts it back. Filtering must not mutate
-//    what the user collapsed.
+//  * It works at Home; there is no scoping Space the list depends on.
+//  * Flat by Space: a subspace gets its own folder, never nested under its
+//    parent, and a parent's folder holds only its direct children.
+//  * Nothing joined is unreachable: a room with no joined Space parent is in
+//    "Rooms", and a room in two Spaces is in both folders.
+//  * A DM is never scoped by a Space (Matrix cannot make it a Space's child);
+//    DMs have their own tab.
+//  * A filter miss is not an empty account: `empty` and `matchCount` answer
+//    different questions.
+//  * Spaces follow the rail's arrangement; rooms are ordered by activity.
+//  * A collapsed folder still reports what it hides, and collapse is stored,
+//    so it survives a rebuild.
+//  * A search opens every folder and restores the collapse state afterwards.
 #include "models/SpaceChannelModel.h"
 
 #include "app/SettingsManager.h"
@@ -70,11 +53,8 @@ public:
     QList<RoomInfo> roomList;
     mutable int roomsCalls = 0;
 
-    // The base class returns 0 here, which DirectAvatarResolver reads as "the
-    // backend refused" — it then skips its own pending bookkeeping entirely,
-    // so the resolver's most important failure mode was structurally
-    // unreachable in this harness. Returning a real op id is what lets a test
-    // see the profile fan-out at all.
+    // Returns a real op id: the base class's 0 means "backend refused" to
+    // DirectAvatarResolver, which then skips its pending bookkeeping.
     quint64 fetchUserProfile(const QString &userId) override
     {
         profileFetches.append(userId);
@@ -121,7 +101,7 @@ RoomInfo space(const QString &id, const QString &name,
     info.name = name;
     info.isSpace = true;
     info.membership = RoomInfo::Joined;
-    // DIRECT children, in the Space's own m.space.child order.
+    // Direct children, in the Space's own m.space.child order.
     info.childRoomIds = children;
     info.parentSpaceIds = parents;
     return info;
@@ -141,11 +121,9 @@ RoomInfo room(const QString &id, const QString &name, int unread = 0,
     return info;
 }
 
-/// `n` seconds before a fixed instant, so "newer" is unambiguous and no case
-/// depends on wall-clock timing. Rooms built by `room()` above carry NO
-/// activity at all, which is why the alphabetical assertions elsewhere in this
-/// file still hold: with every timestamp invalid the recency comparator falls
-/// through to its name tiebreak.
+/// `n` seconds before a fixed instant, so recency is unambiguous. Rooms built
+/// by `room()` carry no activity, so the recency comparator falls through to
+/// its name tiebreak and alphabetical expectations elsewhere still hold.
 QDateTime ago(int seconds)
 {
     static const QDateTime base =
@@ -194,9 +172,8 @@ int rowOfName(const SpaceChannelModel &model, const QString &name)
     return namesOf(model).indexOf(name);
 }
 
-/// What the rail tile for `spaceId` puts on its badge. Read through the same
-/// map the rail reads, so a test comparing a badge against a view is comparing
-/// the two things the user actually sees.
+/// What the rail tile for `spaceId` shows on its badge, read through the same
+/// map the rail reads.
 int railUnreadTotal(const SpaceManager &spaces, const QString &spaceId)
 {
     for (const QVariant &value : spaces.allSpaces()) {
@@ -214,9 +191,8 @@ class SpaceChannelsTest : public QObject
     Q_OBJECT
 
 private:
-    /// Two Spaces, one of which is a SUBSPACE of the other, plus a room in no
-    /// Space at all and a DM. The subspace is the trap: its rooms must appear
-    /// under it and nowhere else, and it must not be nested.
+    /// Two Spaces, one a subspace of the other, plus a room in no Space and a
+    /// DM. The subspace's rooms must appear under it only, not nested.
     static QList<RoomInfo> workspace()
     {
         return {
@@ -251,11 +227,8 @@ private:
             model.setSettings(&settings);
             model.setSources(&client, &spaces, &layout);
         }
-        /// The rail's three selections, spelled the way the rail spells them.
-        /// Every view test goes through one of these rather than poking
-        /// scopeSpaceId with a literal: the selection IS the view, and a test
-        /// that sets a value the rail cannot produce proves nothing about the
-        /// column the user sees (the row-window and rail-drag lesson).
+        /// The rail's three selections, spelled as the rail spells them, so
+        /// tests only use values the rail can produce.
         void selectHome() { model.setScopeSpaceId(SpaceManager::allRoomsId()); }
         void selectPeople() { model.setScopeSpaceId(SpaceManager::peopleId()); }
         void selectSpace(const QString &id) { model.setScopeSpaceId(id); }
@@ -267,15 +240,9 @@ private Q_SLOTS:
     void aSpacesRoomsAreNewestFirstNotInChildOrder();
     void aRoomMovesWhenSomebodySpeaksInIt();
     void aFavouriteRisesToTheTopOfItsGroup();
-    // THE DIRECT MESSAGES TAB MUST SURVIVE A SPACE-LIST REBUILD.
-    //
-    // SpaceManager drops the active scope when it is not a joined Space, which
-    // is right for a Space the account has left. But the rail's selection also
-    // carries TAB SENTINELS -- "@people" and "@orphans" -- and those are not
-    // rooms, so they can never be in the membership set. Checking them the same
-    // way threw the user out of Direct Messages back to Home every time
-    // anything rebuilt the space list, which opening a DM does: reported as
-    // "click on a person to chat, it throws me to home".
+    // The DM tab survives a space-list rebuild: SpaceManager drops a scope
+    // that is not a joined Space, but the rail's tab sentinels ("@people",
+    // "@orphans") are never rooms and must be kept.
     void tabSentinelsSurviveARebuildThatDropsAMissingSpace()
     {
         FakeClient client;
@@ -287,16 +254,13 @@ private Q_SLOTS:
              { SpaceManager::peopleId(), SpaceManager::orphansId() }) {
             spaces.setActiveSpaceId(sentinel);
             QCOMPARE(spaces.activeSpaceId(), sentinel);
-            // Any room-list change rebuilds the space list. Opening a DM does
-            // this, which is why the bug fired on a click that never touched
-            // the rail.
+            // Any room-list change rebuilds the space list; opening a DM does.
             client.roomList = workspace();
             client.announce();
             QCOMPARE(spaces.activeSpaceId(), sentinel);
         }
 
-        // And the behaviour that check exists for is unchanged: a real Space id
-        // the account is not in is still dropped.
+        // A real Space id the account is not in is still dropped.
         spaces.setActiveSpaceId(QStringLiteral("!not-a-space-we-are-in:x"));
         client.roomList = workspace();
         client.announce();
@@ -321,17 +285,16 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // The rail chooses one of THREE views and the model produces exactly that
-    // one. This is the whole shape of the layout in one test.
+    // The rail chooses one of three views and the model produces exactly
+    // that one.
     void theRailSelectionChoosesOneOfThreeViews()
     {
         Fixture f;
         f.build(workspace());
         f.model.setMessageSearchSupported(true);
 
-        // HOME: the command rows, then the rooms in no Space. No Spaces —
-        // the rail is already showing every one of them, and repeating the
-        // set here is what made picking one look like it did nothing.
+        // Home: the command rows, then rooms in no Space. No Spaces: the rail
+        // already shows them.
         f.selectHome();
         QCOMPARE(f.model.viewKind(), QStringLiteral("home"));
         QStringList names = namesOf(f.model);
@@ -342,14 +305,13 @@ private Q_SLOTS:
                                QStringLiteral("Message Search") }));
         QVERIFY2(!names.contains(QStringLiteral("Work")),
                  "Home repeated a Space the rail already lists");
-        // Since 2026-09-05 Home lists the joined DMs again, as a group of
-        // its own after Rooms (homeListsTheJoinedDirectMessagesUnderRooms).
+        // Home also lists the joined DMs as a group after Rooms.
         QVERIFY2(names.contains(QStringLiteral("Ada")),
                  "Home lost its Direct Messages group");
         QVERIFY(names.contains(QStringLiteral("Rooms")));
         QVERIFY(names.contains(QStringLiteral("lounge")));
 
-        // PEOPLE: Create Chat and the DMs, and nothing else at all.
+        // People: Create Chat and the DMs, nothing else.
         f.selectPeople();
         QCOMPARE(f.model.viewKind(), QStringLiteral("people"));
         names = namesOf(f.model);
@@ -361,7 +323,7 @@ private Q_SLOTS:
         QVERIFY2(!names.contains(QStringLiteral("Work")),
                  "a Space is in the Direct Messages tab");
 
-        // A SPACE: Lobby, Message Search, then its own rooms.
+        // A Space: Lobby, Message Search, then its own rooms.
         f.selectSpace(QStringLiteral("!work:x"));
         QCOMPARE(f.model.viewKind(), QStringLiteral("space"));
         names = namesOf(f.model);
@@ -392,15 +354,14 @@ private Q_SLOTS:
         QVERIFY(eng >= 0);
         QCOMPARE(kinds.at(work), QStringLiteral("space"));
         QCOMPARE(kinds.at(eng), QStringLiteral("space"));
-        // Both folders sit at depth 0: the subspace is a sibling in the
-        // column, not a level inside its parent.
+        // Both folders sit at depth 0: the subspace is a sibling, not a level.
         QCOMPARE(f.model.data(f.model.index(work, 0),
                               SpaceChannelModel::DepthRole).toInt(), 0);
         QCOMPARE(f.model.data(f.model.index(eng, 0),
                               SpaceChannelModel::DepthRole).toInt(), 0);
 
-        // Work holds only its DIRECT rooms. backend/frontend belong to
-        // Engineering and appear exactly once, under it.
+        // Work holds only its direct rooms; backend/frontend appear once,
+        // under Engineering.
         QCOMPARE(names.mid(work + 1, 2),
                  QStringList({ QStringLiteral("general"),
                                QStringLiteral("random") }));
@@ -431,12 +392,7 @@ private Q_SLOTS:
                  "the Favourites group came back");
     }
 
-    // DMs live in a TAB of their own now, and in exactly one place. Two
-    // earlier designs put them in "Rooms" with every other unparented room
-    // (a column of nothing but people under a heading that says Rooms) and
-    // then in a "Direct messages" group that every other view had to carry so
-    // a scope could not delete it. A tab settles both: one home for a DM, and
-    // no other view has to keep it reachable.
+    // DMs live in their own tab and never under a Space.
     void directMessagesLiveInTheirOwnTabAndNeverUnderASpace()
     {
         Fixture f;
@@ -448,8 +404,8 @@ private Q_SLOTS:
         QVERIFY2(chats >= 0, "the Direct Messages tab has no Chats group");
         QCOMPARE(kindsOf(f.model).at(chats), QStringLiteral("group"));
         QCOMPARE(names.mid(chats + 1, 1), QStringList{ QStringLiteral("Ada") });
-        // The synthetic id keeps the '@' prefix rule, so it can never collide
-        // with a room id.
+        // The synthetic id keeps the '@' prefix, so it never collides with a
+        // room id.
         QVERIFY(SpaceChannelModel::directsGroupId()
                     .startsWith(QLatin1Char('@')));
         QVERIFY(SpaceChannelModel::peopleViewId()
@@ -458,10 +414,8 @@ private Q_SLOTS:
                               SpaceChannelModel::RoomIdRole).toString(),
                  SpaceChannelModel::directsGroupId());
 
-        // The tab is the COMPLETE list. Home lists the joined DMs again
-        // since 2026-09-05, as a Direct Messages group of its own after
-        // Rooms (the next case); a Space view never carries one, because
-        // Matrix cannot make a DM a Space's child.
+        // The tab is the complete list. Home lists joined DMs as a group after
+        // Rooms; a Space view never carries one.
         f.selectHome();
         names = namesOf(f.model);
         QCOMPARE(names.mid(names.indexOf(QStringLiteral("Rooms")) + 1, 1),
@@ -471,11 +425,9 @@ private Q_SLOTS:
         QVERIFY(!namesOf(f.model).contains(QStringLiteral("Ada")));
     }
 
-    // 2026-09-05, maintainer's request: "add people dms to home page too, so
-    // they are listed under rooms but keep a separate people dms tab too".
-    // Home gains a Direct Messages group AFTER Rooms holding the joined DMs;
-    // a DM invite stays in the tab's Invites group; the People chip at Home
-    // narrows the view to that group; the tab itself is untouched.
+    // Home lists the joined DMs in a Direct Messages group after Rooms; a DM
+    // invite stays in the tab's Invites group; the People chip at Home narrows
+    // to that group; the tab itself is unchanged.
     void homeListsTheJoinedDirectMessagesUnderRooms()
     {
         Fixture f;
@@ -518,9 +470,8 @@ private Q_SLOTS:
         QVERIFY(names.contains(QStringLiteral("Grace")));
     }
 
-    // Every one of the four command rows carries an id the host dispatches on
-    // and a glyph name the icon font actually has. A row the host cannot name
-    // renders as a control that looks clickable and does nothing.
+    // Every command row carries an action id the host dispatches on and a
+    // glyph name the icon font has.
     void theCommandRowsCarryAnActionIdAndAGlyph()
     {
         Fixture f;
@@ -553,7 +504,7 @@ private Q_SLOTS:
         sweep();
         f.selectPeople();
         sweep();
-        // A Space view has none: it has Lobby instead.
+        // A Space view has none; it has Lobby instead.
         f.selectSpace(QStringLiteral("!work:x"));
         for (const QString &kind : kindsOf(f.model))
             QVERIFY(kind != QLatin1String("action"));
@@ -567,8 +518,7 @@ private Q_SLOTS:
 
     void aRoomInTwoSpacesAppearsUnderBoth()
     {
-        // Matrix permits it, and both Spaces genuinely contain it. Inventing a
-        // first-parent-wins rule would make one of them look incomplete.
+        // Matrix permits it, and both Spaces genuinely contain it.
         Fixture f;
         f.build({
             space(QStringLiteral("!a:x"), QStringLiteral("Alpha"),
@@ -577,14 +527,12 @@ private Q_SLOTS:
                   { QStringLiteral("!shared:x") }),
             room(QStringLiteral("!shared:x"), QStringLiteral("shared")),
         });
-        // Each Space's own view contains it: that is what "this Space
-        // contains it" means, and a first-parent-wins rule would make one of
-        // the two look incomplete.
+        // Each Space's view contains it.
         f.selectSpace(QStringLiteral("!a:x"));
         QVERIFY(namesOf(f.model).contains(QStringLiteral("shared")));
         f.selectSpace(QStringLiteral("!b:x"));
         QVERIFY(namesOf(f.model).contains(QStringLiteral("shared")));
-        // ...and it is NOT also at Home, because a Space does list it.
+        // ...and it is not also at Home, since a Space lists it.
         f.selectHome();
         const QStringList names = namesOf(f.model);
         QVERIFY(!names.contains(QStringLiteral("Rooms")));
@@ -595,8 +543,8 @@ private Q_SLOTS:
     {
         Fixture f;
         f.build({
-            // The parent Space is not joined, so it is not in the room list at
-            // all — only the child's own parent pointer names it.
+            // The parent Space is not joined, so only the child's parent
+            // pointer names it.
             [] {
                 RoomInfo info = room(QStringLiteral("!orphan:x"),
                                      QStringLiteral("orphan"));
@@ -629,17 +577,15 @@ private Q_SLOTS:
         const int row = rowOfName(f.model, QStringLiteral("Newcomers"));
         QVERIFY(f.model.data(f.model.index(row, 0),
                              SpaceChannelModel::IsInviteRole).toBool());
-        // An invite is an action waiting on the user, so it always reads as
-        // unread whatever its counters say — it has none of its own.
+        // An invite always reads as unread: it is an action waiting on the
+        // user and has no counters of its own.
         QVERIFY2(f.model.data(f.model.index(row, 0),
                               SpaceChannelModel::HasUnreadRole).toBool(),
                  "an invite reads as a quiet read row");
         // Invites come before the ordinary rooms.
         QVERIFY(invites < names.indexOf(QStringLiteral("Rooms")));
 
-        // ...and it survives every filter chip, exactly as in Classic: it
-        // needs action regardless of the view, and pressing People or Rooms is
-        // not a request to hide one.
+        // ...and it survives every filter chip, as in Classic.
         for (int mode = 0; mode <= 3; ++mode) {
             f.model.setFilterMode(mode);
             QVERIFY2(namesOf(f.model).contains(QStringLiteral("Newcomers")),
@@ -648,8 +594,7 @@ private Q_SLOTS:
         }
         f.model.setFilterMode(0);
 
-        // A collapsed Invites group still says something is waiting, even
-        // though an invite carries no unread count to sum.
+        // A collapsed Invites group still reports that something is waiting.
         f.model.toggleCollapsed(SpaceChannelModel::invitesGroupId());
         const int header = rowOfName(f.model, QStringLiteral("Invites"));
         QVERIFY(header >= 0);
@@ -660,18 +605,9 @@ private Q_SLOTS:
                  "waiting");
     }
 
-    // A SPACE'S BADGE MUST COUNT WHAT ITS OWN VIEW LISTS, and a subspace with
-    // two joined parents broke that in one direction.
-    //
-    // SpaceManager nests such a subspace under exactly ONE parent — the rail
-    // has to be a tree or the tile is drawn twice — and SpaceChannelModel read
-    // that same restricted answer to decide which folders a Space's column
-    // carries. But SpaceManager's unread aggregate walks the REAL hierarchy, so
-    // the parent that lost the primary link counted the shared subspace's rooms
-    // on its rail badge and then refused to list them: click the tile showing
-    // "3" and the column is empty. A column is not a tree — the two parents
-    // have separate views — so listing the subspace under both draws nothing
-    // twice.
+    // A subspace with two joined parents is listed under both. SpaceManager
+    // nests it under one parent for the rail tree, but both parents' unread
+    // badges count it, so both views must list it.
     void aSubspaceWithTwoParentsIsListedUnderBothOfThem()
     {
         Fixture f;
@@ -694,7 +630,7 @@ private Q_SLOTS:
         QCOMPARE(railUnreadTotal(f.spaces, QStringLiteral("!p1:x")), 3);
         QCOMPARE(railUnreadTotal(f.spaces, QStringLiteral("!p2:x")), 3);
 
-        // ...so both views have to list it.
+        // ...so both views list it.
         const QStringList parents{ QStringLiteral("!p1:x"),
                                    QStringLiteral("!p2:x") };
         for (const QString &parent : parents) {
@@ -713,12 +649,9 @@ private Q_SLOTS:
         }
     }
 
-    // A -> B -> A is legal m.space.child state. The rail's primary-parent
-    // restriction used to prune it into a forest before this walk ever saw it;
-    // reading each Space's own state means the walk meets the real graph, so
-    // the visited set is now what terminates it. Both Spaces stay reachable and
-    // each is listed exactly once — and the rooms behind the cycle, which the
-    // aggregate already counted, are visible.
+    // A -> B -> A is legal m.space.child state: the walk terminates via its
+    // visited set, both Spaces stay reachable, each is listed once, and the
+    // rooms behind the cycle are visible.
     void aCyclicSubspaceHierarchyTerminatesAndListsEachSpaceOnce()
     {
         Fixture f;
@@ -747,23 +680,14 @@ private Q_SLOTS:
                  "missing from Alpha's view");
     }
 
-    // THE SELECTED SPACE HEADS ITS OWN VIEW, whatever the rail order says.
-    //
-    // listedSpaceIds() ranked the scoped Space among its own subspaces by the
-    // rail's arrangement — but the rail only ever ranks ROOTS (RailEntryModel
-    // hands arrange() the Spaces whose parentSpaceId is empty), so a subspace
-    // reaches RailLayoutStore::orderedSpaceIds only through its `natural`
-    // fallback, which is the SpaceManager model's order and therefore the room
-    // list's. Put the subspace ahead of its parent there — which activity
-    // ordering does on its own — and the Space the user just clicked rendered
-    // its own channels BELOW its subspace's folder.
-    //
-    // No layout order is set here on purpose: a fresh account has none, and
-    // that is exactly the case that broke.
+    // The selected Space heads its own view, whatever the rail order says. The
+    // rail only ranks roots, so a subspace's order falls back to the room
+    // list's, which may put it before its parent. No layout order is set: a
+    // fresh account has none.
     void theSelectedSpaceHeadsItsOwnViewNotItsSubspaces()
     {
         Fixture f;
-        // The SUBSPACE first in the room list, which is all it takes.
+        // The subspace first in the room list.
         f.client.roomList = {
             space(QStringLiteral("!eng:x"), QStringLiteral("Engineering"),
                   { QStringLiteral("!backend:x") },
@@ -822,10 +746,8 @@ private Q_SLOTS:
                                     QStringLiteral("!a:x") });
         f.model.setSources(&f.client, &f.spaces, &f.layout);
 
-        // A Space's view is that Space then its SUBSPACES, and the subspaces
-        // are ranked by the rail's arrangement — so a Space with several
-        // subspaces lists them in the order the user dragged them into,
-        // rather than in whatever order the hierarchy walk reached them.
+        // A Space's view is the Space then its subspaces, ranked by the rail's
+        // arrangement rather than hierarchy walk order.
         f.selectSpace(QStringLiteral("!parent:x"));
         QStringList spaceNames;
         for (const QString &name : namesOf(f.model)) {
@@ -839,9 +761,8 @@ private Q_SLOTS:
                                            QStringLiteral("Alpha") }));
     }
 
-    // Clicking a Space in the rail NARROWS the column to it. Without this it
-    // showed every Space whatever you clicked, so picking one did nothing
-    // visible — reported as "clicking a space basically does nothing".
+    // Clicking a Space in the rail narrows the column to it and its
+    // subspaces.
     void selectingASpaceNarrowsTheColumnToItAndItsSubspaces()
     {
         Fixture f;
@@ -851,9 +772,7 @@ private Q_SLOTS:
 
         f.model.setScopeSpaceId(QStringLiteral("!work:x"));
         const QStringList names = namesOf(f.model);
-        // The Space and its subspace, and nothing about the rest of the
-        // account: the two account-wide groups are statements about the whole
-        // account and repeating them under a Space is the complaint.
+        // The Space and its subspace, without the account-wide groups.
         QVERIFY(names.contains(QStringLiteral("Work")));
         QVERIFY2(names.contains(QStringLiteral("Engineering")),
                  "a subspace of the selected Space is missing");
@@ -861,27 +780,23 @@ private Q_SLOTS:
                  "the account-wide Rooms group survived the scope");
         QVERIFY2(!names.contains(QStringLiteral("lounge")),
                  "an unparented room survived into a Space's own view");
-        // A DM IS NOT HERE, and that is now safe to assert: it has a tab of
-        // its own, so hiding it here hides it from nothing. Two earlier
-        // designs could not say this — the DM group had to ride along inside
-        // every view because there was nowhere else for it to be.
+        // No DM here: DMs have their own tab.
         QVERIFY2(!names.contains(QStringLiteral("Ada")),
                  "a DM appeared under a Space, which Matrix cannot express");
         QVERIFY2(!names.contains(QStringLiteral("Direct messages")),
                  "the account-wide DM group survived into a Space's view");
         QVERIFY(names.contains(QStringLiteral("general")));
         QVERIFY(names.contains(QStringLiteral("backend")));
-        // A subspace is still a FLAT folder, not a level: this is a narrower
-        // view of the same layout, not the old nested one.
+        // A subspace is still a flat folder, not a level.
         const int eng = names.indexOf(QStringLiteral("Engineering"));
         QCOMPARE(f.model.data(f.model.index(eng, 0),
                               SpaceChannelModel::DepthRole).toInt(), 0);
-        // Lobby is still one row away, which is what makes the scope escapable.
+        // Lobby is one row away, so the scope is escapable.
         QCOMPARE(names.at(0), QStringLiteral("Lobby"));
-        // ...and an empty account is still not claimed.
+        // ...and the account is not claimed to be empty.
         QVERIFY(!f.model.empty());
 
-        // Home is one rail tile away, which is what makes a Space escapable.
+        // Home is one rail tile away.
         f.selectHome();
         QVERIFY(namesOf(f.model).contains(QStringLiteral("Rooms")));
         QVERIFY(namesOf(f.model).contains(QStringLiteral("lounge")));
@@ -889,10 +804,9 @@ private Q_SLOTS:
 
     void aPseudoRailRowThatIsNotTheDmTabIsHome()
     {
-        // "" is Home and "@orphans" is "Other rooms". Neither is a Space and
-        // neither is the DM tab, so both produce the Home view rather than an
-        // empty column — the selection is kept verbatim and CLASSIFIED, and
-        // an unrecognised one has to land somewhere that lists something.
+        // "" (Home) and "@orphans" (Other rooms) are neither a Space nor the
+        // DM tab, so both produce the Home view: an unrecognised selection
+        // lands somewhere that lists something.
         Fixture f;
         f.build(workspace());
         f.selectHome();
@@ -902,7 +816,7 @@ private Q_SLOTS:
         QCOMPARE(f.model.scopeSpaceId(), QString());
         QCOMPARE(f.model.viewKind(), QStringLiteral("home"));
         QCOMPARE(f.model.rowCount(), home);
-        // The DM tab is the one pseudo id that is NOT Home.
+        // The DM tab is the one pseudo id that is not Home.
         f.selectPeople();
         QCOMPARE(f.model.scopeSpaceId(), QString());
         QCOMPARE(f.model.viewKind(), QStringLiteral("people"));
@@ -911,11 +825,9 @@ private Q_SLOTS:
 
     void aSelectionOnASpaceTheAccountNoLongerHasStaysThatSpace()
     {
-        // Left the Space while it was selected. It stays the selection, and
-        // the view renders its own emptiness — which is the truth. Falling
-        // back to "everything" here would silently become a DIFFERENT Space's
-        // view under a rail tile that is no longer there, and the account is
-        // still one rail tile away either way.
+        // A Space left while selected stays the selection and renders its own
+        // emptiness; falling back would show a different view under a tile
+        // that no longer exists.
         Fixture f;
         f.build(workspace());
         f.model.setMessageSearchSupported(true);
@@ -926,9 +838,9 @@ private Q_SLOTS:
                  "a Space the user did not select is being shown as if they "
                  "had");
         QVERIFY(!names.contains(QStringLiteral("Rooms")));
-        // Lobby is still there, so the view is navigable rather than blank...
+        // Lobby is still there, so the view is navigable...
         QCOMPARE(names.at(0), QStringLiteral("Lobby"));
-        // ...and the ACCOUNT is not claimed to be empty: it is not.
+        // ...and the account is not claimed to be empty.
         QVERIFY(!f.model.empty());
         QCOMPARE(f.model.matchCount(), 0);
     }
@@ -957,8 +869,8 @@ private Q_SLOTS:
         QVERIFY(f.model.data(f.model.index(eng, 0),
                              SpaceChannelModel::CollapsedRole).toBool());
 
-        // Expanded again, the header reports nothing: the rows carry their own
-        // badges and a total on top would double-count what is visible.
+        // Expanded, the header reports nothing: the rows carry their own
+        // badges.
         f.model.toggleCollapsed(QStringLiteral("!eng:x"));
         const int engOpen = rowOfName(f.model, QStringLiteral("Engineering"));
         QCOMPARE(f.model.data(f.model.index(engOpen, 0),
@@ -967,9 +879,8 @@ private Q_SLOTS:
 
     void collapseStateSurvivesARebuildAndAReload()
     {
-        // The old implementation kept collapse in memory keyed by the active
-        // Space. With no active Space and rows rebuilt on every arriving
-        // message, in-memory-only state is state the user loses constantly.
+        // Collapse state is stored, since rows are rebuilt on every arriving
+        // message.
         Fixture f;
         f.build(workspace());
         f.selectSpace(QStringLiteral("!work:x"));
@@ -1008,26 +919,23 @@ private Q_SLOTS:
                  "the match lost the folder that gives it context");
         QVERIFY2(!found.contains(QStringLiteral("general")),
                  "a non-matching room survived the search");
-        // Navigation rows step aside while searching: they match nothing and
-        // would be two dead entries above the results.
+        // Navigation rows step aside while searching; they match nothing.
         QVERIFY(!found.contains(QStringLiteral("Lobby")));
         QVERIFY(!found.contains(QStringLiteral("Message Search")));
-        // A folder with no match at all is dropped entirely.
+        // A folder with no match is dropped.
         QVERIFY(!found.contains(QStringLiteral("Rooms")));
 
-        // Clearing restores exactly what was collapsed before: filtering must
-        // not mutate the collapse state.
+        // Clearing restores exactly what was collapsed: filtering must not
+        // mutate collapse state.
         f.model.setSearchQuery(QString());
         QVERIFY(f.model.isCollapsed(QStringLiteral("!eng:x")));
         QVERIFY(!namesOf(f.model).contains(QStringLiteral("backend")));
         QVERIFY(namesOf(f.model).contains(QStringLiteral("general")));
     }
 
-    // The chips still filter WITHIN a view. In Channels the host only offers
-    // All and Unreads — the People/Rooms split IS the rail's two tabs now, and
-    // a chip repeating it would match nothing at Home — but the model keeps
-    // the whole closed set, because it is shared with Classic and a mode it
-    // refused would go inert there.
+    // The filter chips work within a view. Channels only offers All and
+    // Unreads, but the model keeps every mode because it is shared with
+    // Classic.
     void theFilterChipsSelectRoomsWithoutClaimingTheAccountIsEmpty()
     {
         Fixture f;
@@ -1038,8 +946,7 @@ private Q_SLOTS:
         const QStringList unread = namesOf(f.model);
         QVERIFY(unread.contains(QStringLiteral("backend")));
         QVERIFY(!unread.contains(QStringLiteral("general")));
-        // A filter that matched little is NOT an empty account, and the empty
-        // state must not claim it is.
+        // A filter that matched little is not an empty account.
         QVERIFY2(!f.model.empty(),
                  "a filter's result was reported as the account having "
                  "nothing");
@@ -1047,8 +954,7 @@ private Q_SLOTS:
         f.model.setFilterMode(0);
         QVERIFY(namesOf(f.model).contains(QStringLiteral("general")));
 
-        // The People and Rooms modes still mean what they mean, in the one
-        // view where both kinds can be present at once.
+        // People and Rooms modes still apply where both kinds are present.
         f.selectPeople();
         f.model.setFilterMode(1);
         QVERIFY(namesOf(f.model).contains(QStringLiteral("Ada")));
@@ -1057,15 +963,8 @@ private Q_SLOTS:
                  "the Rooms mode kept a DM");
     }
 
-    // The report this whole split came from: "in channels mode people tab
-    // does nothing". Two designs tried to answer it with a chip. A DM cannot
-    // be a Space's child, so under a selected Space the chip had nothing to
-    // find unless every view carried a DM group it did not otherwise want —
-    // and at Home the chip's result was a subset of what was already there.
-    //
-    // The tab is the answer, and this is what it has to guarantee: whatever
-    // the rail was last pointed at, DMs are ALWAYS exactly one tile away and
-    // the tab lists all of them.
+    // Whatever the rail last selected, every DM is one tile away and the tab
+    // lists all of them.
     void everyDirectMessageIsReachableFromTheTabWhateverElseIsSelected()
     {
         Fixture f;
@@ -1096,14 +995,8 @@ private Q_SLOTS:
         }
     }
 
-    // `empty` and `matchCount` answer two different questions, and the column
-    // needs both: "you have no conversations" and "the People chip found none"
-    // look identical when the only thing rendered is silence, which is exactly
-    // how a working chip read as a dead control.
-    //
-    // On the unfixed tree matchCount does not exist, so this does not compile
-    // — which is the strongest form of "fails on the old code" available for a
-    // property that had to be added.
+    // `empty` and `matchCount` answer different questions: "you have no
+    // conversations" versus "this filter found none".
     void aFilterThatMatchedNothingIsCountedWithoutClaimingTheAccountIsEmpty()
     {
         Fixture f;
@@ -1123,23 +1016,19 @@ private Q_SLOTS:
                  "a filter's result was reported as the account having "
                  "nothing");
 
-        // A search that matches nothing is the same shape and must report the
-        // same way.
+        // A search that matches nothing reports the same way.
         f.model.setFilterMode(0);
         f.model.setSearchQuery(QStringLiteral("zzzz"));
         QCOMPARE(f.model.matchCount(), 0);
         QVERIFY(!f.model.empty());
 
-        // ...and it goes back up when something matches again, or the message
-        // would be permanent once shown.
+        // ...and the count recovers when something matches again.
         f.model.setSearchQuery(QStringLiteral("gen"));
         QVERIFY(f.model.matchCount() > 0);
     }
 
-    // The count has to be a NOTIFYING property or the message it drives never
-    // appears: `matchCount` changes without the row count changing (a group
-    // header leaving with its only room keeps neither), so a QML binding that
-    // only woke on countChanged would miss it.
+    // `matchCount` notifies on its own: it can change without the row count
+    // changing, so a binding on countChanged alone would miss it.
     void theMatchCountAnnouncesItselfWhenTheFilterChanges()
     {
         Fixture f;
@@ -1181,9 +1070,8 @@ private Q_SLOTS:
                      "a navigation row carries a room id, so something will "
                      "eventually try to open it");
         }
-        // An ACTION row carries a synthetic '@' id, never a room id: the host
-        // dispatches on it, and anything that treated it as a room would try
-        // to open a room that does not exist.
+        // Action rows carry a synthetic '@' id, never a room id, so nothing
+        // tries to open them as rooms.
         f.selectHome();
         for (int i = 0; i < f.model.rowCount(); ++i) {
             const QModelIndex idx = f.model.index(i, 0);
@@ -1208,8 +1096,7 @@ private Q_SLOTS:
         f.build(workspace());
         f.selectSpace(QStringLiteral("!work:x"));
         QVERIFY(f.model.rowForRoom(QStringLiteral("!general:x")) >= 0);
-        // Highlighting a folder as "the room you are in" would mark the whole
-        // group.
+        // A folder is never "the room you are in".
         QCOMPARE(f.model.rowForRoom(QStringLiteral("!work:x")), -1);
         QCOMPARE(f.model.rowForRoom(SpaceChannelModel::roomsGroupId()), -1);
         QCOMPARE(f.model.rowForRoom(QString()), -1);
@@ -1217,9 +1104,8 @@ private Q_SLOTS:
 
     void unreadStateChangesInPlaceRatherThanResettingTheWholeColumn()
     {
-        // A reset tears down and rebuilds every delegate — and its avatar
-        // fetch — on every arriving message, which for a column this long is
-        // visible. The rows did not move, so this must be a dataChanged.
+        // Unread changes are dataChanged, not a reset: a reset rebuilds every
+        // delegate and its avatar fetch.
         Fixture f;
         f.build(workspace());
         f.selectSpace(QStringLiteral("!work:x"));
@@ -1230,12 +1116,7 @@ private Q_SLOTS:
         f.client.roomList[1].hasUnreadMessages = true;
         f.client.announce();
 
-        // The rebuild is COALESCED to one per event-loop turn (a burst of
-        // synced room updates used to cost one full rebuild each, and each
-        // rebuild materialises the whole room list), so the answer arrives on
-        // the next turn rather than inside announce(). QTRY_ is the honest
-        // spelling of that; a synchronous QCOMPARE here would be asserting the
-        // absence of the coalescing rather than the presence of the update.
+        // The rebuild is coalesced to one per event-loop turn, so wait for it.
         QTRY_VERIFY(changes.count() >= 1);
         QCOMPARE(resets.count(), 0);
         const int row = rowOfName(f.model, QStringLiteral("general"));
@@ -1275,30 +1156,23 @@ private Q_SLOTS:
         f.build({});
         f.selectHome();
         QVERIFY(f.model.empty());
-        // Home keeps its command rows: an account with nothing in it is
-        // exactly when "Create Room" and "Join with Address" matter most, and
-        // a blank column would offer no way out of being empty.
+        // Home keeps its command rows: an empty account most needs Create Room
+        // and Join with Address.
         QCOMPARE(kindsOf(f.model),
                  QStringList({ QStringLiteral("action"),
                                QStringLiteral("action"),
                                QStringLiteral("action") }));
         QCOMPARE(f.model.matchCount(), 0);
-        // A Space's view has no such rows and is genuinely bare.
+        // A Space's view has no such rows.
         f.selectSpace(QStringLiteral("!nothing:x"));
         QCOMPARE(kindsOf(f.model), QStringList{ QStringLiteral("lobby") });
     }
 
     void anAccountChangeMakesTheCollapseStateBeReReadNotKept()
     {
-        // The collapse set is ACCOUNT-SCOPED storage (the same per-account
-        // appearance path every other Appearance choice uses), so a sign-out
-        // or a switch must drop the in-memory copy and read whoever is next —
-        // keeping it would apply one account's collapsed folders to another
-        // account's rooms.
-        //
-        // Proven by moving the STORED value out from under the model and then
-        // announcing the account change: if the cache were kept, the stale
-        // answer would survive.
+        // The collapse set is account-scoped, so an account change drops the
+        // in-memory copy and re-reads. Proven by changing the stored value
+        // under the model and then announcing the change.
         Fixture f;
         f.build(workspace());
         f.model.toggleCollapsed(QStringLiteral("!work:x"));
@@ -1309,7 +1183,7 @@ private Q_SLOTS:
         other.setSources(&f.client, &f.spaces, &f.layout);
         other.toggleCollapsed(QStringLiteral("!work:x"));
         QVERIFY(!other.isCollapsed(QStringLiteral("!work:x")));
-        // The first model has not noticed: it is still on its own cache.
+        // The model has not noticed yet: it still reads its cache.
         QVERIFY(f.model.isCollapsed(QStringLiteral("!work:x")));
 
         f.client.logout();
@@ -1319,12 +1193,8 @@ private Q_SLOTS:
                  "account's rooms");
     }
 
-    // A DM usually carries NO room avatar: the face belongs to the other
-    // person, and deriving it is three jobs (is this an unambiguous 1:1? who
-    // is the peer? does anyone know their picture?) that the Classic list has
-    // done privately since 0.6.x. This column read RoomInfo::avatarUrl raw and
-    // drew initials for every DM, next to a Home strip showing the real faces
-    // — reported with an arrow pointing at both at once.
+    // A DM with no room avatar wears the peer's face, derived as the Classic
+    // list does (unambiguous 1:1, the peer, their known picture).
     void aDirectMessageWearsThePeersFace()
     {
         RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
@@ -1345,24 +1215,9 @@ private Q_SLOTS:
                  QStringLiteral("mxc://example.org/sam"));
     }
 
-    // The Rust backend never populates the per-room member snapshot — it is
-    // fetched separately, on demand, only for Room Information's People tab —
-    // so the ONLY route to a DM's face there is the peer's profile. It arrives
-    // late, and it has to reach the row: this model's rows hold a SNAPSHOT, so
-    // a bare dataChanged would repaint the same initials.
-    // THE ACCOUNT SWITCH THAT "TAKES LONGER NOW", stated as a number.
-    //
-    // rebuild() asks the resolver to look up every DM peer it cannot answer
-    // for; the resolver announced EVERY answer; this model rebuilds when a
-    // peer resolves. For a peer with no avatar set — or one whose profile
-    // 404s — nothing was cached, so the rebuild asked again, forever: one
-    // /profile request and one full model rebuild per network round trip, per
-    // such peer, for the entire session. An account switch clears the
-    // resolver's caches, which is exactly what re-armed it every time.
-    //
-    // ON THE UNFIXED TREE the count below climbs monotonically with every
-    // answer fed in. The fix is that the resolver REMEMBERS a negative answer
-    // and announces only a face it actually learned.
+    // A peer with no avatar (or whose lookup failed) is asked about exactly
+    // once: the resolver remembers negative answers and announces only faces
+    // it learned, or every rebuild would re-request it.
     void anAvatarlessPeerIsAskedForExactlyOnce()
     {
         RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
@@ -1374,8 +1229,8 @@ private Q_SLOTS:
         f.selectPeople();
         QCOMPARE(f.client.profileFetches.count(QStringLiteral("@sam:example.org")), 1);
 
-        // How a real homeserver answers a user who has never set an avatar:
-        // ok, a display name, and an EMPTY avatar url.
+        // A real homeserver's answer for a user with no avatar: ok, a display
+        // name, and an empty avatar url.
         for (int i = 0; i < 4; ++i) {
             Q_EMIT f.client.userProfileFinished(
                 f.client.nextOp, true, QStringLiteral("@sam:example.org"),
@@ -1384,8 +1239,7 @@ private Q_SLOTS:
         }
         QCOMPARE(f.client.profileFetches.count(QStringLiteral("@sam:example.org")), 1);
 
-        // And the same for a lookup that FAILED. Retrying that on every
-        // rebuild is the same loop reached by another route.
+        // The same for a lookup that failed.
         RoomInfo other = dm(QStringLiteral("!dm2:x"), QStringLiteral("Kit"));
         other.directUserId = QStringLiteral("@kit:example.org");
         other.directUserIds = { QStringLiteral("@kit:example.org") };
@@ -1401,18 +1255,15 @@ private Q_SLOTS:
         QCOMPARE(f.client.profileFetches.count(QStringLiteral("@kit:example.org")), 1);
     }
 
-    // The second guard, and the one that bounds the cost of a sync BURST: a
-    // run of room updates in one event-loop turn must cost ONE rebuild, not
-    // one each. Asserted as a DELTA because the fixture's own setup
-    // legitimately materialises the room list several times.
+    // A burst of room updates in one event-loop turn costs one rebuild.
+    // Asserted as a delta, since setup itself rebuilds several times.
     void aBurstOfRoomUpdatesCostsOneRebuild()
     {
         Fixture f;
         f.build(workspace());
         QCoreApplication::processEvents();
-        // Counted on the MODEL, not on the client: the client's rooms() is
-        // also called by SpaceManager's own per-update rebuild, which is not
-        // this model's cost and would drown the signal.
+        // Counted on the model: the client's rooms() is also called by
+        // SpaceManager's own rebuild.
         const int before = f.model.rebuildCountForTest();
         for (int i = 0; i < 10; ++i)
             f.client.announce();
@@ -1426,6 +1277,9 @@ private Q_SLOTS:
                                 .arg(rebuilds)));
     }
 
+    // A late peer profile reaches the row: rows hold a snapshot, so a bare
+    // dataChanged would repaint the same initials. On the Rust backend the
+    // profile is the only route to a DM's face.
     void aLateProfileReachesTheRowRatherThanJustRepaintingIt()
     {
         RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
@@ -1450,14 +1304,11 @@ private Q_SLOTS:
             QString());
         // Coalesced, as above.
         QTRY_COMPARE(avatar(), QStringLiteral("mxc://example.org/sam"));
-        // And the column did not move: this layout's whole point is that rows
-        // hold still, so a profile landing mid-scroll must not be the
-        // exception.
+        // The row did not move.
         QCOMPARE(f.model.rowForRoom(QStringLiteral("!dm:x")), row);
     }
 
-    // Never an arbitrary face for a group DM. `m.direct` naming two targets is
-    // the authoritative "this is not a 1:1" signal.
+    // A group DM (`m.direct` naming two targets) borrows nobody's face.
     void aGroupDirectMessageBorrowsNobodysFace()
     {
         RoomInfo group = dm(QStringLiteral("!group:x"), QStringLiteral("Three"));
@@ -1501,39 +1352,16 @@ private Q_SLOTS:
                  QStringLiteral("mxc://example.org/room"));
     }
 
-    // THE COALESCING TIMER MUST NOT OUTLIVE THE STATE THAT ARMED IT.
-    //
-    // Coalescing bought a real cost reduction and brought a hazard with it:
-    // rebuild() no longer runs where the signal was received, it runs on the
-    // next event-loop turn — and the account switch happens in between. The
-    // sequence is ordinary, not exotic: the outgoing account's last sync arms
-    // a rebuild, the user clicks the switcher, detachSession() invalidates the
-    // session and emits loggedOut, and only THEN does the queued rebuild run,
-    // against a client that has been detached and caches that have been
-    // cleared.
-    //
-    // It survives that today because every dereference in rebuild() happens to
-    // be guarded — which is a property of the current guards, not a contract
-    // anybody wrote down, and the next field added to that pass inherits no
-    // protection at all. The invariant is the fix: after rebuild() returns,
-    // nothing is queued.
-    //
-    // ON THE UNFIXED TREE both halves below count one EXTRA rebuild after the
-    // state changed, because the timer armed beforehand still fires.
+    // A coalesced rebuild never outlives the state that armed it: after the
+    // sources change or the session ends, nothing queued runs.
     void aQueuedRebuildNeverOutlivesTheStateThatArmedIt()
     {
-        // The sources are replaced outright: the queued rebuild belongs to
-        // ones that are gone, and would run against whatever is wired up
-        // instead. It early-returns harmlessly TODAY; the point is that it
-        // does not run at all, which is the only version of that guarantee
-        // the next field added to rebuild() inherits.
+        // The sources are replaced; the rebuild queued for the old ones must
+        // not run at all.
         Fixture f;
         f.build(workspace());
-        // qWait, not processEvents: the coalescer is a ZERO-interval QTimer,
-        // and processEvents() alone is not a reliable way to make one fire.
-        // A test that silently fails to deliver the queued work would pass on
-        // the broken tree, which is the one outcome that would make this
-        // decoration.
+        // qWait, not processEvents: the coalescer is a zero-interval QTimer,
+        // which processEvents() does not reliably fire.
         QTest::qWait(50);
         f.client.announce();
         f.model.setSources(nullptr, nullptr, nullptr);
@@ -1541,13 +1369,9 @@ private Q_SLOTS:
         QTest::qWait(50);
         QCOMPARE(f.model.rebuildCountForTest(), settled);
 
-        // The sign-out / account-switch shape, wired by hand for one reason:
-        // SpaceManager also rebuilds on loggedOut and announces afterwards, so
-        // with it attached to the client a rebuild is LEGITIMATELY re-armed
-        // after the detach and no count can distinguish that from the stale
-        // one. Leaving the manager clientless removes the second arming, and
-        // what is left is exactly the question — a rebuild armed by the
-        // outgoing account's last update, delivered after the session ended.
+        // The sign-out shape, with the SpaceManager left clientless: it
+        // re-arms a legitimate rebuild after logout, which no count could tell
+        // from the stale one.
         Fixture g;
         RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
         peer.directUserId = QStringLiteral("@sam:example.org");
@@ -1556,8 +1380,7 @@ private Q_SLOTS:
         g.model.setSettings(&g.settings);
         g.model.setSources(&g.client, &g.spaces, &g.layout);
         QTest::qWait(50);
-        // Arms one: a late profile is announced, and this model rebuilds to
-        // get the face into the row's snapshot.
+        // A late profile arms a rebuild.
         Q_EMIT g.client.userProfileFinished(
             g.client.nextOp, true, QStringLiteral("@sam:example.org"),
             QStringLiteral("Sam"), QStringLiteral("mxc://example.org/sam"),
@@ -1568,18 +1391,9 @@ private Q_SLOTS:
         QCOMPARE(g.model.rebuildCountForTest(), settled);
     }
 
-    // The other half of the same hazard, and the one that is not merely
-    // wasteful. AppController declares `m_spaces` AFTER `m_spaceChannels`, so
-    // members are destroyed in reverse declaration order and the SpaceManager
-    // this model reads dies FIRST — leaving a non-null pointer to freed memory
-    // that rebuild()'s `!m_spaces` guard cannot see. Nothing spins an event
-    // loop in that window today, which is what makes it safe, and nothing
-    // states that.
-    //
-    // HONEST ABOUT WHAT THIS PROVES: on the unfixed tree this is a
-    // use-after-free, which is undefined — it will usually pass, and fails
-    // deterministically only under ASan. It is here to pin the CLEARED
-    // POINTER, not to reproduce a crash.
+    // A destroyed source leaves a null, not a dangling pointer: AppController
+    // destroys SpaceManager before this model. On unfixed code this is a
+    // use-after-free that usually passes and fails reliably only under ASan.
     void aDestroyedSourceLeavesANullRatherThanADanglingPointer()
     {
         FakeClient client;
@@ -1595,27 +1409,16 @@ private Q_SLOTS:
         QVERIFY(model.rowCount() > 0);
 
         delete spaces;
-        // Any rebuild at all now: a filter chip is the cheapest one that is
-        // not a source signal.
+        // Any rebuild: a filter chip is the cheapest one.
         model.setFilterMode(1);
         QCOMPARE(model.rowCount(), 0);
         QTest::qWait(50);
         QCOMPARE(model.rowCount(), 0);
     }
 
-    // `userProfileFinished` is ONE signal shared by every consumer of the
-    // client — the account switcher, member lists, the profile popover, this
-    // resolver. The resolver reads answers to ops it did not start on purpose
-    // (that is what lets a self-DM adopt the signed-in account's own face),
-    // and the negative cache added this round did the same thing with
-    // FAILURES. It should not: "the profile says there is no avatar" is a fact
-    // about the user, but "the request failed" is a fact about one request.
-    //
-    // ON THE UNFIXED TREE a single failed lookup anywhere in the application
-    // permanently marks that user as pictureless here, so a DM with them
-    // renders initials for the rest of the session and nothing ever retries —
-    // resolveMissing() skips a cached negative, and no code path clears one
-    // short of sign-out.
+    // A failed profile lookup someone else started never marks a DM peer as
+    // pictureless: a failure is about one request, not the user.
+    // `userProfileFinished` is shared by every consumer of the client.
     void aFailedLookupSomebodyElseStartedNeverWedgesADm()
     {
         RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
@@ -1625,23 +1428,21 @@ private Q_SLOTS:
         Fixture f;
         f.build({});
         f.selectPeople();
-        // An op this model never issued — note the id is not one the fake
-        // client ever handed out — reporting a failure for that same user.
+        // An op this model never issued reports a failure for that user.
         Q_EMIT f.client.userProfileFinished(
             9999, false, QStringLiteral("@sam:example.org"), QString(),
             QString(), QStringLiteral("timeout"));
         QTest::qWait(50);
         QCOMPARE(f.client.profileFetches.count(QStringLiteral("@sam:example.org")), 0);
 
-        // The DM now arrives. Its peer has to be looked up: nothing here ever
-        // asked about them.
+        // The DM arrives, and its peer is looked up.
         f.client.roomList = { peer };
         f.client.announce();
         QTRY_COMPARE_WITH_TIMEOUT(
             f.client.profileFetches.count(QStringLiteral("@sam:example.org")), 1,
             2000);
 
-        // And the answer still reaches the row.
+        // The answer reaches the row.
         Q_EMIT f.client.userProfileFinished(
             f.client.nextOp, true, QStringLiteral("@sam:example.org"),
             QStringLiteral("Sam"), QStringLiteral("mxc://example.org/sam"),
@@ -1652,21 +1453,13 @@ private Q_SLOTS:
                                   SpaceChannelModel::AvatarUrlRole).toString(),
                      QStringLiteral("mxc://example.org/sam"));
 
-        // The loop guard is untouched: OUR OWN failure is still remembered, so
-        // a peer whose lookup we incurred and lost is not re-asked on every
-        // rebuild. (anAvatarlessPeerIsAskedForExactlyOnce is the full case.)
+        // Our own failures are still remembered (see
+        // anAvatarlessPeerIsAskedForExactlyOnce).
     }
 
-    // The answer may not come back under the id we asked with — the id is
-    // normalised by the SDK. The pending release already takes BOTH keys
-    // because getting that wrong once left a peer stuck pending forever; the
-    // CACHE did not, so a face could be learned and filed under a key nobody
-    // queries: both owners look an avatar up by the room's `directUserId`,
-    // which is the id we asked with.
-    //
-    // Structural, not observed — no capture of a real normalisation exists.
-    // It is here because the failure mode is silent and indistinguishable from
-    // "the server has no picture for them".
+    // A face returned under a normalised user id is cached under the id we
+    // asked with, which is what both owners look it up by. Structural: no
+    // real normalisation has been captured, but the failure would be silent.
     void aFaceReturnedUnderANormalisedIdStillReachesItsRow()
     {
         RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
@@ -1694,25 +1487,13 @@ private:
 };
 
 
-// ── Activity ordering (2026-08-31) ───────────────────────────────────────
-//
-// This column used to sort alphabetically, and the header said so as a
-// CONTRACT: "nothing here is activity-ordered: a channel list whose rows move
-// when somebody speaks is not a channel list". That was reversed — a stable
-// order is useless if the room somebody just posted in sits wherever its name
-// puts it, because the thing the user is looking for never moves to where
-// they are looking.
-//
-// These cases stamp real activity times. Note that every other case in this
-// file leaves lastActivity INVALID, which is why their alphabetical
-// expectations still hold: the shared comparator falls through to its name
-// tiebreak when no room has ever been spoken in.
+// Activity ordering: rooms sort by recency within their group. Other cases
+// leave lastActivity invalid, so the comparator falls back to names there.
 
 void SpaceChannelsTest::homeRoomsAreNewestFirstNotAlphabetical()
 {
     Fixture f;
-    // Named so alphabetical and recency give OPPOSITE answers — otherwise the
-    // case passes on the old code and proves nothing.
+    // Named so alphabetical and recency orders disagree.
     auto alpha = room(QStringLiteral("!a:x"), QStringLiteral("Alpha"));
     alpha.lastActivity = ago(900);
     auto zulu = room(QStringLiteral("!z:x"), QStringLiteral("Zulu"));
@@ -1742,10 +1523,8 @@ void SpaceChannelsTest::directMessageChatsAreNewestFirst()
              "People chats are still alphabetical, not newest-first");
 }
 
-// 2026-09-05: "favoriting a room should raise it to the top in channels
-// mode". Within its group — Home's Rooms, Home's Direct Messages, the tab's
-// Chats, a Space's rooms — a favourite sorts first, and recency decides the
-// rest. Named so recency alone gives the OPPOSITE order.
+// Within its group a favourite sorts first and recency decides the rest.
+// Named so recency alone gives the opposite order.
 void SpaceChannelsTest::aFavouriteRisesToTheTopOfItsGroup()
 {
     Fixture f;
@@ -1778,10 +1557,7 @@ void SpaceChannelsTest::aFavouriteRisesToTheTopOfItsGroup()
 void SpaceChannelsTest::aSpacesRoomsAreNewestFirstNotInChildOrder()
 {
     Fixture f;
-    // m.space.child order deliberately puts the STALE room first, so a list
-    // that still follows it fails here. That order is the Space admin's idea
-    // of importance, which is a different question from where the
-    // conversation is.
+    // m.space.child order puts the stale room first, so following it fails.
     auto space = room(QStringLiteral("!space:x"), QStringLiteral("Work"));
     space.isSpace = true;
     space.childRoomIds = { QStringLiteral("!stale:x"), QStringLiteral("!live:x") };
@@ -1796,18 +1572,15 @@ void SpaceChannelsTest::aSpacesRoomsAreNewestFirstNotInChildOrder()
     QVERIFY2(names.indexOf(QStringLiteral("General"))
                  < names.indexOf(QStringLiteral("Archive")),
              "a Space's rooms still follow m.space.child order");
-    // The STRUCTURE is untouched: the Space is still the group header above
-    // its own rooms.
+    // The Space is still the group header above its rooms.
     QVERIFY(names.indexOf(QStringLiteral("Work"))
             < names.indexOf(QStringLiteral("General")));
 }
 
 void SpaceChannelsTest::aRoomMovesWhenSomebodySpeaksInIt()
 {
-    // The reason lastActivity had to be carried ON the row: applyRows diffs
-    // rows BY VALUE, so a sort key the row does not hold is a key the diff
-    // cannot see change — the list would claim to be activity-ordered and
-    // then sit still when a message arrived.
+    // lastActivity is carried on the row: applyRows diffs rows by value, so a
+    // sort key the row does not hold cannot be seen to change.
     Fixture f;
     auto alpha = room(QStringLiteral("!a:x"), QStringLiteral("Alpha"));
     alpha.lastActivity = ago(10);
@@ -1822,8 +1595,7 @@ void SpaceChannelsTest::aRoomMovesWhenSomebodySpeaksInIt()
     // Somebody speaks in the older room.
     f.client.roomList[1].lastActivity = ago(0);
     f.client.announce();
-    // Source signals coalesce onto a zero-timer so a burst costs one rebuild;
-    // settle it before asserting.
+    // Source signals coalesce onto a zero-timer; settle before asserting.
     QCoreApplication::processEvents();
 
     names = namesOf(f.model);

@@ -1,15 +1,11 @@
 // Exporting a room's loaded messages to a file.
 //
-// The renderers are PURE — events in, string out — which is why this suite
-// needs no filesystem and can assert on the exact shape of the output. The
-// one thing that touches disk lives in AppController and is four lines.
+// The renderers are pure (events in, string out), so no filesystem is
+// needed and the exact output shape is asserted.
 //
-// The case that matters most here is the ENCRYPTED one. CLAUDE.md §6 keeps
-// encrypted-room plaintext memory-only, and an export is the single
-// deliberate exception: it has to be impossible to get a decrypted body into
-// a file without the caller having passed the flag a UI only sets after
-// asking in plain words. So that is asserted from both sides — the flag
-// withheld produces no body text at all, and the flag given produces it.
+// Encrypted-room plaintext is memory-only and an export is the one
+// deliberate exception: a decrypted body reaches the file only when the
+// caller passes the flag the UI sets after asking. Asserted both ways.
 
 #include "models/RoomExport.h"
 
@@ -180,10 +176,8 @@ private Q_SLOTS:
 
     // ── The file says what it is ─────────────────────────────────────────
     //
-    // A partial export mistaken for a whole history is the failure this
-    // surface has to design against, and the person who reads the file later
-    // may not be the person who made it — so both limits are IN the file,
-    // not only in the dialog that produced it.
+    // Both limits are stated in the file itself, so a partial export is not
+    // mistaken for a whole history by a later reader.
     void theFileStatesItsOwnScope()
     {
         const QList<TimelineEvent> events = {
@@ -206,11 +200,10 @@ private Q_SLOTS:
                  QStringLiteral("!r:example.org"));
     }
 
-    // ── The suggested filename is a LEAF ─────────────────────────────────
+    // ── The suggested filename is a leaf ─────────────────────────────────
     //
-    // A room name is chosen by somebody else and this string is handed to a
-    // file dialog. The same discipline MediaBridge::sanitizedFileName applies
-    // to an attachment name, for the same reason.
+    // A room name is chosen by somebody else and handed to a file dialog;
+    // same discipline as MediaBridge::sanitizedFileName.
     void aRoomNameCannotSuggestAPath()
     {
         roomexport::Options options = plainRoom();

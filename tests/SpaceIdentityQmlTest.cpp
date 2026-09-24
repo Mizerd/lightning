@@ -1,30 +1,14 @@
-// A Space's IDENTITY — its name, topic and avatar — as the Space settings
-// dialog actually renders it, on the real compiled qml/SpaceSettingsDialog.qml
-// against a real SpaceManager.
+// A Space's identity (name, topic, avatar) as the real compiled
+// SpaceSettingsDialog.qml renders it against a real SpaceManager.
 //
-// WHY THIS FILE EXISTS. tests/SpaceSettingsContractTest.cpp reads
-// SpaceSettingsDialog.qml as TEXT and drives RoomInfoController directly. Both
-// halves are worth having and neither can see the defect this suite was
-// written for: `root.info` is a binding that CALLS
-// `app.spaces.spaceInfo(spaceId)`, and a method call creates no property
-// dependency, so the binding's only dependency is `spaceId` itself
-// (`app.spaces` is a CONSTANT property). A Space renamed, re-avatared or
-// re-topiced under the dialog therefore left every reader of `root.info`
-// showing the value it had when the dialog was first pointed at that Space —
-// including `nameField.refreshName()` and `topicField.refreshTopic()`, which
-// are CONNECTED to app.spaces.spacesChanged and read `root.info`, so the
-// refresh the file's own comment promises ("a remote change … lands without
-// destroying an edit in progress") was structurally a no-op.
+// `root.info` must depend on the Space data, not just call
+// `app.spaces.spaceInfo(spaceId)` (a method call creates no dependency), or a
+// remote rename, topic or avatar change never reaches the open dialog.
 //
-// The file already documents the trap for its `rosterTick` counter. This is
-// the same trap, in the binding that names the Space.
-//
-// WHAT IT PROVES AND WHAT IT DOES NOT. Everything here is offscreen QML on a
-// local SpaceManager fed by a fake client: a real homeserver, a real
-// m.room.name state event and Element interoperability are NOT TESTED. What is
-// proved is that the change SIGNAL production emits (SpaceManager::rebuild →
-// spacesChanged) reaches the dialog's rendered text, and that a subspace is
-// rendered from its own state rather than its parent's.
+// Offscreen QML fed by a fake client: a real homeserver and Element
+// interoperability are not tested. What is proved is that spacesChanged
+// reaches the dialog's rendered text, and that a subspace renders its own
+// state.
 
 #include <QtTest/QtTest>
 
@@ -280,13 +264,8 @@ private slots:
             closeDialog();
     }
 
-    // A Space renamed under the open dialog is the Space the dialog names.
-    //
-    // Before the fix `root.info` was a spaceInfo() call with no change
-    // dependency, so the header, the General card's avatar and the name/topic
-    // fields all kept the value read when the dialog was first pointed here —
-    // and refreshName()/refreshTopic(), which app.spaces.spacesChanged calls
-    // for exactly this case, read the same stale map.
+    // A Space renamed under the open dialog updates the header, avatar and
+    // name/topic fields.
     void aRemoteRenameReachesTheOpenDialog()
     {
         openFor(QString::fromLatin1(kParentId));
@@ -359,9 +338,8 @@ private slots:
                  QStringLiteral("Half typed"));
     }
 
-    // A SUBSPACE IS NOT ITS PARENT. Opening the dialog on a child Space right
-    // after the parent must render the child's own name, topic and avatar —
-    // never the values still cached from the Space above it.
+    // A subspace is not its parent: opening the dialog on a child right after
+    // the parent renders the child's own name, topic and avatar.
     void aSubspaceRendersItsOwnIdentityNotItsParents()
     {
         openFor(QString::fromLatin1(kParentId));
@@ -380,9 +358,8 @@ private slots:
                  QStringLiteral("The child topic"));
     }
 
-    // ...and a rename of the PARENT while the CHILD's settings are open
-    // changes nothing on screen. The dialog reads one Space; a shared change
-    // signal must not smear one Space's state onto another's card.
+    // ...and renaming the parent while the child's settings are open changes
+    // nothing on screen.
     void renamingTheParentDoesNotTouchTheOpenSubspace()
     {
         openFor(QString::fromLatin1(kChildId));
@@ -400,12 +377,9 @@ private slots:
                  QStringLiteral("Child Space"));
     }
 
-    // Reopening the dialog on the SAME Space re-snaps its fields.
-    //
-    // `onSpaceIdChanged` does not fire when `spaceId` is assigned the value it
-    // already had, so an abandoned edit — and the name the Space had when that
-    // edit began — used to come back on the next open as though it were the
-    // Space's own.
+    // Reopening the dialog on the same Space re-snaps its fields
+    // (`onSpaceIdChanged` does not fire for an unchanged value), so an
+    // abandoned edit does not come back.
     void reopeningOnTheSameSpaceReSnapsTheFields()
     {
         openFor(QString::fromLatin1(kParentId));
@@ -425,9 +399,8 @@ private slots:
                  QStringLiteral("Renamed Space"));
     }
 
-    // A Space whose avatar is cleared renders the initials fallback rather
-    // than the picture it used to have: an mxc that goes away has to reach the
-    // Avatar, or a removed picture stays on screen until a restart.
+    // A cleared avatar renders the initials fallback rather than the old
+    // picture.
     void aClearedAvatarClearsTheDialogsPicture()
     {
         openFor(QString::fromLatin1(kParentId));
@@ -445,11 +418,8 @@ private slots:
 
     // ── The model under all of the above ────────────────────────────────
     //
-    // SpaceManager::spaceInfo / childRoomsDetailed / childSpaceIds had no
-    // behavioural coverage anywhere before 2026-09-08 — only two source scans
-    // naming them. They are what decides whether a subspace shows its own
-    // state or the state of the Space it hangs under, so they are pinned here
-    // beside the dialog that renders them.
+    // SpaceManager::spaceInfo / childRoomsDetailed / childSpaceIds decide
+    // whether a subspace shows its own state or its parent's.
 
     void spaceInfoAnswersForTheSpaceItWasAskedAbout()
     {
@@ -471,13 +441,9 @@ private slots:
         QVERIFY(spaces->spaceInfo(QStringLiteral("!absent:example.org")).isEmpty());
     }
 
-    // The hierarchy runs DOWNWARD only. A subspace lists the rooms under
-    // itself; the ancestor's own rooms are not its.
-    //
-    // The other direction is deliberate and is pinned here so a future round
-    // cannot invert it by accident: childRoomsDetailed on an ancestor IS
-    // transitive ("show me everything in this Space"), which is why the
-    // Channels layout uses directChildRoomsDetailed instead.
+    // The hierarchy runs downward only: a subspace lists the rooms under
+    // itself, not the ancestor's. childRoomsDetailed on an ancestor is
+    // transitive by design (Channels uses directChildRoomsDetailed).
     void aSubspaceDoesNotInheritItsParentsRoomList()
     {
         SpaceManager *spaces = m_controller->spaces();

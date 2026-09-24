@@ -15,20 +15,15 @@
 
 // Hermetic, platform-neutral coverage for the portable secret store.
 //
-// The single property this whole round exists to deliver is the one exercised
-// by relocatesToADifferentAbsoluteRoot(): a sign-in saved under one absolute
-// path must open under a COMPLETELY different absolute path, because the user
-// extracts the ZIP to D:\Lightning on one PC and to C:\Users\x\Desktop\lt on
-// the next. Everything else here defends that property against the ways it
-// could silently rot: an absolute path leaking into a file, a machine-bound
-// key, or a damaged file being papered over with a fresh one.
+// Central property (relocatesToADifferentAbsoluteRoot): a sign-in saved under
+// one absolute path must open under a completely different one, since the
+// ZIP is extracted to different places on different PCs. The rest guards
+// against an absolute path in a file, a machine-bound key, or a damaged file
+// being replaced by a fresh one.
 //
-// The failure tests are the other half. CLAUDE.md §6 forbids treating an
-// unreadable secret as an absent one, so every corruption case below asserts
-// three things together: the store refuses, it says why, and the bytes on disk
-// are BIT-IDENTICAL afterwards. A store that "recovers" by starting a new
-// document has destroyed the user's Matrix device, and it would look like a
-// successful sign-in while doing it.
+// An unreadable secret must never be treated as an absent one, so every
+// corruption case asserts that the store refuses, says why, and leaves the
+// bytes on disk bit-identical.
 class PortableSecretStoreTest : public QObject
 {
     Q_OBJECT
@@ -64,12 +59,9 @@ private:
     static QByteArray readAll(const QString &path);
     static bool writeAll(const QString &path, const QByteArray &bytes);
     static bool copyFile(const QString &from, const QString &to);
-    // InsecureFallbackSecretStore default-constructs QSettings, which resolves
-    // its file from the ORGANIZATION and APPLICATION names plus the format's
-    // path. A test binary has none of those set, so every read comes back with
-    // a status error and the store reports failure for a reason that has
-    // nothing to do with the property under test — which is exactly what the
-    // first draft of these three cases measured.
+    // InsecureFallbackSecretStore default-constructs QSettings, which needs
+    // organization and application names; without them every read fails for
+    // an unrelated reason.
     static void useTemporarySettings(const QTemporaryDir &root,
                                      const QString &appName);
 };
@@ -128,8 +120,7 @@ void PortableSecretStoreTest::freshDirectoryIsUsableAndReportsNothingStored()
 
     PortableSecretStore store(dir);
     // A just-extracted portable folder has no secrets. That is an ordinary
-    // answer, NOT a failure — the distinction the whole failure model rests
-    // on. Nothing is minted merely by looking.
+    // answer, not a failure, and nothing is minted merely by looking.
     QVERIFY(store.isAvailable());
     QVERIFY(store.lastError().isEmpty());
     QCOMPARE(store.readSecret(QStringLiteral("@a:example.org"),
@@ -146,10 +137,8 @@ void PortableSecretStoreTest::roundTripsIncludingUnicodeAndLargeValues()
     QVERIFY(root.isValid());
     const QString dir = secretsDirIn(root);
 
-    // Unicode in the user id (a real localpart can be non-ASCII), in the key,
-    // and in the value. The document is JSON inside the sealed blob, so a
-    // UTF-8 round trip is exactly the thing that would break if anything on
-    // the path used a Latin-1 conversion.
+    // Unicode in the user id, key and value: a UTF-8 round trip breaks if
+    // anything on the path uses Latin-1.
     const QString user = QStringLiteral("@ąžuolas:例え.example.org");
     const QString key = QStringLiteral("accessToken-Ω");
     const QString value = QStringLiteral("syt_ĄČĘ-ẞ-😀-\u00a0-token");
@@ -204,9 +193,8 @@ void PortableSecretStoreTest::survivesRestartOverTheSameDirectory()
 
 void PortableSecretStoreTest::relocatesToADifferentAbsoluteRoot()
 {
-    // THE property of this round. Write under one absolute path, move the two
-    // files to a completely unrelated absolute path, and read them there.
-    // Nothing may be re-derived from where the folder happens to sit.
+    // Write under one absolute path, move the two files to an unrelated
+    // absolute path, and read them there.
     QTemporaryDir rootA;
     QTemporaryDir rootB;
     QVERIFY(rootA.isValid());
@@ -268,16 +256,14 @@ void PortableSecretStoreTest::writesNoAbsolutePathAndNoPlaintext()
     QVERIFY(!data.isEmpty());
     QVERIFY(!keyFile.isEmpty());
 
-    // No plaintext. If the token or the user id appeared here, the file is
-    // not sealed and the "obfuscation against casual inspection" claim in the
-    // header would be false.
+    // No plaintext: the token and user id must not appear in the file.
     QVERIFY(!data.contains(value.toUtf8()));
     QVERIFY(!data.contains(user.toUtf8()));
     QVERIFY(!keyFile.contains(value.toUtf8()));
     QVERIFY(!keyFile.contains(user.toUtf8()));
 
-    // No absolute path. A recorded path is the mechanism by which a "portable"
-    // folder stops being portable, so it is asserted rather than assumed.
+    // No absolute path: a recorded path is what would stop the folder being
+    // portable.
     const QByteArray absolute = QDir::toNativeSeparators(dir).toUtf8();
     const QByteArray absoluteForward = dir.toUtf8();
     QVERIFY(!data.contains(absolute));
@@ -314,11 +300,9 @@ void PortableSecretStoreTest::separateRootsCannotSeeEachOther()
 
 void PortableSecretStoreTest::aForeignDocumentFailsInsteadOfReadingEmpty()
 {
-    // A document sealed with a DIFFERENT key — what you get by copying half a
-    // folder, or by pairing secrets.dat from one install with secrets.key
-    // from another. GCM authentication must refuse it. The dangerous outcome
-    // would be returning empty, which reads as "this account has no saved
-    // sign-in" and can drive destructive cleanup of the wrong crypto store.
+    // A document sealed with a different key (half a folder copied, or files
+    // from two installs paired) must be refused by GCM authentication, not
+    // read as empty, which would look like "no saved sign-in".
     QTemporaryDir rootA;
     QTemporaryDir rootB;
     QVERIFY(rootA.isValid());
@@ -384,10 +368,8 @@ void PortableSecretStoreTest::truncatedDocumentFailsAndIsLeftUntouched()
 
 void PortableSecretStoreTest::zeroLengthDocumentFailsAndIsLeftUntouched()
 {
-    // The specific regression the draft had: a zero-byte secrets.dat is a
-    // truncation, not "nothing stored yet". Reading it as absent would let the
-    // next sign-in seal a brand new document over the wreckage, permanently
-    // discarding the saved device.
+    // A zero-byte secrets.dat is a truncation, not "nothing stored yet";
+    // treating it as absent would let the next sign-in seal over it.
     QTemporaryDir root;
     QVERIFY(root.isValid());
     const QString dir = secretsDirIn(root);
@@ -412,10 +394,8 @@ void PortableSecretStoreTest::zeroLengthDocumentFailsAndIsLeftUntouched()
 
 void PortableSecretStoreTest::zeroLengthKeyFileIsNeverMintedOver()
 {
-    // The worst reachable outcome, and the reason absent and empty are kept
-    // apart: minting a fresh key over a truncated secrets.key would orphan the
-    // sealed document beside it with no way back, while looking like a normal
-    // first run. The store must refuse and preserve BOTH files, so restoring
+    // Minting a fresh key over a truncated secrets.key would orphan the sealed
+    // document. The store must refuse and preserve both files so restoring
     // the key from a backup still works.
     QTemporaryDir root;
     QVERIFY(root.isValid());
@@ -485,8 +465,8 @@ void PortableSecretStoreTest::missingKeyFileFailsAndLeavesTheDocument()
 
 void PortableSecretStoreTest::flippedCiphertextByteFailsAuthentication()
 {
-    // One bit, deep inside the ciphertext. AEAD is what turns this into a hard
-    // refusal instead of plausible-looking garbage or a partial plaintext.
+    // One bit flipped inside the ciphertext: AEAD turns this into a hard
+    // refusal, not garbage.
     QTemporaryDir root;
     QVERIFY(root.isValid());
     const QString dir = secretsDirIn(root);
@@ -533,9 +513,7 @@ void PortableSecretStoreTest::deletionActuallyDeletes()
     QVERIFY(store.readSecret(user, QStringLiteral("accessToken")).isEmpty());
     QVERIFY(!store.lastReadFailed());
 
-    // Deleting nothing is reported as nothing, never as a successful removal:
-    // "target absent" and "removed" are different outcomes and conflating them
-    // hides a no-op repair behind a success message.
+    // Deleting nothing is reported as nothing, never as a successful removal.
     QVERIFY(!store.deleteSecret(user, QStringLiteral("accessToken")));
 
     // The deletion reached the disk, not just the in-memory view.
@@ -578,10 +556,8 @@ void PortableSecretStoreTest::clearAccountSecretsScopesToOneAccount()
 
 void PortableSecretStoreTest::everyWriteUsesAFreshNonce()
 {
-    // Nonce reuse under one key is the single fatal mistake in GCM. A counter,
-    // a timestamp or a content hash would all eventually repeat; this asserts
-    // the nonce is drawn fresh per write and that the same plaintext therefore
-    // never seals to the same bytes twice.
+    // Nonce reuse under one key is fatal in GCM: the nonce is fresh per write,
+    // so the same plaintext never seals to the same bytes twice.
     QTemporaryDir root;
     QVERIFY(root.isValid());
     const QString dir = secretsDirIn(root);
@@ -628,11 +604,8 @@ void PortableSecretStoreTest::ownerOnlyPermissionsWhereTheFilesystemSupportsThem
     QVERIFY(ownerOnly(keyPathIn(dir)));
     QVERIFY(ownerOnly(dir));
 #else
-    // FAT32/exFAT — the usual format of a USB stick, a completely normal home
-    // for a portable install — has no ownership bits at all, and Windows maps
-    // QFileDevice permissions only loosely. The call is still made because it
-    // costs nothing where it works, but it is not a guarantee and is therefore
-    // not asserted as one.
+    // FAT32/exFAT have no ownership bits and Windows maps QFileDevice
+    // permissions loosely, so owner-only permissions are not asserted here.
     QSKIP("owner-only permissions are not enforceable on this platform");
 #endif
 }
@@ -643,10 +616,8 @@ void PortableSecretStoreTest::neverClaimsToBeSecure()
     QVERIFY(root.isValid());
     PortableSecretStore store(secretsDirIn(root));
 
-    // isSecure() false keeps every existing "this is not an OS-backed store"
-    // warning surface lit. The key sits beside the ciphertext so the folder
-    // can move between machines: possession of the folder IS access to the
-    // session, and no user-facing string may imply otherwise.
+    // isSecure() is false: the key sits beside the ciphertext so the folder
+    // can move, and possession of the folder is access to the session.
     QVERIFY(!store.isSecure());
     const QString name = store.backendName();
     QVERIFY(!name.isEmpty());
@@ -655,11 +626,9 @@ void PortableSecretStoreTest::neverClaimsToBeSecure()
 
 // ── The insecure fallback's one predicate ───────────────────────────────
 //
-// Every destructive decision in the app keys on lastReadFailed(), so what it
-// means in SUBSTITUTED mode — a native backend compiled in but unavailable,
-// which is every Linux package on a machine with no keyring daemon — decides
-// whether a working install is told forever that it cannot read its own
-// sign-ins.
+// Destructive decisions key on lastReadFailed(). In substituted mode (a
+// native backend compiled in but unavailable, e.g. no keyring daemon) it
+// decides whether a working install is told it cannot read its sign-ins.
 
 void PortableSecretStoreTest::aSubstitutedFallbackVouchesForAReadThatFoundSomething()
 {
@@ -676,10 +645,8 @@ void PortableSecretStoreTest::aSubstitutedFallbackVouchesForAReadThatFoundSometh
     QCOMPARE(store.readSecret(QStringLiteral("@a:example.org"),
                               QStringLiteral("access_token")),
              QStringLiteral("syt_real_token"));
-    // FAIL-ON-OLD: `m_substitutedForNative || m_lastReadFailed` returned true
-    // here, so a machine whose tokens read back perfectly reported that its
-    // sign-ins could not be read — on every launch, forever, and it stopped
-    // AccountManager::needsSignIn() from ever reporting a real expiry.
+    // A substituted store that just read a secret back must vouch for it, or
+    // every launch reports unreadable sign-ins and hides real expiries.
     QVERIFY2(!store.lastReadFailed(),
              "a substituted store refused to vouch for a secret it had just "
              "returned; substitution makes a MISS ambiguous, never a hit");
@@ -694,9 +661,9 @@ void PortableSecretStoreTest::aSubstitutedFallbackStillRefusesToVouchForAMiss()
 
     // Nothing read yet: nothing proven yet.
     QVERIFY(store.lastReadFailed());
-    // A miss is exactly what this store cannot speak to — the native store it
-    // stood in for may hold the secret. §6: "no readable access token" is not
-    // "no account", and this is the predicate that keeps it so.
+    // A miss is exactly what this store cannot speak to: the native store it
+    // stood in for may hold the secret. "No readable token" is not "no
+    // account".
     QVERIFY(store.readSecret(QStringLiteral("@gone:example.org"),
                              QStringLiteral("access_token")).isEmpty());
     QVERIFY2(store.lastReadFailed(),
@@ -732,12 +699,9 @@ void PortableSecretStoreTest::aSubstitutedFallbackTrustsAMissForAnAccountItAlrea
     useTemporarySettings(root, QStringLiteral("fallback-known-account"));
     InsecureFallbackSecretStore store(nullptr, /*substitutedForNative=*/true);
 
-    // This account's record demonstrably lives HERE: the store holds its
-    // device id. A native store it stood in for is not where this account is
-    // being kept, so a missing access token is a fact about the account and
-    // not a blind spot — which is what lets a genuinely expired sign-in be
-    // reported as expired instead of as "unlock the keyring", advice that
-    // cannot be followed on a machine that has no keyring.
+    // This account's record demonstrably lives here (the store holds its
+    // device id), so a missing access token is a fact and a genuinely expired
+    // sign-in is reported as expired, not as "unlock the keyring".
     const QString known = QStringLiteral("@known:example.org");
     QVERIFY(store.storeSecret(known, QStringLiteral("device_id"),
                               QStringLiteral("ABCDEF")));
@@ -746,8 +710,7 @@ void PortableSecretStoreTest::aSubstitutedFallbackTrustsAMissForAnAccountItAlrea
              "a miss was called unknowable for an account this store already "
              "holds secrets for, so an expired sign-in could never be reported");
 
-    // ...and a STRANGER is still unknowable, which is the §6 half. Same store,
-    // same substituted mode, one different user id.
+    // ...and a stranger is still unknowable: same store, different user id.
     QVERIFY(store.readSecret(QStringLiteral("@stranger:example.org"),
                              QStringLiteral("access_token")).isEmpty());
     QVERIFY2(store.lastReadFailed(),
@@ -767,14 +730,9 @@ void PortableSecretStoreTest::aSubstitutedStoreNeverSoftensTheStructuralVerdict(
     QVERIFY(root.isValid());
     useTemporarySettings(root, QStringLiteral("fallback-structural"));
 
-    // TWO PREDICATES, AND THE DIFFERENCE PROTECTS A CRYPTO STORE.
-    //
-    // lastReadFailed() is per-READ and is allowed to soften: a substituted
-    // store vouches for a hit, and for a miss on an account it already holds.
-    // missesAreInconclusive() is STRUCTURAL and must never soften, because
-    // RustSdkMatrixClient's sign-in gate keys a destructive local reset on it
-    // — a repair that deletes real room keys must not become reachable just
-    // because one read happened to be conclusive.
+    // lastReadFailed() is per read and may soften; missesAreInconclusive() is
+    // structural and must not, because the sign-in gate keys a destructive
+    // local reset on it.
     InsecureFallbackSecretStore substituted(nullptr,
                                             /*substitutedForNative=*/true);
     QVERIFY(substituted.missesAreInconclusive());
@@ -786,7 +744,7 @@ void PortableSecretStoreTest::aSubstitutedStoreNeverSoftensTheStructuralVerdict(
              QStringLiteral("syt_real"));
     // The per-read verdict softened...
     QVERIFY(!substituted.lastReadFailed());
-    // ...and the structural one did NOT. This is the whole point.
+    // ...and the structural one did not.
     QVERIFY2(substituted.missesAreInconclusive(),
              "a successful read softened the STRUCTURAL verdict, which is what "
              "a destructive repair keys on");

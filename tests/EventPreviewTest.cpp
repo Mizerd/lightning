@@ -1,7 +1,6 @@
-// One-line semantic event summaries for the room list, DM list, and
-// notifications. The live regression this pins: a poll's multi-line MSC3381
-// fallback expanded its room-list row to five text lines, and mention sends
-// showed raw [label](https://matrix.to/...) markdown in previews.
+// One-line event summaries for the room list, DM list and notifications: a
+// poll's multi-line MSC3381 fallback stays one line, and mention markdown
+// ([label](https://matrix.to/...)) renders as the label.
 
 #include "matrix/EventPreview.h"
 #include "matrix/TimelineEvent.h"
@@ -94,8 +93,8 @@ private Q_SLOTS:
         QCOMPARE(oneLineSummary(e), QStringLiteral("Sticker"));
     }
 
-    // An MSC4274 gallery (Sable, 2026-09-23): the row's media fields name its
-    // PRIMARY picture, and "before.png" is not a summary of two screenshots.
+    // An MSC4274 gallery's media fields name its primary picture, which is not
+    // a summary of the whole gallery.
     void galleriesSummarizeAsWhatTheyHold()
     {
         TimelineEvent e;

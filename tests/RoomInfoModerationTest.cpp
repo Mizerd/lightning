@@ -1,7 +1,7 @@
-// 2026-08-14: moderation (kick / ban) through RoomInfoController — snapshot
-// permission ingestion (canKick/canBan/ownPowerLevel + per-member power
-// levels), gating on the SDK-derived flags, one-in-flight discipline,
-// sanitized result mapping, and stale-result rejection after a room switch.
+// Moderation (kick / ban) through RoomInfoController: snapshot permission
+// ingestion (canKick/canBan/ownPowerLevel + per-member power levels), gating
+// on the SDK-derived flags, one-in-flight discipline, sanitized result
+// mapping, and stale-result rejection after a room switch.
 
 #include "app/RoomInfoController.h"
 #include "matrix/MatrixClient.h"
@@ -201,9 +201,9 @@ private Q_SLOTS:
                  qlonglong(0));
     }
 
-    // Review M3: the offer/dispatch policy lives in the controller, not
-    // QML — equal power, higher power, self, an unknown target and a
-    // NEGATIVE-but-known power level must all resolve here.
+    // The offer/dispatch policy lives in the controller, not QML: equal power,
+    // higher power, self, an unknown target and a negative-but-known level all
+    // resolve here.
     void canModerateEnforcesPowerLevelPolicy()
     {
         FakeClient client;
@@ -294,11 +294,9 @@ private Q_SLOTS:
         QVERIFY(controller.moderationPending());
     }
 
-    // Review MU1: unban's required level is max(ban, kick) — a room with
-    // kick above ban grants can_ban WITHOUT can_unban, and the client
-    // must not offer an unban the server will reject. The flag comes
-    // from the SDK's PowerLevelAction::Unban helper, never derived from
-    // the ban flag.
+    // Unban's required level is max(ban, kick), so a room with kick above ban
+    // grants can_ban without can_unban. The flag comes from the SDK's
+    // PowerLevelAction::Unban, never derived from the ban flag.
     void unbanHasItsOwnPermissionFlag()
     {
         FakeClient client;
@@ -392,8 +390,8 @@ private Q_SLOTS:
         QCOMPARE(client.inviteCalls, 1);
     }
 
-    // Review M2: the roster refresh after a successful action is
-    // CLIENT-initiated — sync never emits a members snapshot by itself.
+    // The roster refresh after a successful action is client-initiated: sync
+    // never emits a members snapshot by itself.
     void successfulActionRefreshesRoster()
     {
         FakeClient client;
@@ -426,8 +424,8 @@ private Q_SLOTS:
         QCOMPARE(client.memberCalls, 2);
     }
 
-    // Review L2: a synchronous dispatch rejection (backend returns op 0)
-    // reports honestly instead of arming the confirm surface forever.
+    // A synchronous dispatch rejection (op 0) reports a failure instead of
+    // arming the confirm surface forever.
     void synchronousRejectionReportsFailure()
     {
         FakeClient client;

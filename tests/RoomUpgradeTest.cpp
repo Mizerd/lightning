@@ -1,24 +1,21 @@
-// v0.7.x room upgrades (`m.room.tombstone`) — RoomUpgradeController policy
-// and the room list's de-emphasis rule. Pins the banner-and-link contract:
+// Room upgrades (`m.room.tombstone`): RoomUpgradeController policy and the
+// room list's de-emphasis rule.
 //   * a tombstoned active room reports `upgraded` with its successor;
-//   * a successor Lightning has never heard of is Unknown, NOT
-//     NotAccessible — the banner still offers Continue;
-//   * an already-joined successor navigates and performs NO join;
-//   * an invited/unknown successor joins FIRST and navigates only once the
-//     join has settled;
-//   * a FAILED join leaves the user in the old room, with the reason shown;
-//   * `chainVerified` requires the successor to point BACK at this room;
-//   * the room list de-emphasizes an upgraded room only once its successor
-//     is actually reachable, and DEMOTES rather than filters it;
-//   * a room switch and sign-out drop error/busy state, and a late answer
-//     for the previous room can never navigate the current one;
-//   * nothing follows an upgrade on its own — observing a tombstone never
-//     changes the current room and never issues a join.
+//   * a successor Lightning has never seen is Unknown, not NotAccessible, and
+//     the banner still offers Continue;
+//   * an already-joined successor navigates without joining;
+//   * an invited/unknown successor is joined first and navigated to only once
+//     the join settles;
+//   * a failed join leaves the user in the old room with the reason shown;
+//   * `chainVerified` requires the successor to point back at this room;
+//   * the room list de-emphasizes an upgraded room only once its successor is
+//     reachable, and demotes rather than filters it;
+//   * a room switch and sign-out drop error/busy state, and a late answer for
+//     the previous room never navigates the current one;
+//   * observing a tombstone never changes the room or issues a join.
 //
-// HONEST SCOPE: policy and wiring only. A real homeserver upgrading a room,
-// a real `m.room.tombstone` arriving over sync, the successor's own
-// `m.room.create.predecessor` as a live server would populate it, and
-// Element interoperability are NOT exercised here and are NOT TESTED.
+// Policy and wiring only; a real homeserver upgrade, a live tombstone over
+// sync and Element interoperability are not tested here.
 
 #include "app/RoomDiscoveryController.h"
 #include "app/RoomUpgradeController.h"
@@ -45,13 +42,11 @@ public:
     int joinCalls = 0;
     QString lastJoinTarget;
     quint64 lastJoinOp = 0;
-    // v0.9 send side.
+    // Upgrade (send side).
     int versionRequests = 0;
     QString lastUpgradeVersion;
-    // The room /upgrade was actually asked to destroy. This double used to
-    // DISCARD it, which is why nothing here could see that the controller
-    // upgraded whatever room happened to be open rather than the one the
-    // dialog named. Keep it recorded.
+    // The room /upgrade was asked to act on, recorded so a test can see which
+    // room the controller targeted.
     QString lastUpgradeRoomId;
     quint64 lastUpgradeOp = 0;
     bool refuseUpgrades = false;
@@ -133,9 +128,9 @@ RoomInfo room(const QString &id,
     return info;
 }
 
-// The three objects under test, wired exactly as AppController wires them:
-// the upgrade controller drives Discover's join, and Discover's settled
-// roomJoined is what actually navigates.
+// The three objects under test, wired as AppController wires them: the
+// upgrade controller drives Discover's join, and Discover's settled
+// roomJoined navigates.
 struct Harness {
     FakeClient client;
     RoomDiscoveryController discovery;
@@ -144,20 +139,17 @@ struct Harness {
 
     Harness()
     {
-        // Same ORDER as AppController::setClient (AppController.cpp:460
-        // then :473). Connection order is emission order, so the upgrade
-        // controller's loggedOut handler must run FIRST here exactly as it
-        // does in production — wiring these the other way round quietly
-        // changes which handler sees m_pendingJoinRoomId still populated.
+        // Same order as AppController::setClient: connection order is
+        // emission order, so the upgrade controller's loggedOut handler runs
+        // first here, as in production.
         upgrade.setClient(&client);
         discovery.setClient(&client);
         upgrade.setDiscovery(&discovery);
         QObject::connect(&upgrade, &RoomUpgradeController::navigateRequested,
                          [this](const QString &id) { navigations.append(id); });
-        // Mirrors AppController's real connection, suppression included —
-        // testing consumeAbandonedJoin as a bare predicate would leave the
-        // wiring itself, and the whole roomJoinFinished -> finishWaitForRoom
-        // -> busyChanged -> roomJoined -> suppression chain, uncovered.
+        // Mirrors AppController's real connection, including suppression, so
+        // the roomJoinFinished -> finishWaitForRoom -> busyChanged ->
+        // roomJoined -> suppression chain is covered.
         QObject::connect(&discovery, &RoomDiscoveryController::roomJoined,
                          [this](const QString &id) {
             if (upgrade.consumeAbandonedJoin(id))
@@ -177,8 +169,7 @@ class RoomUpgradeTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    // 1. The basic fact: an active room carrying a tombstone reports it.
-    // ── v0.9 send side (phase 8) ──────────────────────────────────────
+    // Upgrading a room (send side).
 
     void versionsComeFromTheServerAndAFailedReadLeavesNothingToPick()
     {
@@ -216,36 +207,27 @@ private Q_SLOTS:
         QVERIFY(!h.upgrade.upgradeBusy());
     }
 
-    // THE DEFECT THIS PINS. This controller tracks the ACTIVE room, because
-    // the tombstone banner sits above the open timeline. The upgrade is
-    // offered from two surfaces that are NOT the active room: Room
-    // Information (which can show a Space home) and Space settings, a modal
-    // that opens over whatever room the user was reading WITHOUT navigating.
-    // upgradeRoom() used to take no target and used m_roomId, so "Upgrade
-    // space…" irreversibly tombstoned the room behind the dialog while the
-    // confirmation displayed the space's name and version. An upgrade cannot
-    // be undone, which makes this the most expensive wrong target in the
-    // client. On the unfixed controller this case fails: the fake receives
-    // kOld.
+    // An upgrade acts on the room the caller named, not the active room: Room
+    // Information and Space settings can offer it for a room other than the
+    // one open, and an upgrade cannot be undone.
     void anUpgradeDestroysTheRoomTheCallerNamedNotTheOpenOne()
     {
         const QString space = QStringLiteral("!space:example.org");
         Harness h;
         h.client.setRooms({ room(kOld), room(space) });
-        // The reader is in kOld; that is what this controller tracks.
+        // The reader is in kOld, which this controller tracks.
         h.upgrade.setRoomId(kOld);
         Q_EMIT h.client.roomVersionsReceived(
             true, QStringLiteral("10"),
             { QVariantMap{ { QStringLiteral("version"), QStringLiteral("10") },
                            { QStringLiteral("stable"), true } } });
-        // Space settings upgrades the SPACE while kOld stays open.
+        // Space settings upgrades the space while kOld stays open.
         h.upgrade.upgradeRoom(space, QStringLiteral("10"), false);
         QCOMPARE(h.client.lastUpgradeRoomId, space);
         QVERIFY(h.client.lastUpgradeRoomId != kOld);
     }
 
-    // A target the caller could not supply is reported, never guessed at and
-    // never silently dropped: the button was otherwise dead with no reason.
+    // With no named room the upgrade refuses and says why, never guessing.
     void anUpgradeWithNoNamedRoomRefusesAndSaysSo()
     {
         Harness h;
@@ -261,10 +243,8 @@ private Q_SLOTS:
         QVERIFY(!h.upgrade.upgradeBusy());
     }
 
-    // "The server did nothing" and "the server upgraded the room but did not
-    // name the replacement" are different outcomes. The old room is already
-    // tombstoned in the second, so reporting "Nothing was changed" is a lie
-    // (§6).
+    // "The server upgraded the room but named no replacement" is not
+    // "nothing changed": the old room is already tombstoned.
     void anUpgradeWithNoReplacementIdDoesNotClaimNothingChanged()
     {
         Harness h;
@@ -327,6 +307,7 @@ private Q_SLOTS:
         QVERIFY(h.upgrade.lastReplacementRoomId().isEmpty());
     }
 
+    // An active room carrying a tombstone reports it.
     void tombstonedRoomReportsItsSuccessor()
     {
         Harness h;
@@ -335,15 +316,14 @@ private Q_SLOTS:
 
         QVERIFY(h.upgrade.upgraded());
         QCOMPARE(h.upgrade.successorRoomId(), kNew);
-        // A room with no tombstone must not claim one.
+        // A room with no tombstone does not claim one.
         h.upgrade.setRoomId(kNew);
         QVERIFY(!h.upgrade.upgraded());
         QVERIFY(h.upgrade.successorRoomId().isEmpty());
     }
 
-    // 2. The honesty rule that matters most: not knowing the successor is
-    // Unknown, never NotAccessible. Claiming inaccessibility we cannot
-    // demonstrate would hide a room the user could have joined.
+    // An unknown successor is Unknown, never NotAccessible: claiming
+    // inaccessibility we cannot show would hide a joinable room.
     void unknownSuccessorIsUnknownNotInaccessible()
     {
         Harness h;
@@ -352,13 +332,13 @@ private Q_SLOTS:
 
         QCOMPARE(h.upgrade.successorAccess(),
                  int(RoomUpgradeController::Unknown));
-        // ...and the banner is still actionable, which is the point.
+        // ...and the banner stays actionable.
         QVERIFY(h.upgrade.upgraded());
         QVERIFY(!h.upgrade.busy());
     }
 
-    // A successor we DO hold, that the user is not in, is the one case we
-    // can honestly call inaccessible.
+    // A successor we hold but the user is not in is the one case we can call
+    // inaccessible.
     void heldButUnjoinedSuccessorIsNotAccessible()
     {
         Harness h;
@@ -374,7 +354,7 @@ private Q_SLOTS:
         QVERIFY(!h.upgrade.error().isEmpty());
     }
 
-    // 3. Already a member: navigate, and issue no join at all.
+    // Already a member: navigate without joining.
     void joinedSuccessorNavigatesWithoutJoining()
     {
         Harness h;
@@ -390,9 +370,8 @@ private Q_SLOTS:
         QVERIFY(h.upgrade.error().isEmpty());
     }
 
-    // 4. Invited: join FIRST, and navigate only once the join has settled.
-    // Navigating on the request rather than the answer would drop the user
-    // into a room they are not yet in.
+    // Invited: join first and navigate only once the join settles, not on the
+    // request.
     void invitedSuccessorJoinsBeforeNavigating()
     {
         Harness h;
@@ -406,7 +385,7 @@ private Q_SLOTS:
         QCOMPARE(h.client.joinCalls, 1);
         QCOMPARE(h.client.lastJoinTarget, kNew);
         QVERIFY(h.upgrade.busy());
-        // Nothing yet: the join is in flight.
+        // The join is in flight.
         QVERIFY(h.navigations.isEmpty());
 
         // The server accepts, and the room turns up as joined.
@@ -419,8 +398,8 @@ private Q_SLOTS:
         QVERIFY(!h.upgrade.busy());
     }
 
-    // 5. The contract's hard requirement: a failed join must leave the user
-    // exactly where they were, with the reason visible in the old room.
+    // A failed join leaves the user where they were, with the reason shown in
+    // the old room.
     void failedJoinStaysPutAndReportsWhy()
     {
         Harness h;
@@ -433,45 +412,43 @@ private Q_SLOTS:
         Q_EMIT h.client.roomJoinFinished(h.client.lastJoinOp, false, QString(),
                                          QStringLiteral("banned"));
         QTRY_VERIFY_WITH_TIMEOUT(!h.upgrade.error().isEmpty(), kSignalTimeoutMs);
-        // No navigation happened, and the failure is stated rather than
-        // swallowed.
+        // No navigation, and the failure is stated.
         QVERIFY(h.navigations.isEmpty());
         QVERIFY(!h.upgrade.busy());
-        // The category maps through Discover's own text, so the banner and
-        // the Discover dialog cannot describe the same refusal differently.
+        // The category maps through Discover's own text, so the banner and the
+        // Discover dialog describe a refusal the same way.
         QCOMPARE(h.upgrade.error(),
                  RoomDiscoveryController::describeJoinCategory(
                      QStringLiteral("banned")));
     }
 
-    // 6. The defensive check the maintainer asked for. An unverifiable
-    // chain is "not established yet" and still actionable; a CONTRADICTED
-    // one is evidence something is wrong.
+    // An unverifiable chain is "not established yet" and still actionable; a
+    // contradicted one is a warning sign.
     void chainVerificationRequiresThePointerBack()
     {
         Harness h;
 
-        // Successor unknown -> cannot verify, but still offered.
+        // Successor unknown: cannot verify, but still offered.
         h.client.setRooms({ room(kOld, RoomInfo::Joined, kNew) });
         h.upgrade.setRoomId(kOld);
         QVERIFY(!h.upgrade.chainVerified());
         QVERIFY(h.upgrade.upgraded());
 
-        // Successor points back -> established.
+        // Successor points back: established.
         h.client.setRooms({ room(kOld, RoomInfo::Joined, kNew),
                             room(kNew, RoomInfo::Joined, QString(), kOld) });
         QVERIFY(h.upgrade.chainVerified());
 
-        // Successor names a DIFFERENT predecessor -> not this room's
-        // replacement, whatever the tombstone claims.
+        // Successor names a different predecessor: not this room's
+        // replacement, whatever the tombstone says.
         h.client.setRooms({ room(kOld, RoomInfo::Joined, kNew),
                             room(kNew, RoomInfo::Joined, QString(),
                                  QStringLiteral("!other:example.org")) });
         QVERIFY(!h.upgrade.chainVerified());
     }
 
-    // 8. A room switch drops error and busy state; a late answer belonging
-    // to the previous room must not navigate the current one.
+    // A room switch drops error and busy state; a late answer for the
+    // previous room does not navigate the current one.
     void roomSwitchDropsStateAndRejectsLateAnswers()
     {
         Harness h;
@@ -485,8 +462,7 @@ private Q_SLOTS:
         QVERIFY(!h.upgrade.busy());
         QVERIFY(h.upgrade.error().isEmpty());
 
-        // The previous room's join lands late. It must not navigate us out
-        // of the room the user just opened.
+        // The previous room's join lands late and must not move the user.
         Q_EMIT h.client.roomJoinFinished(staleOp, false, QString(),
                                          QStringLiteral("forbidden"));
         QCoreApplication::processEvents();
@@ -510,9 +486,8 @@ private Q_SLOTS:
         QVERIFY(h.upgrade.error().isEmpty());
     }
 
-    // 9. The whole point of banner-and-link. Merely observing a tombstone —
-    // including one that arrives live for the room the user is reading —
-    // must never move them or join anything.
+    // Observing a tombstone, even live in the open room, never moves the user
+    // or joins anything.
     void observingATombstoneNeverFollowsIt()
     {
         Harness h;
@@ -526,21 +501,16 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
 
         QVERIFY(h.upgrade.upgraded());
-        // ...and absolutely nothing happened to the user.
+        // ...and nothing happened to the user.
         QCOMPARE(h.client.joinCalls, 0);
         QVERIFY2(h.navigations.isEmpty(),
                  "a tombstone must never navigate by itself");
     }
 
-    // navigateRequested is a DIRECT connection to AppController::openRoom,
-    // whose `const QString &` parameter aliases whatever the emitter passed.
-    // openRoom calls setCurrentRoomId, which calls our setRoomId, whose
-    // refresh() clears m_successorRoomId — so emitting the member itself
-    // left openRoom's own parameter reading empty for the rest of the
-    // function, skipping openRoomTimeline and leaving the successor's
-    // timeline never opened. The harness's other slots copy the argument
-    // immediately and therefore cannot see this; this one re-enters the
-    // controller exactly as openRoom really does.
+    // navigateRequested is a direct connection to AppController::openRoom,
+    // whose const-reference parameter aliases what the emitter passed, and
+    // openRoom re-enters setRoomId (which clears m_successorRoomId). The
+    // emitted argument must be a copy that survives that re-entry.
     void navigationArgumentSurvivesTheControllerReentering()
     {
         Harness h;
@@ -551,8 +521,7 @@ private Q_SLOTS:
         QString seenAfterReentry;
         QObject::connect(&h.upgrade, &RoomUpgradeController::navigateRequested,
                          [&](const QString &roomId) {
-            // Exactly what openRoom does between reading roomId the first
-            // time and reading it again for openRoomTimeline.
+            // What openRoom does between its two reads of roomId.
             h.upgrade.setRoomId(roomId);
             seenAfterReentry = roomId;
         });
@@ -580,9 +549,8 @@ private Q_SLOTS:
         QCOMPARE(seenAfterReentry, kOld);
     }
 
-    // A join the banner started and the user then walked away from must not
-    // navigate them back when it settles. Pressing Continue is consent to
-    // switch NOW, not whenever the bounded wait resolves.
+    // A join the user walked away from does not navigate them back when it
+    // settles: Continue means switch now, not whenever the wait resolves.
     void abandonedJoinDoesNotNavigateLater()
     {
         Harness h;
@@ -594,19 +562,15 @@ private Q_SLOTS:
         // The user opens another room while the join is in flight.
         h.upgrade.setRoomId(QStringLiteral("!third:example.org"));
         QVERIFY(h.upgrade.consumeAbandonedJoin(kNew));
-        // Consumed once: a later deliberate join of the same room still
-        // navigates normally.
+        // Consumed once: a later deliberate join of the same room navigates.
         QVERIFY(!h.upgrade.consumeAbandonedJoin(kNew));
         // An unrelated room is never suppressed.
         QVERIFY(!h.upgrade.consumeAbandonedJoin(kOld));
     }
 
-    // The suppression token must not outlive the join it belongs to. An
-    // abandoned join that FAILS emits no roomJoined ever, so a token kept
-    // past that failure would sit there and swallow the navigation of a
-    // later, deliberate Continue — the user presses the button, the join
-    // succeeds, and nothing happens. Driven end to end through the real
-    // signals, not by calling the predicate directly.
+    // The suppression token does not outlive its join: an abandoned join that
+    // fails never emits roomJoined, so a lingering token would swallow a later
+    // deliberate Continue. Driven end to end through the real signals.
     void abandonedJoinThatFailedDoesNotSwallowALaterSuccess()
     {
         Harness h;
@@ -620,13 +584,12 @@ private Q_SLOTS:
         // 2. The user opens another room while it is in flight.
         h.upgrade.setRoomId(QStringLiteral("!third:example.org"));
 
-        // 3. That join then FAILS. No roomJoined will ever follow it.
+        // 3. That join fails; no roomJoined follows.
         Q_EMIT h.client.roomJoinFinished(firstOp, false, QString(),
                                          QStringLiteral("forbidden"));
         QCoreApplication::processEvents();
 
-        // 4. Back in the old room, press Continue again — and this time it
-        //    works. The user must actually end up in the new room.
+        // 4. Back in the old room, Continue again, and this time it works.
         h.upgrade.setRoomId(kOld);
         h.upgrade.continueToSuccessor();
         QCOMPARE(h.client.joinCalls, 2);
@@ -638,20 +601,10 @@ private Q_SLOTS:
         QCOMPARE(h.navigations.last(), kNew);
     }
 
-    // Sign-out must not leave a token behind: Discover cannot emit a late
-    // roomJoined across it, so the token protects nothing and could only
-    // swallow the NEXT account's navigation.
-    //
-    // AppController wires the upgrade controller's client BEFORE Discover's
-    // (AppController.cpp:460 then :473), and connection order is emission
-    // order — so on sign-out OUR loggedOut handler runs first, while
-    // m_pendingJoinRoomId is still populated. The version that SET a token
-    // there therefore left real account-scoped residue, able to swallow the
-    // next account's navigation; it was not dead code. The harness above
-    // mirrors that order deliberately, so this case exercises the
-    // production path rather than an accidental one — and it FAILS against
-    // the version that set the token, which an earlier harness (wired in
-    // the opposite order) could not show.
+    // Sign-out leaves no suppression token behind (it could only swallow the
+    // next account's navigation). The upgrade controller's loggedOut handler
+    // runs before Discover's (wiring order), while m_pendingJoinRoomId is still
+    // set; the harness mirrors that order.
     void signOutLeavesNoSuppressionResidue()
     {
         Harness h;
@@ -666,8 +619,8 @@ private Q_SLOTS:
                  "a sign-out must not leave a suppression token behind");
     }
 
-    // A join that settles while the user is still in the room they started
-    // it from is NOT abandoned and must navigate.
+    // A join that settles while the user is still in the originating room is
+    // not abandoned and navigates.
     void joinCompletedInPlaceIsNotSuppressed()
     {
         Harness h;
@@ -677,10 +630,8 @@ private Q_SLOTS:
         QVERIFY(!h.upgrade.consumeAbandonedJoin(kNew));
     }
 
-    // The banner must not display a refusal that belonged to some OTHER
-    // Discover operation. cancelKnock() has no busy guard, so withdrawing a
-    // knock while an upgrade join is in flight used to paint that unrelated
-    // failure into the banner and swallow the real answer.
+    // The banner does not show a refusal from another Discover operation
+    // (cancelKnock() has no busy guard, so it can fail mid-upgrade).
     void unrelatedDiscoverFailureDoesNotSurfaceInTheBanner()
     {
         Harness h;
@@ -689,7 +640,7 @@ private Q_SLOTS:
         h.upgrade.continueToSuccessor();
         QVERIFY(h.upgrade.busy());
 
-        // A knock withdrawal for a completely different room fails.
+        // A knock withdrawal for a different room fails.
         Q_EMIT h.client.knockCancelFinished(
             h.client.nextOp++, false, QStringLiteral("!knocked:example.org"),
             QStringLiteral("forbidden"));
@@ -701,9 +652,8 @@ private Q_SLOTS:
                  "and it must not resolve our still-pending join");
     }
 
-    // 7. The room list. De-emphasis waits for the successor to be ACTUALLY
-    // reachable, and it is a demotion — never a filter, because the old
-    // room has to stay openable and readable.
+    // Room list de-emphasis waits until the successor is actually reachable
+    // and demotes rather than filters: the old room stays openable.
     void roomListDemotesOnlyOnceTheSuccessorIsReachable()
     {
         FakeClient client;
@@ -724,8 +674,7 @@ private Q_SLOTS:
                 .toBool();
         };
 
-        // Tombstoned, successor unknown: nothing is de-emphasized, because
-        // we cannot show the user can reach the replacement.
+        // Tombstoned, successor unknown: nothing is de-emphasized.
         client.setRooms({ room(kOld, RoomInfo::Joined, kNew),
                           room(QStringLiteral("!live:example.org")) });
         QCoreApplication::processEvents();
@@ -733,7 +682,7 @@ private Q_SLOTS:
         QVERIFY2(oldRow >= 0, "the upgraded room must stay in the list");
         QVERIFY(!supersededAt(oldRow));
 
-        // Successor present and joined, and it points back: now it counts.
+        // Successor present, joined and pointing back: now it counts.
         client.setRooms({ room(kOld, RoomInfo::Joined, kNew),
                           room(QStringLiteral("!live:example.org")),
                           room(kNew, RoomInfo::Joined, QString(), kOld) });
@@ -742,13 +691,13 @@ private Q_SLOTS:
         QVERIFY2(oldRow >= 0,
                  "de-emphasis must DEMOTE the old room, never remove it");
         QVERIFY(supersededAt(oldRow));
-        // Demoted below the live room rather than hidden.
+        // Demoted below the live room, not hidden.
         const int liveRow = rowFor(QStringLiteral("!live:example.org"));
         QVERIFY(liveRow >= 0);
         QVERIFY2(oldRow > liveRow, "a superseded room sorts below live rooms");
 
-        // A successor naming someone else's predecessor is not this room's
-        // replacement, so the row is left alone.
+        // A successor naming another predecessor is not this room's
+        // replacement.
         client.setRooms({ room(kOld, RoomInfo::Joined, kNew),
                           room(QStringLiteral("!live:example.org")),
                           room(kNew, RoomInfo::Joined, QString(),
@@ -760,11 +709,9 @@ private Q_SLOTS:
                  "a contradicted chain must not bury a live room");
     }
 
-    // RoomsPanel sections the list by the `category` role, so each category
-    // must stay ONE contiguous run. A superseded room therefore sinks within
-    // its own category, never below every other room — a fourth top-level
-    // sort group put a second "PEOPLE"/"ROOMS" header at the bottom of the
-    // list and demoted a superseded INVITE out of the top block.
+    // Each category stays one contiguous run (RoomsPanel sections by
+    // `category`), so a superseded room sinks within its own category rather
+    // than forming another sort group.
     void demotionStaysInsideTheRoomsCategorySoSectionsRemainContiguous()
     {
         FakeClient client;
@@ -809,12 +756,9 @@ private Q_SLOTS:
         QCOMPARE(runs.size(), seen.size());
     }
 
-    // The de-emphasis flips when the SUCCESSOR changes, not the old room —
-    // so the old row's own RoomInfo is identical across the change and
-    // replaceRoom's equality check skips its dataChanged. Without an
-    // explicit notification the chip would not appear until something
-    // unrelated about the old room happened to change. Reading data()
-    // cannot catch that; only the signal can.
+    // The de-emphasis flips when the successor changes, while the old row's
+    // RoomInfo is unchanged (so replaceRoom emits no dataChanged); an explicit
+    // notification is required, which only the signal can show.
     void supersededFlipNotifiesTheViewEvenThoughTheRowIsUnchanged()
     {
         FakeClient client;
@@ -826,8 +770,7 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
 
         QSignalSpy changes(&model, &QAbstractItemModel::dataChanged);
-        // Only the successor arrives. The old room's RoomInfo is byte-for-byte
-        // what it already was.
+        // Only the successor arrives; the old room's RoomInfo is unchanged.
         client.setRooms({ oldRoom, room(kNew, RoomInfo::Joined, QString(), kOld) });
         QCoreApplication::processEvents();
 
@@ -853,9 +796,8 @@ private Q_SLOTS:
                  "becomes reachable");
     }
 
-    // The same trap one layer down: if RoomInfo::operator== ignored the new
-    // fields, a room that JUST got tombstoned would compare equal to its
-    // pre-tombstone self and the banner would not appear at all.
+    // RoomInfo::operator== includes the upgrade fields, or a newly tombstoned
+    // room would compare equal to its old self and no banner would appear.
     void roomInfoEqualityAccountsForTheUpgradeFields()
     {
         RoomInfo before = room(kOld);
@@ -868,8 +810,8 @@ private Q_SLOTS:
         QVERIFY(before != withPredecessor);
     }
 
-    // The predecessor link is independent of `upgraded`: a room can be both
-    // someone's successor and someone else's predecessor.
+    // The predecessor link is independent of `upgraded`: a room can be both a
+    // successor and a predecessor.
     void predecessorLinkNeedsNoJoinAndIsIndependent()
     {
         Harness h;
@@ -887,10 +829,8 @@ private Q_SLOTS:
         QCOMPARE(h.navigations, QStringList{ kOld });
     }
 
-    // ...but only for a predecessor we actually hold. There is no join step
-    // on that link, so offering it for a room we have no record of — a user
-    // who joined the successor without ever being in the old room — could
-    // only ever open an empty view.
+    // The predecessor link is offered only for a room we hold: it has no join
+    // step, so for an unknown room it could only open an empty view.
     void predecessorLinkIsWithheldForARoomWeDoNotHold()
     {
         Harness h;

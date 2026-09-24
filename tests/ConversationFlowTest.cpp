@@ -1,7 +1,7 @@
-// v0.5.9: deterministic tests for user search (debounce, stale-result
-// rejection, deduplication, exact-MXID handling) and the conversation flows
-// (existing-DM reuse, DM/room creation, duplicate-submission blocking,
-// invite batches with partial success, sign-out invalidation).
+// User search (debounce, stale-result rejection, dedup, exact-MXID handling)
+// and conversation flows (existing-DM reuse, DM/room creation, duplicate
+// submission blocking, invite batches with partial success, sign-out
+// invalidation).
 
 #include "app/ConversationController.h"
 #include "matrix/MatrixClient.h"
@@ -66,7 +66,7 @@ public:
     bool canPaginate(const QString &) const override { return false; }
     bool paginating(const QString &) const override { return false; }
 
-    // v0.5.9 command surface.
+    // Command surface.
     bool supportsRoomManagement() const override { return true; }
     quint64 searchUsers(const QString &query, int) override
     {
@@ -228,7 +228,7 @@ private Q_SLOTS:
         model.setQuery(QStringLiteral("@carol:example.org"));
         QTRY_COMPARE(client.searchCalls, 1);
 
-        // Directory does not know the user — the typed MXID still appears.
+        // The directory does not know the user; the typed MXID still appears.
         Q_EMIT client.userSearchFinished(client.lastOpId, true, {}, false,
                                          QString());
         QCOMPARE(model.rowCount(), 1);
@@ -303,7 +303,7 @@ private Q_SLOTS:
         Q_EMIT client.dmCreateFinished(client.lastOpId, true,
                                        QStringLiteral("!new:example.org"),
                                        QString());
-        // Not open yet — the room is not in the authoritative list.
+        // Not open yet: the room is not in the authoritative list.
         QCOMPARE(ready.count(), 0);
         QVERIFY(controller.busy());
 
@@ -335,11 +335,11 @@ private Q_SLOTS:
         controller.startDirectMessage(QStringLiteral("@alice:example.org"));
         const quint64 op = client.lastOpId;
 
-        // Sign-out clears the pending operation…
+        // Sign-out clears the pending operation...
         Q_EMIT client.loggedOut();
         QVERIFY(!controller.busy());
 
-        // …so the late completion may not open anything.
+        // ...so the late completion opens nothing.
         Q_EMIT client.dmCreateFinished(op, true,
                                        QStringLiteral("!late:example.org"),
                                        QString());
@@ -399,9 +399,9 @@ private Q_SLOTS:
 
     void spaceCreateEmitsSpaceReadyNeverConversationReady()
     {
-        // An m.space room must never be opened as a message timeline: the
+        // An m.space room is never opened as a message timeline: the
         // controller owns the isSpace decision (a dialog closed mid-create
-        // cannot reroute it) and emits spaceReady instead.
+        // cannot reroute it) and emits spaceReady.
         FakeClient client;
         ConversationController controller;
         controller.setClient(&client);
@@ -496,8 +496,8 @@ private Q_SLOTS:
         QCOMPARE(client.avatarCalls, 1);
         const quint64 avatarOp = client.lastOpId;
 
-        // The room opens BEFORE the avatar upload completes — the pending
-        // avatar op is outside busy() and can never stall the open.
+        // The room opens before the avatar upload completes: the avatar op is
+        // outside busy() and cannot stall the open.
         client.mirror = { makeRoom(QStringLiteral("!r:example.org")) };
         Q_EMIT client.roomsChanged();
         QCOMPARE(ready.count(), 1);
@@ -620,23 +620,11 @@ private Q_SLOTS:
         QVERIFY(!controller.busy());
     }
 
-    // SEVEN EMPTY ROOMS. Reported 2026-09-20 by a user starting a DM with
-    // someone on ANOTHER homeserver: "it just created many empty rooms on the
-    // client and never completes or send anything to the remote user."
-    //
-    // `Client::create_dm` is a single /createRoom carrying the invite, and the
-    // server federates that invite before it answers — so an unreachable peer
-    // server can hang it. The dialog spins; the user closes it; `onClosed:
-    // resetAll()` called `conversations.reset()`, which zeroed `m_pendingOp`
-    // and made `busy()` false WHILE THE CREATE WAS STILL RUNNING. Reopen,
-    // click again, and that is a second /createRoom. Every hung call still
-    // lands server-side, so each attempt leaves a room behind — and none of
-    // them gets the m.direct write that would let `existingDms` offer it for
-    // reuse, which is why they are all "Empty Room" and why the UI kept
-    // offering to create another.
-    //
-    // Closing a dialog cannot cancel a server-side room creation, so the
-    // guard must survive it.
+    // Closing the dialog must not unlock a second create. `Client::create_dm`
+    // is one /createRoom carrying the invite, and an unreachable peer server
+    // can hang it; the server still creates the room, without the m.direct
+    // write that would let it be reused. So reset() keeps the pending guard,
+    // bounded by the late answer.
     void closingTheDialogDoesNotUnlockASecondCreate()
     {
         FakeClient client;
@@ -647,8 +635,7 @@ private Q_SLOTS:
         QCOMPARE(client.createDmCalls, 1);
         QVERIFY(controller.busy());
 
-        // The create has not answered — the peer's server is not responding.
-        // The user gives up on the dialog and closes it.
+        // The create has not answered; the user closes the dialog.
         controller.reset();
 
         QVERIFY2(controller.busy(),
@@ -658,12 +645,12 @@ private Q_SLOTS:
         controller.startDirectMessage(QStringLiteral("@remote:other.example"));
         QCOMPARE(client.createDmCalls, 1);
 
-        // Reopening and trying a THIRD time is refused too.
+        // A third attempt after reopening is refused too.
         controller.reset();
         controller.startDirectMessage(QStringLiteral("@remote:other.example"));
         QCOMPARE(client.createDmCalls, 1);
 
-        // And the guard is not permanent: the late answer releases it.
+        // The guard is not permanent: the late answer releases it.
         Q_EMIT client.dmCreateFinished(client.lastOpId, false, QString(),
                                        QStringLiteral("network"));
         QVERIFY2(!controller.busy(),

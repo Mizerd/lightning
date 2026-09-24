@@ -1,7 +1,7 @@
-// v0.7: persistent multi-account registry tests. Cover account records in
-// SettingsManager (accounts/<slug>/), the AccountManager registry view,
-// per-account token/sync-token isolation, duplicate handling, legacy
-// single-session migration, and unsafe-user-id rejection.
+// Persistent multi-account registry: account records in SettingsManager
+// (accounts/<slug>/), the AccountManager view, per-account token and
+// sync-token isolation, duplicates, legacy single-session migration, and
+// unsafe user id rejection.
 
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
@@ -90,14 +90,10 @@ void saveCarol(SettingsManager &s)
                   QStringLiteral("carol-token-fixture"));
 }
 
-// The ACTIVE ACCOUNT AS THE FILE HOLDS IT.
-//
-// The PATH IS PASSED IN, and that is the whole point of this helper's shape.
-// Every QSettings over one file shares a single QConfFile, and CONSTRUCTING a
-// QSettings calls sync() on it — so a helper that said `QSettings().fileName()`
-// here would flush the very unsynced write it was built to catch, and pass on
-// the broken tree. It did, on the first version of this test. Resolve the
-// path once, before the write, and then touch nothing but the bytes.
+// The active account as the file holds it. The path is passed in because
+// constructing any QSettings over the file syncs it, which would flush the
+// very unsynced write this helper exists to catch. Resolve the path before
+// the write, then read only the bytes.
 QString activeAccountOnDisk(const QString &settingsPath)
 {
     QFile f(settingsPath);
@@ -174,8 +170,8 @@ private Q_SLOTS:
 
     void saveSessionPreservesOtherAccounts()
     {
-        // Pre-0.7, logging in a second account destroyed the first one's
-        // secrets and sync position. That must never happen again.
+        // Signing in a second account must never destroy the first one's
+        // secrets and sync position.
         FakeSecretStore secrets;
         SettingsManager settings;
         settings.setSecretStore(&secrets);
@@ -259,48 +255,36 @@ private Q_SLOTS:
         QCOMPARE(reopened.homeserverUrl(), kHsOne);
     }
 
-    // THE 2026-09-18 REPORT (an AppImage): "if i switch account, close the
-    // app, open it again it opens in the wrong account (i think its the one i
-    // signed into as the very first)".
-    //
-    // accounts/active is the ONLY record of which account the next launch
-    // restores, and it was the one load-bearing key written without a flush.
-    // QSettings writes lazily, so until something syncs, the FILE still names
-    // the previous account — while saveSession() (a sign-in) has always
-    // synced. So a SIGN-IN was durable the instant it happened and a SWITCH
-    // was not, which is exactly the reported shape.
-    //
-    // Asserted with NO event-loop iteration in between, deliberately: an
-    // iteration is what used to hide this, and the window between the switch
-    // and the next one is where switchToAccount() does its cache clearing and
-    // the backend's whole synchronous restore.
+    // accounts/active decides which account the next launch restores, so a
+    // switch must reach disk immediately, as a sign-in does. Asserted with no
+    // event-loop iteration in between; switchToAccount() does its cache
+    // clearing and synchronous restore in that window.
     void theActiveAccountIsOnDiskTheMomentItChanges()
     {
-        // Resolved BEFORE anything is written unsynced: see the helper.
+        // Resolved before anything unsynced is written; see the helper.
         const QString settingsPath = QSettings().fileName();
 
         FakeSecretStore secrets;
         SettingsManager settings;
         settings.setSecretStore(&secrets);
 
-        // alice is signed into first, then bob — so the last SYNCED write of
-        // accounts/active names bob, exactly as the report's registry would.
+        // Alice signs in first, then Bob, so the last synced write names Bob.
         saveAlice(settings);
         saveBob(settings);
         QCOMPARE(settings.activeAccountUserId(), kBobId);
         QCOMPARE(activeAccountOnDisk(settingsPath), kBobId);
 
-        // The switch. Nothing spins the event loop before the assertion.
+        // The switch; nothing spins the event loop before the assertion.
         settings.setActiveAccountUserId(kAliceId);
         QCOMPARE(settings.activeAccountUserId(), kAliceId);
         QCOMPARE(activeAccountOnDisk(settingsPath), kAliceId);
 
-        // And back, so the durability is not a one-direction accident.
+        // And back, so durability holds in both directions.
         settings.setActiveAccountUserId(kBobId);
         QCOMPARE(activeAccountOnDisk(settingsPath), kBobId);
 
-        // Clearing it is the same promise: signing out of every account must
-        // not leave the file naming one of them.
+        // Clearing it too: signing out of every account must not leave the
+        // file naming one.
         settings.setActiveAccountUserId(QString{});
         QVERIFY(settings.activeAccountUserId().isEmpty());
         QVERIFY2(activeAccountOnDisk(settingsPath).isEmpty(),
@@ -401,9 +385,8 @@ private Q_SLOTS:
         QSettings raw;
         QVERIFY(!raw.contains(QStringLiteral("accounts/active")));
 
-        // Hostile-but-parseable ids are flattened: every path separator is
-        // replaced before the slug is used, so the derived account storage
-        // stays a single path component and cannot traverse.
+        // Hostile but parseable ids are flattened: every path separator is
+        // replaced, so the account storage stays one path component.
         const QStringList hostile = {
             QStringLiteral("@..:evil"),
             QStringLiteral("@a/../b:server"),
@@ -412,7 +395,7 @@ private Q_SLOTS:
         for (const QString &uid : hostile) {
             const QString slug = matrix::app_data::safeUserSlug(uid);
             if (slug.isEmpty())
-                continue; // outright rejected — also fine
+                continue; // outright rejected: also fine
             QVERIFY(!slug.contains(QLatin1Char('/')));
             QVERIFY(!slug.contains(QLatin1Char('\\')));
             QVERIFY(slug != QLatin1String(".")
@@ -422,10 +405,9 @@ private Q_SLOTS:
 
     void collidingSlugIdentitiesCannotAliasARecord()
     {
-        // The slug substitution is not injective: these two DISTINCT valid
-        // identities flatten to the same "jane_doe_matrix.org" slug. The
-        // second one must be refused instead of clobbering the first
-        // account's record (and aliasing its on-disk SDK store).
+        // Slug substitution is not injective: these two distinct ids flatten
+        // to the same "jane_doe_matrix.org" slug. The second is refused rather
+        // than clobbering the first account's record and SDK store.
         const QString janeA = QStringLiteral("@jane_doe:matrix.org");
         const QString janeB = QStringLiteral("@jane:doe_matrix.org");
         QCOMPARE(matrix::app_data::safeUserSlug(janeA),

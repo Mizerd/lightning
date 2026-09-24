@@ -6,32 +6,22 @@
 
 #include "models/MentionHighlighter.h"
 
-// THE COMPOSER'S EMOJI FACE, asserted on the FORMAT the document actually ends
-// up with rather than on the source text.
+// The composer's emoji face, asserted on the format the document ends up
+// with rather than on source text.
 //
-// Background: Qt's automatic per-character fallback is version-dependent (Qt
-// 6.8 prefers a MONOCHROME font that claims the codepoint where 6.11 picks the
-// colour one), so emoji have to be NAMED. On a single-purpose Label that is a
-// `font.family` binding; the composer is MIXED text, so the face is applied
-// per-range through this highlighter instead.
-//
-// The first attempt set ONLY QTextCharFormat::setFontFamilies() -- the Qt 6
-// list API -- and the composer went on rendering emoji in the default face
-// while the emoji picker was already correct. It was reported as "emojis look
-// good in catalog but bad when in text box", and nothing in the tree could have
-// caught it: a source scan sees the call, and only reading back the applied
-// format shows which property the layout will honour.
+// Qt's per-character font fallback is version-dependent (6.8 prefers a
+// monochrome font that claims the codepoint), so emoji must be named. The
+// composer is mixed text, so the face is applied per range through this
+// highlighter, and the applied format must carry a property the layout
+// honours.
 class MentionHighlighterEmojiTest : public QObject
 {
     Q_OBJECT
 private:
-    // The format the RENDERER will use at a character position.
-    //
-    // Deliberately NOT QTextCursor::charFormat(): a QSyntaxHighlighter does not
-    // write into the document's character formats at all. It publishes
-    // presentation-only runs through QTextLayout::setFormats(), so a cursor
-    // reads back nothing and a test built on one measures the wrong thing and
-    // fails on correct code. That mistake cost a round here.
+    // The format the renderer will use at a character position. Not
+    // QTextCursor::charFormat(): a QSyntaxHighlighter publishes its runs
+    // through QTextLayout::setFormats() and never writes into the document's
+    // character formats.
     static QTextCharFormat formatAt(QTextDocument &doc, int pos)
     {
         const QTextBlock block = doc.findBlock(pos);
@@ -65,11 +55,9 @@ private Q_SLOTS:
                  "the emoji run carries no font family at all");
         QCOMPARE(onEmoji.fontFamilies().toStringList(),
                  QStringList{ QStringLiteral("Noto Color Emoji") });
-        // And the words around it must be left alone, or naming the face would
-        // render the whole message in an emoji font. Asked as "is there a
-        // families property at all": QTextCharFormat::fontFamily() ASSERTS on
-        // an empty list rather than returning an empty string, so calling it
-        // on an unformatted run aborts the process.
+        // The words around it are left alone, or the whole message would
+        // render in an emoji font. Asked as "is there a families property at
+        // all", because QTextCharFormat::fontFamily() asserts on an empty list.
         const QTextCharFormat onLetter = formatAt(doc, 0);
         QVERIFY2(!onLetter.fontFamilies().isValid(),
                  "plain text was given the emoji face");

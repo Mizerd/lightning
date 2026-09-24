@@ -2,11 +2,10 @@
 
 #include <QtTest>
 
-// The VAAPI warning gate: the live capture showed Qt's FFmpeg backend
-// emitting "vaExportSurfaceHandle failed" / "failed to get textures for
-// frame" once per frame — thousands of identical lines for one 60 fps
-// video. The gate must pass the first occurrences (diagnosability), then
-// drop the storm with periodic summaries, and never touch other messages.
+// The VAAPI warning gate: Qt's FFmpeg backend can emit
+// "vaExportSurfaceHandle failed" / "failed to get textures for frame" once
+// per frame. The gate passes the first occurrences, then drops the storm with
+// periodic summaries, and never touches other messages.
 class VaapiLogGateTest : public QObject
 {
     Q_OBJECT

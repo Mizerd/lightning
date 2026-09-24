@@ -1,42 +1,23 @@
-// v0.7.x message forwarding (task #14, forward-spec.md) — ForwardController
-// policy tests. Deterministic: a local FakeClient stands in for the SDK
-// bridge (no network, no credentials, no live GIPHY/KLIPY/Matrix calls), and
-// a real MediaBridge is wired to it exactly as MediaBridgeTest.cpp does, so
-// the media-forward path exercises MediaBridge's own dedup/cache machinery
-// rather than a second, parallel fake of it.
-//
+// ForwardController policy. A local FakeClient stands in for the SDK bridge
+// (no network or credentials), with a real MediaBridge wired to it as in
+// MediaBridgeTest.cpp, so media forwards use MediaBridge's own dedup/cache.
 // Pins:
-//   * D7 — redacted / local-echo / undecryptable / empty-body content is
-//     refused at begin(), never reaching a send;
-//   * D4/D5 — a text forward carries the plain body ONLY, through the
-//     2-argument sendTextMessage overload, which attaches no relation —
-//     never a reply, never m.thread, regardless of what the SOURCE event
-//     was;
-//   * D1/D2 — a media forward re-fetches through MediaBridge (never trusts
-//     bytes carried in the snapshot — the snapshot never carries any) and
-//     re-uploads exactly the bytes the fetch returned;
-//   * D6 — `forwarded()` (which AppController wires to opening the target
-//     room) fires only once the send was actually dispatched, and a
-//     dispatch failure leaves the dialog open (`active` stays true) with
-//     `error` set, never silently swallowed;
-//   * the async media-fetch race: a SECOND begin() (a different row, or the
-//     same row forwarded again with a new target) must invalidate whatever
-//     the FIRST forward's outstanding fetch was waiting for — a late answer
-//     for the abandoned forward must never be sent to the new target;
-//   * a cancelled forward's late fetch answer is dropped, not sent anywhere;
-//   * an unrelated mediaBytesForStar (another consumer's star/save fetch
-//     sharing the same MediaBridge) is ignored rather than mistaken for the
-//     forward's own answer;
-//   * one activation produces exactly one send — a second forwardTo() while
-//     busy is a no-op, not a second dispatch.
-//
-// HONEST SCOPE: this is ForwardController policy only. The QML picker's own
-// gating (MessageDelegate.qml's per-row `eligible` computation; the room
-// list's Space/membership filter in ForwardMessageDialog.qml) is declarative
-// QML and has no dedicated QML contract test in this round, matching the
-// existing convention for DiscoverJoinDialog/ReportMessageDialog (neither
-// has one either). Real Matrix sends, encryption, and Element
-// interoperability of a forwarded message are NOT TESTED here.
+//   * redacted, local-echo, undecryptable and empty content is refused at
+//     begin();
+//   * a text forward sends the plain body through the 2-argument
+//     sendTextMessage, which attaches no relation (no reply, no m.thread);
+//   * a media forward re-fetches through MediaBridge (snapshots carry no
+//     bytes) and re-uploads exactly the fetched bytes;
+//   * `forwarded()` (which opens the target room) fires only after dispatch,
+//     and a dispatch failure keeps the dialog open with `error` set;
+//   * a second begin() invalidates the first forward's pending fetch, so a
+//     late answer is never sent to the new target;
+//   * a cancelled forward's late fetch answer is dropped;
+//   * another consumer's mediaBytesForStar answer on the shared MediaBridge
+//     is ignored;
+//   * a second forwardTo() while busy is a no-op.
+// Controller policy only: the QML picker's gating, real Matrix sends,
+// encryption and Element interoperability are not tested here.
 
 #include "app/ForwardController.h"
 #include "matrix/MatrixClient.h"
@@ -93,7 +74,7 @@ public:
     };
     QList<TextSend> textSends;
     QList<AttachmentSend> attachmentSends;
-    // 0 = simulate a queue-rejection (the send never entered the SDK).
+    // 0 simulates a queue rejection (the send never entered the SDK).
     quint64 nextSendOp = 1;
     bool rejectNextAttachment = false;
 
@@ -108,11 +89,9 @@ public:
     {
         threadSends.append({ roomId, rootId, body });
     }
-    // Models the REAL backend: the TIMELINE-scoped send refuses any room
-    // but the open one (RustSdkMatrixClient::sendAttachmentBytes gates on
-    // timelineActiveFor). Without this the suite accepted a send that fails
-    // 100% of the time in the application, for exactly the case forwarding
-    // exists to serve.
+    // Like the real backend, the timeline-scoped send refuses any room but the
+    // open one (RustSdkMatrixClient::sendAttachmentBytes gates on
+    // timelineActiveFor).
     QString openRoomId;
     bool roomScopedSupported = true;
 
@@ -146,8 +125,7 @@ public:
         return nextSendOp++;
     }
 
-    // Pure virtuals (inert — this class exercises only the media/send
-    // surface ForwardController actually touches).
+    // Inert pure virtuals: only the media/send surface is exercised.
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -183,12 +161,9 @@ const QString kEventA = QStringLiteral("$eventA");
 const QString kEventB = QStringLiteral("$eventB");
 
 
-// A REAL 1x1 GIF. The forward path re-originates the attachment under this
-// account, so it sniffs the bytes rather than trusting the source event's
-// claimed type — fixtures must therefore carry genuine magic, exactly as a
-// forwarded image would.
-// A REAL 1x1 PNG, so a test that must distinguish two payloads can do so by
-// their sniffed type rather than by an unsniffable string.
+// Real 1x1 PNG and GIF bytes: the forward path sniffs bytes rather than
+// trusting the source event's claimed type, so fixtures carry genuine magic
+// and two payloads can be told apart by their sniffed type.
 static QByteArray realPngBytes()
 {
     return QByteArray::fromHex(
@@ -251,12 +226,8 @@ class ForwardMessageTest : public QObject
 
 private Q_SLOTS:
 
-    // ---- D7 refusals ----
-
-    // ── Multi-message, multi-destination ─────────────────────────────
-    //
-    // N messages into M rooms can PARTIALLY fail, and the whole point of
-    // this path is that it never reports otherwise.
+    // Multi-message, multi-destination: N messages into M rooms can partially
+    // fail, and must never be reported otherwise.
 
     void everyMessageReachesEveryDestination()
     {
@@ -279,9 +250,8 @@ private Q_SLOTS:
         QCOMPARE(fwd.failureCount(), 0);
     }
 
-    // A thread destination is a relation the TARGET room negotiated — the
-    // opposite of D5, which refuses to carry the SOURCE's thread into a
-    // room that never saw it.
+    // A thread destination is a relation the target room chose; unlike the
+    // source's thread, which is never carried over.
     void aThreadDestinationSendsIntoThatThread()
     {
         FakeClient client;
@@ -299,16 +269,15 @@ private Q_SLOTS:
         QVERIFY(client.textSends.isEmpty());
     }
 
-    // THE ONE THAT MATTERS. One failure among several must not read as
-    // success, and the user must be told WHICH pair failed — a count alone
-    // cannot be acted on.
+    // One failure among several is not success, and the report names which
+    // pair failed.
     void oneFailureAmongManyIsReportedAsThatPair()
     {
         FakeClient client;
         ForwardController fwd;
         fwd.setClient(&client);
-        // A media snapshot cannot go through the bulk lane, and is reported
-        // rather than silently dropped or sent as its caption.
+        // A media snapshot cannot use the bulk lane; it is reported, not
+        // dropped or sent as its caption.
         fwd.beginSelection(QStringLiteral("!src:example.org"), {
             selectedText(QStringLiteral("$a"), QStringLiteral("fine")),
             selectedMedia(QStringLiteral("$m")),
@@ -325,12 +294,12 @@ private Q_SLOTS:
         QCOMPARE(failure.value(QStringLiteral("roomId")).toString(),
                  QStringLiteral("!x:e.org"));
         QVERIFY(!failure.value(QStringLiteral("message")).toString().isEmpty());
-        // The one that worked really did go.
+        // The successful one really went.
         QCOMPARE(client.textSends.size(), 1);
     }
 
-    // Retry re-dispatches ONLY what failed, not the whole selection again —
-    // resending the successes would duplicate them in the target room.
+    // Retry re-dispatches only the failures; resending successes would
+    // duplicate them.
     void retryResendsOnlyTheFailures()
     {
         FakeClient client;
@@ -351,9 +320,8 @@ private Q_SLOTS:
                  "retry resent a message that had already succeeded");
     }
 
-    // Context mode is a CONSCIOUS choice: it discloses the source room's
-    // name and the original sender to whoever receives the copy, so an
-    // unknown mode must fall back to the private one.
+    // Context mode discloses the source room and original sender, so it must
+    // be chosen; an unknown mode falls back to the private one.
     void contextModeAttributesAndIsNeverTheDefault()
     {
         FakeClient client;
@@ -454,7 +422,7 @@ private Q_SLOTS:
         QVERIFY(!fwd.error().isEmpty());
     }
 
-    // ---- D4/D5 text path ----
+    // ---- text path ----
 
     void textForwardSendsPlainBodyWithNoRelationThenNavigates()
     {
@@ -468,23 +436,21 @@ private Q_SLOTS:
 
         fwd.forwardTo(kRoomB);
 
-        // D5: the ONLY send call is the plain 2-argument sendTextMessage —
-        // there is no reply/thread call anywhere in ForwardController, so
-        // this can never carry a relation into the target room.
+        // The only send is the plain 2-argument sendTextMessage;
+        // ForwardController has no reply or thread call.
         QCOMPARE(client.textSends.size(), 1);
         QCOMPARE(client.textSends.first().roomId, kRoomB);
         QCOMPARE(client.textSends.first().body, QStringLiteral("hi from A"));
         QCOMPARE(client.attachmentSends.size(), 0);
 
-        // D6: dispatched -> forwarded() fires with the target, and the
-        // dialog resets to idle (never left open on success).
+        // Dispatched: forwarded() fires with the target and the dialog resets.
         QCOMPARE(forwarded.count(), 1);
         QCOMPARE(forwarded.first().at(0).toString(), kRoomB);
         QVERIFY(!fwd.active());
         QVERIFY(!fwd.busy());
     }
 
-    // ---- D1/D2 media path ----
+    // ---- media path ----
 
     void mediaForwardRefetchesFreshBytesAndReuploadsThem()
     {
@@ -499,10 +465,8 @@ private Q_SLOTS:
         fwd.begin(kRoomA, kEventA, mediaSnapshot(QStringLiteral("$mediaX")));
         fwd.forwardTo(kRoomB);
 
-        // The snapshot passed to begin() never carried bytes — proven by
-        // the fact that a real MediaBridge fetch had to be dispatched at
-        // all (a snapshot-trusting implementation would have sent
-        // immediately, with zero fetches recorded).
+        // A MediaBridge fetch was dispatched, so the snapshot's bytes were not
+        // trusted (it carries none).
         QCOMPARE(client.fetches.size(), 1);
         QCOMPARE(client.fetches.first().mediaKey, QStringLiteral("$mediaX"));
         QCOMPARE(client.attachmentSends.size(), 0);
@@ -511,19 +475,18 @@ private Q_SLOTS:
         const QByteArray realBytes = realGifBytes();
         client.succeed(client.fetches.first().opId, realBytes);
 
-        // The re-upload carries EXACTLY the freshly fetched bytes (never
-        // anything from the snapshot, which held none) plus the frozen
-        // classification (filename/mime/dimensions) from activation time.
+        // The re-upload carries exactly the fetched bytes plus the
+        // classification frozen at activation.
         QCOMPARE(client.attachmentSends.size(), 1);
         const auto &sent = client.attachmentSends.first();
         QCOMPARE(sent.roomId, kRoomB);
         QCOMPARE(sent.bytes, realBytes);
         QCOMPARE(sent.filename, QStringLiteral("cat.png"));
-        // The truthful type from the bytes, not the source event's claim.
+        // The type from the bytes, not the source event's claim.
         QCOMPARE(sent.mime, QStringLiteral("image/gif"));
-        // The dimensions the BYTES have, not the ones the source event
-        // claimed (100x80). A forward re-originates the attachment under
-        // this account, so it must not attest to a shape it did not check.
+        // The dimensions the bytes have, not the claimed 100x80: a forward
+        // re-originates the attachment and must not attest to an unchecked
+        // shape.
         QCOMPARE(sent.width, 1);
         QCOMPARE(sent.height, 1);
 
@@ -548,9 +511,7 @@ private Q_SLOTS:
 
         client.fail(client.fetches.first().opId, QStringLiteral("network"));
 
-        // D6: never swallowed — reported via `error`, and the picker stays
-        // open (the user can retry or pick a different room) rather than
-        // silently closing on a failure.
+        // Reported via `error`, and the picker stays open for a retry.
         QCOMPARE(forwarded.count(), 0);
         QVERIFY(fwd.active());
         QVERIFY(!fwd.busy());
@@ -579,8 +540,8 @@ private Q_SLOTS:
         QVERIFY(!fwd.error().isEmpty());
     }
 
-    // ---- the async race: a second forward must not be hijacked by a
-    // stale answer belonging to the first ----
+    // ---- a second forward must not take a stale answer meant for the first
+    // ----
 
     void secondBeginInvalidatesFirstForwardsPendingFetch()
     {
@@ -592,29 +553,26 @@ private Q_SLOTS:
         fwd.setMediaBridge(&bridge);
         QSignalSpy forwarded(&fwd, &ForwardController::forwarded);
 
-        // First forward: row A's photo, sent toward room B — but never
-        // resolved before the user picks a completely different message.
+        // First forward: row A's photo toward room B, unresolved when the user
+        // picks another message.
         fwd.begin(kRoomA, kEventA, mediaSnapshot(QStringLiteral("$mediaA")));
         fwd.forwardTo(kRoomB);
         QCOMPARE(client.fetches.size(), 1);
         const quint64 staleOp = client.fetches.first().opId;
 
-        // The user closed that picker and forwarded a DIFFERENT row (B's
-        // photo) to a DIFFERENT room instead.
+        // A different row (B's photo) to a different room.
         fwd.begin(kRoomA, kEventB, mediaSnapshot(QStringLiteral("$mediaB")));
         fwd.forwardTo(kRoomA);
         QCOMPARE(client.fetches.size(), 2);
 
-        // The FIRST fetch (row A's photo) resolves late. It must be
-        // dropped: it names a media key ($mediaA) that no longer matches
-        // what this controller is currently waiting for ($mediaB).
-        client.succeed(staleOp, realGifBytes()); // row A — must never be sent
+        // The first fetch resolves late and is dropped: its key ($mediaA) is
+        // not what the controller now waits for ($mediaB).
+        client.succeed(staleOp, realGifBytes()); // row A: must never be sent
         QCOMPARE(client.attachmentSends.size(), 0);
         QCOMPARE(forwarded.count(), 0);
         QVERIFY(fwd.busy()); // still waiting on row B's fetch
 
-        // Row B's fetch now resolves — THIS is the one that must send, to
-        // the target the CURRENT (second) forward actually chose.
+        // Row B's fetch resolves and is sent to the current forward's target.
         client.succeed(client.fetches.at(1).opId, realPngBytes());
         QCOMPARE(client.attachmentSends.size(), 1);
         QCOMPARE(client.attachmentSends.first().roomId, kRoomA);
@@ -639,9 +597,8 @@ private Q_SLOTS:
         fwd.cancel();
         QVERIFY(!fwd.active());
 
-        // MediaBridge has no cancellation hook for a star-class fetch, so
-        // the underlying request still resolves — but nothing must be sent
-        // anywhere once the forward itself has been abandoned.
+        // A star-class fetch cannot be cancelled, so it still resolves, but
+        // nothing is sent once the forward was abandoned.
         client.succeed(client.fetches.first().opId, realGifBytes());
         QCOMPARE(client.attachmentSends.size(), 0);
         QCOMPARE(forwarded.count(), 0);
@@ -660,9 +617,8 @@ private Q_SLOTS:
         fwd.forwardTo(kRoomB);
         QCOMPARE(client.fetches.size(), 1);
 
-        // Some OTHER consumer of the same shared MediaBridge (e.g. the GIF
-        // star action) resolves a completely unrelated key while this
-        // forward is still waiting.
+        // Another consumer of the shared MediaBridge (e.g. the GIF star)
+        // resolves an unrelated key meanwhile.
         bridge.fetchFullForStar(QStringLiteral("$someoneElsesMedia"));
         QCOMPARE(client.fetches.size(), 2);
         client.succeed(client.fetches.at(1).opId, realPngBytes());
@@ -672,7 +628,7 @@ private Q_SLOTS:
 
         client.succeed(client.fetches.first().opId, realGifBytes());
         QCOMPARE(client.attachmentSends.size(), 1);
-        // THIS forward's own payload, not the unrelated consumer's.
+        // This forward's own payload, not the other consumer's.
         QCOMPARE(client.attachmentSends.first().bytes, realGifBytes());
     }
 
@@ -692,9 +648,8 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 1);
         QVERIFY(fwd.busy());
 
-        // A rapid second click/Return on the same or a different room row
-        // while the first send is still in flight must not dispatch a
-        // second fetch.
+        // A second activation while the send is in flight dispatches no second
+        // fetch.
         fwd.forwardTo(kRoomA);
         QCOMPARE(client.fetches.size(), 1);
 
@@ -722,15 +677,12 @@ private Q_SLOTS:
         QVERIFY(!fwd.active());
         QVERIFY(!fwd.busy());
 
-        // The next account's answer for whatever this fetch resolves to
-        // must not resurrect the previous account's forward.
+        // A late answer must not resurrect the previous account's forward.
         client.succeed(client.fetches.first().opId, realGifBytes());
         QCOMPARE(client.attachmentSends.size(), 0);
     }
-    // A forward RE-ORIGINATES the attachment under this account, so the
-    // source event's filename — chosen by whoever sent it — must not carry
-    // path structure a receiving client could act on when saving, and must
-    // not be able to produce a hidden file.
+    // The source filename is sender-chosen: it must carry no path structure a
+    // receiving client could act on and cannot produce a hidden file.
     void forwardedFilenameIsSanitized()
     {
         QCOMPARE(ForwardController::sanitizedForwardFilename(
@@ -750,11 +702,9 @@ private Q_SLOTS:
                     QString(400, QLatin1Char('a'))).size() <= 128);
     }
 
-    // The source event's claimed MIME is equally sender-chosen. Where the
-    // bytes can be identified the truth wins; where they claim to be an
-    // image but are not one Lightning recognizes — SVG included, which must
-    // never enter a media path — the forward is refused rather than
-    // re-broadcast under this account's name.
+    // The claimed MIME is sender-chosen too. Identifiable bytes win; bytes
+    // claimed as an image that Lightning does not recognise (SVG included,
+    // which never enters a media path) are refused rather than re-broadcast.
     void unverifiableImageClaimIsRefusedRatherThanReUploaded()
     {
         FakeClient client;
@@ -777,10 +727,8 @@ private Q_SLOTS:
                  "the dialog must stay open so the refusal is visible");
     }
 
-    // The whole point of the feature: forwarding media to a room the user is
-    // NOT currently looking at. The timeline-scoped send refuses any room but
-    // the open one, so routing through it made every real media forward fail
-    // while passing a suite whose fake accepted any room id.
+    // Media can be forwarded to a room whose timeline is not open; the
+    // timeline-scoped send refuses any room but the open one.
     void mediaForwardsToARoomWhoseTimelineIsNotOpen()
     {
         FakeClient client;
@@ -802,8 +750,7 @@ private Q_SLOTS:
         QVERIFY(fwd.error().isEmpty());
     }
 
-    // A backend without a room-scoped send still works for the one case the
-    // timeline-scoped path can serve, rather than losing the feature.
+    // A backend without a room-scoped send still forwards into the open room.
     void backendWithoutRoomScopedSendStillForwardsIntoTheOpenRoom()
     {
         FakeClient client;
@@ -822,10 +769,8 @@ private Q_SLOTS:
         QVERIFY(fwd.error().isEmpty());
     }
 
-    // A large image must forward. The first version of this gate reused
-    // gif::validateRasterBytes, which carries the saved-GIF store's 4096px /
-    // 25 MiB caps — so a 5K screenshot or a big camera JPEG was refused with
-    // the same wording as an SVG.
+    // A large image forwards: the saved-GIF store's 4096px / 25 MiB caps
+    // (gif::validateRasterBytes) must not apply here.
     void aLargeImageIsNotMistakenForUnsafeContent()
     {
         FakeClient client;
@@ -835,7 +780,7 @@ private Q_SLOTS:
         fwd.setClient(&client);
         fwd.setMediaBridge(&bridge);
 
-        // 5120x2880 — past the GIF store's dimension cap, ordinary content.
+        // 5120x2880: past the GIF store's dimension cap, ordinary content.
         QImage big(5120, 2880, QImage::Format_RGB32);
         big.fill(Qt::blue);
         QByteArray png;

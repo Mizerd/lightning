@@ -1,15 +1,9 @@
-// Proves the local-session repair card actually replaces the old
-// dead-end: after a classified restore/login failure, the repair action
-// must be invocable WITHOUT the user typing anything, and it must target
-// the account that actually failed — never raw form text, and never the
-// wrong account during add-account (where a different account is already
-// signed in). See qml/LoginScreen.qml and qml/AccountMenu.qml.
-//
-// The classification only ever fires from the Rust backend in production
-// (a real SDK store/login rejection). This is a C++ test with direct
-// access to the controller, so it drives the classification by calling
-// AppController::setLocalSessionFailure() directly — no QML-facing
-// test-only invokable exists in the production surface for this.
+// The local-session repair card: after a classified restore/login failure the
+// repair action is invocable without typing, and targets the account that
+// failed, never raw form text or (during add-account) the active account. See
+// qml/LoginScreen.qml and qml/AccountMenu.qml. Classification comes from the
+// Rust backend in production; here it is driven through the public
+// AppController::setLocalSessionFailure(), with no test-only QML invokable.
 
 #include <QtTest/QtTest>
 
@@ -65,16 +59,10 @@ private:
         return findItem(m_window->contentItem(), QLatin1String(name));
     }
 
-    // For anything that only exists after a Popup/Dialog opens: matches
-    // CreationDialogQmlTest's proven pattern (retrying the lookup itself,
-    // not just a property read on an already-resolved pointer) — Popup
-    // content reparents into Overlay.overlay and is not guaranteed
-    // discoverable the instant after .open() and one processEvents(). A
-    // bare item(name) call here can legitimately return nullptr on the
-    // first attempt. QTRY_VERIFY can't be reused here directly (its
-    // internal bare `return` assumes a void test slot, not a pointer-
-    // returning helper), so this polls by hand and still asserts via the
-    // caller's own QVERIFY on the result.
+    // For items that only exist after a Popup/Dialog opens: popup content
+    // reparents into Overlay.overlay and may not be discoverable right after
+    // open(), so retry the lookup itself. QTRY_VERIFY's bare `return` cannot
+    // be used in a pointer-returning helper, so this polls by hand.
     QQuickItem *waitForItem(const char *name) const
     {
         QQuickItem *found = item(name);
@@ -87,22 +75,10 @@ private:
         return found;
     }
 
-    // Dialog/Popup is a QQuickPopup — a QObject, NOT a QQuickItem (only
-    // its contentItem is). item()/findItem() walk QQuickItem::childItems()
-    // and findChild<QQuickItem*>(), both of which structurally exclude a
-    // Popup itself by type; only its rendered contentItem children (real
-    // Items) are reachable that way. CreationDialogQmlTest.cpp hits the
-    // same distinction and resolves it the same way: a plain
-    // findChild<QObject*> for the popup, item()/waitForItem() only for
-    // what is genuinely inside it.
-    //
-    // Note this only retries the LOOKUP, not open state: the Dialog
-    // exists in the object tree from LoginScreen.qml's load regardless of
-    // whether it is currently open, so it is typically found on the very
-    // first attempt. Callers must still poll (QTRY_VERIFY, not a bare
-    // QVERIFY) for its `visible` property becoming true after .open() —
-    // finding the object proves nothing about whether open() has taken
-    // effect yet.
+    // A Dialog is a QQuickPopup (a QObject, not a QQuickItem), so it is found
+    // with findChild<QObject*>; item()/waitForItem() reach only what is inside
+    // it. This retries the lookup, not the open state: callers still poll
+    // `visible` after open().
     QObject *waitForObject(const char *name) const
     {
         QObject *found = m_window->findChild<QObject *>(QLatin1String(name));
@@ -118,14 +94,9 @@ private:
     void clickItem(QQuickItem *target)
     {
         QVERIFY(target);
-        // Let layout settle before reading geometry: the caller usually
-        // just changed a reasonCode, which resizes the repair card and can
-        // shift everything below it in the Flickable (and the panel's own
-        // vertically-centering y binding) across more than one polish
-        // pass. mapToScene() against stale geometry sends the click
-        // somewhere else entirely — nothing crashes, the target's
-        // onClicked just never fires, which is indistinguishable from a
-        // hang: dialog exists (see waitForObject) but never opens.
+        // Let layout settle before reading geometry: a new reasonCode resizes
+        // the card and can shift everything below it across several polish
+        // passes, and a click at stale coordinates silently misses.
         QCoreApplication::processEvents();
         QTest::qWait(1);
         QCoreApplication::processEvents();
@@ -136,17 +107,10 @@ private:
         QCoreApplication::processEvents();
     }
 
-    // Opening the shared confirm dialog is flaky if it's driven as a
-    // single clickItem() + wait: the trigger button transitions
-    // invisible→visible in the same beat as the click (it only becomes
-    // visible once a reasonCode makes it so), and QtQuick.Layouts does
-    // not guarantee a hidden item has real, hit-testable geometry until
-    // it has actually been polished visible — a click computed from
-    // geometry that hasn't caught up yet silently lands nowhere, and
-    // nothing about that looks different from a genuine hang (the dialog
-    // exists per waitForObject(), it just never opens). Retrying the
-    // CLICK itself, not just the wait, is robust regardless of which of
-    // those is the actual cause.
+    // Retry the click, not just the wait: the trigger button becomes visible
+    // in the same beat as the click, and Layouts do not guarantee hit-testable
+    // geometry until it has been polished visible, so a click can silently
+    // miss.
     void openDialogVia(QQuickItem *button)
     {
         QVERIFY(button);
@@ -163,9 +127,8 @@ private:
         QFAIL("loginRepairConfirmDialog never opened");
     }
 
-    // AppController::setLocalSessionFailure() is public specifically so a
-    // C++ test can drive the classification directly, with no QML-facing
-    // test-only invokable in the production surface.
+    // setLocalSessionFailure() is public so a C++ test can drive the
+    // classification without a test-only QML invokable.
     void injectFailure(const QString &reasonCode, const QString &userId,
                        const QString &homeserver)
     {
@@ -189,23 +152,18 @@ private slots:
             QStringLiteral("login-repair-qml-test"));
         QSettings().clear();
 
-        // No saved session: startup lands directly on LoginScreen, never
-        // BootScreen — matches the "genuinely signed-out" launch, which is
-        // also the state a failed startup restore settles into.
+        // No saved session: startup lands directly on LoginScreen, the same
+        // state a failed startup restore settles into.
         m_controller = new AppController(AppController::MockBackend);
         m_engine = new QQmlApplicationEngine;
         connect(m_engine, &QQmlEngine::warnings, this,
                 [this](const QList<QQmlError> &warnings) {
                     for (const auto &w : warnings) {
                         const QString text = w.toString();
-                        // The mock backend hands out media URLs on a host that
-                        // does not resolve, and timeline rows now activate
-                        // their media whenever they are genuinely inside the
-                        // viewport — including in an offscreen run, where the
-                        // previous virtualized view never instantiated them at
-                        // all. That is a DNS failure in the fixture, not a QML
-                        // defect, and it must not mask real warnings: only
-                        // this exact unreachable-host message is dropped.
+                        // The mock hands out media URLs on an unresolvable host,
+                        // and timeline rows load media once in the viewport,
+                        // including offscreen. Only this exact DNS message is
+                        // dropped so real warnings still surface.
                         if (text.contains(QLatin1String(
                                 "QQuickImage: Host mock.local not found")))
                             continue;
@@ -236,8 +194,7 @@ private slots:
 
     void init()
     {
-        // Every test starts from a clean, un-failed, logged-out login
-        // screen so the cases below don't leak into each other.
+        // Each test starts from a clean, logged-out login screen.
         clearFailure();
         m_controller->auth()->clearLastError();
         if (m_controller->loggedIn())
@@ -257,9 +214,8 @@ private slots:
         QVERIFY(errorLabel);
     }
 
-    // The core dead-end fix: the card appears, is fully labelled, and both
-    // fields already show the FAILED account's identity — none of this
-    // requires the user to type anything.
+    // The card appears, is fully labelled, and both fields already show the
+    // failed account's identity without typing.
     void failureShowsCardAndPrefillsWithoutTyping()
     {
         QVERIFY(item("userField")->property("text").toString().isEmpty());
@@ -284,8 +240,7 @@ private slots:
         QVERIFY(!headline->property("text").toString().isEmpty());
         QVERIFY(!body->property("text").toString().isEmpty());
 
-        // The plain generic error label is suppressed while the
-        // classified card is showing — no double-reporting of one error.
+        // The generic error label is suppressed while the card shows.
         QVERIFY(!item("loginErrorLabel")->isVisible());
 
         auto *primary = item("loginRepairPrimaryAction");
@@ -297,16 +252,10 @@ private slots:
         QVERIFY(!item("loginRepairRemoveAccount")->isVisible());
     }
 
-    // The honest-outcome state: never implies the old device can come back,
-    // and — the state a user recovering from the store-identity bug actually
-    // lands in — never offers an action the backend will refuse.
-    //
-    // This test previously asserted a visible "Sign in again as a new device"
-    // primary. That button routed to repairLocalSession(), which refuses for
-    // this reason (suggestsLocalReset is false: there is no store left to
-    // reset), so clicking it produced a red "this would destroy encryption
-    // keys you still need" error. The suite was green over a dead end. The
-    // remedy is the sign-in form above, already prefilled with this account.
+    // saved_session_without_store: never implies the old device can return,
+    // and never offers an action the backend refuses (repairLocalSession()
+    // refuses this reason; there is no store to reset). The remedy is the
+    // prefilled sign-in form.
     void savedSessionWithoutStoreOffersNewDeviceAndRemoveOnly()
     {
         injectFailure(QStringLiteral("saved_session_without_store"),
@@ -328,12 +277,9 @@ private slots:
         QVERIFY(!bodyText.contains(QStringLiteral("restored"), Qt::CaseInsensitive));
     }
 
-    // The invariant, machine-checked rather than hand-maintained: a card may
-    // NEVER show a destructive primary action for a reason whose backend
-    // policy says a local reset cannot repair it. Checking each card by hand
-    // is how saved_session_without_store shipped a button that
-    // repairLocalSession() refuses; this walks every reachable reason code
-    // and holds regardless of what future cards are added.
+    // Invariant over every reachable reason code: no card shows a destructive
+    // action for a reason whose backend policy says a local reset cannot
+    // repair it.
     void noCardOffersAnActionTheBackendWouldRefuse()
     {
         const QStringList codes{
@@ -354,8 +300,8 @@ private slots:
             QTRY_VERIFY(item("loginRepairCard"));
 
             const bool helps = m_controller->localResetHelpsFor(code);
-            // BOTH controls that reach repairLocalSession(), not just the
-            // primary: loginRepairRetry routes to the same place.
+            // Both controls that reach repairLocalSession(): the primary and
+            // loginRepairRetry.
             for (const char *name : {"loginRepairPrimaryAction",
                                      "loginRepairRetry"}) {
                 auto *button = item(name);
@@ -366,10 +312,8 @@ private slots:
                              "the backend refuses")
                              .arg(code, QString::fromLatin1(name))));
             }
-            // Every reachable reason must explain itself. A code with no card
-            // leaves the user staring at a bare error line — which is what
-            // secret_backend_unavailable, the state this pass introduced,
-            // used to do.
+            // Every reachable reason explains itself with a card rather than a
+            // bare error line.
             QVERIFY2(item("loginRepairCard")->isVisible(),
                      qPrintable(QStringLiteral("reason '%1' renders no card")
                                     .arg(code)));
@@ -390,16 +334,10 @@ private slots:
         QVERIFY(!item("loginRepairRemoveAccount")->isVisible());
     }
 
-    // H1 regression: a reasonCode classify() genuinely does not recognize
-    // must never render nothing at all. Before the fix, ANY non-empty
-    // reasonCode hid loginErrorLabel unconditionally (visible: ... &&
-    // !repair.active), so an unrecognized code produced a blank form —
-    // repair.active was true but repair.info was null, and the card
-    // requires info !== null to show. The fallback needs lastError set
-    // too, exactly as production pairs a classified failure with a
-    // loginFailed(userMessage) emission from the same backend event;
-    // beginSsoLogin() is a convenient public way to set some non-empty
-    // lastError text without a test-only setter.
+    // An unrecognised reasonCode must fall back to the plain error label, not
+    // a blank form (the card needs repair.info, which is null here). lastError
+    // is set too, as production pairs a classified failure with
+    // loginFailed(); beginSsoLogin() is a public way to set it.
     void genuinelyUnknownReasonFallsBackToPlainLabelNotBlank()
     {
         m_controller->auth()->beginSsoLogin(QString());
@@ -414,13 +352,9 @@ private slots:
         QVERIFY(!item("loginErrorLabel")->property("text").toString().isEmpty());
     }
 
-    // H1 regression: store_without_session_metadata previously fell into
-    // the same blank-form gap as the unknown-code case above, even though
-    // it is a real, reachable condition (login() finding a store whose
-    // token is unreadable — the locked-keyring case). It now gets its own
-    // card. suggestsLocalReset() is true for this reason in
-    // RustSessionPolicy.cpp, so a destructive primary action is correct
-    // here (unlike access_token_revoked below).
+    // store_without_session_metadata (a store whose token is unreadable, e.g.
+    // a locked keyring) gets its own card; suggestsLocalReset() is true for it
+    // in RustSessionPolicy.cpp, so a destructive primary is correct here.
     void storeWithoutSessionMetadataNowRendersACard()
     {
         injectFailure(QStringLiteral("store_without_session_metadata"),
@@ -436,11 +370,9 @@ private slots:
                  QStringLiteral("Quarantine and rebuild"));
     }
 
-    // H1 regression: ambiguous_store_candidates is the second previously-
-    // blank code. It gets a card too, but — unlike
-    // store_without_session_metadata — suggestsLocalReset() is FALSE for
-    // it: several stores could be real and Lightning will not guess which
-    // one to clear. No destructive action of any kind.
+    // ambiguous_store_candidates gets an informational card only:
+    // suggestsLocalReset() is false, since Lightning will not guess which of
+    // several stores to clear.
     void ambiguousStoreCandidatesRendersInformationalCardOnly()
     {
         injectFailure(QStringLiteral("ambiguous_store_candidates"),
@@ -455,15 +387,10 @@ private slots:
         QVERIFY(!item("loginRepairRemoveAccount")->isVisible());
     }
 
-    // H2 — the review's HIGH finding. access_token_revoked must NEVER
-    // expose a path to app.repairLocalSession(): the backend's own
-    // suggestsLocalReset(AccessTokenRevoked) is false because the local
-    // store is exactly the key material a user with a merely-revoked
-    // token still needs. loginRepairPrimaryAction and loginRepairRetry
-    // are the only two buttons in this file that ever call
-    // app.repairLocalSession() (see the shared confirm dialog's onClicked
-    // below), so proving both are absent proves the card cannot reach
-    // that call at all — not just that it isn't labelled invitingly.
+    // access_token_revoked must never reach app.repairLocalSession(): the
+    // local store holds the key material a user with a revoked token still
+    // needs. loginRepairPrimaryAction and loginRepairRetry are the only
+    // buttons that call it, so both must be absent or hidden.
     void accessTokenRevokedExposesNoDestructiveAction()
     {
         injectFailure(QStringLiteral("access_token_revoked"),
@@ -474,14 +401,8 @@ private slots:
         QVERIFY(card);
         QTRY_VERIFY(card->isVisible());
 
-        // Never dereference a lookup that might legitimately be null.
-        // loginRepairPrimaryAction/loginRepairRetry are the only two
-        // buttons anywhere in this file that route to
-        // app.repairLocalSession() (see the shared confirm dialog's
-        // onClicked below) — proving neither is a *reachable, visible*
-        // control proves the destructive action cannot be reached from
-        // this card, whether the button object is absent or merely
-        // hidden.
+        // Never dereference a lookup that may be null; absent or hidden both
+        // mean unreachable.
         auto *primary = item("loginRepairPrimaryAction");
         QVERIFY2(!primary || !primary->isVisible(),
                  "access_token_revoked must not offer a destructive primary action");
@@ -496,13 +417,9 @@ private slots:
         QVERIFY2(!bodyText.contains(QStringLiteral("damag"), Qt::CaseInsensitive),
                  qPrintable(bodyText));
 
-        // "Remove this account" stays available as an explicit, separately
-        // confirmed fallback — but taking it must go through
-        // app.removeAccount(), never through the repair path (proven here
-        // by "Repairing…" never appearing). waitForItem() retries the
-        // LOOKUP itself (not just a property read) because Popup content
-        // reparents into Overlay.overlay and is not guaranteed
-        // discoverable the instant after .open().
+        // "Remove this account" stays available as a separately confirmed
+        // fallback, going through app.removeAccount(), never the repair path
+        // ("Repairing…" never appears).
         auto *remove = item("loginRepairRemoveAccount");
         QVERIFY(remove);
         QVERIFY(remove->isVisible());
@@ -522,8 +439,8 @@ private slots:
                 || result->property("text").toString() != QStringLiteral("Repairing…"));
     }
 
-    // Confirmation dialog: names the exact affected account, and Cancel
-    // is the default/focused button (never the destructive action).
+    // The confirmation dialog names the exact account, and Cancel is the
+    // default focused button.
     void primaryActionConfirmDialogNamesAccountAndDefaultsToCancel()
     {
         injectFailure(QStringLiteral("session_account_mismatch"),
@@ -547,8 +464,7 @@ private slots:
         QVERIFY(cancelButton);
         QTRY_VERIFY(cancelButton->property("activeFocus").toBool());
 
-        // Cancel leaves the failure (and the card) exactly as it was —
-        // no repair was invoked.
+        // Cancel leaves the failure and the card untouched.
         clickItem(cancelButton);
         QTRY_VERIFY(!dialog->property("visible").toBool());
         auto *card = item("loginRepairCard");
@@ -558,9 +474,8 @@ private slots:
         QVERIFY(!result || !result->isVisible());
     }
 
-    // Confirming actually invokes the zero-argument repair path — proving
-    // the whole flow needed no typed input, from failure to confirmed
-    // repair.
+    // Confirming invokes the zero-argument repair path: the whole flow needs
+    // no typed input.
     void confirmingPrimaryActionInvokesRepairWithoutTypedInput()
     {
         injectFailure(QStringLiteral("sdk_store_ownership_mismatch"),
@@ -581,24 +496,17 @@ private slots:
         clickItem(confirmButton);
 
         QTRY_VERIFY(!dialog->property("visible").toBool());
-        // The point of this test is that confirming reaches
-        // app.repairLocalSession() through nothing but clicks — not what
-        // the backend then does with it. AppController correctly refuses
-        // a Rust-only reset on MockBackend ("Reset is only available on
-        // the Rust backend."), which arrives fast enough to overwrite the
-        // optimistic "Repairing…" text before this assertion runs; a real
-        // Rust backend would instead report the repair's own outcome.
-        // Either way, SOME non-empty result reaching the UI is what proves
-        // the call was actually made.
+        // This checks that confirming reaches app.repairLocalSession() through
+        // clicks only. MockBackend refuses the Rust-only reset quickly enough to
+        // overwrite "Repairing…", so any non-empty result proves the call.
         auto *result = item("loginRepairResult");
         QVERIFY(result);
         QTRY_VERIFY(result->isVisible());
         QVERIFY(!result->property("text").toString().isEmpty());
     }
 
-    // Add-account edge case: an account is already signed in, and a
-    // DIFFERENT account's login fails. The repair card must target the
-    // failing account, never the one that's already active.
+    // Add-account: another account is signed in and a different account's
+    // login fails; the card targets the failing account.
     void addAccountFailureTargetsTheFailingAccountNotTheActiveOne()
     {
         QSignalSpy loginSpy(m_controller->auth(), &AuthManager::loginSucceeded);
@@ -629,16 +537,10 @@ private slots:
         QTRY_VERIFY(!m_controller->loggedIn());
     }
 
-    // M-A regression: the dialog used to read repair.userId/repair.info
-    // LIVE, so a failure arriving while an already-open dialog is still
-    // showing a PREVIOUS one — a slow sign-in elsewhere, or a different
-    // account failing mid add-account — could change what confirming
-    // would act on, out from under the user. Proves both halves of the
-    // fix land together: the dialog auto-closes the instant the
-    // classified failure changes, and — since that closes the only path
-    // to app.repairLocalSession() — the destructive call genuinely never
-    // fires for a failure the user never reviewed (proven via a signal
-    // spy, not inferred from UI text alone).
+    // The confirm dialog snapshots the failure it was opened for. When the
+    // classified failure changes while it is open, the dialog closes and the
+    // destructive call never fires for a failure the user did not review
+    // (checked with a signal spy).
     void dialogClosesAndRefusesWhenFailureChangesWhileOpen()
     {
         injectFailure(QStringLiteral("session_account_mismatch"),
@@ -658,9 +560,8 @@ private slots:
 
         QSignalSpy resetSpy(m_controller, &AppController::localRustStoreResetResult);
 
-        // A different failure — different account, different reason —
-        // supersedes this one while the dialog the user is looking at is
-        // still showing @ivan.
+        // A different failure (account and reason) supersedes this one while
+        // the dialog still shows @ivan.
         injectFailure(QStringLiteral("session_without_device_id"),
                      QStringLiteral("@julia:example.org"),
                      QStringLiteral("https://example.org"));
@@ -668,8 +569,7 @@ private slots:
         QTRY_VERIFY(!dialog->property("visible").toBool());
         QCOMPARE(resetSpy.count(), 0);
 
-        // The new failure gets its own, independent card — the fix closes
-        // the stale dialog, it doesn't just swallow the new failure.
+        // The new failure gets its own card; it is not swallowed.
         auto *newPrimary = item("loginRepairPrimaryAction");
         QVERIFY(newPrimary);
         QTRY_VERIFY(newPrimary->isVisible());
@@ -677,8 +577,7 @@ private slots:
                  QStringLiteral("@julia:example.org"));
     }
 
-    // Acceptance condition for the dead-end fix: LoginScreen no longer
-    // calls the raw-typed-text reset path at all.
+    // LoginScreen never calls the raw-typed-text reset path.
     void loginScreenNeverCallsTheRawTextResetPath()
     {
         QFile file(QStringLiteral(QML_DIR "/LoginScreen.qml"));
@@ -687,25 +586,12 @@ private slots:
         QVERIFY(!text.contains(QStringLiteral("resetLocalRustSession(")));
     }
 
-    // THE CARD MUST NOT MOVE THE FIELDS UNDER THE USER'S CURSOR.
-    //
-    // It used to be centred on its CURRENT height. The homeserver probe is
-    // async, so the browser-login and SSO sections are on screen for
-    // matrix.org and vanish once a server offering neither answers;
-    // `implicitHeight` then shrinks, `(viewport - implicitHeight) / 2` grows,
-    // and the whole card slides DOWN. Measured on Windows against the
-    // published 0.9.8 at 1280x800: **126 px**, card fill y=56 -> y=182.
-    //
-    // The three fields are at the TOP of this card and the optional buttons
-    // at the bottom, so the reader is typing into the part that moves. Type
-    // the homeserver, click where "User" was, and the PASSWORD lands in the
-    // clear-text Homeserver URL field. Reproduced on Windows, and twice by an
-    // agent driving this screen.
-    //
-    // The case shrinks the form the way the probe does — by hiding a real
-    // child — and asserts the PREMISE (the form actually got shorter) before
-    // asserting the fields did not move. Without that premise check a card
-    // that never resized would pass while proving nothing.
+    // The login card must not move the fields under the cursor. The
+    // homeserver probe is async and can hide the browser-login/SSO sections
+    // below the fields; a card centred on its current height then slides
+    // down, and a click aimed at "User" can put the password into the
+    // clear-text homeserver field. Asserts the premise (the form got shorter)
+    // before asserting the fields stayed put.
     void theLoginCardDoesNotMoveWhenOptionalSectionsDisappear()
     {
         QQuickItem *panel = item("loginPanel");
@@ -720,9 +606,8 @@ private slots:
         const QPointF passScene0 = pass->mapToScene(QPointF(0, 0));
         QVERIFY(formH0 > 0);
 
-        // Shrink the form the way the async probe does: hide something that
-        // sits BELOW the password field, which is exactly where the optional
-        // browser-login and SSO sections live.
+        // Shrink the form as the probe does: hide something below the password
+        // field, where the optional sections live.
         const qreal passBottom = pass->mapToItem(panel, QPointF(0, pass->height())).y();
         QQuickItem *shrink = nullptr;
         qreal best = 0;

@@ -1,30 +1,19 @@
-// EVERY COMPONENT IN THIS LIST MUST ACTUALLY LOAD.
+// Every component in this list must actually load.
 //
-// A load-time QML error is invisible to everything else this repository has.
-// `qmlformat` parses syntax and does not check that a property exists;
-// `qmlcachegen` compiles the file without instantiating it; and every
-// contract suite that reads a `.qml` file sees SOURCE TEXT, which cannot
-// show that `font.families` (a C++ QFont API, absent from the QML font value
-// type) makes a component unavailable and cascades into every parent — the
-// failure that took four QML suites down at once.
-//
-// CallStage got its own gate after that round (CallUiContractTest::
-// theCallStageComponentActuallyLoads). This is the same gate, generalised, so
-// a new file does not have to remember to invent one.
+// A load-time QML error (such as assigning `font.families`) is invisible to
+// qmlformat, qmlcachegen and source-text contract scans, and makes the
+// component and every parent unavailable.
 //
 // # Adding a component
 //
-// Put its name in kComponents. If it cannot load standalone — it needs a
-// required property, or a parent, or it is a delegate — say so in
-// kNotLoadable with the reason, rather than quietly leaving it out. An
-// omission and a deliberate exclusion look identical in a list, which is how
-// something stops being covered without anyone deciding that it should.
+// Put its name in kComponents. If it cannot load standalone (it needs a
+// required property, a parent, or is a delegate), list it in kNotLoadable
+// with the reason rather than leaving it out silently.
 //
 // # This proves loading, not correctness
 //
-// A component that loads can still be laid out wrong, and a failure inside a
-// `Loader`'s `sourceComponent` leaves the ROOT loading fine. This catches the
-// class of error where the component is simply unavailable.
+// A failure inside a `Loader`'s `sourceComponent` still leaves the root
+// loading fine.
 
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -42,18 +31,14 @@ namespace {
 
 // Components that must load with nothing but `app` in context.
 constexpr const char *kComponents[] = {
-    // v0.9.0 additions — the reason this suite exists now.
     "StickerPackEditor",     // pack CRUD dialog
     "QrLoginDialog",         // MSC4108 sign-in-another-device
     "PolicyListDialog",      // Mjolnir-style moderation lists
     "AddWidgetDialog",       // widget kind picker
     "MemberProfilePopover",  // carries the policy-list notice and its Connections
     "CallPipWindow",         // the floating call window
-    // 2026-09-12: the in-call device menu now carries the microphone LEVEL
-    // as well as the device list — a Slider, two Labels and a Layout inside
-    // a Menu, which is exactly the shape whose load-time errors nothing else
-    // in this repository can see. Its sibling in Settings is listed beside
-    // it for the same reason.
+    // The in-call device menu (a Slider, Labels and a Layout inside a Menu)
+    // and its Settings sibling.
     "CallDeviceMenu",
     "CallDeviceSettings",
     "MediaBrowser",          // room media/files/links over all history
@@ -76,15 +61,10 @@ constexpr const char *kComponents[] = {
     "ActivityCenterPanel",
     "JumpToDateDialog",
     "WidgetOpenSheet",
-    // 2026-09-18: added with the binding-loop assertion below, which it was
-    // the reason for. It had been in neither list — an omission, which is
-    // the thing this file's header asks not to happen.
     "HomePane",
-    // 2026-09-19: the collapsed-embed summary row. Loads standalone — no
-    // required properties, and it reads only AppTheme and Icon.
+    // Collapsed-embed summary row; reads only AppTheme and Icon.
     "CollapsedEmbedRow",
-    // 2026-09-23: the Space Home lobby. Loads standalone — every input is a
-    // plain property with an empty default, and it reads no `app`.
+    // Space Home lobby; every input has an empty default and it reads no `app`.
     "SpaceLobby",
 };
 
@@ -131,15 +111,9 @@ private Q_SLOTS:
 
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
-        // A BINDING LOOP IS A LOAD-TIME FACT AND NOTHING ELSE HERE CAN SEE
-        // IT. The component loads, the root is non-null, every contract scan
-        // over its source text passes — and Qt has ABANDONED one of its
-        // bindings, so the property keeps whatever value the aborted
-        // evaluation left behind. HomePane shipped one for however long:
-        // `displayName` read `activeUserId`, that read evaluated
-        // `activeUserId`'s own binding for the first time, and the resulting
-        // change handler wrote a dependency of the binding still on the
-        // stack.
+        // A binding loop is a load-time fact: the component loads, but Qt
+        // abandons the binding and the property keeps whatever the aborted
+        // evaluation left behind.
         QStringList warnings;
         connect(&engine, &QQmlEngine::warnings, this,
                 [&warnings](const QList<QQmlError> &errors) {
@@ -167,26 +141,10 @@ private Q_SLOTS:
         }
     }
 
-    // A PANE THAT GREETS THE USER BY NAME MUST NOT LOOP RESOLVING IT.
-    //
-    // WHY THIS IS NOT THE DATA-DRIVEN CASE ABOVE. That one loads every
-    // component against a controller whose ACTIVE ACCOUNT IS EMPTY — the
-    // mock login leaves no saved record, so `app.accounts.activeUserId` is
-    // "" and a binding on it never changes value. The loop under test needs
-    // exactly what production has and that fixture does not: a real active
-    // id at the moment the pane is created.
-    //
-    // THE LOOP. `displayName` falls back to the localpart, so it reads
-    // `activeUserId`. `activeUserId` WAS a binding on the manager's
-    // property, and its first evaluation therefore happened inside
-    // `displayName`'s — moving it from "" to the real id, firing
-    // `onActiveUserIdChanged` synchronously, and writing `activeAccount`,
-    // which `displayName` had already captured as a dependency. Qt abandons
-    // an evaluation whose dependencies move under it, so the greeting kept
-    // whatever the aborted pass left behind.
-    //
-    // The assertion is therefore in two halves: no loop was reported, AND
-    // the greeting actually resolved. The second is what the user sees.
+    // HomePane must resolve its greeting without a binding loop. Unlike the
+    // data-driven case above, this needs a real active account id at creation:
+    // `displayName` falls back to the localpart and so reads `activeUserId`.
+    // Asserts both that no loop was reported and that the greeting resolved.
     void theHomePaneResolvesItsGreetingWithoutABindingLoop()
     {
         AppController controller(AppController::MockBackend);
@@ -196,29 +154,18 @@ private Q_SLOTS:
                                  QStringLiteral("unused"));
         QVERIFY(loginSpy.wait(3000));
 
-        // A record with NO display name on purpose: that is what sends the
-        // greeting down the localpart fallback, which is the branch that
-        // reads `activeUserId` at all. The record has to be UPSERTED first —
-        // `setActiveUser` refuses an id it has no saved record for and
-        // clears the selection instead, which is how the data-driven case
-        // above ends up with an empty id and cannot see this at all.
-        //
-        // THE SECRET STORE IS DETACHED FIRST, and that is not incidental:
-        // `saveSession` is the public way to create a record, and with a
-        // store attached it would write an access token into the
-        // maintainer's real keyring. Detached, the token branch is skipped
-        // entirely and this writes a RECORD and nothing else.
+        // A record with no display name, so the greeting takes the localpart
+        // fallback. It must be upserted first: `setActiveUser` refuses an id
+        // with no saved record. The secret store is detached first so
+        // `saveSession` cannot write a token to the real keyring.
         const QString uid = QStringLiteral("@alice:mock.local");
         controller.settings()->setSecretStore(nullptr);
         controller.settings()->saveSession(QStringLiteral("https://mock.local"),
                                            uid, QStringLiteral("MOCKDEV"),
                                            QString());
-        // AND IT IS REMOVED AGAIN ON EVERY EXIT PATH. This suite's QSettings
-        // is a real file that outlives the process, so a record left behind
-        // would change what the DATA-DRIVEN case above sees on the next run
-        // — it would find a saved account where this run found none. A test
-        // that behaves differently on its second run is a flake waiting for
-        // a busy machine.
+        // Removed again on every exit path: this suite's QSettings file
+        // outlives the process and would change the data-driven case's next
+        // run.
         const auto forgetAccount = qScopeGuard([&controller, &uid] {
             controller.accounts()->removeAccount(uid);
         });
@@ -240,11 +187,8 @@ private Q_SLOTS:
         QObject *root = createdSpy.at(0).at(0).value<QObject *>();
         QVERIFY(root != nullptr);
 
-        // THE READS COME FIRST, and the scan after them. The defect under
-        // test IS lazy first-read evaluation: scanning before anything forces
-        // a read would miss a loop that fires on the read itself, which is
-        // precisely the failure mode if this pane ever stopped binding
-        // `displayName` to a Label that is built at load.
+        // Read first, then scan: the loop fires on lazy first-read
+        // evaluation.
         QCOMPARE(root->property("activeUserId").toString(), uid);
         QCOMPARE(root->property("displayName").toString(),
                  QStringLiteral("alice"));
@@ -256,21 +200,10 @@ private Q_SLOTS:
         }
     }
 
-    // A DELEGATE THAT DISABLES ITSELF DISABLES ITS OWN BUTTONS.
-    //
-    // `QQuickItem::enabled` propagates to children. Writing `enabled: false`
-    // on a delegate root to stop the ROW being clickable therefore also
-    // disables every control inside it — and this shipped twice in one
-    // round, making rule removal and the whole per-image half of pack
-    // editing unreachable while every controller-level test passed, because
-    // those call the controller directly (§16's recorded lesson: a policy
-    // test that invokes the policy function proves nothing about whether
-    // production ever reaches it).
-    //
-    // A TEXT SCAN, and deliberately so: the delegates this catches are only
-    // built when a model supplies rows, so an instantiation test would need
-    // a live backend for each one. The `found` guard is what stops it
-    // sweeping nothing when a file is renamed (the mutation-check lesson).
+    // `enabled` propagates to children, so `enabled: false` on a delegate
+    // root also disables every control inside it. A text scan, because these
+    // delegates are only built when a model supplies rows; the `found` guard
+    // stops it from sweeping nothing after a rename.
     void noInteractiveDelegateDisablesItself()
     {
         static constexpr const char *kFiles[] = {
@@ -284,10 +217,8 @@ private Q_SLOTS:
             QFile file(QStringLiteral(QML_DIR "/") + QString::fromUtf8(name));
             if (!file.open(QIODevice::ReadOnly))
                 continue;
-            // COMMENTS ARE STRIPPED FIRST. Every one of these files now
-            // carries a comment saying "NOT `enabled: false`" explaining why
-            // — and a scan that trips on the explanation of the rule it
-            // enforces is a scan nobody can satisfy.
+            // Comments are stripped first, so an explanation of the rule does
+            // not trip the scan.
             QString src;
             const QStringList lines =
                 QString::fromUtf8(file.readAll()).split(u'\n');
@@ -299,10 +230,9 @@ private Q_SLOTS:
                 src += u'\n';
             }
             ++scanned;
-            // Every delegate block in the file, taken from `delegate:` to the
-            // end of the file — a coarse bound, which is fine: what matters
-            // is whether an `enabled: false` and an interactive control share
-            // one delegate.
+            // Every delegate block, from `delegate:` to end of file: a coarse
+            // bound, enough to see whether `enabled: false` and an interactive
+            // control share one delegate.
             int at = src.indexOf(QStringLiteral("delegate:"));
             while (at >= 0) {
                 const int next =
