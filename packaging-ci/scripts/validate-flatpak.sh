@@ -63,6 +63,15 @@ timeout 60s flatpak run --user --command=sh "$APP_ID" -c \
 call_media_status=$?
 set -e
 assert_call_media_engine Flatpak dist/flatpak-call-media-status.txt "$call_media_status"
+# The KDE runtime ships no ximagesrc; the manifest builds it (gst-ximagesrc).
+# Without it an X11 session with no ScreenCast portal cannot share at all.
+grep -qx 'X11 screen capture (ximagesrc): available' \
+    dist/flatpak-call-media-status.txt \
+    || die "Flatpak: ximagesrc is missing, so X11 screen sharing without a portal cannot work"
+# gst-plugins-good is LGPL-2.1: its licence text must ship with the binary.
+flatpak run --user --command=test "$APP_ID" \
+    -f "/app/share/licenses/$APP_ID/gst-ximagesrc/COPYING" \
+    || die "Flatpak: the gst-ximagesrc licence text is missing from /app/share/licenses"
 
 # Voice-delay self-test; see assert_queue_selftest in lib.sh.
 set +e

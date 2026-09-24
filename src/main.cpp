@@ -1528,6 +1528,20 @@ static int printCallMediaStatus()
                                  "entry and may be rate-limited"))
         << "\n";
 
+#if defined(Q_OS_LINUX)
+    // The screen share used when no portal offers ScreenCast (an X11 session
+    // without a backend). Reported, not required: Wayland shares through the
+    // portal and never needs it.
+    out << "X11 screen capture (" << SfuMediaEngine::x11ScreenCaptureElementName()
+        << "): "
+        << (SfuMediaEngine::elementAvailable(
+                SfuMediaEngine::x11ScreenCaptureElementName())
+                ? QStringLiteral("available")
+                : QStringLiteral("unavailable — screen sharing on X11 needs "
+                                 "the desktop's portal"))
+        << "\n";
+#endif
+
     // Only the SFU engine decides the exit code; every MatrixRTC call uses it.
     out << "\nRESULT: "
         << (sfu ? QStringLiteral("calls can be placed and answered.")

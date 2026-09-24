@@ -50,6 +50,28 @@ build-options:
     - LIGHTNING_BUILD_KLIPY_API_KEY
 
 modules:
+  # The KDE runtime's GStreamer has no ximagesrc, the only way to share an X11
+  # screen when no portal offers ScreenCast. Only that plugin is built, from
+  # the runtime's GStreamer series; /app/lib/gstreamer-1.0 is on the runtime's
+  # plugin path.
+  - name: gst-ximagesrc
+    buildsystem: meson
+    config-opts:
+      - -Dauto_features=disabled
+      - -Dximagesrc=enabled
+      - -Dximagesrc-xshm=enabled
+      - -Dximagesrc-xfixes=enabled
+      - -Dximagesrc-xdamage=enabled
+    sources:
+      - type: archive
+        url: https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-1.26.11.tar.xz
+        sha256: 001deb0876d5d743cd3448abf74a27adec3fd850012fcb1b00994861bd6c1145
+    # Not /share: flatpak-builder installs the module's LGPL licence text to
+    # /app/share/licenses, and it must ship with the binary.
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+
   - name: lightning
     # Explicit commands instead of cmake-ninja: the build runs cargo
     # --offline --locked, so crates must be fetched first.

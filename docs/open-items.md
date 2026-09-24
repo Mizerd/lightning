@@ -1,5 +1,32 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-24 — accepted follow-ups from the Space moderation, SVG and Flatpak review
+
+Found by the §18 review of those three changes and deliberately left open.
+
+- **Received SVG can still reach a decoder outside the media bridge.** Windows
+  stages `qsvg.dll` on purpose (`stage-windows-runtime.py`), and deb, rpm and
+  Flatpak get the plugin from the platform's Qt. `GifPicker.qml` loads the
+  provider's `https` `previewUrl` straight into `AnimatedImage`, bypassing the
+  bridge's markup refusal. Only the provider's CDN can feed that path. Fix:
+  route GIF previews through the byte sniff, and drop `qsvg.dll` from Windows
+  staging (nothing in the UI loads an SVG through `Image`). The AppImage and
+  macOS builds prune the plugin since this round.
+- **A timed-out SVG render keeps its thread-pool thread** until QtSvg returns.
+  Repeated hostile attachments could tie up the global pool.
+- **The Space moderation plan has no overall time budget**: up to 100 rooms at
+  15 s each can leave the dialog on "Checking where you can do this…" for
+  minutes, with no progress shown.
+- **Lowering your own power level carries no warning**, in the Space members
+  menu and in the room profile card before it. It is as irreversible as
+  granting someone your own level.
+- **`SpaceMemberActionDialog.openFor` silently does nothing** while an earlier
+  flow is still running.
+- **The Flatpak's `gst-ximagesrc` is pinned to gst-plugins-good 1.26.11** with
+  nothing tying it to `runtime-version`. After a runtime bump it keeps working
+  (GStreamer loads older-minor plugins) but goes stale silently. A check in
+  `test-flathub-manifest-pin.py` would catch it.
+
 ## 2026-09-20 — OPEN: a DM to another homeserver leaves orphan rooms that cannot be reused
 
 Reported by a user (Zorin 18, flatpak 0.9.5): starting a DM with someone on
