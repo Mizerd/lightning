@@ -1307,6 +1307,23 @@ public:
         return sendAttachment(roomId, localPath, mime, caption, width, height,
                               false);
     }
+    // Still image with a caller-rendered raster thumbnail (an SVG's preview).
+    // An empty `thumbnail` is not an error. The default degrades to the plain
+    // attachment send.
+    virtual quint64 sendImageWithThumbnail(const QString &roomId,
+                                           const QString &localPath,
+                                           const QString &mime,
+                                           const QString &caption,
+                                           int width, int height,
+                                           const QByteArray &thumbnail,
+                                           int thumbnailWidth,
+                                           int thumbnailHeight)
+    {
+        Q_UNUSED(thumbnail); Q_UNUSED(thumbnailWidth);
+        Q_UNUSED(thumbnailHeight);
+        return sendAttachment(roomId, localPath, mime, caption, width, height,
+                              false);
+    }
     // Clipboard images: bytes transfer directly, no temporary file.
     virtual quint64 sendAttachmentBytes(const QString &roomId,
                                         const QByteArray &bytes,
@@ -1375,6 +1392,23 @@ public:
         Q_UNUSED(mime); Q_UNUSED(caption); Q_UNUSED(width);
         Q_UNUSED(height); Q_UNUSED(animated); Q_UNUSED(durationMs);
         return 0;
+    }
+    // Thread twin of sendImageWithThumbnail; the default falls back to the
+    // plain thread attachment, never to a room send.
+    virtual quint64 sendThreadImageWithThumbnail(const QString &roomId,
+                                                 const QString &rootEventId,
+                                                 const QString &localPath,
+                                                 const QString &mime,
+                                                 const QString &caption,
+                                                 int width, int height,
+                                                 const QByteArray &thumbnail,
+                                                 int thumbnailWidth,
+                                                 int thumbnailHeight)
+    {
+        Q_UNUSED(thumbnail); Q_UNUSED(thumbnailWidth);
+        Q_UNUSED(thumbnailHeight);
+        return sendThreadAttachment(roomId, rootEventId, localPath, mime,
+                                    caption, width, height, false);
     }
     // Thread twin of sendVideo; without poster support it falls back to the
     // plain thread attachment.

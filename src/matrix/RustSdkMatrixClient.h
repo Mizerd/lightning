@@ -616,6 +616,23 @@ public:
                            const QString &mime, const QString &caption,
                            int width, int height, bool animated,
                            qint64 durationMs = 0) override;
+    quint64 sendImageWithThumbnail(const QString &roomId,
+                                   const QString &localPath,
+                                   const QString &mime,
+                                   const QString &caption,
+                                   int width, int height,
+                                   const QByteArray &thumbnail,
+                                   int thumbnailWidth,
+                                   int thumbnailHeight) override;
+    quint64 sendThreadImageWithThumbnail(const QString &roomId,
+                                         const QString &rootEventId,
+                                         const QString &localPath,
+                                         const QString &mime,
+                                         const QString &caption,
+                                         int width, int height,
+                                         const QByteArray &thumbnail,
+                                         int thumbnailWidth,
+                                         int thumbnailHeight) override;
     quint64 sendVideo(const QString &roomId, const QString &localPath,
                       const QString &mime, const QString &caption,
                       int width, int height, qint64 durationMs,

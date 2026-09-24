@@ -22,7 +22,9 @@ class VideoPosterExtractor;
 // in memory; no temporary file is written.
 //
 // A queued video also gets a poster frame extracted on add so the event can
-// carry a thumbnail; dispatchers wait for entryPrepared() for that entry.
+// carry a thumbnail, and a queued SVG gets a PNG rendered from the file (see
+// media/SvgThumbnail.h); dispatchers wait for entryPrepared() for that entry.
+// The SVG itself is never handed to a QML Image: its preview is the PNG.
 class AttachmentQueueModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -40,7 +42,8 @@ public:
         ErrorRole,
         // Image source for previewing the entry before sending: the file URL
         // for a picked file, image://lightning-staged/<token> for clipboard
-        // bytes, empty for anything that is not a still image.
+        // bytes, empty for anything that is not a still image. An SVG
+        // previews as its rendered PNG, and as nothing until that exists.
         PreviewSourceRole,
     };
 
@@ -67,10 +70,14 @@ public:
         bool isVideo = false;
         // Decoded for its DURATION only; there is no poster to grab.
         bool isAudio = false;
+        // image/svg+xml (or SVGZ): thumbnailed as a PNG, sent through
+        // sendImageWithThumbnail.
+        bool isSvg = false;
         bool posterPending = false;
         bool sendRequested = false;
         QString posterTag;
-        QByteArray poster;      // JPEG bytes; empty when unavailable
+        // JPEG (video) or PNG (SVG) bytes; empty when unavailable.
+        QByteArray poster;
         int posterWidth = 0;
         int posterHeight = 0;
         qint64 durationMs = 0;  // 0 when the decoder never reported one
@@ -122,11 +129,15 @@ public:
     using PosterRequestHook =
         std::function<void(const QString &tag, const QString &localPath)>;
     void setPosterRequestHook(PosterRequestHook hook);
-    // Deliver a poster outcome. An empty `jpeg` means no poster could be made;
-    // the entry becomes dispatchable without a thumbnail.
-    void applyPoster(const QString &tag, const QByteArray &jpeg,
+    // Deliver a poster outcome (a video frame or an SVG's PNG). An empty
+    // `poster` means none could be made; the entry becomes dispatchable
+    // without a thumbnail.
+    void applyPoster(const QString &tag, const QByteArray &poster,
                      const QSize &posterSize, const QSize &sourceSize,
                      qint64 durationMs);
+
+    // How long an SVG render may hold its entry's dispatch.
+    static constexpr int kSvgThumbnailTimeoutMs = 8000;
 
 Q_SIGNALS:
     void countChanged();
@@ -136,6 +147,7 @@ Q_SIGNALS:
 
 private:
     void startPosterJob(int row);
+    void startSvgThumbnailJob(int row);
     int rowForPosterTag(const QString &tag) const;
 
     // Drops an entry's staged-image registration. Every removal path must call

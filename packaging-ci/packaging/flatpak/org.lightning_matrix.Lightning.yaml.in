@@ -80,6 +80,7 @@ modules:
         -DLIGHTNING_ARTIFACT_KIND=release
         -DLIGHTNING_ENABLE_WEBRTC=ON
         -DLIGHTNING_REQUIRE_WEBRTC=ON
+        -DLIGHTNING_REQUIRE_QT_SVG=ON
       - cmake --build build
       - cmake --install build
       # configure-build.sh's call-engine guard, since this build bypasses it:

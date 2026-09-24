@@ -1839,6 +1839,52 @@ private Q_SLOTS:
         QCOMPARE(cached.count(), 1);
     }
 
+    // An SVG image row: the sender's raster thumbnail is cached and drawn,
+    // the SVG payload itself is refused on every class, and SVG bytes posing
+    // as the thumbnail are refused too. The declared type plays no part.
+    void anSvgRowShowsOnlyARasterThumbnailAndNeverTheSvg()
+    {
+        const QByteArray svg =
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect/></svg>";
+        const QByteArray png =
+            QByteArray("\x89PNG\r\n\x1a\n", 8) + QByteArray(16, 'p');
+
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+
+        // The row asks for its thumbnail; the sender attached a PNG.
+        bridge.mediaSource(QStringLiteral("$svgrow"), QStringLiteral("thumb"));
+        client.succeed(client.fetches.at(0).opId, png,
+                       QStringLiteral("image/svg+xml"));
+        QCOMPARE(bridge.cachedBytes(QStringLiteral("thumb:$svgrow")), png);
+        QVERIFY(bridge.cachedSource(QStringLiteral("thumb:$svgrow"))
+                    .startsWith(QStringLiteral("image://lightning-media/")));
+
+        // The full payload is the SVG: refused, nothing cached.
+        bridge.mediaSource(QStringLiteral("$svgrow"), QStringLiteral("full"));
+        client.succeed(client.fetches.at(1).opId, svg,
+                       QStringLiteral("image/svg+xml"));
+        QVERIFY(bridge.cachedBytes(QStringLiteral("full:$svgrow")).isEmpty());
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.at(0).at(0).toString(), QStringLiteral("full:$svgrow"));
+        QCOMPARE(failed.at(0).at(1).toString(), QStringLiteral("rejected"));
+
+        // A "thumbnail" that is really SVG, declared as PNG, is refused.
+        bridge.mediaSource(QStringLiteral("$disguised"),
+                           QStringLiteral("thumb"));
+        client.succeed(client.fetches.at(2).opId, svg,
+                       QStringLiteral("image/png"));
+        QVERIFY(bridge.cachedBytes(QStringLiteral("thumb:$disguised")).isEmpty());
+        QCOMPARE(failed.count(), 2);
+        QCOMPARE(failed.at(1).at(1).toString(), QStringLiteral("rejected"));
+        // Permanent: a repoll does not fetch the markup again.
+        bridge.mediaSource(QStringLiteral("$disguised"),
+                           QStringLiteral("thumb"));
+        QCOMPARE(client.fetches.size(), 3);
+    }
+
     // A room switch drops queued speculative prefetches; queued interactive
     // work and in-flight ops are untouched.
     void droppedSpeculativeQueueEntriesNeverDispatch()

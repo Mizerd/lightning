@@ -3,13 +3,19 @@
 #include "media/StagedImageStore.h"
 
 #include "matrix/MatrixClient.h"
+#include "media/SvgThumbnail.h"
 #include "media/VideoPosterExtractor.h"
 
+#include <QCoreApplication>
+#include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
 #include <QMimeDatabase>
 #include <QLoggingCategory>
+#include <QPointer>
 #include <QSize>
+#include <QThreadPool>
+#include <QTimer>
 
 AttachmentQueueModel::AttachmentQueueModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -145,7 +151,10 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
     entry.isImage = entry.mime.startsWith(QLatin1String("image/"));
     entry.animated = entry.mime == QLatin1String("image/gif");
     entry.isVideo = entry.mime.startsWith(QLatin1String("video/"));
-    if (entry.isImage) {
+    entry.isSvg = lightning::svgthumb::isSvgMime(entry.mime);
+    // An SVG is not read here: QImageReader would hand it to Qt's SVG plugin
+    // unscreened. Its size comes from the screened render.
+    if (entry.isImage && !entry.isSvg) {
         // Header-only read; never decodes the full image here.
         QImageReader reader(path);
         const QSize size = reader.size();
@@ -158,7 +167,7 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
     // attachments would otherwise lack. The extractor reports duration without
     // a frame, and applyPoster() stores it independently.
     entry.isAudio = entry.mime.startsWith(QLatin1String("audio/"));
-    if (entry.isVideo || entry.isAudio) {
+    if (entry.isVideo || entry.isAudio || entry.isSvg) {
         entry.posterPending = true;
         entry.posterTag = QStringLiteral("send:%1").arg(m_nextPosterTag++);
     }
@@ -189,12 +198,61 @@ void AttachmentQueueModel::startPosterJob(int row)
         m_posterHook(entry.posterTag, entry.localPath);
         return;
     }
+    if (entry.isSvg) {
+        startSvgThumbnailJob(row);
+        return;
+    }
     if (!m_posterExtractor) {
         m_posterExtractor = new VideoPosterExtractor(this);
         connect(m_posterExtractor, &VideoPosterExtractor::posterReady,
                 this, &AttachmentQueueModel::applyPoster);
     }
     m_posterExtractor->requestPoster(entry.posterTag, entry.localPath);
+}
+
+// Rendered on the global pool: a complex SVG can take a while and must not
+// stall the GUI thread. The render cannot be interrupted, so a timer bounds
+// how long it may hold the dispatch; a late result is ignored by
+// applyPoster(). A refusal or a build without Qt SVG sends the file with no
+// thumbnail.
+void AttachmentQueueModel::startSvgThumbnailJob(int row)
+{
+    const QString tag = m_entries.at(row).posterTag;
+    if (!lightning::svgthumb::available()) {
+        applyPoster(tag, {}, {}, {}, 0);
+        return;
+    }
+    const QString path = m_entries.at(row).localPath;
+    QPointer<AttachmentQueueModel> self(this);
+    QThreadPool::globalInstance()->start([self, tag, path] {
+        QByteArray bytes;
+        QFile file(path);
+        // One byte over the bound, so an oversized file is refused rather
+        // than rendered truncated.
+        if (file.open(QIODevice::ReadOnly))
+            bytes = file.read(lightning::svgthumb::kMaxSourceBytes + 1);
+        const lightning::svgthumb::Result result =
+            lightning::svgthumb::render(bytes);
+        QCoreApplication *app = QCoreApplication::instance();
+        if (!app)
+            return;
+        // Delivered on the GUI thread, where `self` is checked.
+        QMetaObject::invokeMethod(app, [self, tag, result] {
+            if (!self)
+                return;
+            if (!result.refusal.isEmpty())
+                qCInfo(lcAttach) << "svg thumbnail skipped reason="
+                                 << qPrintable(result.refusal);
+            self->applyPoster(tag, result.png, result.size, result.intrinsic, 0);
+        }, Qt::QueuedConnection);
+    });
+    QTimer::singleShot(kSvgThumbnailTimeoutMs, this, [this, tag] {
+        const int pending = rowForPosterTag(tag);
+        if (pending >= 0 && m_entries.at(pending).posterPending) {
+            qCInfo(lcAttach) << "svg thumbnail skipped reason=timeout";
+            applyPoster(tag, {}, {}, {}, 0);
+        }
+    });
 }
 
 int AttachmentQueueModel::rowForPosterTag(const QString &tag) const
@@ -207,7 +265,7 @@ int AttachmentQueueModel::rowForPosterTag(const QString &tag) const
 }
 
 void AttachmentQueueModel::applyPoster(const QString &tag,
-                                       const QByteArray &jpeg,
+                                       const QByteArray &poster,
                                        const QSize &posterSize,
                                        const QSize &sourceSize,
                                        qint64 durationMs)
@@ -219,19 +277,25 @@ void AttachmentQueueModel::applyPoster(const QString &tag,
     if (!entry.posterPending)
         return; // already resolved; a second callback must not re-dispatch
     entry.posterPending = false;
-    if (!jpeg.isEmpty() && posterSize.isValid() && !posterSize.isEmpty()) {
-        entry.poster = jpeg;
+    if (!poster.isEmpty() && posterSize.isValid() && !posterSize.isEmpty()) {
+        entry.poster = poster;
         entry.posterWidth = posterSize.width();
         entry.posterHeight = posterSize.height();
+        // The SVG's composer preview is its PNG, never the SVG itself.
+        if (entry.isSvg && m_stagedImages && entry.stagedToken.isEmpty())
+            entry.stagedToken = m_stagedImages->add(poster);
     }
-    // The decoded frame is the only source of the video's dimensions on the
-    // send side; fabricated ones would make receivers lay it out wrong.
+    // The decoded frame (or the SVG's own size) is the only source of the
+    // dimensions on the send side; fabricated ones would make receivers lay
+    // it out wrong.
     if (sourceSize.isValid() && !sourceSize.isEmpty()) {
         entry.width = sourceSize.width();
         entry.height = sourceSize.height();
     }
     if (durationMs > 0)
         entry.durationMs = durationMs;
+    if (entry.isSvg)
+        updateEntry(row); // the preview role changed
     Q_EMIT entryPrepared(row);
 }
 
@@ -342,6 +406,11 @@ QVariant AttachmentQueueModel::data(const QModelIndex &index, int role) const
     case PreviewSourceRole: {
         if (!e.isImage && !e.isVideo)
             return QString();
+        // Never the SVG file: QML would hand it to Qt's SVG plugin.
+        if (e.isSvg)
+            return e.stagedToken.isEmpty()
+                ? QString()
+                : QStringLiteral("image://lightning-staged/") + e.stagedToken;
         if (!e.localPath.isEmpty())
             return QUrl::fromLocalFile(e.localPath).toString();
         if (!e.stagedToken.isEmpty())

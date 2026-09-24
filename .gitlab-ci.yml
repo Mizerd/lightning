@@ -240,7 +240,7 @@ build-deb:
       build-essential ca-certificates ccache cmake curl debhelper dpkg-dev
       fakeroot file git jq libsecret-1-dev libsqlite3-dev libssl-dev
       ninja-build patchelf pkg-config qt6-base-dev qt6-base-private-dev qt6-declarative-dev
-      qt6-multimedia-dev qt6-tools-dev zstd
+      qt6-multimedia-dev qt6-svg-dev qt6-tools-dev zstd
     # GStreamer development files for the call media engine; without them the
     # pkg-config probe fails and the build is rejected.
     - >-
@@ -298,7 +298,7 @@ build-deb-ubuntu:
       build-essential ca-certificates ccache cmake curl debhelper dpkg-dev
       fakeroot file git jq libsecret-1-dev libsqlite3-dev libssl-dev
       ninja-build patchelf pkg-config qt6-base-dev qt6-base-private-dev qt6-declarative-dev
-      qt6-multimedia-dev qt6-tools-dev zstd
+      qt6-multimedia-dev qt6-svg-dev qt6-tools-dev zstd
     # GStreamer development files for the call media engine; without them the
     # pkg-config probe fails and the build is rejected.
     - >-
@@ -432,7 +432,7 @@ build-appimage:
       apt-get install -y --no-install-recommends
       build-essential ca-certificates ccache cmake curl file git jq
       libsecret-1-dev libsqlite3-dev libssl-dev ninja-build patchelf
-      pkg-config qt6-base-dev qt6-base-private-dev qt6-declarative-dev qt6-multimedia-dev
+      pkg-config qt6-base-dev qt6-base-private-dev qt6-declarative-dev qt6-multimedia-dev qt6-svg-dev
       qt6-tools-dev qt6-wayland qml6-module-qtmultimedia
       qml6-module-qtquick qml6-module-qtquick-controls
       qml6-module-qtquick-dialogs qml6-module-qtquick-effects

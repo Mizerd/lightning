@@ -544,6 +544,15 @@ for lib in "${PRUNE_HOST_LIBS[@]}"; do
     [ "$found" = 1 ] || echo "note: $lib was not bundled, nothing to prune"
 done
 
+# linuxdeploy-plugin-qt deploys the SVG image-format plugin once Qt6Svg is
+# linked (for send-side SVG thumbnails). Nothing received may be decoded as
+# SVG, so it never ships. The SVG icon engine stays: QIcon reads only the
+# app's and the icon theme's own icons.
+while IFS= read -r hit; do
+    rm -f "$hit"
+    echo "pruned from the payload (SVG is never decoded): ${hit#$APPDIR/}"
+done < <(find "$APPDIR/usr/plugins/imageformats" -name '*svg*' 2>/dev/null)
+
 # Third-party licences. linuxdeploy already deploys Debian copyright files for
 # what it bundles, but not for libraries staged past it or unpacked into /opt.
 # This pass attributes every bundled shared object to its Debian package via
@@ -750,6 +759,9 @@ for entry in "${QT_IMAGE_REQUIRED_PLUGINS[@]}"; do
 done
 [[ "$packed_img" -eq "${#QT_IMAGE_REQUIRED_PLUGINS[@]}" ]] || \
     die "AppImage carries $packed_img of ${#QT_IMAGE_REQUIRED_PLUGINS[@]} Qt image-format plugins; it would accept image formats it cannot decode"
+packed_svg="$(find "$verify_root/usr/plugins/imageformats" -name '*svg*' | wc -l)"
+[[ "$packed_svg" -eq 0 ]] || \
+    die "packed AppImage carries an SVG image-format plugin; received media must never be decoded as SVG"
 
 # Present is not loadable: dependencies must resolve inside the bundle (this
 # image has libwebp and libjxl installed).

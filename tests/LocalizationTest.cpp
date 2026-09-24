@@ -588,8 +588,9 @@ private Q_SLOTS:
             QStringLiteral("Lightning"),
             // An example homeserver URL; URLs are not translated.
             QStringLiteral("https://matrix.org"),
-            // A file-format name, the same in every language.
+            // File-format names, the same in every language.
             QStringLiteral("GIF"),
+            QStringLiteral("SVG"),
             // A keycap legend, matching the physical key.
             QStringLiteral("ESC"),
         };

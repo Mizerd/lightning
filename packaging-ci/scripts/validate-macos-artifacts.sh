@@ -117,6 +117,9 @@ done
 # Without the cocoa platform plugin Qt cannot create a window.
 check "cocoa platform plugin bundled" \
     test -f "$CONTENTS/PlugIns/platforms/libqcocoa.dylib"
+# Received media must never be decoded as SVG (build-macos.sh prunes it).
+check "no SVG image-format plugin" \
+    bash -c '! compgen -G "$1/PlugIns/imageformats/*svg*" >/dev/null' _ "$CONTENTS"
 
 qt_fw_count="$(find "$CONTENTS/Frameworks" -maxdepth 1 -name '*.framework' 2>/dev/null | wc -l | tr -d ' ')"
 printf '  bundled frameworks: %s\n' "$qt_fw_count"

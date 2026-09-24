@@ -4,6 +4,9 @@
 // clear the tray; stale completions are ignored).
 
 #include "matrix/MatrixClient.h"
+#include "media/ImageFormatSupport.h"
+#include "media/StagedImageStore.h"
+#include "media/SvgThumbnail.h"
 #include "models/MessageComposer.h"
 
 #include <QBuffer>
@@ -101,6 +104,29 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
+    // Records the still-image-with-thumbnail path (an SVG's PNG preview).
+    int imageThumbSends = 0;
+    int lastImageWidth = 0;
+    int lastImageHeight = 0;
+    quint64 sendImageWithThumbnail(const QString &, const QString &,
+                                   const QString &mime, const QString &,
+                                   int width, int height,
+                                   const QByteArray &thumbnail,
+                                   int thumbnailWidth,
+                                   int thumbnailHeight) override
+    {
+        if (rejectSends)
+            return 0;
+        ++imageThumbSends;
+        lastMime = mime;
+        lastImageWidth = width;
+        lastImageHeight = height;
+        lastThumbnail = thumbnail;
+        lastThumbWidth = thumbnailWidth;
+        lastThumbHeight = thumbnailHeight;
+        lastOpId = nextOp++;
+        return lastOpId;
+    }
     quint64 sendAttachmentBytes(const QString &, const QByteArray &,
                                 const QString &filename, const QString &mime,
                                 int, int) override
@@ -170,6 +196,29 @@ QByteArray tinyJpeg()
     buffer.open(QIODevice::WriteOnly);
     image.save(&buffer, "JPG", 80);
     return bytes;
+}
+
+// A plain 1600x1200 SVG: a red square filling the canvas.
+QByteArray redSquareSvg()
+{
+    return QByteArrayLiteral(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1600\" "
+        "height=\"1200\" viewBox=\"0 0 1600 1200\">"
+        "<rect x=\"0\" y=\"0\" width=\"1600\" height=\"1200\" fill=\"#ff0000\"/>"
+        "</svg>");
+}
+
+// An SVG that asks QtSvg to draw a file from the local disk into the
+// thumbnail, which would then be uploaded.
+QByteArray svgReadingALocalFile(const QString &path)
+{
+    return QByteArrayLiteral(
+               "<svg xmlns=\"http://www.w3.org/2000/svg\" "
+               "xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"64\" "
+               "height=\"64\"><image width=\"64\" height=\"64\" xlink:href=\"")
+        + QUrl::fromLocalFile(path).toEncoded()
+        + QByteArrayLiteral("\"/></svg>");
 }
 
 } // namespace
@@ -723,6 +772,239 @@ private Q_SLOTS:
         QCOMPARE(client.byteSends, 1);
         QCOMPARE(client.lastFilename, QStringLiteral("pasted-image.png"));
         QCOMPARE(client.lastMime, QStringLiteral("image/png"));
+    }
+
+    // ---- SVG send-side thumbnail (media/SvgThumbnail.h) ----
+
+    // The screen refuses every way an SVG can make QtSvg read something
+    // outside the document, and passes ordinary self-contained drawings.
+    void svgScreenRefusesAnythingThatReachesOutsideTheDocument()
+    {
+        using lightning::svgthumb::screen;
+        const QByteArray head =
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" "
+            "xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"10\" "
+            "height=\"10\">";
+        const QByteArray tail = "</svg>";
+        const auto wrap = [&](const QByteArray &body) {
+            return head + body + tail;
+        };
+
+        const QList<std::pair<QByteArray, QString>> refused = {
+            // QtSvg would load these from the local disk.
+            { wrap("<image href=\"/home/user/private.png\"/>"),
+              QStringLiteral("external_image") },
+            { wrap("<image xlink:href=\"data:image/png;base64,AAAA\"/>"),
+              QStringLiteral("external_image") },
+            { wrap("<s:image xmlns:s=\"http://www.w3.org/2000/svg\" "
+                   "href=\"private.png\"/>"),
+              QStringLiteral("external_image") },
+            { wrap("<filter id=\"f\"><feImage href=\"private.png\"/></filter>"),
+              QStringLiteral("external_image") },
+            { wrap("<use xlink:href=\"other.svg#a\"/>"),
+              QStringLiteral("external_reference") },
+            { wrap("<font-face><font-face-src><font-face-uri "
+                   "xlink:href=\"font.svg\"/></font-face-src></font-face>"),
+              QStringLiteral("external_reference") },
+            { wrap("<rect fill=\"url(pattern.png)\"/>"),
+              QStringLiteral("external_reference") },
+            { wrap("<rect style=\"fill: url( 'file:///x.png' )\"/>"),
+              QStringLiteral("external_reference") },
+            { wrap("<style>@import 'x.css';</style>"),
+              QStringLiteral("external_reference") },
+            { wrap("<style><![CDATA[rect { fill: url(x.png) }]]></style>"),
+              QStringLiteral("external_reference") },
+            // CSS continues past a child element until </style>.
+            { wrap("<style>rect {}<x/>@import 'x.css';</style>"),
+              QStringLiteral("external_reference") },
+            // References that could expand past the budget are refused before
+            // any expansion (4000-character entity, 1000 references).
+            { QByteArray("<!DOCTYPE svg [<!ENTITY e \"") + QByteArray(4000, 'a')
+                  + QByteArray("\">]>")
+                  + wrap("<desc t=\"" + QByteArray("&e;").repeated(1000)
+                         + "\"/>"),
+              QStringLiteral("entities") },
+            // Document-level refusals.
+            { QByteArray("<?xml version=\"1.0\"?><!DOCTYPE svg [<!ENTITY e "
+                         "SYSTEM \"file:///etc/passwd\">]>")
+                  + wrap("<text>&e;</text>"),
+              QStringLiteral("entities") },
+            { QByteArray("<?xml-stylesheet href=\"x.css\"?>") + wrap(""),
+              QStringLiteral("processing_instruction") },
+            { QByteArray("\x1f\x8b", 2) + QByteArray(30, '\x08'),
+              QStringLiteral("compressed") },
+            { QByteArray("<html><body/></html>"), QStringLiteral("not_svg") },
+            { wrap("<rect>"), QStringLiteral("malformed") },
+            { QByteArray(), QStringLiteral("empty") },
+            { QByteArray(lightning::svgthumb::kMaxSourceBytes + 1, ' '),
+              QStringLiteral("too_large") },
+            { wrap(QByteArray("<g>").repeated(64) + QByteArray("</g>").repeated(64)),
+              QStringLiteral("too_deep") },
+            { wrap(QByteArray("<rect/>").repeated(lightning::svgthumb::kMaxElements)),
+              QStringLiteral("too_many_elements") },
+        };
+        for (const auto &[bytes, reason] : refused)
+            QCOMPARE(screen(bytes), reason);
+
+        const QList<QByteArray> accepted = {
+            redSquareSvg(),
+            wrap("<defs><linearGradient id=\"g\"/></defs>"
+                 "<rect fill=\"url(#g)\"/><use xlink:href=\"#g\"/>"),
+            // A hyperlink is inert to QtSvg.
+            wrap("<a xlink:href=\"https://example.org/\"><rect/></a>"),
+            // Internal entities, as older Illustrator exports declare them.
+            QByteArray("<!DOCTYPE svg [<!ENTITY w \"10\">]>")
+                + wrap("<rect width=\"&w;\" height=\"&w;\"/>"),
+        };
+        for (const QByteArray &bytes : accepted)
+            QCOMPARE(screen(bytes), QString());
+    }
+
+    // Element's box: fit within 800x600, aspect kept, never upscaled.
+    void svgThumbnailBoxFitsAndNeverUpscales()
+    {
+        using lightning::svgthumb::fitThumbnail;
+        using lightning::svgthumb::intrinsicPixels;
+        QCOMPARE(fitThumbnail(QSizeF(1600, 1200)), QSize(800, 600));
+        QCOMPARE(fitThumbnail(QSizeF(24, 24)), QSize(24, 24));
+        QCOMPARE(fitThumbnail(QSizeF(3000, 100)), QSize(800, 27));
+        QCOMPARE(fitThumbnail(QSizeF(100, 3000)), QSize(20, 600));
+        QCOMPARE(fitThumbnail(QSizeF(0.4, 0.4)), QSize(1, 1));
+        QVERIFY(!fitThumbnail(QSizeF(0, 10)).isValid());
+        QVERIFY(!fitThumbnail(QSizeF(qQNaN(), 10)).isValid());
+        QVERIFY(!fitThumbnail(QSizeF(qInf(), 10)).isValid());
+        QCOMPARE(intrinsicPixels(QSizeF(1e9, 1e9)), QSize(65535, 65535));
+    }
+
+    // The render is a PNG inside the box, never markup, and an SVG naming a
+    // local file renders nothing.
+    void svgRendersToABoundedPngAndRefusesALocalFileReference()
+    {
+        QTemporaryDir dir;
+        const QString secret =
+            writeFile(dir, QStringLiteral("private.png"), tinyPng());
+        const auto trap =
+            lightning::svgthumb::render(svgReadingALocalFile(secret));
+        QCOMPARE(trap.refusal, QStringLiteral("external_image"));
+        QVERIFY(trap.png.isEmpty());
+
+        if (!lightning::svgthumb::available())
+            QSKIP("built without Qt SVG (LIGHTNING_HAVE_QT_SVG unset)");
+        const auto result = lightning::svgthumb::render(redSquareSvg());
+        QCOMPARE(result.refusal, QString());
+        QCOMPARE(lightning::imagefmt::sniffRasterMime(result.png),
+                 QStringLiteral("image/png"));
+        QCOMPARE(result.size, QSize(800, 600));
+        QCOMPARE(result.intrinsic, QSize(1600, 1200));
+        QVERIFY(result.png.size() <= lightning::svgthumb::kMaxThumbBytes);
+        const QImage decoded = QImage::fromData(result.png, "PNG");
+        QCOMPARE(decoded.size(), QSize(800, 600));
+        QCOMPARE(decoded.pixelColor(400, 300), QColor(Qt::red));
+    }
+
+    // A queued SVG waits for its thumbnail, previews only as the PNG, and
+    // sends the PNG through the image-with-thumbnail path.
+    void svgSendCarriesItsRasterThumbnailAndNeverPreviewsTheSvg()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        StagedImageStore staged;
+        AttachmentQueueModel *model = composer.attachments();
+        model->setStagedImages(&staged);
+
+        QString capturedTag;
+        model->setPosterRequestHook(
+            [&capturedTag](const QString &tag, const QString &) {
+                capturedTag = tag;
+            });
+
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("logo.svg"), redSquareSvg())));
+        QCOMPARE(model->rowCount(), 1);
+        QCOMPARE(model->data(model->index(0, 0), AttachmentQueueModel::MimeRole)
+                     .toString(),
+                 QStringLiteral("image/svg+xml"));
+        QVERIFY(!capturedTag.isEmpty());
+        // The SVG file is never offered to an Image.
+        QVERIFY(model->data(model->index(0, 0),
+                            AttachmentQueueModel::PreviewSourceRole)
+                    .toString().isEmpty());
+
+        composer.send();
+        QCOMPARE(client.imageThumbSends, 0);
+        QCOMPARE(client.fileSends, 0);
+
+        const QByteArray png = tinyPng();
+        model->applyPoster(capturedTag, png, QSize(1, 1), QSize(1600, 1200), 0);
+
+        QCOMPARE(client.imageThumbSends, 1);
+        QCOMPARE(client.fileSends, 0);
+        QCOMPARE(client.videoSends, 0);
+        QCOMPARE(client.lastMime, QStringLiteral("image/svg+xml"));
+        QCOMPARE(client.lastThumbnail, png);
+        QCOMPARE(client.lastThumbWidth, 1);
+        QCOMPARE(client.lastThumbHeight, 1);
+        QCOMPARE(client.lastImageWidth, 1600);
+        QCOMPARE(client.lastImageHeight, 1200);
+
+        const QString preview =
+            model->data(model->index(0, 0),
+                        AttachmentQueueModel::PreviewSourceRole).toString();
+        QVERIFY(preview.startsWith(QStringLiteral("image://lightning-staged/")));
+        QCOMPARE(staged.bytes(preview.mid(
+                     QStringLiteral("image://lightning-staged/").size())),
+                 png);
+    }
+
+    // A refused SVG (here one naming a local file) still sends, with no
+    // thumbnail. Holds with or without Qt SVG.
+    void aRefusedSvgStillSendsWithoutAThumbnail()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+
+        QTemporaryDir dir;
+        const QString secret =
+            writeFile(dir, QStringLiteral("private.png"), tinyPng());
+        composer.addAttachment(QUrl::fromLocalFile(writeFile(
+            dir, QStringLiteral("trap.svg"), svgReadingALocalFile(secret))));
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+        composer.send();
+        QTRY_COMPARE_WITH_TIMEOUT(client.imageThumbSends, 1, 5000);
+        QVERIFY(client.lastThumbnail.isEmpty());
+        QCOMPARE(client.lastThumbWidth, 0);
+        QCOMPARE(client.fileSends, 0);
+    }
+
+    // End to end with the real renderer: the event carries a PNG inside the
+    // box and the SVG's own size.
+    void aQueuedSvgIsRenderedToABoundedPngThumbnail()
+    {
+        if (!lightning::svgthumb::available())
+            QSKIP("built without Qt SVG (LIGHTNING_HAVE_QT_SVG unset)");
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("logo.svg"), redSquareSvg())));
+        composer.send();
+        QTRY_COMPARE_WITH_TIMEOUT(
+            client.imageThumbSends, 1,
+            AttachmentQueueModel::kSvgThumbnailTimeoutMs + 2000);
+        QCOMPARE(lightning::imagefmt::sniffRasterMime(client.lastThumbnail),
+                 QStringLiteral("image/png"));
+        QCOMPARE(client.lastThumbWidth, 800);
+        QCOMPARE(client.lastThumbHeight, 600);
+        QCOMPARE(client.lastImageWidth, 1600);
+        QCOMPARE(client.lastImageHeight, 1200);
     }
 };
 

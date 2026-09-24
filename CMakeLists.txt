@@ -182,6 +182,23 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     # Inline video/audio playback.
     Multimedia
 )
+# Qt SVG library for thumbnails of SVGs the user sends. Linking it makes the
+# deploy tools add the qsvg image PLUGIN, which the AppImage and macOS builds
+# prune: nothing received is decoded as SVG. Global so every target compiling
+# SvgThumbnail.h sees one definition.
+option(LIGHTNING_REQUIRE_QT_SVG "Fail configure without Qt SVG" OFF)
+find_package(Qt6 6.5 QUIET COMPONENTS Svg)
+if(TARGET Qt6::Svg)
+    add_compile_definitions(LIGHTNING_HAVE_QT_SVG=1)
+    link_libraries(Qt6::Svg)
+    message(STATUS "SVG send thumbnails: yes (Qt SVG ${Qt6Svg_VERSION})")
+elseif(LIGHTNING_REQUIRE_QT_SVG)
+    message(FATAL_ERROR
+        "LIGHTNING_REQUIRE_QT_SVG=ON but Qt6::Svg was not found "
+        "(Debian/Ubuntu: qt6-svg-dev; Fedora: qt6-qtsvg-devel).")
+else()
+    message(STATUS "SVG send thumbnails: no (Qt SVG not found)")
+endif()
 # QPlatformScreen, for the X11 screen-share fallback's native screen rectangle.
 # Optional: the call site is guarded on LIGHTNING_HAVE_QPA_SCREEN and the
 # fallback refuses without it.

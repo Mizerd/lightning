@@ -703,6 +703,14 @@ Item {
     // An MSC4274 gallery's attachments (two or more), or empty.
     readonly property var galleryItems: model.galleryItems || []
     readonly property bool isGallery: galleryItems.length > 1
+    // SVG is never decoded (CLAUDE.md §6). An SVG image row shows only the
+    // sender's raster thumbnail; without one it is a file card to save. The
+    // declared type only ever withholds rendering: the media bridge's byte
+    // sniff is what refuses markup.
+    readonly property bool isSvgImage: model.isImage === true
+        && (model.mediaMimetype || "").toLowerCase().indexOf("image/svg") === 0
+    readonly property bool svgWithoutThumbnail:
+        isSvgImage && model.mediaThumbAvailable !== true
     // "3 images" / "3 attachments", for the gallery summary and a reply quoting
     // one.
     function galleryCountLabel(count, allImages) {
@@ -1661,6 +1669,8 @@ Item {
                             width: Math.min(root.contentInnerCap,
                                             item ? item.implicitWidth : 0)
                             sourceComponent: root.isGallery ? galleryComponent
+                                            : root.svgWithoutThumbnail
+                                              ? fileComponent
                                             : model.isImage ? imageComponent
                                             : model.isSticker === true
                                               ? stickerComponent
@@ -3401,8 +3411,10 @@ Item {
                 iconName: "open_in_full"
                 text: qsTr("Open image")
                 // Images and stickers only; video has its own player and
-                // fullscreen overlay.
+                // fullscreen overlay. Not an SVG: the viewer would ask for the
+                // payload, which is never decoded; Save covers it.
                 visible: (model.isImage === true || model.isSticker === true)
+                         && !root.isSvgImage
                          && model.mediaSourceAvailable === true
                 enabled: visible && root.timelineView
                          && !!root.timelineView.openImage
@@ -4751,8 +4763,11 @@ Item {
                 }
             }
 
+            // An SVG row never takes the HTTP fallback: a URL loaded by Image
+            // bypasses the bridge's byte sniff.
             readonly property string resolvedSource:
                 usesBridge ? bridgeSource
+                           : root.isSvgImage ? ""
                            : (model.mediaThumbUrl
                               && model.mediaThumbUrl.toString().length > 0
                               ? model.mediaThumbUrl
@@ -4834,22 +4849,57 @@ Item {
                 onRevealRequested: root.setMediaHidden(false)
             }
 
+            // What is drawn is the sender's preview of an SVG, not the SVG.
+            Rectangle {
+                objectName: "svgPreviewBadge"
+                visible: root.isSvgImage && !root.mediaHidden
+                         && img.status === Image.Ready
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+                anchors.margins: 5
+                radius: 3
+                color: AppTheme.overlayScrim
+                width: svgBadgeLabel.implicitWidth + 8
+                height: svgBadgeLabel.implicitHeight + 4
+                Label {
+                    id: svgBadgeLabel
+                    anchors.centerIn: parent
+                    text: "SVG"
+                    color: AppTheme.scrimInk
+                    font.pixelSize: AppTheme.fontMicro
+                    font.weight: Font.Bold
+                }
+            }
+
             MouseArea {
                 anchors.fill: parent
                 enabled: !root.mediaHidden && root.rowActionsEnabled
                 visible: enabled
                 cursorShape: Qt.PointingHandCursor
-                onClicked: {
-                    if (imageBox.bridgeFailed) {
-                        imageBox.refreshBridgeSource()
-                        return
-                    }
-                    if (root.timelineView && root.timelineView.openImage)
-                        root.timelineView.openImage(model.mediaKey || "",
-                                                     model.mediaUrl)
-                    else if (model.mediaUrl && model.mediaUrl.toString().length > 0)
-                        app.media.openExternal(model.mediaUrl)
+                onClicked: imageBox.activate()
+            }
+
+            // A click opens the viewer, except for an SVG: the viewer asks
+            // for the full payload, which is never decoded, so the SVG is
+            // offered to save instead.
+            function activate() {
+                if (imageBox.bridgeFailed) {
+                    imageBox.refreshBridgeSource()
+                    return
                 }
+                if (root.isSvgImage) {
+                    if (root.timelineView && root.timelineView.saveMedia
+                        && model.mediaSourceAvailable === true)
+                        root.timelineView.saveMedia(model.mediaKey || "",
+                                                    model.mediaFilename
+                                                    || "image.svg")
+                    return
+                }
+                if (root.timelineView && root.timelineView.openImage)
+                    root.timelineView.openImage(model.mediaKey || "",
+                                                 model.mediaUrl)
+                else if (model.mediaUrl && model.mediaUrl.toString().length > 0)
+                    app.media.openExternal(model.mediaUrl)
             }
 
             // A Loader, so rows that are not star-eligible do not pay for the
@@ -5564,6 +5614,8 @@ Item {
                 var slash = m.indexOf("/")
                 if (slash < 0) return m
                 var sub = m.substring(slash + 1)
+                // "svg+xml" would otherwise read as "XML".
+                if (sub.toLowerCase().indexOf("svg") === 0) return "SVG"
                 var plus = sub.lastIndexOf("+")
                 if (plus >= 0) sub = sub.substring(plus + 1)
                 if (sub.indexOf("x-") === 0) sub = sub.substring(2)

@@ -313,6 +313,12 @@ void MessageComposer::dispatchAttachment(int row)
                                    caption, entry.width, entry.height,
                                    entry.durationMs, entry.poster,
                                    entry.posterWidth, entry.posterHeight);
+    } else if (entry.isSvg) {
+        // The PNG rendered from the file becomes thumbnail_info, so receivers
+        // show a preview without decoding SVG. Empty when none could be made.
+        opId = m_client->sendImageWithThumbnail(
+            m_roomId, entry.localPath, entry.mime, caption, entry.width,
+            entry.height, entry.poster, entry.posterWidth, entry.posterHeight);
     } else {
         // Duration is 0 for non-timed media or an undecodable length; both are
         // sent as absent, never as a literal zero.

@@ -207,6 +207,7 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DBUILD_TESTING=OFF \
     -DENABLE_RUST_SDK_BACKEND=ON \
     -DLIGHTNING_RUST_ONLY=ON \
+    -DLIGHTNING_REQUIRE_QT_SVG=ON \
     -DLIGHTNING_REQUIRE_GIF_KEYS="$gif_require" \
     -DLIGHTNING_SOURCE_SHA="$SOURCE_SHA" \
     -DLIGHTNING_BUILD_TARGET="aarch64-apple-darwin" \
@@ -321,6 +322,15 @@ do
     [[ -e "$dead" ]] || continue
     rm -rf -- "$dead"
     printf 'pruned unused module: %s\n' "${dead#"$APP_DIR"/}"
+done
+
+# macdeployqt deploys the SVG image-format plugin once QtSvg is linked (for
+# send-side SVG thumbnails). Nothing received may be decoded as SVG, so it
+# never ships. The SVG icon engine stays: QIcon reads only the app's icons.
+for svg_plugin in "$CONTENTS"/PlugIns/imageformats/*svg*; do
+    [[ -e "$svg_plugin" ]] || continue
+    rm -f -- "$svg_plugin"
+    printf 'pruned (SVG is never decoded): %s\n' "${svg_plugin#"$APP_DIR"/}"
 done
 
 # --- repair load commands macdeployqt left pointing at the host ---------------

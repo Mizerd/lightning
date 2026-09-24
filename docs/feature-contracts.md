@@ -1603,3 +1603,26 @@ Live validation: **NOT TESTED**.
   failure.
 - A display name with no visible character (fillers, zero-width, format or
   tag characters) falls back to the localpart on the profile card.
+
+### SVG images (thumbnails for SVGs the user sends)
+
+- §6 still holds: nothing RECEIVED is ever decoded as SVG. A received SVG
+  image shows only the SENDER's raster thumbnail, with an "SVG" badge; without
+  one it is a file card. Clicking saves; the viewer never opens it, and the row
+  never falls back to an HTTP URL (which would bypass the media bridge's
+  markup refusal). `rooms::media_fetch` refuses a declared SVG with no sender
+  thumbnail before making any request.
+- SENDING an SVG screens it first (`src/media/SvgThumbnail.h`): `<image>` and
+  `<feImage>`, any non-local `href` (QtSvg reads local files for these),
+  external `url()`/`@import`, entities, processing instructions, gzip, a
+  non-svg root, and size, element and depth caps are refused. A screened file
+  is rasterised by Qt SVG (the static Tiny 1.2 subset, no animation, on Qt
+  6.7+) to a PNG of at most 800x600 on a worker with an 8 s limit, and sent as
+  the image's thumbnail through the SDK (`imagesend.rs`, thread-focused for
+  threads). A refused or failed render sends the SVG with no thumbnail, as
+  before. Element sends and shows SVGs the same way.
+- Needs the Qt SVG LIBRARY (`LIGHTNING_HAVE_QT_SVG`; packaging passes
+  `LIGHTNING_REQUIRE_QT_SVG=ON`). Linking it makes linuxdeploy and macdeployqt
+  add the qsvg image-format PLUGIN, which the AppImage and macOS builds prune
+  and then assert absent. The screen also refuses a document whose entity
+  references could expand past 2M characters, checked before any expansion.

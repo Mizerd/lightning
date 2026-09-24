@@ -79,6 +79,7 @@ mod calls;
 mod discover;
 mod gifs;
 mod ignore;
+mod imagesend;
 mod localsearch;
 mod location;
 mod mediahistory;

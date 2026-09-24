@@ -3366,7 +3366,7 @@ pub(crate) struct PosterBytes {
 const MAX_POSTER_BYTES: usize = 2 * 1024 * 1024;
 
 impl PosterBytes {
-    fn into_thumbnail(self) -> Option<Thumbnail> {
+    pub(crate) fn into_thumbnail(self) -> Option<Thumbnail> {
         if self.data.is_empty() || self.data.len() > MAX_POSTER_BYTES {
             return None;
         }
@@ -3897,6 +3897,16 @@ pub(crate) fn media_fetch(
     let results = Arc::clone(&bridge.media_results);
     let lifecycle = timelines.lifecycle();
     let cap = media_size_cap(timeout_class);
+    // A declared SVG without a sender thumbnail has no thumbnail to show:
+    // refused before any request (CLAUDE.md §6).
+    if crate::imagesend::svg_thumbnail_unavailable(
+        kind, has_embedded_thumbnail, mimetype.as_deref(),
+    ) {
+        emit_media_failed(
+            &terminal, &results, op_id, lifecycle, &key, kind, "rejected",
+        );
+        return Ok(());
+    }
     // Refuse a full fetch whose metadata declares an over-cap size; the SDK
     // would buffer it whole.
     if kind == 0 {

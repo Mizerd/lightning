@@ -683,6 +683,11 @@ void ThreadController::dispatchAttachment(int row)
             m_roomId, m_rootEventId, entry.localPath, entry.mime, QString(),
             entry.width, entry.height, entry.durationMs, entry.poster,
             entry.posterWidth, entry.posterHeight);
+    } else if (entry.isSvg) {
+        opId = m_client->sendThreadImageWithThumbnail(
+            m_roomId, m_rootEventId, entry.localPath, entry.mime, QString(),
+            entry.width, entry.height, entry.poster, entry.posterWidth,
+            entry.posterHeight);
     } else {
         opId = m_client->sendThreadAttachment(
             m_roomId, m_rootEventId, entry.localPath, entry.mime, QString(),

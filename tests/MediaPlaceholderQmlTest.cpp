@@ -16,6 +16,7 @@
 
 
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickItem>
@@ -725,6 +726,100 @@ private Q_SLOTS:
                  "the sticker delegate has no animation policy to test");
         QCOMPARE(sticker->property("maybeAnimated").toBool(), false);
         QCOMPARE(d.warnings, QStringList{});
+    }
+
+    // An SVG image row without the sender's raster thumbnail has nothing it
+    // may draw (SVG is never decoded), so it is a file card to save, not a
+    // broken image tile.
+    void anSvgWithoutASenderThumbnailIsAFileCard()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isImage"), true);
+        fixture.insert(QStringLiteral("mediaMimetype"),
+                       QStringLiteral("image/svg+xml"));
+        fixture.insert(QStringLiteral("mediaFilename"),
+                       QStringLiteral("logo.svg"));
+        fixture.insert(QStringLiteral("body"), QStringLiteral("logo.svg"));
+        fixture.insert(QStringLiteral("mediaSize"), 2048);
+        fixture.insert(QStringLiteral("mediaKey"), QStringLiteral("$fixture"));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        QVERIFY(d.root->findChild<QQuickItem *>(QStringLiteral("fileCard")));
+        QVERIFY(!d.root->findChild<QQuickItem *>(QStringLiteral("imageMedia")));
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
+    // With the sender's raster thumbnail the row shows it; activating the
+    // row saves the file instead of opening the viewer (which would ask for
+    // the SVG payload); and the HTTP fallback never loads the SVG's URL.
+    void anSvgWithASenderThumbnailShowsItAndActivatingSaves()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isImage"), true);
+        fixture.insert(QStringLiteral("mediaMimetype"),
+                       QStringLiteral("image/svg+xml"));
+        fixture.insert(QStringLiteral("mediaFilename"),
+                       QStringLiteral("logo.svg"));
+        fixture.insert(QStringLiteral("body"), QStringLiteral("logo.svg"));
+        fixture.insert(QStringLiteral("mediaWidth"), 800);
+        fixture.insert(QStringLiteral("mediaHeight"), 600);
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+        fixture.insert(QStringLiteral("mediaThumbAvailable"), true);
+        fixture.insert(QStringLiteral("mediaKey"), QStringLiteral("$fixture"));
+        fixture.insert(QStringLiteral("mediaUrl"),
+                       QUrl(QStringLiteral("https://example.org/logo.svg")));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        QVERIFY(!d.root->findChild<QQuickItem *>(QStringLiteral("fileCard")));
+        auto *image =
+            d.root->findChild<QQuickItem *>(QStringLiteral("imageMedia"));
+        QVERIFY(image != nullptr);
+        // The mock backend has no media bridge, so this is the HTTP path.
+        QVERIFY(image->property("resolvedSource").toString().isEmpty());
+
+        QQmlComponent component(d.engine.get());
+        component.setData(R"QML(
+import QtQuick
+QtObject {
+    property bool roomEncrypted: false
+    property bool isDirectRoom: false
+    property real contentY: 0
+    property real height: 10000
+    property bool speculativeMediaAllowed: true
+    property bool stickToBottom: false
+    property bool threadContext: false
+    property string transientInteractionOwner: ""
+    property string hoveredActionsKey: ""
+    property string pinnedActionsKey: ""
+    property string savedKey: ""
+    property string savedName: ""
+    property string openedKey: ""
+    function stateGroupExpanded(groupId) { return false }
+    function toggleStateGroup(groupId) {}
+    function saveMedia(mediaKey, filename) {
+        savedKey = mediaKey
+        savedName = filename
+    }
+    function openImage(mediaKey, httpUrl) { openedKey = mediaKey }
+}
+)QML",
+                          QUrl());
+        QObject *pane = component.create();
+        QVERIFY2(pane, qPrintable(component.errorString()));
+        pane->setParent(d.root);
+        d.root->setProperty("timelineView", QVariant::fromValue(pane));
+        QCoreApplication::processEvents();
+
+        QVERIFY(QMetaObject::invokeMethod(image, "activate"));
+        QCOMPARE(pane->property("savedKey").toString(),
+                 QStringLiteral("$fixture"));
+        QCOMPARE(pane->property("savedName").toString(),
+                 QStringLiteral("logo.svg"));
+        QVERIFY(pane->property("openedKey").toString().isEmpty());
     }
 
     // A plain file (body defaults to the filename) shows the filename once, in

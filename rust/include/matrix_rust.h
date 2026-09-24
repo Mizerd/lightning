@@ -1667,6 +1667,39 @@ char *mx_rust_timeline_send_video(void *client,
                                   unsigned long long thumb_width,
                                   unsigned long long thumb_height,
                                   unsigned long long op_id);
+/* Send a still image WITH a raster thumbnail rendered from the user's own
+ * file (an SVG's preview). thumb_data/thumb_len may be NULL/0. The thumbnail
+ * is re-validated by magic sniffing on the Rust side and dropped, never
+ * failing the send, when it is not a bounded raster. The SDK uploads it and
+ * encrypts it in an encrypted room, then fills thumbnail_url /
+ * thumbnail_file and thumbnail_info on the m.image event. */
+char *mx_rust_timeline_send_image(void *client,
+                                  const char *room_id,
+                                  const char *local_path,
+                                  const char *mime,
+                                  const char *caption,
+                                  unsigned long long width,
+                                  unsigned long long height,
+                                  const unsigned char *thumb_data,
+                                  size_t thumb_len,
+                                  unsigned long long thumb_width,
+                                  unsigned long long thumb_height,
+                                  unsigned long long op_id);
+/* Thread twin of mx_rust_timeline_send_image, through the thread-focused
+ * timeline. Never falls back to a room send. */
+char *mx_rust_thread_send_image(void *client,
+                                const char *room_id,
+                                const char *root_event_id,
+                                const char *local_path,
+                                const char *mime,
+                                const char *caption,
+                                unsigned long long width,
+                                unsigned long long height,
+                                const unsigned char *thumb_data,
+                                size_t thumb_len,
+                                unsigned long long thumb_width,
+                                unsigned long long thumb_height,
+                                unsigned long long op_id);
 /* v0.7: MSC3245 voice message. waveform: 0..=100 amplitudes (may be NULL /
  * empty; at most 1024 entries). The SDK adds the voice marker + duration/
  * waveform block and sends via the normal (encrypting) attachment path. */
