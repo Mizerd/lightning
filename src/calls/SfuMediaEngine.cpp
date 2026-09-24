@@ -989,7 +989,7 @@ SfuMediaEngine::~SfuMediaEngine()
 
 void SfuMediaEngine::start()
 {
-    stop();
+    teardown(false);
     // Bump first so callbacks from the previous session are already stale.
     m_generation.fetch_add(1);
     m_active = true;
@@ -1007,9 +1007,20 @@ void SfuMediaEngine::start()
 
 void SfuMediaEngine::stop()
 {
-    // Keys can arrive before start() (the controller is still preparing), so
-    // clear them before the never-started early return.
-    clearKeys();
+    teardown(true);
+}
+
+void SfuMediaEngine::teardown(bool endOfCall)
+{
+    // At the end of a call the keys go, before the never-started early
+    // return. start() keeps them: Element sends its key as soon as it sees
+    // our membership, which is before the SFU join completes, and does not
+    // resend it until it rotates, so clearing here left that participant
+    // undecryptable.
+    if (endOfCall)
+        clearKeys();
+    else
+        clearSessionRouting();
     // Wait (bounded) for deferred publish teardowns before destroying
     // anything: their unparented bins are unreachable from destroyPeer() and
     // their probes point at this object. A single atomic load when idle.
@@ -1049,7 +1060,10 @@ void SfuMediaEngine::stop()
     m_publishedMedia.store(0);
     m_publisherEverPublished = false;
     // Media keys must not outlive the call that used them.
-    clearKeys();
+    if (endOfCall)
+        clearKeys();
+    else
+        clearSessionRouting();
     {
         // Diagnoses are per call too; a second call must be able to repeat
         // them.
@@ -4969,6 +4983,18 @@ void SfuMediaEngine::clearKeys()
     m_sendKeyReady.store(false);
     m_recvKeyReady.store(false);
     // The server-injected trailer belongs to the current SFU session.
+    setServerInjectedTrailer(QByteArray());
+}
+
+void SfuMediaEngine::clearSessionRouting()
+{
+    {
+        QMutexLocker lock(&m_recvMutex);
+        // Section mids repeat across sessions, so these go with the session.
+        m_streamForMline.clear();
+        m_midForMline.clear();
+        m_trackForMline.clear();
+    }
     setServerInjectedTrailer(QByteArray());
 }
 

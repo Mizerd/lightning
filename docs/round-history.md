@@ -1,5 +1,49 @@
 # Round history
 
+## 2026-09-25 (night) — "voice cuts out in long calls": two key defects, measured with three tones
+
+Report (Flatpak user, Lightning + Lightning + Element Desktop): in a long
+enough call voice starts cutting out and leaving and rejoining fixes it.
+
+Rig on the laptop, every audio path on PipeWire null sinks (no speaker): A =
+Flathub 0.9.9, B = current `main`, C = Element Desktop 1.12.29, in an
+encrypted room, each sending its own steady tone (500 / 700 / 900 Hz), with a
+per-second Goertzel detector on every participant's output.
+
+- **Steady call: no fault.** 30 minutes, three parties, all six paths present
+  in all 1800 one-second windows.
+- **0.9.9 cannot take a key index above 15, and Element rotates on every join
+  and leave.** Churning one member (18 leaves and rejoins) walked Element's
+  index past 15. A received and installed indices 8 to 15, then got NO further
+  Element key at all (0.9.9's Rust layer drops 16+ before logging), and lost
+  Element for 130 of the next 142 s, for good. This is the report. Fixed on
+  `main` by `d0284561` (ring of 256), which is NOT released; B decrypted
+  Element's index 41.
+- **A key that arrives while joining was wiped by the SFU session start — in
+  0.9.9 AND `main`.** `join()` clears keys, `onMediaKeyReceived` installs keys
+  once the call is active (from Preparing), and `onSfuJoined` calls
+  `SfuMediaEngine::start()`, which began with `stop()` and so `clearKeys()`.
+  Element sends its key the moment it sees our membership, which lands between
+  `sfu connect` and `sfu joined` (measured: 16.876 between 16.776 and 17.175;
+  0.9.9: 50.275 between 50.178 and 50.376), and does not resend until it
+  rotates. The joiner could not decrypt Element and heard NOBODY (next item)
+  until someone else left. Fixed: `start()` keeps the call's keys and resets
+  only the per-session routing and trailer; `stop()` still clears everything.
+  Live after the fix: Element's key (index 41) arrived mid-join at 48.176 and
+  its stream decrypted at 49.003; B heard A and Element at once.
+- **One undecryptable stream silenced every participant at that client.**
+  After a key was lost, the listener's PulseAudio playback stream was corked
+  and even a peer whose frames decrypted produced one frame, then nothing; it
+  recovered the moment the missing key arrived. Probable mechanism: each
+  remote track ends in its own `autoaudiosink` in one pipeline, and a sink that
+  never receives a buffer holds the pipeline's state change. NOT root-caused;
+  in `docs/open-items.md`.
+
+Lesson: the 2026-09-16 key-parking fix covered keys that arrive before the
+call is active; keys that arrive while it is joining were installed and then
+erased one step later. Grep every writer of a store before trusting that a
+parked value survives.
+
 ## 2026-09-23 (night) — call sounds, a crash in QSoundEffect, and LiveKit's injected frames
 
 Tested on the Fedora laptop: two native instances on a private Xvfb, an

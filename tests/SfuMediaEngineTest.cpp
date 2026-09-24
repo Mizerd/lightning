@@ -667,6 +667,28 @@ private slots:
         QVERIFY(!engine.encryptionActive());
     }
 
+    // Element sends its key as soon as it sees our membership, before the SFU
+    // join completes, and not again until it rotates. start() runs at that
+    // join, so it must keep keys the call already has, including on a second
+    // start() of an active engine. Measured live: the joiner heard nobody
+    // until Element rotated.
+    void aKeyReceivedWhileJoiningSurvivesTheSessionStart()
+    {
+        const QString ring = QStringLiteral("@c:example.org/DEV");
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.clearKeys();   // join(): the call begins
+        engine.setInboundKey(ring, 2, QByteArray(16, 'k'));
+        engine.start();       // onSfuJoined()
+        QVERIFY2(engine.recvCryptorFor(ring)->hasKey(2),
+                 "start() dropped a key received while joining");
+        engine.start();       // a second session in the same call
+        QVERIFY(engine.recvCryptorFor(ring)->hasKey(2));
+        // Keys still end with the call.
+        engine.stop();
+        QVERIFY(!engine.recvCryptorFor(ring)->hasKey(2));
+    }
+
     // Every key arrival and refusal, and every refused sid-to-device binding,
     // is logged: silent failures there look like "I cannot hear them".
     void theKeyLaneSaysWhetherAKeyArrivedOrWasRefused()

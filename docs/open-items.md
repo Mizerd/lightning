@@ -1,5 +1,26 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-25 — OPEN: one undecryptable stream silences every participant
+
+Measured twice on 2026-09-25 (0.9.9 and pre-fix `main`): when one remote
+participant's key was missing, the listener heard NO ONE — its playback stream
+was corked, and a peer whose frames decrypted produced one frame and stopped.
+It recovered the moment the key arrived. The key loss itself is fixed (see
+`docs/round-history.md`, 2026-09-25), but any other cause of a key-less stream
+(a peer that never sends one, a refused index) still takes the whole call's
+audio down with it. Probable mechanism, NOT confirmed: every remote track ends
+in its own `autoaudiosink` in one pipeline, and a sink that never gets a buffer
+holds the pipeline's state change. Settle it with the tone rig by withholding
+one participant's key, before changing the receive bins.
+
+Also from that round's review, older and unchanged:
+
+- `SfuCallController::join()` refused while another call is active
+  (`setState(Failed)` before the `if (active()) teardown`) leaves the first
+  call's engine running and its membership in place, with the UI showing Failed.
+- `m_deliveredKeyIndex` is never reset between calls, so "the very first key is
+  always adopted" stops being true in a later call (fails closed).
+
 ## 2026-09-24 — accepted follow-ups from the Space moderation, SVG and Flatpak review
 
 Found by the §18 review of those three changes and deliberately left open.

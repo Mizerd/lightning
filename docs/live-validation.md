@@ -1,5 +1,26 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-25 (night) — three-party encrypted calls with Element, measured by tone
+
+Laptop rig, all audio on null sinks: Flathub 0.9.9, current `main`, and
+Element Desktop 1.12.29 in one encrypted room, each sending a steady tone,
+with a per-second Goertzel detector on every output.
+
+* **PASS — steady 30 minutes, three parties.** Every listener heard both other
+  participants in all 1800 one-second windows (Element arrives about 15 dB
+  lower than Lightning).
+* **FAIL — 0.9.9 after Element's 16th key rotation.** Element rotates on every
+  join and leave; once its index passed 15, 0.9.9 lost Element permanently.
+  `main` (`d0284561`) decrypted index 41. Needs a release.
+* **FAIL (0.9.9 and pre-fix `main`) — joining a call that has an Element
+  member.** Element's key arrived mid-join and was wiped; the joiner heard no
+  one until someone else left.
+* **PASS after the fix** — the same join on the fixed build heard Lightning
+  and Element immediately.
+
+Not covered: Element Web in a browser, Element X, macOS and Windows clients,
+and a real network (all on one homeserver over the LAN).
+
 ## 2026-09-19 (late) — presence observed from a SECOND account: the pipeline is not broken
 
 **PASS end to end, and it closes the half the "Offline for 29m" report lives

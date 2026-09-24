@@ -1542,9 +1542,10 @@ void SfuCallController::onSfuJoined(const QString &identity,
     rebuildModels();
     if (!m_engine.isNull()) {
         m_engine->start();
-        // After start(), which clears keys and any previous trailer. The
-        // trailer marks the blank frames the SFU injects into encrypted
-        // tracks; see SfuMediaEngine::framesServerInjected().
+        // After start(), which clears any previous trailer (and keeps the
+        // keys already received for this call). The trailer marks the blank
+        // frames the SFU injects into encrypted tracks; see
+        // SfuMediaEngine::framesServerInjected().
         m_engine->setServerInjectedTrailer(sifTrailer);
         m_engine->setIceServers(iceServers);
         applyAudioState();

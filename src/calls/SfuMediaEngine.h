@@ -147,9 +147,11 @@ public:
     bool testSourceMode() const { return m_testSources; }
 
     /// Start a session. Tears down any previous one; the generation bump
-    /// invalidates in-flight callbacks.
+    /// invalidates in-flight callbacks. Media keys are kept: they belong to
+    /// the call, and a peer's key can arrive while we are still joining
+    /// (join() has already cleared the previous call's).
     void start();
-    /// Tear everything down and release every device.
+    /// Tear everything down, release every device and forget the call's keys.
     void stop();
     bool active() const { return m_active; }
 
@@ -588,6 +590,11 @@ public:
     static bool micSilenceReached(qint64 silentSinceMs, qint64 nowMs);
 
 private:
+    /// stop() with `endOfCall`; start() without, keeping the media keys and
+    /// resetting only the per-session routing.
+    void teardown(bool endOfCall);
+    /// Section routing and the injected-frame trailer: per SFU session.
+    void clearSessionRouting();
     bool tokenIsLive(quintptr token, quint64 generation,
                      Target *target = nullptr) const;
     /// Install the ENCRYPT probe on one outgoing pad.
