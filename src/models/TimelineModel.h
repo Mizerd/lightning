@@ -242,6 +242,19 @@ public:
         // How many people declined. A COUNT — the decliners' ids never
         // cross the FFI.
         CallDeclinedCountRole,
+        // ── 2026-09-23: MSC4274 galleries and the reply target's kind ────
+        // Every attachment of a gallery row (two or more in ONE event — what
+        // Sable sends for several pictures) as a list of {mediaKey, kind,
+        // filename, mimetype, size, width, height, durationMs,
+        // thumbAvailable} maps in the sender's order; EMPTY for every other
+        // row. The row's own media roles keep describing its primary item.
+        GalleryItemsRole,
+        // What the replied-to event is ("image", "file", …; empty when not
+        // loaded) and, for a gallery, how many attachments it carries (0
+        // otherwise), so the quote can say "Image" / "2 images" when the
+        // target has no words to quote.
+        ReplyToKindRole,
+        ReplyToCountRole,
     };
 
     explicit TimelineModel(QObject *parent = nullptr);

@@ -86,6 +86,9 @@ private Q_SLOTS:
     void profileNameIsBoundedWithoutSplittingSurrogatePairs();
     // v0.7: typed media rows with type-correct reserved-geometry metadata.
     void parsesTypedMediaItems();
+    // 2026-09-23: MSC4274 galleries (Sable) and the reply target's kind.
+    void parsesGalleryItemsBoundedAndClosed();
+    void parsesReplyTargetKindAndCount();
     // v0.7: MSC3381 polls.
     void parsesPollItem();
     void pollAbsentFieldsKeepDefaults();
@@ -218,6 +221,122 @@ void RustTimelineIngestTest::parsesUndecryptableItem()
     QCOMPARE(e.errorKind, QStringLiteral("no_key"));
     // Honest placeholder, never an empty bubble, never ciphertext.
     QVERIFY(!e.body.isEmpty());
+}
+
+// The shape rust/src/timeline.rs `fill_message_media` produces for a
+// two-picture Sable gallery: an image row describing the PRIMARY picture, an
+// empty caption, and every item with its own key. Items this side cannot fetch
+// (no key) or draw (a kind outside the closed set) are dropped, the list is
+// bounded, and a single survivor is not a gallery.
+void RustTimelineIngestTest::parsesGalleryItemsBoundedAndClosed()
+{
+    QJsonObject row = itemJson(QStringLiteral("uidG"), QStringLiteral("$g"),
+                               QString{});
+    row.insert(QStringLiteral("msgtype"), QStringLiteral("image"));
+    row.insert(QStringLiteral("media_filename"), QStringLiteral("before.png"));
+    row.insert(QStringLiteral("media_key"), QStringLiteral("$g"));
+    row.insert(QStringLiteral("media_source_available"), true);
+    row.insert(QStringLiteral("gallery_items"), QJsonArray{
+        QJsonObject{ { QStringLiteral("media_key"), QStringLiteral("$g") },
+                     { QStringLiteral("kind"), QStringLiteral("image") },
+                     { QStringLiteral("filename"), QStringLiteral("before.png") },
+                     { QStringLiteral("mimetype"), QStringLiteral("image/png") },
+                     { QStringLiteral("width"), 1280 },
+                     { QStringLiteral("height"), 720 },
+                     { QStringLiteral("size"), 482113 },
+                     { QStringLiteral("thumb_available"), false } },
+        QJsonObject{ { QStringLiteral("media_key"), QStringLiteral("$g#item1") },
+                     { QStringLiteral("kind"), QStringLiteral("image") },
+                     { QStringLiteral("filename"), QStringLiteral("after.png") },
+                     { QStringLiteral("width"), 640 },
+                     { QStringLiteral("height"), 480 },
+                     { QStringLiteral("thumb_available"), true } },
+        // No key: unfetchable. Dropped.
+        QJsonObject{ { QStringLiteral("kind"), QStringLiteral("image") } },
+        // A kind nobody agreed to. Dropped.
+        QJsonObject{ { QStringLiteral("media_key"), QStringLiteral("$g#item3") },
+                     { QStringLiteral("kind"), QStringLiteral("m.text") } },
+        QStringLiteral("not an object"),
+    });
+    const TimelineEvent e = eventFromItemJson(row, kRoom);
+    QCOMPARE(e.type, TimelineEvent::Image);
+    QCOMPARE(e.body, QString{});
+    QCOMPARE(e.galleryItems.size(), 2);
+    QCOMPARE(e.galleryItems.at(0).mediaKey, QStringLiteral("$g"));
+    QCOMPARE(e.galleryItems.at(0).mimetype, QStringLiteral("image/png"));
+    QCOMPARE(e.galleryItems.at(0).size, qint64(482113));
+    QCOMPARE(e.galleryItems.at(1).mediaKey, QStringLiteral("$g#item1"));
+    QCOMPARE(e.galleryItems.at(1).filename, QStringLiteral("after.png"));
+    QCOMPARE(e.galleryItems.at(1).width, 640);
+    QVERIFY(e.galleryItems.at(1).thumbAvailable);
+
+    // One survivor is a single attachment, which the row fields already are.
+    QJsonObject lone = row;
+    lone.insert(QStringLiteral("gallery_items"), QJsonArray{
+        QJsonObject{ { QStringLiteral("media_key"), QStringLiteral("$g") },
+                     { QStringLiteral("kind"), QStringLiteral("image") } } });
+    QVERIFY(eventFromItemJson(lone, kRoom).galleryItems.isEmpty());
+
+    // Bounded like the Rust side (GALLERY_ITEM_CAP = 32).
+    QJsonArray many;
+    for (int i = 0; i < 100; ++i)
+        many.append(QJsonObject{
+            { QStringLiteral("media_key"), QStringLiteral("$g#item%1").arg(i) },
+            { QStringLiteral("kind"), QStringLiteral("file") } });
+    QJsonObject flood = row;
+    flood.insert(QStringLiteral("gallery_items"), many);
+    QCOMPARE(eventFromItemJson(flood, kRoom).galleryItems.size(), 32);
+
+    // Sender-chosen names and types are bounded in code points, per item and
+    // on the row, the way profile names are.
+    const QString longName(400, QLatin1Char('n'));
+    const QString longMime(300, QLatin1Char('m'));
+    QJsonObject named = row;
+    named.insert(QStringLiteral("media_filename"), longName);
+    named.insert(QStringLiteral("media_mimetype"), longMime);
+    named.insert(QStringLiteral("gallery_items"), QJsonArray{
+        QJsonObject{ { QStringLiteral("media_key"), QStringLiteral("$g") },
+                     { QStringLiteral("kind"), QStringLiteral("image") },
+                     { QStringLiteral("filename"), longName },
+                     { QStringLiteral("mimetype"), longMime } },
+        QJsonObject{ { QStringLiteral("media_key"), QStringLiteral("$g#item1") },
+                     { QStringLiteral("kind"), QStringLiteral("image") } } });
+    const TimelineEvent bounded = eventFromItemJson(named, kRoom);
+    QCOMPARE(bounded.mediaFilename.size(), 255);
+    QCOMPARE(bounded.mediaMimetype.size(), 127);
+    QCOMPARE(bounded.galleryItems.at(0).filename.size(), 255);
+    QCOMPARE(bounded.galleryItems.at(0).mimetype.size(), 127);
+    // A body that is just the (over-long) name stays equal to the bounded
+    // name, so the cap cannot invent a caption.
+    named.insert(QStringLiteral("body"), longName);
+    const TimelineEvent echoed = eventFromItemJson(named, kRoom);
+    QCOMPARE(echoed.body, echoed.mediaFilename);
+    // A real caption is left alone.
+    named.insert(QStringLiteral("body"), QStringLiteral("look at this"));
+    QCOMPARE(eventFromItemJson(named, kRoom).body, QStringLiteral("look at this"));
+}
+
+void RustTimelineIngestTest::parsesReplyTargetKindAndCount()
+{
+    QJsonObject reply = itemJson(QStringLiteral("uidR"), QStringLiteral("$r"),
+                                 QStringLiteral("nice"));
+    reply.insert(QStringLiteral("reply_to_event_id"), QStringLiteral("$g"));
+    reply.insert(QStringLiteral("reply_to_preview"), QString{});
+    reply.insert(QStringLiteral("reply_to_kind"), QStringLiteral("image"));
+    reply.insert(QStringLiteral("reply_to_count"), 2);
+    const TimelineEvent e = eventFromItemJson(reply, kRoom);
+    QCOMPARE(e.replyToKind, QStringLiteral("image"));
+    QCOMPARE(e.replyToCount, 2);
+
+    // A closed set and a bounded count: a spelling this side never agreed to
+    // picks no label, and no count exceeds what one row can carry.
+    reply.insert(QStringLiteral("reply_to_kind"), QStringLiteral("<b>x</b>"));
+    reply.insert(QStringLiteral("reply_to_count"), 100000);
+    const TimelineEvent bad = eventFromItemJson(reply, kRoom);
+    QCOMPARE(bad.replyToKind, QString{});
+    QCOMPARE(bad.replyToCount, 32);
+    reply.insert(QStringLiteral("reply_to_count"), -4);
+    QCOMPARE(eventFromItemJson(reply, kRoom).replyToCount, 0);
 }
 
 void RustTimelineIngestTest::parsesTypedMediaItems()

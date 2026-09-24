@@ -21,6 +21,10 @@ namespace matrix::rust_timeline {
 
 namespace {
 
+// Matches GALLERY_ITEM_CAP in rust/src/timeline.rs: the most attachments one
+// MSC4274 gallery row may carry across the bridge.
+constexpr int kMaxGalleryItems = 32;
+
 QDateTime timestampFromMs(qint64 ms)
 {
     if (ms <= 0)
@@ -39,12 +43,11 @@ QDateTime timestampFromMs(qint64 ms)
 // between a surrogate pair and produce an INVALID string rather than a
 // merely short one. Matching the Rust unit means a bridge-bounded name is
 // never truncated a second time here.
-QString boundedProfileName(const QString &name)
+QString boundedCodePoints(const QString &name, int maxCodePoints)
 {
-    constexpr int kMaxCodePoints = 255;
     qsizetype units = 0;
     int points = 0;
-    while (units < name.size() && points < kMaxCodePoints) {
+    while (units < name.size() && points < maxCodePoints) {
         const bool pair = name.at(units).isHighSurrogate()
             && units + 1 < name.size()
             && name.at(units + 1).isLowSurrogate();
@@ -52,6 +55,23 @@ QString boundedProfileName(const QString &name)
         ++points;
     }
     return units >= name.size() ? name : name.left(units);
+}
+
+QString boundedProfileName(const QString &name)
+{
+    return boundedCodePoints(name, 255);
+}
+
+// Attachment names and types are sender-chosen too, and a gallery multiplies
+// them by its item count. Same unit and same reason as the profile names.
+QString boundedFilename(const QString &name)
+{
+    return boundedCodePoints(name, 255);
+}
+
+QString boundedMimetype(const QString &mime)
+{
+    return boundedCodePoints(mime, 127);
 }
 
 } // namespace
@@ -212,6 +232,25 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
                   rawReplyPreview, matrix::preview::kReplyPreviewMaxChars);
     e.replyToMediaKey =
         item.value(QStringLiteral("reply_to_media_key")).toString();
+    // A CLOSED SET, like call_kind above: this string picks the label the
+    // quote prints, so a spelling this side never agreed to is dropped rather
+    // than forwarded. The count is a gallery's and is clamped to the Rust
+    // side's own item cap (GALLERY_ITEM_CAP), so it can never print a number
+    // the row cannot show.
+    static const QStringList kReplyKinds = {
+        QStringLiteral("text"),     QStringLiteral("notice"),
+        QStringLiteral("emote"),    QStringLiteral("image"),
+        QStringLiteral("gif"),      QStringLiteral("video"),
+        QStringLiteral("audio"),    QStringLiteral("file"),
+        QStringLiteral("sticker"),  QStringLiteral("poll"),
+        QStringLiteral("redacted"), QStringLiteral("encrypted"),
+    };
+    const QString replyKind = item.value(QStringLiteral("reply_to_kind")).toString();
+    if (kReplyKinds.contains(replyKind))
+        e.replyToKind = replyKind;
+    e.replyToCount = std::clamp(
+        item.value(QStringLiteral("reply_to_count")).toInt(0), 0,
+        kMaxGalleryItems);
     e.threadRootId = item.value(QStringLiteral("thread_root_id")).toString();
 
     // v0.6.0: SDK thread summary on thread root events (absent fields keep
@@ -247,8 +286,17 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.mentionsRoom = item.value(QStringLiteral("mentions_room")).toBool(false);
 
     e.mediaMxcUrl = item.value(QStringLiteral("media_mxc")).toString();
-    e.mediaMimetype = item.value(QStringLiteral("media_mimetype")).toString();
-    e.mediaFilename = item.value(QStringLiteral("media_filename")).toString();
+    e.mediaMimetype =
+        boundedMimetype(item.value(QStringLiteral("media_mimetype")).toString());
+    const QString rawFilename =
+        item.value(QStringLiteral("media_filename")).toString();
+    e.mediaFilename = boundedFilename(rawFilename);
+    // A body that IS the name must stay equal to the (bounded) name, or the
+    // cap alone would turn it into a "caption" — the delegate shows a body
+    // that differs from the filename as one (mediaCaptionBody).
+    if (e.mediaFilename.size() != rawFilename.size()
+        && e.body.trimmed().compare(rawFilename.trimmed(), Qt::CaseInsensitive) == 0)
+        e.body = e.mediaFilename;
     e.mediaSize = static_cast<qint64>(
         item.value(QStringLiteral("media_size")).toDouble(0));
     e.mediaWidth = item.value(QStringLiteral("media_width")).toInt(0);
@@ -271,6 +319,41 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
         item.value(QStringLiteral("media_source_available")).toBool(false);
     e.mediaThumbAvailable =
         item.value(QStringLiteral("media_thumb_available")).toBool(false);
+    // MSC4274 gallery items. Bounded HERE as well as in Rust, for the same
+    // reason the reaction senders are: this is a pure translator over
+    // arbitrary JSON. An item with no key cannot be fetched and an item of a
+    // kind outside the closed set cannot be drawn, so both are dropped; fewer
+    // than two survivors is not a gallery at all, and the row stays the
+    // single attachment its own media fields already describe.
+    const QJsonArray galleryItems =
+        item.value(QStringLiteral("gallery_items")).toArray();
+    for (const auto &value : galleryItems) {
+        if (e.galleryItems.size() >= kMaxGalleryItems)
+            break;
+        const QJsonObject obj = value.toObject();
+        GalleryItem g;
+        g.mediaKey = obj.value(QStringLiteral("media_key")).toString();
+        g.kind = obj.value(QStringLiteral("kind")).toString();
+        if (g.mediaKey.isEmpty()
+            || !(g.kind == QLatin1String("image")
+                 || g.kind == QLatin1String("video")
+                 || g.kind == QLatin1String("audio")
+                 || g.kind == QLatin1String("file")))
+            continue;
+        g.filename = boundedFilename(obj.value(QStringLiteral("filename")).toString());
+        g.mimetype = boundedMimetype(obj.value(QStringLiteral("mimetype")).toString());
+        g.size = std::max<qint64>(0, static_cast<qint64>(
+            obj.value(QStringLiteral("size")).toDouble(0)));
+        g.width = std::max(0, obj.value(QStringLiteral("width")).toInt(0));
+        g.height = std::max(0, obj.value(QStringLiteral("height")).toInt(0));
+        g.durationMs = std::max<qint64>(0, static_cast<qint64>(
+            obj.value(QStringLiteral("duration_ms")).toDouble(0)));
+        g.thumbAvailable =
+            obj.value(QStringLiteral("thumb_available")).toBool(false);
+        e.galleryItems.append(g);
+    }
+    if (e.galleryItems.size() < 2)
+        e.galleryItems.clear();
     e.senderNameAmbiguous =
         item.value(QStringLiteral("sender_name_ambiguous")).toBool(false);
 

@@ -111,6 +111,22 @@ bool callRowIsVideo(const TimelineEvent &e)
 {
     return e.callIsVideo || e.stateKind == QLatin1String("m.call.video");
 }
+
+/// One gallery attachment as the QML-facing map GalleryItemsRole promises.
+QVariantMap galleryItemVariant(const GalleryItem &g)
+{
+    QVariantMap item;
+    item.insert(QStringLiteral("mediaKey"), g.mediaKey);
+    item.insert(QStringLiteral("kind"), g.kind);
+    item.insert(QStringLiteral("filename"), g.filename);
+    item.insert(QStringLiteral("mimetype"), g.mimetype);
+    item.insert(QStringLiteral("size"), g.size);
+    item.insert(QStringLiteral("width"), g.width);
+    item.insert(QStringLiteral("height"), g.height);
+    item.insert(QStringLiteral("durationMs"), g.durationMs);
+    item.insert(QStringLiteral("thumbAvailable"), g.thumbAvailable);
+    return item;
+}
 } // namespace
 
 // A call somebody started, in EITHER shape.
@@ -1537,6 +1553,17 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case CallIsVideoRole: return isCallEventRow(e) && callRowIsVideo(e);
     case CallDeclinedCountRole:
         return isCallEventRow(e) ? e.callDeclinedCount : 0;
+    case GalleryItemsRole: {
+        QVariantList out;
+        if (e.redacted)
+            return out;
+        out.reserve(e.galleryItems.size());
+        for (const GalleryItem &g : e.galleryItems)
+            out.append(galleryItemVariant(g));
+        return out;
+    }
+    case ReplyToKindRole:        return e.redacted ? QString{} : e.replyToKind;
+    case ReplyToCountRole:       return e.redacted ? 0 : e.replyToCount;
     case StateKindRole: return e.stateKind;
     case StateGroupIdRole: {
         const int leader = stateGroupLeaderRow(raw);
@@ -1672,6 +1699,9 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { MessageSegmentsRole,      "messageSegments" },
         { DividerIntroducesVisibleContentRole,
                                     "dividerIntroducesVisibleContent" },
+        { GalleryItemsRole,         "galleryItems" },
+        { ReplyToKindRole,          "replyToKind" },
+        { ReplyToCountRole,         "replyToCount" },
     };
 }
 
@@ -1703,6 +1733,31 @@ QVariantList TimelineModel::mediaEntries() const
         const QUrl httpUrl = mediaHttp(e.mediaMxcUrl);
         if (!e.mediaSourceAvailable && httpUrl.isEmpty())
             continue;
+        // A GALLERY IS ONE ENTRY PER ATTACHMENT, in the sender's order, so
+        // the viewer opened on any of its pictures pages through all of them
+        // and on into the rest of the room — rather than knowing only the
+        // row's primary picture and skipping every other one in the event.
+        if (!e.galleryItems.isEmpty()) {
+            for (const GalleryItem &g : e.galleryItems) {
+                const bool image = g.kind == QLatin1String("image");
+                const bool video = g.kind == QLatin1String("video");
+                QVariantMap entry;
+                entry.insert(QStringLiteral("row"), raw);
+                entry.insert(QStringLiteral("mediaKey"), g.mediaKey);
+                entry.insert(QStringLiteral("filename"), g.filename);
+                entry.insert(QStringLiteral("sender"), senderDisplayName(e));
+                entry.insert(QStringLiteral("timestamp"), e.timestamp);
+                entry.insert(QStringLiteral("mime"), g.mimetype);
+                entry.insert(QStringLiteral("httpUrl"), QUrl{});
+                entry.insert(QStringLiteral("isImage"), image);
+                entry.insert(QStringLiteral("isVideo"), video);
+                entry.insert(QStringLiteral("isVisual"), image || video);
+                entry.insert(QStringLiteral("thumbAvailable"), g.thumbAvailable);
+                entry.insert(QStringLiteral("size"), g.size);
+                out.append(entry);
+            }
+            continue;
+        }
         QVariantMap entry;
         entry.insert(QStringLiteral("row"), raw);
         entry.insert(QStringLiteral("mediaKey"), e.mediaKey);

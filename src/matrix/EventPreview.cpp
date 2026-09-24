@@ -4,6 +4,8 @@
 
 #include <QRegularExpression>
 
+#include <algorithm>
+
 namespace matrix::preview {
 
 QString normalizePreviewText(const QString &text, int maxChars)
@@ -36,6 +38,19 @@ QString oneLineSummary(const TimelineEvent &event)
         return QStringLiteral("Message removed");
     if (event.undecryptable)
         return QStringLiteral("Unable to decrypt");
+    // An MSC4274 gallery: the sender's caption, else what it holds. Its row
+    // media fields name only the primary picture, and "before.png" is not a
+    // summary of two screenshots.
+    if (event.galleryItems.size() > 1) {
+        const QString caption = normalizePreviewText(event.body);
+        if (!caption.isEmpty())
+            return caption;
+        const bool allImages = std::all_of(
+            event.galleryItems.cbegin(), event.galleryItems.cend(),
+            [](const GalleryItem &g) { return g.kind == QLatin1String("image"); });
+        return QString::number(event.galleryItems.size())
+            + (allImages ? QStringLiteral(" images") : QStringLiteral(" attachments"));
+    }
 
     switch (event.type) {
     case TimelineEvent::Image:

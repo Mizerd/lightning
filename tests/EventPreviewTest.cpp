@@ -94,6 +94,27 @@ private Q_SLOTS:
         QCOMPARE(oneLineSummary(e), QStringLiteral("Sticker"));
     }
 
+    // An MSC4274 gallery (Sable, 2026-09-23): the row's media fields name its
+    // PRIMARY picture, and "before.png" is not a summary of two screenshots.
+    void galleriesSummarizeAsWhatTheyHold()
+    {
+        TimelineEvent e;
+        e.type = TimelineEvent::Image;
+        e.mediaFilename = QStringLiteral("before.png");
+        GalleryItem a;
+        a.mediaKey = QStringLiteral("$g");
+        a.kind = QStringLiteral("image");
+        GalleryItem b = a;
+        b.mediaKey = QStringLiteral("$g#item1");
+        e.galleryItems = { a, b };
+        QCOMPARE(oneLineSummary(e), QStringLiteral("2 images"));
+        e.body = QStringLiteral("left is\n0.9.8");
+        QCOMPARE(oneLineSummary(e), QStringLiteral("left is 0.9.8"));
+        e.body.clear();
+        e.galleryItems[1].kind = QStringLiteral("file");
+        QCOMPARE(oneLineSummary(e), QStringLiteral("2 attachments"));
+    }
+
     void redactedAndUndecryptableAreHonest()
     {
         TimelineEvent e;

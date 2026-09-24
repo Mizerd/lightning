@@ -159,7 +159,7 @@ pub(crate) fn lightning_event_filter(
     rules: &RoomVersionRules,
 ) -> bool {
     FILTER_OFFERED.fetch_add(1, Ordering::Relaxed);
-    if !default_event_filter(event, rules) {
+    if !default_event_filter(event, rules) && !is_visible_gallery_message(event) {
         FILTER_DROP_SDK.fetch_add(1, Ordering::Relaxed);
         return false;
     }
@@ -168,6 +168,34 @@ pub(crate) fn lightning_event_filter(
         return false;
     }
     true
+}
+
+/// AN MSC4274 GALLERY WAS DROPPED BEFORE IT BECAME A ROW, and that is the
+/// whole of "my comparison images aren't visible on Lightning" (Seikm,
+/// 2026-09-23, two screenshots sent from Sable in one message).
+///
+/// matrix-sdk-ui's `default_event_filter` keeps an `m.room.message` only for
+/// the msgtypes it lists, and its `MessageType::Gallery(_) => true` arm is
+/// behind matrix-sdk-ui's OWN `unstable-msc4274` feature, which this build
+/// does not enable. (ruma's feature of the same name IS on, but only by
+/// accident: matrix-sdk's `testing` feature pulls in matrix-sdk-test, which
+/// turns it on — so the variant exists and the filter's arm for it does not.)
+/// Sable's `dm.filament.gallery` (the MSC's unstable name) therefore falls to
+/// the filter's `_ => false`, and the event never reaches the timeline at all
+/// — no row, nothing to reply to, nothing in the log. Accepted here under exactly the rule the default filter applies to
+/// every other msgtype: an `m.replace` is folded into its target, never a row.
+fn is_visible_gallery_message(event: &AnySyncTimelineEvent) -> bool {
+    use matrix_sdk::ruma::events::{
+        room::message::Relation, AnySyncMessageLikeEvent, SyncMessageLikeEvent,
+    };
+    let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+        SyncMessageLikeEvent::Original(message),
+    )) = event
+    else {
+        return false;
+    };
+    is_gallery_msgtype(message.content.msgtype.msgtype())
+        && !matches!(message.content.relates_to, Some(Relation::Replacement(_)))
 }
 
 pub(crate) fn is_rtc_membership_event(event: &AnySyncTimelineEvent) -> bool {
@@ -275,6 +303,87 @@ const REACTION_GUARD_TIMEOUT_SECS: u64 = 30;
 /// anywhere near this many media items; the cap only guards runaway growth.
 const MEDIA_SOURCE_CAP: usize = 4096;
 
+/// The media source map, bounded by EVICTING the least recently used key
+/// rather than by refusing new ones.
+///
+/// It used to refuse once full. That was harmless while one row meant one
+/// key, and stopped being harmless when an MSC4274 gallery started
+/// registering up to GALLERY_ITEM_CAP keys per event: ~128 galleries filled
+/// the map, and from then on every NEW row in the room claimed
+/// `media_source_available` while its fetch answered "unknown media item"
+/// until the room was reopened. Refusing punishes exactly the rows the reader
+/// is looking at now; evicting punishes the ones touched longest ago. "Used"
+/// means registered (every serialization of a row re-registers it) or looked
+/// up by a fetch, so a row re-serialized or fetched recently keeps its key.
+/// A row whose bytes the C++ bridge serves from ITS cache touches nothing
+/// here, so after enough other activity its key can go; a later fetch of it
+/// then fails as "unknown media item" until the row is serialized again.
+struct MediaRegistry {
+    entries: HashMap<String, (StoredMedia, u64)>,
+    /// (stamp, key) in stamp order. Lazily pruned: an entry whose stamp no
+    /// longer matches `entries` is a superseded touch and is skipped.
+    order: VecDeque<(u64, String)>,
+    clock: u64,
+    cap: usize,
+}
+
+impl MediaRegistry {
+    fn with_cap(cap: usize) -> Self {
+        Self { entries: HashMap::new(), order: VecDeque::new(), clock: 0, cap: cap.max(1) }
+    }
+
+    /// A fresh stamp for `key`, queued. The caller stores it on the entry.
+    fn stamp(&mut self, key: &str) -> u64 {
+        // Touches leave superseded entries behind; rebuild before they
+        // outgrow the map by more than a constant factor.
+        if self.order.len() >= self.cap.saturating_mul(4) {
+            let mut live: Vec<(u64, String)> =
+                self.entries.iter().map(|(k, (_, t))| (*t, k.clone())).collect();
+            live.sort_unstable();
+            self.order = live.into();
+        }
+        self.clock += 1;
+        self.order.push_back((self.clock, key.to_owned()));
+        self.clock
+    }
+
+    fn insert(&mut self, key: String, media: StoredMedia) {
+        let stamp = self.stamp(&key);
+        self.entries.insert(key, (media, stamp));
+        while self.entries.len() > self.cap {
+            let Some((stamp, key)) = self.order.pop_front() else { break };
+            if self.entries.get(&key).map(|(_, t)| *t) == Some(stamp) {
+                self.entries.remove(&key);
+            }
+        }
+    }
+
+    fn get(&mut self, key: &str) -> Option<&StoredMedia> {
+        if !self.entries.contains_key(key) {
+            return None;
+        }
+        let stamp = self.stamp(key);
+        let entry = self.entries.get_mut(key)?;
+        entry.1 = stamp;
+        Some(&entry.0)
+    }
+
+    #[cfg(test)]
+    fn contains(&self, key: &str) -> bool {
+        self.entries.contains_key(key)
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+    }
+}
+
 struct ActiveTimeline {
     room_id: String,
     room_gen: u64,
@@ -338,7 +447,7 @@ pub struct TimelineRegistry {
     lifecycle_gen: AtomicU64,
     /// v0.5.9: media sources for the currently open room's items. Cleared
     /// on every room open and on shutdown. Never crosses the FFI.
-    media_sources: Mutex<HashMap<String, StoredMedia>>,
+    media_sources: Mutex<MediaRegistry>,
     /// 2026-08-18 tester report ("jeigu labai greitai paremovini reactionus
     /// nuo message pradeda tweakinti ir spaminti juos auto grazinti ir
     /// naikinti at the same time"): every click used to spawn its own
@@ -472,7 +581,7 @@ impl TimelineRegistry {
             thread_gen: AtomicU64::new(0),
             room_gen: AtomicU64::new(0),
             lifecycle_gen: AtomicU64::new(1),
-            media_sources: Mutex::new(HashMap::new()),
+            media_sources: Mutex::new(MediaRegistry::with_cap(MEDIA_SOURCE_CAP)),
             reaction_inflight: Mutex::new(std::collections::HashSet::new()),
             backup_download_attempts: Mutex::new(std::collections::HashMap::new()),
         }
@@ -594,9 +703,7 @@ impl TimelineRegistry {
             return;
         }
         if let Ok(mut guard) = self.media_sources.lock() {
-            if guard.len() >= MEDIA_SOURCE_CAP && !guard.contains_key(&key) {
-                return; // defensive cap; never realistically reached
-            }
+            // Evicts the least recently used key when full; see MediaRegistry.
             guard.insert(key, media);
         }
     }
@@ -608,7 +715,7 @@ impl TimelineRegistry {
         key: &str,
         thumbnail: bool,
     ) -> Option<(MediaSource, String, Option<String>, Option<u64>, bool)> {
-        let guard = self.media_sources.lock().ok()?;
+        let mut guard = self.media_sources.lock().ok()?;
         let media = guard.get(key)?;
         let has_embedded_thumbnail = thumbnail && media.thumbnail.is_some();
         let source = if thumbnail {
@@ -3816,6 +3923,14 @@ fn event_item_to_json(
                     }
                     out["reply_to_sender"] = reply_sender.into();
                     out["reply_to_preview"] = reply_preview(&embedded.content).into();
+                    // What the target IS, so the quote can say "Image" or
+                    // "2 images" when there are no words to quote. The kind
+                    // vocabulary is thread_latest_kind's.
+                    let (reply_kind, reply_count) = content_kind(&embedded.content);
+                    out["reply_to_kind"] = reply_kind.into();
+                    if reply_count > 1 {
+                        out["reply_to_count"] = reply_count.into();
+                    }
                     // 2026-08-18 tester report #2: reply-to-IMAGE quotes
                     // show a thumbnail. The embedded event carries the
                     // FULL media content (encrypted sources included), so
@@ -3831,19 +3946,26 @@ fn event_item_to_json(
                         if let MsgLikeKind::Message(message) =
                             &embedded_kind.kind
                         {
+                            // A gallery's thumbnail is its primary picture,
+                            // registered under the same key its own row uses.
                             if matches!(message.msgtype(),
                                         MessageType::Image(_))
+                                || is_gallery_msgtype(
+                                    message.msgtype().msgtype())
                             {
+                                let reply_key = reply.event_id.to_string();
                                 let mut scratch = serde_json::json!({});
-                                if let Some(media) = fill_message_content(
-                                    &mut scratch, message.msgtype())
-                                {
-                                    let reply_key =
-                                        reply.event_id.to_string();
-                                    out["reply_to_media_key"] =
-                                        reply_key.clone().into();
-                                    registry.remember_media(
-                                        reply_key, media);
+                                let primary = fill_message_media(
+                                    &mut scratch, message.msgtype(),
+                                    &reply_key)
+                                    .into_iter()
+                                    .next();
+                                if let Some((key, media)) = primary {
+                                    if scratch["msgtype"] == "image" {
+                                        out["reply_to_media_key"] =
+                                            key.clone().into();
+                                        registry.remember_media(key, media);
+                                    }
                                 }
                             }
                         }
@@ -3932,18 +4054,24 @@ fn event_item_to_json(
                     // every respect except the one attribute it deliberately
                     // recognises, and it rebuilds the `<img>` from validated
                     // parts rather than filtering it.
-                    if let Some(media) = fill_message_content(&mut out, message.msgtype()) {
-                        // Stable retrieval key: the event id once the item is
-                        // remote, the SDK unique id while it is a local echo.
-                        let key: String = match out["event_id"].as_str() {
-                            Some(event_id) if !event_id.is_empty() => event_id.to_owned(),
-                            _ => unique_id.to_owned(),
-                        };
-                        out["media_key"] = key.clone().into();
+                    // Stable retrieval key: the event id once the item is
+                    // remote, the SDK unique id while it is a local echo.
+                    let key: String = match out["event_id"].as_str() {
+                        Some(event_id) if !event_id.is_empty() => event_id.to_owned(),
+                        _ => unique_id.to_owned(),
+                    };
+                    let sources = fill_message_media(&mut out, message.msgtype(), &key);
+                    // PRIMARY FIRST (see fill_message_media): the row's own
+                    // media fields describe that one; a gallery's other items
+                    // are addressed through `gallery_items`.
+                    if let Some((primary_key, primary)) = sources.first() {
+                        out["media_key"] = primary_key.clone().into();
                         out["media_source_available"] = true.into();
                         out["media_thumb_available"] =
-                            media.thumbnail.is_some().into();
-                        registry.remember_media(key, media);
+                            primary.thumbnail.is_some().into();
+                    }
+                    for (media_key, media) in sources {
+                        registry.remember_media(media_key, media);
                     }
                     // AFTER fill_message_content, which is what sets
                     // `formatted_body` — running this before it meant the
@@ -4288,6 +4416,312 @@ fn raw_displayed_formatted_body(
     Some(body.to_owned())
 }
 
+/// The name a media row presents: MSC2530's explicit `filename` when the
+/// event carries one, the body otherwise.
+///
+/// Under MSC2530 (and the SDK's own `send_attachment`, which is how Lightning
+/// sends a captioned attachment) a media event with a caption carries the
+/// CAPTION in `body` and the real name in `filename`; with no caption the body
+/// is the name. Sable goes one step further and sends `body: ""` with the name
+/// in `filename` whenever the user typed nothing. Reading the body alone gave
+/// that image no name at all, and gave every captioned image its caption as a
+/// "filename" — which is also what kept the caption from ever rendering,
+/// because a caption is exactly a body that differs from the name. An EMPTY
+/// `filename` is treated as absent: it names nothing.
+fn media_display_name(body: &str, filename: Option<&str>) -> String {
+    match filename {
+        Some(name) if !name.trim().is_empty() => name.to_owned(),
+        _ => body.to_owned(),
+    }
+}
+
+// ── MSC4274 media galleries ─────────────────────────────────────────────
+//
+// One event carrying several attachments: `msgtype` is `dm.filament.gallery`
+// (the MSC's unstable name, which is what Sable and matrix-sdk send today) or
+// `m.gallery` (the stable name it will become), `body` is the caption, and
+// `itemtypes` is an array of ordinary attachment contents whose `msgtype` is
+// renamed `itemtype`. Parsed here from `MessageType::data()` rather than by
+// matching ruma's `MessageType::Gallery`: that variant exists in this build
+// only because matrix-sdk's `testing` feature happens to switch ruma's
+// `unstable-msc4274` on, and `m.gallery` is not ruma's name for it at all, so
+// the same code has to read a typed gallery and a custom msgtype alike. Each
+// ITEM still goes through ruma's own typed `m.image` / `m.video` / `m.audio` /
+// `m.file` deserializer, so an item is exactly as validated as the same
+// attachment sent on its own. (With the typed variant in play, an item ruma
+// cannot deserialize fails the WHOLE event upstream of here, and the row is
+// the ordinary "unsupported event" one.)
+
+/// The msgtypes that are a gallery.
+pub(crate) const GALLERY_MSGTYPES: [&str; 2] = ["dm.filament.gallery", "m.gallery"];
+
+/// Items rendered from one gallery. Bounded because every item becomes a
+/// media-registry entry and a tile: an event is attacker-authored and nothing
+/// else bounds the array. Real galleries are a handful of pictures.
+pub(crate) const GALLERY_ITEM_CAP: usize = 32;
+
+pub(crate) fn is_gallery_msgtype(msgtype: &str) -> bool {
+    GALLERY_MSGTYPES.contains(&msgtype)
+}
+
+/// A parsed gallery. `items` holds only the attachment kinds a gallery may
+/// carry, each a real ruma `MessageType`, in the sender's order.
+pub(crate) struct Gallery {
+    /// The sender's caption, or empty. Never the per-item fallback list.
+    pub caption: String,
+    /// The caption's `org.matrix.custom.html`, when there is a caption.
+    pub formatted_caption: Option<String>,
+    pub items: Vec<MessageType>,
+}
+
+impl Gallery {
+    /// True when every rendered item is a picture.
+    pub fn all_images(&self) -> bool {
+        self.items.iter().all(|item| matches!(item, MessageType::Image(_)))
+    }
+}
+
+/// Parse `msgtype` as an MSC4274 gallery, or `None` when it is not one.
+///
+/// An item that is not an attachment kind, or that its kind's deserializer
+/// refuses (no `url`/`file`, a malformed `info`), is skipped rather than
+/// failing the whole message: the remaining pictures are still the sender's.
+pub(crate) fn parse_gallery(msgtype: &MessageType) -> Option<Gallery> {
+    if !is_gallery_msgtype(msgtype.msgtype()) {
+        return None;
+    }
+    let data = msgtype.data();
+    let raw_items: &[serde_json::Value] = data
+        .get("itemtypes")
+        .and_then(|v| v.as_array())
+        .map(|v| v.as_slice())
+        .unwrap_or(&[]);
+    let mut items = Vec::new();
+    for raw in raw_items {
+        if items.len() >= GALLERY_ITEM_CAP {
+            break;
+        }
+        let Some(obj) = raw.as_object() else { continue };
+        let Some(itemtype) = obj.get("itemtype").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if !matches!(itemtype, "m.image" | "m.video" | "m.audio" | "m.file") {
+            continue;
+        }
+        let mut fields = obj.clone();
+        fields.remove("itemtype");
+        let body = match fields.remove("body") {
+            Some(serde_json::Value::String(body)) => body,
+            _ => String::new(),
+        };
+        if let Ok(item) = MessageType::new(itemtype, body, fields) {
+            items.push(item);
+        }
+    }
+
+    let body = msgtype.body();
+    let has_caption =
+        !body.trim().is_empty() && !gallery_body_is_item_list(body, raw_items);
+    let formatted_caption = if has_caption
+        && data.get("format").and_then(|v| v.as_str()) == Some("org.matrix.custom.html")
+    {
+        data.get("formatted_body")
+            .and_then(|v| v.as_str())
+            .filter(|html| !html.is_empty())
+            .map(str::to_owned)
+    } else {
+        None
+    };
+    Some(Gallery {
+        caption: if has_caption { body.to_owned() } else { String::new() },
+        formatted_caption,
+        items,
+    })
+}
+
+/// True when a gallery's `body` is Sable's generated item list rather than
+/// anything the sender wrote.
+///
+/// MSC4274 makes `body` mandatory, so a gallery sent with no caption still
+/// carries one. matrix-sdk sends `""`; Sable sends one line per item,
+/// `[<filename, else itemtype>: <url, else "file">]` joined by `\n`
+/// (`buildGalleryContent` in Sable's `msgContent.ts`). Rendered as a caption
+/// that is a column of `mxc://` URIs under the pictures they describe, so it is
+/// recognised EXACTLY — every line, against every item, in order — and never by
+/// a looser pattern that could swallow a real caption that happens to use
+/// brackets.
+fn gallery_body_is_item_list(body: &str, raw_items: &[serde_json::Value]) -> bool {
+    if raw_items.is_empty() {
+        return false;
+    }
+    let mut lines = body.split('\n');
+    for raw in raw_items {
+        let Some(line) = lines.next() else { return false };
+        let name = raw
+            .get("filename")
+            .and_then(|v| v.as_str())
+            .or_else(|| raw.get("itemtype").and_then(|v| v.as_str()))
+            .unwrap_or("");
+        let url = raw.get("url").and_then(|v| v.as_str()).unwrap_or("file");
+        if line != format!("[{name}: {url}]") {
+            return false;
+        }
+    }
+    lines.next().is_none()
+}
+
+/// Media-registry key for gallery item `index` other than the row's primary
+/// one (which keeps the row key itself, so every path that addresses a row's
+/// media by its event id — the reply thumbnail, hide-image, "Open image" —
+/// reaches its first picture). A derived key could only collide with an event
+/// id that itself ends in `#item<n>`: room v3+ event ids are server-computed
+/// hashes in base64 (standard in v3, URL-safe from v4), neither of which has
+/// a `#`, and in a v1/v2 id the suffix would land in the server name. Even then the map is per open room, so the
+/// worst case is one row of this room drawing another row's attachment.
+pub(crate) fn gallery_item_key(row_key: &str, index: usize) -> String {
+    format!("{row_key}#item{index}")
+}
+
+/// Which gallery item stands for the whole row: the first picture, else the
+/// first item. A gallery is a row of whatever kind that item is, so every
+/// surface that only knows single attachments (the room-list line, a
+/// notification, the reply thumbnail, the collapsed-embed summary) says
+/// something true about it.
+fn gallery_primary_index(gallery: &Gallery) -> usize {
+    gallery
+        .items
+        .iter()
+        .position(|item| matches!(item, MessageType::Image(_)))
+        .unwrap_or(0)
+}
+
+/// Fill a message row's content and return every media source it owns, keyed
+/// for the registry, PRIMARY FIRST. `row_key` is the row's media key (its event
+/// id, or the SDK's unique id while it is a local echo).
+///
+/// A gallery fills the row from its primary item, carries the caption as the
+/// body, and lists every item in `gallery_items` with its own key — metadata
+/// only; the sources, which embed content keys in an encrypted room, stay in
+/// the registry exactly as a single attachment's do.
+fn fill_message_media(
+    out: &mut serde_json::Value,
+    msgtype: &MessageType,
+    row_key: &str,
+) -> Vec<(String, StoredMedia)> {
+    let Some(gallery) = parse_gallery(msgtype).filter(|g| !g.items.is_empty()) else {
+        return fill_message_content(out, msgtype)
+            .map(|media| vec![(row_key.to_owned(), media)])
+            .unwrap_or_default();
+    };
+    let primary = gallery_primary_index(&gallery);
+    let mut sources: Vec<(String, StoredMedia)> = Vec::with_capacity(gallery.items.len());
+    let mut entries: Vec<serde_json::Value> = Vec::with_capacity(gallery.items.len());
+    for (index, item) in gallery.items.iter().enumerate() {
+        let mut scratch = json!({});
+        let Some(media) = fill_message_content(&mut scratch, item) else { continue };
+        let key = if index == primary {
+            row_key.to_owned()
+        } else {
+            gallery_item_key(row_key, index)
+        };
+        let mut entry = json!({
+            "media_key": key.clone(),
+            "kind": scratch["msgtype"].clone(),
+            "filename": scratch["media_filename"].clone(),
+            "thumb_available": media.thumbnail.is_some(),
+        });
+        for (from, to) in [
+            ("media_mimetype", "mimetype"),
+            ("media_size", "size"),
+            ("media_width", "width"),
+            ("media_height", "height"),
+            ("media_duration_ms", "duration_ms"),
+        ] {
+            if let Some(value) = scratch.get(from) {
+                entry[to] = value.clone();
+            }
+        }
+        entries.push(entry);
+        if index == primary {
+            fill_message_content(out, item);
+            sources.insert(0, (key, media));
+        } else {
+            sources.push((key, media));
+        }
+    }
+    out["body"] = gallery.caption.clone().into();
+    match &gallery.formatted_caption {
+        Some(html) => out["formatted_body"] = html.clone().into(),
+        None => {
+            if let Some(obj) = out.as_object_mut() {
+                obj.remove("formatted_body");
+            }
+        }
+    }
+    if entries.len() > 1 {
+        out["gallery_items"] = entries.into();
+    }
+    sources
+}
+
+/// What a message IS, for a surface that has one line for it: the row kind
+/// the thread card and the reply quote label by, how many attachments it
+/// carries (0 unless it is a gallery of two or more), and the text worth
+/// quoting — the words the sender wrote, else the attachment's name, else
+/// nothing (the caller then shows the kind's own label, never a placeholder
+/// token and never a gallery's generated `[name: mxc://…]` list).
+pub(crate) struct MessageSummary {
+    pub kind: &'static str,
+    pub count: usize,
+    pub text: String,
+}
+
+pub(crate) fn message_summary(msgtype: &MessageType) -> MessageSummary {
+    let media = |kind: &'static str, body: &str, filename: Option<&str>| MessageSummary {
+        kind,
+        count: 0,
+        text: if body.trim().is_empty() {
+            filename.unwrap_or("").to_owned()
+        } else {
+            body.to_owned()
+        },
+    };
+    match msgtype {
+        MessageType::Text(c) => MessageSummary { kind: "text", count: 0, text: c.body.clone() },
+        MessageType::Notice(c) => MessageSummary { kind: "notice", count: 0, text: c.body.clone() },
+        MessageType::Emote(c) => MessageSummary { kind: "emote", count: 0, text: c.body.clone() },
+        MessageType::Image(c) => {
+            let gif = c.info.as_ref().and_then(|info| info.mimetype.as_deref())
+                == Some("image/gif");
+            media(if gif { "gif" } else { "image" }, &c.body, c.filename.as_deref())
+        }
+        MessageType::Video(c) => media("video", &c.body, c.filename.as_deref()),
+        MessageType::Audio(c) => media("audio", &c.body, c.filename.as_deref()),
+        MessageType::File(c) => media("file", &c.body, c.filename.as_deref()),
+        other => match parse_gallery(other).filter(|g| !g.items.is_empty()) {
+            Some(gallery) if gallery.items.len() == 1 => {
+                let mut single = message_summary(&gallery.items[0]);
+                if !gallery.caption.is_empty() {
+                    single.text = gallery.caption;
+                }
+                single
+            }
+            Some(gallery) => MessageSummary {
+                // A gallery of pictures reads as pictures; anything mixed is
+                // "attachments", which the file kind's label already covers.
+                kind: if gallery.all_images() { "image" } else { "file" },
+                count: gallery.items.len(),
+                text: gallery.caption,
+            },
+            None => MessageSummary {
+                kind: "text",
+                count: 0,
+                text: other.body().to_owned(),
+            },
+        },
+    }
+}
+
 fn fill_message_content(
     out: &mut serde_json::Value,
     msgtype: &MessageType,
@@ -4312,9 +4746,10 @@ fn fill_message_content(
             None
         }
         MessageType::Image(content) => {
+            let filename = media_display_name(&content.body, content.filename.as_deref());
             out["msgtype"] = "image".into();
             out["body"] = content.body.clone().into();
-            out["media_filename"] = content.body.clone().into();
+            out["media_filename"] = filename.clone().into();
             if let MediaSource::Plain(mxc) = &content.source {
                 out["media_mxc"] = mxc.to_string().into();
             }
@@ -4339,7 +4774,7 @@ fn fill_message_content(
             Some(StoredMedia {
                 source: content.source.clone(),
                 thumbnail,
-                filename: content.body.clone(),
+                filename,
                 mimetype,
                 declared_size: content.info.as_ref()
                     .and_then(|info| info.size)
@@ -4349,10 +4784,7 @@ fn fill_message_content(
         MessageType::File(content) => {
             out["msgtype"] = "file".into();
             out["body"] = content.body.clone().into();
-            let filename = content
-                .filename
-                .clone()
-                .unwrap_or_else(|| content.body.clone());
+            let filename = media_display_name(&content.body, content.filename.as_deref());
             out["media_filename"] = filename.clone().into();
             if let MediaSource::Plain(mxc) = &content.source {
                 out["media_mxc"] = mxc.to_string().into();
@@ -4382,9 +4814,10 @@ fn fill_message_content(
             // a compact audio row (with duration and the MSC3245 voice
             // marker) instead of a generic file card. Bytes still flow
             // through the same safe media path.
+            let filename = media_display_name(&content.body, content.filename.as_deref());
             out["msgtype"] = "audio".into();
             out["body"] = content.body.clone().into();
-            out["media_filename"] = content.body.clone().into();
+            out["media_filename"] = filename.clone().into();
             if let MediaSource::Plain(mxc) = &content.source {
                 out["media_mxc"] = mxc.to_string().into();
             }
@@ -4423,7 +4856,7 @@ fn fill_message_content(
             Some(StoredMedia {
                 source: content.source.clone(),
                 thumbnail: None,
-                filename: content.body.clone(),
+                filename,
                 mimetype,
                 declared_size: content.info.as_ref()
                     .and_then(|info| info.size)
@@ -4434,9 +4867,10 @@ fn fill_message_content(
             // v0.7: videos reserve their thumbnail geometry (Matrix info
             // width/height/duration) and render a type-specific placeholder
             // instead of a generic file card.
+            let filename = media_display_name(&content.body, content.filename.as_deref());
             out["msgtype"] = "video".into();
             out["body"] = content.body.clone().into();
-            out["media_filename"] = content.body.clone().into();
+            out["media_filename"] = filename.clone().into();
             if let MediaSource::Plain(mxc) = &content.source {
                 out["media_mxc"] = mxc.to_string().into();
             }
@@ -4465,7 +4899,7 @@ fn fill_message_content(
             Some(StoredMedia {
                 source: content.source.clone(),
                 thumbnail,
-                filename: content.body.clone(),
+                filename,
                 mimetype,
                 declared_size: content.info.as_ref()
                     .and_then(|info| info.size)
@@ -5259,32 +5693,26 @@ fn fill_poll_content(
 /// raw body or a placeholder token. Derived from the SDK content type only —
 /// never from body text. Ciphertext and media URLs never leave the SDK.
 fn thread_latest_kind(content: &TimelineItemContent) -> &'static str {
+    content_kind(content).0
+}
+
+/// The coarse kind of an item and, for a gallery, how many attachments it
+/// carries (0 otherwise). One vocabulary for the thread card and the reply
+/// quote; a gallery of pictures is "image", a mixed one "file".
+fn content_kind(content: &TimelineItemContent) -> (&'static str, usize) {
     match content {
         TimelineItemContent::MsgLike(msg_like) => match &msg_like.kind {
-            MsgLikeKind::Message(message) => match message.msgtype() {
-                MessageType::Text(_) => "text",
-                MessageType::Notice(_) => "notice",
-                MessageType::Emote(_) => "emote",
-                MessageType::Image(content) => {
-                    let gif = content
-                        .info
-                        .as_ref()
-                        .and_then(|info| info.mimetype.as_deref())
-                        == Some("image/gif");
-                    if gif { "gif" } else { "image" }
-                }
-                MessageType::Video(_) => "video",
-                MessageType::Audio(_) => "audio",
-                MessageType::File(_) => "file",
-                _ => "text",
-            },
-            MsgLikeKind::Redacted => "redacted",
-            MsgLikeKind::UnableToDecrypt(_) => "encrypted",
-            MsgLikeKind::Sticker(_) => "sticker",
-            MsgLikeKind::Poll(_) => "poll",
-            _ => "unsupported",
+            MsgLikeKind::Message(message) => {
+                let summary = message_summary(message.msgtype());
+                (summary.kind, summary.count)
+            }
+            MsgLikeKind::Redacted => ("redacted", 0),
+            MsgLikeKind::UnableToDecrypt(_) => ("encrypted", 0),
+            MsgLikeKind::Sticker(_) => ("sticker", 0),
+            MsgLikeKind::Poll(_) => ("poll", 0),
+            _ => ("unsupported", 0),
         },
-        _ => "unsupported",
+        _ => ("unsupported", 0),
     }
 }
 
@@ -5310,7 +5738,11 @@ fn reply_preview(content: &TimelineItemContent) -> String {
 fn content_preview_capped(content: &TimelineItemContent, max: usize) -> String {
     let text = match content {
         TimelineItemContent::MsgLike(msg_like) => match &msg_like.kind {
-            MsgLikeKind::Message(message) => message.body().to_owned(),
+            // The sender's words, else the attachment's name — never a
+            // gallery's generated `[name: mxc://…]` list, and never "" for an
+            // image whose body is empty only because its name is in
+            // `filename` (Sable). What remains empty is labelled by kind.
+            MsgLikeKind::Message(message) => message_summary(message.msgtype()).text,
             MsgLikeKind::Redacted => "[message deleted]".to_owned(),
             MsgLikeKind::UnableToDecrypt(_) => "[unable to decrypt]".to_owned(),
             MsgLikeKind::Sticker(_) => "[sticker]".to_owned(),
@@ -7322,5 +7754,386 @@ mod tests {
         }))
         .expect("a topic state event deserializes");
         assert!(!is_rtc_membership_event(&topic));
+    }
+}
+
+/// MSC4274 galleries and MSC2530 empty-body attachments, in the exact shapes
+/// Sable sends (SableClient/Sable `src/app/features/room/msgContent.ts`,
+/// `buildGalleryContent` / `getGalleryItemContent` / `getImageMsgContent`, and
+/// `RoomInput.tsx handleSendUpload`). Reported 2026-09-23: two comparison
+/// screenshots sent from Sable as one message never appeared in Lightning.
+#[cfg(test)]
+mod gallery_tests {
+    use super::{
+        fill_message_media, gallery_item_key, lightning_event_filter, message_summary,
+        parse_gallery, MediaRegistry, StoredMedia, TimelineRegistry, GALLERY_ITEM_CAP,
+        MEDIA_SOURCE_CAP,
+    };
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+    use matrix_sdk::ruma::events::{
+        room::{message::RoomMessageEventContent, MediaSource},
+        AnySyncTimelineEvent,
+    };
+    use matrix_sdk::ruma::room_version_rules::RoomVersionRules;
+    use serde_json::{json, Value};
+
+    const MXC_A: &str = "mxc://sable.example/aaaaaaaaaaaaaaaaaaaa";
+    const MXC_B: &str = "mxc://sable.example/bbbbbbbbbbbbbbbbbbbb";
+
+    /// One `itemtypes` entry exactly as Sable builds it for an image in an
+    /// UNENCRYPTED room: `getImageMsgContent` with `msgtype` swapped for
+    /// `itemtype`, the MSC4193 spoiler flag and the blurhash included.
+    fn sable_plain_image_item(name: &str, mxc: &str, w: u64, h: u64) -> Value {
+        json!({
+            "filename": name,
+            "body": name,
+            "page.codeberg.everypizza.msc4193.spoiler": false,
+            "info": {
+                "w": w,
+                "h": h,
+                "mimetype": "image/png",
+                "size": 482_113,
+                "xyz.amorgan.blurhash": "LEHV6nWB2yk8pyo0adR*.7kCMdnj",
+            },
+            "url": mxc,
+            "itemtype": "m.image",
+        })
+    }
+
+    /// The same item from an ENCRYPTED room, as the decrypted event carries
+    /// it: no top-level `url`, an `EncryptedFile` under `file` instead.
+    fn sable_encrypted_image_item(name: &str, mxc: &str) -> Value {
+        json!({
+            "filename": name,
+            "body": name,
+            "page.codeberg.everypizza.msc4193.spoiler": false,
+            "info": { "w": 1920, "h": 1080, "mimetype": "image/png", "size": 1_024_000 },
+            "file": {
+                "v": "v2",
+                "url": mxc,
+                "key": {
+                    "alg": "A256CTR",
+                    "ext": true,
+                    "k": "qcHVMSgYg-71CauWBezXI5qkaRb0LuIy-Wx5kIaHMIA",
+                    "key_ops": ["encrypt", "decrypt"],
+                    "kty": "oct",
+                },
+                "iv": "X85+XgHN+HEAAAAAAAAAAA",
+                "hashes": { "sha256": "7jHGYSGzBf/mE4W5DGf1vU6Iw7NI0eXyV3NtP9yZw0E" },
+            },
+            "itemtype": "m.image",
+        })
+    }
+
+    /// `buildGalleryContent(items)` with NO caption: the body is Sable's
+    /// generated list, `[<filename>: <url, else "file">]` per item.
+    fn sable_gallery(items: Vec<Value>) -> Value {
+        let body = items
+            .iter()
+            .map(|item| {
+                format!(
+                    "[{}: {}]",
+                    item["filename"].as_str().unwrap(),
+                    item.get("url").and_then(Value::as_str).unwrap_or("file")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        json!({ "msgtype": "dm.filament.gallery", "body": body, "itemtypes": items })
+    }
+
+    fn content(value: Value) -> RoomMessageEventContent {
+        serde_json::from_value(value).expect("the wire content deserializes")
+    }
+
+    fn event(content: Value) -> AnySyncTimelineEvent {
+        serde_json::from_value(json!({
+            "type": "m.room.message",
+            "event_id": "$gallery:sable.example",
+            "sender": "@seikm:sable.example",
+            "origin_server_ts": 1_790_000_000_000u64,
+            "content": content,
+        }))
+        .expect("the wire event deserializes")
+    }
+
+    // THE ROOT CAUSE. matrix-sdk-ui's default filter answered `false` for the
+    // custom msgtype, so the gallery never became a timeline item.
+    #[test]
+    fn a_sable_gallery_is_admitted_to_the_timeline() {
+        let rules = RoomVersionRules::V11;
+        let plain = sable_gallery(vec![
+            sable_plain_image_item("before.png", MXC_A, 1280, 720),
+            sable_plain_image_item("after.png", MXC_B, 1280, 720),
+        ]);
+        assert!(lightning_event_filter(&event(plain), &rules));
+        let encrypted = sable_gallery(vec![
+            sable_encrypted_image_item("before.png", MXC_A),
+            sable_encrypted_image_item("after.png", MXC_B),
+        ]);
+        assert!(lightning_event_filter(&event(encrypted), &rules));
+        // The stable name the MSC will become.
+        let mut stable = sable_gallery(vec![sable_plain_image_item("a.png", MXC_A, 10, 10)]);
+        stable["msgtype"] = "m.gallery".into();
+        assert!(lightning_event_filter(&event(stable), &rules));
+    }
+
+    // Exactly the default filter's rule for every other msgtype: an edit is
+    // folded into its target, never a row of its own. And an unrelated custom
+    // msgtype stays dropped — this is not a blanket "show everything".
+    #[test]
+    fn a_gallery_edit_and_other_custom_msgtypes_stay_out() {
+        let rules = RoomVersionRules::V11;
+        let mut edit = sable_gallery(vec![sable_plain_image_item("a.png", MXC_A, 10, 10)]);
+        edit["m.relates_to"] = json!({ "rel_type": "m.replace", "event_id": "$orig:sable.example" });
+        edit["m.new_content"] = sable_gallery(vec![sable_plain_image_item("a.png", MXC_A, 10, 10)]);
+        assert!(!lightning_event_filter(&event(edit), &rules));
+        let custom = json!({ "msgtype": "com.example.custom", "body": "hi" });
+        assert!(!lightning_event_filter(&event(custom), &rules));
+    }
+
+    #[test]
+    fn a_two_image_sable_gallery_becomes_one_image_row_with_two_items() {
+        let wire = content(sable_gallery(vec![
+            sable_plain_image_item("before.png", MXC_A, 1280, 720),
+            sable_plain_image_item("after.png", MXC_B, 640, 480),
+        ]));
+        let mut out = json!({});
+        let sources = fill_message_media(&mut out, &wire.msgtype, "$g");
+
+        // The row is its first picture...
+        assert_eq!(out["msgtype"], "image");
+        assert_eq!(out["media_filename"], "before.png");
+        assert_eq!(out["media_mxc"], MXC_A);
+        assert_eq!(out["media_width"], 1280);
+        // ...its caption is EMPTY, not Sable's generated `[name: mxc]` list...
+        assert_eq!(out["body"], "");
+        assert!(out.get("formatted_body").is_none());
+        // ...and every item is listed with its own key, in the sender's order.
+        let items = out["gallery_items"].as_array().expect("gallery_items");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["media_key"], "$g");
+        assert_eq!(items[1]["media_key"], gallery_item_key("$g", 1));
+        assert_eq!(items[0]["kind"], "image");
+        assert_eq!(items[1]["filename"], "after.png");
+        assert_eq!(items[1]["width"], 640);
+        assert_eq!(items[1]["height"], 480);
+        assert_eq!(items[1]["mimetype"], "image/png");
+        assert_eq!(items[1]["thumb_available"], false);
+
+        // Every source is registered, the primary FIRST under the row key.
+        let keys: Vec<&str> = sources.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(keys, vec!["$g", "$g#item1"]);
+        assert!(matches!(&sources[1].1.source, MediaSource::Plain(m) if m.as_str() == MXC_B));
+        assert_eq!(sources[1].1.filename, "after.png");
+    }
+
+    // The decrypted content of an encrypted room: the sources carry content
+    // keys and must stay in Rust. Nothing mxc-shaped crosses for them.
+    #[test]
+    fn an_encrypted_sable_gallery_keeps_its_sources_in_rust() {
+        let wire = content(sable_gallery(vec![
+            sable_encrypted_image_item("before.png", MXC_A),
+            sable_encrypted_image_item("after.png", MXC_B),
+        ]));
+        let mut out = json!({});
+        let sources = fill_message_media(&mut out, &wire.msgtype, "$enc");
+        assert_eq!(out["msgtype"], "image");
+        assert_eq!(out["body"], "", "the `[name: file]` list is not a caption");
+        assert!(out.get("media_mxc").is_none());
+        assert_eq!(sources.len(), 2);
+        assert!(sources.iter().all(|(_, m)| matches!(m.source, MediaSource::Encrypted(_))));
+        let wire_json = out.to_string();
+        assert!(!wire_json.contains("A256CTR") && !wire_json.contains(MXC_B));
+        assert_eq!(out["gallery_items"].as_array().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn a_gallery_caption_is_the_body_and_keeps_its_html() {
+        let mut wire = sable_gallery(vec![
+            sable_plain_image_item("before.png", MXC_A, 10, 10),
+            sable_plain_image_item("after.png", MXC_B, 10, 10),
+        ]);
+        wire["body"] = "left is **0.9.8**".into();
+        wire["format"] = "org.matrix.custom.html".into();
+        wire["formatted_body"] = "left is <strong>0.9.8</strong>".into();
+        let wire = content(wire);
+        let mut out = json!({});
+        fill_message_media(&mut out, &wire.msgtype, "$c");
+        assert_eq!(out["body"], "left is **0.9.8**");
+        assert_eq!(out["formatted_body"], "left is <strong>0.9.8</strong>");
+        let summary = message_summary(&wire.msgtype);
+        assert_eq!((summary.kind, summary.count), ("image", 2));
+        assert_eq!(summary.text, "left is **0.9.8**");
+    }
+
+    // A caption that merely LOOKS like the generated list (a bracketed line)
+    // is still the sender's words: the match is exact, line for line.
+    #[test]
+    fn only_the_exact_generated_list_is_dropped_as_a_caption() {
+        let mut wire = sable_gallery(vec![sable_plain_image_item("a.png", MXC_A, 1, 1)]);
+        wire["body"] = "[a.png: see the diff]".into();
+        let gallery = parse_gallery(&content(wire).msgtype).expect("a gallery");
+        assert_eq!(gallery.caption, "[a.png: see the diff]");
+    }
+
+    // The reply quote and the thread card read this. "Image" / "2 images" is
+    // built from kind + count on the QML side; the text is never the
+    // generated list.
+    #[test]
+    fn a_gallery_summarises_as_its_kind_and_count() {
+        let images = content(sable_gallery(vec![
+            sable_plain_image_item("a.png", MXC_A, 1, 1),
+            sable_plain_image_item("b.png", MXC_B, 1, 1),
+        ]));
+        let summary = message_summary(&images.msgtype);
+        assert_eq!((summary.kind, summary.count, summary.text.as_str()), ("image", 2, ""));
+
+        let mut file_item = sable_plain_image_item("notes.pdf", MXC_B, 1, 1);
+        file_item["itemtype"] = "m.file".into();
+        file_item["info"] = json!({ "mimetype": "application/pdf", "size": 10 });
+        let mixed = content(sable_gallery(vec![
+            sable_plain_image_item("a.png", MXC_A, 1, 1),
+            file_item,
+        ]));
+        let summary = message_summary(&mixed.msgtype);
+        assert_eq!((summary.kind, summary.count), ("file", 2));
+    }
+
+    // An item type a gallery may not carry is skipped; the good pictures
+    // still render. And the array is bounded: an event is attacker-authored.
+    // (An item with no source at all fails ruma's typed gallery deserializer
+    // and with it the whole event, before this code sees anything.)
+    #[test]
+    fn foreign_items_are_skipped_and_the_array_is_bounded() {
+        let mut text_item = sable_plain_image_item("x", MXC_A, 1, 1);
+        text_item["itemtype"] = "m.text".into();
+        let mut odd_item = sable_plain_image_item("y", MXC_A, 1, 1);
+        odd_item["itemtype"] = "com.example.hologram".into();
+        let wire = content(json!({
+            "msgtype": "dm.filament.gallery",
+            "body": "",
+            "itemtypes": [text_item, odd_item, sable_plain_image_item("ok.png", MXC_B, 1, 1)],
+        }));
+        let gallery = parse_gallery(&wire.msgtype).expect("a gallery");
+        assert_eq!(gallery.items.len(), 1);
+        // One surviving item is a single attachment, not a grid.
+        let mut out = json!({});
+        let sources = fill_message_media(&mut out, &wire.msgtype, "$one");
+        assert_eq!(out["media_filename"], "ok.png");
+        assert!(out.get("gallery_items").is_none());
+        assert_eq!(sources.len(), 1);
+
+        let many: Vec<Value> = (0..GALLERY_ITEM_CAP + 10)
+            .map(|i| sable_plain_image_item(&format!("{i}.png"), MXC_A, 1, 1))
+            .collect();
+        let wire = content(json!({ "msgtype": "dm.filament.gallery", "body": "", "itemtypes": many }));
+        assert_eq!(parse_gallery(&wire.msgtype).unwrap().items.len(), GALLERY_ITEM_CAP);
+    }
+
+    // Sable's DEFAULT for one attachment and no caption
+    // (`sendIndividualAttachmentAsCaption`): an ordinary m.image whose body
+    // is EMPTY and whose name is in MSC2530's `filename`.
+    #[test]
+    fn an_empty_body_image_takes_its_name_from_filename() {
+        let mut wire = sable_plain_image_item("comparison.png", MXC_A, 800, 600);
+        wire.as_object_mut().unwrap().remove("itemtype");
+        wire["msgtype"] = "m.image".into();
+        wire["body"] = "".into();
+        let wire = content(wire);
+        let mut out = json!({});
+        let sources = fill_message_media(&mut out, &wire.msgtype, "$single");
+        assert_eq!(out["msgtype"], "image");
+        assert_eq!(out["body"], "");
+        assert_eq!(out["media_filename"], "comparison.png");
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].0, "$single");
+        let summary = message_summary(&wire.msgtype);
+        assert_eq!((summary.kind, summary.text.as_str()), ("image", "comparison.png"));
+    }
+
+    fn stored(name: &str) -> StoredMedia {
+        StoredMedia {
+            source: MediaSource::Plain(format!("mxc://sable.example/{name}").as_str().into()),
+            thumbnail: None,
+            filename: name.to_owned(),
+            mimetype: None,
+            declared_size: None,
+        }
+    }
+
+    // THE REVIEW'S DoS (M3). The map used to REFUSE new keys once full, and a
+    // gallery registers up to 32: ~128 of them and every later row in the
+    // room claimed media it could not fetch. Full now evicts the least
+    // recently used key, so the newest row always gets its source.
+    #[test]
+    fn a_full_media_registry_still_takes_a_new_rows_key() {
+        let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
+        let galleries = MEDIA_SOURCE_CAP / GALLERY_ITEM_CAP + 8;
+        for g in 0..galleries {
+            let row = format!("$gallery{g}");
+            registry.remember_media(row.clone(), stored(&row));
+            for i in 1..GALLERY_ITEM_CAP {
+                registry.remember_media(gallery_item_key(&row, i), stored(&row));
+            }
+        }
+        registry.remember_media("$new".to_owned(), stored("new"));
+        assert!(registry.media_source("$new", false).is_some());
+        let last = format!("$gallery{}", galleries - 1);
+        assert!(registry.media_source(&last, false).is_some());
+        // The oldest went, not the newest.
+        assert!(registry.media_source("$gallery0", false).is_none());
+    }
+
+    // A key a row is still using — re-registered by a diff or looked up by a
+    // fetch — outlives keys nobody has touched since.
+    #[test]
+    fn the_media_registry_evicts_the_least_recently_used_key() {
+        let mut registry = MediaRegistry::with_cap(3);
+        for key in ["a", "b", "c"] {
+            registry.insert(key.to_owned(), stored(key));
+        }
+        assert!(registry.get("a").is_some()); // a fetch touches it
+        registry.insert("d".to_owned(), stored("d"));
+        assert!(registry.contains("a") && registry.contains("d"));
+        assert!(!registry.contains("b"), "b was the least recently used");
+        registry.insert("c".to_owned(), stored("c")); // re-registered
+        registry.insert("e".to_owned(), stored("e"));
+        assert!(!registry.contains("a") && registry.contains("c"));
+        assert_eq!(registry.len(), 3);
+    }
+
+    // Touches queue stamps; the queue is compacted so it stays bounded and
+    // the map never exceeds its cap however the two interleave.
+    #[test]
+    fn the_media_registry_stays_bounded_under_repeated_touches() {
+        let mut registry = MediaRegistry::with_cap(4);
+        for round in 0..1000 {
+            registry.insert(format!("k{}", round % 7), stored("x"));
+            let _ = registry.get("k0");
+            let _ = registry.get("k3");
+            assert!(registry.len() <= 4);
+            assert!(registry.order.len() <= 4 * 4 + 1, "{}", registry.order.len());
+        }
+        assert!(registry.contains("k0") && registry.contains("k3"));
+    }
+
+    // MSC2530 with a caption — also how matrix-sdk (and so Lightning) sends a
+    // captioned attachment. The name is `filename`, the caption stays the
+    // body, and so the caption is finally distinguishable from the name.
+    #[test]
+    fn a_captioned_image_keeps_caption_and_name_apart() {
+        let wire = content(json!({
+            "msgtype": "m.image",
+            "body": "look at this",
+            "filename": "cat.png",
+            "info": { "mimetype": "image/png" },
+            "url": MXC_A,
+        }));
+        let mut out = json!({});
+        fill_message_media(&mut out, &wire.msgtype, "$cap");
+        assert_eq!(out["body"], "look at this");
+        assert_eq!(out["media_filename"], "cat.png");
     }
 }

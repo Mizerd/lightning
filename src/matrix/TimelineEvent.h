@@ -45,6 +45,23 @@ struct PollAnswer {
     bool byMe = false;
 };
 
+// One attachment of an MSC4274 media gallery (Rust backend). Metadata only:
+// `mediaKey` addresses the item's source in the Rust media registry exactly as
+// a single attachment's row key does, and the source itself (content keys
+// included, in an encrypted room) never leaves Rust. `kind` is a CLOSED SET —
+// "image", "video", "audio" or "file" — enforced at ingest.
+struct GalleryItem {
+    QString mediaKey;
+    QString kind;
+    QString filename;
+    QString mimetype;
+    qint64 size = 0;
+    int width = 0;
+    int height = 0;
+    qint64 durationMs = 0;
+    bool thumbAvailable = false;
+};
+
 struct TimelineEvent {
     enum Type {
         TextMessage,
@@ -165,6 +182,14 @@ struct TimelineEvent {
     // otherwise) — the embedded event's media is registered in the Rust
     // registry under this key, exactly like a row's own media.
     QString replyToMediaKey;
+    // 2026-09-23: what the replied-to event IS, when there are no words to
+    // quote — "image", "gif", "video", "audio", "file", "sticker", "poll",
+    // "text" …, the vocabulary of threadLatestKind — and how many attachments
+    // it carries when it is a gallery (0 otherwise). The quote says "Image"
+    // or "2 images" from these instead of "(original message not loaded)",
+    // which is what an image with an empty body (Sable) used to read as.
+    QString replyToKind;
+    int replyToCount = 0;
 
     // v0.6.0: SDK-provided thread summary on thread ROOT events. The reply
     // count is the server's bundled aggregation (authoritative, kept live by
@@ -213,6 +238,13 @@ struct TimelineEvent {
     QString mediaKey;
     bool    mediaSourceAvailable = false;
     bool    mediaThumbAvailable = false;
+    // 2026-09-23: an MSC4274 gallery (two or more attachments in ONE event,
+    // which is what Sable sends for several pictures). The row's own media
+    // fields above describe its PRIMARY item — the first picture — so every
+    // surface that knows only single attachments stays truthful; this lists
+    // every item, primary included, in the sender's order. Empty for every
+    // other row, and a one-item gallery is simply a single attachment.
+    QList<GalleryItem> galleryItems;
 
     // v0.5.9: SDK-reported display-name ambiguity for the sender (two
     // active members share the name). UI appends a compact MXID

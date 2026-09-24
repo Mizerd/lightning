@@ -10578,11 +10578,12 @@ pub(crate) fn typed_message_row_kind(msgtype: &str) -> Option<&'static str> {
 /// producer (`rust/src/timeline.rs`) kind for kind, because two producers of
 /// one field must not disagree:
 ///
-///  * `file` prefers MSC2530's explicit `filename` and falls back to the
-///    body — Element puts the CAPTION in the body and the real name in
-///    `filename`, so reading the body alone renames the attachment;
-///  * `image`, `video` and `audio` use the body, which is what those arms of
-///    the live producer do;
+///  * `file`, `image`, `video` and `audio` prefer MSC2530's explicit
+///    `filename` and fall back to the body — Element and matrix-sdk put the
+///    CAPTION in the body and the real name in `filename`, and Sable sends an
+///    EMPTY body with the name in `filename`, so reading the body alone
+///    renames the attachment (or leaves it nameless). Image, video and audio
+///    used to read the body alone, in both producers, until 2026-09-23;
 ///  * everything else — text-like rows and `location` — has no file. A
 ///    location's body is the sender's own words ("Big Ben, London"), not a
 ///    filename: `fill_location` keeps it as the BODY on purpose, and
@@ -10607,8 +10608,10 @@ pub(crate) fn media_filename_for_kind(
     explicit_filename: Option<&str>,
 ) -> String {
     match kind {
-        "file" => explicit_filename.unwrap_or(body).to_owned(),
-        "image" | "video" | "audio" => body.to_owned(),
+        "file" | "image" | "video" | "audio" => match explicit_filename {
+            Some(name) if !name.trim().is_empty() => name.to_owned(),
+            _ => body.to_owned(),
+        },
         _ => String::new(),
     }
 }
@@ -10951,19 +10954,47 @@ fn install_event_handlers(
                 // dropped here, exactly as it always was. What is NEW is that
                 // media msgtypes now HAVE a typed row, so an image sent to a
                 // room with no timeline open finally notifies.
-                let Some(kind) = typed_message_row_kind(ev.content.msgtype())
+                //
+                // An MSC4274 GALLERY has no typed row of its own on this path:
+                // it arrives as the row of its PRIMARY item (the first picture,
+                // exactly as the live-timeline producer does), captioned with
+                // the gallery's caption — never with Sable's generated
+                // `[name: mxc://…]` body. Before this it matched no row kind
+                // and was dropped, so a gallery notified nobody.
+                let gallery = crate::timeline::parse_gallery(&ev.content.msgtype)
+                    .filter(|g| !g.items.is_empty());
+                let (row_msgtype, body) = match &gallery {
+                    Some(g) => {
+                        let primary = g
+                            .items
+                            .iter()
+                            .find(|item| matches!(item, MessageType::Image(_)))
+                            .unwrap_or(&g.items[0]);
+                        (primary, g.caption.clone())
+                    }
+                    None => (&ev.content.msgtype, ev.content.body().to_owned()),
+                };
+                let Some(kind) = typed_message_row_kind(row_msgtype.msgtype())
                 else {
                     return;
                 };
-                let body = ev.content.body().to_owned();
-                // Only File consults MSC2530's `filename`, because that is
-                // the only arm of the live producer that does.
-                let explicit_filename = match &ev.content.msgtype {
+                // MSC2530's `filename` names every attachment kind, exactly as
+                // in the live producer. A multi-item gallery has no one name.
+                let explicit_filename = match row_msgtype {
                     MessageType::File(content) => content.filename.as_deref(),
+                    MessageType::Image(content) => content.filename.as_deref(),
+                    MessageType::Video(content) => content.filename.as_deref(),
+                    MessageType::Audio(content) => content.filename.as_deref(),
                     _ => None,
                 };
-                let media_filename =
-                    media_filename_for_kind(kind, &body, explicit_filename);
+                let media_filename = match &gallery {
+                    Some(g) if g.items.len() > 1 => String::new(),
+                    _ => media_filename_for_kind(
+                        kind,
+                        row_msgtype.body(),
+                        explicit_filename,
+                    ),
+                };
 
                 let is_encrypted = encryption_info.is_some();
                 // v0.6.0 checkpoint 12: notification-relevant metadata for
@@ -12515,7 +12546,22 @@ pub(crate) fn latest_event_preview_text(
                 MessageType::File(content) => body_or(one_line(&content.body), "File"),
                 MessageType::Video(content) => body_or(one_line(&content.body), "Video"),
                 MessageType::Audio(content) => body_or(one_line(&content.body), "Audio"),
-                _ => String::new(),
+                // An MSC4274 gallery: its caption, else what it holds. Never
+                // the body, which Sable fills with `[name: mxc://…]` lines.
+                other => match crate::timeline::parse_gallery(&other)
+                    .filter(|g| !g.items.is_empty())
+                {
+                    Some(g) if !g.caption.trim().is_empty() => one_line(&g.caption),
+                    Some(g) if g.items.len() == 1 => {
+                        if g.all_images() { "Image" } else { "File" }.to_owned()
+                    }
+                    Some(g) => format!(
+                        "{} {}",
+                        g.items.len(),
+                        if g.all_images() { "images" } else { "attachments" }
+                    ),
+                    None => String::new(),
+                },
             }
         }
         AnySyncMessageLikeEvent::Sticker(SyncMessageLikeEvent::Original(_)) => {
@@ -14346,6 +14392,46 @@ mod latest_event_preview_tests {
             "m.room.message",
         );
         assert_eq!(latest_event_preview_text(&unnamed), "File");
+    }
+
+    // An MSC4274 gallery as Sable sends it (no caption: the body is its
+    // generated `[name: mxc]` list). The room list says what it holds, or
+    // the caption when there is one — never the list. It used to be "".
+    #[test]
+    fn a_gallery_previews_as_its_caption_or_its_count() {
+        let item = |name: &str, itemtype: &str| {
+            json!({ "itemtype": itemtype, "body": name, "filename": name,
+                    "url": format!("mxc://example.org/{name}") })
+        };
+        let gallery = |body: &str, items: Vec<serde_json::Value>| {
+            remote(
+                json!({ "msgtype": "dm.filament.gallery", "body": body,
+                        "itemtypes": items }),
+                "m.room.message",
+            )
+        };
+        let list = "[a.png: mxc://example.org/a.png]\n[b.png: mxc://example.org/b.png]";
+        assert_eq!(
+            latest_event_preview_text(&gallery(
+                list,
+                vec![item("a.png", "m.image"), item("b.png", "m.image")]
+            )),
+            "2 images"
+        );
+        assert_eq!(
+            latest_event_preview_text(&gallery(
+                "",
+                vec![item("a.png", "m.image"), item("n.pdf", "m.file")]
+            )),
+            "2 attachments"
+        );
+        assert_eq!(
+            latest_event_preview_text(&gallery(
+                "before\nand after",
+                vec![item("a.png", "m.image"), item("b.png", "m.image")]
+            )),
+            "before and after"
+        );
     }
 
     #[test]
@@ -16190,6 +16276,27 @@ mod message_row_kind_tests {
             media_filename_for_kind("file", "report.pdf", None),
             "report.pdf"
         );
+    }
+
+    // Sable sends an image with NO caption as `body: ""` plus `filename`, and
+    // a captioned one as the caption plus `filename`. Both producers read the
+    // name from `filename` for every attachment kind now; an empty
+    // `filename` names nothing and falls back to the body.
+    #[test]
+    fn every_attachment_kind_prefers_its_explicit_filename() {
+        for kind in ["image", "video", "audio", "file"] {
+            assert_eq!(
+                media_filename_for_kind(kind, "", Some("comparison.png")),
+                "comparison.png",
+                "{kind}"
+            );
+            assert_eq!(
+                media_filename_for_kind(kind, "look at this", Some("cat.png")),
+                "cat.png",
+                "{kind}"
+            );
+            assert_eq!(media_filename_for_kind(kind, "cat.png", Some("")), "cat.png");
+        }
     }
 
     #[test]

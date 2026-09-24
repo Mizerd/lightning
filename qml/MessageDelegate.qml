@@ -62,6 +62,9 @@ Item {
         && model.isLocalEcho !== true
         && !root.isCallEvent && !root.isStateActivity
         && root.eventIdForActions() !== ""
+        // A gallery forwards as its first attachment only (the snapshot
+        // below carries one mediaKey); see the Forward menu item.
+        && !root.isGallery
     /// The circle's own column while selecting. The row's content shifts
     /// right by this much so the circle never sits on the avatar or the
     /// text (it drew over the avatar on identity rows).
@@ -433,6 +436,9 @@ Item {
         return "attach_file"
     }
     function mediaEmbedKind() {
+        if (root.isGallery)
+            return root.galleryCountLabel(root.galleryItems.length,
+                                          root.galleryAllImages())
         if (model.isSticker === true) return qsTr("Sticker")
         if (model.isVideo === true) return qsTr("Video")
         if (model.isAudio === true)
@@ -449,6 +455,9 @@ Item {
     // arrive with no dimensions — and an empty detail is why the row says
     // "Image" rather than "Image · ".
     function mediaEmbedDetail() {
+        // A gallery's primary name and size describe one of its pictures, not
+        // the message; the count in mediaEmbedKind() is the whole summary.
+        if (root.isGallery) return ""
         var parts = []
         var name = (model.mediaFilename || "").trim()
         // A voice message's "filename" is a generated one nobody chose; its
@@ -925,6 +934,40 @@ Item {
     // and bodyLabel read these two predicates instead of each keeping its
     // own copy. They live on root (not on bodyLabel) because a root property
     // must never dereference an id declared further down the document.
+    // An MSC4274 gallery's attachments (two or more), or empty. `|| []`
+    // covers a host whose model has no such role (fixtures, older backends).
+    readonly property var galleryItems: model.galleryItems || []
+    readonly property bool isGallery: galleryItems.length > 1
+    // "3 images" / "3 attachments" — one wording for the gallery's collapsed
+    // summary and for a reply quoting one.
+    function galleryCountLabel(count, allImages) {
+        return allImages ? qsTr("%n image(s)", "", count)
+                         : qsTr("%n attachment(s)", "", count)
+    }
+    function galleryAllImages() {
+        for (var i = 0; i < galleryItems.length; ++i) {
+            if (galleryItems[i].kind !== "image") return false
+        }
+        return true
+    }
+    // What the reply quote says when the target has no words to quote: an
+    // image whose body is empty (Sable's default for one attachment), or a
+    // gallery with no caption. Empty when the kind is unknown, so the
+    // "(original message not loaded)" fallback keeps meaning exactly that.
+    function replyKindLabel() {
+        var count = model.replyToCount || 0
+        var kind = model.replyToKind || ""
+        if (count > 1) return root.galleryCountLabel(count, kind === "image")
+        switch (kind) {
+        case "image":   return qsTr("Image")
+        case "gif":     return qsTr("GIF")
+        case "video":   return qsTr("Video")
+        case "audio":   return qsTr("Audio")
+        case "file":    return qsTr("File")
+        case "sticker": return qsTr("Sticker")
+        default:        return ""
+        }
+    }
     readonly property bool mediaRowBody:
         model.isImage
         || model.isSticker === true
@@ -2139,6 +2182,7 @@ Item {
                             Label {
                                 objectName: "replyQuoteBody"
                                 text: model.replyToPreview
+                                      || root.replyKindLabel()
                                       || qsTr("(original message not loaded)")
                                 color: root.replyBodyInk
                                 opacity: replyHover.hovered ? 1.0 : 0.85
@@ -2210,7 +2254,8 @@ Item {
                             anchors.left: parent.left
                             width: Math.min(root.contentInnerCap,
                                             item ? item.implicitWidth : 0)
-                            sourceComponent: model.isImage ? imageComponent
+                            sourceComponent: root.isGallery ? galleryComponent
+                                            : model.isImage ? imageComponent
                                             : model.isSticker === true
                                               ? stickerComponent
                                             : model.isVideo === true
@@ -4628,6 +4673,11 @@ Item {
                           || model.isFile === true)
                          && model.mediaSourceAvailable === true
                          && app.mediaBridge.supported
+                         // A gallery's row media is ONE of its attachments;
+                         // saving that from a menu about the whole message
+                         // would silently skip the rest. Each tile and chip,
+                         // and the viewer, save their own.
+                         && !root.isGallery
                 enabled: visible && root.menuEventId !== ""
                 onTriggered: {
                     if (root.timelineView
@@ -4685,6 +4735,7 @@ Item {
                 visible: model.isImage === true
                          && model.mediaSourceAvailable === true
                          && app.mediaBridge.supported
+                         && !root.isGallery   // see "Save as…" above
                 enabled: visible && root.menuEventId !== ""
                 onTriggered: app.copyImageToClipboard(model.mediaKey || "")
             }
@@ -4833,6 +4884,11 @@ Item {
                     && model.isVirtual !== true && model.isPoll !== true
                     && (isMediaRow ? model.mediaSourceAvailable === true
                                    : (model.body || "").length > 0)
+                    // Forwarding re-sends the row's ONE media key, which on
+                    // a gallery is its first attachment: the rest would be
+                    // dropped without a word. Not offered until forwarding
+                    // can carry a whole gallery.
+                    && !root.isGallery
                 enabled: eligible && root.menuEventId !== ""
                 visible: eligible
                 onTriggered: app.forward.begin(
@@ -5567,6 +5623,262 @@ Item {
     }
 
     // ---- media sub-components ----
+
+    // An MSC4274 GALLERY (2026-09-23): several attachments in ONE event,
+    // which is what Sable sends for more than one picture. Reported as "my
+    // comparison images aren't visible on Lightning" — the event used to be
+    // dropped before it became a row at all (rust/src/timeline.rs,
+    // is_visible_gallery_message).
+    //
+    // Pictures and videos are square tiles in a grid; audio and other files
+    // are one-line chips under it. Every tile fetches through the media bridge
+    // by its OWN key (the primary keeps the row's), under exactly the gates a
+    // single picture obeys: nothing is asked for while the row is outside the
+    // media band, while the reader has hidden the row's media, or while embeds
+    // are collapsed (this component is not even built then). Tile geometry is
+    // fixed before any byte arrives, so hydration never moves the row.
+    Component {
+        id: galleryComponent
+        Item {
+            id: galleryBox
+            objectName: "messageGallery"
+            readonly property var items: root.galleryItems
+            readonly property var visualItems: items.filter(function(it) {
+                return it.kind === "image" || it.kind === "video"
+            })
+            readonly property var fileItems: items.filter(function(it) {
+                return it.kind !== "image" && it.kind !== "video"
+            })
+            readonly property real gap: 4
+            readonly property int columns: visualItems.length <= 1 ? 1
+                : (visualItems.length === 2 || visualItems.length === 4) ? 2 : 3
+            readonly property real gridMax: Math.min(420, root.contentInnerCap)
+            readonly property real tile: Math.max(48, Math.floor(
+                (gridMax - gap * (columns - 1)) / columns))
+            implicitWidth: visualItems.length > 0
+                           ? Math.max(columns * tile + (columns - 1) * gap,
+                                      fileItems.length > 0
+                                      ? Math.min(340, root.contentInnerCap) : 0)
+                           : Math.min(340, root.contentInnerCap)
+            implicitHeight: galleryColumn.implicitHeight
+
+            Column {
+                id: galleryColumn
+                width: parent.width
+                spacing: galleryBox.gap
+
+                Grid {
+                    objectName: "messageGalleryGrid"
+                    visible: galleryBox.visualItems.length > 0
+                    columns: galleryBox.columns
+                    spacing: galleryBox.gap
+                    Repeater {
+                        model: galleryBox.visualItems
+                        delegate: Rectangle {
+                            id: galleryTile
+                            objectName: "messageGalleryTile"
+                            required property var modelData
+                            width: galleryBox.tile
+                            height: galleryBox.tile
+                            color: AppTheme.embedSurface
+                            border.color: AppTheme.border
+                            border.width: 1
+                            readonly property string key: modelData.mediaKey || ""
+                            readonly property bool isVideo: modelData.kind === "video"
+                            // A video tile draws its POSTER, and only a real
+                            // one: without a server thumbnail the bridge would
+                            // fall back to the video payload itself, which is
+                            // not a picture and would only be refused.
+                            readonly property bool drawable:
+                                key.length > 0
+                                && (!isVideo || modelData.thumbAvailable === true)
+                            readonly property string fetchKind:
+                                modelData.thumbAvailable === true ? "thumb" : "full"
+                            // Asks the store as well as root.mediaHidden:
+                            // this binding first runs while the row is still
+                            // being built, BEFORE root's onCompleted has read
+                            // the store, and a hidden row must not fetch in
+                            // that window. root.mediaHidden is still what
+                            // re-runs it on hide and reveal.
+                            readonly property bool hiddenNow:
+                                root.mediaHidden
+                                || (!!app.mediaVisibility
+                                    && root.mediaVisibilityKey.length > 0
+                                    && app.mediaVisibility.isHidden(
+                                           root.mediaVisibilityKey))
+                            readonly property bool wanted:
+                                drawable && app.mediaBridge.supported
+                                && root.mediaInBand && !hiddenNow
+                            // Bumped when the cache fills, so the binding
+                            // below re-asks without anything assigning
+                            // `source` imperatively (§16: that destroys the
+                            // binding and strands the tile).
+                            property int resolveTick: 0
+                            property bool failed: false
+                            readonly property string bridgeSource: {
+                                var _tick = resolveTick
+                                return wanted
+                                    ? app.mediaBridge.mediaSource(key, fetchKind)
+                                    : ""
+                            }
+                            Accessible.role: Accessible.Button
+                            Accessible.name: (modelData.filename || "").length > 0
+                                             ? modelData.filename
+                                             : (isVideo ? qsTr("Video") : qsTr("Image"))
+
+                            Image {
+                                anchors.fill: parent
+                                anchors.margins: 1
+                                visible: !root.mediaHidden
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                                cache: true
+                                sourceSize.width: Math.round(galleryBox.tile * 2)
+                                source: galleryTile.bridgeSource
+                            }
+                            Icon {
+                                anchors.centerIn: parent
+                                visible: !root.mediaHidden
+                                         && (galleryTile.isVideo
+                                             || galleryTile.failed
+                                             || !galleryTile.drawable)
+                                name: galleryTile.failed ? "refresh"
+                                      : galleryTile.isVideo ? "play_arrow"
+                                      : "image"
+                                size: 28
+                                color: AppTheme.textMuted
+                            }
+                            Connections {
+                                target: app.mediaBridge
+                                enabled: galleryTile.wanted
+                                function onMediaCached(cacheKey) {
+                                    if (cacheKey === galleryTile.fetchKind + ":"
+                                            + galleryTile.key) {
+                                        galleryTile.failed = false
+                                        galleryTile.resolveTick++
+                                    }
+                                }
+                                function onMediaFetchFailed(cacheKey, category) {
+                                    if (cacheKey === galleryTile.fetchKind + ":"
+                                            + galleryTile.key)
+                                        galleryTile.failed = true
+                                }
+                                function onMediaRetryable(cacheKey) {
+                                    // The same recovery channel the image,
+                                    // sticker and video boxes hear: a swept
+                                    // transient mark re-asks, or a tile that
+                                    // failed once sits on its fallback until
+                                    // a restart. Bounded by the bridge, which
+                                    // re-arms the mark on a failed attempt.
+                                    if (cacheKey === galleryTile.fetchKind + ":"
+                                            + galleryTile.key) {
+                                        galleryTile.failed = false
+                                        galleryTile.resolveTick++
+                                    }
+                                }
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: !root.mediaHidden && root.rowActionsEnabled
+                                visible: enabled
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (galleryTile.failed) {
+                                        app.mediaBridge.retry(galleryTile.fetchKind
+                                                              + ":" + galleryTile.key)
+                                        galleryTile.failed = false
+                                        galleryTile.resolveTick++
+                                        return
+                                    }
+                                    // A picture opens the viewer. In the room
+                                    // timeline it pages through the room's
+                                    // pictures, each gallery item among them
+                                    // (TimelineModel::mediaEntries); in the
+                                    // thread panel openFor() reads the ROOM's
+                                    // list, misses, and shows this picture
+                                    // alone. A video has no viewer here; it is
+                                    // saved like any other attachment.
+                                    if (!galleryTile.isVideo) {
+                                        if (root.timelineView && root.timelineView.openImage)
+                                            root.timelineView.openImage(galleryTile.key, "")
+                                    } else if (root.timelineView
+                                               && root.timelineView.saveMedia) {
+                                        root.timelineView.saveMedia(
+                                            galleryTile.key,
+                                            galleryTile.modelData.filename || "")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Repeater {
+                    model: galleryBox.fileItems
+                    delegate: Rectangle {
+                        id: galleryFile
+                        objectName: "messageGalleryFile"
+                        required property var modelData
+                        width: galleryBox.width
+                        height: galleryFileRow.implicitHeight + 12
+                        radius: AppTheme.radiusMd
+                        color: AppTheme.embedSurface
+                        border.color: AppTheme.border
+                        border.width: 1
+                        RowLayout {
+                            id: galleryFileRow
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 4
+                            spacing: 8
+                            Icon {
+                                name: galleryFile.modelData.kind === "audio"
+                                      ? "graphic_eq" : "attach_file"
+                                size: 18
+                                color: AppTheme.textMuted
+                            }
+                            Label {
+                                text: galleryFile.modelData.filename || qsTr("File")
+                                textFormat: Text.PlainText
+                                color: AppTheme.text
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                elide: Label.ElideMiddle
+                                Layout.fillWidth: true
+                            }
+                            Label {
+                                text: root.embedSizeText(galleryFile.modelData.size || 0)
+                                visible: text.length > 0
+                                color: AppTheme.textMuted
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
+                            }
+                            IconButton {
+                                visible: app.mediaBridge.supported
+                                         && (galleryFile.modelData.mediaKey || "").length > 0
+                                         && !!root.timelineView
+                                         && !!root.timelineView.saveMedia
+                                iconName: "download"
+                                iconSize: 18
+                                implicitWidth: 30; implicitHeight: 30
+                                Accessible.name: qsTr("Save %1 as…")
+                                    .arg(galleryFile.modelData.filename || qsTr("file"))
+                                onClicked: root.timelineView.saveMedia(
+                                    galleryFile.modelData.mediaKey,
+                                    galleryFile.modelData.filename || "")
+                            }
+                        }
+                    }
+                }
+            }
+
+            MediaHiddenPlaceholder {
+                anchors.fill: parent
+                hidden: root.mediaHidden
+                onRevealRequested: root.setMediaHidden(false)
+            }
+        }
+    }
 
     Component {
         id: imageComponent

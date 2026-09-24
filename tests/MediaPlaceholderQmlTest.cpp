@@ -25,6 +25,8 @@
 #include <QSignalSpy>
 
 #include "app/AppController.h"
+#include "matrix/MockMatrixClient.h"
+#include "media/MediaBridge.h"
 #include "media/MediaVisibilityStore.h"
 #include "models/TimelineModel.h"
 
@@ -102,10 +104,45 @@ private:
         return fixture;
     }
 
+    // Repeater delegates are not reachable through findChild (they are
+    // parented to the Repeater's parent item, not to the QObject tree the way
+    // findChild walks it), so walk the VISUAL tree.
+    static void collectItems(QQuickItem *item, const QString &name,
+                             QList<QQuickItem *> &out)
+    {
+        if (!item)
+            return;
+        if (item->objectName() == name)
+            out.append(item);
+        const auto children = item->childItems();
+        for (QQuickItem *child : children)
+            collectItems(child, name, out);
+    }
+
+    static QVariantMap galleryItem(const QString &key, const QString &kind,
+                                   const QString &filename)
+    {
+        QVariantMap item;
+        item.insert(QStringLiteral("mediaKey"), key);
+        item.insert(QStringLiteral("kind"), kind);
+        item.insert(QStringLiteral("filename"), filename);
+        item.insert(QStringLiteral("mimetype"),
+                    kind == QLatin1String("image") ? QStringLiteral("image/png")
+                                                   : QStringLiteral("application/pdf"));
+        item.insert(QStringLiteral("size"), 1024);
+        item.insert(QStringLiteral("width"), 1280);
+        item.insert(QStringLiteral("height"), 720);
+        item.insert(QStringLiteral("durationMs"), 0);
+        item.insert(QStringLiteral("thumbAvailable"), false);
+        return item;
+    }
+
     bool createDelegate(AppController &controller, const QVariantMap &fixture,
-                        Delegate &out)
+                        Delegate &out, const QVariantMap &initial = {})
     {
         out.engine = std::make_unique<QQmlApplicationEngine>();
+        if (!initial.isEmpty())
+            out.engine->setInitialProperties(initial);
         connect(out.engine.get(), &QQmlEngine::warnings, this,
                 [&out](const QList<QQmlError> &errors) {
                     for (const auto &e : errors)
@@ -185,6 +222,228 @@ private Q_SLOTS:
         QVERIFY(qAbs(skeleton->width() - 360.0) < 1.0);
         QVERIFY(qAbs(skeleton->height() - 270.0) < 1.0);
         QCOMPARE(d.warnings, QStringList{});
+    }
+
+    // AN MSC4274 GALLERY RENDERS EVERY ATTACHMENT (2026-09-23, Sable): two
+    // pictures as two equal square tiles side by side, a file as a chip under
+    // them, and not the single-picture path for the row's primary item. The
+    // tiles' geometry is fixed before any byte arrives. Sable's generated
+    // `[name: mxc]` body never reaches here as a caption, so no body shows.
+    void aGalleryRendersEveryAttachment()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isImage"), true);
+        fixture.insert(QStringLiteral("mediaFilename"), QStringLiteral("before.png"));
+        fixture.insert(QStringLiteral("body"), QString{});
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+        fixture.insert(QStringLiteral("mediaKey"), QStringLiteral("$fixture"));
+        fixture.insert(QStringLiteral("galleryItems"), QVariantList{
+            galleryItem(QStringLiteral("$fixture"), QStringLiteral("image"),
+                        QStringLiteral("before.png")),
+            galleryItem(QStringLiteral("$fixture#item1"), QStringLiteral("image"),
+                        QStringLiteral("after.png")),
+            galleryItem(QStringLiteral("$fixture#item2"), QStringLiteral("file"),
+                        QStringLiteral("notes.pdf")),
+        });
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        QTRY_VERIFY(d.root->findChild<QQuickItem *>(
+                        QStringLiteral("messageGallery")) != nullptr);
+        // The single-picture component for the primary item is NOT built.
+        QVERIFY(d.root->findChild<QQuickItem *>(QStringLiteral("imageMedia"))
+                == nullptr);
+        QList<QQuickItem *> tiles;
+        collectItems(d.root, QStringLiteral("messageGalleryTile"), tiles);
+        QCOMPARE(tiles.size(), 2);
+        QVERIFY(tiles.at(0)->width() >= 48.0);
+        QCOMPARE(tiles.at(0)->width(), tiles.at(0)->height());
+        QCOMPARE(tiles.at(0)->width(), tiles.at(1)->width());
+        // Side by side, not stacked.
+        QCOMPARE(tiles.at(0)->y(), tiles.at(1)->y());
+        QVERIFY(tiles.at(1)->x() > tiles.at(0)->x());
+        QList<QQuickItem *> files;
+        collectItems(d.root, QStringLiteral("messageGalleryFile"), files);
+        QCOMPARE(files.size(), 1);
+        QVERIFY(files.at(0)->height() > 0.0);
+        auto *body = d.root->findChild<QQuickItem *>(QStringLiteral("messageBody"));
+        QVERIFY(body != nullptr);
+        QVERIFY(!body->isVisible());
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
+    // A GALLERY TILE FETCHES NOTHING while the row is outside the media band
+    // or its media is hidden — the same gates a single picture obeys — and the
+    // probe is proven able to see a fetch: releasing each gate makes the two
+    // picture tiles ask the bridge. Counted as bridge cache misses, which is
+    // exactly one per dispatched fetch.
+    void aGalleryTileFetchesNothingOutsideTheBandOrWhileHidden()
+    {
+        AppController controller(AppController::MockBackend);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->setSupportsMediaBridgeForTest(true);
+        QVERIFY(controller.mediaBridge()->supported());
+        const auto misses = [&controller] {
+            return controller.mediaBridge()->healthSnapshot()
+                .value(QStringLiteral("cacheMisses")).toLongLong();
+        };
+
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isImage"), true);
+        fixture.insert(QStringLiteral("mediaFilename"), QStringLiteral("before.png"));
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+        fixture.insert(QStringLiteral("mediaKey"), QStringLiteral("$fixture"));
+        fixture.insert(QStringLiteral("galleryItems"), QVariantList{
+            galleryItem(QStringLiteral("$fixture"), QStringLiteral("image"),
+                        QStringLiteral("before.png")),
+            galleryItem(QStringLiteral("$fixture#item1"), QStringLiteral("image"),
+                        QStringLiteral("after.png")),
+        });
+
+        // Outside the band.
+        const qint64 beforeBand = misses();
+        Delegate out;
+        QVERIFY(createDelegate(controller, fixture, out,
+                               { { QStringLiteral("mediaInBand"), false } }));
+        QTRY_VERIFY(out.root->findChild<QQuickItem *>(
+                        QStringLiteral("messageGallery")) != nullptr);
+        QCoreApplication::processEvents();
+        QCOMPARE(misses() - beforeBand, qint64(0));
+        out.root->setProperty("mediaInBand", true);
+        QTRY_COMPARE(misses() - beforeBand, qint64(2));
+
+        // Hidden BEFORE the row is built, as a recycled row would be.
+        controller.mediaVisibility()->hide(QStringLiteral("$fixture"));
+        const qint64 beforeHidden = misses();
+        QVariantMap other = fixture;
+        other.insert(QStringLiteral("eventId"), QStringLiteral("$fixture2"));
+        QVariantList items = fixture.value(QStringLiteral("galleryItems")).toList();
+        for (int i = 0; i < items.size(); ++i) {
+            QVariantMap item = items.at(i).toMap();
+            item.insert(QStringLiteral("mediaKey"),
+                        item.value(QStringLiteral("mediaKey")).toString() + QStringLiteral("-h"));
+            items[i] = item;
+        }
+        other.insert(QStringLiteral("galleryItems"), items);
+        Delegate hidden;
+        QVERIFY(createDelegate(controller, other, hidden));
+        QTRY_VERIFY(hidden.root->property("mediaHidden").toBool());
+        QCoreApplication::processEvents();
+        QCOMPARE(misses() - beforeHidden, qint64(0));
+        controller.mediaVisibility()->show(QStringLiteral("$fixture"));
+        QTRY_COMPARE(misses() - beforeHidden, qint64(2));
+        QCOMPARE(out.warnings, QStringList{});
+        QCOMPARE(hidden.warnings, QStringList{});
+    }
+
+    // FORWARD IS NOT OFFERED ON A GALLERY: forwarding carries the row's one
+    // media key, so it would re-send the first attachment and silently drop
+    // the rest (review M2). Same for Save as / Copy image. A single picture
+    // keeps Forward, which proves the menu is being read at all.
+    void aGalleryRowOffersNoSingleAttachmentActions()
+    {
+        AppController controller(AppController::MockBackend);
+        // Save as and Copy image also require a working media bridge; without
+        // it both read hidden on every row and prove nothing.
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->setSupportsMediaBridgeForTest(true);
+        QVERIFY(controller.mediaBridge()->supported());
+        QVariantMap single = baseFixture(controller);
+        single.insert(QStringLiteral("isImage"), true);
+        single.insert(QStringLiteral("mediaFilename"), QStringLiteral("before.png"));
+        single.insert(QStringLiteral("mediaSourceAvailable"), true);
+        single.insert(QStringLiteral("mediaKey"), QStringLiteral("$fixture"));
+        QVariantMap gallery = single;
+        gallery.insert(QStringLiteral("galleryItems"), QVariantList{
+            galleryItem(QStringLiteral("$fixture"), QStringLiteral("image"),
+                        QStringLiteral("before.png")),
+            galleryItem(QStringLiteral("$fixture#item1"), QStringLiteral("image"),
+                        QStringLiteral("after.png")),
+        });
+        const auto menuItemVisible = [&](const QVariantMap &fixture,
+                                         const QString &name) {
+            Delegate d;
+            if (!createDelegate(controller, fixture, d))
+                return QStringLiteral("no delegate");
+            QMetaObject::invokeMethod(d.root, "openContextMenu",
+                                      Q_ARG(QVariant, 10), Q_ARG(QVariant, 10),
+                                      Q_ARG(QVariant, false));
+            auto *menu = d.root->findChild<QObject *>(
+                QStringLiteral("messageContextMenu"));
+            if (!menu)
+                return QStringLiteral("no menu");
+            // QTRY_* returns from the enclosing function, which here is
+            // this lambda; wait by hand.
+            for (int waited = 0; !menu->property("opened").toBool()
+                                 && waited < kSignalTimeoutMs; waited += 20)
+                QTest::qWait(20);
+            if (!menu->property("opened").toBool())
+                return QStringLiteral("menu never opened");
+            auto *item = menu->findChild<QObject *>(name);
+            if (!item)
+                return QStringLiteral("no item");
+            return item->property("visible").toBool() ? QStringLiteral("visible")
+                                                      : QStringLiteral("hidden");
+        };
+        for (const QString &name : { QStringLiteral("forwardMessageMenuItem"),
+                                     QStringLiteral("saveMediaMenuItem"),
+                                     QStringLiteral("copyImageMenuItem") }) {
+            QCOMPARE(menuItemVisible(single, name), QStringLiteral("visible"));
+            QCOMPARE(menuItemVisible(gallery, name), QStringLiteral("hidden"));
+        }
+
+        // Nor can a gallery be picked for multi-message forwarding, which
+        // carries the same single media key.
+        const auto selectable = [&](const QVariantMap &fixture) {
+            Delegate d;
+            if (!createDelegate(controller, fixture, d))
+                return QStringLiteral("no delegate");
+            return d.root->property("rowSelectable").toBool()
+                ? QStringLiteral("selectable") : QStringLiteral("not selectable");
+        };
+        QCOMPARE(selectable(single), QStringLiteral("selectable"));
+        QCOMPARE(selectable(gallery), QStringLiteral("not selectable"));
+    }
+
+    // A REPLY TO SOMETHING WITH NO WORDS says what it is. An image whose body
+    // is empty (Sable's default for one picture) read "(original message not
+    // loaded)" — false, it was loaded — and a gallery reads "2 images". The
+    // not-loaded wording stays for a target whose kind is unknown.
+    void aReplyQuoteLabelsAWordlessTargetByKind()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("body"), QStringLiteral("nice"));
+        fixture.insert(QStringLiteral("replyToEventId"), QStringLiteral("$g"));
+        fixture.insert(QStringLiteral("replyToSender"), QStringLiteral("Seikm"));
+        fixture.insert(QStringLiteral("replyToPreview"), QString{});
+        const auto quoteText = [&](const QString &kind, int count) {
+            QVariantMap f = fixture;
+            f.insert(QStringLiteral("replyToKind"), kind);
+            f.insert(QStringLiteral("replyToCount"), count);
+            Delegate d;
+            if (!createDelegate(controller, f, d))
+                return QStringLiteral("<no delegate>");
+            auto *label = d.root->findChild<QQuickItem *>(
+                QStringLiteral("replyQuoteBody"));
+            if (!d.warnings.isEmpty())
+                return QStringLiteral("<warnings> ") + d.warnings.join(QLatin1Char('|'));
+            return label ? label->property("text").toString()
+                         : QStringLiteral("<no label>");
+        };
+        // Plural wording comes from the catalog ("%n image(s)" renders its
+        // "(s)" literally with none loaded, as here), so assert the count and
+        // the noun, not the suffix.
+        const QString two = quoteText(QStringLiteral("image"), 2);
+        QVERIFY2(two.startsWith(QStringLiteral("2 image")), qPrintable(two));
+        const QString three = quoteText(QStringLiteral("file"), 3);
+        QVERIFY2(three.startsWith(QStringLiteral("3 attachment")), qPrintable(three));
+        QCOMPARE(quoteText(QStringLiteral("image"), 0), QStringLiteral("Image"));
+        QCOMPARE(quoteText(QString{}, 0),
+                 QStringLiteral("(original message not loaded)"));
     }
 
     // Unknown dimensions still reserve a bounded non-zero default box.

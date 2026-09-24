@@ -159,6 +159,8 @@ private Q_SLOTS:
     void cleanup();
 
     void realCountExcludesVirtualRows();
+    // 2026-09-23: MSC4274 galleries (Sable) and the reply target's kind.
+    void aGalleryRowListsEveryItemForTheDelegateAndTheViewer();
     void appendAddsRow();
     void prependAddsRowsAtTop();
     void insertAtAddsRowInPlace();
@@ -243,6 +245,76 @@ void TimelineModelDiffTest::init()
                          makeEvent(QStringLiteral("$e1"), QStringLiteral("m1")) };
     m_model->setRoomId(kRoom);
     QCOMPARE(m_model->rowCount(), 2);
+}
+
+// A two-picture Sable gallery arrives as ONE image row whose media fields name
+// its primary picture. The delegate gets every item through GalleryItemsRole,
+// and the viewer gets one entry PER PICTURE, in order, so opening either tile
+// in the room timeline pages through both, not just the row's primary
+// picture. A row quoting it carries the target's kind and
+// count for the "2 images" label.
+void TimelineModelDiffTest::aGalleryRowListsEveryItemForTheDelegateAndTheViewer()
+{
+    TimelineEvent gallery = makeEvent(QStringLiteral("$g"), QString{});
+    gallery.type = TimelineEvent::Image;
+    gallery.mediaKey = QStringLiteral("$g");
+    gallery.mediaFilename = QStringLiteral("before.png");
+    gallery.mediaSourceAvailable = true;
+    GalleryItem a;
+    a.mediaKey = QStringLiteral("$g");
+    a.kind = QStringLiteral("image");
+    a.filename = QStringLiteral("before.png");
+    a.width = 1280;
+    GalleryItem b;
+    b.mediaKey = QStringLiteral("$g#item1");
+    b.kind = QStringLiteral("image");
+    b.filename = QStringLiteral("after.png");
+    b.thumbAvailable = true;
+    gallery.galleryItems = { a, b };
+    TimelineEvent reply = makeEvent(QStringLiteral("$r"), QStringLiteral("nice"));
+    reply.replyToEventId = QStringLiteral("$g");
+    reply.replyToKind = QStringLiteral("image");
+    reply.replyToCount = 2;
+    m_client->mirror = { gallery, reply };
+    Q_EMIT m_client->timelineReset(kRoom);
+    QCOMPARE(m_model->rowCount(), 2);
+
+    int galleryRow = -1;
+    int replyRow = -1;
+    for (int r = 0; r < m_model->rowCount(); ++r) {
+        const QString id = m_model->data(m_model->index(r), TimelineModel::EventIdRole)
+                               .toString();
+        if (id == QLatin1String("$g")) galleryRow = r;
+        if (id == QLatin1String("$r")) replyRow = r;
+    }
+    QVERIFY(galleryRow >= 0 && replyRow >= 0);
+
+    const QVariantList items =
+        m_model->data(m_model->index(galleryRow), TimelineModel::GalleryItemsRole)
+            .toList();
+    QCOMPARE(items.size(), 2);
+    QCOMPARE(items.at(1).toMap().value(QStringLiteral("mediaKey")).toString(),
+             QStringLiteral("$g#item1"));
+    QCOMPARE(items.at(1).toMap().value(QStringLiteral("filename")).toString(),
+             QStringLiteral("after.png"));
+    QVERIFY(items.at(1).toMap().value(QStringLiteral("thumbAvailable")).toBool());
+    QVERIFY(m_model->roleNames().value(TimelineModel::GalleryItemsRole)
+            == QByteArrayLiteral("galleryItems"));
+
+    const QVariantList images = m_model->imageEntries();
+    QCOMPARE(images.size(), 2);
+    QCOMPARE(images.at(0).toMap().value(QStringLiteral("mediaKey")).toString(),
+             QStringLiteral("$g"));
+    QCOMPARE(images.at(1).toMap().value(QStringLiteral("mediaKey")).toString(),
+             QStringLiteral("$g#item1"));
+
+    QCOMPARE(m_model->data(m_model->index(replyRow), TimelineModel::ReplyToKindRole)
+                 .toString(), QStringLiteral("image"));
+    QCOMPARE(m_model->data(m_model->index(replyRow), TimelineModel::ReplyToCountRole)
+                 .toInt(), 2);
+    // An ordinary row has no gallery.
+    QVERIFY(m_model->data(m_model->index(replyRow), TimelineModel::GalleryItemsRole)
+                .toList().isEmpty());
 }
 
 void TimelineModelDiffTest::cleanup()

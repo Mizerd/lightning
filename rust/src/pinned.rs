@@ -88,7 +88,17 @@ fn describe(parsed: &AnySyncTimelineEvent) -> (&'static str, String) {
             MessageType::Audio(c) => ("audio", one_line(&c.body)),
             MessageType::File(c) => ("file", one_line(&c.body)),
             MessageType::Location(c) => ("location", one_line(&c.body)),
-            _ => ("other", String::new()),
+            // An MSC4274 gallery pins as what it holds, with its caption —
+            // never Sable's generated `[name: mxc://…]` body.
+            other => match crate::timeline::parse_gallery(other)
+                .filter(|g| !g.items.is_empty())
+            {
+                Some(g) => (
+                    if g.all_images() { "image" } else { "file" },
+                    one_line(&g.caption),
+                ),
+                None => ("other", String::new()),
+            },
         },
         // Redacted is an ANSWER, not a failure: the pin still exists and the
         // UI says so plainly instead of pretending the event is missing.
@@ -350,6 +360,38 @@ mod tests {
         let long = "é".repeat(PREVIEW_MAX_CHARS + 10);
         let out = one_line(&long);
         assert_eq!(out.chars().count(), PREVIEW_MAX_CHARS);
+    }
+
+    // A pinned MSC4274 gallery (Sable) is described as what it holds, with
+    // its caption; Sable's generated `[name: mxc]` body is not a caption.
+    #[test]
+    fn describe_maps_a_gallery_to_its_kind_and_caption() {
+        let event = |body: &str, second: &str| {
+            let raw = serde_json::json!({
+                "type": "m.room.message",
+                "event_id": "$gal:example.org",
+                "sender": "@alice:example.org",
+                "origin_server_ts": 1000,
+                "content": {
+                    "msgtype": "dm.filament.gallery",
+                    "body": body,
+                    "itemtypes": [
+                        { "itemtype": "m.image", "body": "a.png", "filename": "a.png",
+                          "url": "mxc://example.org/a" },
+                        { "itemtype": second, "body": "b", "filename": "b",
+                          "url": "mxc://example.org/b" },
+                    ],
+                },
+            });
+            let parsed: AnySyncTimelineEvent =
+                serde_json::from_value(raw).expect("deserialize fixture");
+            describe(&parsed)
+        };
+        assert_eq!(
+            event("[a.png: mxc://example.org/a]\n[b: mxc://example.org/b]", "m.image"),
+            ("image", String::new())
+        );
+        assert_eq!(event("side by side", "m.file"), ("file", "side by side".to_owned()));
     }
 
     #[test]
