@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # Assemble the Lightning snap from the AppImage job's fully bundled AppDir.
 #
-# See packaging/snap/snap.yaml.in for why snapcraft/snapd are not used on
-# this runner fleet: a snap is a squashfs image with meta/snap.yaml, and the
-# AppDir already contains the app, Qt, plugins, and QML modules built by
-# configure-build.sh (same GIF-key handling as every other format).
+# See packaging/snap/snap.yaml.in for why snapcraft is not used. The AppDir
+# already carries the app, Qt, plugins and QML modules.
 #
 # Input:  dist/lightning-appdir-<LOGICAL_VERSION>.tar.zst (build-appimage)
 # Output: dist/lightning_<LOGICAL_VERSION>_amd64.snap
@@ -29,72 +27,32 @@ rm -rf "$SNAP_WORK"
 mkdir -p "$SNAP_WORK"
 tar -C "$SNAP_WORK" -I zstd -xf "$APPDIR_TAR"
 test -x "$SNAP_WORK/appdir/usr/bin/lightning-matrix" || die "AppDir payload incomplete"
-# The call media plugins ride in from the AppImage job's AppDir. A snap with
-# none is a snap that installs, launches and then refuses every call, so the
-# absence is fatal here rather than at a user.
+# Without the AppDir's call plugins the snap would refuse every call.
 gst_bundled=$(find "$SNAP_WORK/appdir/usr/lib/gstreamer-1.0" -maxdepth 1 -name '*.so' 2>/dev/null | wc -l)
 [ "$gst_bundled" -ge 20 ] || \
     die "the AppDir carries only $gst_bundled GStreamer plugins; the snap would refuse every call"
 test -f "$SNAP_WORK/appdir/usr/lib/gstreamer-1.0/libgstwebrtc.so" || \
     die "the AppDir has no libgstwebrtc.so; the snap would have no call media engine"
-# The Qt image-format plugins ride in from the same AppDir, and their absence is
-# just as invisible: the snap installs, launches, and then cannot draw a WebP
-# that the client's OWN byte sniffers accepted. Named one by one rather than
-# counted, because a count is satisfied by the three qtbase carries anyway.
+# Named individually: a count would be satisfied by qtbase's own plugins.
 for img_plugin in libqwebp.so kimg_jxl.so; do
     test -f "$SNAP_WORK/appdir/usr/plugins/imageformats/$img_plugin" || \
         die "the AppDir has no $img_plugin; the snap would accept image formats it cannot decode"
 done
 
 mkdir -p "$TREE"
-# Only usr/ is taken; linuxdeploy's AppImage entry artefacts (AppRun,
-# top-level desktop file, .DirIcon) stay behind in the AppDir.
+# Only usr/; AppRun, the top-level desktop file and .DirIcon stay behind.
 cp -a "$SNAP_WORK/appdir/usr" "$TREE/usr"
 
-# ── THE BASE GRAPHICS STACK, WHICH AN APPIMAGE MUST NOT BUNDLE AND A SNAP
-#    CANNOT DO WITHOUT ────────────────────────────────────────────────────
-#
-# The snap installed and then died on `libEGL.so.1: cannot open shared object
-# file` — measured under a real snapd on 2026-09-11, the first time one had
-# ever been run. Six libraries were unresolved inside the confinement, and
-# every one of them was ABSENT FROM THE PAYLOAD AND FROM core24 WHILE BEING
-# PRESENT ON THE HOST. That is exactly why `ldd` resolves them unconfined,
-# why every CI check passed, and why nothing caught it for months.
-#
-# The AppDir is right to omit them. linuxdeploy's excludelist leaves the X,
-# GL and Wayland client libraries on the host on purpose, and
-# build-appimage.sh records what re-bundling one costs: GitHub issue #9, where
-# a bundled libwayland-client older than the host's was handed to the host's
-# Mesa EGL and aborted the client on every native Wayland session. An AppImage
-# can see /usr/lib. A STRICTLY CONFINED SNAP CANNOT — that is the whole point
-# of the confinement — so the same omission that keeps the AppImage portable
-# makes the snap unlaunchable.
-#
-# COMPUTED FROM THE EXCLUDELIST, NOT FROM `ldd` ALONE — and the first version
-# of this got it wrong in a way worth recording. It staged whatever the binary
-# could not RESOLVE on the build host, which is nothing: the build host HAS
-# libEGL, so ldd is perfectly satisfied there. The absence only exists inside
-# the confinement. `snap: staged 0 base libraries` was the result, and the
-# guard below caught it, which is the only reason this is a build failure and
-# not another snap that installs and will not start.
-#
-# So the rule is the one that actually created the gap: stage every dependency
-# the AppDir does NOT carry that falls in the families linuxdeploy's
-# excludelist deliberately leaves on the host. That set auto-covers a seventh
-# library in the same families without anyone remembering, while never
-# touching the loader or the C/C++ runtime, which come from the base snap
-# exactly as they come from the host for an AppImage.
+# Base graphics/session libraries. linuxdeploy's excludelist rightly leaves
+# the X, GL, Wayland and audio client libraries to the host (bundling
+# libwayland-client broke Mesa EGL, issue #9), but a strictly confined snap
+# cannot see the host and core24 does not carry them. Stage every dependency
+# in those excluded families that the AppDir lacks. `ldd` alone cannot find
+# the gap: the build host has these libraries, so nothing looks unresolved.
 stage_unresolved_libs() {
     local probe want src staged=0
-    # EVERY PLUGIN, NOT JUST THE PLATFORM ONES. A plugin is dlopened, so its
-    # dependencies are invisible to the BINARY's ldd — which is how the shipped
-    # snap came to carry a `libqxcb.so` that could not load (libSM), a
-    # `libgstalsa.so` that could not load (libasound) and a `libgstopengl.so`
-    # that could not load (libGL), all three measured on a real snapd install
-    # on 2026-09-12. The last one is why that snap fell back to the software
-    # renderer, and on the software renderer Qt Quick draws no call video at
-    # all. Probing only `platforms` and `xcbglintegrations` found the first
-    # kind and neither of the others.
+    # Probe every plugin too: their dlopen'd dependencies (libSM for xcb,
+    # libasound for alsa, libGL for gstopengl) are invisible to the binary.
     local -a probes=("$TREE/usr/bin/lightning-matrix")
     while IFS= read -r probe; do probes+=("$probe"); done < <(
         find "$TREE/usr/plugins" "$TREE/usr/lib/gstreamer-1.0" \
@@ -104,11 +62,10 @@ stage_unresolved_libs() {
         while IFS= read -r src; do
             [ -n "$src" ] && [ -e "$src" ] || continue
             want="$(basename "$src")"
-            # Already bundled by linuxdeploy: leave it, it has been rewritten.
+            # Already bundled by linuxdeploy.
             [ -e "$TREE/usr/lib/$want" ] && continue
             case "$want" in
-                # The base-system families linuxdeploy excludes. An AppImage
-                # can see the host's; a confined snap cannot see anything.
+                # The base-system families linuxdeploy excludes.
                 libX*.so.*|libxcb*.so.*|libGL*.so.*|libEGL*.so.*|\
                 libGLdispatch.so.*|libGLX*.so.*|libOpenGL.so.*|\
                 libxkbcommon*.so.*|libwayland-*.so.*|libdrm.so.*|libgbm.so.*|\
@@ -118,19 +75,10 @@ stage_unresolved_libs() {
                 *) continue ;;
             esac
             cp -Ln "$src" "$TREE/usr/lib/$want" 2>/dev/null && staged=$((staged+1))
-            # THROUGH THE PAYLOAD, and this is not the same caution as the
-            # guard below. Qt's plugins carry RUNPATH=$ORIGIN/../../lib so
-            # `ldd` walks into the AppDir and reaches libSM; a GSTREAMER
-            # plugin carries $ORIGIN alone, so without this `ldd` stops at
-            # `libgstgl-1.0.so.0 => not found` and NEVER REACHES libGL or
-            # libgbm — which is why naming those families staged nothing and
-            # libgstopengl stayed unloadable. Measured in the job's own image
-            # against pipeline 198's payload: 10 staged without it, 12 with.
-            #
-            # Taking the HOST's copy is the whole point HERE (the loop already
-            # skips anything the payload carries, so nothing is copied over
-            # itself). The guard further down must NOT do this — there, host
-            # visibility is what makes the check dishonest.
+            # LD_LIBRARY_PATH lets ldd walk through payload libraries: a
+            # GStreamer plugin's RUNPATH is $ORIGIN only, so ldd would
+            # otherwise stop at libgstgl and never reach libGL/libgbm. Taking
+            # the host's copy is intended here, unlike in the guard below.
         done < <(LD_LIBRARY_PATH="$TREE/usr/lib" ldd "$probe" 2>/dev/null \
                  | awk '/=> \// { print $3 }')
     done
@@ -139,74 +87,29 @@ stage_unresolved_libs() {
 snap_staged=$(stage_unresolved_libs)
 echo "snap: staged $snap_staged base libraries the AppDir deliberately omits"
 
-# AND ASSERT IT, because the failure mode is a snap that installs cleanly and
-# then does not start — which no build-time check can see and which the
-# runner fleet cannot reach at all (validate-snap.sh says so itself: a real
-# `snap install --dangerous` needs a running snapd and there is none). This
-# is the same shape as the GStreamer-plugin and image-format guards above,
-# and it exists for the same reason: graceful fallback and silent absence are
-# the same observable unless something asserts the payload.
-# libSM/libICE: X SESSION MANAGEMENT, and the one that actually shipped
-# broken. MEASURED 2026-09-12 on a real `snap install --dangerous` in an
-# Ubuntu 24.04 guest under snapd 2.76.3 — the only way this can be measured at
-# all — the snap installed, `lightning --version` and `--call-media-status`
-# both answered correctly, and the GUI could not start:
-#
-#   cannot load: ... libqxcb.so: libSM.so.6: cannot open shared object file
-#   qt.qpa.plugin: Could not load the Qt platform plugin "xcb" ... even though
-#   it was found.
-#
-# Qt's own advice on that path names xcb-cursor0, which IS staged, so the
-# message sends you looking at the wrong library.
+# Assert the result: a snap missing these installs cleanly and then cannot
+# start, which no job on this fleet can observe. libSM/libICE are needed by
+# libqxcb (Qt's error for that misleadingly names xcb-cursor0).
 for base_lib in libEGL.so.1 libGLX.so.0 libGLdispatch.so.0 \
                 libX11.so.6 libX11-xcb.so.1 libxcb.so.1 \
                 libSM.so.6 libICE.so.6; do
     test -f "$TREE/usr/lib/$base_lib" || \
         die "the snap payload has no $base_lib; it would install and then fail to start"
 done
-# AND THE SAME QUESTION OF EVERY PLUGIN, WHICH IS WHAT libSM ESCAPED THROUGH.
+# Every plugin's dependencies must resolve inside the payload (validate-snap
+# runs offscreen and never loads xcb, so nothing later would notice). Resolved
+# with readelf against the payload, not ldd, which falls back to the build
+# host's ld.so.cache and reports "found" for anything installed there.
 #
-# A Qt platform plugin is dlopened, so its dependencies are NOT the binary's:
-# the loop above is perfectly satisfied while `libqxcb.so` cannot load at all,
-# and the app then exits with "no Qt platform plugin could be initialized".
-# The named-library list above cannot cover this on its own either — it only
-# ever names what someone has already been bitten by.
-#
-# Nor can any job on the runner fleet: validate-snap.sh runs the binary with
-# QT_QPA_PLATFORM=offscreen, which never loads xcb, so a snap whose windowing
-# is completely broken passes every check we have and installs cleanly. This
-# is the fourth appearance of "a library loads its own plugins" in this
-# project, and the first one a build-time check catches by itself.
-# ── DOES EVERY PLUGIN'S DEPENDENCY EXIST IN THE PAYLOAD? ─────────────────
-#
-# ASKED WITH `readelf`, NOT `ldd`, AND THAT IS THE WHOLE POINT. `ldd` resolves
-# against the BUILD HOST: `LD_LIBRARY_PATH` only PREPENDS, so it still falls
-# back to /etc/ld.so.cache and answers "found" for anything the build image
-# happens to have installed. The libSM defect was caught only because
-# ubuntu:24.04 plus this job's apt list happens not to pull libSM in — the day
-# some unrelated package does, the check goes quiet and a snap that cannot open
-# a window ships again. A set difference against the payload cannot drift that
-# way.
-#
-# What may legitimately come from OUTSIDE the payload is the base snap's C and
-# C++ runtime, and nothing else: linuxdeploy puts everything else in usr/lib.
-# What may legitimately come from the base snap: the C and C++ runtime, and
-# nothing else — linuxdeploy puts everything else in usr/lib. `libresolv.so.2`
-# is on this list because it ships WITH glibc on a modern Ubuntu base; the
-# binary itself needs it, and the snap demonstrably runs.
+# Only the base snap's C/C++ runtime may come from outside the payload
+# (libresolv ships with glibc).
 BASE_SNAP_LIBS="ld-linux-x86-64.so.2 libc.so.6 libm.so.6 libdl.so.2 \
 libpthread.so.0 librt.so.1 libresolv.so.2 libstdc++.so.6 libgcc_s.so.1"
 
-# TRANSITIVELY, and that is not a refinement — it is the difference between
-# catching the defect and not. `readelf -d` lists only DIRECT dependencies, and
-# neither library that broke the shipped snap is direct: `libqxcb.so` reaches
-# libSM through Qt's own XCB support library, and `libgstopengl.so` reaches
-# libGL through libgstgl. A one-level check reports neither. So walk the graph
-# the loader would walk, resolving every name against the PAYLOAD.
+# Walked transitively: libqxcb reaches libSM and libgstopengl reaches libGL
+# only through intermediate libraries.
 plugin_needs_missing() {   # object -> names no payload library can satisfy
-    # SEPARATE STATEMENTS. `local a="$1" q="$a"` expands every word BEFORE it
-    # assigns any of them, so `q` would be empty and the walk would never
-    # start — silently, reporting nothing missing on a payload that is.
+    # Separate statements: `local a="$1" q="$a"` expands before assigning.
     local root="$1"
     local seen="" current need resolved missing=""
     local queue="$root"
@@ -218,10 +121,7 @@ plugin_needs_missing() {   # object -> names no payload library can satisfy
         while IFS= read -r need; do
             [ -n "$need" ] || continue
             case " $BASE_SNAP_LIBS " in *" $need "*) continue ;; esac
-            # ONE DIRECTORY, deliberately: linuxdeploy flattens everything
-            # into usr/lib, so a payload library in a subdirectory would read
-            # as missing and fail LOUD rather than pass quietly. That is the
-            # safe direction for a guard whose whole job is catching absence.
+            # linuxdeploy flattens into usr/lib; anything elsewhere fails loud.
             resolved="$TREE/usr/lib/$need"
             if [ -e "$resolved" ]; then
                 case " $seen " in *" $resolved "*) ;; *) queue="$queue $resolved" ;; esac
@@ -237,10 +137,7 @@ plugin_needs_missing() {   # object -> names no payload library can satisfy
     echo "$missing"
 }
 
-# A Qt plugin that cannot load is FATAL — the app exits with "no Qt platform
-# plugin could be initialized" — and a GStreamer one is a feature lost. Both
-# are reported, because neither is visible any other way: validate-snap.sh runs
-# with QT_QPA_PLATFORM=offscreen, which never loads xcb at all.
+# Critical Qt plugins are fatal; other plugins are reported.
 qt_unresolved=""
 gst_unresolved=""
 gst_fatal=""
@@ -248,39 +145,25 @@ while IFS= read -r plugin; do
     missing="$(plugin_needs_missing "$plugin")"
     [ -n "$missing" ] || continue
     case "$plugin" in
-        # FATAL: the binary (which used to have its own `ldd` check with the
-        # same build-host flaw — one sweep, one method), the PLATFORM plugins,
-        # and two directories that are not "features" in this application's
-        # terms. `validate-appimage.sh` already treats the PRESENCE of these
-        # two as fatal; their LOADABILITY deserves the same:
-        #
-        #   * tls/ — without libqopensslbackend every QNetworkAccessManager
-        #     https request fails, which includes the update check and the
-        #     download. §16 records the 0.9.0 AppImage consequence exactly: it
-        #     "will never offer the next release by itself". An updater going
-        #     permanently dark is not a degraded feature.
-        #   * wayland-shell-integration/ — without libxdg-shell Qt refuses its
-        #     Wayland plugin and runs under XWayland, where a screen share
-        #     captures a BLACK ROOT WINDOW. `platforms/*` covers
-        #     libqwayland-generic.so and does not cover this directory.
+        # Fatal: the binary, platform plugins, and
+        #   * tls/ — without libqopensslbackend every https request, including
+        #     the update check, fails;
+        #   * wayland-shell-integration/ — without libxdg-shell Qt falls back to
+        #     XWayland, where screen shares capture a black root window.
         "$TREE"/usr/bin/*|"$TREE"/usr/plugins/platforms/*|\
         "$TREE"/usr/plugins/tls/*|\
         "$TREE"/usr/plugins/wayland-shell-integration/*)
             qt_unresolved="$qt_unresolved
     $(basename "$plugin"):$missing" ;;
-        # Every other Qt plugin is a FEATURE, not the app: an image format, a
-        # media backend, a TLS backend. Report it and keep going — several
-        # have been quietly unloadable for as long as this package has
-        # existed, and turning that into a release blocker on the day the
-        # check was written would be a different kind of mistake.
+        # Other Qt plugins are optional features: report only.
         "$TREE"/usr/plugins/*)
             gst_unresolved="$gst_unresolved
     $(basename "$plugin"):$missing" ;;
         *)
             gst_unresolved="$gst_unresolved
     $(basename "$plugin"):$missing"
-            # Not optional: libgstopengl is the GPU share chain AND the reason
-            # Qt gets a usable GL context here, and libgstwebrtc is every call.
+            # libgstopengl (GPU share chain, GL context) and libgstwebrtc
+            # (every call) are required.
             case "$(basename "$plugin")" in
                 libgstopengl.so|libgstwebrtc.so)
                     gst_fatal="$gst_fatal $(basename "$plugin")" ;;
@@ -297,18 +180,10 @@ done < <({ echo "$TREE/usr/bin/lightning-matrix";
 [ -z "$gst_fatal" ] || \
     die "snap: these GStreamer plugins are load-bearing and cannot resolve:$gst_fatal"
 
-# DATA CORE24 DOES NOT HAVE, AND THE APP CANNOT START WITHOUT.
-#
-# Under strict confinement /usr is the BASE SNAP's, so nothing on the host is
-# reachable except what an interface bind-mounts. core24 carries no xkb
-# keymaps and no fontconfig configuration -- measured, not assumed -- and
-# without them the snap SEGFAULTED immediately after placing its window
-# (exit 139, real snapd, Ubuntu 24.04, 2026-09-13).
-#
-# FONTS are deliberately NOT staged: snapd's `desktop` interface already
-# bind-mounts the host's /usr/share/fonts and /var/cache/fontconfig, and
-# fontconfig's <dir> entries are absolute so a tree under $SNAP would be on
-# no search path anyway. What snapd does not provide is /etc/fonts.
+# core24 has no xkb keymaps or fontconfig configuration, and the app crashes
+# after placing its window without them. Fonts themselves are not staged: the
+# `desktop` interface bind-mounts the host's, and fontconfig's <dir> entries
+# are absolute anyway.
 stage_confined_data() {
     local staged=0 dangling rules rule
     if [ -d /usr/share/X11/xkb ]; then
@@ -317,20 +192,12 @@ stage_confined_data() {
     fi
     if [ -d /etc/fonts ]; then
         mkdir -p "$TREE/etc/fonts"
-        # -L DEREFERENCES. `cp -a` preserves symlinks, and 22 of the 35
-        # entries in conf.d point at /usr/share/fontconfig/conf.avail, which
-        # is neither staged nor in core24 -- so a plain -a shipped 22 DANGLING
-        # links, losing every generic-family alias (serif/sans-serif/mono),
-        # the metric aliases, the hinting defaults and the
-        # no-bitmaps-except-emoji rule that CLAUDE.md's emoji lesson turns on.
-        # Present file, broken pointer: the same shape as the defect this
-        # whole change exists to fix. Raised in review.
+        # -L: most conf.d entries link into /usr/share/fontconfig/conf.avail,
+        # which is not in core24.
         cp -aL /etc/fonts/. "$TREE/etc/fonts/" && staged=$((staged + 1))
     fi
-    # CONTENT, NOT DIRECTORIES. `cp -a src/. dst/` succeeds on an EMPTY
-    # source, so counting successful copies would let an image that gains an
-    # empty /etc/fonts pass here and fail in validate-snap forty minutes
-    # later. Assert the files the app actually opens.
+    # `cp -a src/. dst/` succeeds on an empty source, so assert the files the
+    # app actually opens.
     [ "$staged" -eq 2 ] || \
         die "snap: expected xkb and fontconfig to stage; got $staged (does the build image install xkb-data and fontconfig-config?)"
     [ -f "$TREE/usr/share/X11/xkb/rules/evdev.xml" ] || \
@@ -340,13 +207,8 @@ stage_confined_data() {
     dangling=$(find "$TREE/etc/fonts" -xtype l 2>/dev/null | wc -l)
     [ "$dangling" -eq 0 ] || \
         die "snap: $dangling dangling symlink(s) under etc/fonts — the rules are present but point outside the snap"
-    # AND A COUNT, because -xtype l passes VACUOUSLY when the rules are
-    # ABSENT rather than dangling. `cp -aL` cannot dereference a link whose
-    # target is missing, so an image without /usr/share/fontconfig silently
-    # yields a conf.d holding only the dozen relative entries -- no
-    # generic-family aliases, no metric aliases, no emoji-bitmap rule. Caught
-    # by removing /usr/share/fontconfig and watching the dangling check stay
-    # green.
+    # The dangling check passes vacuously when the rules are absent (an image
+    # without /usr/share/fontconfig), so count them as well.
     rules=$(find "$TREE/etc/fonts/conf.d" -maxdepth 1 -name '*.conf' 2>/dev/null | wc -l)
     [ "$rules" -ge 30 ] || \
         die "snap: only $rules fontconfig rules staged (expected 30+) — is /usr/share/fontconfig present in the build image?"
@@ -357,17 +219,11 @@ stage_confined_data() {
     echo "snap: staged xkb + fontconfig for strict confinement"
 }
 stage_confined_data
-# The content interface's mount point. snapd can conjure a missing one with a
-# writable mimic (a tmpfs over $SNAP), but that is a fallback, not a layout —
-# and an empty directory in the squashfs costs nothing. Raised in review.
+# Mount point for the gpu-2404 content interface (avoids snapd's mimic).
 mkdir -p "$TREE/gpu-2404"
 
-# Launcher: point Qt at the bundled runtime under $SNAP -- and GStreamer too.
-# The snap takes only usr/ from the AppDir, so linuxdeploy's AppRun and its
-# apprun-hooks/gstreamer.sh stay behind; without the three variables below the
-# call plugins are inside the snap and GStreamer never looks at them, because
-# it scans the path compiled into the build image. The AppImage learned this
-# the same way.
+# Launcher: point Qt and GStreamer at the bundled runtime under $SNAP. The
+# AppImage's AppRun hooks are not carried over, so this is the only place.
 mkdir -p "$TREE/bin"
 cat > "$TREE/bin/lightning-launch" <<'EOF'
 #!/bin/sh

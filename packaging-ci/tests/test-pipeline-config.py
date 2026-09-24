@@ -14,10 +14,7 @@ import sys
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# The pipeline entry point lives at the REPOSITORY root, one level above this
-# packaging tree: GitLab only reads .gitlab-ci.yml from the root, and since
-# the packaging project was folded into the application repository this
-# directory is no longer that root.
+# GitLab reads .gitlab-ci.yml only from the repository root, above this tree.
 CI = os.path.join(HERE, "..", "..", ".gitlab-ci.yml")
 
 errors = []
@@ -27,13 +24,8 @@ def check(cond, msg):
     if cond:
         print(f"  ok: {msg}")
     else:
-        # FLUSH FIRST. `ok` goes to stdout and `FAIL` to stderr, and stdout is
-        # BLOCK-BUFFERED when this is piped while stderr is not — so under
-        # `2>&1` a FAIL can land in the middle of a pending `ok:` line. That
-        # is not cosmetic here: this project counts results by grepping, and
-        # a `grep -c '^ *FAIL'` over that output silently returns one fewer
-        # than there were, which is exactly the silently-short count these
-        # suites exist to prevent. It cost a wrong number in review once.
+        # Flush stdout first: when piped it is block-buffered, so under
+        # `2>&1` a FAIL could land mid-line and escape `grep -c '^ *FAIL'`.
         sys.stdout.flush()
         print(f"  FAIL: {msg}", file=sys.stderr)
         sys.stderr.flush()
@@ -55,7 +47,6 @@ check(idxs == sorted(idxs), "required stages are in the correct order")
 required_jobs = [
     "resolve-source", "build-deb", "build-rpm",
     "build-flatpak", "build-appimage", "build-snap",
-    # The second deb lane, which existed for a while as a job nothing consumed.
     "build-deb-ubuntu", "validate-deb-ubuntu",
     "validate-deb", "validate-rpm",
     "validate-flatpak", "validate-appimage", "validate-snap",
@@ -67,19 +58,13 @@ required_jobs = [
 for job in required_jobs:
     check(job in doc, f"job {job} is defined")
 
-# --- every package a publishing pipeline BUILDS must be consumed by the job
-# --- that publishes it. `build-deb-ubuntu` shipped for a while as a lane no
-# --- consumer listed: it built and validated a real package on every
-# --- publishing pipeline and then let the artifact expire with the job. That
-# --- is invisible in a green pipeline, which is exactly why it is asserted
-# --- here rather than noticed later.
+# --- every validated package must be consumed by publish-packages; an
+# --- unconsumed lane is invisible in a green pipeline.
 publish_needs = {
     n["job"] if isinstance(n, dict) else n
     for n in doc.get("publish-packages", {}).get("needs", [])
 }
-# DERIVED FROM THE FILE, not listed here: a hard-coded list would not notice a
-# NEW format's validator going unconsumed, which is the same class of gap this
-# assertion exists to close.
+# Derived from the file so a new format's validator cannot be missed.
 validators = sorted(
     j for j in doc
     if isinstance(j, str) and j.startswith("validate-")
@@ -98,13 +83,9 @@ FORMAT_SELECTOR = {
     "deb": "apt", "rpm": "dnf",
     "flatpak": "flatpak", "appimage": "appimage", "snap": "snap",
 }
-# AND IT IS CROSS-CHECKED AGAINST THE FILE, because a hard-coded list is
-# exactly what it looks like. Several checks below iterate FORMAT_SELECTOR and
-# read as "derived, so a new format cannot slip through" — they are not: a
-# sixth Linux format could be added to .gitlab-ci.yml and silently skip both
-# the call-media probe and the voice-delay self-test with this suite green.
-# The two lists have ALREADY diverged once (six validate-* jobs against five
-# entries), benign only because validate-deb-ubuntu reuses validate-deb.sh.
+# Cross-check the hard-coded list against the file: several checks below
+# iterate FORMAT_SELECTOR, so a new format missing here would skip them.
+# validate-deb-ubuntu reuses validate-deb.sh.
 _UBUNTU_REUSES = {"deb-ubuntu": "deb"}
 _derived_formats = {
     _UBUNTU_REUSES.get(j[len("validate-"):], j[len("validate-"):])
@@ -167,12 +148,9 @@ for fmt, group in BUILD_GROUP.items():
           f"build-{fmt} is bounded by resource group {group}")
 check(len(set(BUILD_GROUP.values())) == 2,
       "build jobs use exactly two resource groups (bounded 2-way concurrency)")
-# Cross-host routing (2026-07-20): the two resource groups are the CI half of
-# the "parallel lanes land on different hosts" guarantee. Each host runs at
-# most one package job at a time (global concurrent=1 on both the mirror VM
-# and the consolidated package-runner-packages manager on the GitLab VM), so
-# two lanes able to run at once must split across the two hosts. Both groups
-# must be non-empty for the two lanes to exist.
+# Each runner host runs one package job at a time (concurrent=1), so the two
+# resource groups are what spreads parallel lanes across both hosts; both must
+# be non-empty.
 group_members = {}
 for fmt, group in BUILD_GROUP.items():
     group_members.setdefault(group, []).append(fmt)
@@ -258,18 +236,9 @@ for job in ["validate-deb", "validate-rpm", "validate-flatpak",
           f"{job} depends on its build job")
 
 # --- signed update manifest (UPDATE-SPEC) ------------------------------------
-# The split across two stages is the whole point of these jobs' placement:
-#
-#   sign-update-manifest runs BEFORE the release, so a missing or broken signing
-#   key fails while nothing irreversible has happened. Discovering it afterwards
-#   would leave an immutable tag and release for a version whose update manifest
-#   cannot be produced.
-#
-#   publish-update-manifest runs AFTER the release, because the "latest" slot is
-#   what every installed Lightning polls and the manifest's release_notes_url
-#   points at the release page. Promoting it earlier would advertise an update
-#   whose release does not exist -- and would leave that advertisement standing
-#   if finalize-release then failed.
+# Signing runs before the release, so a broken key fails before anything is
+# irreversible. Publishing `latest` runs after it, so clients are never told
+# about a release that does not exist.
 check(doc["sign-update-manifest"].get("stage") == "sign",
       "sign-update-manifest runs in the sign stage")
 check(doc["publish-update-manifest"].get("stage") == "update",
@@ -293,8 +262,7 @@ check("sign-update-manifest" in needs_names("publish-update-manifest"),
 check("verify-published-packages" in needs_names("publish-update-manifest"),
       "publish-update-manifest depends on verify-published-packages")
 
-# Alpine ships libcrypto but not the openssl CLI; both update jobs must install
-# it or signing/verification silently has no tool.
+# Alpine ships libcrypto but not the openssl CLI.
 for job in ["sign-update-manifest", "publish-update-manifest"]:
     before = " ".join(str(x) for x in resolve_extends(job).get("before_script", []))
     check("openssl" in before, f"{job} installs the openssl CLI")
@@ -311,17 +279,9 @@ check("dist/update-manifest-v1.json" in sign_paths
       "sign-update-manifest publishes the manifest and its signature as artifacts")
 
 # --- GitHub bandwidth mirror (MIRROR-SPEC §6) --------------------------------
-# GitLab stays the release authority; the mirror only holds byte-identical
-# copies of what GitLab already published. Two ordering facts carry the whole
-# design and are asserted in both directions:
-#
-#   AFTER finalize-release, because a GitHub release may only be created at a
-#   tag the GitLab release already produced (and that the push mirror has
-#   delivered).
-#
-#   BEFORE publish-update-manifest, because the `latest` slot is what every
-#   installed Lightning polls. A mirror_url a client can read must already have
-#   been proved to serve the right bytes.
+# The mirror runs after finalize-release (the tag must exist) and before
+# publish-update-manifest (every mirror_url must serve the right bytes before
+# clients can read it).
 check(doc["mirror-release-to-github"].get("stage") == "mirror",
       "mirror-release-to-github runs in the mirror stage")
 check("finalize-release" in needs_names("mirror-release-to-github"),
@@ -340,15 +300,11 @@ for producer in ["validate-deb", "validate-rpm", "validate-flatpak",
                  "validate-appimage", "validate-snap", "build-windows"]:
     check(producer in needs_names("mirror-release-to-github"),
           f"the mirror receives {producer}'s artifact bytes (it never rebuilds)")
-# SHA256SUMS is generated inside publish-packages and is a published release
-# file; without it in that job's artifacts the mirror cannot carry it.
+# SHA256SUMS is generated in publish-packages; the mirror needs it too.
 check("dist/SHA256SUMS" in doc["publish-packages"]["artifacts"]["paths"],
       "publish-packages hands SHA256SUMS downstream for the mirror")
-# The mirror release must carry the RELEASE'S OWN NOTES, not only the "this is
-# a mirror" notice. GitHub is where most readers land, and a page explaining
-# what a mirror is while saying nothing about what changed is the wrong page.
-# Both descriptions resolve from the same dist/release-notes.md that
-# finalize-release uses for GitLab, so the two cannot drift.
+# The mirror release carries the release notes, from the same
+# dist/release-notes.md that finalize-release uses, before the mirror notice.
 check("resolve-source" in needs_names("mirror-release-to-github"),
       "the mirror receives resolve-source's artifacts (release-notes.md lives there)")
 check("dist/release-notes.md" in doc["resolve-source"]["artifacts"]["paths"],
@@ -396,11 +352,7 @@ for job_name, job_def in doc.items():
     check("generate-update-signing-key.sh" not in yaml.dump(job_def.get("script", [])),
           f"{job_name} does not run the operator key-generation tool")
 
-# resolve-source runs validate-release-request.sh, which derives the public half
-# of the update-signing key and compares it with the value every package embeds.
-# Without the openssl CLI that gate cannot run at all, and the mismatch it
-# exists to catch would only surface after every package had already been built
-# around the wrong trust root.
+# The update-signing key gate in resolve-source needs the openssl CLI.
 resolve_before = " ".join(
     str(x) for x in resolve_extends("resolve-source").get("before_script", []))
 check("openssl" in resolve_before,
@@ -414,9 +366,7 @@ check("openssl" in yaml.dump(config_tests.get("before_script", [])),
       "config-tests installs openssl for the update-manifest suite")
 check("./packaging-ci/tests/test-windows-version-resources.sh" in config_script,
       "config-tests runs the Windows version-resource suite")
-# Every test file in packaging-ci/tests must be RUN by the job, or it is
-# decoration: test-msi-payload-completeness.py sat committed and uninvoked
-# from the day it was written until 2026-09-06.
+# Every test file in packaging-ci/tests must actually be run by the job.
 _tests_dir = os.path.join(HERE)
 for _entry in sorted(os.listdir(_tests_dir)):
     if not _entry.startswith("test-"):
@@ -426,12 +376,8 @@ for _entry in sorted(os.listdir(_tests_dir)):
     check(_entry in config_script,
           f"config-tests actually runs {_entry}")
 config_before = yaml.dump(config_tests.get("before_script", []))
-# A COMPLETE toolchain, not just a compiler driver. Pipelines 99 and 100 both
-# died here: `gcc` alone under --no-install-recommends omits libc6-dev so the
-# compiler cannot link, and without `make` CMake has no default generator.
-# build-essential is the package that means all of it; accept an explicit
-# equivalent set too, so this does not have to change again if the list is
-# unpacked.
+# A complete toolchain: under --no-install-recommends `gcc` lacks libc6-dev,
+# and CMake needs `make`. Accept build-essential or the explicit set.
 _has_toolchain = "build-essential" in config_before or (
     "gcc" in config_before
     and "libc6-dev" in config_before
@@ -491,10 +437,8 @@ for action in ["create", "attach-existing"]:
 v = dict(base, PUBLISH_PACKAGES="false", RELEASE_ACTION="attach-existing")
 check(not evaluate(gate, v), "publish jobs excluded for build-only (PUBLISH_PACKAGES=false)")
 
-# A build-only pipeline uploads NOTHING: every publish/verify/release job (the
-# only jobs that write to project 6's registry or touch a release) must be
-# excluded when PUBLISH_PACKAGES=false, for both release actions and on any
-# branch. Nothing else in the graph performs an upload.
+# A build-only pipeline uploads nothing: every publishing job is excluded for
+# both release actions and on any branch.
 for action in ["create", "attach-existing"]:
     for branch in ["main", "feature"]:
         v = dict(PUBLISH_PACKAGES="false", RELEASE_ACTION=action,
@@ -583,9 +527,8 @@ check(not any(build_included(fmt, {"PUBLISH_PACKAGES": "false", "BUILD_FORMATS":
               for fmt in all_fmts),
       "BUILD_FORMATS=none excludes every Linux package build")
 
-# --- build-windows: the publishing Windows job (0.6.3+). Same FFmpeg image and
-#     runner as the test job, but publish-gated and feeding publish-packages so
-#     the portable/MSI/setup artifacts publish from the same resolved commit. ---
+# --- build-windows: the publishing Windows job. Same image and runner as the
+#     test job, but publish-gated and feeding publish-packages. ---
 build_windows = resolve_extends("build-windows")
 bw_image = build_windows.get("image", {})
 check(isinstance(bw_image, dict) and bw_image.get("name") == WINDOWS_IMAGE,
@@ -604,22 +547,19 @@ check(not evaluate(bw_gate, {"CI_COMMIT_BRANCH": "feature", "CI_DEFAULT_BRANCH":
       "build-windows is excluded off the default branch")
 
 # --- macOS: native shell-executor test path on the physical Mac mini ---------
-# Same restrictive shape as the Windows gate, with two extra guarantees: it is
-# mutually exclusive with the Windows job, and it has NO publishing counterpart
-# anywhere in the graph (unsigned/un-notarized bundles must never be published).
+# Same restrictive gate shape as the Windows test job.
 macos = resolve_extends("macos-package-test")
 check(set(macos.get("tags", [])) == {"macos", "arm64"},
       "macOS job selects only the Apple Silicon runner tags")
-# A shell-executor job must not carry an image: there is no macOS container.
+# Shell executor: there is no macOS container image.
 check("image" not in macos,
       "macOS job declares no image (shell executor on bare metal)")
 check(macos.get("stage") == "build", "macOS job runs in the build stage")
 check("resolve-source" in needs_names("macos-package-test"),
       "macOS job consumes the resolve-source artifacts")
 
-# width is not cosmetic here: the gate is one long `if:` expression and yaml's
-# default 80-column wrapping splits it mid-token, which silently breaks every
-# substring assertion below.
+# Unlimited width: default wrapping would split the long `if:` mid-token and
+# break the substring checks below.
 macos_rule_text = yaml.dump(macos.get("rules", []), width=10**6)
 for required in ("CI_DEFAULT_BRANCH", "CI_PIPELINE_SOURCE", "BUILD_MACOS_PACKAGES",
                  "SOURCE_REF"):
@@ -652,15 +592,8 @@ for key, value in (("CI_COMMIT_BRANCH", "feature"),
 
 # ---- the missing-asset report ------------------------------------------------
 #
-# macos-package-test is allow_failure and publish-packages needs it optional --
-# both deliberate, both asserted elsewhere in this file, and neither may change:
-# one sleeping Mac must not block a release. The cost is that the Mac lane is
-# the only one whose absence a green pipeline does not report, and 0.9.5 paid
-# it: the bundle built, passed every check, failed to upload, and the release
-# published green with no macOS download and no signal anywhere.
-#
-# report-optional-assets restores the signal without restoring the dependency.
-# Every property below is load-bearing, so each is pinned:
+# macOS is optional for publication, so report-optional-assets reports a
+# missing macOS asset after the release without being able to block it.
 report = resolve_extends("report-optional-assets")
 check(report.get("stage") == "update",
       "the optional-asset report runs in the LAST stage")
@@ -668,8 +601,7 @@ check(report.get("allow_failure", False) is False,
       "the optional-asset report is NOT allow_failure -- that is its whole point")
 check("finalize-release" in needs_names("report-optional-assets"),
       "the optional-asset report runs after the release is finalized")
-# Nothing may depend on it, or a red report would start blocking publication --
-# which is precisely the coupling macos-package-test's allow_failure avoids.
+# Nothing may depend on it, or a red report would block publication.
 dependents = [j for j in doc
               if isinstance(doc[j], dict)
               and "report-optional-assets" in needs_names(j)]
@@ -689,10 +621,8 @@ check(not evaluate(resolve_extends("windows-package-test")["rules"], macos_vars)
 check(not evaluate(resolve_extends("build-windows")["rules"], macos_vars),
       "a macOS-only request creates no Windows publishing job")
 
-# ...and the converse: the Mac is a dedicated host sharing nothing with the
-# Linux/Windows pools, so a full-fleet or publishing run must NOT silently drop
-# the macOS build. Excluding it would mean macOS missing from exactly the
-# pipelines that build every other platform.
+# Conversely, a full-fleet or publishing run must include the macOS build;
+# the Mac shares no capacity with the Linux/Windows pools.
 fleet_vars = dict(macos_vars, BUILD_FORMATS="all")
 check(evaluate(macos_gate, fleet_vars),
       "macOS runs alongside a full-fleet build (BUILD_FORMATS=all)")
@@ -703,38 +633,22 @@ publish_fleet = dict(macos_vars, BUILD_FORMATS="all", PUBLISH_PACKAGES="true",
 check(evaluate(macos_gate, publish_fleet),
       "macOS also runs in a publishing fleet pipeline")
 
-# "Instantly" is a scheduling property, not a wish: the job must depend only on
-# resolve-source (never on a Linux build) and must sit in its own resource
-# group, or it would queue behind the two bounded Linux build lanes.
+# The macOS job must start immediately: depend only on resolve-source and use
+# its own resource group, never queueing behind the Linux build lanes.
 check(needs_names("macos-package-test") == ["resolve-source"],
       "macOS job waits only on resolve-source, never on a Linux build")
 macos_group = macos.get("resource_group")
 check(macos_group not in set(BUILD_GROUP.values()) and macos_group is not None,
       "macOS job has its own resource group, so it never queues behind Linux lanes")
 
-# macOS reaches the publication chain as of 0.7.5, on a maintainer decision,
-# and the guards changed shape rather than disappearing.
-#
-# What was asserted before — that nothing consumes or releases the bundle —
-# existed because publishing something Gatekeeper blocks would hand users a
-# file they cannot open. That is still true of the artifact; what changed is
-# that the download page now tells them how to open it, and states the two
-# limits plainly (Apple Silicon only, macOS 26 or newer). So the invariants
-# that matter now are different ones: the release must not DEPEND on the Mac,
-# and the bundle must not enter the signed update manifest.
+# macOS is published as a download-only asset. The invariants: the release
+# must not depend on the Mac, and the bundle must not enter the signed update
+# manifest.
 check("macos-package-test" in needs_names("publish-packages"),
       "publish-packages consumes the macOS bundle")
-# ...and so must the mirror, which uploads the PUBLISHED BYTES and refuses to
-# rebuild them. Anything publish-packages puts into the publication manifest,
-# mirror-release-to-github has to have on disk. Pipeline 110 proved the cost of
-# getting this wrong: the packages published, the tag and the GitLab release
-# were created, and only then did the mirror die on "mirror input missing" —
-# the most expensive point in the run to discover a missing `needs`.
-#
-# Stated generally rather than as a second macOS line, because the next format
-# added will have exactly the same requirement.
-# Artifact SOURCES only: a gate such as github-mirror-preflight is needed with
-# `artifacts: false` and produces nothing the mirror has to hold.
+# The mirror uploads the published bytes without rebuilding, so it needs every
+# artifact source publish-packages consumes; a missing `needs` fails only after
+# the release exists. Gates needed with `artifacts: false` are excluded.
 def _artifact_needs(job):
     out = set()
     for n in doc[job].get("needs", []):
@@ -760,10 +674,8 @@ check(macos.get("allow_failure") is True,
 check(not any(job.startswith("build-macos") for job in doc),
       "no second macOS build job exists")
 
-# The bundle is a DOWNLOAD, never an update. The client has no macOS install
-# strategy — InstallType::MacosDmg is not self-installable and the updater
-# helper returns UnsupportedPlatform — so an entry in the signed update
-# manifest would advertise an install the updater refuses to perform.
+# The bundle is a download, never an update: the client cannot self-install
+# on macOS (InstallType::MacosDmg, UnsupportedPlatform).
 with open(os.path.join(HERE, "..", "scripts", "generate-update-manifest.sh"),
           encoding="utf-8") as handle:
     update_manifest_src = handle.read()
@@ -779,16 +691,11 @@ for job_name, job_def in doc.items():
           f"{job_name} (macOS runner) has no release action")
 
 # ---------------------------------------------------------------------------
-# Voice/video calling runtime dependencies (2026-08-23).
+# Voice/video calling runtime dependencies.
 #
-# GStreamer PLUGINS are dlopen'd from a plugin path, so NOTHING that inspects
-# ELF NEEDED entries can find them: dpkg-shlibdeps, rpm's automatic generator
-# and linuxdeploy all miss them, because the binary links only gstreamer
-# core/webrtc/sdp. Every packaging format therefore has to name them
-# explicitly, and each one fails the same way if it stops: the package
-# installs and launches perfectly, then refuses every call, because the
-# engine's runtime element probe finds nothing. That is the worst kind of
-# packaging regression — nothing about the symptom points at packaging.
+# GStreamer plugins are dlopen'd, so dpkg-shlibdeps, rpm's dependency generator
+# and linuxdeploy cannot see them. Every format must name them explicitly, or
+# the package installs and runs but refuses every call.
 _PLUGIN_SUBSTRINGS = ("plugins-base", "plugins-good", "plugins-bad")
 
 with open(os.path.join(HERE, "..", "scripts", "build-deb.sh"),
@@ -814,9 +721,8 @@ for needle in _PLUGIN_SUBSTRINGS + ("libnice", "pipewire"):
 with open(os.path.join(HERE, "..", "scripts", "build-appimage.sh"),
           encoding="utf-8") as handle:
     appimage_src = handle.read()
-# The AppImage bundles rather than depends, so it needs BOTH halves: the
-# plugins staged into the AppDir, and an AppRun hook pointing GStreamer at
-# them. Staging without the hook bundles files nothing ever loads.
+# The AppImage needs both the staged plugins and an AppRun hook pointing
+# GStreamer at them.
 check("gstreamer-1.0" in appimage_src,
       "the AppImage stages GStreamer plugins into the AppDir")
 check("apprun-hooks" in appimage_src,
@@ -828,18 +734,12 @@ with open(os.path.join(HERE, "..", "packaging", "flatpak",
                        "org.lightning_matrix.Lightning.yaml.in"),
           encoding="utf-8") as handle:
     flatpak_src = handle.read()
-# Screen capture is negotiated through xdg-desktop-portal (reachable from a
-# sandbox by default), but the resulting stream is READ over the PipeWire
-# socket, which is not.
+# The portal negotiates screen capture, but the stream is read over the
+# PipeWire socket, which the sandbox does not expose by default.
 check("xdg-run/pipewire-0" in flatpak_src,
       "the Flatpak can reach the PipeWire socket for portal streams")
-# The portal decides what may be captured. Granting the host filesystem to
-# avoid that dialog would defeat the sandbox for no benefit.
-#
-# Matched against ACTUAL finish-args entries, not the raw file: a substring
-# search also hits the comment that explains why we do not use it, which is
-# the "ban regex matching a token named in a comment" trap this repo has
-# already been bitten by.
+# No --filesystem=host: the portal decides what may be captured. Matched
+# against actual finish-args, since a comment may name the banned flag.
 _flatpak_args = [
     line.strip()[2:].strip()          # drop the YAML "- " list marker only
     for line in flatpak_src.splitlines()
@@ -850,10 +750,8 @@ check(not any(arg.startswith("--filesystem=host") for arg in _flatpak_args),
 check("--filesystem=xdg-run/pipewire-0" in _flatpak_args,
       "the PipeWire socket is an actual finish-arg, not just a comment")
 
-# Windows bundles rather than depends, like the AppImage, and needs the same two
-# halves plus a third the Linux formats get for free: the builder image must
-# CARRY GStreamer at all, or CMake silently configures the engine out and every
-# check downstream still passes.
+# Windows bundles like the AppImage, and the builder image must also carry
+# GStreamer, or CMake silently configures the engine out.
 with open(os.path.join(HERE, "..", "packaging", "windows", "Dockerfile"),
           encoding="utf-8") as handle:
     win_dockerfile = handle.read()
@@ -861,14 +759,9 @@ check("GSTREAMER_SHA256" in win_dockerfile and "gstreamer-1.0-mingw-x86_64" in w
       "the Windows builder installs a checksum-pinned GStreamer MinGW SDK")
 check("gstreamer-webrtc-1.0" in win_dockerfile,
       "the Windows builder verifies the WebRTC pkg-config module resolves")
-# The two plugins whose libstdc++ imports the staged libstdc++-6.dll does not
-# export (UCRT vs msvcrt `mbstate_t`). Naming them here keeps a future edit from
-# re-adding them by reflex -- Wine loads them, so the element probe would not
-# catch it, and the failure would land on a user's machine.
-#
-# Matched against the Dockerfile with its COMMENT LINES REMOVED: both names are
-# in the comment that explains why they are excluded, so a raw substring search
-# would report them present and the ban would be inverted.
+# These two plugins import libstdc++ symbols the staged libstdc++-6.dll lacks
+# (UCRT vs msvcrt `mbstate_t`); Wine loads them anyway, so only this ban
+# catches them. Comment lines are stripped because they name both DLLs.
 _win_dockerfile_code = "\n".join(
     line for line in win_dockerfile.splitlines()
     if not line.lstrip().startswith("#"))
@@ -886,37 +779,21 @@ check('GSTREAMER_PLUGIN_DIR = "gstreamer-1.0"' in win_stage_src,
 for needle in ("libgstwebrtc.dll", "libgstnice.dll", "libgstdtls.dll",
                "libgstsrtp.dll", "libgstvpx.dll", "libgstopus.dll",
                "libgstwinks.dll", "libgstwinscreencap.dll",
-               # sctp is here because its absence cost a whole release round.
-               # NOTHING in Lightning names sctpenc — webrtcbin loads it for
-               # the DATA CHANNEL, and LiveKit's subscriber offer puts one in
-               # media section 0, which under bundle-policy=max-bundle owns
-               # the transport every audio and video section rides on. Windows
-               # shipped able to SEND and unable to RECEIVE anything, and the
-               # element probe could not see it: a required-element list built
-               # from what the application spells out cannot catch a plugin an
-               # element loads on its own behalf.
+               # webrtcbin loads sctp itself for the data channel that owns
+               # the bundled transport of LiveKit's subscriber offer; without
+               # it Windows can send but receives nothing.
                "libgstsctp.dll"):
     check(needle in win_stage_src, f"the Windows stage bundles {needle}")
-# ...and the elements themselves, so staging the DLL without probing it is
-# not enough. libgstsctp-1.0-0.dll — the SCTP LIBRARY — was copied all along
-# while the plugin was missing; a name of the right shape is not the element.
+# Probe the elements too: libgstsctp-1.0-0.dll is the SCTP library, not the
+# plugin.
 for element in ("sctpenc", "sctpdec"):
     check(f'"{element}"' in win_stage_src,
           f"the Windows element probe covers {element}")
-# BOTH HALVES OF THE MJPG CAMERA DECISION, and jpegenc is the half that is
-# easy to leave out because nothing in the media pipeline uses it.
-# SfuMediaEngine::jpegCameraChainAvailable() decides whether a Windows camera
-# takes the MJPG chain at all by BUILDING `videotestsrc ! jpegenc ! <entry>
-# ! fakesink`, so an unregistered jpegenc silently demotes every camera to the
-# raw entry and its 10 fps ceiling, with nothing in any log to say why. Both
-# ship in libgstjpeg.dll, which is the same assumption that hid sctpenc for
-# months while its plugin was staged.
-# AND THE ELEMENT LIST IS PARSED, NOT GREPPED. A raw-text search for the
-# quoted name passes on a file where the entry has been moved into a COMMENT —
-# measured: delete the tuple entry, mention it in a comment, and the probe
-# silently stops asking while this suite stays green. The `>= 30` floor in
-# validate-windows-artifacts.sh does not trip either, and until now NOTHING
-# asserted the count; 43 lived only in a commit message.
+# jpegenc is required although no media pipeline uses it:
+# SfuMediaEngine::jpegCameraChainAvailable() builds a test chain with it, and
+# without it every camera silently falls back to the slower raw chain.
+# The element list is parsed, not grepped, so a name left only in a comment
+# does not count, and its exact size is asserted.
 _win_elements = None
 for _node in ast.walk(ast.parse(win_stage_src)):
     if isinstance(_node, ast.Assign) and any(
@@ -936,25 +813,15 @@ for element in ("jpegdec", "jpegenc", "level", "sctpenc", "sctpdec"):
           f"the Windows element probe covers {element}")
 
 # ---------------------------------------------------------------------------
-# The call media engine must be BUILT INTO every Linux package (2026-08-27).
+# The call media engine must be built into every Linux package.
 #
-# The section above pins the runtime DEPENDENCIES, and every one of them was
-# correct while 0.8.0 shipped with calling compiled out of the binary they
-# apply to. `--call-media-status` on the published deb answered "call media
-# engine built in: no" and `ldd` named no GStreamer at all.
-#
-# The cause was silence. The source's LIGHTNING_ENABLE_WEBRTC defaults to ON,
-# but it is only HONOURED when a pkg-config probe finds the GStreamer WebRTC
-# development files -- and no Linux build job installed any, so CMake set
-# HAVE_LIGHTNING_WEBRTC OFF, said so in one STATUS line among hundreds, and
-# every downstream check still passed: the packages installed, launched,
-# synced, and refused every call.
-#
-# Three things therefore have to hold, and this block pins all three:
-#   1. every Linux job that COMPILES installs the development files;
+# LIGHTNING_ENABLE_WEBRTC is honoured only when pkg-config finds the GStreamer
+# WebRTC development files; otherwise CMake quietly configures the engine out.
+# So:
+#   1. every Linux job that compiles installs the development files;
 #   2. the build asserts the resulting binary carries the engine;
-#   3. every per-format validator asks the SHIPPED artifact whether calling
-#      actually works.
+#   3. every per-format validator asks the shipped artifact whether calling
+#      works.
 
 
 def _strip_shell_comments(text):
@@ -970,8 +837,7 @@ def _strip_shell_comments(text):
 
 
 def _read(*parts):
-    # The pipeline entry point sits at the repository root; everything else
-    # this reads (scripts, packaging, tests) lives inside the packaging tree.
+    # .gitlab-ci.yml is at the repository root; the rest is in packaging-ci.
     base = (HERE, "..", "..") if parts and parts[0] == ".gitlab-ci.yml" \
         else (HERE, "..")
     with open(os.path.join(*base, *parts), encoding="utf-8") as handle:
@@ -980,41 +846,28 @@ def _read(*parts):
 
 # --- 1. the development files, in every job that compiles -------------------
 #
-# build-flatpak and build-snap are deliberately absent: the Flatpak compiles
-# INSIDE the org.kde.Sdk sandbox (which supplies all six pkg-config modules,
-# verified against org.kde.Sdk//6.9) and the snap only repacks the AppImage
-# job's AppDir. Neither runs a compiler in its own image.
+# Not build-flatpak (the org.kde.Sdk supplies the modules) or build-snap (it
+# repacks the AppImage's AppDir).
 _GST_DEV_PACKAGES = {
-    # Debian/Ubuntu. gstreamer-1.0 comes from the first, sdp/app/video/rtp
-    # from the second, and webrtc from the third -- all six modules the
-    # source's pkg_check_modules names, verified in debian:13.6-slim.
+    # Debian/Ubuntu: together these provide all six pkg_check_modules modules.
     "build-deb": ("libgstreamer1.0-dev", "libgstreamer-plugins-base1.0-dev",
                   "libgstreamer-plugins-bad1.0-dev"),
     "build-appimage": ("libgstreamer1.0-dev", "libgstreamer-plugins-base1.0-dev",
                        "libgstreamer-plugins-bad1.0-dev"),
-    # Fedora, same split, verified in fedora:44.
+    # Fedora, same split.
     "build-rpm": ("gstreamer1-devel", "gstreamer1-plugins-base-devel",
                   "gstreamer1-plugins-bad-free-devel"),
 }
 for job, packages in _GST_DEV_PACKAGES.items():
-    # The parsed before_script carries only COMMANDS -- YAML has already
-    # dropped the comments that name these same packages.
+    # The parsed YAML carries only commands, not comments.
     script_text = " ".join(resolve_extends(job).get("before_script", []))
     for package in packages:
         check(package in script_text,
               f"{job} installs the GStreamer dev package {package}")
 
-# THE DATA A STRICTLY CONFINED SNAP HAS NOWHERE ELSE TO GET.
-#
-# build-snap.sh stages /usr/share/X11/xkb and /etc/fonts into the payload
-# because core24 carries neither, and without them the snap SEGFAULTS the
-# moment it places its window -- measured under a real snapd on Ubuntu 24.04,
-# 2026-09-13, which was the first time the snap had ever been run the way a
-# user runs it. The job's image has neither path of its own, so the staging
-# copies nothing unless these two packages are installed; the build guard
-# turns that into a hard failure rather than another snap that installs and
-# dies, which is exactly why this pin exists. Same shape as the GStreamer
-# pins above: name the package, do not rely on another package's Depends.
+# build-snap.sh stages /usr/share/X11/xkb and /etc/fonts, which core24 lacks
+# and without which the confined snap crashes on start. The job image has
+# neither unless these packages are installed explicitly.
 _snap_before = " ".join(resolve_extends("build-snap").get("before_script", []))
 for package in ("xkb-data", "fontconfig-config"):
     check(package in _snap_before,
@@ -1022,8 +875,7 @@ for package in ("xkb-data", "fontconfig-config"):
           f"no {'keymaps' if package == 'xkb-data' else 'fontconfig'} and the "
           f"snap cannot start")
 
-# The AppImage BUNDLES the runtime plugins instead of depending on them (the
-# snap then inherits that AppDir), so its job needs them installed as well.
+# The AppImage (and the snap built from it) bundles the runtime plugins.
 _appimage_before = " ".join(resolve_extends("build-appimage").get("before_script", []))
 for package in ("gstreamer1.0-plugins-base", "gstreamer1.0-plugins-good",
                 "gstreamer1.0-plugins-bad", "gstreamer1.0-nice",
@@ -1031,46 +883,27 @@ for package in ("gstreamer1.0-plugins-base", "gstreamer1.0-plugins-good",
     check(package in _appimage_before,
           f"build-appimage installs the runtime plugin package {package}")
 
-# NSS, AND IT IS PINNED BY NAME FOR THE SAME REASON THE OTHERS ARE.
-#
-# Debian builds libsrtp2 against NSS, so libnss3 already arrives as somebody's
-# dependency today -- and that is precisely what makes an explicit pin worth
-# having, because a dependency can stop being one without anybody choosing it.
-# NSS does no crypto itself: it dlopens libsoftokn3 (which dlopens libfreebl3)
-# from a path derived at RUNTIME, so no ELF walk, no ldd check and no NEEDED
-# list can see them. Without them staged, SRTP cannot initialise and the client
-# carries NO CALL MEDIA IN EITHER DIRECTION -- invisible on any host with its
-# own NSS, and deterministic under strict snap confinement where core24 has
-# none. Measured 2026-09-13; the snap had never carried media once.
+# libnss3 is pinned by name although it currently arrives transitively.
+# libsrtp2 uses NSS, which dlopens libsoftokn3/libfreebl3 at runtime; without
+# them staged, calls carry no media in either direction.
 check("libnss3" in _appimage_before,
       "build-appimage installs libnss3, whose nss/ modules build-appimage.sh "
       "stages beside libnss3.so -- without them libsrtp cannot initialise and "
       "every call is silent in both directions")
 
-# THE gdk-pixbuf SVG LOADER, WHICH IS A MODULE AND NOT A LIBRARY.
-#
-# flatpak-builder's cleanup phase runs `appstreamcli compose`, which rasterises
-# the component's icon; CMake installs data/icons/lightning.svg under the app
-# id for the linux-flatpak install type, so the SCALABLE icon is the one
-# compose picks. Rendering it needs gdk-pixbuf's SVG loader MODULE. On Debian
-# librsvg2-2 (the library) arrives through another package's Depends and
-# librsvg2-common (the loader) does not, which --no-install-recommends makes
-# absolute. Without it compose says `Unrecognized image file format`, drops the
-# component and fails the build on `file-read-error` / `filters-but-no-output`
-# -- two hints that name no file. Five pipelines died on that on 2026-09-22
-# before the cause was found in a container. Same shape as the pins above:
-# name the package, never rely on another package's Depends.
+# `appstreamcli compose` rasterises the scalable app-id icon and needs
+# gdk-pixbuf's SVG loader module (librsvg2-common), which
+# --no-install-recommends omits. Without it the build fails with
+# `file-read-error` / `filters-but-no-output`, hints that name no file.
 _flatpak_before = " ".join(resolve_extends("build-flatpak").get("before_script", []))
 check("librsvg2-common" in _flatpak_before,
       "build-flatpak installs librsvg2-common, the gdk-pixbuf SVG loader "
       "module appstreamcli compose needs to read the scalable icon")
 
-# And the build script asks the same question before it spends sixteen minutes
-# compiling, so a future image that loses the module names it in one line.
+# build-flatpak.sh also checks this up front, before compiling.
 _flatpak_src = _read("scripts", "build-flatpak.sh")
-# Counted as CALLS, never as occurrences: a substring test for a function
-# name is satisfied by the function's own definition, which is how three
-# assertions in this project passed over code that was never reached.
+# Count calls, not occurrences: the definition alone would satisfy a
+# substring test.
 _preflight_calls = [
     line for line in _flatpak_src.splitlines()
     if "appstream_can_read_scalable_icon" in line
@@ -1090,8 +923,7 @@ check("--call-media-status" in configure_src,
 check("call media engine built in: yes" in configure_src,
       "configure-build.sh fails the build when the engine was configured out")
 
-# The Flatpak is the ONE packaging build that does not run configure-build.sh,
-# so the same guard has to be spelled out in its manifest.
+# The Flatpak does not use configure-build.sh, so its manifest repeats the guard.
 flatpak_manifest = _read("packaging", "flatpak",
                          "org.lightning_matrix.Lightning.yaml.in")
 _flatpak_code = "\n".join(
@@ -1101,8 +933,7 @@ check("-DLIGHTNING_ENABLE_WEBRTC=ON" in _flatpak_code,
       "the Flatpak manifest requests the call media engine explicitly")
 check("call media engine built in: yes" in _flatpak_code,
       "the Flatpak build fails when the engine was configured out")
-# ...and fails FAST, at configure, rather than after a full Rust build. Every
-# other format gets this from configure-build.sh.
+# ...and fails at configure rather than after a full build.
 check("-DLIGHTNING_REQUIRE_WEBRTC=ON" in _flatpak_code,
       "the Flatpak fails at configure, not after the build, like every other format")
 check("-DLIGHTNING_REQUIRE_WEBRTC=ON" in configure_src,
@@ -1110,15 +941,9 @@ check("-DLIGHTNING_REQUIRE_WEBRTC=ON" in configure_src,
 
 # --- gst-plugins-good's licence travels with its binaries -------------------
 #
-# Eleven of the plugins the AppImage stages and seven of the ones the Windows
-# image stages are gst-plugins-good, which is LGPL-2.1-or-later. Neither format
-# carried its licence text, because the upstream MinGW SDK does not ship it
-# (88 licence directories, nothing matching "good") and the AppImage script
-# staged no licence text at all. The snap inherits the AppImage's.
-#
-# The text is vendored in this repository so no build-time fetch and no
-# builder-image rebuild is needed; these assertions are what stop it being
-# dropped again, and what would notice if the file itself went missing.
+# gst-plugins-good is LGPL-2.1-or-later and the MinGW SDK does not ship its
+# licence text, so the text is vendored here and staged by the AppImage (and
+# the snap built from it) and Windows builds.
 _good_license = os.path.join(HERE, "..", "packaging", "common", "licenses",
                              "gst-plugins-good-1.0", "COPYING")
 check(os.path.isfile(_good_license),
@@ -1133,18 +958,9 @@ for script, label in (("stage-windows-runtime.py", "the Windows stage"),
     src = _read("scripts", script)
     check("gst-plugins-good-1.0" in src,
           f"{label} ships the gst-plugins-good licence")
-# AND THE VALIDATORS ASK THE PAYLOAD, not the script that was supposed to fill
-# it. sctp, ximagesrc, the Qt TLS backend and the Wayland shell integration
-# were each named in a script and absent from a package.
-# THE macOS BUNDLE'S OPTIONAL JPEG PLUGIN, staged before it is required.
-#
-# The new `camera compressed (MJPG) chain:` line reported `unavailable ... no
-# element "jpegenc"` from the SHIPPED macOS bundle on its first run, so macOS
-# cameras have been taking the raw entry — the degradation Windows measures at
-# 5 fps against 30. The staging loop `die`s on a missing REQUIRED plugin and
-# macOS is allow_failure, so requiring it before proving it stages would cost
-# a release its macOS asset silently. That is pipeline 224's lesson on the
-# other platform: the entry is the half that comes second.
+# The macOS JPEG plugin (needed for the MJPG camera chain) is staged as
+# optional first: a missing required plugin fails the allow_failure macOS job
+# and would silently drop the macOS asset. Promote it once it stages.
 _macos_stage = _strip_shell_comments(_read("scripts", "stage-macos-gstreamer.sh"))
 check("OPTIONAL_PLUGINS=(jpeg)" in _macos_stage,
       "the macOS stage carries the JPEG plugin as OPTIONAL, not required")
@@ -1163,29 +979,19 @@ for script, label in (("validate-windows-artifacts.sh", "the Windows validator")
     check("GNU LESSER GENERAL PUBLIC LICENSE" in src,
           f"{label} checks the staged text is the LGPL, not just a file")
 
-# --- AND EVERY OTHER PROJECT IN THE PAYLOAD, not just that one --------------
+# --- licences for every bundled project -----------------------------------
 #
-# 2026-09-19. The block above fixed gst-plugins-good because a review named it.
-# Measured on the SHIPPED 0.9.8 artifacts, that covered one upstream project
-# out of about a hundred and fifty: the AppImage carries 371 distinct shared
-# objects and had licence text for exactly one of them, and the macOS bundle
-# carried NO licence file at all across 2,066 files — not even Lightning's own
-# GPL-3, which §4 of that licence requires to accompany the program.
-#
-# build-appimage.sh now harvests /usr/share/doc/<pkg>/copyright for every
-# Debian package that owns a bundled object (242 packages, 5.2 MB, measured in
-# the pinned build image against the 0.9.8 payload) and dies on any object it
-# cannot attribute; the snap inherits it. build-macos.sh stages Lightning's own
-# LICENSE and the vendored gst-plugins-good text.
+# build-appimage.sh harvests /usr/share/doc/<pkg>/copyright for every Debian
+# package owning a bundled object and fails on any it cannot attribute (the
+# snap inherits this). build-macos.sh stages Lightning's GPL-3 text and the
+# vendored gst-plugins-good licence.
 _appimage_src = _strip_shell_comments(_read("scripts", "build-appimage.sh"))
 check("/var/lib/dpkg/info" in _appimage_src,
       "the AppImage build derives licences from the dpkg file list, not a hand list")
 check("usr/share/licenses/third-party" in _appimage_src,
       "the AppImage build stages a third-party licence directory")
-# NOT just "/opt/kimageformats appears somewhere" — the script has staged Qt
-# image-format plugins from there for months, so that string passes on the
-# unfixed tree and the check would be decoration. Assert the INDEX covers the
-# unpacked roots, which is the thing that was missing.
+# The path alone appears elsewhere in the script; assert the licence index
+# covers the unpacked roots.
 check("for unpacked in /opt/kimageformats /opt/pipewire-conf" in _appimage_src,
       "the licence index covers the packages the job UNPACKS rather than "
       "installs (kimg_jxl.so is in no dpkg file list, and an index built from "
@@ -1208,31 +1014,24 @@ check("Lightning-GPL-3.0.txt" in _macos_validator,
 check("gst-plugins-good-1.0" in _macos_validator,
       "the macOS validator asserts the gst-plugins-good licence is in the BUNDLE")
 
-# --- 3. every format asks the SHIPPED artifact ------------------------------
+# --- 3. every format asks the shipped artifact ------------------------------
 #
-# Derived from the format list above rather than written out, so a new Linux
-# format cannot be added without this check coming with it.
+# Iterates FORMAT_SELECTOR, which is cross-checked against the file above.
 for fmt in sorted(FORMAT_SELECTOR):
     validator = _strip_shell_comments(_read("scripts", f"validate-{fmt}.sh"))
     check("--call-media-status" in validator,
           f"validate-{fmt} runs the packaged build's own engine probe")
     check("assert_call_media_engine" in validator,
           f"validate-{fmt} judges the probe through the shared helper")
-    # AND THE VOICE-DELAY PROPERTY, on the same derived-not-written-out basis.
-    # It is the one call-quality claim a release makes that no source check can
-    # see: a GStreamer `queue` defaults to holding a second and never dropping
-    # it, so one moment of a consumer falling behind is permanent delay for the
-    # rest of a call. Every earlier check of it was acoustic — two machines, a
-    # sound card and a rig — which is why it existed on Linux alone.
+    # The voice-delay self-test: a default `queue` holds a second and never
+    # leaks it, which no source check can see.
     check("--call-queue-selftest" in validator,
           f"validate-{fmt} measures the voice-delay property on the shipped artifact")
     check("assert_queue_selftest" in validator,
           f"validate-{fmt} judges that measurement through the shared helper")
 
-# ONE helper judges all five, so the bar cannot drift between formats. Both
-# halves matter: the first line answers "was it compiled in", the RESULT line
-# answers "can it actually run here" -- an engine compiled in with no plugins
-# beside it refuses calls exactly as completely as no engine at all.
+# One helper judges every format: "compiled in" and "can run here" (plugins
+# present) are both required.
 lib_src = _strip_shell_comments(_read("scripts", "lib.sh"))
 check("assert_call_media_engine()" in lib_src,
       "lib.sh defines the shared call-engine assertion")
@@ -1241,18 +1040,9 @@ check("call media engine built in: yes" in lib_src,
 check("RESULT: calls can be placed and answered." in lib_src,
       "the shared assertion requires the engine to be runnable")
 
-# AND THE COMPRESSED CAMERA CHAIN IS REPORTED BY EVERY FORMAT'S STATUS PROBE.
-#
-# Windows asks the shipped registry for `jpegdec`/`jpegenc` by name; every
-# Linux lane asserted only that libgstjpeg.so was in the payload, which is the
-# distinction that shipped Windows with libgstsctp present and sctpenc
-# missing. The published 0.9.7 AppImage logged `no element "jpegenc"` in a real
-# call and nothing in that lane could have said so first.
-#
-# REPORTED, not required: a camera falls back to the raw entry without it
-# (measured at 5 fps against 30 on Windows), so a missing plugin is a
-# degradation and not a refusal. This asserts the LINE exists, so the answer
-# is in every validator's log.
+# --call-media-status reports whether the compressed camera chain works by
+# asking the registry, not by listing libgstjpeg. Reported, not required: a
+# camera without it falls back to the slower raw chain.
 with open(os.path.join(HERE, "..", "..", "src", "main.cpp"),
           encoding="utf-8") as handle:
     _main_cpp = handle.read()
@@ -1261,42 +1051,30 @@ check("camera compressed (MJPG) chain: " in _main_cpp,
 check("jpegCameraChainAvailable()" in _main_cpp,
       "it asks the engine's own probe rather than listing a file")
 
-# The queue self-test's shared judgement, and the two properties that keep it
-# honest: a transcript with no verdict is a hard failure (a crash or a hung
-# probe must not pass), while a FAILING verdict only warns until the check has
-# reported PASS on every platform once. Pipeline 224 died because a required
-# entry landed before the thing that had to satisfy it; the promotion
-# procedure is written at the declaration.
+# The queue self-test: no verdict is a hard failure, while `fail` only warns
+# until the check has passed everywhere (see TO PROMOTE IT in lib.sh).
 check("assert_queue_selftest()" in lib_src,
       "lib.sh defines the shared voice-delay assertion")
-# THREE OUTCOMES, NOT TWO. "measured and failed" and "could not measure" must
-# not share an exit path: a prefix grep on `^RESULT: ` let a transcript reading
-# "no element audiotestsrc" three times through as a warning.
+# "Measured and failed" and "could not measure" must not share an exit path.
 check("VERDICT: " in lib_src,
       "the shared assertion keys on an exact VERDICT line, not a prefix")
 check("unmeasurable)" in lib_src,
       "the shared assertion has a distinct unmeasurable outcome")
 check("measured NOTHING" in lib_src,
       "the shared assertion fails hard when nothing was measured")
-# AND IT READS A CRLF TRANSCRIPT. The Windows portable runs under Wine and its
-# output is CRLF, so the verdict read as `pass\r`, matched no case, and failed
-# a job whose measurement had PASSED — with a message saying the line was
-# absent while it was right there in the log above it.
+# Wine output is CRLF, so the verdict would read `pass\r`.
 check("tr -d " in lib_src,
       "the shared assertion strips CR before reading the verdict")
 check("does not understand" in lib_src,
       "an unreadable verdict is reported as its own fault, not as a missing line")
-# And ONE implementation, not three. Both non-Linux validators source lib.sh.
+# The non-Linux validators use the same helper from lib.sh.
 for script in ("smoke-windows-wine.sh", "validate-macos-artifacts.sh"):
     src = _strip_shell_comments(_read("scripts", script))
     check("assert_queue_selftest" in src,
           f"{script} judges the self-test through the shared helper")
     check("timeout 300s" in src or "run_bounded 300" in src,
           f"{script} bounds the self-test in time")
-# AND THE BOUND EXISTS ON macOS. `timeout` is GNU coreutils and macOS does not
-# ship it: adding one there failed the job with `timeout: command not found`,
-# which the self-test gate then reported correctly as "no VERDICT line at all".
-# The gate was right; the bound was not portable.
+# macOS has no GNU `timeout`.
 check("run_bounded()" in lib_src,
       "lib.sh provides a time bound that does not need GNU coreutils")
 check("gtimeout" in lib_src,
@@ -1304,15 +1082,11 @@ check("gtimeout" in lib_src,
 _macos_src2 = _strip_shell_comments(_read("scripts", "validate-macos-artifacts.sh"))
 check("timeout 300s" not in _macos_src2,
       "the macOS validator does not call GNU timeout, which it has not got")
-# Read from the RAW file: the promotion procedure is a COMMENT, and the
-# comment stripper above would eat it — which is how the first version of this
-# check failed on a lib.sh that carries it.
+# Read the raw file: the promotion procedure is a comment.
 check("TO PROMOTE IT:" in _read("scripts", "lib.sh"),
       "the shared assertion records how it becomes a hard gate")
 
-# Windows and macOS are not in FORMAT_SELECTOR and have their own validators,
-# so they are named explicitly — the maintainer's bar is three platforms with
-# WINDOWS MANDATORY, and a sweep over the Linux formats alone cannot meet it.
+# Windows and macOS have their own validators outside FORMAT_SELECTOR.
 _wine_src = _strip_shell_comments(_read("scripts", "smoke-windows-wine.sh"))
 check("--call-queue-selftest" in _wine_src,
       "the Windows package is asked the voice-delay question too")
@@ -1320,23 +1094,17 @@ _macos_src = _strip_shell_comments(_read("scripts", "validate-macos-artifacts.sh
 check("--call-queue-selftest" in _macos_src,
       "the macOS bundle is asked the voice-delay question too")
 
-# --- the call sounds (af10c156), asked of every shipped artifact ------------
+# --- the call sounds, asked of every shipped artifact ----------------------
 #
-# WARN-ONLY, deliberately, and this pins BOTH halves: the wiring must not
-# silently disappear from any lane, and the helper must keep telling a
-# MEASURED shortfall apart from an UNMEASURED run. Measured 2026-09-23: with no
-# audio output device QSoundEffect errors on every sound (0 of 15) however
-# healthy the package is, and a PulseAudio null sink alone is enough for 15 of
-# 15 -- so in a headless validator "0 of 15" says nothing about the package.
+# Warn-only. Pins that every lane runs it and that the helper tells a measured
+# shortfall from an unmeasured run: without an audio output device
+# QSoundEffect loads nothing however healthy the package is.
 for fmt in sorted(FORMAT_SELECTOR):
     validator = _strip_shell_comments(_read("scripts", f"validate-{fmt}.sh"))
     check("--call-sounds-status" in validator,
           f"validate-{fmt} asks the shipped artifact whether its call sounds load")
     check("assert_call_sounds_status" in validator,
           f"validate-{fmt} judges the call-sounds transcript through the shared helper")
-# The Windows lane (smoke-windows-wine.sh) is NOT wired yet: that script is
-# owned by the per-machine-install work (issue #14) while it is in flight, and
-# the hunk that wires it waits for that. Add it to this tuple when it lands.
 for script in ("smoke-windows-wine.sh", "validate-macos-artifacts.sh"):
     src = _strip_shell_comments(_read("scripts", script))
     check("--call-sounds-status" in src,
@@ -1349,9 +1117,8 @@ check("run_bounded 60 \"$CONTENTS/MacOS/$APP_NAME\" --call-sounds-status" in _ma
       "the macOS call-sounds probe is bounded without GNU timeout")
 check("assert_call_sounds_status()" in lib_src,
       "lib.sh defines the shared call-sounds assertion")
-# THE COUNT, derived from the tree rather than written out: a sound added to
-# data/sounds/ must move the helper's expectation with it, or "14 of 14" from a
-# build that lost one would read as complete.
+# The expected count must track data/sounds/, or a build that lost a sound
+# would still read as complete.
 _sounds_dir = os.path.join(HERE, "..", "..", "data", "sounds")
 _wavs = sorted(n for n in os.listdir(_sounds_dir) if n.endswith(".wav"))
 _expected = re.search(r"^CALL_SOUNDS_EXPECTED=(\d+)$", _read("scripts", "lib.sh"), re.M)
@@ -1365,9 +1132,8 @@ check('"default audio output: "' in _main_cpp,
       "--call-sounds-status still names the output device the helper keys on")
 
 
-# AND IT CLASSIFIES CORRECTLY: run the real helper over the three transcript
-# shapes measured on 2026-09-23, plus a missing line. A text scan of the helper
-# cannot tell "UNMEASURED" from "MEASURED SHORT"; only running it can.
+# Run the real helper over each transcript shape; a text scan cannot tell
+# "UNMEASURED" from "MEASURED SHORT".
 def _run_sounds_helper(transcript, status):
     import subprocess
     import tempfile
@@ -1408,9 +1174,7 @@ for _label, _text, _status, _want in _cases:
 
 # --- the AppImage/snap bundle, which has nobody to depend on ----------------
 appimage_build = _read("scripts", "build-appimage.sh")
-# Staging used to be wrapped in `if [ -d "$GST_PLUGIN_SRC" ]`, and the job
-# installed no GStreamer, so the whole block was skipped on EVERY build and
-# the pipeline stayed green. Absence must be loud.
+# A missing plugin directory must fail, not silently skip staging.
 check('[[ -d "$GST_PLUGIN_SRC" ]] || die' in appimage_build,
       "the AppImage fails rather than silently skipping plugin staging")
 _appimage_plugin_list = re.search(
@@ -1418,48 +1182,31 @@ _appimage_plugin_list = re.search(
 check(_appimage_plugin_list is not None,
       "build-appimage declares an explicit required-plugin list")
 if _appimage_plugin_list:
-    # Matched against the LIST, not the file: every name below also appears in
-    # the comment above it explaining why it is there.
+    # Match the list, not the file: comments name the same plugins.
     staged = set(_appimage_plugin_list.group(1).split())
     for plugin in ("libgstwebrtc", "libgstnice", "libgstdtls", "libgstsrtp",
                    "libgstopus", "libgstrtp", "libgstvpx",
-                   # In SfuMediaEngine's kRequired list: the engine REFUSES
-                   # without these, and the pre-2026-08-27 staging list had
-                   # none of the four.
+                   # In SfuMediaEngine's kRequired list.
                    "libgstvolume", "libgstaudiotestsrc", "libgstvideotestsrc",
                    # appsink/appsrc: the received-video path.
                    "libgstapp",
-                   # Named NOWHERE in Lightning -- webrtcbin loads it itself
-                   # for the data channel, which under bundle-policy=max-bundle
-                   # owns the transport every media section rides on. Windows
-                   # shipped for months able to send and unable to receive
-                   # because this plugin was not staged.
+                   # Loaded by webrtcbin itself for the data channel that
+                   # owns the bundled transport; without it nothing is received.
                    "libgstsctp",
                    # Screen share and camera.
                    "libgstpipewire", "libgstvideo4linux2",
-                   # The X11 screen-share fallback, and the one entry here
-                   # that NO runtime check can defend. It is deliberately not
-                   # in the engine's kRequired list -- a call does not need it
-                   # -- so `--call-media-status` is green on a bundle without
-                   # it while the feature is dead: SfuCallController probes the
-                   # RUNNING REGISTRY, and the AppRun hook and snap launcher
-                   # REPLACE the system plugin path, so the host's
-                   # plugins-good is invisible. The user is then told to
-                   # install a package they probably already have.
+                   # The X11 screen-share fallback. Not in kRequired, so
+                   # --call-media-status cannot catch its absence, and the
+                   # bundle replaces the system plugin path, hiding the host's.
                    "libgstximagesrc"):
         check(plugin in staged,
               f"the AppImage stages {plugin} into the AppDir")
 
-# Staging a plugin that cannot load is staging nothing, and ximagesrc is the
-# only one whose failure is silent end to end. Both bundling formats resolve it
-# the way the loader will, and their jobs install the X libraries linuxdeploy
-# deliberately leaves on the host.
+# ximagesrc's load failure is silent, so both bundling validators resolve its
+# libraries, with the host X libraries linuxdeploy leaves out installed.
 for fmt in ("appimage", "snap"):
     validator = _strip_shell_comments(_read("scripts", f"validate-{fmt}.sh"))
-    # Matched against the LOOP'S OWN LIST, not the file. A bare substring search
-    # passed with the name deleted from the loop, because the `ldd` check below
-    # it names the same file -- so the assertion was true for a reason that had
-    # nothing to do with what it claimed. Caught by mutation, not by review.
+    # Match the loop's own list: the `ldd` check below names the same file.
     _payload_loop = re.search(r"for gst_plugin in (.*?); do", validator, re.S)
     check(_payload_loop is not None,
           f"validate-{fmt} declares an explicit required-plugin loop")
@@ -1474,27 +1221,21 @@ for fmt in ("appimage", "snap"):
         check(lib in job_script,
               f"validate-{fmt} provides the host library {lib} that ximagesrc links")
 
-# THE PIPEWIRE CLIENT STACK. libgstpipewire being staged proved nothing: the
-# plugin registered, built a pipeline, and died at `pw_loop_new: can't make
-# support.system handle` because libpipewire dlopens its OWN SPA plugins and
-# modules from paths compiled in at build time, and reads its module list from a
-# config file it has no fallback for. Screen sharing was dead in 0.8.0 and in
-# pipeline 142 while audio worked BOTH WAYS and video RECEIVE worked, which is
-# what made it look like anything but a missing directory.
+# The PipeWire client stack: libpipewire dlopens its own SPA plugins and
+# modules from build-time paths and needs client.conf, or pipewiresrc fails at
+# `pw_loop_new` and screen sharing is dead.
 _appimage_src = _strip_shell_comments(_read("scripts", "build-appimage.sh"))
 for _spa_dir in ("support", "videoconvert"):
     check(_spa_dir in _appimage_src.split("for spa_subdir in ")[1].split(";")[0]
           if "for spa_subdir in " in _appimage_src else False,
           f"the AppImage stages the spa-0.2/{_spa_dir} plugin directory")
-# Matched against the LOOP'S OWN LIST, exactly as the ximagesrc case above
-# learned to be: a bare substring search is satisfied by the comment naming it.
+# Match the list itself, not comments naming it.
 _pw_loop = re.search(r"PW_REQUIRED_MODULES=\((.*?)\)", _appimage_src, re.S)
 check(_pw_loop is not None,
       "build-appimage declares an explicit PipeWire module list")
 _pw_modules = set(_pw_loop.group(1).split()) if _pw_loop else set()
-# Six of the seven are HARD-REQUIRED: Debian's client.conf lists them without
-# `flags = [ ifexists nofail ]`, so a missing one makes pw_context_new() return
-# NULL rather than degrade.
+# Debian's client.conf loads these without `ifexists nofail`, so a missing
+# one makes pw_context_new() fail.
 for _pw_module in ("libpipewire-module-protocol-native",
                    "libpipewire-module-client-node",
                    "libpipewire-module-client-device",
@@ -1513,12 +1254,8 @@ for _pw_pkg in ("libspa-0.2-modules", "libpipewire-0.3-modules"):
     check(_pw_pkg in _appimage_job,
           f"build-appimage installs {_pw_pkg}, which gstreamer1.0-pipewire does not pull in")
 
-# An installed package must be able to make a SOUND. `autoaudiosink` resolves to
-# pipewiresink, pulsesink or alsasink, and the engine's probe only asks for the
-# `autodetect` FACTORIES -- which exist whether or not any sink is installed --
-# so --call-media-status is green on a package with none. Debian splits ALSA into
-# its own binary package; Fedora does not (base carries libgstalsa, good carries
-# libgstpulseaudio), which is why only the deb needs the extra name.
+# The engine probe only checks the `autodetect` factories, which exist with no
+# sink installed. Debian ships the ALSA sink separately; Fedora does not.
 check("gstreamer1.0-alsa" in _deb_deps if _deb_call else False,
       "deb depends on an ALSA sink, which Debian splits into its own package")
 for needle in ("gstreamer1.0-pipewire",):
@@ -1526,9 +1263,8 @@ for needle in ("gstreamer1.0-pipewire",):
           f"deb depends on {needle} for the PipeWire sink and screen capture")
 
 snap_build = _strip_shell_comments(_read("scripts", "build-snap.sh"))
-# The snap takes only usr/ from the AppDir, so linuxdeploy's AppRun and its
-# apprun-hooks/gstreamer.sh stay behind and the launcher is the ONLY thing that
-# can point GStreamer at the bundled plugins.
+# The snap takes only usr/ from the AppDir, so its launcher must set the
+# plugin path the AppRun hook would have.
 check("GST_PLUGIN_SYSTEM_PATH_1_0" in snap_build,
       "the snap launcher points GStreamer at the bundled plugins")
 snap_yaml = _read("packaging", "snap", "snap.yaml.in")
@@ -1537,17 +1273,15 @@ _snap_plugs = [
     for line in snap_yaml.splitlines()
     if line.strip().startswith("- ") and not line.strip().startswith("- --")
 ]
-# audio-playback alone is a call nobody can hear the user on; the microphone is
-# a separate snap interface. Matched against actual list entries, not the file,
-# because the comment beside it names the same string.
+# The microphone is a separate interface from audio-playback. Matched against
+# list entries, since a comment names the same string.
 check("audio-record" in _snap_plugs,
       "the snap declares the microphone interface calling needs")
 
 with open(os.path.join(HERE, "..", "scripts", "validate-windows-artifacts.sh"),
           encoding="utf-8") as handle:
     win_validate_src = handle.read()
-# The ONE fact no file listing can show: an engine-less build is a normal,
-# launchable, syncing package.
+# An engine-less build still launches and syncs, so assert the linkage.
 check("libgstwebrtc-1.0-0.dll" in win_validate_src,
       "Windows validation proves the application links the call media engine")
 check("gst-element-probe.exe" in win_validate_src,
@@ -1555,21 +1289,10 @@ check("gst-element-probe.exe" in win_validate_src,
 
 # --- Qt image-format plugins ------------------------------------------------
 #
-# THE SAME DEFECT AS THE CALL PLUGINS, one layer up. A Qt image format is a
-# dlopen'd plugin, so ELF NEEDED entries name none of them: dpkg-shlibdeps,
-# rpm's generator and linuxdeploy-plugin-qt all deploy or declare only what
-# qtbase itself carries -- libqgif, libqico, libqjpeg. Every Linux package up
-# to and including 0.8.0 shipped exactly those three while the client's OWN
-# byte sniffers ACCEPTED image/webp, so it accepted, forwarded and re-uploaded
-# a format it could not draw. Verified on the shipped artifact: 0.8.0's
-# usr/plugins/imageformats holds three files.
-#
-# JPEG XL is the reported symptom and does NOT come from Qt: qtimageformats has
-# never contained a JXL plugin, so kimg_jxl.so from KDE's kimageformats is the
-# only implementation, and it exists for Linux alone.
-#
-# Comments are stripped before every source assertion below, because each one
-# of these scripts explains itself using the very strings asserted.
+# Qt image formats are dlopen'd plugins, so packaging tools only deploy what
+# qtbase carries (gif, ico, jpeg) while the client accepts webp. JPEG XL comes
+# from KDE's kimageformats (kimg_jxl.so), available on Linux only.
+# Comments are stripped before the source assertions below.
 
 # 1. the AppImage job installs/unpacks what the AppImage stages.
 _appimage_before = " ".join(resolve_extends("build-appimage").get("before_script", []))
@@ -1579,7 +1302,7 @@ for package in ("qt6-image-formats-plugins", "libjxl0.11",
           f"build-appimage obtains the image-format package {package}")
 
 # 2. build-appimage.sh stages both plugins, declares them to linuxdeploy, and
-#    asks the PACKED squashfs -- not the AppDir it wrote itself.
+#    checks the packed squashfs, not the AppDir it wrote.
 _appimage_code = _strip_shell_comments(_read("scripts", "build-appimage.sh"))
 check("usr/plugins/imageformats" in _appimage_code,
       "the AppImage stages Qt image-format plugins into the AppDir")
@@ -1594,10 +1317,9 @@ check(_appimage_code.count("verify_root/usr/plugins/imageformats") >= 2,
       "the PACKED AppImage is asked for its image-format plugins and for "
       "their dependency closure")
 
-# 3. the deliberate exclusions. avif drags three AV1 encoders and ~20 abseil
-#    libraries; heif needs libheif, which DLOPENS its own codec plugins, so a
-#    staged kimg_heif.so would register the format and decode nothing; SVG must
-#    never reach a media path as active content (Lightning CLAUDE.md §6).
+# 3. deliberate exclusions: avif pulls in AV1 encoders and abseil; heif's
+#    libheif dlopens its own codecs, so it would register and decode nothing;
+#    SVG must never reach a media path as active content (security rule).
 for excluded in ("kimg_avif", "kimg_heif", "libqsvg"):
     check(excluded not in _appimage_code,
           f"the AppImage deliberately does not stage {excluded}")
@@ -1630,24 +1352,21 @@ for plugin in ("libqwebp.so", "kimg_jxl.so"):
     check(plugin in _snap_code,
           f"build-snap asserts the inherited AppDir carries {plugin}")
 
-# 6. EVERY validator asks the SHIPPED artifact, because a plugin present is not
-#    a plugin that registers -- the lesson libgstsctp.dll and the PipeWire SPA
-#    modules each taught this repository once.
+# 6. every validator asks the shipped artifact: a plugin present is not a
+#    plugin that registers.
 _IMAGE_VALIDATORS = {
     "validate-appimage.sh": True,
     "validate-deb.sh": True,
     "validate-rpm.sh": True,
     "validate-flatpak.sh": True,
     "validate-snap.sh": True,
-    # Windows and macOS: no Qt JPEG XL plugin exists for either platform, so
-    # they assert the required set and leave JXL reported as a platform limit.
+    # No Qt JPEG XL plugin exists for Windows or macOS.
     "smoke-windows-wine.sh": False,
     "validate-macos-artifacts.sh": False,
 }
 for script, wants_jxl in _IMAGE_VALIDATORS.items():
     src = _strip_shell_comments(_read("scripts", script))
-    # Join shell line continuations: these calls wrap, and a line-anchored
-    # search would report the argument absent on a correct tree.
+    # Join shell line continuations before searching.
     src = src.replace("\\\n", " ")
     check("--image-format-status" in src,
           f"{script} asks the shipped artifact which image formats it decodes")
@@ -1659,8 +1378,7 @@ for script, wants_jxl in _IMAGE_VALIDATORS.items():
               f"{script} does not require JPEG XL (no Qt plugin exists for "
               f"this platform)")
 
-# 7. the shared judgement names every required format individually. A bare
-#    RESULT check would pass on a table that had quietly demoted one.
+# 7. the shared judgement names every required format individually.
 _lib_code = _strip_shell_comments(_read("scripts", "lib.sh"))
 check("assert_image_formats()" in _lib_code,
       "lib.sh carries one shared judgement of an --image-format-status run")
@@ -1672,11 +1390,10 @@ check("for fmt in png jpeg gif bmp webp" in _lib_code,
 check('"qwebp.dll"' in win_stage_src,
       "the Windows stage carries the WebP image-format plugin")
 
-# --- supply-chain and secret-scope invariants (2026-09-02 security audit) ---
+# --- supply-chain and secret-scope invariants --------------------------------
 
-# 9. Every container image is pinned by DIGEST. A mutable tag such as
-#    alpine:3.22 is re-published on every point release, and one of these
-#    jobs decodes the update-signing key.
+# 9. Every container image is pinned by digest: tags are mutable, and one of
+#    these jobs decodes the update-signing key.
 def _image_refs(node):
     if isinstance(node, dict):
         for key, value in node.items():
@@ -1694,9 +1411,8 @@ def _image_refs(node):
 _images = list(_image_refs(doc))
 check(len(_images) >= 10, f"found container images to check ({len(_images)})")
 for ref in _images:
-    # The Windows builder is built BY HAND on the runner host from
-    # packaging/windows/Dockerfile (itself digest-pinned to its base) and
-    # never pulled from a registry, so a digest is not a thing it has.
+    # The Windows builder is built locally from packaging/windows/Dockerfile
+    # (digest-pinned base) and never pulled, so it has no digest.
     if ref.startswith("lightning-windows-builder:"):
         continue
     check(re.search(r"@sha256:[0-9a-f]{64}$", ref) is not None,
@@ -1706,15 +1422,14 @@ _compose = _read("infrastructure", "windows-runner", "compose.yml")
 check(re.search(r"gitlab/gitlab-runner@sha256:[0-9a-f]{64}", _compose) is not None,
       "the runner manager image is pinned by digest")
 
-# 10. The private signing key and the mirror token are ENVIRONMENT-SCOPED, so
-#     they are injected only into the job that declares the environment and
-#     never into a build job that runs project-6 CMake and every build.rs.
+# 10. The signing key and mirror token are environment-scoped, so no build
+#     job (running project CMake and build.rs code) receives them.
 _sign = resolve_extends_dict(doc["sign-update-manifest"])
 check(isinstance(_sign.get("environment"), dict)
       and _sign["environment"].get("name") == "signing",
       "sign-update-manifest declares the `signing` environment")
-# resolve-source runs the FULL key check before any build (the fail-fast
-# property), so it must hold the key too -- and it executes no project-6 code.
+# resolve-source runs the full key check before any build, so it holds the
+# key too, and must run no project build tooling.
 _resolve = resolve_extends_dict(doc["resolve-source"])
 check(isinstance(_resolve.get("environment"), dict)
       and _resolve["environment"].get("name") == "signing",
@@ -1729,9 +1444,9 @@ check(isinstance(_mirror.get("environment"), dict)
 check(isinstance(_mirror.get("retry"), dict) and _mirror["retry"].get("max", 0) >= 1,
       "mirror-release-to-github is retried by the runner (its script is idempotent)")
 
-# 16. The GitHub fallback slot is WRITTEN, after GitLab's promotion, by a job
-#     that cannot fail a completed release, and the mirror token is checked
-#     before anything is published.
+# 16. The GitHub fallback slot is written after GitLab's promotion by a job
+#     that cannot fail a completed release; the mirror token is checked before
+#     anything is published.
 _pre = resolve_extends_dict(doc["github-mirror-preflight"])
 check(_pre.get("stage") == "resolve" and _pre.get("needs") == []
       and isinstance(_pre.get("environment"), dict)
@@ -1739,9 +1454,7 @@ check(_pre.get("stage") == "resolve" and _pre.get("needs") == []
       "github-mirror-preflight runs first, alone, holding only the mirror token")
 check(isinstance(_pre.get("retry"), dict) and _pre["retry"].get("max", 0) >= 1,
       "github-mirror-preflight is retried (one GitHub blip must not stop a release)")
-# The lull REFRESH of the manifest must never depend on the GitHub token:
-# both GitHub-facing gates exit successfully, before any request, when
-# UPDATE_REFRESH_LATEST_ONLY=true.
+# A manifest refresh must never depend on the GitHub token.
 for _script in ("github-mirror-preflight.sh", "mirror-release-to-github.sh"):
     _src = _strip_shell_comments(_read("scripts", _script))
     check('"${UPDATE_REFRESH_LATEST_ONLY:-false}" == true' in _src,
@@ -1779,8 +1492,7 @@ _sign_script = _strip_shell_comments(_read("scripts", "sign-update-manifest.sh")
 check(re.search(r'check-update-signing-keys\.sh"?\s*$', _sign_script, re.M) is not None,
       "the signing job still runs the FULL key-consistency check")
 
-# 11. The rustup installer is checksum-verified before it runs, everywhere it
-#     runs. It was the one unverified executable in the pipeline.
+# 11. The rustup installer is checksum-verified before it runs, everywhere.
 _ci_text = _read(".gitlab-ci.yml")
 check("https://sh.rustup.rs" not in _ci_text,
       "no job downloads the unverified sh.rustup.rs installer")
@@ -1805,7 +1517,7 @@ check("https://sh.rustup.rs" not in _flatpak
       "the Flatpak manifest pins and verifies rustup-init too")
 
 # 12. The token-bearing GitLab API client never follows a redirect: curl
-#     re-sends a custom JOB-TOKEN/PRIVATE-TOKEN header to a new host.
+#     re-sends custom JOB-TOKEN/PRIVATE-TOKEN headers to a new host.
 _api = _strip_shell_comments(_read("scripts", "gitlab-api.sh"))
 _api_fn = _api[_api.index("api_request()"):_api.index("api_json_get()")]
 check("--max-redirs 0" in _api_fn and "--location" not in _api_fn,
@@ -1828,11 +1540,8 @@ check(re.search(r"^\s*Function \.onInit", _nsi, re.M) is not None
       and 'ReadRegStr $ExistingMachineDir HKLM "${REG_APP}" "InstallDir"' in _nsi
       and '${AndIfNot} ${FileExists} "$ExistingMachineDir\\Lightning.exe"' in _nsi,
       "installer.nsi validates both registry install directories in .onInit")
-# The silent install must be ABLE to fail. `File /r` fails with a sharing
-# violation on any mapped file (Lightning running, or a DLL the update helper
-# holds), and without these three the failure could not reach an exit code:
-# the client trusts that code absolutely and reports a successful update with
-# the old version still installed.
+# A silent install must be able to fail: `File /r` hits sharing violations on
+# mapped files, and the updater trusts the exit code.
 check("ClearErrors" in _nsi and "IfErrors" in _nsi,
       "installer.nsi checks whether writing its payload succeeded")
 check("SetErrorLevel" in _nsi,
@@ -1847,21 +1556,10 @@ for name in ("QT_MULTIMEDIA_SHA256", "FFMPEG_SHA256", "GSTREAMER_SHA256"):
           and re.search(rf"^ARG {name}", _dockerfile, re.M) is None,
           f"{name} is an ENV in the Windows builder Dockerfile")
 
-# 16. A SCRIPT THAT READS RELEASE_TAG MUST CALL THE FUNCTION THAT SETS IT.
-#
-# `release_contract_env` in gitlab-api.sh is what defines RELEASE_TAG (and
-# PACKAGE_VERSION), and every publishing script runs under `set -u`, so
-# reading it without calling that function is not a wrong value -- it is an
-# immediate hard failure. `report-optional-assets.sh` shipped that way in
-# 64a1f6d and nobody could have found out, because the job runs only in a
-# PUBLISHING pipeline and no release happened between that commit and 0.9.6.
-# It failed on its first ever execution, in the release it was written to
-# protect, with "RELEASE_TAG: unbound variable".
-#
-# Keyed on RELEASE_TAG rather than PACKAGE_VERSION deliberately: nothing but
-# gitlab-api.sh ever assigns RELEASE_TAG, whereas write-build-info.sh assigns
-# PACKAGE_VERSION itself from the per-format version, so keying on that one
-# would report a script that is correct.
+# 17. A script that reads RELEASE_TAG must call release_contract_env, which
+#     sets it; under `set -u` a missing call fails only in a publishing run.
+#     Keyed on RELEASE_TAG because write-build-info.sh sets PACKAGE_VERSION
+#     itself.
 _scripts_dir = os.path.join(HERE, "..", "scripts")
 _readers = []
 for _name in sorted(os.listdir(_scripts_dir)):

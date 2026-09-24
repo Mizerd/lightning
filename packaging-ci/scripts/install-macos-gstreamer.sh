@@ -5,38 +5,22 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
-# Install the official GStreamer macOS framework for the Lightning packaging
-# runner, WITHOUT root and WITHOUT touching /Library/Frameworks.
+# Install the official GStreamer macOS framework for the packaging runner,
+# without root and without touching /Library/Frameworks.
 #
-# WHY NOT HOMEBREW. Everything else on this runner comes from Homebrew, so that
-# was the first candidate and it was rejected on two measurements:
-#   * the CI account cannot use it. /opt/homebrew is owned by `roksme` and the
-#     `runner` account that executes the shell executor is not in `admin` and
-#     has no passwordless sudo, so `brew install gstreamer` cannot write there.
-#   * the closure is wrong for a bundle. Homebrew's gstreamer 1.28.6 declares 61
-#     required dependencies including gtk4, gtk+3, ffmpeg, x264/x265, librsvg
-#     and python@3.14, its dylibs carry absolute /opt/homebrew install names, and
-#     its glib/gio/gobject/libintl/libpcre2 would collide by FILENAME with the
-#     copies macdeployqt already puts in Contents/Frameworks for Qt.
-#   * it does not build webrtc-audio-processing, so `webrtcdsp` — the microphone
-#     AGC — would be missing.
+# Not Homebrew: the CI account cannot write to /opt/homebrew; Homebrew's
+# gstreamer pulls gtk4, ffmpeg, x265 and more into the closure, uses absolute
+# install names, and its glib copies would collide by filename with the ones
+# macdeployqt bundles for Qt; and it does not build webrtcdsp (microphone AGC).
 #
-# The official framework has none of those problems: it is one self-contained
-# tree whose libraries are already @rpath-relative (built for relocation), and
-# it carries applemedia, osxaudio, nice, dtls, srtp, vpx, opus and webrtcdsp.
-#
-# It installs, as a .pkg, to /Library/Frameworks — which needs root. It does not
-# have to: the .pkg is an xar archive, `pkgutil --expand-full` needs no
-# privileges, and every component declares its install location relative to the
-# framework root, so the tree can be reassembled anywhere. Nothing in it depends
-# on being at /Library/Frameworks; the .pc files use `prefix=${pcfiledir}/../..`
-# and the dylibs use @rpath.
+# The official framework is self-contained and @rpath-relative. Its .pkg
+# normally installs to /Library/Frameworks as root, but `pkgutil --expand-full`
+# needs no privileges and each component's install location is relative to
+# the framework root, so the tree can be reassembled anywhere.
 
 GST_VERSION="${GST_VERSION:-1.28.6}"
-# ONE knob, and it is the one build-macos.sh and validate-macos-artifacts.sh
-# read. LIGHTNING_MACOS_GSTREAMER_PREFIX names the versioned prefix inside the
-# framework; the framework root and the download cache are derived from it, so
-# relocating the install cannot leave the build looking at the old place.
+# build-macos.sh and validate-macos-artifacts.sh read the same variable; the
+# framework root and download cache are derived from it.
 GST_PREFIX_DEFAULT="$HOME/opt/gstreamer/GStreamer.framework/Versions/1.0"
 PREFIX="${LIGHTNING_MACOS_GSTREAMER_PREFIX:-$GST_PREFIX_DEFAULT}"
 case "$PREFIX" in
@@ -60,24 +44,11 @@ if [[ -f "$PREFIX/lib/gstreamer-1.0/libgstwebrtc.dylib" && "${FORCE:-false}" != 
     exit 0
 fi
 
-# WHAT THIS VERIFICATION IS, AND WHAT IT IS NOT.
-#
-# The digests below are PINNED HERE, in this repository, and are the check that
-# decides. Fetching the publisher's own .sha256sum over the same HTTPS host as
-# the .pkg proves integrity — a truncated download, a bad CDN cache — and
-# nothing about authenticity: anyone who could serve one could serve both, and
-# they would move together.
-#
-# There is no stronger check available on this artifact. Measured, not assumed:
-#
-#   $ pkgutil --check-signature gstreamer-1.0-1.28.6-universal.pkg
-#   Status: no signature
-#
-# The GStreamer project publishes a detached GPG signature (.asc) instead, which
-# would need its release key on this runner to mean anything. Until that is
-# provisioned, a pinned digest reviewed in a merge request is the control: a
-# silently replaced upstream artifact fails here rather than being installed and
-# shipped inside Lightning.app. Bumping GST_VERSION REQUIRES adding its digests.
+# The pinned digests below are the authoritative check. The publisher's
+# .sha256sum comes from the same host as the .pkg, so it proves integrity only.
+# The .pkg is not signed (`pkgutil --check-signature`: "no signature"); upstream
+# publishes a detached GPG signature instead, which would need its release key
+# on the runner. Bumping GST_VERSION requires adding its digests here.
 pkg_digest() {
     case "$1" in
         gstreamer-1.0-1.28.6-universal.pkg)
@@ -89,8 +60,8 @@ pkg_digest() {
 }
 
 mkdir -p "$DOWNLOAD_DIR"
-# The runtime carries the libraries and plugins; the devel package carries the
-# headers and the .pc files CMake's pkg_check_modules needs. Both are required.
+# The runtime package has the libraries and plugins; the devel package has the
+# headers and .pc files pkg_check_modules needs.
 for pkg in "gstreamer-1.0-$GST_VERSION-universal.pkg" \
            "gstreamer-1.0-devel-$GST_VERSION-universal.pkg"; do
     pinned="$(pkg_digest "$pkg")" \
@@ -103,8 +74,7 @@ for pkg in "gstreamer-1.0-$GST_VERSION-universal.pkg" \
     got="$(shasum -a 256 "$DOWNLOAD_DIR/$pkg" | awk '{print $1}')"
     [[ "$pinned" == "$got" ]] \
         || die "$pkg does not match the pinned digest (want $pinned, got $got)"
-    # Secondary, and only a cross-check: if the publisher's own file disagrees
-    # with the pin, something changed upstream and a human should look.
+    # Cross-check only: a disagreeing upstream digest means someone should look.
     if curl -fsSL -o "$DOWNLOAD_DIR/$pkg.sha256sum" "$BASE_URL/$pkg.sha256sum" 2>/dev/null; then
         upstream="$(awk '{print $1}' "$DOWNLOAD_DIR/$pkg.sha256sum")"
         [[ "$upstream" == "$pinned" ]] \
@@ -136,20 +106,15 @@ for pkg in "gstreamer-1.0-$GST_VERSION-universal.pkg" \
         esac
         ditto "$component/Payload" "$dest"
     done
-    # A flat package, or a layout change upstream, would leave the glob literal
-    # and this loop silent — the element check below would then fail pointing at
-    # the wrong thing.
+    # A flat package or an upstream layout change would leave the glob literal
+    # and install nothing.
     (( installed > 0 )) || die "no installable components found in $pkg"
 done
 rm -rf -- "$GST_ROOT/expand"
 
-# Prove the install rather than assuming it: the elements below are exactly the
-# ones SfuMediaEngine::runtimeAvailable() refuses to register without, plus the
-# macOS capture sources the camera and screen share use.
-# The versioned names are set alongside the unversioned ones because GStreamer
-# reads GST_PLUGIN_PATH_1_0 / GST_PLUGIN_SYSTEM_PATH_1_0 / GST_REGISTRY_1_0
-# FIRST: a leftover in the runner's environment would otherwise decide what this
-# check actually scanned.
+# Verify the install: the elements SfuMediaEngine::runtimeAvailable() requires
+# plus the macOS capture sources. The versioned GST_*_1_0 variables are set
+# too because GStreamer reads them first.
 export GST_REGISTRY="$GST_ROOT/registry-install-check.bin"
 export GST_REGISTRY_1_0="$GST_REGISTRY"
 export GST_PLUGIN_SYSTEM_PATH="$PREFIX/lib/gstreamer-1.0"

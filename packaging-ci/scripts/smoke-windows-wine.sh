@@ -39,16 +39,9 @@ finish_prefix() {
     rm -rf -- "$WINEPREFIX"
 }
 
-# THE CHECK THAT WOULD HAVE CAUGHT THE LAST THREE ROUNDS.
-#
-# Everything else here proves the payload's SHAPE — the plugins are present,
-# every DLL resolves, every symbol resolves. None of it proves the application
-# can actually FIND the plugins at runtime, and that is exactly what was broken:
-# the plugin path was applied after gst_init had already run, so a package with
-# 25 correct plugins beside the exe still refused every call.
-#
-# `--call-media-status` probes through the same functions AppController calls,
-# so a pass here means the shipped binary would offer a call button.
+# The payload checks prove shape, not that the application finds its plugins
+# at runtime. `--call-media-status` probes through the same functions
+# AppController uses, so a pass means the shipped binary would offer calls.
 run_call_media_status() {
     local exe="$1" log="$2"
     if ! timeout 120s wine64 "$exe" --call-media-status >"$log" 2>&1; then
@@ -59,24 +52,18 @@ run_call_media_status() {
         cat "$log" >&2
         die "call media status did not confirm a usable engine: $exe"
     }
-    # The bundled directory must be the one BESIDE the exe. Empty here would
-    # mean it fell back to a system GStreamer, which a user's machine has not
-    # got — a pass that would not survive contact with a real Windows box.
+    # The plugin directory must be the bundled one: a user's machine has no
+    # system GStreamer to fall back to.
     grep -Eq '^bundled plugin directory: .*gstreamer-1\.0' "$log" || {
         cat "$log" >&2
         die "the packaged build did not use its own bundled plugin directory"
     }
 }
 
-# THE IMAGE DECODERS, asked of the shipped exe under Wine, for the same reason:
-# a Qt image format is a dlopen'd plugin, so what this package can DRAW is a
-# packaging property that no DLL listing and no symbol walk can report.
-#
-# JPEG XL is deliberately NOT required on Windows: Qt has never shipped a JXL
-# plugin (qtimageformats v6.11.1 is dds/icns/jp2/macheif/macjp2/mng/tga/tiff/
-# wbmp/webp) and Fedora carries no mingw64 build of KDE's kimageformats, which
-# is the only implementation. The required set is what must hold, and
-# `--image-format-status` exits 0 while reporting JPEG XL as unavailable.
+# Image decoders are dlopen'd Qt plugins, so only the shipped exe can say what
+# it can draw. JPEG XL is not required on Windows: Qt ships no JXL plugin and
+# Fedora has no mingw64 kimageformats build. `--image-format-status` exits 0
+# while reporting it unavailable.
 run_image_format_status() {
     local exe="$1" log="$2"
     if ! timeout 120s wine64 "$exe" --image-format-status >"$log" 2>&1; then
@@ -84,8 +71,7 @@ run_image_format_status() {
         die "the packaged build accepts image formats it cannot decode: $exe"
     fi
     local clean; clean="$(tr -d '\r' <"$log")"
-    # Named individually rather than trusting the RESULT line, so a table that
-    # quietly demoted one of them cannot pass.
+    # Named individually so a table that demoted one format cannot pass.
     local fmt
     for fmt in png jpeg gif bmp webp; do
         grep -Fqx "required image/$fmt: decodable" <<<"$clean" || {
@@ -101,12 +87,9 @@ run_version() {
     grep -Fq "Lightning $version" "$log" || die "Wine --version output mismatch: $exe"
 }
 
-# The call media plugins are dlopen'd from `gstreamer-1.0/` beside the
-# executable, so an installer that delivers Lightning.exe without that directory
-# produces an application that starts, signs in and syncs normally and then
-# refuses every call. Neither installer's payload can be inspected directly
-# (wixl's File table is checked in validate-windows-artifacts.sh; the NSIS
-# payload is /SOLID lzma and unreadable), so the delivered install is the proof.
+# An installer that delivers Lightning.exe without `gstreamer-1.0/` produces an
+# app that refuses every call. The NSIS payload cannot be inspected directly
+# (/SOLID lzma), so the delivered install is the proof.
 gst_plugin_count="$(find "$STAGE/gstreamer-1.0" -maxdepth 1 -name '*.dll' 2>/dev/null | wc -l)"
 [[ "$gst_plugin_count" -ge 20 ]] || \
     die "the staged tree carries only $gst_plugin_count GStreamer plugins"
@@ -119,10 +102,9 @@ assert_gstreamer_installed() {
         die "$kind Wine install did not deliver gstreamer-1.0/libgstwebrtc.dll"
 }
 
-# The scope marker the in-app updater reads (src/update/InstallType.cpp) to
-# decide whether an upgrade must run per-machine and elevated. A per-user
-# install that said "machine" would raise a UAC prompt for every update; a
-# per-machine one that said "user" would be upgraded into a SECOND copy.
+# The scope marker the updater reads (src/update/InstallType.cpp). A wrong
+# "machine" would prompt UAC on every update; a wrong "user" would upgrade a
+# per-machine install into a second copy.
 assert_install_scope() {
     local root="$1" expected="$2" kind="$3" actual
     actual="$(tr -d '\r\n' <"$root/.lightning-install-scope" 2>/dev/null || true)"
@@ -139,16 +121,13 @@ assert_no_per_user_copy() {
     fi
 }
 
-# Prove the packaged binary defaults to the Rust (E2EE) backend and the native
-# Windows secret store — the two production-critical properties. Wine can read a
-# GUI-subsystem PE's redirected stdout, so --build-info is capturable here.
-# (Wine CANNOT prove the Credential Manager actually works — that is native-only
-# and stays NOT TESTED; this only proves the COMPILED default/store selection.)
+# The packaged binary must default to the Rust backend and the Windows secret
+# store. This proves the compiled selection only; whether Credential Manager
+# works is native-only and NOT TESTED.
 run_build_info() {
     local exe="$1" log="$2"
     timeout 60s wine64 "$exe" --build-info >"$log" 2>&1
-    # The GUI-subsystem PE prints Windows CRLF line endings, so strip the
-    # trailing CR before anchored matching (a bare ^...$ would miss "rust\r").
+    # The output is CRLF; strip CR before anchored matching.
     local clean
     clean="$(tr -d '\r' <"$log")"
     grep -Eq '^default_backend: rust$' <<<"$clean" || die "build-info default_backend is not rust: $exe"
@@ -156,10 +135,9 @@ run_build_info() {
     grep -Eq '^backends: .*rust' <<<"$clean" || die "build-info does not list the rust backend: $exe"
 }
 
-# When GIF keys were embedded from CI variables, prove the EMBEDDED key works by
-# clearing every runtime override so only the build-embedded key can report
-# "configured: yes". --gif-status prints booleans only and never the key; we
-# also assert nothing that looks like a key/URL leaked.
+# With runtime overrides cleared, only a build-embedded key can report
+# "configured: yes". --gif-status prints booleans only; also assert that no
+# key or URL leaked.
 run_gif_status() {
     local exe="$1" log="$2"
     timeout 60s env -u LIGHTNING_GIPHY_API_KEY -u LIGHTNING_KLIPY_API_KEY \
@@ -172,30 +150,19 @@ run_gif_status() {
     if grep -Eq 'api_key=|://' <<<"$clean"; then die "gif-status leaked a key or URL: $exe"; fi
 }
 
-# THE VOICE-DELAY PROPERTY, asked of the shipped exe.
-#
-# WINE IS NOT WINDOWS and this does not pretend otherwise -- it is the same
-# caveat every other check in this file carries, and the reason the required
-# ELEMENT list exists beside the required DLL list. What makes it worth having
-# anyway: the property under test is a GStreamer queue's own behaviour under a
-# starved consumer, the binary is the one that ships, and the alternative was
-# nothing at all. The Windows guest has no sound card, so the acoustic rig that
-# measures this on Linux cannot run there; four attempts through RDP drifted
-# 291 -> 545 ms, which is larger than the effect.
+# Voice-delay self-test on the shipped exe. Wine is not Windows, but the
+# property is a GStreamer queue's behaviour under a starved consumer, and the
+# Windows guest has no sound card for the acoustic measurement.
 run_queue_selftest() {
     local exe="$1" log="$2" status=0
     timeout 300s wine64 "$exe" --call-queue-selftest >"$log" 2>&1 || status=$?
-    # ONE judgement, shared with every Linux format and with macOS. This was a
-    # second implementation for a few hours, while lib.sh's promotion note
-    # named one place to change.
+    # Shared judgement with every Linux format and macOS.
     assert_queue_selftest "Windows (wine)" "$log" "$status"
 }
 
-# THE CALL SOUNDS, asked of the shipped exe. WARN-ONLY, and under Wine in a
-# container with no sound server the answer is expected to be UNMEASURED:
-# QSoundEffect needs an output device to reach Ready. The transcript is still
-# worth having -- it names the output Wine offered and whether the Qt
-# Multimedia backend loaded at all. See assert_call_sounds_status in lib.sh.
+# Call sounds, warn-only. Under Wine with no sound server the result is
+# expected to be unmeasured; the transcript still shows the output Wine offered
+# and whether the Qt Multimedia backend loaded. See lib.sh.
 run_call_sounds_status() {
     local exe="$1" log="$2" status=0
     timeout 60s wine64 "$exe" --call-sounds-status >"$log" 2>&1 || status=$?
@@ -228,8 +195,7 @@ timeout 120s wine64 msiexec /i "$msi_windows" /qn /norestart \
 wineserver -w
 msi_exe="$(find "$WINEPREFIX/drive_c/users" -type f -path '*/AppData/Local/Programs/Lightning/Lightning.exe' -print -quit)"
 [[ -n "$msi_exe" ]] || die "MSI Wine install did not create Lightning.exe"
-# End-to-end proof that the update helper is actually DELIVERED by the
-# installer, not merely present in the stage the installer was built from.
+# The helper must be delivered by the installer, not just present in the stage.
 [[ -f "$(dirname "$msi_exe")/lightning-updater.exe" ]] || \
     die "MSI Wine install did not create lightning-updater.exe"
 assert_gstreamer_installed "$(dirname "$msi_exe")" MSI
@@ -264,16 +230,13 @@ wineserver -w
 [[ -f "$marker" ]] || die "NSIS uninstall removed simulated user data"
 finish_prefix
 
-# --- ALL USERS (GitHub issue #14) -------------------------------------------
+# --- All users (GitHub issue #14) --------------------------------------------
 #
-# The same two installers, per-machine: Program Files, HKLM, the scope marker
-# saying "machine", and a clean uninstall. WINE IS NOT WINDOWS, and here it
-# differs in three known ways, so this proves the payload and the registration
-# and NOT the Windows behaviour around them: IsUserAnAdmin() is always true, so
-# the setup's UAC relaunch never runs; Wine resolves the Start menu per-user
-# even for ALLUSERS=1; and Wine does not restore ALLUSERS=1 when an installed
-# product is maintained, so the MSI uninstall below passes it explicitly (real
-# Windows keeps a product in the context it was installed in).
+# Both installers per-machine: Program Files, HKLM, a "machine" scope marker
+# and a clean uninstall. This proves payload and registration, not Windows
+# behaviour: under Wine IsUserAnAdmin() is always true (no UAC relaunch), the
+# Start menu resolves per-user even for ALLUSERS=1, and ALLUSERS=1 is not
+# restored for maintenance, so the MSI uninstall passes it explicitly.
 machine_key='HKLM\Software\Mizerd\Lightning'
 machine_arp='HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightning'
 reg_value() { # $1 key, $2 value name -> the data, or nothing

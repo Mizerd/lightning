@@ -7,17 +7,9 @@ set -Eeuo pipefail
 #   packages/generic/lightning-update/<version>/   immutable per-release copy
 #   packages/generic/lightning-update/latest/      the stable slot clients poll
 #
-# Ordering inside this script is a security property, not a convenience: the
-# versioned copy is uploaded and read back byte-for-byte FIRST, and only then is
-# the `latest` pointer moved. A `latest` slot that advertised a release whose
-# own copy had not finished publishing would be pointing clients at bytes that
-# may not exist.
-#
-# The `latest` slot is the ONE deliberately mutable path this pipeline writes.
-# publish-packages.sh treats a pre-existing file as immutable and requires byte
-# identity; that rule is untouched for every release package and for the
-# versioned copy here. The exception below is scoped to the two `latest` files
-# and nothing else.
+# The versioned copy is uploaded and verified before `latest` moves, so the
+# pointer never advertises bytes that may not exist. `latest` is the only
+# mutable path; everything else, including the versioned copy, is immutable.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
@@ -38,8 +30,7 @@ sig="$ROOT/dist/${UPDATE_SIG_NAME}"
 [[ -f "$manifest" ]] || die "update manifest is missing; run generate-update-manifest.sh first"
 [[ -f "$sig" ]] || die "update manifest signature is missing; run sign-update-manifest.sh first"
 
-# The manifest must describe THIS release. A stale artifact from a previous
-# pipeline would otherwise be republished under the new version's slot.
+# Reject a stale manifest from a previous pipeline.
 [[ "$(jq -er '.version' "$manifest")" == "$PACKAGE_VERSION" ]] || die "update manifest version mismatch"
 [[ "$(jq -er '.tag' "$manifest")" == "$RELEASE_TAG" ]] || die "update manifest tag mismatch"
 [[ "$(jq -er '.schema' "$manifest")" == 1 ]] || die "update manifest is not schema 1"
@@ -78,7 +69,7 @@ upload_file() { # local_file url label
     if [[ "$status" != 201 ]]; then
         printf 'upload of %s returned HTTP %s\n' "$label" "$status" >&2
         if [[ "$status" == 403 || "$status" == 400 ]]; then
-            # The most likely cause for the mutable slot specifically.
+            # Most likely cause for the mutable slot.
             printf 'hint: the "latest" slot requires generic-package duplicates to be permitted for %s on project 6\n' \
                 "$UPDATE_PACKAGE_NAME" >&2
         fi
@@ -89,15 +80,10 @@ upload_file() { # local_file url label
 
 # --- Refresh mode --------------------------------------------------------------
 #
-# UPDATE_REFRESH_LATEST_ONLY=true re-promotes the `latest` pair for the
-# version ALREADY in that slot and touches nothing immutable. It exists for
-# one reason: every manifest carries a signed `expires`, and a release lull
-# longer than the window would otherwise leave every installation reporting
-# "update information expired" with no way to fix it short of cutting a
-# release -- the per-release copy cannot be re-published (different bytes,
-# immutable conflict), so the refreshed manifest goes to `latest` alone.
-# Generate with the ORIGINAL UPDATE_RELEASED_AT and an explicit
-# UPDATE_EXPIRES_AT, sign, then run this script in refresh mode.
+# UPDATE_REFRESH_LATEST_ONLY=true re-promotes `latest` for the version already
+# there, to renew the signed `expires` without a release; the immutable copy is
+# untouched. Generate with the original UPDATE_RELEASED_AT and an explicit
+# UPDATE_EXPIRES_AT, sign, then run this in refresh mode.
 : "${UPDATE_REFRESH_LATEST_ONLY:=false}"
 case "$UPDATE_REFRESH_LATEST_ONLY" in
     true|false) ;;
@@ -106,8 +92,8 @@ esac
 
 # --- Phase 1: the immutable per-release copy ---------------------------------
 #
-# Same contract as publish-packages.sh: an identical existing file is accepted
-# (so a job retry converges), a different one is a hard conflict.
+# As in publish-packages.sh: identical existing bytes are accepted so retries
+# converge; different bytes are a conflict.
 publish_immutable() { # local_file url label
     local file="$1" url="$2" label="$3" remote status
     remote="$tmp_dir/remote-$(basename "$file")"
@@ -135,27 +121,12 @@ fi
 
 # --- Phase 2: the mutable `latest` pointer -----------------------------------
 #
-# DELIBERATE IMMUTABILITY EXCEPTION, scoped to these two files only.
+# The deliberate immutability exception, scoped to these two files.
 #
-# `latest` is the discovery slot Lightning polls; it exists precisely so that a
-# newer release can replace what it points at. Refusing to overwrite it — the
-# rule that protects every release package — would make it useless after the
-# first release. Everything else keeps the immutable contract, including the
-# versioned copies published above.
-#
-# Two consequences worth stating plainly:
-#   * GitLab's generic registry keeps superseded revisions of an overwritten
-#     file and serves the most recent one. Old revisions are inert history, not
-#     something a client can be steered to, so they are left alone; deleting by
-#     file name here would also match the revision just uploaded.
-#   * The signature travels with the manifest. A client that races the two
-#     fetches mid-swap sees a manifest and a signature from different releases
-#     and simply fails verification — which is the correct, safe outcome. It
-#     never sees an unsigned or mis-signed manifest as valid.
-#
-# The signature is written FIRST and the manifest second, so the narrow race
-# window is "new signature, old manifest" rather than "new manifest, no matching
-# signature yet".
+# GitLab keeps superseded revisions and serves the newest; they are left alone
+# because deleting by name would also match the new upload. The signature is
+# written first, so a client racing the swap sees a mismatched pair and fails
+# verification safely.
 publish_latest() { # local_file url label
     local file="$1" url="$2" label="$3" remote status
     remote="$tmp_dir/latest-$(basename "$file")"
@@ -175,17 +146,11 @@ publish_latest() { # local_file url label
     esac
 }
 
-# THE LATEST SLOT MUST NOT GO BACKWARDS BY ACCIDENT. `attach-existing` -- the
-# documented way to backfill packages onto an OLD release -- runs this script
-# exactly like a new release, and without this it re-pointed `latest` at that
-# old version. The client refuses the downgrade, so the effect is a FREEZE:
-# every installation on the current release is told it is up to date, for
-# good, until somebody notices. Yanking a bad release is the one legitimate
-# backwards move, and it is spelled out.
-# The `.version` read here comes back over the same channel the uploads use
-# and is NOT signature-verified: it is used only to REFUSE, never to decide
-# what gets published, so a forged value can block a promotion (visible,
-# fixable) and cannot cause one. Deliberately fail-closed on untrusted data.
+# `latest` must not move backwards by accident: `attach-existing` on an old
+# release would otherwise re-point it, and clients refusing the downgrade would
+# silently stop seeing updates. UPDATE_ALLOW_LATEST_ROLLBACK is for yanking a
+# bad release. The current `.version` is unverified, so it is only ever used to
+# refuse a promotion, never to cause one.
 current_latest="$tmp_dir/current-latest.json"
 status="$(api_request --output "$current_latest" --write-out '%{http_code}' \
     "$(api_request_url "${latest_base}/${UPDATE_MANIFEST_NAME}")")" || \

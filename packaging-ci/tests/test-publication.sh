@@ -6,13 +6,8 @@ set -Eeuo pipefail
 # idempotent uploads, immutability conflicts, partial-upload rollback+retry,
 # registry verification, and both release actions (attach-existing and create).
 
-# The PACKAGING tree, which is where this suite's scripts, packaging
-# manifests and fixtures live -- not the repository root. Since the
-# packaging project was folded into the application repository those
-# are different directories, and the application has a scripts/ of its
-# own, so `git rev-parse --show-toplevel` resolved to a real directory
-# with none of these files in it. Derived from this file's own
-# location so it holds wherever the tree is checked out.
+# The packaging tree (not the repository root, which has its own scripts/),
+# derived from this file's location.
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 JQ="$(command -v jq)"
 WORK="$(mktemp -d)"
@@ -25,11 +20,9 @@ fail=0
 note() { printf '  ok: %s\n' "$1"; }
 bad() { printf '  FAIL: %s\n' "$1" >&2; fail=1; }
 
-# validate-release-request.sh also gates the update-signing key triple (the
-# public half is compiled into every package, so a mismatch must fail before any
-# build job runs). The publishing cases below therefore need a consistent triple
-# to reach their own assertions. Generated fresh at run time; nothing is
-# committed, and the gate's own behaviour lives in tests/test-update-manifest.sh.
+# validate-release-request.sh also gates the update-signing key triple, so
+# publishing cases need a consistent one. Generated at run time; the gate
+# itself is tested in tests/test-update-manifest.sh.
 command -v openssl >/dev/null 2>&1 || { printf 'error: openssl is required\n' >&2; exit 1; }
 SIGN_KEY="$WORK/update-signing.pem"
 openssl genpkey -algorithm ed25519 -out "$SIGN_KEY" 2>/dev/null
@@ -54,11 +47,8 @@ IS_EXACT_TAG=true
 PUBLISHING=true
 EOF
     printf 'deb-bytes-%s\n' "$RANDOM" >"$TR/dist/lightning_${VER}_amd64.deb"
-    # The SECOND deb lane. Not optional: build-deb-ubuntu runs on every
-    # publishing pipeline and validate-deb-ubuntu is a `needs` edge of
-    # publish-packages, so the file is always there when the manifest is
-    # written — and leaving it out of this fixture made write-manifest.sh die
-    # on a missing input, which is how it took config-tests down.
+    # The second deb lane is always present in a publishing pipeline, and
+    # write-manifest.sh requires it.
     printf 'deb-ubuntu-bytes-%s\n' "$RANDOM" \
         >"$TR/dist/lightning_${VER}_ubuntu2604_amd64.deb"
     printf 'rpm-bytes-%s\n' "$RANDOM" >"$TR/dist/lightning-${VER}-1.x86_64.rpm"
@@ -126,10 +116,8 @@ M="$TR/dist/manifest.json"
 # Full metadata present on each entry (extension-ready schema).
 [[ "$($JQ -r '[.entries[]|select(.sha256 and .size and .architecture and .source_sha and .registry_url and .asset_name)]|length' "$M")" == 10 ]] && note "entries carry full metadata" || bad "entry metadata"
 
-# macOS is the one OPTIONAL input. Absent, the manifest is the ten above —
-# which is what every assertion so far just proved, and it is the case that
-# matters most: one Mac being offline must not fail a release. Present, it is
-# published like anything else.
+# macOS is the one optional input. Absent, the manifest is the ten above, so
+# an offline Mac cannot fail a release; present, it is published normally.
 printf '== optional macOS bundle ==\n'
 setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
 mkdir -p "$TR/dist/macos"

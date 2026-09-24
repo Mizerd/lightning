@@ -39,9 +39,8 @@ def main() -> None:
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--metadata", type=pathlib.Path, required=True)
-    # The publisher a user sees in Programs and Features, and whether this
-    # build is signed, are decided once in build-windows.sh and passed in, so
-    # the MSI can never disagree with the executable it installs.
+    # Publisher and signing state are decided once in build-windows.sh so the
+    # MSI cannot disagree with the executable it installs.
     parser.add_argument("--manufacturer", required=True)
     parser.add_argument("--signing-state", required=True,
                         choices=("signed", "unsigned"))
@@ -60,33 +59,22 @@ def main() -> None:
         "Version": args.version, "Manufacturer": args.manufacturer,
         "UpgradeCode": guid(UPGRADE_CODE),
     })
-    # ONE PACKAGE, TWO SCOPES (GitHub issue #14).
+    # One package, two scopes (GitHub issue #14).
     #
     #   * InstallScope="perUser" sets bit 3 of the summary Word Count ("no
-    #     elevation required") and adds NO ALLUSERS property, so an install
-    #     with no properties -- a double-click, or the in-app updater of a
-    #     per-user copy -- is per-user, lands in
-    #     %LOCALAPPDATA%\Programs\Lightning and never shows a UAC prompt:
-    #     byte-for-byte the layout every earlier MSI had.
-    #   * `msiexec /i Lightning.msi ALLUSERS=1` selects the per-machine context
-    #     (Program Files, HKLM, the all-users Start menu). Run it elevated --
-    #     from an administrator prompt, Intune, SCCM, WAPT or GPO, all of which
-    #     run as SYSTEM or an administrator -- because a package that declares
-    #     it needs no elevation cannot be relied on to ask for it.
+    #     elevation required") and sets no ALLUSERS, so a plain install (a
+    #     double-click, or the updater of a per-user copy) is per-user in
+    #     %LOCALAPPDATA%\Programs\Lightning with no UAC prompt.
+    #   * `msiexec /i Lightning.msi ALLUSERS=1` selects per-machine (Program
+    #     Files, HKLM, all-users Start menu). Run it elevated: a package that
+    #     declares it needs no elevation will not ask for it.
     #
-    # WHY NOT Microsoft's "dual-purpose" recipe (ALLUSERS=2 +
-    # MSIINSTALLPERUSER=1 with the tree under ProgramFiles64Folder, which
-    # Windows maps to %LOCALAPPDATA%\Programs per-user): Wine does not
-    # implement MSIINSTALLPERUSER. Measured with wixl 0.106 + Wine 11, that
-    # package installs a plain double-click PER-MACHINE into Program Files, so
-    # the only automated MSI install this project runs would stop describing
-    # the default a user gets. ALLUSERS unset means per-user on Wine and on
-    # every Windows alike, and the per-machine directory is chosen below by a
-    # property-setting action instead.
+    # Not Microsoft's dual-purpose recipe (ALLUSERS=2 + MSIINSTALLPERUSER=1):
+    # Wine does not implement MSIINSTALLPERUSER and installs such a package
+    # per-machine, so the Wine smoke test would no longer cover the default.
     #
-    # DO NOT use Root="HKMU" for the registry values: wixl 0.106 writes it as
-    # 4, not the -1 the Registry table requires. Per-scope values are two
-    # components with opposite conditions instead.
+    # Do not use Root="HKMU": wixl 0.106 writes it as 4, not the -1 the
+    # Registry table requires. Per-scope values are two conditioned components.
     ET.SubElement(product, tag("Package"), {
         "InstallerVersion": "500", "Compressed": "yes",
         "InstallScope": "perUser",
@@ -105,13 +93,11 @@ def main() -> None:
         "Id": "ARPPRODUCTICON", "Value": "LightningIcon"
     })
 
-    # PER-MACHINE DIRECTORY. The tree is the per-user one (LocalAppDataFolder
-    # \Programs\Lightning, unchanged); for ALLUSERS=1 a type-51 action
-    # re-points its "Programs" directory at Program Files before CostFinalize
-    # resolves anything, which is exactly how WiX's own SetDirectory works. It
-    # sets the PARENT, not INSTALLFOLDER, so an administrator's explicit
-    # INSTALLFOLDER=D:\Apps\Lightning on the command line still wins. It is
-    # in both sequences because /qn and /qb skip the UI sequence.
+    # Per-machine directory: for ALLUSERS=1 a type-51 action re-points the
+    # parent "Programs" directory at Program Files before CostFinalize (as
+    # WiX's SetDirectory does). Setting the parent keeps an explicit
+    # INSTALLFOLDER on the command line authoritative. It is in both sequences
+    # because /qn and /qb skip the UI sequence.
     ET.SubElement(product, tag("CustomAction"), {
         "Id": "LightningPerMachineProgramsDir", "Property": "ProgramsDir",
         "Value": "[ProgramFiles64Folder]",
@@ -156,10 +142,9 @@ def main() -> None:
             "Name": path.name, "KeyPath": "yes",
         })
 
-    # ALLUSERS is "1" in the per-machine context and unset in the per-user one
-    # (Windows Installer also resets an ALLUSERS=2 to one of those two), so
-    # these two conditions partition every install. The per-user half keeps the component Id and GUID the per-user-
-    # only MSI always used.
+    # ALLUSERS is "1" per-machine and unset per-user (Windows Installer resets
+    # ALLUSERS=2 to one of those), so these conditions partition every install.
+    # The per-user half keeps the component Id and GUID earlier MSIs used.
     per_machine = "ALLUSERS=1"
     per_user = "NOT ALLUSERS=1"
 
@@ -187,23 +172,21 @@ def main() -> None:
             "Name": "installed", "Type": "integer", "Value": "1", "KeyPath": "yes",
         })
         if root == "HKLM":
-            # What makes the "machine" scope marker believable to the in-app
-            # updater (src/update/InstallType.cpp): only an administrator can
-            # write HKLM, while the marker file is user-writable in a per-user
-            # install. NOT "InstallDir" -- that is the setup EXE's value, and
-            # the NSIS installer would take it for its own installation.
+            # HKLM is what makes the "machine" scope marker believable to the
+            # updater (src/update/InstallType.cpp): the marker file is
+            # user-writable in a per-user install. Not "InstallDir", which is
+            # the setup EXE's value.
             ET.SubElement(shortcut_component, tag("RegistryValue"), {
                 "Root": "HKLM", "Key": "Software\\Mizerd\\Lightning",
                 "Name": "MsiInstallDir", "Type": "string", "Value": "[INSTALLFOLDER]",
             })
         component_ids.append(component_id)
 
-    # THE SCOPE MARKER. The in-app updater must hand an upgrade to the SAME
-    # context: a per-machine product upgraded without ALLUSERS=1 is not found
-    # by FindRelatedProducts (it is context-scoped) and a second, per-user copy
-    # appears beside it. The NSIS installer writes the same file at install
-    # time; an MSI cannot write a file's CONTENT at install time with wixl, so
-    # it carries both versions under opposite conditions and exactly one lands.
+    # The scope marker. The updater must upgrade in the same context: a
+    # per-machine product upgraded without ALLUSERS=1 is not found by
+    # FindRelatedProducts and a second, per-user copy appears. wixl cannot
+    # write a file's content at install time, so the MSI carries both versions
+    # under opposite conditions and exactly one lands.
     marker_dir = args.output.parent / "install-scope-markers"
     marker_dir.mkdir(parents=True, exist_ok=True)
     for scope, condition in (("user", per_user), ("machine", per_machine)):

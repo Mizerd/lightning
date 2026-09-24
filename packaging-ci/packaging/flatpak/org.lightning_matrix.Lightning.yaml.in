@@ -1,12 +1,7 @@
-# Flatpak manifest TEMPLATE for Lightning. build-flatpak.sh substitutes the
-# @PLACEHOLDER@ values into work/flatpak/org.lightning_matrix.Lightning.yaml — the
-# template itself never contains secrets, and the GIF provider keys reach the
-# sandbox only through flatpak-builder's secret-env (never stored in the
-# manifest, repo metadata, or bundle).
-#
-# The app builds from the pinned project-6 source checkout against the KDE
-# runtime (Qt inside the sandbox), because Flatpak binaries must link the
-# runtime's libraries — the Debian-staged build is not reusable here.
+# CI Flatpak manifest template; build-flatpak.sh substitutes the @PLACEHOLDER@
+# values. It holds no secrets: the GIF provider keys reach the sandbox only
+# through secret-env. The app is built from the pinned source checkout against
+# the KDE runtime.
 app-id: org.lightning_matrix.Lightning
 runtime: org.kde.Platform
 runtime-version: "6.11"
@@ -25,45 +20,22 @@ finish-args:
   # libsecret token storage (Secret Service) and desktop notifications.
   - --talk-name=org.freedesktop.secrets
   - --talk-name=org.freedesktop.Notifications
-  # Voice/video calling.
-  #
-  # The PipeWire socket is what a portal-negotiated stream is actually READ
-  # from: xdg-desktop-portal is reachable from a sandbox by default and the
-  # user picks the window or monitor in ITS dialog, but the resulting
-  # PipeWire node cannot be opened without this. Deliberately the narrow
-  # xdg-run path and NOT --filesystem=host: the portal, not the manifest,
-  # decides what may be captured, and the app never sees anything the user
-  # did not choose.
+  # Portal-negotiated screen-share streams are read over the PipeWire socket.
+  # Only this narrow path, never --filesystem=host: the portal decides what
+  # may be captured.
   - --filesystem=xdg-run/pipewire-0
-  # THE CAMERA NEEDS NO PERMISSION HERE, deliberately. Inside a Flatpak there
-  # is no /dev/video*, and --device=all (the only static route to one) hands
-  # the sandbox every device on the machine and is refused by Flathub. The
-  # client takes the camera from the xdg-desktop-portal Camera interface
-  # instead (src/calls/CameraPortal.*, since 2026-09-11): the user grants it
-  # at the moment it is asked for, and the portal hands back a PipeWire
-  # remote in which only camera nodes are visible. This comment said the
-  # opposite until 2026-09-23. The first live test of that path, on the
-  # published Flathub 0.9.9, found the grant being LOST whenever the
-  # permission was already stored — see src/calls/PortalRequest.h.
+  # The camera needs no permission here: it comes from the portal Camera
+  # interface (src/calls/CameraPortal.*), which returns a PipeWire remote
+  # exposing only camera nodes. --device=all would expose every device and
+  # is refused by Flathub.
 
 build-options:
-  # This build installs the same pinned rustup toolchain the deb job uses.
-  # Keep the version in step with RUST_TOOLCHAIN in .gitlab-ci.yml.
-  #
-  # The reason for the download was that 6.9 was built on freedesktop
-  # 24.08, whose rust-stable extension shipped rustc 1.89 — too old for
-  # matrix-sdk 0.18, which needs 1.93. That is NO LONGER TRUE on 6.11:
-  # it is built on freedesktop 25.08, whose rust-stable ships rustc
-  # 1.98.1 (measured 2026-09-11). This job could therefore drop the
-  # rustup download for `sdk-extensions:
-  # [org.freedesktop.Sdk.Extension.rust-stable]` plus
-  # `append-path: /usr/lib/sdk/rust-stable/bin`, exactly as the Flathub
-  # manifest at the repository root already does. Left alone here on
-  # purpose: this template is the release path and the change is not
-  # needed for it to work, so it wants its own validated round.
+  # Installs the same pinned rustup toolchain as the deb job; keep it in step
+  # with RUST_TOOLCHAIN in .gitlab-ci.yml. The 6.11 runtime's rust-stable
+  # extension is now new enough to replace this, as the root Flathub manifest
+  # does.
   prepend-path: /run/build/lightning/cargo-home/bin
-  # Cargo needs the network for the locked fetch; this is not a Flathub
-  # build, so sandboxed-network vendoring is not required.
+  # Network for the locked cargo fetch (this is not a Flathub build).
   build-args:
     - --share=network
   env:
@@ -71,31 +43,24 @@ build-options:
     RUSTUP_HOME: /run/build/lightning/rustup
     CARGO_BUILD_JOBS: "4"
     CMAKE_BUILD_PARALLEL_LEVEL: "4"
-  # Passed from the build job environment into the sandbox WITHOUT being
-  # recorded in the manifest, ostree metadata, or the resulting bundle.
-  # Keyless (build-only) pipelines simply leave them unset.
+  # Not recorded in the manifest, ostree metadata or bundle; unset in keyless
+  # builds.
   secret-env:
     - LIGHTNING_BUILD_GIPHY_API_KEY
     - LIGHTNING_BUILD_KLIPY_API_KEY
 
 modules:
   - name: lightning
-    # An explicit command list instead of cmake-ninja: the source-enforced
-    # cargo invocation is --offline --locked, so the locked crate graph must
-    # be fetched into the sandbox CARGO_HOME first (the manifest grants the
-    # build network access for exactly this step). BUILD_TESTING is off —
-    # the bundle ships the application, not the test suite.
+    # Explicit commands instead of cmake-ninja: the build runs cargo
+    # --offline --locked, so crates must be fetched first.
     #
-    # LIGHTNING_ARTIFACT_KIND=release is explicit and load-bearing. This is the
-    # ONE packaging build that does not go through configure-build.sh, and the
-    # source's default is "source" — which would make a released Flatpak report
-    # artifact_kind: source in --build-info (untrue) and would also auto-enable
-    # ccache inside the sandbox for a key-embedding build.
+    # This build bypasses configure-build.sh, so LIGHTNING_ARTIFACT_KIND=release
+    # must be explicit; the source default ("source") would misreport
+    # --build-info and enable ccache for a key-embedding build.
     buildsystem: simple
     build-commands:
-      # Version-addressed and checksum-verified, like the deb/rpm/appimage
-      # jobs (.gitlab-ci.yml RUSTUP_VERSION / RUSTUP_INIT_SHA256): the
-      # installer builds the Rust Matrix SDK into the published bundle.
+      # Pinned and checksum-verified, as in .gitlab-ci.yml (RUSTUP_VERSION /
+      # RUSTUP_INIT_SHA256).
       - curl --proto '=https' --tlsv1.2 -fsSL --max-redirs 3
         https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
         -o rustup-init
@@ -117,21 +82,10 @@ modules:
         -DLIGHTNING_REQUIRE_WEBRTC=ON
       - cmake --build build
       - cmake --install build
-      # This is the ONE packaging build that does not run configure-build.sh,
-      # so it needs that script's call-engine guard spelled out here.
-      # LIGHTNING_REQUIRE_WEBRTC above is the half that fails FAST -- at
-      # configure, before a full Rust build -- and the grep below is the half
-      # that holds even against a source too old to know the option. The
-      # option above is only HONOURED when a pkg-config probe finds the
-      # GStreamer WebRTC development files; the org.kde.Sdk 6.9 runtime
-      # supplies all six modules the probe names, but an SDK bump could take
-      # them away and CMake would say so in one STATUS line and configure the
-      # engine out. Every Linux 0.8.0 package shipped exactly that way.
-      #
-      # The command exits non-zero whenever the engine cannot be USED, which
-      # is a runtime question the build sandbox is the wrong place to judge,
-      # so only the compiled-in line is asserted -- validate-flatpak.sh runs
-      # the same command against the installed app on the real runtime.
+      # configure-build.sh's call-engine guard, since this build bypasses it:
+      # an SDK that lost the GStreamer dev files would configure the engine
+      # out. Only the compiled-in line is asserted; runtime usability is
+      # checked by validate-flatpak.sh.
       - /app/bin/lightning-matrix --call-media-status
         > call-media-status.txt 2>&1 || true
       - cat call-media-status.txt
@@ -143,9 +97,7 @@ modules:
         path: "@METAINFO_PATH@"
         dest-filename: lightning.metainfo.xml
     post-install:
-      # The app-id-named desktop, icon and metainfo files (and LICENSE) are
-      # installed by CMake for the linux-flatpak install type, so nothing has
-      # to be renamed here. This wrapper is the one thing CMake does not do:
-      # command: lightning launches the Rust backend without a flag.
+      # CMake installs the app-id-named files; only this launcher wrapper is
+      # added here.
       - printf '#!/bin/sh\nexec /app/bin/lightning-matrix --backend=rust "$@"\n'
         > /app/bin/lightning && chmod 0755 /app/bin/lightning

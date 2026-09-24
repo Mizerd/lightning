@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # Build the Lightning Flatpak single-file bundle from the pinned source.
 #
-# Runs on package-runner-flatpak: unprivileged, but its job containers get
-# relaxed seccomp/apparmor so bwrap user namespaces work (the documented
-# exception for this one runner). The app is compiled INSIDE the sandbox
-# against org.kde.Platform — Flatpak binaries must link the runtime's
-# libraries, so the Debian-staged build is deliberately not reused here.
+# Runs on package-runner-flatpak, whose containers get relaxed
+# seccomp/apparmor so bwrap user namespaces work. The app is compiled inside
+# the sandbox against org.kde.Platform, not reused from the Debian stage.
 #
 # Output: dist/lightning_<LOGICAL_VERSION>_amd64.flatpak
 set -euo pipefail
@@ -25,14 +23,9 @@ BUILD_DIR="$FLATPAK_WORK/build"
 STATE_DIR="$FLATPAK_WORK/state"
 BUNDLE="dist/lightning_${LOGICAL_VERSION}_amd64.flatpak"
 APP_ID=org.lightning_matrix.Lightning
-# org.kde.Sdk//6.9 is marked END-OF-LIFE on Flathub ("We strongly recommend
-# moving to the latest stable version"). It still resolves today, so this is
-# not yet a broken build, but an EOL runtime stops being rebuilt and will
-# eventually go. 6.10 and 6.11 are both current and both sit on freedesktop
-# 25.08; 6.11 carries Qt 6.11.1, libsecret-1 0.21.7, all six GStreamer WebRTC
-# pkg-config modules at 1.26.11, and the libqwebp.so / kimg_jxl.so image
-# decoders validate-flatpak.sh asserts. Verified 2026-09-11 by building the
-# v0.9.4 source against it.
+# KDE 6.11 (freedesktop 25.08) carries Qt 6.11, the six GStreamer WebRTC
+# pkg-config modules, and the libqwebp/kimg_jxl decoders validate-flatpak.sh
+# asserts. 6.9 is end-of-life on Flathub.
 RUNTIME_VERSION="6.11"
 FLATHUB_REPO=https://dl.flathub.org/repo/flathub.flatpakrepo
 
@@ -54,10 +47,8 @@ if [ "${PUBLISH_PACKAGES:-false}" = "true" ]; then
     export LIGHTNING_BUILD_KLIPY_API_KEY="$KLIPY_API_KEY"
     REQUIRE_GIF_KEYS=ON
 elif [ -d /cache ] && [ -w /cache ]; then
-    # Build-only pipelines carry no keys, so the builder state (downloads,
-    # build cache, ccache) is safe to persist for warm-build speed. Official
-    # key-embedding builds keep the ephemeral in-tree state that the EXIT
-    # trap wipes.
+    # Keyless builds may persist builder state for speed; key-embedding
+    # builds keep ephemeral state that the EXIT trap wipes.
     STATE_DIR=/cache/flatpak-state
     PERSIST_STATE=true
     BUILDER_CACHE_ARGS=(--ccache)
@@ -65,9 +56,8 @@ fi
 cleanup_keys() {
     unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY \
         2>/dev/null || true
-    # The generated key header lives only inside sandbox build dirs; remove
-    # them wholesale as a backstop. The persistent state dir is only ever
-    # used for keyless builds.
+    # The generated key header lives only in sandbox build dirs; remove
+    # them as a backstop.
     rm -rf "$BUILD_DIR"
     [ "$PERSIST_STATE" = "true" ] || rm -rf "$STATE_DIR"
 }
@@ -76,14 +66,9 @@ trap cleanup_keys EXIT
 rm -rf "$FLATPAK_WORK"
 mkdir -p "$FLATPAK_WORK" dist
 
-# Substitute the placeholders. Source paths are RELATIVE to the manifest
-# location (work/flatpak/): flatpak-builder exports the manifest into the
-# bundle as /app/manifest.json, and an absolute path would leak the
-# ephemeral CI workspace path into the payload (the clean-bundle audit
-# rejects /builds/). They stay relative for that reason -- the packaging-ci/
-# segment is there because the packaging tree now sits inside the application
-# repository rather than being its own project, and a path that walked up to
-# the old location resolved to a directory that does not exist.
+# Source paths are relative to work/flatpak/: the manifest is exported into
+# the bundle as /app/manifest.json, and an absolute path would leak the CI
+# workspace (the clean-bundle audit rejects /builds/).
 sed -e "s|@REQUIRE_GIF_KEYS@|$REQUIRE_GIF_KEYS|" \
     -e "s|@UPDATE_SIGNING_PUBKEY_2026A@|${UPDATE_SIGNING_PUBKEY_2026A:-}|" \
     -e "s|@SOURCE_DIR@|../lightning|" \
@@ -98,20 +83,10 @@ flatpak install --user --noninteractive --or-update flathub \
     "org.kde.Sdk//$RUNTIME_VERSION" \
     org.freedesktop.Sdk.Extension.rust-stable//24.08
 
-# THE SCALABLE ICON IS READ BY appstreamcli compose, AND ITS LOADER IS A
-# SEPARATE PACKAGE. flatpak-builder's cleanup phase runs `appstreamcli
-# compose`, which rasterises the component's icon. Since the release commit
-# taught CMake to install data/icons/lightning.svg under the APP ID, the
-# scalable icon is now the one compose picks -- before that it was named
-# lightning.svg, did not match the component's icon name, and was never
-# read. Rendering an SVG goes through gdk-pixbuf's loader MODULE, which on
-# Debian is librsvg2-common and arrives with no other package's Depends.
-# Without it compose reports `Unrecognized image file format`, drops the
-# component, and fails the build with two hints that name no file at all:
-#   E: file-read-error / E: filters-but-no-output
-# -- sixteen minutes in. Five pipelines were lost to that on 2026-09-22.
-# Ask the question here instead, in about a second, against the very icon
-# this build is going to install.
+# flatpak-builder's cleanup runs `appstreamcli compose`, which rasterises the
+# scalable icon through gdk-pixbuf's SVG loader module (librsvg2-common on
+# Debian). Without it compose fails late with hints that name no file
+# (file-read-error / filters-but-no-output), so probe it up front.
 appstream_can_read_scalable_icon() {
     local probe cid rc
     probe=$(mktemp -d)
@@ -120,9 +95,7 @@ appstream_can_read_scalable_icon() {
         "$probe/unit/share/icons/hicolor/scalable/apps"
     cp "$SOURCE_DIR/data/icons/lightning.svg" \
         "$probe/unit/share/icons/hicolor/scalable/apps/$cid.svg"
-    # Categories is not decoration here: compose rejects a desktop
-    # application with no valid category (no-valid-category), which would
-    # make this probe fail for a reason that is not the one it asks about.
+    # compose rejects a desktop app with no valid category.
     printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Icon probe' \
         'Exec=true' "Icon=$cid" 'Categories=Network;' \
         > "$probe/unit/share/applications/$cid.desktop"

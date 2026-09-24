@@ -19,9 +19,8 @@ import argparse, os, select, socket, threading, time
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--port", type=int, default=8888)
-# KIBIBYTES PER SECOND, per direction, per tunnel — not kilobits, and not an
-# aggregate. Named for what it does: the earlier `--kbps` overstated the rate
-# by eight and hid that two concurrent tunnels get twice the budget.
+# Kibibytes per second, per direction, per tunnel (not kilobits, not an
+# aggregate: two concurrent tunnels get twice the budget).
 ap.add_argument("--kbytes", type=int, default=0,
                 help="KiB/s per direction per tunnel; 0 = unthrottled")
 ap.add_argument("--ctl", default="/tmp/netproxy-ctl")

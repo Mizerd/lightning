@@ -4,30 +4,18 @@ set -Eeuo pipefail
 # Tests for packaging/windows/version-resources.cmake — the per-target Windows
 # version-resource injection.
 #
-# Why this needs a test at all: the mechanism is invisible until a real
-# cross-build runs, and if it silently did nothing, both Windows executables
-# would link WITHOUT a version resource. verify-windows-metadata.py would then
-# fail late with "unreadable version resource" instead of the build failing
-# where the cause is. Worse, a partial failure (only the application wired up)
-# reproduces exactly the defect this file exists to remove: a helper stamped
-# with OriginalFilename "Lightning.exe".
-#
-# The real cross-build is not reproducible here (no MinGW, no Qt6 Windows), so
-# this drives the include file against a MINIMAL CMake project with two
-# executables named as the Lightning source names them. That is precisely the
-# contract the file depends on: that both targets exist by the end of the
-# top-level directory scope, and that a deferred call can attach link options to
-# them.
+# If the mechanism silently did nothing, both executables would link without
+# a version resource and verify-windows-metadata.py would fail late; a partial
+# failure would stamp the helper with OriginalFilename "Lightning.exe". No
+# MinGW cross-build is available here, so this drives the include against a
+# minimal CMake project with the same two target names, which is the whole
+# contract: both targets exist by the end of the top-level scope and a deferred
+# call can attach link options to them.
 
 command -v cmake >/dev/null 2>&1 || { printf 'error: cmake is required\n' >&2; exit 1; }
 
-# The PACKAGING tree, which is where this suite's scripts, packaging
-# manifests and fixtures live -- not the repository root. Since the
-# packaging project was folded into the application repository those
-# are different directories, and the application has a scripts/ of its
-# own, so `git rev-parse --show-toplevel` resolved to a real directory
-# with none of these files in it. Derived from this file's own
-# location so it holds wherever the tree is checked out.
+# The packaging tree (not the repository root, which has its own scripts/),
+# derived from this file's location.
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 INCLUDE="$ROOT/packaging/windows/version-resources.cmake"
 WORK="$(mktemp -d)"
@@ -58,12 +46,9 @@ function(report_link_options)
 endfunction()
 EOF
 
-# Toolchain precondition. This suite drives a REAL cmake configure, so it needs
-# a generator and a C compiler. Without them every negative case below still
-# "fails to configure" -- but for the wrong reason -- and the suite reports
-# three misleading "gave an unhelpful error" failures that look like a defect
-# in the code under test. That is exactly what happened in pipeline 99, where
-# the image had cmake and gcc but no make. Diagnose it here instead.
+# This suite runs a real cmake configure. Without a generator and a C compiler
+# every negative case "fails to configure" for the wrong reason, so check the
+# toolchain up front.
 probe="$WORK/probe"
 mkdir -p "$probe/src"
 printf 'cmake_minimum_required(VERSION 3.19)\nproject(probe LANGUAGES C)\n' \
@@ -97,8 +82,7 @@ if configure -DLIGHTNING_APP_VERSION_OBJECT="$APP_OBJ" \
     grep -q "UPD_LINK_OPTIONS=$UPD_OBJ" "$WORK/cmake.log" \
         && ok "lightning-updater links the update-helper version resource" \
         || bad "lightning-updater did not get the helper resource"
-    # The whole point: the helper must NOT carry the application's resource,
-    # which is what a global CMAKE_EXE_LINKER_FLAGS produced.
+    # The helper must not carry the application's resource.
     grep -q "UPD_LINK_OPTIONS=$APP_OBJ" "$WORK/cmake.log" \
         && bad "the helper linked the application's version resource" \
         || ok "the helper does not inherit the application's resource"

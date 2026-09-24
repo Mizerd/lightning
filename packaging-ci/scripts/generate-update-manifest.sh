@@ -4,16 +4,10 @@ set -Eeuo pipefail
 # Build dist/update-manifest-v1.json — the signed document Lightning polls to
 # discover a newer release (UPDATE-SPEC §4).
 #
-# This runs only AFTER verify-published-packages has proved that every artifact
-# is actually retrievable from project 6 with the expected bytes. Every value in
-# the update manifest is copied from dist/manifest.json, which is the record
-# those checks were performed against. Nothing is recomputed from a local file:
-# re-hashing here could describe bytes that were never the published ones, which
-# is precisely the failure the client's hash check exists to catch.
-#
-# Output is deterministic (sorted keys, pinned timestamp source) because the
-# per-release copy is published immutably — a job retry must produce byte-
-# identical output or the re-publication would legitimately be refused.
+# Runs after verify-published-packages. Every value is copied from
+# dist/manifest.json, the verified record; nothing is re-hashed locally.
+# Output is deterministic (sorted keys, pinned timestamp) because the
+# per-release copy is immutable and a retry must be byte-identical.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
@@ -30,28 +24,21 @@ release_contract_env
 manifest="$ROOT/dist/manifest.json"
 verification="$ROOT/dist/verification.json"
 [[ -f "$manifest" ]] || die "publication manifest is missing"
-# Same guard as finalize-release.sh: an update manifest advertises downloads as
-# retrievable, so it may only be built from a verified publication.
+# Only build from a verified publication.
 [[ -f "$verification" ]] || die "verification record is missing; refusing to build an update manifest"
 [[ "$(jq -er '.source_sha' "$manifest")" == "$SOURCE_SHA" ]] || die "manifest source SHA mismatch"
 [[ "$(jq -er '.version' "$manifest")" == "$PACKAGE_VERSION" ]] || die "manifest version mismatch"
 [[ "$(jq -er '.source_sha' "$verification")" == "$SOURCE_SHA" ]] || die "verification source SHA mismatch"
 [[ "$(jq -er '.version' "$verification")" == "$PACKAGE_VERSION" ]] || die "verification version mismatch"
 
-# Every artifact named below must also appear in the verification record's
-# verified_files list. A file that was published but not verified must never be
-# advertised as an update.
+# Every advertised artifact must be in the record's verified_files.
 verified_names="$(jq -c '.verified_files' "$verification")"
 
 # --- Publication format -> UPDATE-SPEC §5 install-type key -------------------
 #
-# Only DIRECTLY updatable formats are listed. Deliberately absent:
-#   flatpak / snap  - published as bundle files, but a Flatpak or Snap install
-#                     is updated by its own ecosystem. Advertising a direct
-#                     download to those users would be telling them an action is
-#                     available that they must not take; they are described in
-#                     `channels` instead (UPDATE-SPEC §4, §10).
-#   checksums       - SHA256SUMS is a release convenience asset, not a package.
+# Only directly updatable formats. Flatpak and snap installs are updated by
+# their own ecosystems and are described in `channels` instead (UPDATE-SPEC §4,
+# §10); SHA256SUMS is not a package.
 declare -a update_formats=(
     windows-msi windows-setup windows-portable
     appimage deb rpm
@@ -67,17 +54,10 @@ declare -A install_key_of=(
 
 # --- Optional GitHub bandwidth mirror (MIRROR-SPEC §3) ------------------------
 #
-# When mirroring is configured, each artifact gains ONE optional field:
-# `mirror_url`, derived deterministically from GITHUB_MIRROR_REPO + the release
-# tag + the filename. It is emitted ONLY when mirroring is enabled — a URL that
-# will not resolve is worse than no field at all, and an absent `mirror_url`
-# already means "no mirror for this artifact", which is exactly today's
-# behaviour.
-#
-# The field is inside the SIGNED bytes on purpose: the mirror location is chosen
-# by the release authority, not discovered at runtime. `url` (canonical, GitLab)
-# stays required and stays the fallback, and `schema` stays 1 — an older client
-# ignores the unknown field, and a newer client works fine without it.
+# With mirroring enabled, each artifact gets an optional `mirror_url` derived
+# from GITHUB_MIRROR_REPO, the tag and the filename; otherwise the field is
+# absent. It is signed, so the release authority chooses the mirror location.
+# `url` stays required and `schema` stays 1; older clients ignore the field.
 if update_mirror_enabled; then
     update_mirror_repo_valid "$GITHUB_MIRROR_REPO" || \
         die "GITHUB_MIRROR_REPO must be <owner>/<repo>"
@@ -91,8 +71,7 @@ artifacts='{}'
 for fmt in "${update_formats[@]}"; do
     entry="$(jq -c --arg f "$fmt" '[.entries[] | select(.format == $f)] | first // empty' "$manifest")"
     if [[ -z "$entry" ]]; then
-        # Never invent an entry for a format the publication manifest does not
-        # carry. An absent install type simply means "no direct download".
+        # An absent install type means "no direct download".
         printf 'No published %s artifact; omitting %s from the update manifest\n' \
             "$fmt" "${install_key_of[$fmt]}" >&2
         continue
@@ -105,9 +84,7 @@ for fmt in "${update_formats[@]}"; do
 
     [[ "$sha256" =~ ^[0-9a-f]{64}$ ]] || die "published $fmt entry has a malformed SHA-256"
     [[ "$size" =~ ^[1-9][0-9]*$ ]] || die "published $fmt entry has a non-positive size"
-    # HTTPS only, and only on the canonical public release host. The client
-    # re-validates this against a compiled-in allowlist; publishing anything
-    # else would simply produce a manifest it refuses.
+    # HTTPS on the canonical registry only; the client enforces an allowlist.
     [[ "$url" == https://* ]] || die "published $fmt URL is not https: $url"
     [[ "$url" == "${CANONICAL_API_ROOT}/packages/generic/${PACKAGE_NAME}/${PACKAGE_VERSION}/"* ]] || \
         die "published $fmt URL is not on the canonical release registry path"
@@ -124,8 +101,7 @@ for fmt in "${update_formats[@]}"; do
         [[ "$mirror_url" == https://* ]] || die "derived mirror URL is not https: $mirror_url"
     fi
 
-    # The empty case adds NOTHING, rather than a null or an empty string: an
-    # absent field is the documented "no mirror" state.
+    # No mirror means an absent field, not null or "".
     artifacts="$(jq -c \
         --arg key "${install_key_of[$fmt]}" \
         --arg filename "$filename" \
@@ -142,16 +118,9 @@ done
 
 # --- Ecosystem channels ------------------------------------------------------
 #
-# Honest by construction and driven entirely by variables, so flipping one later
-# is a variable change rather than a logic change.
-#
-# Today all four are false, and that is not a placeholder:
-#   * There is no Flathub publication. The .flatpak in the release is a bundle
-#     file a user installs by hand; `flatpak update` will never see it.
-#   * There is no Snap Store publication. Same situation for the .snap.
-#   * There is no APT repository and no DNF/YUM repository. The .deb and .rpm
-#     are direct downloads only, which is exactly why they appear in `artifacts`
-#     and their repo channels do not.
+# Driven by variables so enabling a channel needs no code change. All four are
+# false: no Flathub, Snap Store, APT or DNF/YUM publication exists, and the
+# release bundles are manual downloads.
 : "${UPDATE_CHANNEL_FLATPAK_AVAILABLE:=false}"
 : "${UPDATE_CHANNEL_FLATPAK_VERSION:=}"
 : "${UPDATE_CHANNEL_FLATPAK_NOTE:=No Flathub publication exists. The .flatpak bundle on the release page is a manual download, not an update source.}"
@@ -199,11 +168,8 @@ channels="$(jq -cn \
 [[ "$LIGHTNING_RELEASE_BASE_URL" == https://* ]] || die "release base URL must be https"
 release_notes_url="${LIGHTNING_RELEASE_BASE_URL}/-/releases/${RELEASE_TAG}"
 
-# Timestamp source, in order: an explicit override, then the pipeline's own
-# creation time. Both are stable across a job retry — "now" is not, and the
-# per-release copy is immutable, so a retry that produced a different byte
-# string would be refused at publication time for a reason that looks like
-# tampering.
+# An explicit override, else the pipeline creation time: both are stable
+# across retries, which the immutable per-release copy requires.
 released="${UPDATE_RELEASED_AT:-${CI_PIPELINE_CREATED_AT:-}}"
 if [[ -z "$released" ]]; then
     released="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -212,16 +178,11 @@ elif [[ ! "$released" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z
     released="$(date -u -d "$released" +%Y-%m-%dT%H:%M:%SZ)" || die "could not normalise the release timestamp"
 fi
 
-# EXPIRY. A signature proves who produced the manifest, never that it is the
-# CURRENT one: without an expiry a captured `latest` pair could be replayed to
-# hold every installation on a vulnerable version indefinitely while the UI
-# said "up to date". Every Lightning from 0.8.4 REFUSES a manifest with no
-# `expires` and reports one past it as "cannot confirm", not "up to date".
-# Measured from `released` so a retry stays byte-identical. If a release
-# lull outlasts the window, the `latest` slot is REFRESHED without a release:
-# publish-update-manifest.sh with UPDATE_REFRESH_LATEST_ONLY=true, the
-# original UPDATE_RELEASED_AT, and an explicit UPDATE_EXPIRES_AT (which takes
-# precedence over the window) -- see docs/update-manifest.md.
+# A signature does not prove freshness; `expires` limits how long a captured
+# manifest can be replayed. Clients from 0.8.4 require it. It is measured from
+# `released` to stay retry-stable. To extend it without a release, refresh
+# `latest` with UPDATE_REFRESH_LATEST_ONLY=true, the original
+# UPDATE_RELEASED_AT and an explicit UPDATE_EXPIRES_AT (docs/update-manifest.md).
 : "${UPDATE_MANIFEST_VALIDITY_DAYS:=120}"
 [[ "$UPDATE_MANIFEST_VALIDITY_DAYS" =~ ^[1-9][0-9]{0,2}$ ]] && (( 10#$UPDATE_MANIFEST_VALIDITY_DAYS <= 366 )) || \
     die "UPDATE_MANIFEST_VALIDITY_DAYS must be a decimal integer between 1 and 366"
@@ -241,10 +202,8 @@ tmp_cleanup() { rm -f "$notes_file"; }
 trap tmp_cleanup EXIT
 : >"$notes_file"
 if [[ "${UPDATE_INCLUDE_RELEASE_NOTES:-true}" == true ]]; then
-    # Same resolution order as finalize-release.sh, so the in-app notes and the
-    # release page cannot describe different things. The policy footer that
-    # finalize-release appends is deliberately NOT added here: it is a release
-    # page requirement, not update content.
+    # Same resolution order as finalize-release.sh; its policy footer is for
+    # the release page and is deliberately omitted.
     if [[ -n "${RELEASE_NOTES_B64:-}" ]]; then
         printf '%s' "$RELEASE_NOTES_B64" | base64 -d >"$notes_file" 2>/dev/null || \
             die "RELEASE_NOTES_B64 is not valid base64"
@@ -254,7 +213,7 @@ if [[ "${UPDATE_INCLUDE_RELEASE_NOTES:-true}" == true ]]; then
 fi
 
 out="$ROOT/dist/${UPDATE_MANIFEST_NAME}"
-# -S sorts every object's keys, which is what makes the bytes reproducible.
+# -S sorts keys so the bytes are reproducible.
 jq -S -n \
     --arg version "$PACKAGE_VERSION" \
     --arg channel "$UPDATE_CHANNEL" \
@@ -272,10 +231,8 @@ jq -S -n \
       release_notes_url:$release_notes_url, release_notes:$release_notes,
       artifacts:$artifacts, channels:$channels}' >"$out"
 
-# The client fetches this with a hard 1 MiB bound (UPDATE-SPEC §2). Stay far
-# below it; if release notes ever push past this, shorten them or publish with
-# UPDATE_INCLUDE_RELEASE_NOTES=false rather than shipping a manifest no client
-# will accept.
+# The client bound is 1 MiB (UPDATE-SPEC §2); stay well below it. If notes are
+# too long, shorten them or set UPDATE_INCLUDE_RELEASE_NOTES=false.
 manifest_size="$(wc -c <"$out" | tr -d ' ')"
 (( manifest_size <= 262144 )) || \
     die "update manifest is ${manifest_size} bytes; the client bound is 1 MiB and the pipeline limit is 256 KiB"

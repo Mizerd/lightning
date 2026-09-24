@@ -1,46 +1,15 @@
-# snap.yaml TEMPLATE for the Lightning snap. build-snap.sh substitutes
-# @VERSION@ and packs the tree with mksquashfs.
+# snap.yaml template; build-snap.sh substitutes @VERSION@ and packs the
+# AppImage job's bundled AppDir with mksquashfs.
 #
-# Why not snapcraft: snapcraft is distributed only as a snap and its
-# build-snaps/base handling requires a running snapd, which the
-# Docker-outside-of-Docker runner fleet cannot provide, and the core24
-# Ubuntu archive Qt (6.4) is older than Lightning's minimum (6.5). A snap is
-# a squashfs with meta/snap.yaml, so the pipeline packs the fully bundled
-# AppDir produced by the AppImage job (Debian 13 Qt) directly. Strict
-# confinement is DECLARED with the interfaces below; because no snapd can
-# run inside this fleet, confinement behaviour is validated structurally in
-# CI, not against a live snapd.
+# Not snapcraft: it needs a running snapd, which the runner fleet cannot
+# provide, and core24's Qt (6.4) is older than Lightning's minimum (6.5).
+# Confinement is therefore only validated structurally in CI.
 #
-# AND STRUCTURAL VALIDATION MISSED THAT THIS SNAP COULD NOT START AT ALL.
-# Run for the first time under a real snapd on Ubuntu 24.04 (2026-09-13) it
-# failed three ways before showing a window, and every one of them is
-# invisible to a check that asks "is the file present":
-#
-#   1. Qt could not reach the compositor. snapd remaps XDG_RUNTIME_DIR to
-#      $XDG_RUNTIME_DIR/snap.lightning and the Wayland socket stays one level
-#      up, so the relative WAYLAND_DISPLAY every session sets resolved to
-#      nothing. snapcraft's desktop-launch bridges it; this hand-written
-#      launcher did not. Fixed in build-snap.sh's launcher.
-#   2. No GL. The payload carries libEGL.so.1/libGL.so.1 because `ldd` sees
-#      them, but those are glvnd DISPATCH stubs -- the vendor driver is
-#      dlopened and nothing staged it, and core24 has no Mesa. Under strict
-#      confinement /usr is the base snap's, so the host's Mesa is unreachable
-#      BY CONSTRUCTION. Qt fell back to its software renderer, which cannot
-#      draw video at all: no call video, no screen share. Fixed by the
-#      gpu-2404 content plug below.
-#   3. It then SEGFAULTED, because core24 carries no xkb keymaps and no
-#      fontconfig configuration. Both are staged now. FONTS are NOT: their
-#      search path is absolute, so a tree under $SNAP is inert, and snapd's
-#      `desktop` interface already bind-mounts the host's font directories.
-#   4. The microphone reported "Connection refused" and the pipeline cascaded
-#      into "srtpenc0: Could not initialize SRTP encoder" -- the PipeWire and
-#      Pulse sockets sit one level up from the remapped runtime dir exactly as
-#      the compositor socket does. Same bridge, same cause.
-#
-# GENERALISE, for the fifth time in this repository: a dependency that is
-# DLOPENED is invisible to `ldd`, so "the library is staged" is not "the
-# feature works". Only running the shipped artefact the way a user runs it
-# answers the question.
+# Under strict confinement the runtime dir is remapped to
+# $XDG_RUNTIME_DIR/snap.lightning, so the launcher must bridge the Wayland,
+# PipeWire and Pulse sockets one level up; core24 has no Mesa, xkb keymaps or
+# fontconfig, so GL comes from the gpu-2404 plug below and the latter two are
+# staged. Fonts come from the host through the `desktop` interface.
 name: lightning
 version: "@VERSION@"
 summary: Native Matrix desktop client
@@ -65,42 +34,25 @@ apps:
       - desktop-legacy
       - opengl
       - audio-playback
-      # Voice/video calling. audio-playback covers only what the user HEARS;
-      # the microphone is a separate interface, so without this a call is
-      # one-directional silence. It is not auto-connected on every system, so
-      # a user may still have to `snap connect lightning:audio-record`.
+      # The microphone; audio-playback covers output only. Not auto-connected
+      # everywhere.
       - audio-record
-      # v4l2src opens /dev/video* directly (autovideosrc is deliberately not
-      # used -- on a PipeWire desktop pipewiresrc outranks v4l2src and
-      # produces no frames), so the camera needs this interface rather than
-      # the portal. Screen sharing takes the portal route instead and rides
-      # on the desktop interface above.
+      # v4l2src opens /dev/video* directly (autovideosrc would pick
+      # pipewiresrc, which yields no frames), so the camera needs this rather
+      # than the portal. Screen sharing uses the portal via `desktop`.
       - camera
       # libsecret / Secret Service access for token storage.
       - password-manager-service
       - gpu-2404
 
-# GRAPHICS, FROM CANONICAL'S MESA CONTENT SNAP.
+# GL from Canonical's Mesa content snap rather than a staged driver stack,
+# which must match the kernel's DRM and receives its own security fixes. The
+# launcher execs through the provider's wrapper when it is mounted and falls
+# back to software rendering (no call video) when it is not.
 #
-# A content plug rather than staging Mesa ourselves: the driver stack is
-# large, it has to match the kernel's DRM, and it gains security fixes on its
-# own schedule -- all three are arguments for letting the platform ship it.
-# The provider mounts at $SNAP/gpu-2404 and carries a wrapper that sets
-# LD_LIBRARY_PATH, __EGL_VENDOR_LIBRARY_DIRS and the dri driver path before
-# exec'ing the app; the launcher goes through it when it is present and falls
-# back to a direct exec when it is not, so an unconnected snap still starts
-# (on the software renderer, with the app's own warning).
-#
-# `default-provider` IS NOT AUTO-CONNECTION, and reading it as such would
-# ship the defect this plug exists to fix. snapd's base declaration for
-# `content` allows auto-connection only when the plug snap's publisher equals
-# the slot snap's; mesa-2404 is Canonical's and Lightning is not. So the
-# store will INSTALL mesa-2404 alongside and then leave the interface
-# disconnected, and a user who does nothing runs on the software renderer
-# with no call video at all. Until a store snap-declaration grants it, the
-# connection is manual and the install instructions have to say so -- as they
-# already must for `camera`, `audio-record` and `password-manager-service`,
-# which are manual for the same reason:
+# `default-provider` installs mesa-2404 but does not auto-connect it: content
+# auto-connection requires the same publisher. Until a store declaration
+# grants it, these connections are manual:
 #
 #   snap connect lightning:gpu-2404 mesa-2404:gpu-2404
 #   snap connect lightning:audio-record

@@ -31,9 +31,8 @@ while (($#)); do
         --upload-file) upload_file="$2"; shift 2 ;;
         --data-urlencode) urlenc+=("$2"); shift 2 ;;
         --dump-header) dump_header="$2"; shift 2 ;;
-        # A credential file, never a credential argument. Its CONTENT is
-        # deliberately never read or logged here: the only thing the mock needs
-        # to know is whether a request was authenticated at all.
+        # A credential file, never an argument. Its content is never read;
+        # the mock only records whether the request was authenticated.
         --config) config_file="$2"; shift 2 ;;
         --header|--data|--data-binary|--max-redirs|--retry|--retry-delay) shift 2 ;;
         --silent|--show-error|--location|--fail|--retry-all-errors) shift ;;
@@ -44,8 +43,8 @@ done
 
 if [[ -n "${MOCK_CURL_LOG:-}" ]]; then
     printf '%s %s\n' "$method" "$url" >>"$MOCK_CURL_LOG"
-    # Sidecar log, so appending the auth state cannot change the shape of the
-    # request log the existing publication tests parse.
+        # Sidecar log, so the request log the publication tests parse keeps
+        # its shape.
     if [[ -n "$config_file" ]]; then
         printf '%s %s AUTH\n' "$method" "$url" >>"${MOCK_CURL_LOG}.auth"
     else
@@ -112,8 +111,7 @@ write_dump_header() { # status
 
 # --- GitHub mirror API ---
 #
-# Matched FIRST and by host: GitHub URLs also contain "/releases/", which the
-# GitLab branches below would otherwise claim.
+# Matched first, by host: GitHub URLs also contain "/releases/".
 if [[ "$url" == https://api.github.com/* || "$url" == https://uploads.github.com/* \
       || "$url" == https://github.com/* ]]; then
     mkdir -p "$GH_ASSETS" "$GH_ASSETS-update-latest"
@@ -137,8 +135,8 @@ if [[ "$url" == https://api.github.com/* || "$url" == https://uploads.github.com
         elif [[ "${MOCK_GITHUB_TAG_MISSING:-false}" == true ]]; then
             respond 404 '{"message":"Not Found"}'
         else
-            # Default: an ANNOTATED tag, which is what finalize-release creates,
-            # so the mirror's peel path is the one exercised by default.
+            # Default: an annotated tag, as finalize-release creates, so the
+            # mirror's peel path is exercised.
             body="{\"object\":{\"type\":\"${MOCK_GITHUB_TAG_TYPE:-tag}\",\"sha\":\"${MOCK_GITHUB_TAG_OBJECT_SHA:-${MOCK_SOURCE_SHA:?}}\"}}"
         fi
     elif [[ "$url" == *"/git/tags/"* ]]; then
@@ -193,12 +191,10 @@ if [[ "$url" == https://api.github.com/* || "$url" == https://uploads.github.com
         tag="${rest%%/*}"
         name="${url##*/}"
         dir="$(gh_assets_dir_for_tag "$tag")"
-        # An eventually-consistent CDN has TWO failure shapes, and only one of
-        # them is a 404. MOCK_GITHUB_STALE_READBACKS makes the first N reads of
-        # each asset serve the PREVIOUS object at a 200, which is what GitHub
-        # did to 0.9.3's manifest mirror: correct bytes stored, stale bytes
-        # served, and a read-back that compared the digest once called it a
-        # corrupt upload.
+        # A CDN can also serve the previous object with a 200.
+        # MOCK_GITHUB_STALE_READBACKS makes the first N reads of each asset
+        # stale, so a read-back must retry rather than call the upload
+        # corrupt.
         stale_reads="${MOCK_GITHUB_STALE_READBACKS:-0}"
         stale_counter="$STATE/stale-readbacks-${tag}-${name}"
         stale_seen=0
@@ -221,14 +217,13 @@ elif [[ "$url" == *"/packages/generic/"* ]]; then
     gen_name="${gen_path%%/*}"
     file="${url##*/}"
     if [[ "$gen_name" == "${MOCK_GENERIC_FLAT_PACKAGE:-lightning}" ]]; then
-        # Historic flat layout for the release package: its files live directly
-        # in $REG so the package_files listing below can enumerate them, and so
-        # the existing publication tests keep working unchanged.
+        # The release package keeps a flat layout directly in $REG so the
+        # package_files listing below can enumerate it.
         dest="$REG/$file"
     else
-        # Any other generic package (today: the update manifest) keeps its full
-        # <name>/<version>/ path, so the immutable per-release copy and the
-        # mutable "latest" slot are genuinely distinct destinations.
+        # Other generic packages (the update manifest) keep their full
+        # <name>/<version>/ path, so the per-release copy and the "latest"
+        # slot are distinct.
         dest="$STATE/registry-$gen_path"
         mkdir -p "$(dirname "$dest")"
     fi
@@ -305,16 +300,14 @@ elif [[ "$url" == *"/releases/"*"/assets/links"* && "$method" == GET ]]; then
     body="$(cat "$LINKS")"
 elif [[ "$url" == *"/releases/"*"/assets/links" && "$method" == POST ]]; then
     name="$(field name)"; lurl="$(field url)"
-    # Append to links state.
     tmp="$(mktemp)"
     "${MOCK_JQ:?}" --arg n "$name" --arg u "$lurl" \
         '. + [{name:$n,url:$u,link_type:"package"}]' "$LINKS" >"$tmp" && mv "$tmp" "$LINKS"
     respond 201 '{"id":1}'
 # --- Release object ---
 elif [[ "$url" == *"/releases" && "$method" == POST ]]; then
-    # create release
     printf '1' >"$STATE/release_created"
-    # seed the two links from the create payload's manifest links via state file
+    # Seed the links from the create payload via the state file.
     if [[ -n "${MOCK_CREATE_LINKS:-}" ]]; then
         printf '%s' "$MOCK_CREATE_LINKS" >"$LINKS"
     fi

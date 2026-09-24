@@ -70,20 +70,16 @@ if [[ -n "${EXPECTED_SOURCE_SHA:-}" && "$RESOLVED_SHA" != "$EXPECTED_SOURCE_SHA"
 fi
 
 git -C "$SOURCE_DIR" checkout --detach "$RESOLVED_SHA"
-# Submodules, if the source ever gains any, are fetched WITHOUT the askpass
-# helper: it answers any prompt with the job token, and a .gitmodules entry
-# naming a foreign https host would otherwise be handed that token. Every
-# submodule URL must live on the canonical host, and none needs a credential.
+# Submodules are fetched without the askpass helper, which would hand the job
+# token to any host a .gitmodules entry names. Only the canonical host is
+# allowed, and it needs no credential.
 if [[ -f "$SOURCE_DIR/.gitmodules" ]]; then
     while IFS= read -r sub_url; do
         [[ "$sub_url" == https://gitlab.smetonis.net/* ]] || \
             die "refusing submodule outside the canonical host: ${sub_url}"
     done < <(git -C "$SOURCE_DIR" config --file .gitmodules --get-regexp '^submodule\..*\.url$' | awk '{print $2}')
 fi
-# Not --recursive: the allowlist above reads the top-level .gitmodules only,
-# and nested submodules would pull from hosts nothing checked. The source has
-# no submodules today; if it ever gains nested ones, extend the check per
-# level before adding the flag back.
+# Not --recursive: the allowlist above checks only the top-level .gitmodules.
 env -u GIT_ASKPASS -u LIGHTNING_GIT_USERNAME -u LIGHTNING_GIT_PASSWORD \
     git -C "$SOURCE_DIR" submodule update --init
 git -C "$SOURCE_DIR" remote set-url origin "$EXPECTED_REPOSITORY"

@@ -76,10 +76,8 @@ def main() -> int:
           "the section is not duplicated when notes already carry it")
 
     print("a prose mention of the policy does not suppress the disclosure")
-    # This used to be the OPPOSITE assertion: any note containing the bare
-    # phrase suppressed the whole footer, including "the Windows artifacts in
-    # this release are not signed". Whoever writes the release notes must not
-    # be able to switch off a security disclosure with a sentence.
+    # Release notes must not be able to switch off a security disclosure
+    # (e.g. unsigned Windows artifacts) by containing the phrase.
     custom = "# Notes\n\nSee our Code signing policy elsewhere.\n"
     prose_body = append_footer(custom)
     check(prose_body != custom and "## Code signing policy" in prose_body,

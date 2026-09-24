@@ -21,19 +21,12 @@ rpm -qpR "$package" | tee "$ROOT/dist/rpm-requires.txt"
 rpmlint "$package" >"$ROOT/dist/rpm-rpmlint.log" 2>&1 || true
 cat "$ROOT/dist/rpm-rpmlint.log"
 
-# Waived rpmlint errors, exact "<check> <argument>" pairs. Each needs a reason
-# here, and a waiver that STOPS FIRING is itself a failure below: a stale entry
-# is how a real error later slips through under an old justification.
+# Waived rpmlint errors as exact "<check> <argument>" pairs, each with a
+# reason. A waiver that stops firing fails the build so it cannot go stale.
 #
 # explicit-lib-dependency libnice-gstreamer1
-#   rpmlint fires this on any Requires whose name looks like a library, on the
-#   premise that rpm's automatic soname dependencies already cover it. They
-#   cannot cover this one: libnice-gstreamer1 ships a GStreamer PLUGIN
-#   (libgstnice.so) that is dlopen'd from the plugin path at runtime, so it
-#   appears in no ELF NEEDED entry of ours and the auto-generator never sees
-#   it. Dropping the Requires would produce a package that installs cleanly
-#   and then refuses every call — see the comment above it in
-#   packaging/rpm/lightning.spec.
+#   It ships a dlopen'd GStreamer plugin (libgstnice.so) that rpm's soname
+#   generator cannot see, so the explicit Requires is needed.
 rpmlint_waivers=(
     "explicit-lib-dependency libnice-gstreamer1"
 )
@@ -59,8 +52,7 @@ trap cleanup EXIT
 rpm2cpio "$package" | (cd "$audit_root" && cpio -idm --quiet)
 binary="$audit_root/usr/bin/lightning-matrix"
 [[ -x "$binary" ]] || die "packaged executable is missing"
-# The update helper ships beside the application in every format. Without it the
-# in-app updater has nothing to hand a verified .rpm to and the feature is inert.
+# Without the update helper the in-app updater is inert.
 updater="$audit_root/usr/bin/lightning-updater"
 [[ -x "$updater" ]] || die "packaged update helper is missing"
 file "$binary" "$updater" | tee "$ROOT/dist/rpm-file.txt"
@@ -107,10 +99,8 @@ if grep -Ei 'module .* is not installed|cannot load library|failed to load.*plug
     die "RPM headless launch reported a missing runtime component"
 fi
 
-# The call media engine, asked of the INSTALLED package -- see validate-deb.sh
-# for why nothing else can see this. It doubles as proof that the spec's
-# GStreamer Requires resolved: the engine's element probe runs against whatever
-# dnf actually pulled in, and rpm's automatic generator can see none of it.
+# Ask the installed package for its call media engine; this also proves the
+# spec's GStreamer Requires resolved.
 set +e
 (cd /tmp && timeout 60s /usr/bin/lightning-matrix --call-media-status) \
     >"$ROOT/dist/rpm-call-media-status.txt" 2>&1
@@ -118,9 +108,7 @@ call_media_status=$?
 set -e
 assert_call_media_engine RPM "$ROOT/dist/rpm-call-media-status.txt" "$call_media_status"
 
-# THE VOICE-DELAY PROPERTY, asked of the same shipped artifact. See
-# assert_queue_selftest in lib.sh for what it measures and why it is not yet a
-# hard gate.
+# Voice-delay self-test; see assert_queue_selftest in lib.sh.
 set +e
 (cd /tmp && timeout 180s /usr/bin/lightning-matrix --call-queue-selftest) \
     >"$ROOT/dist/rpm-queue-selftest.txt" 2>&1
@@ -128,10 +116,8 @@ queue_selftest_status=$?
 set -e
 assert_queue_selftest RPM "$ROOT/dist/rpm-queue-selftest.txt" "$queue_selftest_status"
 
-# THE CALL SOUNDS, asked of the same shipped artifact. WARN-ONLY: this
-# container has no sound server, and QSoundEffect cannot reach Ready without an
-# output device, so here the answer is normally UNMEASURED. The transcript is
-# kept regardless. See assert_call_sounds_status in lib.sh.
+# Call sounds, warn-only: without an output device QSoundEffect never reaches
+# Ready, so this is normally unmeasured here. See assert_call_sounds_status.
 set +e
 (cd /tmp && timeout 60s /usr/bin/lightning-matrix --call-sounds-status) \
     >"$ROOT/dist/rpm-call-sounds-status.txt" 2>&1
@@ -139,17 +125,14 @@ call_sounds_status=$?
 set -e
 assert_call_sounds_status RPM "$ROOT/dist/rpm-call-sounds-status.txt" "$call_sounds_status"
 
-# The image DECODERS, proving the spec's image-format Requires/Recommends
-# resolved. rpm's automatic dependency generator cannot see a dlopen'd Qt
-# plugin any more than it can see a GStreamer one, and Fedora's qt6-qtbase-gui
-# carries libqgif/libqico/libqjpeg only.
+# Image decoders are dlopen'd plugins; prove the spec's Requires/Recommends
+# resolved.
 set +e
 (cd /tmp && timeout 60s env QT_QPA_PLATFORM=offscreen /usr/bin/lightning-matrix --image-format-status) \
     >"$ROOT/dist/rpm-image-format-status.txt" 2>&1
 image_format_status=$?
 set -e
-# jxl is expected: dnf installs weak dependencies by default, so
-# kf6-kimageformats comes in with the package.
+# jxl is expected: dnf installs weak dependencies (kf6-kimageformats) by default.
 assert_image_formats RPM "$ROOT/dist/rpm-image-format-status.txt" "$image_format_status" jxl
 
 # The generated build-only key header must never ship inside the package.
@@ -157,8 +140,7 @@ if grep -q 'LightningGifBuildKeys.h' "$ROOT/dist/rpm-contents.txt"; then
     die "RPM contains the generated GIF build-key header"
 fi
 
-# GIF provider configuration must hold with every key variable unset, proving
-# the values are embedded in the binary rather than read from the environment.
+# With every key variable unset, prove the GIF keys are embedded in the binary.
 gif_env_clear() {
     env -u GIPHY_API_KEY -u KLIPY_API_KEY \
         -u LIGHTNING_GIPHY_API_KEY -u LIGHTNING_KLIPY_API_KEY \

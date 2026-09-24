@@ -49,9 +49,8 @@ variables:
     value: ""
     description: "create only: base64-encoded Markdown notes. Otherwise a tracked docs/releases/vX.Y.Z.md is used."
   BUILD_TYPE: "Release"
-  # Per-build parallelism. configure-build.sh derives CMAKE_BUILD_PARALLEL_LEVEL
-  # and CARGO_BUILD_JOBS from this; 4 matches the job-container CPU cap on
-  # both runner hosts.
+  # configure-build.sh derives CMAKE_BUILD_PARALLEL_LEVEL and CARGO_BUILD_JOBS
+  # from this; 4 matches the job-container CPU cap on both runner hosts.
   BUILD_JOBS: "4"
   # Publication target is fixed to Lightning project 6 and enforced in-script.
   TARGET_PROJECT_ID: "6"
@@ -62,17 +61,13 @@ variables:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api"'
 
-# Shared gate for every publish/verify/release job. Publication is enabled
-# only on the packaging project's default branch with PUBLISH_PACKAGES=true.
-# The gate deliberately does NOT depend on RELEASE_ACTION, so both actions
-# always include the publish, verify, and release jobs.
+# Shared gate for every publish/verify/release job: default branch with
+# PUBLISH_PACKAGES=true. Independent of RELEASE_ACTION, so both actions run
+# the publish, verify and release jobs.
 .publish-rules:
-  # Publish-chain API traffic uses the internal GitLab endpoint, matching the
-  # runner fleet's polling/clone convention. The public URL is Cloudflare-
-  # proxied with a ~100 MB request-body cap, which large package files
-  # (Flatpak/AppImage/snap) would exceed. Durable URLs recorded in the
-  # manifest and release links stay on the canonical public host; only the
-  # in-job requests are routed internally, and credentials stay in headers.
+  # In-job API requests use the internal endpoint: the public URL sits behind
+  # a ~100 MB request-body cap that large packages exceed. URLs recorded in the
+  # manifest and release links stay on the public host.
   variables:
     PUBLISH_API_BASE: "http://10.195.35.2/api/v4"
   rules:
@@ -83,16 +78,10 @@ variables:
 # Native macOS gate: protected default branch, manually created pipeline, fully
 # pinned project-6 commit, and an explicit opt-in.
 #
-# Deliberately NOT constrained on BUILD_FORMATS, BUILD_WINDOWS_PACKAGES, or
-# PUBLISH_PACKAGES. The Mac is a dedicated host that shares nothing with the
-# Linux/Windows pools, so there is no capacity reason to exclude it from a
-# full-fleet run — and excluding it would mean macOS silently missing from
-# exactly the pipelines that build every other platform. With BUILD_FORMATS=none
-# this still yields a macOS-only pipeline; with BUILD_FORMATS=all it runs
-# alongside the Linux fleet, in parallel, on its own runner.
-#
-# It still never publishes: no publish job consumes its artifact and it has no
-# release action. See docs/macos-packaging.md.
+# Not constrained on BUILD_FORMATS or PUBLISH_PACKAGES: the Mac is a dedicated
+# host, so it runs alongside the Linux fleet rather than being silently left
+# out of full-fleet pipelines. BUILD_FORMATS=none gives a macOS-only pipeline.
+# See docs/macos-packaging.md.
 .macos-test-rules:
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_MACOS_PACKAGES == "true" && $SOURCE_REF =~ /^[0-9a-f]{40}$/'
@@ -108,14 +97,10 @@ variables:
       when: on_success
     - when: never
 
-# Build concurrency is bounded, not free: the build jobs are split across two
-# resource groups (a: deb/flatpak/snap, b: rpm/appimage), so at most TWO
-# package builds run at once anywhere. Each format's selector tag matches a
-# runner on BOTH hosts (the GitLab VM fleet and the mirrored fleet on
-# 10.195.35.6), so whichever matching runner is free takes the job. Per-host
-# overload is prevented by the hosts themselves: the remote VM runs one job
-# globally (concurrent=1), and the GitLab VM job containers are capped at
-# 4 CPU / 6 GiB so even two co-located builds leave GitLab EE headroom.
+# Build jobs are split across resource groups (a: deb/flatpak/snap,
+# b: rpm/appimage, c: Ubuntu deb) to bound concurrent package builds. Each
+# selector tag matches a runner on both hosts; the remote VM runs one job at a
+# time and the GitLab VM containers are capped at 4 CPU / 6 GiB.
 .build-base:
   extends: .trusted-pipeline
   stage: build
@@ -139,14 +124,9 @@ config-tests:
     DEBIAN_FRONTEND: "noninteractive"
   before_script:
     - apt-get update
-    # build-essential + cmake are for test-windows-version-resources.sh only: it drives the
-    # per-target version-resource injection against a two-executable stand-in
-    # project, which is the one part of the Windows metadata contract that
-    # cannot be checked by reading a file. It needs a real CMake plus a
-    # COMPLETE C toolchain for project(LANGUAGES C) -- a bare `gcc` under
-    # --no-install-recommends omits libc6-dev and cannot link, and no `make`
-    # leaves CMake without its default generator. Both were found the hard
-    # way (pipelines 99 and 100). It compiles nothing of Lightning's.
+    # build-essential + cmake are for test-windows-version-resources.sh, which
+    # configures a stand-in C project: a bare `gcc` under
+    # --no-install-recommends lacks libc6-dev and `make`.
     - >-
       apt-get install -y --no-install-recommends
       bash build-essential ca-certificates cmake git jq openssl python3 python3-yaml
@@ -158,51 +138,31 @@ config-tests:
     - ./packaging-ci/tests/test-windows-version-resources.sh
     - python3 ./packaging-ci/tests/test-pipeline-config.py
     - python3 ./packaging-ci/tests/test-windows-metadata.py
-    # The Flathub SUBMISSION manifest in the repository root — a version
-    # location nothing read until it had drifted a full release.
+    # The Flathub submission manifest in the repository root.
     - python3 ./packaging-ci/tests/test-flathub-manifest-pin.py
-    # Committed with the MSI payload work and invoked by nothing until
-    # 2026-09-06 -- the same "a test file can be unregistered" trap that hid
-    # nineteen shortcut cases, this time on the Windows install surface.
     - python3 ./packaging-ci/tests/test-msi-payload-completeness.py
     - python3 ./packaging-ci/tests/test-release-notes-policy.py
-    # The launcher entry and the icons it names -- the window icon, which on
-    # Wayland is decided by packaging alone: Qt implements no icon protocol
-    # there, so setWindowIcon() is inert and the compositor resolves the app id
-    # to a desktop entry or draws a placeholder. Reported against 0.9.x, once
-    # the AppImage stopped falling back to XWayland.
+    # On Wayland the window icon comes from the desktop entry alone; Qt's
+    # setWindowIcon() is inert there.
     - python3 ./packaging-ci/tests/test-appimage-desktop-entry.py
-    # The metainfo's screenshot URLs and its newest <release>. 0.9.5 shipped
-    # four screenshot URLs pinned to v0.9.4, a tag that does not contain the
-    # files, so every published package advertises four 404s and a Flathub
-    # repo lint fails outright. All three package validators run
-    # `appstreamcli validate --no-net`, and the network check is the only
-    # part that can see a dead URL -- so this answers the same question
-    # offline with `git ls-tree`, which fails on the commit rather than after
-    # the release. It also calls update-metainfo-release.sh, which was written
-    # for the second half of this and had no caller anywhere.
+    # Metainfo screenshot URLs and newest <release>. The package validators run
+    # `appstreamcli validate --no-net`, which cannot see a dead URL; this
+    # checks the pinned files offline with `git ls-tree`.
     - python3 ./packaging-ci/tests/test-metainfo-consistency.py
 
-# Proves the GitHub mirror can be written BEFORE anything is published. The
-# mirror job runs after the GitLab tag and release exist, so a dead or
-# expiring token found there fails a release at its most expensive moment
-# and leaves installed clients without their GitHub fallback. Fine-grained
-# GitHub tokens expire (one year at most); this job refuses to start a
-# publishing pipeline on one with fewer than two days left and warns from
-# thirty. It holds only the mirror token (environment `mirror`) and is a
-# clean no-op when GITHUB_MIRROR_REPO is unset. publish-packages `needs` it,
-# which is what makes it a gate rather than a report.
+# Proves the GitHub mirror token works before anything is published, since the
+# mirror job only runs after the GitLab tag and release exist. Refuses a token
+# with fewer than two days left and warns from thirty. Holds only the mirror
+# token (environment `mirror`); a no-op when GITHUB_MIRROR_REPO is unset.
+# publish-packages `needs` it, which makes it a gate.
 github-mirror-preflight:
   extends: .publish-rules
   stage: resolve
   image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
   needs: []
-  # HARD: a release that cannot reach GitHub is the failure this job exists
-  # to prevent, and it must be found before publication. The one publishing
-  # run that needs nothing from GitHub -- the lull REFRESH of the manifest
-  # (UPDATE_REFRESH_LATEST_ONLY=true) -- is recognised by the script itself,
-  # which exits successfully without touching GitHub, so a dead token can
-  # never block the refresh that keeps GitLab-reachable clients current.
+  # Hard failure by design. A manifest refresh (UPDATE_REFRESH_LATEST_ONLY=true)
+  # needs nothing from GitHub; the script exits successfully for it, so a dead
+  # token never blocks the refresh.
   retry:
     max: 2
     when: [script_failure, runner_system_failure, stuck_or_timeout_failure, api_failure]
@@ -221,14 +181,9 @@ resolve-source:
   stage: resolve
   image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
   tags: [apt, deb, package]
-  # THE FIRST JOB HOLDS THE SIGNING KEY, AND ONLY THIS JOB AND THE SIGNING JOB
-  # DO. resolve-source executes no project-6 code -- it clones, resolves a
-  # ref, and reads a version out of a file -- so the private key is safe
-  # here, and here is where the key/package consistency check MUST run: the
-  # build jobs bake the public half into every artifact, and a mismatch found
-  # after them is found after the packages are immutable. With the variable
-  # environment-scoped to `signing` (see sign-update-manifest) the six build
-  # jobs, which run project-6 CMake and every build.rs, never see it.
+  # Only this job and the signing job see the private signing key (environment
+  # `signing`). It executes no project-6 code, and the key/package consistency
+  # check must run before the build jobs embed the public half in artifacts.
   environment:
     name: signing
     action: prepare
@@ -239,9 +194,7 @@ resolve-source:
     DEBIAN_FRONTEND: "noninteractive"
   before_script:
     - apt-get update
-    # openssl: validate-release-request.sh derives the public half of the update
-    # signing key here, in the FIRST job, so a key/package mismatch fails before
-    # any build job embeds the wrong trust root into an artifact.
+    # openssl: validate-release-request.sh derives the public signing key here.
     - >-
       apt-get install -y --no-install-recommends
       ca-certificates coreutils git jq openssl
@@ -288,23 +241,13 @@ build-deb:
       fakeroot file git jq libsecret-1-dev libsqlite3-dev libssl-dev
       ninja-build patchelf pkg-config qt6-base-dev qt6-base-private-dev qt6-declarative-dev
       qt6-multimedia-dev qt6-tools-dev zstd
-    # GStreamer development files for the voice/video call media engine. The
-    # source's LIGHTNING_ENABLE_WEBRTC option is gated on a pkg-config probe of
-    # gstreamer-1.0, gstreamer-webrtc-1.0, gstreamer-sdp-1.0, gstreamer-app-1.0,
-    # gstreamer-video-1.0 and gstreamer-rtp-1.0; without these packages the probe
-    # fails, CMake configures the engine OUT in one STATUS line, and the package
-    # ships a client that refuses every call. That is exactly how 0.8.0 shipped
-    # on every Linux format. configure-build.sh now asserts the staged binary
-    # carries the engine, so removing these fails the BUILD rather than a user.
+    # GStreamer development files for the call media engine; without them the
+    # pkg-config probe fails and the build is rejected.
     - >-
       apt-get install -y --no-install-recommends
       libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
       libgstreamer-plugins-bad1.0-dev
-    # The rustup INSTALLER is version-addressed and checksum-verified before it
-    # runs. `sh.rustup.rs` was the one unverified executable in this pipeline:
-    # TLS alone proved who served it, not what it was, and it builds the Rust
-    # Matrix SDK -- E2EE, key handling, token storage -- into every signed
-    # package. Every other download here is pinned; this one now is too.
+    # The rustup installer is version-pinned and checksum-verified before it runs.
     - >-
       curl --fail --show-error --silent --location --max-redirs 3
       --proto '=https' --tlsv1.2
@@ -319,30 +262,13 @@ build-deb:
     - ./packaging-ci/scripts/build-deb.sh
     - ./packaging-ci/scripts/write-build-info.sh deb
 
-# ── THE SECOND DEB LANE: UBUNTU ────────────────────────────────────────────
+# Second deb lane: Ubuntu 26.04 LTS.
 #
-# One deb cannot serve both. dpkg-shlibdeps reads the BUILD HOST's library
-# versions and bakes them into Depends, so the Debian 13 lane declares
-# Qt >= 6.8.2 and GStreamer >= 1.26.2 — a floor Ubuntu 24.04 LTS (Qt 6.4.2)
-# cannot meet. Measured on a real Ubuntu install: the deb refuses outright,
-# and `qml6-module-qtquick-effects` does not exist in noble at all, because
-# QtQuick.Effects is Qt 6.5+. README advertised Ubuntu, Mint and Pop!_OS and
-# all three were wrong.
-#
-# Ubuntu 26.04 LTS is the answer and it was VERIFIED, not assumed:
-# `qml6-module-qtquick-effects` is PRESENT in resolute and ABSENT in noble.
-# So this lane targets 26.04 LTS, the current LTS, and Ubuntu 24.04 users are
-# pointed at the AppImage or the Flatpak, both of which carry their own Qt.
-#
-# It is the Debian job with three changes and no other divergence: the image,
-# DEB_SUFFIX (which the Debian lane leaves empty so its filename, links and
-# checksums never move), and its own resource_group so the two lanes do not
-# serialise on each other.
-#
-# Digest-pinned like every other image here, and NOT optional: config-tests
-# asserts it ("image ... is pinned by digest, not by tag") and refuses the
-# pipeline otherwise. That guard is right — a moving tag would silently change
-# what the shipped package was built against.
+# dpkg-shlibdeps bakes the build host's library versions into Depends, so the
+# Debian 13 deb requires Qt >= 6.8.2, which Ubuntu 24.04 (Qt 6.4.2, and no
+# qml6-module-qtquick-effects) cannot meet. 24.04 users get the AppImage or
+# Flatpak. This is the Debian job with a different image, DEB_SUFFIX and
+# resource_group only.
 build-deb-ubuntu:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
@@ -373,23 +299,13 @@ build-deb-ubuntu:
       fakeroot file git jq libsecret-1-dev libsqlite3-dev libssl-dev
       ninja-build patchelf pkg-config qt6-base-dev qt6-base-private-dev qt6-declarative-dev
       qt6-multimedia-dev qt6-tools-dev zstd
-    # GStreamer development files for the voice/video call media engine. The
-    # source's LIGHTNING_ENABLE_WEBRTC option is gated on a pkg-config probe of
-    # gstreamer-1.0, gstreamer-webrtc-1.0, gstreamer-sdp-1.0, gstreamer-app-1.0,
-    # gstreamer-video-1.0 and gstreamer-rtp-1.0; without these packages the probe
-    # fails, CMake configures the engine OUT in one STATUS line, and the package
-    # ships a client that refuses every call. That is exactly how 0.8.0 shipped
-    # on every Linux format. configure-build.sh now asserts the staged binary
-    # carries the engine, so removing these fails the BUILD rather than a user.
+    # GStreamer development files for the call media engine; without them the
+    # pkg-config probe fails and the build is rejected.
     - >-
       apt-get install -y --no-install-recommends
       libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
       libgstreamer-plugins-bad1.0-dev
-    # The rustup INSTALLER is version-addressed and checksum-verified before it
-    # runs. `sh.rustup.rs` was the one unverified executable in this pipeline:
-    # TLS alone proved who served it, not what it was, and it builds the Rust
-    # Matrix SDK -- E2EE, key handling, token storage -- into every signed
-    # package. Every other download here is pinned; this one now is too.
+    # The rustup installer is version-pinned and checksum-verified before it runs.
     - >-
       curl --fail --show-error --silent --location --max-redirs 3
       --proto '=https' --tlsv1.2
@@ -403,12 +319,8 @@ build-deb-ubuntu:
     - ./packaging-ci/scripts/prepare-pinned-source.sh
     - ./packaging-ci/scripts/build-deb.sh
     - ./packaging-ci/scripts/write-build-info.sh deb
-  # ITS OWN ARCHIVE NAME. `.build-base` names the archive
-  # `lightning-${FORMAT}-<pipeline>`, and FORMAT is "deb" in BOTH deb lanes —
-  # so the two jobs produced archives of the same name, and their
-  # `dist/build-info.json` overwrote one another wherever both were
-  # downloaded together. The package filenames already differ (DEB_SUFFIX);
-  # these did not.
+  # FORMAT is "deb" in both deb lanes; a distinct archive name keeps their
+  # dist/build-info.json from overwriting each other.
   artifacts:
     name: "lightning-deb-ubuntu-${CI_PIPELINE_ID}"
 
@@ -440,26 +352,14 @@ build-rpm:
       ninja-build openssl-devel patchelf pkgconf-pkg-config
       qt6-qtbase-devel qt6-qtbase-private-devel qt6-qtdeclarative-devel qt6-qtmultimedia-devel
       qt6-qtsvg-devel qt6-qttools-devel rpm-build sqlite-devel zstd
-    # GStreamer development files for the voice/video call media engine. The
-    # source's LIGHTNING_ENABLE_WEBRTC option is gated on a pkg-config probe of
-    # gstreamer-1.0, gstreamer-webrtc-1.0, gstreamer-sdp-1.0, gstreamer-app-1.0,
-    # gstreamer-video-1.0 and gstreamer-rtp-1.0; without these packages the probe
-    # fails, CMake configures the engine OUT in one STATUS line, and the package
-    # ships a client that refuses every call. That is exactly how 0.8.0 shipped
-    # on every Linux format. configure-build.sh now asserts the staged binary
-    # carries the engine, so removing these fails the BUILD rather than a user.
+    # GStreamer development files for the call media engine; without them the
+    # pkg-config probe fails and the build is rejected.
     - >-
       dnf install -y
       gstreamer1-devel gstreamer1-plugins-base-devel
       gstreamer1-plugins-bad-free-devel
-    # Fedora's system rust (1.96.1) OOMs compiling matrix-sdk under the 6 GiB
-    # runner cap; pin the same rustup toolchain the deb/appimage builds use so
-    # every Linux format builds the locked SDK identically.
-    # The rustup INSTALLER is version-addressed and checksum-verified before it
-    # runs. `sh.rustup.rs` was the one unverified executable in this pipeline:
-    # TLS alone proved who served it, not what it was, and it builds the Rust
-    # Matrix SDK -- E2EE, key handling, token storage -- into every signed
-    # package. Every other download here is pinned; this one now is too.
+    # Fedora's system rust OOMs compiling matrix-sdk under the 6 GiB runner cap;
+    # use the same pinned rustup toolchain as the other Linux builds.
     - >-
       curl --fail --show-error --silent --location --max-redirs 3
       --proto '=https' --tlsv1.2
@@ -492,22 +392,12 @@ build-flatpak:
     DEBIAN_FRONTEND: "noninteractive"
   before_script:
     - apt-get update
-    # elfutils: flatpak-builder invokes eu-strip/eu-elfcompress for the
-    # post-build debuginfo split.
+    # elfutils: flatpak-builder uses eu-strip/eu-elfcompress for debuginfo.
     #
-    # librsvg2-common is the gdk-pixbuf SVG LOADER MODULE, and it is
-    # load-bearing rather than cosmetic. flatpak-builder's cleanup phase runs
-    # `appstreamcli compose`, which rasterises the component's icon -- and
-    # since the release commit taught CMake to install the scalable icon
-    # under the app id, the SVG is the one it picks. librsvg2-2 (the library)
-    # arrives through another package's Depends; the LOADER does not, and
-    # --no-install-recommends is why. Without it compose answers
-    # `Unrecognized image file format`, drops the component, and fails the
-    # build on `file-read-error` / `filters-but-no-output`, two hints that
-    # name no file at all -- sixteen minutes in, five pipelines in a row on
-    # 2026-09-22. build-flatpak.sh now asks the same question in a second,
-    # before the build, so a future image that loses the module says so
-    # plainly; this line is what keeps the module here.
+    # librsvg2-common is gdk-pixbuf's SVG loader module, which
+    # `appstreamcli compose` needs to rasterise the scalable app icon.
+    # --no-install-recommends leaves it out; without it compose fails with
+    # `file-read-error` / `filters-but-no-output`. build-flatpak.sh checks for it.
     - >-
       apt-get install -y --no-install-recommends
       ca-certificates curl elfutils flatpak flatpak-builder git jq
@@ -547,69 +437,47 @@ build-appimage:
       qml6-module-qtquick qml6-module-qtquick-controls
       qml6-module-qtquick-dialogs qml6-module-qtquick-effects
       qml6-module-qtquick-layouts qml6-module-qtquick-window zstd
-    # GStreamer development files for the voice/video call media engine. The
-    # source's LIGHTNING_ENABLE_WEBRTC option is gated on a pkg-config probe of
-    # gstreamer-1.0, gstreamer-webrtc-1.0, gstreamer-sdp-1.0, gstreamer-app-1.0,
-    # gstreamer-video-1.0 and gstreamer-rtp-1.0; without these packages the probe
-    # fails, CMake configures the engine OUT in one STATUS line, and the package
-    # ships a client that refuses every call. That is exactly how 0.8.0 shipped
-    # on every Linux format. configure-build.sh now asserts the staged binary
-    # carries the engine, so removing these fails the BUILD rather than a user.
+    # GStreamer development files for the call media engine; without them the
+    # pkg-config probe fails and the build is rejected.
     - >-
       apt-get install -y --no-install-recommends
       libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
       libgstreamer-plugins-bad1.0-dev
-    # ...and the RUNTIME plugins, which the AppImage BUNDLES rather than
-    # depends on (build-appimage.sh stages them into the AppDir before
-    # linuxdeploy runs, so their own libraries are resolved too). The deb and
-    # rpm declare these as package dependencies instead; an AppImage has
-    # nobody to declare them to. The snap inherits this AppDir, so it inherits
-    # this list as well.
+    # Runtime plugins the AppImage bundles (build-appimage.sh stages them before
+    # linuxdeploy). The deb and rpm declare them as dependencies instead; the
+    # snap inherits this AppDir.
     - >-
       apt-get install -y --no-install-recommends
       gstreamer1.0-plugins-base gstreamer1.0-plugins-good
       gstreamer1.0-plugins-bad gstreamer1.0-nice gstreamer1.0-pipewire
       gstreamer1.0-alsa gstreamer1.0-gl
-    # NSS, PINNED EXPLICITLY RATHER THAN LEFT TO ARRIVE AS A DEPENDENCY.
-    # Debian builds libsrtp2 against NSS, and NSS dlopens libsoftokn3 and
-    # libfreebl3 from a runtime-derived path that no ELF walk can see. Without
-    # them staged, SRTP cannot initialise and the client carries no call media
-    # in either direction -- invisible on any host that has its own NSS, and
-    # deterministic under strict snap confinement, where core24 has none.
-    # build-appimage.sh dies if this directory is absent.
+    # NSS is listed explicitly: Debian's libsrtp2 uses NSS, which dlopens
+    # libsoftokn3 and libfreebl3, so no ELF walk finds them. Without them SRTP
+    # fails and calls carry no media (always so under snap confinement).
+    # build-appimage.sh fails if they are absent.
     - >-
       apt-get install -y --no-install-recommends
       libnss3
       libspa-0.2-modules libpipewire-0.3-modules
-    # THE LAST TWO ABOVE ARE NOT PULLED IN BY gstreamer1.0-pipewire, and their
-    # absence is invisible until a share is attempted: libpipewire dlopens its
-    # SPA plugins and PipeWire modules itself, so the bundle got the library and
-    # none of what the library loads. That is the 0.8.0/142 screen-share
-    # failure. build-appimage.sh stages only the subset it needs.
+    # The SPA and PipeWire module packages are not pulled in by
+    # gstreamer1.0-pipewire; libpipewire dlopens them, and screen share fails
+    # without them. build-appimage.sh stages the subset it needs.
     #
-    # client.conf comes from pipewire-bin, which is a 55-package install in this
-    # image (libpulse, libroc, libavahi, X libs) for ONE 4 KB file. Downloading
-    # and unpacking it installs nothing.
+    # client.conf comes from pipewire-bin; unpacking it avoids a 55-package
+    # install for one file.
     - >-
       ( cd /tmp && apt-get download pipewire-bin
       && dpkg-deb -x pipewire-bin_*.deb /opt/pipewire-conf )
     - test -f /opt/pipewire-conf/usr/share/pipewire/client.conf
-    # Qt IMAGE-FORMAT plugins, bundled for the same reason as the GStreamer
-    # ones: they are dlopen'd, so linuxdeploy-plugin-qt deployed only the three
-    # qtbase itself carries (gif, ico, jpeg) and every AppImage up to 0.8.0
-    # shipped a client that ACCEPTS image/webp in its own byte sniffers and
-    # cannot draw it.
+    # Qt image-format plugins are dlopen'd, so linuxdeploy-plugin-qt deploys only
+    # qtbase's own (gif, ico, jpeg); WebP and JPEG XL are staged explicitly.
     #
-    #   qt6-image-formats-plugins : libqwebp.so (240 kB package)
+    #   qt6-image-formats-plugins : libqwebp.so
     #   libjxl0.11                : the JPEG XL runtime kimg_jxl.so links
     #
-    # JPEG XL does NOT come from Qt. qt/qtimageformats has never contained a
-    # JXL plugin (v6.11.1 is dds/icns/jp2/macheif/macjp2/mng/tga/tiff/wbmp/webp);
-    # the only Qt JXL decoder is KDE's kimageformats. That package is UNPACKED
-    # rather than installed, exactly as pipewire-bin is above: installing it
-    # pulls libheif, libraw, OpenEXR, x265 and libavif into the image, and drops
-    # kimg_avif.so and kimg_heif.so into the very directory build-appimage.sh
-    # stages from — neither of which is shipped, deliberately (see the script).
+    # The only Qt JXL decoder is KDE's kimageformats. It is unpacked rather than
+    # installed, which would pull libheif/OpenEXR/x265 and drop unshipped
+    # kimg_avif/kimg_heif into the staging directory.
     - >-
       apt-get install -y --no-install-recommends
       qt6-image-formats-plugins libjxl0.11
@@ -618,11 +486,7 @@ build-appimage:
       && dpkg-deb -x kimageformat6-plugins_*.deb /opt/kimageformats )
     - >-
       test -f /opt/kimageformats/usr/lib/x86_64-linux-gnu/qt6/plugins/imageformats/kimg_jxl.so
-    # The rustup INSTALLER is version-addressed and checksum-verified before it
-    # runs. `sh.rustup.rs` was the one unverified executable in this pipeline:
-    # TLS alone proved who served it, not what it was, and it builds the Rust
-    # Matrix SDK -- E2EE, key handling, token storage -- into every signed
-    # package. Every other download here is pinned; this one now is too.
+    # The rustup installer is version-pinned and checksum-verified before it runs.
     - >-
       curl --fail --show-error --silent --location --max-redirs 3
       --proto '=https' --tlsv1.2
@@ -659,21 +523,11 @@ build-snap:
       artifacts: true
   before_script:
     - apt-get update
-    # THE GRAPHICS LIBRARIES ARE BUILD INPUTS FOR THE SNAP, not runtime
-    # dependencies of this job. build-snap.sh stages into the payload
-    # whatever the shipped binary cannot resolve against the AppDir alone —
-    # the base set linuxdeploy's excludelist deliberately leaves on the host,
-    # which a strictly confined snap cannot see. It has to have something to
-    # copy FROM, and this image is the right source: it is ubuntu:24.04, the
-    # same base the snap declares (`base: core24`), so anything staged from
-    # here is glibc-compatible with the base snap by construction.
-    #
-    # Measured 2026-09-11 under a real snapd, the first time a Lightning snap
-    # had ever been run: it installed and then died on `libEGL.so.1: cannot
-    # open shared object file`. Six libraries were unresolved inside the
-    # confinement and every one was absent from the payload AND from core24
-    # while present on the host, which is why `ldd` was happy unconfined and
-    # every CI check passed.
+    # The graphics libraries are build inputs for the snap: build-snap.sh stages
+    # whatever the binary cannot resolve against the AppDir (linuxdeploy's
+    # excludelist leaves them to the host, which a confined snap cannot see).
+    # This image matches the snap's base (core24), so they are
+    # glibc-compatible with it.
     - >-
       apt-get install -y --no-install-recommends
       ca-certificates file jq python3 python3-yaml squashfs-tools zstd
@@ -683,29 +537,16 @@ build-snap:
       libxcb-render-util0 libxcb-shape0 libxcb-shm0 libxcb-sync1
       libxcb-xfixes0 libxcb-xkb1 libxcb-cursor0 libxcb-util1
       libxcb-glx0 libxcb-present0 libxcb-dri3-0
-    # BINUTILS FIRST, AND IT IS NOT OPTIONAL. ubuntu:24.04 ships no `readelf`,
-    # and build-snap.sh's payload guard walks each plugin's NEEDED graph with
-    # it. Without binutils that walk yields nothing, every probe reports
-    # nothing missing, and the guard passes vacuously on a payload whose
-    # plugins cannot load — the exact "graceful fallback and silent absence
-    # are the same observable" shape the guard exists to end. Five other jobs
-    # in this file already install it.
+    # binutils: build-snap.sh's payload guard walks each plugin's NEEDED graph
+    # with `readelf`, which ubuntu:24.04 lacks; without it the guard passes
+    # vacuously.
     #
-    # AND THE LIBRARIES THE STAGING LIST NAMES BUT THIS IMAGE DID NOT HAVE.
-    # `stage_unresolved_libs` copies from what `ldd` RESOLVES on this host, so
-    # a family named in build-snap.sh that is not installed here stages
-    # nothing.
-    #
-    # libsm6/libice6 are the pair that shipped the 0.9.4 snap unable to open a
-    # window at all (Qt's xcb platform plugin needs libSM through
-    # libQt6XcbQpa), and libuuid1 is libSM's own dependency. The rest are what
-    # the widened plugin sweep found once a window opened: libasound2t64 for
-    # libgstalsa, the two libwayland leaves for the wayland platform plugins,
-    # libfribidi0/libthai0 for Qt Multimedia's ffmpeg backend.
-    #
-    # libuuid1, libdrm2 and libgbm1 are ALREADY pulled in by libegl1 ->
-    # libegl-mesa0; they are named because this list should say what the
-    # payload needs rather than rely on another package's dependencies.
+    # `stage_unresolved_libs` copies what `ldd` resolves on this host, so every
+    # library family build-snap.sh stages must be installed here:
+    # libsm6/libice6/libuuid1 for Qt's xcb platform plugin, libasound2t64 for
+    # libgstalsa, libwayland-* for the Wayland platform plugins,
+    # libfribidi0/libthai0 for Qt Multimedia's ffmpeg backend. Some already
+    # arrive as dependencies; they are listed so the payload's needs are explicit.
     - >-
       apt-get install -y --no-install-recommends
       binutils
@@ -713,16 +554,8 @@ build-snap:
       libasound2t64 libdrm2 libgbm1
       libwayland-cursor0 libwayland-egl1
       libfribidi0 libthai0
-    #
-    # AND THE DATA A STRICTLY CONFINED SNAP CANNOT GET FROM ANYWHERE ELSE.
-    # This image has NO /usr/share/X11/xkb and NO /etc/fonts of its own, and
-    # core24 has neither either - so with both absent the snap starts and then
-    # SEGFAULTS the moment it places its window (measured under a real snapd,
-    # Ubuntu 24.04, 2026-09-13). xkb-data does arrive today as a dependency of
-    # libxkbcommon0 and fontconfig-config arrives from nothing at all; both
-    # are named explicitly because this list should say what the payload needs
-    # rather than rely on another package's Depends, which is the rule the
-    # block above already states.
+    # xkb and fontconfig data: core24 has neither, and without them the confined
+    # snap segfaults when it places its window.
     - >-
       apt-get install -y --no-install-recommends
       xkb-data fontconfig-config
@@ -760,28 +593,23 @@ windows-package-test:
     when: always
     access: developer
     expire_in: 7 days
-    # Only the finished installers + validation reports. The raw Lightning/
-    # staging tree is already inside the portable zip, and archiving it
-    # again pushed the artifact past the instance's 1 GiB cap — the job
-    # then "succeeded" with no archive stored at all (pipeline 84).
+    # Installers and reports only: the staging tree is already inside the
+    # portable zip, and archiving it again exceeds the 1 GiB artifact cap
+    # (the job then succeeds with no archive stored).
     paths:
       - dist/windows/*-portable.zip
       - dist/windows/*.msi
       - dist/windows/*-setup.exe
       - dist/windows/reports/
-      # Checksum only, not the payload itself: the unsigned executable is
-      # already inside the portable zip here, and re-archiving it is what
-      # pushed this job past the instance artifact cap once before. A real
-      # SignPath-bound pipeline publishes dist/windows/signing-payload/ as its
-      # own artifact — see docs/signpath-integration.md.
+      # Checksum only; the executable is already in the portable zip. A
+      # SignPath-bound pipeline publishes the payload itself — see
+      # docs/signpath-integration.md.
       - dist/windows/signing-payload/*.sha256
 
-# Windows is a first-class release target since 0.6.3. In a publishing pipeline
-# this builds AND validates the portable/MSI/setup artifacts (build-windows.sh
-# calls validate-windows-artifacts.sh) from the same resolved commit as the
-# Linux formats, with the GIF keys embedded (fail-closed) and the Rust-only
-# backend. Uses the FFmpeg-enabled builder image so inline video decodes with
-# ffmpegmediaplugin instead of freezing on the WMF backend.
+# Release Windows build: builds and validates the portable/MSI/setup artifacts
+# (build-windows.sh calls validate-windows-artifacts.sh) from the resolved
+# commit, with GIF keys required. The builder image carries FFmpeg so inline
+# video uses ffmpegmediaplugin rather than the WMF backend.
 build-windows:
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $PUBLISH_PACKAGES == "true"'
@@ -814,64 +642,40 @@ build-windows:
     paths:
       - dist/windows/
 
-# Native macOS arm64 test bundle, built on the physical Mac mini runner
-# (10.195.35.7) with the shell executor. There is no macOS container image and
-# no supported way to cross-compile a Qt/QML app to macOS, so this is the only
-# target in the project that builds on bare metal against a host-installed
-# toolchain. The script records the exact toolchain versions it used into
-# build-info.json because they are not pinned by an image.
+# Native macOS arm64 bundle, built on the Mac mini runner (10.195.35.7) with
+# the shell executor against a host-installed toolchain; build-macos.sh records
+# the toolchain versions in build-info.json since no image pins them.
 #
-# As of 0.7.5 this artifact IS published, on a maintainer decision, as a
-# download-only release asset. It is still ad-hoc signed and un-notarized, so
-# Gatekeeper blocks it until the user explicitly allows it — the download page
-# carries the Open Anyway walkthrough and states the two hard limits (Apple
-# Silicon only; macOS 26 or newer, which is where Homebrew's Qt QML frameworks
-# put the floor). It is deliberately NOT in the signed update manifest: the
-# client has no macOS install strategy, so offering it as an update would
-# advertise something the updater refuses to perform.
+# Published as a download-only asset (ad-hoc signed, un-notarized; Apple
+# Silicon, macOS 26+). It is not in the signed update manifest: the client has
+# no macOS install strategy.
 macos-package-test:
   extends: .macos-test-rules
   stage: build
   tags: [macos, arm64]
   resource_group: lightning-macos-package
   interruptible: true
-  # NON-BLOCKING, deliberately. As of 0.7.5 publish-packages consumes this
-  # artifact, and one physical Mac being offline, asleep or mid-macOS-update
-  # must not hold back a release of the eight Linux and Windows packages.
-  # allow_failure is what makes `needs` non-blocking on failure; the optional
-  # `needs` entry covers the job not existing at all (BUILD_MACOS_PACKAGES
-  # unset). write-manifest.sh then publishes without a macOS entry and says so.
+  # Non-blocking: an unavailable Mac must not hold back the Linux and Windows
+  # packages. allow_failure covers a failed job and the optional `needs` in
+  # publish-packages covers an absent one; write-manifest.sh then publishes
+  # without a macOS entry.
   allow_failure: true
-  # 3h is headroom, not an estimate. The same commit built in 10 minutes
-  # (pipeline 88) and 2h34m (pipeline 90) because the Mac was idle-sleeping
-  # mid-build; cargo reported ~6 minutes of real work in both. See the
-  # caffeinate note on `script` below. Pipeline 89 died at the old 2h limit.
-  # Re-measure a real baseline now that builds no longer sleep.
+  # Headroom, not an estimate.
   timeout: 3h
   needs:
     - job: resolve-source
       artifacts: true
   variables:
-    # Back to 4 after pipeline 89 hit the old 2h timeout while running 6. Given
-    # how variable this host's wall clock is, treat that as a precaution rather
-    # than a measured result. The step that dominates the run is the
-    # single-threaded fat-LTO link, which no value of BUILD_JOBS affects.
+    # The dominant step is the single-threaded fat-LTO link, which BUILD_JOBS
+    # does not affect.
     BUILD_JOBS: "4"
   before_script:
     - test "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH"
     - test "$BUILD_MACOS_PACKAGES" = "true"
   script:
-    # caffeinate is not optional. macOS idle sleep is driven by user/HID
-    # activity and power assertions, NOT by CPU load, so a headless Mac with
-    # nobody at the keyboard sleeps mid-build even at 100% CPU. gitlab-runner
-    # takes no power assertion of its own. This host was found with `sleep 1`
-    # (one minute) and slept 867 seconds in the middle of a build, which is why
-    # the same commit took 10 minutes one run and 2.5 hours the next while
-    # cargo consistently reported ~6 minutes of actual work.
-    #
-    # The host setting should also be fixed (`sudo pmset -a sleep 0 disksleep 0
-    # powernap 0`), but that is admin-owned and can be reverted by a macOS
-    # update or a settings change; this keeps the job correct regardless.
+    # caffeinate: macOS idle sleep ignores CPU load and gitlab-runner takes no
+    # power assertion, so a headless Mac otherwise sleeps mid-build. This holds
+    # regardless of the host's pmset settings.
     - caffeinate -dims ./packaging-ci/scripts/prepare-pinned-source-macos.sh
     - caffeinate -dims ./packaging-ci/scripts/build-macos.sh
   artifacts:
@@ -923,22 +727,11 @@ validate-deb:
       - dist/version.env
       - dist/version.json
 
-# The Ubuntu lane's validator. Same script, same assertions, different TARGET.
+# The Ubuntu lane's validator: same script, different target.
 #
-# WHAT THIS DOES NOT DO, because this comment used to claim it did: it does not
-# install a package on an image other than the one that built it. Both jobs pin
-# the same ubuntu:26.04 digest, exactly as `build-deb`/`validate-deb` both pin
-# Debian, `build-rpm`/`validate-rpm` both pin Fedora, and so on for flatpak,
-# appimage and snap; Windows and macOS validate inside their build job. So
-# EVERY format is still validated on the machine that produced it, and a
-# package that installs where it was built and nowhere else still goes green.
-#
-# That is the gap which let the Ubuntu failure live for months, and it is still
-# OPEN. What this lane adds is a second target — a deb built FOR Ubuntu — not a
-# second environment. Closing the real gap needs one job per format that
-# installs the artifact on an image it was not built on; the obvious first one
-# is `build-deb`'s Debian output on this same ubuntu:26.04 image, asserting the
-# documented REFUSAL rather than a success.
+# Like every validator here it runs on the same image that built the package,
+# so it cannot catch a package that installs only where it was built. Covering
+# that needs a cross-image install job per format.
 validate-deb-ubuntu:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
@@ -1076,26 +869,12 @@ validate-appimage:
     - test ! -e work/lightning
     - command -v nix >/dev/null 2>&1 && exit 1 || true
     - apt-get update
-    # Deliberately NO Qt here: the bundle must be self-contained apart from
-    # the documented AppImage base-system excludelist.
-    # Base-system set the bundle's excludelist legitimately expects from the
-    # host, determined empirically in a clean container (loader-resolved:
-    # GLVND, harfbuzz, com_err, gpg-error).
-    # The libwayland-* trio joined this list with GitHub issue #9: the
-    # bundle deliberately stops shipping its own, because ours was older
-    # than the host's and the HOST's Mesa EGL was handed it, aborting the
-    # client on every native Wayland session. They are host-provided base
-    # system now, exactly like libegl1 and libgl1 above, and libgstopengl
-    # links them -- so a container without them cannot load that plugin
-    # and the launch check reports missing components. Every desktop that
-    # can run a Wayland session has them; this bare image is the
-    # artificial case.
-    # libxdamage1/libxfixes3/libxtst6 are here for ONE staged plugin:
-    # libgstximagesrc, the X11 screen-share fallback. linuxdeploy's excludelist
-    # leaves the X libraries on the host — correctly, since that fallback only
-    # ever runs on an X11 session, where they are always present — so the
-    # validator has to look like such a host or the payload check below
-    # reports a plugin that cannot load on a machine where it would.
+    # No Qt here: the bundle must be self-contained apart from the AppImage
+    # base-system excludelist, which is what this list provides.
+    # libwayland-* are host-provided (issue #9: a bundled copy older than the
+    # host's crashed Mesa EGL on Wayland) and libgstopengl links them.
+    # libxdamage1/libxfixes3/libxtst6 are for libgstximagesrc, the X11 share
+    # fallback, whose X libraries the excludelist leaves to the host.
     - >-
       apt-get install -y --no-install-recommends
       binutils ca-certificates desktop-file-utils file libasound2t64 libcom-err2 libegl1 libfontconfig1
@@ -1139,24 +918,9 @@ validate-snap:
     - test ! -e work/lightning
     - command -v nix >/dev/null 2>&1 && exit 1 || true
     - apt-get update
-    # Base-system libs only (mirrors the AppImage policy); the snap payload
-    # bundles Qt itself. No snapd exists in this fleet — validate-snap.sh
-    # documents the structural-equivalent validation.
-    # The libwayland-* trio joined this list with GitHub issue #9: the
-    # bundle deliberately stops shipping its own, because ours was older
-    # than the host's and the HOST's Mesa EGL was handed it, aborting the
-    # client on every native Wayland session. They are host-provided base
-    # system now, exactly like libegl1 and libgl1 above, and libgstopengl
-    # links them -- so a container without them cannot load that plugin
-    # and the launch check reports missing components. Every desktop that
-    # can run a Wayland session has them; this bare image is the
-    # artificial case.
-    # libxdamage1/libxfixes3/libxtst6 are here for ONE staged plugin:
-    # libgstximagesrc, the X11 screen-share fallback. linuxdeploy's excludelist
-    # leaves the X libraries on the host — correctly, since that fallback only
-    # ever runs on an X11 session, where they are always present — so the
-    # validator has to look like such a host or the payload check below
-    # reports a plugin that cannot load on a machine where it would.
+    # Base-system libs only, as for the AppImage; the snap payload bundles Qt.
+    # No snapd exists in this fleet; see validate-snap.sh. The libwayland-* and
+    # X11 libraries are here for the same reasons as in validate-appimage.
     - >-
       apt-get install -y --no-install-recommends
       binutils ca-certificates file libasound2t64 libcom-err2 libegl1 libfontconfig1
@@ -1184,19 +948,15 @@ publish-packages:
   image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
   resource_group: lightning-project-6-publication
   needs:
-    # The mirror token gate: a publishing pipeline never starts writing the
-    # immutable registry with a mirror it will then be unable to fill.
+    # Never write the immutable registry with a mirror we cannot fill.
     - job: github-mirror-preflight
       artifacts: false
     - job: resolve-source
       artifacts: true
     - job: validate-deb
       artifacts: true
-    # The Ubuntu deb is PUBLISHED. It used to be built and validated and
-    # then dropped on the floor: nothing listed it as a need, so a fat-LTO
-    # build burned per publishing pipeline, the artifact expired with the
-    # job, and no Ubuntu user ever saw it. It is deliberately NOT in the
-    # signed UPDATE manifest — see write-manifest.sh for why.
+    # The Ubuntu deb is published but not in the signed update manifest; see
+    # write-manifest.sh.
     - job: validate-deb-ubuntu
       artifacts: true
     - job: validate-rpm
@@ -1209,10 +969,8 @@ publish-packages:
       artifacts: true
     - job: build-windows
       artifacts: true
-    # macOS, OPTIONAL in both senses: `optional` covers the job not existing
-    # (BUILD_MACOS_PACKAGES unset), and the job's own allow_failure covers it
-    # existing and failing. Either way the release still publishes, minus the
-    # macOS asset. See docs/macos-packaging.md.
+    # Optional: absent when BUILD_MACOS_PACKAGES is unset, and allow_failure
+    # when it fails. The release then publishes without the macOS asset.
     - job: macos-package-test
       artifacts: true
       optional: true
@@ -1225,8 +983,7 @@ publish-packages:
     paths:
       - dist/manifest.json
       - dist/publication.json
-      # write-manifest.sh generates SHA256SUMS here, and it is a published
-      # release file like any other, so the GitHub mirror job needs its bytes.
+      # A published release file; the GitHub mirror job needs its bytes.
       - dist/SHA256SUMS
 
 verify-published-packages:
@@ -1247,48 +1004,24 @@ verify-published-packages:
       - dist/manifest.json
       - dist/verification.json
 
-# The signed update manifest is built and signed BEFORE the release is created,
-# and published AFTER it. That split is deliberate; see docs/update-manifest.md.
+# The update manifest is signed before the release is created and published
+# after it (see docs/update-manifest.md):
+#   * sign-update-manifest runs first, so a broken signing key fails before an
+#     immutable tag exists.
+#   * publish-update-manifest promotes `latest` only once the release page it
+#     links to exists; a delayed promotion is harmless and retryable.
 #
-#   sign-update-manifest (stage: sign, before release)
-#     Generating and signing touch nothing outside this job, so doing them
-#     before finalize-release turns a missing/broken signing key into a failure
-#     that costs nothing. Discovering it afterwards would mean an immutable tag
-#     and release already exist for a version whose update manifest cannot be
-#     produced.
-#
-#   publish-update-manifest (stage: update, after release)
-#     The `latest` slot is what every installed Lightning polls, and the
-#     manifest's release_notes_url points at the GitLab release page. Promoting
-#     it before finalize-release would advertise an update whose release page
-#     does not exist yet, and would leave that advertisement standing if the
-#     release job then failed. The reverse failure — a finished release whose
-#     update manifest has not been promoted yet — is inert and retryable: users
-#     simply are not notified until the job is re-run.
-#
-# Alpine's base image ships libcrypto but not the openssl CLI, so these jobs add
-# it explicitly. Nothing else in the publish chain needs it.
+# Alpine lacks the openssl CLI, so these jobs install it.
 sign-update-manifest:
   extends: .publish-rules
   stage: sign
   image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
   resource_group: lightning-project-6-publication
-  # THE SIGNING KEY IS SCOPED TO THE `signing` ENVIRONMENT. A project-level
-  # CI variable with no environment scope is injected into EVERY job of the
-  # pipeline -- including the six build jobs, each of which runs project-6
-  # CMake and every build.rs in the ~500-crate matrix-sdk graph. One hostile
-  # build script there could read UPDATE_SIGNING_KEY_B64 and become the
-  # release authority for every installed Lightning; the downstream hash
-  # checks cannot contain that, because the attacker IS the signer.
-  #
-  # OPERATOR SETTING (project 7 → Settings → CI/CD → Variables): give
-  # UPDATE_SIGNING_KEY_B64 -- and ONLY that variable -- the environment scope
-  # `signing`. UPDATE_SIGNING_KEY_ID stays unscoped: it is not secret (it is
-  # written into every signature envelope) and the public-key variable name
-  # is derived from it, so every job needs it. UPDATE_SIGNING_PUBKEY_<id>
-  # stays unscoped too: the build jobs compile it in. Exactly two jobs
-  # declare this environment -- resolve-source (the fail-fast consistency
-  # check, before any build) and this one -- and both run no project-6 code.
+  # UPDATE_SIGNING_KEY_B64 is scoped to the `signing` environment so build jobs,
+  # which run project-6 CMake and every crate's build.rs, can never read it.
+  # UPDATE_SIGNING_KEY_ID and UPDATE_SIGNING_PUBKEY_<id> are public and stay
+  # unscoped. Only resolve-source and this job declare `signing`, and neither
+  # runs project-6 code.
   environment:
     name: signing
     action: prepare
@@ -1321,8 +1054,7 @@ finalize-release:
       artifacts: true
     - job: verify-published-packages
       artifacts: true
-    # Ordering only: the release must not be created until the update manifest
-    # has been proved signable. finalize-release consumes nothing from it.
+    # Ordering only: release only once the update manifest is proved signable.
     - job: sign-update-manifest
       artifacts: false
   before_script: [apk add --no-cache bash coreutils curl jq]
@@ -1334,41 +1066,25 @@ finalize-release:
       - dist/manifest.json
       - dist/verification.json
 
-# GitHub bandwidth mirror (MIRROR-SPEC §6). GitLab stays the release authority
-# and the canonical binary source; this job uploads byte-identical copies of the
-# SAME published artifacts to a GitHub Release at the SAME tag, then proves them
-# by re-downloading each one ANONYMOUSLY and comparing SHA-256 against
-# dist/manifest.json.
-#
-# It sits between `release` and `update` for two reasons, both load-bearing:
-#   * AFTER finalize-release, because the GitLab tag must exist and be mirrored
-#     before a GitHub release can be created at it. The script waits for the
-#     mirrored tag and refuses to continue unless it peels to the released
-#     commit, so GitHub can never invent a tag of its own.
-#   * BEFORE publish-update-manifest, so the `latest` manifest — the one every
-#     installed Lightning polls — is promoted only after every mirror_url in it
-#     has been proved to serve the right bytes.
-#
-# With GITHUB_MIRROR_REPO unset the job is a clean no-op and the manifest
-# carries no mirror_url, so a pipeline without the variables is unaffected.
-# It needs the package bytes themselves, hence the same artifact set as
-# publish-packages: it uploads the published files, it does not rebuild them.
+# GitHub bandwidth mirror (MIRROR-SPEC §6). GitLab stays the release authority;
+# this uploads the published artifacts to a GitHub Release at the same tag and
+# verifies each by anonymous re-download against dist/manifest.json.
+#   * After finalize-release: the mirrored tag must exist and peel to the
+#     released commit, so GitHub never creates a tag of its own.
+#   * Before publish-update-manifest: every promoted mirror_url is proved first.
+# A no-op when GITHUB_MIRROR_REPO is unset.
 mirror-release-to-github:
   extends: .publish-rules
   stage: mirror
   image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
   resource_group: lightning-project-6-publication
-  # The script is idempotent (proved by its tests), so a GitHub hiccup is
-  # retried by the runner rather than left for a human to notice.
+  # The script is idempotent, so transient GitHub failures are retried.
   retry:
     max: 2
     when: [script_failure, runner_system_failure, stuck_or_timeout_failure, api_failure]
-  # In a lull REFRESH (UPDATE_REFRESH_LATEST_ONLY=true) the script exits
-  # successfully before touching GitHub: the assets were mirrored when the
-  # release was made, and the refresh must never depend on the mirror token.
-  # GITHUB_MIRROR_TOKEN is scoped to the `mirror` environment for the same
-  # reason the signing key is scoped to `signing` (see sign-update-manifest):
-  # a write token for the public mirror has no business in a build job.
+  # A manifest refresh (UPDATE_REFRESH_LATEST_ONLY=true) exits before touching
+  # GitHub. GITHUB_MIRROR_TOKEN is scoped to the `mirror` environment to keep
+  # it out of build jobs.
   environment:
     name: mirror
     action: prepare
@@ -1377,11 +1093,8 @@ mirror-release-to-github:
       artifacts: true
     - job: validate-deb
       artifacts: true
-    # The Ubuntu deb is PUBLISHED. It used to be built and validated and
-    # then dropped on the floor: nothing listed it as a need, so a fat-LTO
-    # build burned per publishing pipeline, the artifact expired with the
-    # job, and no Ubuntu user ever saw it. It is deliberately NOT in the
-    # signed UPDATE manifest — see write-manifest.sh for why.
+    # The Ubuntu deb is published but not in the signed update manifest; see
+    # write-manifest.sh.
     - job: validate-deb-ubuntu
       artifacts: true
     - job: validate-rpm
@@ -1398,21 +1111,15 @@ mirror-release-to-github:
       artifacts: true
     - job: verify-published-packages
       artifacts: true
-    # macOS, on the same optional terms publish-packages uses. This job uploads
-    # the PUBLISHED BYTES and refuses to rebuild them, so it needs every file
-    # the publication manifest names — and publish-packages puts the macOS zip
-    # in that manifest. Pipeline 110 shipped without this line: the release
-    # published fine and the mirror died on "mirror input missing", after the
-    # tag and the GitLab release already existed.
+    # Optional as in publish-packages. This job needs every file the
+    # publication manifest names, including the macOS zip.
     - job: macos-package-test
       artifacts: true
       optional: true
-    # The signed manifest's mirror_url values are cross-checked against the URLs
-    # this job actually creates, before anything is uploaded.
+    # Its mirror_url values are cross-checked before anything is uploaded.
     - job: sign-update-manifest
       artifacts: true
-    # Ordering only: GitLab is the release authority, so the mirror is never
-    # created before the real release exists. Nothing is consumed from this job.
+    # Ordering only: the mirror never precedes the GitLab release.
     - job: finalize-release
       artifacts: false
   before_script: [apk add --no-cache bash coreutils curl jq]
@@ -1436,12 +1143,10 @@ publish-update-manifest:
       artifacts: true
     - job: sign-update-manifest
       artifacts: true
-    # Ordering only: the `latest` pointer must never advertise a release that
-    # has not been finalized. Nothing is consumed from this job.
+    # Ordering only: `latest` never advertises an unfinalized release.
     - job: finalize-release
       artifacts: false
-    # Ordering only: a promoted mirror_url must already have been proved to
-    # serve the right bytes. Nothing is consumed from this job.
+    # Ordering only: every promoted mirror_url is already verified.
     - job: mirror-release-to-github
       artifacts: false
   before_script: [apk add --no-cache bash coreutils curl jq openssl]
@@ -1454,29 +1159,10 @@ publish-update-manifest:
       - dist/update-manifest-v1.json.sig
       - dist/update-publication.json
 
-# The client's GitHub FALLBACK for update metadata. Every installed Lightning
-# compiles in `…/releases/download/update-latest/…` on the mirror and reads it
-# only when the canonical GitLab host does not answer; until 2026-09-03 no
-# job ever wrote that slot, so the fallback was inert. This job copies the
-# pair GitLab has JUST promoted (publish-update-manifest's record is the
-# proof) into that fixed release, replacing the previous pair, and reads
-# both back anonymously. GitHub decides nothing: the manifest is signed on
-# GitLab and the client verifies it. allow_failure, because a GitHub outage
-# must never fail a release GitLab has completed; retried because a hiccup
-# should not need a human either; idempotent, so both are safe.
-# THE ONE LANE WHOSE ABSENCE A GREEN PIPELINE WOULD NOT REPORT.
-#
-# macos-package-test is allow_failure and publish-packages needs it optional,
-# deliberately, so one sleeping Mac cannot block a release. 0.9.5 paid the
-# price of that: the bundle built, passed every check, failed to upload, and
-# the release published green with no macOS download and no signal anywhere.
-#
-# This job restores the signal without restoring the dependency. It is LAST,
-# after finalize-release and both mirrors; nothing needs it, so the release is
-# already complete and immutable before it speaks and it cannot block or alter
-# publication. It is NOT allow_failure -- that is the entire point. And it asks
-# the PUBLISHED RELEASE, not the job status, because a job that says it
-# uploaded is not an asset that is there.
+# Reports a missing optional (macOS) asset, which a green pipeline would
+# otherwise hide. It runs after finalize-release and nothing needs it, so it
+# cannot block publication; it is deliberately not allow_failure. It checks
+# the published release, not job status.
 report-optional-assets:
   extends: .publish-rules
   stage: update
@@ -1489,6 +1175,11 @@ report-optional-assets:
   before_script: [apk add --no-cache bash coreutils curl jq]
   script: [./packaging-ci/scripts/report-optional-assets.sh]
 
+# Writes the client's GitHub fallback for update metadata: copies the pair
+# publish-update-manifest just promoted into the fixed `update-latest` release
+# and reads both back anonymously. The client verifies the GitLab signature,
+# so GitHub decides nothing. allow_failure so a GitHub outage never fails a
+# completed release; idempotent, so retries are safe.
 mirror-update-manifest-to-github:
   extends: .publish-rules
   stage: update

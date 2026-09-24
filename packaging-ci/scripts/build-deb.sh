@@ -15,18 +15,14 @@ CONTROL="$PKGROOT/DEBIAN"
 mkdir -p "$CONTROL" "$ROOT/dist" "$ROOT/work/debian"
 cp -a "$STAGE/." "$PKGROOT/"
 
-# Strip the release binaries (lintian error: unstripped-binary-or-object).
-# The update helper is a second shipped ELF and lintian holds it to the same
-# rule, so leaving it unstripped would fail validate-deb's --fail-on error.
+# lintian: unstripped-binary-or-object applies to both shipped ELFs.
 strip "$PKGROOT/usr/bin/lightning-matrix"
 strip "$PKGROOT/usr/bin/lightning-updater"
 
 install -Dm0644 "$ROOT/packaging-ci/packaging/common/copyright" \
     "$PKGROOT/usr/share/doc/lightning/copyright"
 
-# Debian requires a changelog (lintian error: no-changelog). This is a native
-# package (no Debian revision), so it must be shipped as changelog.gz compressed
-# at maximum level. Reproducible content beyond the wall-clock build date.
+# lintian: no-changelog. A native package ships changelog.gz at -9.
 MAINTAINER="$(sed -n 's/^Maintainer:[[:space:]]*//p' "$ROOT/packaging-ci/packaging/deb/control")"
 {
     printf 'lightning (%s) unstable; urgency=medium\n\n' "$DEB_VERSION"
@@ -36,21 +32,14 @@ MAINTAINER="$(sed -n 's/^Maintainer:[[:space:]]*//p' "$ROOT/packaging-ci/packagi
 install -d "$PKGROOT/usr/share/doc/lightning"
 gzip -9nc "$ROOT/work/changelog" >"$PKGROOT/usr/share/doc/lightning/changelog.gz"
 
-# dpkg-shlibdeps expects a *source-package* debian/control (first stanza with a
-# Source field, then a binary Package stanza), which differs from the binary
-# DEBIAN/control shipped in the .deb. Synthesize a minimal one for it here.
+# dpkg-shlibdeps needs a source-package debian/control, not the binary one.
 cat >"$ROOT/work/debian/control" <<'EOF'
 Source: lightning
 
 Package: lightning
 Architecture: amd64
 EOF
-# Run dpkg-shlibdeps from work/ and keep its diagnostics visible so a
-# resolution failure is not silently swallowed.
-# Both shipped ELF executables are analysed. The helper links only Qt6Core (and
-# zlib), a subset of what the application already needs — but deriving that from
-# the binary is what makes it true rather than assumed, and it is what would
-# catch a helper that grows a dependency the package does not declare.
+# Analyse both ELFs so a new dependency of the update helper is declared too.
 SHLIBS_OUT="$ROOT/work/shlibdeps.out"
 if ! ( cd "$ROOT/work" && dpkg-shlibdeps -O \
         -e "$PKGROOT/usr/bin/lightning-matrix" \
@@ -61,61 +50,28 @@ if ! ( cd "$ROOT/work" && dpkg-shlibdeps -O \
 fi
 SHLIBS="$(sed -n 's/^shlibs:Depends=//p' "$SHLIBS_OUT")"
 [[ -n "$SHLIBS" ]] || die "dpkg-shlibdeps did not determine runtime dependencies"
-# QML imports are loaded dynamically and therefore cannot be discovered from
-# ELF NEEDED entries by dpkg-shlibdeps. Keep this list aligned with the
-# production QML import scan; the clean install/startup test enforces it.
+# QML imports are loaded dynamically, so dpkg-shlibdeps cannot see them. Keep
+# aligned with the production QML import scan; validate-deb enforces it.
 QML_DEPENDS="qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtquick-dialogs, qml6-module-qtquick-effects, qml6-module-qtquick-layouts, qml6-module-qtquick-window, qml6-module-qtmultimedia"
 
-# Voice/video calling. GStreamer PLUGINS are dlopen'd from a plugin path at
-# runtime, so — exactly like the QML modules above — dpkg-shlibdeps cannot
-# see them: it only reads ELF NEEDED entries, and the binary links only
-# gstreamer core/webrtc/sdp. Without these the package installs cleanly and
-# then refuses every call at runtime, because the engine's element probe
-# fails.
-#
-#   plugins-base : opusenc/opusdec, audioconvert, audioresample, videoconvert,
-#                  videoscale, videorate, playback
-#   plugins-good : rtpopuspay/depay, rtpvp8pay/depay, autoaudiosrc/sink, vp8
-#   plugins-bad  : webrtcbin, dtlssrtpenc/dec, srtp  (the WebRTC core)
-#   nice         : the libnice ICE transport webrtcbin requires
-#   pipewire     : pipewiresrc, the Wayland/portal screen-capture source AND
-#                  pipewiresink, one of the three sinks autoaudiosink resolves to
-#   alsa         : alsasink, the LAST of those three. It is a SEPARATE Debian
-#                  binary package (verified: plugins-good ships libgstximagesrc
-#                  and libgstpulseaudio, but NOT libgstalsa), and without it a
-#                  host running neither PipeWire nor PulseAudio gets a call with
-#                  no audio output. Nothing catches that: the engine's element
-#                  probe only asks for the `autodetect` FACTORIES, which exist
-#                  whether or not a sink is installed, so --call-media-status is
-#                  green on a package that cannot make a sound. The AppImage
-#                  bundles both sinks for exactly this reason; the deb had
-#                  neither declared.
-#
-# NOTE for the RPM: its Requires need no equivalent addition — on Fedora
-# libgstalsa.so is in gstreamer1-plugins-base and libgstpulseaudio.so in
-# gstreamer1-plugins-good, both already required. The split is Debian's.
+# GStreamer plugins are dlopen'd, so dpkg-shlibdeps cannot see them either;
+# without them every call is refused by the engine's element probe.
+#   plugins-base : opus, audioconvert/resample, videoconvert/scale/rate
+#   plugins-good : rtpopus/rtpvp8 (de)payloaders, autoaudiosrc/sink, vp8
+#   plugins-bad  : webrtcbin, dtlssrtpenc/dec, srtp
+#   nice         : libnice ICE transport
+#   pipewire     : pipewiresrc (portal screen capture) and pipewiresink
+#   alsa         : alsasink, a separate Debian package. Without it a host with
+#                  neither PipeWire nor PulseAudio has no audio output, and
+#                  --call-media-status cannot tell (it only probes autodetect).
+# Fedora ships alsa/pulse in plugins-base/good, so the spec needs no equivalent.
 CALL_DEPENDS="gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-nice, gstreamer1.0-pipewire, gstreamer1.0-alsa"
 
-# Qt IMAGE-FORMAT plugins. Same discovery problem as the QML modules and the
-# GStreamer plugins above: a Qt image format is a dlopen'd plugin, so
-# dpkg-shlibdeps cannot see one. Debian's libqt6gui6 carries exactly libqgif,
-# libqico and libqjpeg, which is why every Linux package so far decoded only
-# GIF/ICO/JPEG plus qtbase's built-in PNG/BMP/PPM/XBM/XPM.
-#
-# WEBP IS A DEPENDS, not an extra. Lightning's own byte sniffers accept
-# image/webp (rooms::sniff_image_mime and its C++ twins), so without
-# qt6-image-formats-plugins the client accepts, forwards and re-uploads a
-# format it cannot draw. Windows has staged qwebp.dll all along.
-#
-# JPEG XL IS A RECOMMENDS, and it does not come from Qt at all: qtimageformats
-# has never contained a JXL plugin, so the only Qt decoder is KDE's
-# kimageformats. Recommends rather than Depends because that package pulls
-# libheif, x265, libraw and OpenEXR — a large chain for one format — and
-# because the client reports honestly which formats the running build can
-# decode (`lightning-matrix --image-format-status`), so an install made with
-# --no-install-recommends degrades visibly instead of silently.
-# apt installs Recommends by default, so an ordinary `apt install ./lightning.deb`
-# gets JPEG XL.
+# Qt image-format plugins are dlopen'd too; libqt6gui6 carries only
+# gif/ico/jpeg. WebP is a Depends because the client's MIME sniffers accept
+# it. JPEG XL comes only from KDE's kimageformats, which pulls a large chain
+# (libheif, x265, libraw, OpenEXR), so it is a Recommends; the client reports
+# missing formats via --image-format-status.
 IMAGE_DEPENDS="qt6-image-formats-plugins"
 IMAGE_RECOMMENDS="kimageformat6-plugins"
 
@@ -124,30 +80,16 @@ IMAGE_RECOMMENDS="kimageformat6-plugins"
     printf 'Version: %s\n' "$DEB_VERSION"
     printf 'Depends: %s, %s, %s, %s\n' \
         "$SHLIBS" "$QML_DEPENDS" "$CALL_DEPENDS" "$IMAGE_DEPENDS"
-    # libenchant-2-2 is the spell-check broker Lightning dlopens at runtime
-    # (never linked, so shlibs cannot see it); without it the composer says
-    # "spell checking unavailable" and nothing else changes. Dictionaries
-    # stay the user's own hunspell-* packages.
+    # libenchant-2-2 is dlopen'd for spell checking; optional.
     printf 'Recommends: %s, libenchant-2-2\n' "$IMAGE_RECOMMENDS"
 } >"$CONTROL/control"
 install -m0755 "$ROOT/packaging-ci/packaging/deb/postinst" "$CONTROL/postinst"
 install -m0755 "$ROOT/packaging-ci/packaging/deb/postrm" "$CONTROL/postrm"
 
-# TWO DEB LANES, AND THE FILENAME HAS TO SAY WHICH.
-#
-# dpkg-shlibdeps reads the versions of the BUILD HOST's libraries and bakes
-# them into Depends, so a deb built on Debian 13 (Qt 6.8.2) declares a floor
-# no Ubuntu 24.04 LTS can satisfy — measured: it refuses to install there, and
-# `qml6-module-qtquick-effects` does not exist in noble at all because
-# QtQuick.Effects is Qt 6.5+. One artifact cannot serve both, and a deb that
-# refuses to install is better than one that half-works, so the answer is a
-# second lane rather than a loosened dependency.
-#
-# DEB_SUFFIX is set by the CI job (empty for the Debian lane, so its filename
-# is unchanged and every existing link, checksum and manifest entry still
-# resolves). A lane that forgets to set it collides with the other lane's
-# artifact, which is why the value comes from the job and not from a guess
-# about the running container.
+# dpkg-shlibdeps bakes the build host's library versions into Depends, so a
+# Debian 13 deb cannot install on Ubuntu 24.04; each distro gets its own lane.
+# DEB_SUFFIX comes from the CI job (empty for Debian, keeping its filename
+# stable) so the two lanes' artifacts never collide.
 PACKAGE="$ROOT/dist/lightning_${DEB_VERSION}${DEB_SUFFIX:+_$DEB_SUFFIX}_amd64.deb"
 dpkg-deb --build --root-owner-group "$PKGROOT" "$PACKAGE"
 write_sha256 "$PACKAGE"

@@ -5,20 +5,13 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
-# Native macOS build. Unlike every other target in this project it runs on a
-# SHELL executor on real Apple hardware (the M1 Mac mini, 10.195.35.7), not in a
-# Docker container: Apple's SDK, frameworks, and codesign cannot be containerised
-# and cross-compiling a Qt/QML app to macOS is not supported. Consequences:
-#   * the toolchain is installed on the host, not pinned in an image, so this
-#     script records the versions it actually used into build-info.json;
-#   * the working directory persists between jobs, so every output path is
-#     removed explicitly below rather than assumed clean.
+# Native macOS build. It runs on a shell executor on Apple hardware, not in a
+# container: Apple's SDK and codesign cannot be containerised. So the toolchain
+# is whatever the host has (recorded in build-info.json), and the working
+# directory persists between jobs (every output path is removed explicitly).
 #
-# As of 0.7.5 this artifact IS published as a download-only release asset. It
-# remains unsigned and un-notarized, so Gatekeeper blocks it until the user
-# explicitly allows it; the download page carries that walkthrough and states
-# the limits. Nothing about the BUILD changed — build_kind stays unsigned-test,
-# and this script still uploads nothing. See docs/macos-packaging.md.
+# The artifact is published as a download-only asset: ad-hoc signed and
+# un-notarized. This script uploads nothing. See docs/macos-packaging.md.
 
 ROOT="$(project_dir)"
 SOURCE_DIR="$ROOT/work/lightning"
@@ -28,33 +21,22 @@ APP_NAME="Lightning"
 APP_DIR="$MACOS_DIST/${APP_NAME}.app"
 REPORT_DIR="$MACOS_DIST/reports"
 
-# Reverse-DNS identifier under the maintainer's own domain. It is the identity
-# Gatekeeper, TCC (microphone consent), and any future notarization ticket bind
-# to, so it must stay stable once artifacts exist in the wild — changing it
-# re-prompts every user for permissions and invalidates notarization.
+# Gatekeeper, TCC consent and notarization bind to this identifier; changing it
+# re-prompts every user for permissions.
 BUNDLE_ID="net.smetonis.lightning"
-# Deployment target is DERIVED from the Qt frameworks the app actually links,
-# not hardcoded. Homebrew's Qt does not have one floor: qtbase modules (QtCore,
-# QtGui, QtNetwork, QtSql, QtWidgets) are built minos 14.0 while qtdeclarative
-# and qtmultimedia (QtQml, QtQuick, QtQuickControls2, QtMultimedia) are built
-# minos 26.0. Reading only QtCore and hardcoding 14.0 produced a bundle whose
-# Info.plist claimed macOS 14 support while linking frameworks that require 26 —
-# it would simply fail to load there, and the linker said so:
-#   ld: warning: building for macOS-14.0, but linking with dylib
-#       '.../QtQuick.framework/...' which was built for newer version 26.0
-# Taking the maximum keeps the claim true and self-corrects when Homebrew's Qt
-# is rebuilt against a different SDK.
+# The deployment target is the highest minos among the Qt frameworks the app
+# links. Homebrew's Qt has no single floor (qtbase is 14.0, qtdeclarative and
+# qtmultimedia are 26.0), so reading QtCore alone would claim a floor the
+# bundle cannot load on.
 QT_LINKED_MODULES="QtCore QtGui QtQml QtQuick QtQuickControls2 QtNetwork QtSql QtWidgets QtMultimedia"
 
 require_var EXPECTED_SOURCE_SHA
 [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || die "macOS packaging requires a full source commit SHA"
 
-# The build kind stays unsigned-test whatever the pipeline, and this script
-# still uploads nothing — publication is done by publish-packages on Linux,
-# from this job's artifact. What the pipeline guarantees instead is that the
-# release never DEPENDS on this host (allow_failure plus an optional need) and
-# that the bundle never enters the signed update manifest, both asserted by
-# tests/test-pipeline-config.py.
+# The release never depends on this host (allow_failure plus an optional need)
+# and the bundle never enters the signed update manifest; both are asserted by
+# tests/test-pipeline-config.py. Publication happens on Linux from this job's
+# artifact.
 if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
     printf 'Publishing pipeline: building the macOS bundle.\n'
     printf 'It is ad-hoc signed and un-notarized; it ships as a download that\n'
@@ -71,57 +53,33 @@ load_versions
 [[ "$BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid application version"
 
 # --- toolchain ---------------------------------------------------------------
-# Discovered, not assumed: the host toolchain is not pinned by an image, so a
-# missing or moved tool must fail here with a clear message instead of halfway
-# through a 30-minute build.
+# The host toolchain is not pinned by an image, so fail early on a missing tool.
 BREW_PREFIX="${BREW_PREFIX:-/opt/homebrew}"
 QT_PREFIX="${QT_PREFIX:-$BREW_PREFIX/opt/qt}"
-# Lightning verifies update-manifest signatures with OpenSSL 3's EVP API and its
-# CMake does find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto). macOS ships
-# no OpenSSL 3 headers at all (only the legacy LibreSSL-backed libssl stubs),
-# and Homebrew keg-onlys openssl@3 — it is deliberately NOT symlinked into
-# $BREW_PREFIX, so CMake cannot find it without being told where it is. Same
-# discovered-not-assumed idiom as QT_PREFIX above.
+# Lightning needs OpenSSL 3 headers. macOS ships none, and Homebrew's openssl@3
+# is keg-only, so CMake must be pointed at it.
 OPENSSL_PREFIX="${OPENSSL_PREFIX:-$BREW_PREFIX/opt/openssl@3}"
 CARGO_BIN="${CARGO_BIN:-$HOME/.cargo/bin}"
-# GStreamer is the ONE dependency here that does not come from Homebrew, and
-# scripts/install-macos-gstreamer.sh records why at length: the CI account
-# cannot write to /opt/homebrew, Homebrew's gstreamer pulls gtk4/ffmpeg/x265
-# into the closure and would collide by FILENAME with the glib copies
-# macdeployqt puts in Contents/Frameworks for Qt, and it does not build
-# webrtcdsp. This is the official relocatable framework, unpacked without root
-# into the runner's home.
+# GStreamer comes from the official relocatable framework in the runner's home,
+# not Homebrew: see install-macos-gstreamer.sh for why.
 GSTREAMER_PREFIX="${LIGHTNING_MACOS_GSTREAMER_PREFIX:-$HOME/opt/gstreamer/GStreamer.framework/Versions/1.0}"
 export PATH="$CARGO_BIN:$QT_PREFIX/bin:$BREW_PREFIX/bin:$PATH"
 
-# xcodebuild is deliberately NOT in this list. A Ninja/clang build needs only
-# the compiler and an SDK, both of which the Command Line Tools provide, and
-# `xcodebuild` fails outright when xcode-select points at a CLT instance rather
-# than Xcode.app — which is what Homebrew's installer leaves behind. Requiring
-# it would fail a build that is perfectly able to proceed. (Full Xcode IS
-# required for the future iOS target; that is a separate check for a separate
-# job.)
+# xcodebuild is not required: the Command Line Tools provide the compiler and
+# SDK, and xcodebuild fails when xcode-select points at a CLT install.
 for tool in cmake ninja cargo rustc macdeployqt xcrun clang iconutil sips codesign ditto zip \
             pkg-config lipo install_name_tool otool; do
     command -v "$tool" >/dev/null 2>&1 || die "required tool not found on the runner: $tool"
 done
 [[ -d "$QT_PREFIX/lib/cmake/Qt6" ]] || die "Qt 6 not found at $QT_PREFIX"
 
-# Voice and video calls. Lightning's CMake probes six GStreamer modules with
-# pkg_check_modules and builds SfuMediaEngine only when all six are found —
-# silently, with a STATUS message and no error, so a runner without GStreamer
-# produces a bundle that installs, launches, and then refuses every call with
-# "Joining isn't available". That is not a state this script may ship.
+# The media engine is configured out silently when any of these six modules is
+# missing, producing a bundle that refuses every call. Fail instead.
 #
-# The .pc files are relocatable (prefix=${pcfiledir}/../..), so a search path is
-# the whole configuration; nothing needs rewriting.
-#
-# NOT exported. pkg_check_modules runs at CONFIGURE time only, while an exported
-# PKG_CONFIG_PATH would also be in effect for `cargo fetch` and for the build
-# scripts cargo runs during `cmake --build` — and two crates in the pinned
-# Cargo.lock (aws-lc-sys, libsqlite3-sys) probe pkg-config themselves. The
-# framework's lib/pkgconfig carries ~150 modules; none of them should be able to
-# answer a question the Rust build asks. It is passed per-command instead.
+# The .pc files are relocatable, so a search path is the whole configuration.
+# It is passed per command rather than exported so that crates probing
+# pkg-config during the cargo build (aws-lc-sys, libsqlite3-sys) cannot pick
+# up the framework's modules.
 GST_PKG_CONFIG_PATH="$GSTREAMER_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 [[ -f "$GSTREAMER_PREFIX/lib/pkgconfig/gstreamer-webrtc-1.0.pc" ]] || \
     die "GStreamer not found at $GSTREAMER_PREFIX (run scripts/install-macos-gstreamer.sh)"
@@ -132,10 +90,8 @@ for gst_module in gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0 \
 done
 GSTREAMER_VERSION="$(PKG_CONFIG_PATH="$GST_PKG_CONFIG_PATH" pkg-config --modversion gstreamer-1.0)"
 
-# `command -v openssl` is NOT the check: it finds Apple's /usr/bin/openssl,
-# which is LibreSSL and has no development headers. What the build needs is the
-# Homebrew keg's headers and the static libcrypto archive, so assert exactly
-# those. `brew install openssl@3` provides them.
+# `command -v openssl` finds Apple's LibreSSL, which has no headers. Check for
+# the keg's headers and static libcrypto instead.
 [[ -f "$OPENSSL_PREFIX/include/openssl/evp.h" ]] || \
     die "OpenSSL 3 headers not found at $OPENSSL_PREFIX (run: brew install openssl@3)"
 [[ -f "$OPENSSL_PREFIX/lib/libcrypto.a" ]] || \
@@ -155,19 +111,15 @@ MACOS_DEPLOYMENT_TARGET="$(
 [[ "$MACOS_DEPLOYMENT_TARGET" =~ ^[0-9]+\.[0-9]+$ ]] || \
     die "could not determine the Qt deployment floor from $QT_PREFIX"
 
-# Applies to cargo/rustc and to the C sources the `cc` crate compiles (sha3,
-# aes, jitterentropy, blake3). Without it those objects are built against the
-# host SDK while the C++ link targets the Qt floor, which the linker reports as
-# "object file was built for newer macOS version than being linked".
+# Also applies to the C sources the `cc` crate compiles; without it the linker
+# warns that objects were built for a newer macOS than the target.
 export MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET"
 
 RUST_VERSION="$(rustc --version)"
 CMAKE_VERSION="$(cmake --version | head -1)"
 MACOS_VERSION="$(sw_vers -productVersion)"
 
-# Record which developer toolchain actually produced the binary rather than
-# assuming Xcode. Both are viable here, and build-info.json should not claim an
-# Xcode build when the Command Line Tools did the work.
+# Record which developer toolchain (Xcode or Command Line Tools) was used.
 DEVELOPER_DIR_ACTIVE="$(xcode-select -p 2>/dev/null || true)"
 XCODE_VERSION="$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g; s/ $//' || true)"
 [[ -n "$XCODE_VERSION" ]] || XCODE_VERSION="Command Line Tools (xcodebuild unavailable)"
@@ -182,9 +134,8 @@ printf 'macOS %s | SDK %s | %s | Qt %s | %s | %s | %s | GStreamer %s\n' \
 printf 'developer dir: %s\n' "${DEVELOPER_DIR_ACTIVE:-unknown}"
 
 # --- clean output paths ------------------------------------------------------
-# The shell executor reuses its build directory, so stale output from a previous
-# job would otherwise be republished as if this job had produced it. Guarded so
-# a mangled variable can never turn this into a destructive rm.
+# The shell executor reuses its build directory, so remove stale output. The
+# case guard keeps a mangled variable from reaching rm -rf.
 case "$BUILD_DIR:$MACOS_DIST" in
     "$ROOT/work/macos-build:$ROOT/dist/macos") ;;
     *) die "refusing to clean unexpected macOS output paths" ;;
@@ -192,23 +143,17 @@ esac
 rm -rf -- "$BUILD_DIR" "$MACOS_DIST"
 mkdir -p "$BUILD_DIR" "$MACOS_DIST" "$REPORT_DIR"
 
-# Persistent Rust target directory, outside the tree this script deletes.
-# Lightning's CMake pins CARGO_TARGET_DIR to <build>/rust, so without this every
-# pipeline recompiles the entire Matrix SDK from cold (tens of minutes). Same
-# mechanism configure-build.sh uses with the Linux runners' /cache mount, and
-# safe for the same reason: cargo's own fingerprints decide what is reusable and
-# the Rust tree never sees the GIF provider keys.
-#
-# GitLab's shell executor cleans ignored files from the build directory between
-# jobs, so the cache deliberately lives outside it.
+# Persistent Rust target directory outside the cleaned tree (and outside the
+# build directory, which the shell executor cleans between jobs), so the Matrix
+# SDK is not rebuilt from cold every pipeline. Cargo's fingerprints decide
+# reuse, and the Rust tree never sees the GIF provider keys.
 CACHE_ROOT="${LIGHTNING_MACOS_CACHE:-$HOME/Library/Caches/lightning-ci}"
 mkdir -p "$CACHE_ROOT/cargo-target"
 ln -sfn "$CACHE_ROOT/cargo-target" "$BUILD_DIR/rust"
 
 SOURCE_TIME="$(json_value "$ROOT/dist/source-info.json" commit_time)"
-# BSD date cannot parse git's %cI offset (+03:00) because strptime %z wants
-# +0300, so normalise before converting. Falling back to "now" would silently
-# make the build unreproducible, hence the hard failure.
+# BSD date needs +0300 rather than git's +03:00. No fallback to "now": that
+# would silently make the build unreproducible.
 SOURCE_TIME_NORM="$(printf '%s' "$SOURCE_TIME" \
     | sed -E 's/Z$/+0000/; s/([+-][0-9]{2}):([0-9]{2})$/\1\2/')"
 SOURCE_DATE_EPOCH="$(date -u -j -f '%Y-%m-%dT%H:%M:%S%z' "$SOURCE_TIME_NORM" +%s)" \
@@ -217,11 +162,9 @@ export SOURCE_DATE_EPOCH
 export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$SOURCE_DIR=/usr/src/lightning --remap-path-prefix=$ROOT=/usr/src/lightning-deploy"
 
 # --- GIF provider keys -------------------------------------------------------
-# Same mechanism as the Linux and Windows builds: the CMake generator reads the
-# build-only LIGHTNING_BUILD_* names and writes an untracked build-tree header.
-# Never a command line, cache entry, install rule, or log. Absent keys build a
-# keyless client (the GIF picker reports unconfigured), which is the normal case
-# for this developer test path.
+# The CMake generator reads the build-only LIGHTNING_BUILD_* variables into an
+# untracked header; keys never reach a command line, cache entry or log.
+# Without keys the client builds keyless.
 gif_require=OFF
 gif_keys_embedded=false
 if [[ -n "${GIPHY_API_KEY:-}" && -n "${KLIPY_API_KEY:-}" ]]; then
@@ -235,49 +178,22 @@ else
 fi
 
 # --- build -------------------------------------------------------------------
-# Project 6 builds --offline --locked, so the lockfile cache must be complete
-# before cmake drives cargo.
+# The source build is --offline --locked, so fill the cargo cache first.
 cargo fetch --locked --manifest-path "$SOURCE_DIR/rust/Cargo.toml"
 
-# Apple system frameworks the Rust static library needs at link time.
+# Security.framework and CoreFoundation: rustls' platform verifier needs them,
+# and the crate's link directive is lost because CMake, not cargo, links the
+# Rust static library.
 #
-# matrix-sdk reaches TLS through rustls, whose platform verifier calls into
-# Security.framework (SecTrust*, SecPolicyCreateSSL, SecCertificate*) on Apple
-# targets. When cargo links a binary itself it honours the crate's
-# `cargo:rustc-link-lib=framework=Security` directive — but here CMake links
-# libmatrix_client_rust.a into a C++ executable, so that directive is never
-# seen and the link fails with ten undefined _Sec* symbols. Supplying the
-# framework here is packaging configuration, not a source patch: the Lightning
-# source is unmodified, exactly as the Windows cross-build supplies its own
-# linker inputs.
-#
-# -headerpad_max_install_names is NOT cosmetic and NOT optional. The GStreamer
-# staging step rewrites the executable's GStreamer-stack dependencies from the
-# paths macdeployqt left — @executable_path/../Frameworks/libgobject-2.0.0.dylib
-# — to the staged copies, @executable_path/../PlugIns/gstreamer-libs/… , which
-# are 17 bytes LONGER. A Mach-O's load commands live in a fixed-size header pad,
-# so without this flag the rewrite fails outright:
-#
-#   install_name_tool: changing install names or rpaths can't be redone for:
-#   .../Contents/MacOS/Lightning (for architecture arm64) because larger updated
-#   load commands do not fit (the program must be relinked, and you may need to
-#   use -headerpad or -headerpad_max_install_names)
-#
-# Measured on the runner, on a binary built without it. It is a hard failure in
-# stage-macos-gstreamer.sh rather than a silent one, but the place to fix it is
-# the link, which is here.
+# -headerpad_max_install_names is required: stage-macos-gstreamer.sh rewrites
+# the executable's GStreamer install names to longer paths, which do not fit
+# in the default Mach-O header pad.
 MACOS_LINK_FRAMEWORKS="-framework Security -framework CoreFoundation -Wl,-headerpad_max_install_names"
 
-# libcrypto is linked STATICALLY on macOS, on purpose. Homebrew's openssl@3 is
-# keg-only, so a dynamically linked bundle would carry an absolute
-# /opt/homebrew/opt/openssl@3/... load command; macdeployqt only relocates what
-# it walks from the Qt frameworks, and the load-command repair pass below would
-# then die because libcrypto.3.dylib was never bundled. Static linking removes
-# the deployment question entirely and keeps the .app self-contained, which is
-# what every other non-Qt dependency in this bundle already is. (If a future
-# Homebrew stops shipping libcrypto.a, drop OPENSSL_USE_STATIC_LIBS and add
-# libcrypto to the bundling pass — do not leave the host path in the binary.)
-# PKG_CONFIG_PATH is scoped to this one command — see the note above.
+# libcrypto is linked statically: the keg-only openssl@3 would otherwise leave
+# an absolute /opt/homebrew load command that macdeployqt does not relocate.
+# If Homebrew stops shipping libcrypto.a, bundle the dylib instead; never leave
+# the host path in the binary. PKG_CONFIG_PATH is scoped to this command.
 PKG_CONFIG_PATH="$GST_PKG_CONFIG_PATH" \
 cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
@@ -296,8 +212,7 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DLIGHTNING_BUILD_TARGET="aarch64-apple-darwin" \
     -DLIGHTNING_ARTIFACT_KIND=unsigned-test
 
-# The generated header has been written; drop the key values so nothing
-# downstream (compile, staging, packaging) can see or persist them.
+# Drop the key values now that the generated header exists.
 unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY 2>/dev/null || true
 
 cmake --build "$BUILD_DIR" --parallel "${BUILD_JOBS:-4}" --target lightning-matrix
@@ -305,9 +220,7 @@ cmake --build "$BUILD_DIR" --parallel "${BUILD_JOBS:-4}" --target lightning-matr
 BUILT_BINARY="$BUILD_DIR/lightning-matrix"
 [[ -x "$BUILT_BINARY" ]] || die "lightning-matrix was not produced at $BUILT_BINARY"
 
-# Fail closed on the Rust-only invariant before anything is bundled, matching
-# the Linux path: a macOS build that silently compiled the HTTP or mock backend
-# is not the same application.
+# A macOS build that compiled the HTTP or mock backend is not the same app.
 build_info_text="$("$BUILT_BINARY" --build-info)"
 printf '%s\n' "$build_info_text" | tee "$REPORT_DIR/build-info.txt"
 printf '%s\n' "$build_info_text" | grep -qx 'matrix_backend: rust' \
@@ -317,27 +230,19 @@ printf '%s\n' "$build_info_text" | grep -qx 'http_backend_compiled: false' \
 printf '%s\n' "$build_info_text" | grep -qx 'mock_backend_compiled: false' \
     || die "built binary compiled the mock backend"
 
-# The call media engine is the only thing in Lightning that links GStreamer, and
-# its CMake probe fails SILENTLY (a STATUS message, then the engine is simply
-# not in APP_SOURCES). --build-info reports nothing about it, so the load
-# commands are the evidence: no libgstreamer means no engine, and no engine
-# means every call is refused. Checked here, before anything is bundled.
+# The media engine's CMake probe fails silently and --build-info does not
+# report it, so check that the binary links GStreamer.
 otool -L "$BUILT_BINARY" | grep -q 'libgstreamer-1\.0' \
     || die "the built binary does not link GStreamer — the media engine was not compiled"
 
 # --- assemble the .app bundle ------------------------------------------------
-# Lightning's CMake targets Linux/Windows layouts (install(TARGETS) into bin/,
-# WIN32_EXECUTABLE on Windows) and never sets MACOSX_BUNDLE, so the bundle is
-# assembled here rather than by cmake --install. Keeping it out of the source
-# tree means macOS packaging cannot regress the Linux install rules.
+# Lightning's CMake never sets MACOSX_BUNDLE, so the bundle is assembled here.
 CONTENTS="$APP_DIR/Contents"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp "$BUILT_BINARY" "$CONTENTS/MacOS/$APP_NAME"
 chmod 0755 "$CONTENTS/MacOS/$APP_NAME"
 
-# Icon: build a real .icns from the source's hicolor PNGs. 512@2x (1024px) is
-# deliberately omitted rather than upscaled — a blurry synthesized icon looks
-# worse in the Dock than letting macOS scale the genuine 512.
+# 512@2x is omitted rather than upscaled; macOS scales the real 512 better.
 ICONSET="$BUILD_DIR/${APP_NAME}.iconset"
 rm -rf "$ICONSET"; mkdir -p "$ICONSET"
 icon_src() { printf '%s/data/icons/hicolor/%sx%s/apps/lightning.png' "$SOURCE_DIR" "$1" "$1"; }
@@ -356,11 +261,8 @@ for entry in "${icon_map[@]}"; do
 done
 iconutil --convert icns "$ICONSET" --output "$CONTENTS/Resources/${APP_NAME}.icns"
 
-# Info.plist. NSMicrophoneUsageDescription is REQUIRED, not decorative: the
-# client records voice messages through QMediaCaptureSession/QAudioInput, and
-# macOS terminates any process that touches the microphone without a usage
-# string. Omitting it would crash the app the first time a user holds the
-# record button.
+# NSMicrophoneUsageDescription is required: macOS terminates a process that
+# opens the microphone without it.
 cat >"$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -388,22 +290,11 @@ PLIST
 printf 'APPL????' >"$CONTENTS/PkgInfo"
 
 # --- bundle the Qt runtime ---------------------------------------------------
-# macdeployqt copies the frameworks and the QML modules the app imports, then
-# rewrites the Mach-O load commands to @executable_path/../Frameworks. -qmldir
-# is required: Lightning's own QML is compiled into the binary as resources, so
-# without a source scan macdeployqt cannot see which Qt QML modules (QtQuick,
-# QtQuick.Controls, QtMultimedia, ...) the app actually imports and would ship a
-# bundle that fails at first window.
-# The console output is filtered; the log file is not. macdeployqt emits a pair
-# of lines per unresolvable dependency —
-#   ERROR: Cannot resolve rpath "@rpath/QtVirtualKeyboard.framework/..."
-#   ERROR:  using QList("/opt/homebrew/opt/qtdeclarative/lib", ...)
-# — roughly 40 of them, for modules this script prunes immediately afterwards
-# and for dylibs (libwebp, libsharpyuv, libbrotlicommon) that it resolves on a
-# later pass anyway. They are printed during deployment, so pruning cannot
-# prevent them; they can only be filtered. Every line still lands verbatim in
-# reports/macdeployqt.log, and the count is reported below, so nothing is
-# hidden — only moved out of the way. Any OTHER macdeployqt error still prints.
+# -qmldir is required because Lightning's QML is compiled in as resources, so
+# macdeployqt cannot otherwise see which Qt QML modules it imports.
+# The console output drops the ~40 "Cannot resolve rpath" / "using QList"
+# pairs for modules pruned below; the full log is kept in
+# reports/macdeployqt.log and any other error still prints.
 macdeployqt "$APP_DIR" \
     -qmldir="$SOURCE_DIR" \
     -verbose=1 2>&1 \
@@ -415,21 +306,11 @@ printf 'macdeployqt: %s unresolvable-rpath lines filtered from the console (see 
     "$rpath_noise"
 
 # --- prune modules the app does not import -----------------------------------
-# macdeployqt deploys every plugin in its default categories, not only the ones
-# this app can reach. On this Qt that pulls in a virtual-keyboard input context
-# and, through it, the VirtualKeyboard/Timeline/StateMachine/Pdf QML modules.
-# Lightning imports none of them (its only imports are QtQuick, QtQuick.Controls
-# [.Basic], QtQuick.Dialogs, QtQuick.Effects, QtQuick.Layouts, QtQuick.Window,
-# QtMultimedia and its own MatrixClient module).
-#
-# They do not merely waste space, they arrive broken. Homebrew's Qt frameworks
-# carry rpaths naming the per-module prefixes (.../opt/qtbase/lib,
-# .../opt/qtdeclarative/lib) and there is no such prefix for qt3d, qtscxml or
-# qtpdf, so macdeployqt cannot resolve their frameworks and emits a long wall of
-#   ERROR: Cannot resolve rpath "@rpath/QtVirtualKeyboard.framework/..."
-# then copies the QML module and its plugin in anyway, without the framework it
-# needs. Removing them deletes dead payload and the noise it generates. Anything
-# genuinely required would fail the validation run at the end of this script.
+# macdeployqt deploys every plugin in its default categories, including a
+# virtual-keyboard input context and the QML modules it drags in. Lightning
+# imports none of them, and they arrive without their frameworks (Homebrew
+# rpaths name per-module prefixes that do not exist for them). Anything
+# genuinely required would fail validation at the end of this script.
 for dead in \
     "$CONTENTS/PlugIns/platforminputcontexts" \
     "$CONTENTS/Resources/qml/QtQuick/VirtualKeyboard" \
@@ -443,25 +324,16 @@ do
 done
 
 # --- repair load commands macdeployqt left pointing at the host ---------------
-# macdeployqt drives install_name_tool through QProcess and does not always wait
-# for it. Its own log carries
-#   QProcess: Destroyed while process ("install_name_tool") is still running.
-# and when that race bites, a binary keeps an absolute /opt/homebrew dependency.
-# That bundle only runs on this machine, and it is intermittent: the same commit
-# produced a clean bundle in pipeline 90 and one broken plugin
-# (PlugIns/quick/libqtquicktemplates2plugin.dylib -> QtNetwork) in pipeline 91.
-#
-# So do not trust macdeployqt to have finished. Sweep every Mach-O and rewrite
-# any remaining host reference to the copy already inside the bundle. A host
-# dependency whose framework is NOT bundled is a real missing dependency and
-# stops the build rather than shipping something that cannot run elsewhere.
+# macdeployqt does not always wait for install_name_tool ("QProcess: Destroyed
+# while process is still running"), which intermittently leaves an absolute
+# /opt/homebrew dependency behind. Rewrite any remaining host reference to the
+# bundled copy; a host dependency that is not bundled stops the build.
 repaired=0
 while IFS= read -r macho; do
     install_name="$(otool -D "$macho" 2>/dev/null | sed -n '2p')"
     while IFS= read -r dep; do
         [[ -n "$dep" ]] || continue
-        # The install name (LC_ID_DYLIB) is the binary's own identity, not a
-        # dependency; macdeployqt leaves it as-is and that is harmless.
+        # LC_ID_DYLIB is the binary's own identity, not a dependency.
         [[ "$dep" == "$install_name" ]] && continue
 
         case "$dep" in
@@ -490,18 +362,14 @@ done < <(find "$APP_DIR" -type f \( -perm -u+x -o -name '*.dylib' \) -exec sh -c
 printf 'load-command repair pass: %d rewritten\n' "$repaired"
 
 # --- bundle the GStreamer runtime the call engine dlopens ---------------------
-# AFTER macdeployqt and after the repair pass, deliberately. macdeployqt would
-# otherwise walk these dylibs and try to deploy their dependencies into
-# Contents/Frameworks, where GStreamer's glib would land on top of the copy Qt
-# needs; and the repair pass exists to fix what macdeployqt left behind, which
-# is not this. The staging script owns its own install names end to end.
+# After macdeployqt and the repair pass: otherwise macdeployqt would deploy
+# GStreamer's glib over the copy Qt needs. The staging script owns its own
+# install names.
 "$SCRIPT_DIR/stage-macos-gstreamer.sh" "$APP_DIR" "$GSTREAMER_PREFIX"
 
 # --- metadata ----------------------------------------------------------------
-# Written BEFORE signing, deliberately. build-info.json lives inside
-# Contents/Resources, so adding it after the bundle is sealed invalidates the
-# signature ("code or signature have been modified"). Nothing may modify the
-# bundle between codesign and ditto.
+# Written before signing: Contents/Resources is sealed, so nothing may modify
+# the bundle between codesign and ditto.
 PACKAGING_SHA="${CI_COMMIT_SHA:-unknown}"
 jq -n \
     --arg version "$BASE_VERSION" \
@@ -535,43 +403,19 @@ jq -n \
     >"$CONTENTS/Resources/build-info.json"
 
 # --- licences ----------------------------------------------------------------
-# THE macOS BUNDLE SHIPPED WITH NO LICENCE TEXT OF ANY KIND, INCLUDING OURS.
-#
-# Measured on the published 0.9.8 bundle (2026-09-19): `find Lightning.app
-# -iname '*licen*' -o -iname 'COPYING*'` returns NOTHING across 2,066 files.
-# That is not only a third-party problem — Lightning is GPL-3.0-or-later and
-# §4 of that licence requires a copy of it to accompany the program, so the one
-# licence the project unambiguously owes its users was the one missing.
-#
-# What the bundle carries besides our own code: Qt 6 (LGPL-3.0 with Qt's
-# exception), the official GStreamer framework's core/-base/-good/-bad plugins
-# and 35 dylibs, libnice, glib/gio/gobject, hunspell, freetype, harfbuzz,
-# graphite2, ICU, OpenSSL, libpng/libjpeg/libtiff/libwebp and more. This block
-# closes the part with exactly one right answer — the text must travel with the
-# binaries — for the two sources this repository can prove it has. The rest is
-# recorded in docs/open-items.md as the maintainer's call, because it needs a
-# decision about where the corresponding source is offered, not a patch.
-#
-# BEFORE THE SIGNATURE, DELIBERATELY. Contents/Resources is sealed by codesign;
-# adding a file after the bundle is signed invalidates it, which is the same
-# constraint the build-info.json block above is written against.
+# Lightning is GPL-3.0-or-later and must ship its licence text; the bundle
+# also stages gst-plugins-good. Licensing for the rest of the bundled stack is
+# tracked in docs/open-items.md. Staged before signing (Contents/Resources is
+# sealed).
 LICENSE_DIR="$CONTENTS/Resources/licenses"
 mkdir -p "$LICENSE_DIR"
 [[ -f "$SOURCE_DIR/LICENSE" ]] \
     || die "the source tree has no LICENSE: the bundle cannot ship Lightning's own GPL-3 text"
 install -m 0644 "$SOURCE_DIR/LICENSE" "$LICENSE_DIR/Lightning-GPL-3.0.txt"
 
-# gst-plugins-good, from THIS REPOSITORY. The staged plugin set includes
-# libgstrtp, libgstrtpmanager, libgstautodetect, libgstlevel, libgstvpx,
-# libgstjpeg, libgstvolume and libgstosxaudio; osxaudio in particular exists
-# nowhere else. The text is vendored rather than copied off the framework for
-# the same reason the Windows stage vendors it — see
-# packaging-ci/packaging/common/licenses/gst-plugins-good-1.0/PROVENANCE.txt.
-# `$ROOT/packaging-ci/packaging/...`, NOT `$ROOT/packaging/...`. project_dir()
-# is the REPOSITORY root and the packaging tree lives under packaging-ci/ since
-# it was folded in; a path that reaches for packaging/ from the root finds a
-# real directory with none of these files in it, which has cost dead pipelines
-# before. Identical spelling to build-appimage.sh, deliberately.
+# gst-plugins-good text is vendored in this repository; see PROVENANCE.txt
+# there. The path is under packaging-ci/: project_dir() is the repository root,
+# where a packaging/ directory also exists without these files.
 GOOD_LICENSE_SRC="$ROOT/packaging-ci/packaging/common/licenses/gst-plugins-good-1.0"
 [[ -f "$GOOD_LICENSE_SRC/COPYING" ]] \
     || die "the vendored gst-plugins-good licence is missing at $GOOD_LICENSE_SRC: the bundle stages its binaries and must carry its licence"
@@ -581,11 +425,7 @@ install -m 0644 "$GOOD_LICENSE_SRC/COPYING" \
 install -m 0644 "$GOOD_LICENSE_SRC/PROVENANCE.txt" \
     "$LICENSE_DIR/lightning-gstreamer/gst-plugins-good-1.0/PROVENANCE.txt"
 
-# Whatever the upstream GStreamer framework carries for itself. It is expanded
-# whole from the publisher's .pkg (install-macos-gstreamer.sh), so if it ships
-# licence text it is under the prefix. This is REPORTED rather than asserted:
-# nobody here has listed that tree, and a count printed in the job log is how
-# the next person finds out without guessing.
+# Whatever licence text the upstream framework ships. Reported, not asserted.
 gst_license_files=0
 while IFS= read -r f; do
     rel="${f#"$GSTREAMER_PREFIX"/}"
@@ -599,18 +439,12 @@ printf 'licences: staged Lightning GPL-3, vendored gst-plugins-good, and %s file
     "$gst_license_files"
 
 # --- signature ---------------------------------------------------------------
-# Ad-hoc (-) signature, NOT a Developer ID identity. On Apple Silicon every
-# executable page must carry a valid signature or the kernel refuses to run the
-# process, and macdeployqt's install_name_tool rewrites invalidate the signatures
-# Homebrew's dylibs shipped with — so this re-sign is what makes the bundle
-# runnable at all. It does NOT make it distributable: Gatekeeper still blocks it
-# on other machines because it is neither Developer ID signed nor notarized.
+# Ad-hoc signature: on Apple Silicon every executable page must be signed, and
+# install_name_tool rewrites invalidate Homebrew's signatures. It does not make
+# the bundle pass Gatekeeper.
 #
-# Signed inside-out, deepest first, rather than with `codesign --deep`. --deep is
-# deprecated and does not reliably re-sign every nested Mach-O that macdeployqt
-# rewrote — it left libbrotlicommon.1.dylib with a stale signature, which then
-# failed verification as "code or signature have been modified". Signing each
-# nested binary explicitly and the bundle last is the supported order.
+# Signed inside-out rather than with the deprecated --deep, which left some
+# rewritten dylibs with stale signatures.
 : >"$REPORT_DIR/codesign.log"
 nested_signed=0
 while IFS= read -r macho; do
@@ -622,8 +456,7 @@ while IFS= read -r macho; do
 done < <(find "$APP_DIR" -type f)
 printf 'ad-hoc signed %d nested binaries\n' "$nested_signed"
 
-# Framework bundles carry their own bundle signature; sign them after their
-# payloads and before the app that contains them.
+# Frameworks after their payloads, before the app that contains them.
 while IFS= read -r fw; do
     codesign --force --sign - --timestamp=none "$fw" >>"$REPORT_DIR/codesign.log" 2>&1 \
         || die "failed to sign framework: ${fw#$APP_DIR/}"
@@ -636,24 +469,19 @@ codesign --verify --deep --strict --verbose=2 "$APP_DIR" >>"$REPORT_DIR/codesign
     || die "the signed bundle does not verify — see reports/codesign.log"
 printf 'bundle signature verifies (ad-hoc)\n'
 
-# Copy for the artifact browser. This one lives outside the .app, so writing it
-# after signing is safe.
+# Outside the .app, so writing it after signing is safe.
 cp "$CONTENTS/Resources/build-info.json" "$MACOS_DIST/build-info.json"
 
 # --- validate then package ---------------------------------------------------
-# Validation runs on the finished bundle BEFORE it is zipped, so a broken
-# bundle cannot become a downloadable artifact. The GStreamer prefix travels
-# with it: the validator probes the BUNDLED plugins with the SDK's own
-# gst-inspect-1.0, which is the only way to prove the staged set actually
-# yields the elements the engine refuses to run without.
+# Validate before zipping so a broken bundle never becomes an artifact. The
+# validator probes the bundled plugins with the SDK's gst-inspect-1.0.
 export LIGHTNING_MACOS_GSTREAMER_PREFIX="$GSTREAMER_PREFIX"
 "$SCRIPT_DIR/validate-macos-artifacts.sh" "$MACOS_DIST"
 
 short_sha="${SOURCE_SHA:0:7}"
 artifact_base="Lightning-${BASE_VERSION}-${short_sha}-macos-arm64"
 archive="$MACOS_DIST/${artifact_base}.zip"
-# ditto preserves symlinks, resource forks, and the code signature; a plain
-# `zip -r` corrupts framework symlink layout and breaks the signature.
+# ditto preserves framework symlinks and the signature; zip -r does not.
 ( cd "$MACOS_DIST" && ditto -c -k --sequesterRsrc --keepParent \
     "${APP_NAME}.app" "$(basename "$archive")" )
 write_sha256 "$archive"

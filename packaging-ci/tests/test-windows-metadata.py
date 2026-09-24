@@ -131,11 +131,9 @@ LIGHTNING_STRINGS = {
     "ProductVersion": "0.6.6",
 }
 
-# The update helper is Lightning-owned too, and it carries its OWN version
-# resource. It must not inherit the application's, or its OriginalFilename would
-# name a file it is not — which is what a single global CMAKE_EXE_LINKER_FLAGS
-# resource produced, and what packaging/windows/version-resources.cmake exists
-# to prevent.
+# The update helper carries its own version resource; inheriting the
+# application's would give it the wrong OriginalFilename (see
+# packaging/windows/version-resources.cmake).
 UPDATER_STRINGS = {
     "CompanyName": "Rokas Smetonis",
     "FileDescription": "Lightning update helper",
@@ -242,9 +240,8 @@ def main() -> int:
         result = run_verifier(stage, root / "missing-report.json")
         check(result.returncode != 0, "absent Lightning.exe rejected")
 
-        # H3: every Windows package is built from this one stage, so a helper
-        # that is not staged ships in none of them and the update feature is a
-        # silent no-op. That must be a build failure, not a smaller package.
+        # Every Windows package comes from this stage, so an unstaged helper
+        # would silently disable updates everywhere; fail the build instead.
         print("a missing update helper fails")
         stage = build_stage(root / "noupdater", updater=None)
         result = run_verifier(stage, root / "noupdater-report.json")
@@ -252,8 +249,8 @@ def main() -> int:
         check("lightning-updater.exe" in result.stderr,
               "the missing helper is named")
 
-        # The exact defect a single global version resource produced: the helper
-        # linked with the application's VERSIONINFO, claiming to be Lightning.exe.
+        # A helper linked with the application's VERSIONINFO claims to be
+        # Lightning.exe.
         print("the update helper may not carry the application's OriginalFilename")
         stage = build_stage(root / "sharedres", updater=LIGHTNING_STRINGS)
         result = run_verifier(stage, root / "sharedres-report.json")
@@ -302,10 +299,9 @@ def check_uninstall_contract() -> None:
           "never asks for administrator rights up front")
     check("WriteUninstaller" in nsi, "an uninstaller is written")
 
-    # SCOPE (GitHub issue #14). Per-user stays the default; "for all users" is
-    # opt-in (page, /ALLUSERS) and is the ONLY way anything reaches HKLM: every
-    # registration goes through SHCTX, which is HKCU unless
-    # `SetShellVarContext all` was called for a per-machine install.
+    # Install scope: per-user is the default; "for all users" is opt-in
+    # (page, /ALLUSERS) and is the only path to HKLM, since every registration
+    # goes through SHCTX.
     check('StrCpy $InstallScope "user"' in nsi,
           "the install scope starts out per-user")
     check('"/ALLUSERS"' in nsi and '"/CURRENTUSER"' in nsi,
@@ -344,9 +340,8 @@ def check_uninstall_contract() -> None:
         ("SetEnvironmentVariable", "environment variables"),
         ("EnVar::", "PATH modification"),
         ('WriteRegStr HKCR', "file associations / URL protocols"),
-        # HKLM is READ (to find an existing per-machine copy) and written only
-        # through SHCTX in the per-machine scope a person or deployment tool
-        # explicitly chose. Never a direct machine-wide write.
+        # HKLM is read (to find a per-machine copy) and written only through
+        # SHCTX in an explicitly chosen per-machine install.
         ("WriteRegStr HKLM", "direct machine-wide registry writes"),
         ("WriteRegDWORD HKLM", "direct machine-wide registry writes"),
         ("DeleteRegKey HKLM", "direct machine-wide registry deletes"),

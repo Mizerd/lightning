@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
-# Clean-system validation of the snap. A real `snap install --dangerous`
-# needs a running snapd, which the Docker-on-Linux fleet cannot provide, so
-# this is the closest faithful equivalent (documented in the runner and
-# packaging docs): unsquash the image, verify meta/snap.yaml and desktop
-# integration, run the payload offscreen through the snap launcher with a
-# simulated $SNAP, check GIF provider state, and audit for leaks.
+# Structural validation of the snap (the runners cannot run snapd): unsquash,
+# verify meta/snap.yaml and desktop integration, run the payload offscreen
+# through the launcher with a simulated $SNAP, check GIF state, audit leaks.
 set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib.sh
@@ -60,36 +57,24 @@ assert gpu["default-provider"] == "mesa-2404", gpu
 print("snap.yaml valid")
 EOF
 test -x "$audit/prime/usr/bin/lightning-matrix" || die "snap application binary missing"
-# A snap is refreshed by snapd, so Lightning never RUNS the helper here — but
-# the snap is repacked from the AppImage job's AppDir, so a helper missing from
-# this payload means it was also missing from the AppImage, where it IS used.
+# snapd refreshes the snap, but a missing helper here means the AppImage it was
+# repacked from lacks it too.
 test -x "$audit/prime/usr/bin/lightning-updater" || die "update helper missing from the snap payload"
 test -f "$audit/prime/meta/gui/lightning.desktop" || die "snap desktop file missing"
 test -f "$audit/prime/meta/gui/lightning.png" || die "snap icon missing"
 test -x "$audit/prime/bin/lightning-launch" || die "launcher missing"
-# THE LGPL TEXT FOR THE gst-plugins-good BINARIES THIS SNAP CARRIES, asserted
-# on the unsquashed payload.
-#
-# The snap repacks the AppImage, so the licence's presence FOLLOWS from the
-# AppImage's — which is exactly the reasoning that would let it go missing
-# without anybody noticing. This project's own rule is to assert the payload
-# and not the script that was supposed to fill it; sctp, ximagesrc, the Qt TLS
-# backend and the Wayland shell integration were each named in a script and
-# absent from a package.
+# Licences are asserted on the payload itself rather than inferred from the
+# AppImage it was repacked from.
 snap_good_license="$audit/prime/usr/share/licenses/lightning-gstreamer/gst-plugins-good-1.0/COPYING"
 test -s "$snap_good_license" \
     || die "the snap bundles gst-plugins-good binaries and carries no licence for them: usr/share/licenses/lightning-gstreamer/gst-plugins-good-1.0/COPYING is missing or empty"
 grep -q "GNU LESSER GENERAL PUBLIC LICENSE" "$snap_good_license" \
     || die "the staged gst-plugins-good licence in the snap is not the LGPL text"
-# AND THE REST OF THE PAYLOAD'S, harvested per Debian package by
-# build-appimage.sh. The snap inherits both the libraries and the harvest; it is
-# asserted here for the same reason the line above is, and with the same floor
-# (measured 242 on the 0.9.8 payload).
+# Third-party licences harvested per Debian package by build-appimage.sh.
 snap_third_party="$audit/prime/usr/share/licenses/third-party"
 test -d "$snap_third_party" \
     || die "the snap carries ~240 third-party libraries and no licence directory: usr/share/licenses/third-party is missing"
-# `-size +0`: a harvest that produced empty files would satisfy a bare count,
-# and the count is what this claims to assert.
+# `-size +0` so empty files do not satisfy the count.
 snap_tp_count=$(find "$snap_third_party" -maxdepth 1 -name '*.copyright' -type f -size +0 | wc -l)
 test "$snap_tp_count" -ge 100 \
     || die "only $snap_tp_count third-party licence files are in the snap payload; the AppImage harvest came back short"
@@ -112,11 +97,8 @@ set -e
 [ "$status" = 0 ] || [ "$status" = 124 ] \
     || { cat dist/snap-launch.log; die "offscreen launch failed ($status)"; }
 
-# The call media engine, run THROUGH THE LAUNCHER, because the launcher is the
-# half the snap has to get right: it takes only usr/ from the AppImage AppDir,
-# so linuxdeploy's AppRun and its apprun-hooks/gstreamer.sh stay behind and the
-# launcher is the only thing that can point GStreamer at the bundled plugins.
-# Running the binary directly would test the payload and silently skip that.
+# Run through the launcher: the snap takes only usr/ from the AppDir, so the
+# launcher alone points GStreamer at the bundled plugins.
 set +e
 ( cd /tmp && timeout 60s env SNAP="$audit/prime" QT_QPA_PLATFORM=offscreen \
     "$audit/prime/bin/lightning-launch" --call-media-status ) \
@@ -125,9 +107,7 @@ call_media_status=$?
 set -e
 assert_call_media_engine snap dist/snap-call-media-status.txt "$call_media_status"
 
-# THE VOICE-DELAY PROPERTY, asked of the same shipped artifact. See
-# assert_queue_selftest in lib.sh for what it measures and why it is not yet a
-# hard gate.
+# Voice-delay self-test; see assert_queue_selftest in lib.sh.
 set +e
 ( cd /tmp && timeout 180s env SNAP="$audit/prime" QT_QPA_PLATFORM=offscreen \
     "$audit/prime/bin/lightning-launch" --call-queue-selftest ) \
@@ -136,10 +116,8 @@ queue_selftest_status=$?
 set -e
 assert_queue_selftest snap dist/snap-queue-selftest.txt "$queue_selftest_status"
 
-# THE CALL SOUNDS, asked of the same shipped artifact. WARN-ONLY: this
-# container has no sound server, and QSoundEffect cannot reach Ready without an
-# output device, so here the answer is normally UNMEASURED. The transcript is
-# kept regardless. See assert_call_sounds_status in lib.sh.
+# Call sounds, warn-only: without an output device QSoundEffect never reaches
+# Ready, so this is normally unmeasured here. See assert_call_sounds_status.
 set +e
 ( cd /tmp && timeout 60s env SNAP="$audit/prime" QT_QPA_PLATFORM=offscreen \
     "$audit/prime/bin/lightning-launch" --call-sounds-status ) \
@@ -148,10 +126,7 @@ call_sounds_status=$?
 set -e
 assert_call_sounds_status snap dist/snap-call-sounds-status.txt "$call_sounds_status"
 
-# The image DECODERS, through the same launcher: it is what sets QT_PLUGIN_PATH
-# to the snap's own usr/plugins, so running the binary directly would test the
-# payload and silently skip the wiring. The snap takes usr/ from the AppImage's
-# AppDir, so it inherits libqwebp.so and kimg_jxl.so from that job.
+# Image decoders, through the launcher, which sets QT_PLUGIN_PATH.
 set +e
 ( cd /tmp && timeout 60s env SNAP="$audit/prime" QT_QPA_PLATFORM=offscreen \
     "$audit/prime/bin/lightning-launch" --image-format-status ) \
@@ -161,56 +136,27 @@ set -e
 assert_image_formats snap dist/snap-image-format-status.txt "$image_format_status" jxl
 grep -q 'GST_PLUGIN_SYSTEM_PATH_1_0' "$audit/prime/bin/lightning-launch" \
     || die "the snap launcher does not point GStreamer at the bundled plugins"
-# AND AT THE SCANNER. The binary rides along in the AppDir, so a payload check
-# finds it and passes while the launcher points nowhere: libgstreamer then
-# looks at the path compiled into the BUILD image, which does not exist inside
-# the snap. Missed for the life of the snap because the engine still reports
-# "available" — the in-process fallback works, it just loses the crash
-# isolation a separate scanner process buys. Caught 2026-09-12 by installing
-# the snap under a real snapd and READING THE WARNING, which is why the
-# second assertion below is on the artifact's own output rather than on a file
-# existing.
+# The launcher must also point at the bundled gst-plugin-scanner; otherwise
+# libgstreamer looks for the build image's path and silently scans in-process.
 test -x "$audit/prime/usr/libexec/gstreamer-1.0/gst-plugin-scanner" \
     || die "gst-plugin-scanner is not in the snap payload"
-# AND AT NSS'S OWN PKCS#11 MODULES, which is why this snap could never carry
-# call media. `libsrtp2` is built against NSS on Debian; NSS dlopens
-# `libsoftokn3` (which dlopens `libfreebl3`) from a path it derives at runtime,
-# so no ELF walk and no `ldd` check can see them. Unconfined the host's copy is
-# found and nothing looks wrong. Under STRICT CONFINEMENT `/usr` is core24's,
-# which has NO NSS at all — measured 2026-09-13: libsrtp returns init_fail,
-# `srtpenc` posts "Could not initialize SRTP encoder", and the call carries
-# nothing in either direction while signalling, membership, the media key, SDP
-# and ICE are all correct.
-#
-# Same class as the xkb and fontconfig assertions below, and for exactly the
-# same reason: the base snap cannot supply it, so the payload must.
+# libsrtp2 uses NSS, which dlopens libsoftokn3/libfreebl3 at runtime (invisible
+# to ldd). core24 has no NSS, so without these SRTP cannot initialise and calls
+# carry no media.
 for nss_module in libsoftokn3 libfreebl3 libfreeblpriv3 libnssdbm3 libnssckbi; do
     test -f "$audit/prime/usr/lib/$nss_module.so" \
         || die "$nss_module.so is not in the snap payload and core24 has no NSS: SRTP cannot initialise, so every call carries no media in either direction"
 done
 grep -q 'GST_PLUGIN_SCANNER_1_0' "$audit/prime/bin/lightning-launch" \
     || die "the snap launcher does not point GStreamer at the bundled gst-plugin-scanner: every launch prints 'External plugin loader failed' and scans in-process"
-# `if`, not `grep ... && die`: under `set -e` an AND-list whose left side
-# fails is safe by the letter of the standard and is still the shape that
-# gets misread and "fixed" into a script that exits on the GOOD path.
+# `if` rather than `grep && die`, which is easy to misread under `set -e`.
 if grep -qi 'External plugin loader failed' dist/snap-call-media-status.txt; then
     die "the snap still prints 'External plugin loader failed' when run through its own launcher — the scanner pointer is wrong, not merely absent"
 fi
-# THE FOUR THINGS THAT KEPT THIS SNAP FROM WORKING AT ALL.
-#
-# Found 2026-09-13 the only way they could be: by running the snap under a
-# real snapd on Ubuntu 24.04, as a user would. Each is invisible to every
-# check that existed, because each is about something the BASE SNAP does not
-# carry rather than something our payload is missing.
-#
-# These are file/text assertions and they are deliberately weaker than the
-# thing they stand for — none of them proves the snap STARTS. That still
-# needs a real snapd and a compositor, neither of which this runner fleet
-# has; the honest record of what was proven live is in
-# docs/round-history.md, 2026-09-13.
-# The bridge must be the `ln`, not merely a mention of the path. An earlier
-# version grepped for the path expression, which also matches the `[ ! -e ]`
-# test guarding it -- so deleting the symlink left the assertion green.
+# What core24 does not provide: the socket bridges into snapd's remapped
+# XDG_RUNTIME_DIR, xkb keymaps and fontconfig. These are text/file checks only;
+# proving the snap starts needs a real snapd.
+# Match the `ln` itself, not the path, which also appears in its guard.
 grep -q 'ln -sf "\$_bre_up\$1"' "$audit/prime/bin/lightning-launch" \
     || die "the snap launcher no longer symlinks session sockets into snapd's per-snap XDG_RUNTIME_DIR: Qt cannot reach the compositor and the snap ABORTS on every Wayland session"
 for entry in pipewire-0 pulse/native; do
@@ -219,9 +165,7 @@ for entry in pipewire-0 pulse/native; do
 done
 grep -q 'bridge_runtime_entry "\$WAYLAND_DISPLAY"' "$audit/prime/bin/lightning-launch" \
     || die "the snap launcher no longer bridges the compositor socket"
-# The three variables that make the app LOOK at what we staged. The
-# gst-plugin-scanner defect thirty lines above is this exact shape: the file
-# was present and only the pointer was missing.
+# Staged data is useless unless the launcher points at it.
 for var in FONTCONFIG_FILE FONTCONFIG_PATH XKB_CONFIG_ROOT; do
     grep -q "export $var=" "$audit/prime/bin/lightning-launch" \
         || die "the snap launcher no longer exports $var, so the data staged beside it is never found"
@@ -230,13 +174,11 @@ test -f "$audit/prime/usr/share/X11/xkb/rules/evdev.xml" \
     || die "xkb keymaps are not in the snap payload and core24 has none: the snap segfaults just after placing its window"
 test -f "$audit/prime/etc/fonts/fonts.conf" \
     || die "fontconfig configuration is not in the snap payload and core24 has none"
-# A staged rule that points outside the snap is worse than an absent one: it
-# is present to every file check and dead at runtime.
+# A rule symlinked outside the snap passes file checks but is dead at runtime.
 test -z "$(find "$audit/prime/etc/fonts" -xtype l 2>/dev/null | head -1)" \
     || die "dangling symlinks under etc/fonts — the fontconfig rules are staged but point outside the snap (use cp -aL)"
-# The dangling check above passes VACUOUSLY when the rules are absent rather
-# than broken, so count them too — and name the three whose absence is
-# visible: generic families, latin fallback, and the emoji bitmap rule.
+# The dangling check passes vacuously with no rules, so count them and name
+# the three whose absence is visible.
 snap_rules=$(find "$audit/prime/etc/fonts/conf.d" -maxdepth 1 -name '*.conf' 2>/dev/null | wc -l)
 [ "$snap_rules" -ge 30 ] \
     || die "only $snap_rules fontconfig rules in the payload (expected 30+): generic-family and emoji fallback rules are missing"
@@ -246,42 +188,26 @@ for rule in 45-generic.conf 60-latin.conf 70-no-bitmaps-except-emoji.conf; do
 done
 test -d "$audit/prime/gpu-2404" \
     || die "the gpu-2404 content mount point is missing from the payload"
-# The EXEC, not the assignment. The literal appears in the GPU_WRAPPER= line
-# too, so grepping the name alone passed on a launcher that never used it.
+# Match the exec, not the GPU_WRAPPER= assignment.
 grep -q 'exec "\$GPU_WRAPPER"' "$audit/prime/bin/lightning-launch" \
     || die "the snap declares the gpu-2404 plug but the launcher never execs through the provider wrapper, so the driver paths are never set"
-# libgstximagesrc is the X11 screen-share fallback: not in the engine's
-# required-element list, so the check above is green without it while the
-# feature is dead — the launcher REPLACES the system plugin path, so the host's
-# plugins-good is invisible and the route refuses with advice that changes
-# nothing.
+# libgstximagesrc (X11 screen-share fallback) is not in the engine's required
+# list, and the launcher replaces the system plugin path, so check it here.
 for gst_plugin in libgstwebrtc libgstsctp libgstnice libgstvpx libgstopus \
                   libgstximagesrc; do
     test -f "$audit/prime/usr/lib/gstreamer-1.0/$gst_plugin.so" \
         || die "$gst_plugin.so missing from the snap payload"
 done
-# ...and staging a plugin that cannot LOAD is staging nothing. ximagesrc links
-# libX11/libXext/libXfixes/libXdamage/libXtst, which linuxdeploy's excludelist
-# deliberately leaves on the host — correctly, since the fallback only ever runs
-# on an X11 session, where they are always present. This resolves the staged
-# file exactly as the loader will, and fails on any of ITS OWN DT_NEEDED entries
-# that come back unresolved.
-#
-# Scoped to its own NEEDED list on purpose: an unresolved TRANSITIVE library of
-# the bundle's gst/glib stack would break every plugin, which the engine probe
-# above already reports — attributing it to ximagesrc here would name the wrong
-# cause. This check exists for the one failure NOTHING else can see.
+# ximagesrc must also load. Its X libraries are deliberately left to the host
+# by linuxdeploy (they exist on any X11 session), so resolve the staged file as
+# the loader would and check only its own DT_NEEDED entries; transitive
+# failures already show up in the engine probe.
 XIMAGE_SO="$audit/prime/usr/lib/gstreamer-1.0/libgstximagesrc.so"
-# tr to SPACES: the `case` below matches on space-delimited words, and awk's
-# newline-separated output never matches a *" x "* pattern. That mistake made
-# this check pass with the X libraries deliberately removed -- caught by
-# measuring it both ways, not by reading it.
+# Space-delimited, because the `case` below matches *" name "*.
 ximage_unresolved=" $(LD_LIBRARY_PATH="$audit/prime/usr/lib" ldd "$XIMAGE_SO" 2>/dev/null \
     | awk '/not found/{print $1}' | tr '\n' ' ')"
 ximage_missing=""
-# GUARDED: a `for` over an empty list iterates zero times and reports PASS.
-# If readelf fails or its output format shifts, this sweep would silently
-# stop checking anything — the exact no-teeth trap this repo records.
+# Guard against an empty NEEDED list, which would make the loop vacuous.
 ximage_needs="$(readelf -d "$XIMAGE_SO" | sed -n 's/.*NEEDED.*\[\(.*\)\]/\1/p')"
 [ -n "$ximage_needs" ] || die "readelf produced no NEEDED list for $XIMAGE_SO; the plugin-dependency sweep would pass without checking anything"
 for ximage_need in $ximage_needs; do

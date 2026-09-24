@@ -1,20 +1,12 @@
 #!/usr/bin/env bash
 # Regenerate the animated GIF fixtures used by screenshot-demo mode.
 #
-# The GIF picker needs a grid of MOVING thumbnails to photograph honestly; demo
-# mode has no network and no provider key, so those frames have to be bundled.
-# Every output here is derived from a still that is already in
-# resources/screenshot-demo/ — same license, same provenance, no new third-party
-# asset enters the tree.
-#
-# Development-only assets: CMake adds resources/screenshot-demo/ to the binary
-# ONLY under -DLIGHTNING_ENABLE_SCREENSHOT_DEMO=ON, so none of this ships in a
-# release build.
+# Demo mode has no network or provider key, so the GIF picker's animated
+# thumbnails are bundled. Each is derived from a still already in
+# resources/screenshot-demo/, and only LIGHTNING_ENABLE_SCREENSHOT_DEMO builds
+# include them. Output is deterministic for a given ImageMagick.
 #
 #   scripts/generate-demo-gifs.sh
-#
-# Deterministic: same inputs and same ImageMagick produce the same bytes, so
-# rerunning it on an unchanged tree leaves git clean.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -26,8 +18,7 @@ command -v magick >/dev/null || { echo "ImageMagick 'magick' not found" >&2; exi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# Common output shape: small, short, and optimized. These are thumbnails in a
-# 3-column grid, never full-size media.
+# Small and short: these are thumbnails in a 3-column grid.
 FRAMES=12
 DELAY=8          # centiseconds -> ~12 fps
 EDGE=220         # longest edge

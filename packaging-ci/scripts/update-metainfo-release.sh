@@ -1,48 +1,28 @@
 #!/usr/bin/env bash
-# Keep the AppStream <releases> list in step with the release actually being
-# built, and assert that it IS in step.
+# Keep the AppStream <releases> list in step with the release being built.
 #
-# WHY THIS EXISTS. Nothing in the pipeline ever wrote <releases>. §14's release
-# flow bumps CMake and Cargo and writes docs/releases/v<X.Y.Z>.md; configure-
-# build.sh and build-flatpak.sh only COPY the static metainfo. On a store that
-# renders AppStream -- Flathub, GNOME Software, KDE Discover -- that listing
-# shows no version and no changelog, for every release, forever, and nothing
-# fails to tell you.
+# `write` derives a <release> entry from docs/releases/v<version>.md: version,
+# date, release page link, and the notes' lead paragraph as the description.
+# It replaces an existing entry for the same version and is a targeted text
+# edit, so the file's comments and formatting survive.
 #
-# The release notes are the source. `write` derives one <release> entry from
-# docs/releases/v<version>.md: its version, its date, a link to the release
-# page, and the notes' own lead paragraph as the description. That paragraph is
-# a human summary in every file the repository has (all 22 checked), and using
-# it means the changelog cannot drift from the notes.
-#
-# `check` is the other half and the one that belongs in CI: it asserts the TOP
-# <release> is the version being built. Same shape as the --version assertion
-# validate-flatpak.sh already runs against the installed binary -- a build that
-# forgot to run `write` fails loudly instead of publishing a stale changelog.
-#
-# Both are idempotent. `write` replaces an existing entry for the same version
-# rather than stacking a second one, and touches nothing else in the file:
-# it is a targeted text edit, not an XML re-serialisation, so the comments and
-# formatting that explain the OARS values and the branding colours survive.
+# `check` (for CI) asserts the newest <release> is the version being built.
 #
 # Usage:
 #   update-metainfo-release.sh write <X.Y.Z> [--date YYYY-MM-DD]
 #                                            [--notes PATH] [--metainfo PATH]
 #   update-metainfo-release.sh check <X.Y.Z> [--metainfo PATH]
 #
-# --date defaults to the commit date of tag v<X.Y.Z> when that tag exists
-# (which is the honest release date, and is never in the future -- a date in
-# the future is an appstreamcli validation error), and to today in UTC when it
-# does not, because in RELEASE_ACTION=create mode the tag is made AFTER the
-# packages are built and verified.
+# --date defaults to the commit date of tag v<X.Y.Z>, or today (UTC) when the
+# tag does not exist yet, as in RELEASE_ACTION=create. A future date fails
+# appstreamcli validation.
 set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib.sh
 . "$SCRIPT_DIR/lib.sh"
 ROOT=$(project_dir)
 
-# The release page a user reads the full notes on. GitLab is the release
-# authority (§14): it holds the tag, the signed packages and the notes.
+# The GitLab release page holding the full notes.
 : "${METAINFO_RELEASE_URL_PREFIX:=https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v}"
 
 METAINFO="$ROOT/packaging-ci/packaging/common/lightning.metainfo.xml"

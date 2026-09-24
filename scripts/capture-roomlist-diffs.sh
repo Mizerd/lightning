@@ -1,37 +1,28 @@
 #!/usr/bin/env bash
 # Capture and judge the "room_list malformed diff rejected" storm.
 #
-# WHAT THIS ANSWERS. b0c27ee (2026-09-08) found the cause — TWO producers wrote
-# one index base: the SDK's diffs address the vector from
-# entries_with_dynamic_adapters, while the snapshot came from client.rooms(),
-# a different set in a different order with Spaces in it, and both were handed
-# to handleRoomsEvent. So mark-as-read, favourite, accept-an-invite, create or
-# leave a room replaced the index base, the next set{index} addressed a
-# different room, was rejected, and the rejection called resync, which
-# re-emitted the same snapshot.
-#
-# It has never been confirmed on a real account, and it CANNOT be confirmed on
-# a small one: on a small account the two orders coincide, which is exactly why
-# the report was account-shape dependent.
+# The storm came from two producers sharing one index base: SDK diffs address
+# entries_with_dynamic_adapters while the snapshot came from client.rooms(),
+# which has a different order and includes Spaces. On a small account the two
+# orders coincide, so this needs a large account with Spaces to confirm.
 #
 # HOW TO USE IT
 #
 #   scripts/capture-roomlist-diffs.sh                 # capture, then judge
 #   scripts/capture-roomlist-diffs.sh --judge FILE    # judge an existing log
 #
-# During the capture, on an account with MANY rooms (the more the better, and
-# it must have Spaces):
+# During the capture, on an account with many rooms and Spaces:
 #
 #   1. let the room list settle,
-#   2. Mark as read on a room well down the list — NOT the first one, since an
-#      index-0 write is the one case a drifted base can still get right,
+#   2. Mark as read on a room well down the list (index 0 can still match
+#      a drifted base),
 #   3. favourite and un-favourite another,
 #   4. open a Space and come back to Home,
 #   5. quit normally.
 #
-# A PASS is zero rejections. Any rejection line names the op, the index it
-# addressed, the room it expected and the room the index was actually holding —
-# read those four together, because they say which producer drifted.
+# A pass is zero rejections. Each rejection names the op, the index, the
+# expected room and the room actually at that index; together they show
+# which producer drifted.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -54,8 +45,8 @@ judge() {
         echo "RESULT: FAIL — b0c27ee did not close it on this account shape."
         return 1
     fi
-    # ZERO IS ONLY MEANINGFUL IF THE ACTIONS RAN. A capture where nothing was
-    # clicked also reports zero, and that is the shape of a vacuous pass.
+    # Zero is only meaningful if the actions ran; an idle capture also
+    # reports zero.
     local marks
     marks=$(grep -cE "read receipt|mark_as_read|markAsRead" "$log" || true)
     if [[ "$marks" -eq 0 ]]; then
@@ -81,8 +72,7 @@ LOG="${LIGHTNING_DIFF_LOG:-/tmp/lightning-roomlist-$(date +%Y%m%d-%H%M%S).log}"
 echo "Capturing to $LOG"
 echo "Follow the steps in the header of this script, then quit Lightning."
 echo
-# QT_FORCE_STDERR_LOGGING is MANDATORY for a launch whose output is redirected:
-# without it Qt hands every line to journald and the log file holds nothing.
+# Required when output is redirected; otherwise Qt logs to journald.
 QT_FORCE_STDERR_LOGGING=1 \
 QT_LOGGING_RULES="matrix.rust=true" \
     "$REPO/scripts/run-dev.sh" --log-file "$LOG"

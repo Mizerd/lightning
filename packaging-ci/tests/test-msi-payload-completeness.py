@@ -66,10 +66,9 @@ def parse_msi_names(table: str) -> list[str]:
     return sorted(line for line in result.stdout.splitlines() if line)
 
 
-# The markers the MSI carries and the ZIP does not: the install type, and the
-# install scope (issue #14, two File rows of one name under opposite component
-# conditions). Asserted against the validator's own exemption list below, so
-# this mirror cannot drift from it.
+# Markers the MSI carries and the ZIP does not: install type and install scope
+# (two File rows of one name under opposite conditions). Checked against the
+# validator's own exemption list so the two cannot drift.
 MSI_ONLY_MARKERS = {".lightning-install-type", ".lightning-install-scope"}
 
 
@@ -92,8 +91,7 @@ def compare(msi: list[str], zip_names: list[str]) -> tuple[list[str], list[str]]
 
 print("MSI payload completeness")
 
-# The File-table parse, including the 8.3 "SHORT|Long" form wixl emits for
-# names that need one. Taking the short name there would compare rubbish.
+# Parse the File table, taking the long half of wixl's 8.3 "SHORT|Long" names.
 names = parse_msi_names(idt([
     ("a", "Lightning.exe"),
     ("b", "QSCHAN~1.DLL|qschannelbackend.dll"),
@@ -114,8 +112,8 @@ zip_only, msi_only = compare(msi, zips)
 check(not zip_only and not msi_only,
       "a matching MSI and ZIP compare clean across the two deliberate markers")
 
-# The failure this exists for: a plugin present in the ZIP and absent from the
-# MSI. The application still launches; one capability is simply gone.
+# A plugin present in the ZIP but absent from the MSI: the app still launches
+# with one capability missing.
 zip_only, msi_only = compare([n for n in msi if n != "qwebp.dll"], zips)
 check(zip_only == ["qwebp.dll"],
       "a plugin missing from the MSI is caught and named")
@@ -124,10 +122,9 @@ check(zip_only == ["qwebp.dll"],
 zip_only, msi_only = compare(msi + ["stray.dll"], zips)
 check(msi_only == ["stray.dll"], "a file only in the MSI is caught and named")
 
-# The markers must stay exempt in the direction they belong to, and ONLY that
-# direction: portable.marker appearing in the MSI is a different, already-
-# asserted failure (an installed copy would keep its crypto store inside a
-# directory Windows Installer owns).
+# Markers are exempt only in their own direction: portable.marker in the MSI
+# is a separate failure (the crypto store would live in an Installer-owned
+# directory).
 zip_only, msi_only = compare(msi + ["portable.marker"], zips)
 check(msi_only == [], "portable.marker in the ZIP alone is not a payload difference")
 

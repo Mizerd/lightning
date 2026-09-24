@@ -27,8 +27,7 @@ tmp_dir="$(mktemp -d)"
 cleanup() { rm -rf "$tmp_dir"; }
 trap cleanup EXIT
 
-# Build the release-links JSON array from the manifest (name, registry url,
-# link_type=package, and a stable direct asset path).
+# Release links from the manifest, with a stable direct asset path.
 links_array="$(jq -c '[.entries[] | {name:.asset_name, url:.registry_url,
     link_type:"package", direct_asset_path:.asset_path}]' "$manifest")"
 
@@ -84,22 +83,14 @@ resolve_notes() {
     append_policy_footer "$out"
 }
 
-# SignPath Foundation requires the term "Code signing policy" on the project's
-# download/release pages. Appending it here means every future release carries
-# it automatically, from whichever notes source was used — no per-release
-# editing, and no way to forget. Links are pinned to this release's tag so they
-# resolve to the exact reviewed text that shipped with it.
-#
-# Deliberately NOT applied by attach-existing: that action must not rewrite an
-# already-published release's description. Releases published before this
-# landed keep their original notes; adding the link to them is a manual,
-# maintainer-side edit.
+# SignPath Foundation requires a "Code signing policy" section on release
+# pages. Links are pinned to this release's tag. Not applied by attach-existing,
+# which must not rewrite a published release's description.
 POLICY_HEADING="Code signing policy"
 append_policy_footer() {
     local out="$1"
-    # Anchored to a Markdown HEADING line. A bare substring match let any
-    # release note that merely mentioned the phrase in prose suppress the
-    # "these Windows artifacts are not signed" disclosure entirely.
+    # Match a heading line only, so a prose mention cannot suppress the
+    # signing disclosure.
     local base="https://gitlab.smetonis.net/Mizerd/lightning/-/blob/${RELEASE_TAG}"
     local signing_sentence
     if windows_signed; then
@@ -111,10 +102,8 @@ download against the published `SHA256SUMS` asset.'
 published `SHA256SUMS` asset.'
     fi
     if grep -Eq "^#{1,6}[[:space:]]+${POLICY_HEADING}[[:space:]]*\$" "$out"; then
-        # A hand-written section keeps its wording, but the one sentence that
-        # is a security DISCLOSURE is never optional: if the section does not
-        # say whether the Windows artifacts are signed, that sentence is
-        # appended to it.
+        # A hand-written section keeps its wording, but the signing
+        # disclosure is appended if it is missing.
         if grep -Eq 'Authenticode-signed|not signed' "$out"; then
             printf 'Release notes already carry the %s section\n' "$POLICY_HEADING"
             return 0

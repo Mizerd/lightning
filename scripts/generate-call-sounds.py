@@ -4,13 +4,10 @@
 #
 # Renders Lightning's call sound effects into data/sounds/*.wav.
 #
-# EVERY SOUND HERE IS SYNTHESISED FROM ARITHMETIC. Nothing is sampled, traced
-# or derived from another product's audio: each cue is a handful of decaying
-# sine partials placed on a score written out below, so the score and this
-# file are the whole of the "source" and anyone can regenerate the set
-# (bit-for-bit on the same platform; libm may differ by a rounding step
-# elsewhere). Standard library only (no numpy, no sox), so it runs anywhere
-# a python3 does:
+# Every sound is synthesised from decaying sine partials on the score below;
+# nothing is sampled, so this file is the complete source. Standard library
+# only. Output is bit-identical on the same platform (libm may differ by a
+# rounding step elsewhere).
 #
 #     python3 scripts/generate-call-sounds.py            # writes data/sounds
 #     python3 scripts/generate-call-sounds.py --check    # report levels only
@@ -18,34 +15,21 @@
 # The rendered WAVs are licensed like the rest of Lightning,
 # GPL-3.0-or-later; this script is their preferred form for modification.
 #
-# DESIGN, so a later edit keeps the family coherent:
+# Design:
+#   * One key, D major pentatonic, so overlapping cues stay consonant.
+#   * One timbre per meaning: "glass" for presence and the ringer, "wood" for
+#     your own controls (mute, deafen), "bell" for attention (raised hand).
+#   * Direction carries meaning: up = on/arriving, down = off/leaving. Pairs
+#     also differ by interval and speed; share start/stop glide instead of
+#     stepping.
+#   * Effects around -24 dBFS RMS, peaks capped at -9 dBFS, one-shots done
+#     within 0.25 s; 4-6 ms raised-cosine attack and exact zero at both ends,
+#     so nothing clicks.
+#   * The ringer is one 3.2 s bar ending in silence, so QSoundEffect loops it
+#     seamlessly.
 #
-#   * ONE KEY. Every pitch is in D major pentatonic (D E F# A B). Any two cues
-#     that overlap — a join landing on a ring tail — are consonant.
-#   * THREE TIMBRES, one per meaning. "glass" (a soft struck-glass tone: sine
-#     fundamental, a weak octave and a faint inharmonic shimmer) is presence —
-#     people arriving and leaving, the ringer. "wood" (heavily damped, almost
-#     no overtones) is YOUR OWN controls — mute and deafen — so a control
-#     never sounds like somebody arriving. "bell" (inharmonic partials, long
-#     tail) is attention — a raised hand.
-#   * DIRECTION CARRIES THE MEANING, and every pair is the same material
-#     mirrored: up = on / arriving / live, down = off / leaving / silenced.
-#     Pairs are separated by more than direction too: join/leave step by a
-#     third on glass, mute/unmute by a fourth on wood and three times faster,
-#     deafen/undeafen are three wood notes an octave lower, share start/stop
-#     GLIDE instead of stepping.
-#   * SHORT AND SOFT. Effects sit around -24 dBFS RMS with peaks capped at
-#     -9 dBFS. Every one-shot is over within 0.25 s of its first note; the
-#     files run on only until the decaying tail is 60 dB down. Attack is a
-#     4-6 ms raised cosine, so no cue clicks, and every file starts and ends
-#     on an exact digital zero.
-#   * THE RINGER LOOPS SEAMLESSLY. It is one 3.2 s bar that ends in silence,
-#     so QSoundEffect's infinite loop repeats it with no join to hear.
-#
-# Levels are plain RMS over the audible span (from the first to the last
-# sample above -40 dB of the peak), not K-weighted LUFS; every partial here
-# sits between 290 Hz and 5 kHz, where K-weighting is within about 1 dB of
-# flat, so the two agree closely enough for cue-to-cue balance.
+# Levels are plain RMS over the audible span, not LUFS; all partials sit
+# between 290 Hz and 5 kHz, where K-weighting is within about 1 dB of flat.
 
 import argparse
 import math
@@ -65,8 +49,7 @@ D5, E5, FS5, A5, B5 = hz(5), hz(7), hz(9), hz(12), hz(14)
 D6, E6, FS6, A6 = hz(17), hz(19), hz(21), hz(24)
 
 # (frequency ratio, relative amplitude, decay speed relative to the
-# fundamental). Higher partials die faster, which is what makes a tone read as
-# struck rather than as a beep.
+# fundamental). Higher partials decay faster so a tone reads as struck.
 GLASS = [(1.0, 1.00, 1.0), (2.0, 0.16, 1.9), (3.0, 0.05, 2.8),
          (4.23, 0.025, 4.5)]
 WOOD = [(1.0, 1.00, 1.0), (2.0, 0.08, 2.4), (3.93, 0.03, 5.0)]
@@ -258,9 +241,8 @@ def ended():
 
 
 def disconnected():
-    # Connection lost: a falling fifth whose second note WAVERS (two detuned
-    # copies beating at 6 Hz) — the one cue in the set that sounds unsteady,
-    # because it is the one that reports trouble.
+    # Connection lost: a falling fifth whose second note wavers (two copies
+    # detuned to beat at 6 Hz), the one unsteady cue in the set.
     s = Score(2.5)
     s.note(0.000, D5, tau=0.12)
     s.note(0.110, A4, tau=0.32, beat_hz=6.0)
@@ -284,8 +266,7 @@ def unmute():
 
 
 def deafen():
-    # You hear nothing now: three wood notes an octave below mute, falling —
-    # heavier than mute because it silences more.
+    # You hear nothing now: three wood notes an octave below mute, falling.
     s = Score(2.5)
     s.note(0.000, B4, timbre=WOOD, tau=0.050, attack=0.005)
     s.note(0.050, FS4, timbre=WOOD, tau=0.050, attack=0.005)
@@ -302,8 +283,8 @@ def undeafen():
 
 
 def share_start():
-    # A screen share went live: one note GLIDING up a fourth, with a faint
-    # octave sparkle — a glide, so it is never mistaken for a join.
+    # A screen share went live: one note gliding up a fourth, with a faint
+    # octave sparkle, so it is never mistaken for a join.
     s = Score(2.5)
     s.note(0.000, A5, tau=0.24, glide_to=D6, glide_time=0.090, attack=0.006)
     s.note(0.080, D6 * 2.0, tau=0.10, amp=0.10)
@@ -325,10 +306,8 @@ def hand_raised():
 
 
 def ring():
-    # The ringer, one 3.2 s bar ending in silence so it loops cleanly: a
-    # rising arpeggio, then an answering pair from the top. Musical rather
-    # than an alarm — it is meant to be pleasant on the twentieth repeat —
-    # but the arpeggio's steady rhythm still says "call" from across a room.
+    # The ringer: one 3.2 s bar ending in silence so it loops cleanly; a
+    # rising arpeggio, then an answering pair from the top.
     s = Score(3.2)
     s.note(0.00, D5, tau=0.20)
     s.note(0.14, FS5, tau=0.20)
@@ -350,8 +329,7 @@ def call_waiting():
 
 def ringback():
     # You are calling someone: a soft sustained dyad for one second in every
-    # four — the cadence people already read as "it is ringing at the other
-    # end", in the key of the rest of the set.
+    # four, the familiar ringback cadence.
     s = Score(4.0)
     tone = [(1.0, 1.0, 1.0), (2.0, 0.10, 3.0)]
     s.note(0.00, FS4, timbre=tone, sustain=True, length=1.0, attack=0.030,

@@ -126,11 +126,9 @@ def cmd_merge(code, answers):
             continue
         wanted = sorted(PLACEHOLDER.findall(source))
         numerus = message.get("numerus") == "yes"
-        # %n may be dropped by ONE plural form, and only by a plural form:
-        # a zero form idiomatically spells the count out ("no members", "لا
-        # أعضاء") rather than printing 0. Every OTHER placeholder still has to
-        # survive in every form, and a non-plural message may drop nothing —
-        # that is where a missing %1 silently loses the room name.
+        # %n may be dropped by one plural form only (a zero form often
+        # spells the count out). Every other placeholder must survive in
+        # every form, and a non-plural message may drop nothing.
         wanted_numbered = sorted(p for p in wanted if p != "n")
         bad = None
         for form in forms:

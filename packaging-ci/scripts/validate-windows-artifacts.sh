@@ -19,10 +19,7 @@ msi="${msis[0]}"
 setup="${setups[0]}"
 portable="${portables[0]}"
 [[ -f "$STAGE/Lightning.exe" ]] || die "staged Lightning.exe is missing"
-# The update helper ships beside the application in all three Windows packages.
-# Without it the in-app updater has nothing to hand a verified artifact to, and
-# the whole update feature is inert on Windows — a silent, shipped no-op, which
-# is exactly the class of regression this check exists to catch.
+# Without the update helper the in-app updater is inert on Windows.
 [[ -f "$STAGE/lightning-updater.exe" ]] || die "staged lightning-updater.exe is missing"
 version="$(jq -er '.version' "$STAGE/build-info.json")"
 
@@ -42,27 +39,18 @@ for pe in "${pe_files[@]}"; do
         x86_64-w64-mingw32-objdump -p "$pe" | sed -n 's/^[[:space:]]*DLL Name: /  /p' | LC_ALL=C sort -fu
     } >>"$REPORTS/pe-imports.txt"
 done
-# The production binary is now a GUI-subsystem PE (WIN32_EXECUTABLE) so a normal
-# double-click never flashes or leaves a console; --version / --build-info still
-# print to a parent console (main.cpp attaches to it).
+# GUI subsystem, so a double-click never shows a console; --version and
+# --build-info still attach to a parent console.
 x86_64-w64-mingw32-objdump -p "$STAGE/Lightning.exe" | \
     grep -F '(Windows GUI)' >/dev/null || die "application subsystem is not the expected Windows GUI"
-# The helper is a console program on purpose: it is started by Lightning with a
-# fixed argument vector, writes a status file, and must be able to report to a
-# parent console. It is never double-clicked.
+# The helper is a console program started by Lightning with a fixed argv.
 x86_64-w64-mingw32-objdump -p "$STAGE/lightning-updater.exe" | \
     grep -F '(Windows CUI)' >/dev/null || die "update helper subsystem is not the expected console"
 
-# THE HELPER'S OWN IMPORTS MUST STAY INSIDE THE LIST THE CLIENT COPIES.
-#
-# Before an MSI or setup install, Lightning copies lightning-updater.exe and a
-# short list of libraries OUT of the installation, because the installer
-# rewrites every file in it and Windows will not overwrite a mapped image.
-# That list lives in UpdateManager::helperRuntimeLibraries(). If the helper
-# ever gains an import that is not in it, the staged copy fails to start at a
-# user's machine, silently, during an update. So the two are tied together
-# here: the shipped binary's non-system imports must all appear in that
-# function.
+# Before an MSI or setup install, Lightning copies the helper and the libraries
+# listed in UpdateManager::helperRuntimeLibraries() out of the install
+# directory, because the installer rewrites it. Every non-system import of the
+# shipped helper must be in that list or the copied helper fails to start.
 helper_imports="$(x86_64-w64-mingw32-objdump -p "$STAGE/lightning-updater.exe" \
     | awk '/DLL Name:/ {print $3}' | sort -u)"
 helper_list_source=""
@@ -117,18 +105,12 @@ done
 
 # --- The call media engine ---------------------------------------------------
 #
-# Two separate facts, and a package can have either one without the other.
-#
-# 1. The engine was COMPILED IN. CMake enables it only when pkg-config finds the
-#    GStreamer WebRTC development files; when it does not, the build still
-#    succeeds, the packages still publish, and every call in the shipped client
-#    refuses with the honest signaling-only message. That failure is invisible to
-#    every other check here — the binary launches, signs in and syncs perfectly.
-#    The only thing that distinguishes an engine-enabled build from an
-#    engine-less one is that Lightning.exe IMPORTS the GStreamer libraries.
-# 2. The PLUGINS shipped. They are dlopen'd, so an engine-enabled binary with no
-#    `gstreamer-1.0/` directory beside it fails at first use instead of at build
-#    time — which is why this is asserted separately from (1).
+# Two separate facts:
+# 1. The engine was compiled in. Without the GStreamer WebRTC dev files CMake
+#    silently builds without it and every call is refused; the only visible
+#    difference is that Lightning.exe imports the GStreamer libraries.
+# 2. The plugins shipped. They are dlopen'd, so a missing plugin directory
+#    fails at first use rather than at build time.
 gst_meta() {
     python3 -c 'import importlib.util,sys
 spec = importlib.util.spec_from_file_location("staging", sys.argv[1])
@@ -156,23 +138,12 @@ for plugin in "${gst_plugins[@]}"; do
     [[ -f "$STAGE/$gst_plugin_dir/$plugin" ]] || \
         die "staged GStreamer plugin is missing: $gst_plugin_dir/$plugin"
 done
-# EVERY NAMED IMPORT IN THE PAYLOAD RESOLVES, at the SYMBOL level.
-#
-# The staging script already proves every imported DLL is present, and the
-# Wine element probe proves the plugins register. Neither can catch this:
-# a plugin can carry a NORMAL import of a symbol that the DLL it names does
-# not export, and Windows fails that module at LoadLibrary with
-# ERROR_PROC_NOT_FOUND. Wine loads it anyway, so the probe passes and the
-# feature is dead on the platform it was built for.
-#
-# That is not hypothetical. libgstd3d11.dll and libgstmediafoundation.dll
-# from the upstream SDK import
-#     libstdc++-6.dll::_ZNSt7codecvtIwc9_MbstatetEC2Ey
-# which our libstdc++ does not export — the SDK is a UCRT build and this
-# toolchain is msvcrt, and mingw-w64's wchar.h makes mbstate_t a struct
-# under _UCRT and an int otherwise, so the two mangle differently. Those two
-# plugins are therefore not shipped (docs/windows-packaging.md). This check
-# is what would catch the next one.
+# Every named import in the payload must resolve at the symbol level. A normal
+# import of a symbol the named DLL does not export fails on Windows with
+# ERROR_PROC_NOT_FOUND, but Wine loads it anyway, so the element probe cannot
+# catch it. Example: the upstream d3d11 and mediafoundation plugins import a
+# libstdc++ symbol that differs between UCRT and msvcrt builds (mbstate_t), so
+# they are not shipped (docs/windows-packaging.md).
 gst_symbols_report="$REPORTS/windows-import-symbols.txt"
 : >"$gst_symbols_report"
 declare -A staged_exports=()
@@ -191,7 +162,7 @@ while IFS= read -r -d '' pe; do
         /^\t[0-9a-f]+ +<none> +[0-9a-f]+ +/ {print self" "dll" "$4}'
 done < <(find "$STAGE" -type f \( -name '*.dll' -o -name '*.exe' \) -print0) |
 while read -r self dll sym; do
-    # Only DLLs WE ship: a system import (kernel32 &c.) is resolved by Windows.
+    # Only DLLs we ship; system imports are resolved by Windows.
     [[ -n "${staged_exports[$dll]:-}" ]] || continue
     LC_ALL=C grep -qxF "$sym" "$all_exports" || printf '%s needs %s::%s\n' "$self" "$dll" "$sym"
 done | LC_ALL=C sort -u >"$gst_symbols_report"
@@ -205,10 +176,8 @@ fi
 printf 'call media engine linked in (%d GStreamer imports) with %d bundled plugins, 0 unresolved symbols\n' \
     "${#gst_app_imports[@]}" "${#gst_plugins[@]}"
 
-# The FFmpeg backend needs its runtime libraries alongside the plugin, or video
-# playback falls back to WMF and freezes. The DLLs are versioned (e.g.
-# avcodec-61.dll), so match by family. This is the structural guard that a
-# future runtime-staging change cannot silently drop the video backend.
+# The FFmpeg backend needs its runtime libraries or playback falls back to WMF
+# and freezes. The DLLs are versioned, so match by family.
 for fflib in avcodec avformat avutil swresample swscale; do
     if ! find "$STAGE" -maxdepth 1 -type f -iname "${fflib}-*.dll" -print -quit | grep -q .; then
         die "FFmpeg runtime DLL is missing from the Windows payload: ${fflib}-*.dll"
@@ -227,31 +196,15 @@ while IFS= read -r candidate; do
     fi
 done < <(find "$STAGE" -type f -print)
 
-# Builder paths and credential markers that must never reach a shipped byte.
+# Builder paths and credential markers that must never ship.
 #
-# `/source/` IS ANCHORED, and that is the whole subtlety. Unanchored it matches
-# a path COMPONENT anywhere, which is not what it was ever meant to catch — it
-# fired on three upstream strings the moment GStreamer was bundled:
-#
-#   libgstwebrtcdsp.dll  ../webrtc/system_wrappers/source/field_trial.cc
-#   icutu77.dll          icu/source/tools/gencmn/gencmn
-#   libgstwinks.dll      Sink/Source/Audio/Video      <- not a path at all
-#
-# The last one is a device-category string and shows what the loose form was
-# really doing: matching the letters "source" between slashes. This builder has
-# NO /source/ component anyway — its checkout is $ROOT/work/lightning under
-# /builds/, which the pattern above already covers — so the anchored form loses
-# no real coverage. `[^[:alnum:]_.+-]` before it means a path ROOTED at
-# /source still matches while a component never does.
-#
-# Nothing else is relaxed: every credential marker and every other builder path
-# is byte-for-byte what it was.
+# `/source/` is anchored: unanchored it matched upstream strings such as
+# webrtc's ".../system_wrappers/source/field_trial.cc" and the device category
+# "Sink/Source/Audio/Video". A path rooted at /source still matches.
 readonly FORBIDDEN_RE='(/home/roksme|/builds/[^ ]+|(^|[^[:alnum:]_.+-])/source/|Documents/API|loggins\.txt|10\.195\.35\.[26]|CI_JOB_TOKEN|glrt-|glpat-|gldt-)'
 
-# THE SCANNER HAS TEETH, asserted before it is trusted. A regex that silently
-# stops matching is a scanner that passes everything, and this one guards
-# credentials — so it is proven against a known-bad sample and a known-good one
-# on every run, not reasoned about.
+# Prove the scanner against known-bad and known-good samples on every run: a
+# regex that silently stops matching would pass a real leak.
 scan_self_test() {
     local bad good
     for bad in '/home/roksme/git/lightning' '/builds/Mizerd/lightning-deploy/work' \
@@ -304,9 +257,8 @@ for table in Property Feature Component File Directory Shortcut Upgrade Registry
 done
 grep -Fq $'ProductName\tLightning' "$REPORTS/msi-Property.idt" || die "MSI ProductName mismatch"
 grep -Fq $'ProductVersion\t'"$version" "$REPORTS/msi-Property.idt" || die "MSI ProductVersion mismatch"
-# The publisher is generated once in build-windows.sh and recorded in
-# msi-identity.json; assert the MSI actually carries that value rather than a
-# literal duplicated here, so the two can never drift apart.
+# Compare against the publisher recorded in msi-identity.json rather than a
+# duplicated literal.
 msi_manufacturer="$(jq -er '.manufacturer' "$REPORTS/msi-identity.json")"
 grep -Fq $'Manufacturer\t'"$msi_manufacturer" "$REPORTS/msi-Property.idt" || \
     die "MSI manufacturer is not the declared publisher: $msi_manufacturer"
@@ -314,59 +266,33 @@ grep -Eq 'x64|Intel64' "$REPORTS/msi-summary.txt" || die "MSI summary does not d
 grep -Fq 'Lightning.exe' "$REPORTS/msi-File.idt" || die "MSI does not contain Lightning.exe"
 grep -Fq 'lightning-updater.exe' "$REPORTS/msi-File.idt" || \
     die "MSI does not contain lightning-updater.exe"
-# The install marker is how an MSI installation identifies itself to the
-# updater. All three Windows packages come from one build whose compiled-in
-# type says windows-portable, so if wixl ever drops this file an MSI install
-# would detect as portable and the helper would swap a whole directory that
-# Windows Installer owns, leaving its component state describing files it did
-# not write. Nothing else in the pipeline would notice.
+# The install marker is how an MSI install identifies itself to the updater.
+# Without it an MSI install detects as portable (the compiled-in type) and the
+# helper would swap a directory Windows Installer owns.
 grep -Fq '.lightning-install-type' "$REPORTS/msi-File.idt" || \
     die "MSI does not contain the .lightning-install-type marker"
-# The other half of the same coin. portable.marker is written into the stage for
-# the duration of the `zip` call and removed immediately after (build-windows.sh
-# documents the ordering). If it ever leaked into the MSI, an installed copy
-# would put its settings, Matrix session and crypto store inside Program Files /
-# %LOCALAPPDATA%\Programs -- a directory Windows Installer owns and will replace
-# or remove -- instead of the per-user locations it is supposed to use. This is
-# the strongest available proof for the MSI because wixl records every payload
-# file by name in the File table.
+# portable.marker must not reach the MSI, or an installed copy would keep its
+# settings, session and crypto store inside a directory Windows Installer owns.
+# wixl records every payload file in the File table, so this is a real proof.
 if grep -Fq 'portable.marker' "$REPORTS/msi-File.idt"; then
     die "MSI contains portable.marker; an installed copy would detect as portable"
 fi
-# --- MSI PAYLOAD COMPLETENESS -----------------------------------------------
+# --- MSI payload completeness ------------------------------------------------
 #
-# Everything above proves the MSI contains four specific files. Nothing proved
-# it contains the REST, and that is the gap this closes.
-#
-# All three Windows packages are produced from one staged tree, so the MSI and
-# the portable ZIP must carry the same payload apart from two deliberate
-# markers: portable.marker is in the ZIP only, and .lightning-install-type is
-# in the MSI only (build-windows.sh documents the ordering). Any other
-# difference means wixl did not ship a file that the ZIP and the NSIS setup
-# both have.
-#
-# Why this is worth asserting rather than assuming: a missing Qt plugin does
-# not stop Lightning launching. It removes a capability — an image format, a
-# multimedia backend, a TLS backend — so the application starts, signs in and
-# syncs, and then one feature fails on a machine where the other two package
-# formats work. That is indistinguishable from an application bug, and the
-# reported "uploads fail from the MSI, but the Setup EXE and the portable ZIP
-# are fine" has exactly that shape. This check does not diagnose that report;
-# it removes an entire class of cause from the search, in CI, every build.
+# The MSI and the portable ZIP come from one staged tree and must match apart
+# from the deliberate markers (portable.marker in the ZIP; install type and
+# scope in the MSI). A missing Qt plugin does not stop Lightning launching; it
+# silently removes one capability in one package format.
 msi_payload="$REPORTS/msi-payload.txt"
 zip_payload="$REPORTS/zip-payload.txt"
-# The File table's FileName column carries "SHORT|Long" for names needing an
-# 8.3 form; take the long name. Leading columns are tab-separated.
+# The FileName column is "SHORT|Long" for names needing an 8.3 form.
 awk -F'\t' 'NR > 3 { split($3, n, "|"); print (n[2] != "" ? n[2] : n[1]) }' \
     "$REPORTS/msi-File.idt" | LC_ALL=C sort >"$msi_payload"
-# The ZIP lists "Lightning/<path>"; compare basenames, since the MSI File table
-# records names rather than full paths.
+# The File table records names, not paths, so compare basenames.
 unzip -Z1 "$portable" | sed 's:.*/::' | grep -v '^$' | LC_ALL=C sort >"$zip_payload"
 
-# The deliberate differences, removed from both sides before comparing. The
-# MSI carries two markers the ZIP does not: the install type, and the install
-# SCOPE (issue #14), which appears as two File rows of one name under opposite
-# component conditions -- exactly one of them is installed.
+# The install scope marker (issue #14) appears as two File rows of one name
+# under opposite component conditions.
 msi_only="$(LC_ALL=C comm -23 "$msi_payload" "$zip_payload" \
     | grep -Fxv -e '.lightning-install-type' -e '.lightning-install-scope' || true)"
 zip_only="$(LC_ALL=C comm -13 "$msi_payload" "$zip_payload" \
@@ -381,10 +307,8 @@ if [[ -n "$msi_only" ]]; then
 fi
 printf 'MSI payload matches the portable ZIP (%d files)\n' "$(wc -l <"$msi_payload")"
 
-# The comparison above proves MSI ⊇ ZIP, but only as a set difference — if a
-# future change dropped the plugins from the staging script they would be absent
-# from BOTH sides and the comparison would still pass. Name them here so the MSI
-# is checked against the requirement rather than against its sibling.
+# The set comparison cannot see a plugin missing from both sides, so check the
+# required plugins against the MSI directly.
 for plugin in "${gst_plugins[@]}"; do
     grep -Fxq "$plugin" "$msi_payload" || \
         die "MSI payload does not carry the GStreamer plugin $plugin; calls would refuse after an MSI install"
@@ -392,21 +316,20 @@ done
 
 grep -Fq 'StartMenuShortcut' "$REPORTS/msi-Shortcut.idt" || die "MSI shortcut is missing"
 
-# --- INSTALL SCOPE (GitHub issue #14) ----------------------------------------
+# --- Install scope (issue #14) -----------------------------------------------
 #
-# Per-user must stay the DEFAULT: a double-click and the in-app updater of every
-# existing per-user copy install with no properties, so the package may carry no
-# ALLUSERS value of its own, and bit 3 of the summary Word Count ("elevated
-# privileges are not required") must stay set or Windows raises a UAC prompt
-# for an install that needs none. msiinfo labels PID_WORDCOUNT "Source".
+# Per-user stays the default: the package sets no ALLUSERS of its own, and bit
+# 3 of the summary Word Count ("elevation not required") must stay set or a
+# per-user install raises a UAC prompt. msiinfo labels PID_WORDCOUNT "Source".
 if grep -Eq $'^ALLUSERS\t' "$REPORTS/msi-Property.idt"; then
     die "MSI sets ALLUSERS itself; a plain install would no longer be per-user"
 fi
 word_count="$(sed -n 's/^Source: \([0-9][0-9]*\).*/\1/p' "$REPORTS/msi-summary.txt")"
 [[ -n "$word_count" ]] || die "MSI summary information has no Word Count"
 (( word_count & 8 )) || die "MSI Word Count $word_count lacks bit 3; a per-user install would ask for elevation"
-# ALLUSERS=1 selects per-machine: a property-setting action re-points the
-# Programs directory at Program Files before CostFinalize, in both sequences.
+# ALLUSERS=1 re-points ProgramsDir at Program Files before CostFinalize, in
+# both sequences. Fedora's msiinfo exports CRLF lines: strip the CR before any
+# whole-line or last-column match (pipeline 257 died on exactly that).
 for table in CustomAction InstallExecuteSequence InstallUISequence Component; do
     msiinfo export "$msi" "$table" >"$REPORTS/msi-${table}.idt"
 done
@@ -417,9 +340,8 @@ for table in InstallExecuteSequence InstallUISequence; do
     grep -Eq $'^LightningPerMachineProgramsDir\tALLUSERS=1\t' "$REPORTS/msi-${table}.idt" || \
         die "MSI $table does not run the per-machine directory action under ALLUSERS=1"
 done
-# The scope marker the in-app updater reads (src/update/InstallType.cpp), one
-# component per scope under opposite conditions, and the Start-menu shortcut
-# keyed to HKCU per-user and HKLM per-machine the same way.
+# The scope marker the updater reads (src/update/InstallType.cpp) and the
+# Start-menu shortcut, one component per scope under opposite conditions.
 for pair in 'InstallScopeMarker_user:NOT ALLUSERS=1' 'InstallScopeMarker_machine:ALLUSERS=1' \
             'StartMenuShortcutComponent:NOT ALLUSERS=1' 'StartMenuShortcutMachineComponent:ALLUSERS=1'; do
     component="${pair%%:*}"; condition="${pair#*:}"
@@ -428,7 +350,7 @@ for pair in 'InstallScopeMarker_user:NOT ALLUSERS=1' 'InstallScopeMarker_machine
 done
 [[ "$(grep -c $'\t.lightning-install-scope\t' "$REPORTS/msi-File.idt" || true)" -eq 2 ]] || \
     die "MSI must carry exactly two .lightning-install-scope files (one per scope)"
-# The updater believes a "machine" marker only when HKLM names the directory
+# The updater trusts a "machine" marker only when HKLM names the directory
 # (the marker is user-writable in a per-user install). Root 2 = HKLM.
 awk -F'\t' '{sub(/\r$/, "")} $2 == 2 && $4 == "MsiInstallDir" && $5 == "[INSTALLFOLDER]" && $6 == "StartMenuShortcutMachineComponent" {found=1} END {exit !found}' \
     "$REPORTS/msi-Registry.idt" || die "MSI does not record its per-machine directory as HKLM MsiInstallDir"
@@ -439,39 +361,23 @@ file -b "$setup" | grep -Eq '^PE32\+ executable.*\(GUI\), x86-64' || \
     die "NSIS setup is not an x86-64 GUI PE installer"
 { strings -a "$setup"; strings -a -el "$setup"; } | grep -F Lightning >/dev/null || \
     die "NSIS setup metadata does not contain the product name"
-# NOTE: do NOT try to assert the helper's presence by grepping the setup EXE.
-# installer.nsi uses `SetCompressor /SOLID lzma`, which compresses the file
-# table along with the payload, so no payload filename survives as a plain
-# string. Verified with a minimal installer built locally: a file that IS in
-# the payload produces ZERO `strings` hits. The `grep -F Lightning` above only
-# passes because that word is in the installer's own uncompressed metadata, not
-# because it read the payload.
+# Payload filenames cannot be asserted from the setup EXE: `SetCompressor
+# /SOLID lzma` compresses the file table, so `strings` sees none of them (the
+# grep above only matches uncompressed metadata). The helper is covered by the
+# stage check at the top, `File /r "${STAGE_DIR}/*"`, and smoke-windows-wine.sh
+# running `setup /S`.
 #
-# The helper is covered properly instead by, in increasing strength: the staged
-# tree assertion at the top of this script, `File /r "${STAGE_DIR}/*"` taking
-# the whole stage, and smoke-windows-wine.sh actually running `setup /S` under
-# Wine and asserting lightning-updater.exe lands next to Lightning.exe.
-#
-# The same limitation applies to proving portable.marker is ABSENT from the NSIS
-# payload: `strings` cannot see inside a /SOLID lzma payload, so there is no
-# direct assertion to make here. What IS assertable is the property that makes
-# it true: installer.nsi takes the whole stage with `File /r "${STAGE_DIR}/*"`,
-# makensis runs after build-windows.sh has removed the marker, and the stage is
-# still on disk now. So the stage must not contain it at this point. That is a
-# structural check, not an ordering proof -- an edit that moved the `zip` step
-# below makensis would defeat it, which is why the MSI File-table check above
-# (a real proof) and the extraction check below (a real proof) exist as well.
+# Likewise portable.marker's absence from the NSIS payload: the stage makensis
+# read must not contain it now. That is structural, not an ordering proof; the
+# MSI File-table check and the ZIP extraction check are the real proofs.
 if [[ -e "$STAGE/portable.marker" ]]; then
     die "portable.marker is still in the stage; the NSIS payload would carry it"
 fi
 
 # --- The artifact the user actually downloads --------------------------------
-#
-# Everything above inspects $STAGE, the tree the packages were built FROM. That
-# is not evidence about the ZIP. The ZIP is assembled by a separate `find | zip`
-# step, it deliberately carries a file the stage no longer has, and it is what
-# gets extracted onto a machine with no Qt, no MinGW runtime and no build tree.
-# So the portable checks run against a fresh extraction of the FINAL artifact.
+# Everything above inspects the stage. The ZIP is assembled separately and
+# carries a file the stage no longer has, so the portable checks run against a
+# fresh extraction of the final artifact.
 unzip -l "$portable" >"$REPORTS/portable-contents.txt"
 PORTABLE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/lightning-portable-check.XXXXXX")"
 cleanup_portable_root() {
@@ -490,29 +396,18 @@ for required in \
     [[ -f "$required" ]] || \
         die "extracted portable ZIP is missing: ${required#"$EXTRACTED/"}"
 done
-# Portable mode is decided by this file's PRESENCE beside the executable, before
-# the first QSettings exists in the process. Without it the extracted folder
-# behaves like an installed copy: registry, %LOCALAPPDATA%, Credential Manager,
-# and a second login on the next PC -- the exact defect the portable ZIP is for.
-# Nothing reads its contents, so this asserts only that it is a real file.
+# Portable mode is decided by this file's presence; without it the folder
+# behaves like an installed copy. Its contents are never read.
 [[ -s "$EXTRACTED/portable.marker" ]] || die "portable.marker in the ZIP is empty"
-# THE LGPL TEXT FOR THE PLUGINS THIS ZIP ACTUALLY CARRIES, asserted on the
-# EXTRACTED artifact rather than on the staging script. Seven of the bundled
-# plugins are gst-plugins-good and every Windows package this project has
-# shipped carried them with no licence at all — the upstream MinGW SDK does
-# not ship the file, so it is vendored in the repository and staged from
-# there. A check on the script would pass on a package the copy never reached;
-# this is the same lesson as sctp, ximagesrc, the Qt TLS backend and the
-# Wayland shell integration, all four of which were present in a script and
-# absent from a payload.
+# The gst-plugins-good LGPL text, checked on the extracted artifact rather than
+# on the staging script.
 good_license="$EXTRACTED/licenses/lightning-gstreamer/gst-plugins-good-1.0/COPYING"
 [[ -s "$good_license" ]] || \
     die "the portable ZIP bundles gst-plugins-good binaries and carries no licence for them: $good_license is missing or empty"
 grep -q "GNU LESSER GENERAL PUBLIC LICENSE" "$good_license" || \
     die "the staged gst-plugins-good licence is not the LGPL text"
 
-# An inherited windows-msi marker would send a portable user through msiexec
-# against a directory no MSI owns.
+# An inherited windows-msi marker would send a portable user through msiexec.
 [[ ! -e "$EXTRACTED/.lightning-install-type" ]] || \
     die "portable ZIP must not contain an install-type marker"
 for forbidden in "$EXTRACTED/qml/QtTest" "$EXTRACTED/qml/Qt/test" \
@@ -525,12 +420,10 @@ for plugin in "${gst_plugins[@]}"; do
         die "extracted portable ZIP is missing the GStreamer plugin $gst_plugin_dir/$plugin"
 done
 
-# Runtime closure over the EXTRACTED tree. The required plugin set, the QML
-# import set and the system-DLL allowlist are read out of stage-windows-runtime.py
-# itself rather than restated here: a duplicated DLL list rots the first time the
-# staging script changes, and a rotted allowlist fails in the direction that
-# passes. Nothing in this check is version-pinned -- the FFmpeg runtime is proven
-# by walking the media plugin's imports, not by naming avcodec-61.dll.
+# Runtime closure over the extracted tree. The plugin set, QML imports and
+# system-DLL allowlist are read from stage-windows-runtime.py rather than
+# restated, and nothing is version-pinned (FFmpeg is found through the media
+# plugin's imports).
 python3 - "$SCRIPT_DIR/stage-windows-runtime.py" "$EXTRACTED" \
     "$REPORTS/portable-runtime-closure.json" <<'PY'
 import importlib.util
@@ -663,10 +556,8 @@ if errors:
 print(f"extracted portable runtime closed over {len(pe_files)} PE files")
 PY
 
-# qt.conf is what points the extracted folder at its own plugins and QML imports.
-# One absolute path in it and the folder resolves against the build machine's
-# sysroot, which does not exist on the user's PC -- and, on a machine where a
-# same-named directory does exist, would load code from outside the folder.
+# qt.conf must be relative: an absolute path resolves against the build
+# machine's sysroot, or loads code from outside the folder.
 while IFS= read -r qtconf_value; do
     case "$qtconf_value" in
         /*|[A-Za-z]:[\\/]*|*'\\'*)
@@ -674,25 +565,14 @@ while IFS= read -r qtconf_value; do
     esac
 done < <(sed -n 's/^[^=]*=[[:space:]]*//p' "$EXTRACTED/qt.conf")
 
-# ...and no build/CI path anywhere else in the payload either. The extracted tree
-# is scanned in full: text files line by line (so a hit names the file and the
-# offending text, which is what makes a false positive diagnosable rather than
-# mysterious) and PE files through the same `strings` scan the stage gets.
+# No build or CI path anywhere in the extracted tree. Text files are scanned
+# line by line so a hit names the offending text.
 : >"$REPORTS/portable-path-scan.txt"
-# TWO patterns, because "our build machine leaked into the artifact" and
-# "this binary was compiled in a sysroot" are different facts.
-#
-# `leak_pattern` is applied to EVERY file including the upstream Qt and FFmpeg
-# DLLs. Nothing here can legitimately appear in a shipped artifact: a CI token
-# is a credential, and /root/ or /builds/ is this pipeline's own filesystem.
-#
-# `own_pattern` adds the paths that are only damning in something WE compiled —
-# the MinGW sysroot prefix and this repository's own source root. It is applied
-# to Lightning-owned PE files and to every packaged text file, and deliberately
-# NOT to upstream DLLs: Qt and FFmpeg are *built inside* /usr/x86_64-w64-mingw32
-# by the container image, so that string is present in their payload as a matter
-# of course. Scanning them with it would fail the job on its own dependencies,
-# which is a broken check rather than a strict one.
+# `leak_pattern` applies to every file: nothing may carry a CI token or this
+# pipeline's filesystem paths. `own_pattern` (the MinGW sysroot and our source
+# root) applies only to Lightning-owned PEs and packaged text files: upstream
+# Qt and FFmpeg are built inside /usr/x86_64-w64-mingw32 and legitimately
+# contain that string.
 leak_pattern='(/root/|/builds/|CI_JOB_TOKEN|glrt-|glpat-|gldt-)'
 own_pattern='(/home/[a-z_][a-z0-9_-]*|/usr/x86_64-w64-mingw32|/usr/src/lightning-deploy)'
 lightning_owned_pe='^(Lightning\.exe|lightning-updater\.exe)$'
@@ -700,8 +580,7 @@ while IFS= read -r candidate; do
     rel="${candidate#"$PORTABLE_ROOT/"}"
     case "$(file -b --mime-type "$candidate")" in
         text/*|application/json|application/xml)
-            # Text files are ours by definition (qt.conf, build-info.json, the
-            # marker), so they get the strict pattern.
+            # Text files are ours (qt.conf, build-info.json, the marker).
             if grep -EnI "$leak_pattern|$own_pattern" "$candidate" \
                 | sed "s|^|$rel:|" >>"$REPORTS/portable-path-scan.txt"; then
                 die "build or CI path found in packaged text file: $rel (see reports/portable-path-scan.txt)"
@@ -720,49 +599,36 @@ while IFS= read -r candidate; do
     esac
 done < <(find "$EXTRACTED" -type f -print)
 
-# Does the bundled GStreamer actually LOAD in this tree, or are 25 DLLs merely
-# present?
+# File listings and import tables cannot see a plugin that fails to load. That
+# surfaces as "missing_element:webrtcbin" on the user's machine.
 #
-# Every check above this line is a file listing or an import table. None of them
-# can see a plugin that fails to LOAD — a runtime DLL that was never staged, a
-# symbol the bundled libstdc++/glib does not export, a plugin built against a
-# different ABI. That failure surfaces in the application as
-# "missing_element:webrtcbin" and a refused call, on the user's machine, with
-# every file sitting right beside the executable.
-#
-# gst-element-probe.exe is built into the packaging image and never shipped in a
-# package. It does exactly what SfuMediaEngine::runtimeAvailable() does: point
-# GST_PLUGIN_PATH at `<exe dir>/gstreamer-1.0`, clear GST_PLUGIN_SYSTEM_PATH,
-# gst_init, then ask the registry for each element by name. Running it from
-# INSIDE the extracted tree resolves its imports against exactly the DLLs the
-# user gets. It runs after the payload scans above so the temporary copy is
-# never part of any listing this script reports on.
-#
-# Wine is not Windows and this is not native acceptance: it proves the plugins
-# load and register against the bundled runtime, not that a call connects.
+# gst-element-probe.exe (built into the builder image, never shipped) does what
+# SfuMediaEngine::runtimeAvailable() does: point GST_PLUGIN_PATH at
+# `<exe dir>/gstreamer-1.0`, clear the system path, gst_init, and ask for each
+# element. Run from inside the extracted tree, it resolves against exactly the
+# DLLs the user gets. It runs after the payload scans so its temporary copy is
+# never listed. Under Wine this proves registration, not that a call connects.
 gst_probe=/usr/local/share/lightning-windows/gst-element-probe.exe
 [[ -f "$gst_probe" ]] || \
     die "gst-element-probe.exe is missing from the builder image; rebuild it from packaging/windows/Dockerfile"
 GST_PROBE_HOME="$(mktemp -d "${TMPDIR:-/tmp}/lightning-gst-probe.XXXXXX")"
 cleanup_gst_probe() {
     rm -f -- "$EXTRACTED/gst-element-probe.exe"
-    # Scoped to this prefix only: smoke-windows-wine.sh runs later and creates
-    # its own, and a server left holding a deleted prefix survives the job.
+    # Only this prefix: smoke-windows-wine.sh creates its own later.
     [[ "${GST_PROBE_HOME:-}" == */lightning-gst-probe.* ]] && {
         WINEPREFIX="$GST_PROBE_HOME/prefix" wineserver -k >/dev/null 2>&1 || true
         rm -rf -- "$GST_PROBE_HOME"
     }
-    # Explicit, because this is called directly as well as from the trap: the
-    # guard above returns non-zero on a second call, and `set -e` would take it.
+    # Called directly and from the trap; the guard above returns non-zero on a
+    # second call, which `set -e` would take.
     return 0
 }
 trap 'cleanup_portable_root; cleanup_gst_probe' EXIT
 cp "$gst_probe" "$EXTRACTED/gst-element-probe.exe"
 gst_probe_env=(env "HOME=$GST_PROBE_HOME" "WINEPREFIX=$GST_PROBE_HOME/prefix"
     WINEARCH=win64 WINEDEBUG=-all)
-# Bootstrap the prefix explicitly. Left implicit, the first-run bootstrap output
-# lands in the probe's own log and a bootstrap failure then reads as a missing
-# element, pointing the reader at the packaging instead of at Wine.
+# Bootstrap the prefix explicitly so a Wine bootstrap failure is not reported
+# as a missing element.
 timeout 120s "${gst_probe_env[@]}" wineboot -u \
     >"$REPORTS/gst-element-probe-wineboot.log" 2>&1 || true
 if ! ( cd "$EXTRACTED" && "${gst_probe_env[@]}" \
@@ -776,9 +642,8 @@ trap cleanup_portable_root EXIT
 printf 'bundled GStreamer registered all %d required elements under Wine\n' \
     "${#gst_elements[@]}"
 
-# The SignPath artifact boundary: the unsigned Lightning-owned payload must
-# exist on its own, with a checksum, so a future signing job has a deterministic
-# single file to submit as a GitLab pipeline artifact.
+# The signing payload must exist on its own with a checksum, for a signing job
+# to submit.
 signing_payload="$DIST/signing-payload"
 for owned in Lightning.exe lightning-updater.exe; do
     [[ -f "$signing_payload/$owned" ]] || \
@@ -790,9 +655,8 @@ for owned in Lightning.exe lightning-updater.exe; do
 done
 [[ -f "$REPORTS/windows-signing-inventory.json" ]] || \
     die "windows signing inventory report is missing"
-# Exactly the two Lightning-owned PE files: the application and the update
-# helper that replaces it. Everything else in the payload is upstream and is
-# never re-signed as ours. jq sorts the report's list, so this is order-stable.
+# Exactly the two Lightning-owned PEs; everything else is upstream and never
+# re-signed as ours. jq sorts the list.
 jq -e '.lightning_owned == ["Lightning.exe", "lightning-updater.exe"]' \
     "$REPORTS/windows-signing-inventory.json" >/dev/null || \
     die "signing inventory does not list exactly the Lightning-owned executables"

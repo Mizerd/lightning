@@ -17,8 +17,8 @@ REL_X, REL_Y, REL_WHEEL, REL_WHEEL_HI_RES = 0, 1, 8, 0x0b
 BTN_LEFT, SYN_REPORT = 0x110, 0
 
 fd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
-# A device libinput will accept as a MOUSE: relative x/y and a button, not
-# just a wheel axis. A wheel-only device is ignored by the seat.
+# libinput ignores a wheel-only device, so present a mouse: relative x/y and
+# a button as well.
 fcntl.ioctl(fd, UI_SET_EVBIT, EV_KEY)
 fcntl.ioctl(fd, UI_SET_KEYBIT, BTN_LEFT)
 fcntl.ioctl(fd, UI_SET_EVBIT, EV_REL)
@@ -44,8 +44,7 @@ delay = (int(sys.argv[2]) if len(sys.argv) > 2 else 60) / 1000.0
 step = 1 if clicks > 0 else -1
 for _ in range(abs(clicks)):
     emit(EV_REL, REL_WHEEL, step)
-    # HI_RES too: 120 units per detent. Modern libinput prefers it, and a
-    # client that reads only the hi-res axis sees nothing without it.
+    # Hi-res wheel too (120 units per detent); some clients read only it.
     emit(EV_REL, REL_WHEEL_HI_RES, step * 120)
     emit(EV_SYN, SYN_REPORT, 0)
     time.sleep(delay)

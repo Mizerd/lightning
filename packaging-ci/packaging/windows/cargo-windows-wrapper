@@ -10,10 +10,8 @@ fi
 
 "$REAL_CARGO" "$@" --target "$TARGET"
 
-# Project 6's CMake currently expects the Rust static library in the native
-# Cargo profile path. A targeted Cargo build correctly places it one directory
-# deeper. Mirror that single output into the path CMake imports; no application
-# source or Cargo manifest is modified.
+# The project CMake imports the Rust static library from the native profile
+# path, but a targeted build puts it one directory deeper. Mirror it there.
 : "${CARGO_TARGET_DIR:?CARGO_TARGET_DIR must be set by the project CMake build}"
 profile=debug
 for arg in "$@"; do

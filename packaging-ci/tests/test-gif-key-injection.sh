@@ -6,21 +6,15 @@ set -Eeuo pipefail
 # CI variables into the build-only generation step, asserting the value reaches
 # the build via the environment (never a command line) and is never printed.
 
-# The PACKAGING tree, which is where this suite's scripts, packaging
-# manifests and fixtures live -- not the repository root. Since the
-# packaging project was folded into the application repository those
-# are different directories, and the application has a scripts/ of its
-# own, so `git rev-parse --show-toplevel` resolved to a real directory
-# with none of these files in it. Derived from this file's own
-# location so it holds wherever the tree is checked out.
+# The packaging tree (not the repository root, which has its own scripts/),
+# derived from this file's location.
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 
-# Hermetic against real pipeline variables: a protected-branch pipeline
-# injects the actual GIPHY/KLIPY project variables, which would make the
-# "publish without keys" cases pass the gate legitimately. Only the
+# Hermetic: a protected-branch pipeline injects the real GIPHY/KLIPY
+# variables, which would make the "publish without keys" cases pass. Only the
 # synthetic canaries below may reach the scripts under test.
 unset GIPHY_API_KEY KLIPY_API_KEY \
     LIGHTNING_GIPHY_API_KEY LIGHTNING_KLIPY_API_KEY \
@@ -35,9 +29,8 @@ ok() { printf '  ok: %s\n' "$1"; }
 bad() { printf '  FAIL: %s\n' "$1" >&2; fail=1; }
 
 # validate-release-request.sh also gates the update-signing key triple, so a
-# publishing request needs a consistent one before its GIF assertions can be
-# reached. Generated fresh here; nothing is committed and nothing is printed.
-# (The gate's own behaviour is covered by tests/test-update-manifest.sh.)
+# publishing request needs a consistent one; generated here, never printed.
+# (The gate itself is tested in tests/test-update-manifest.sh.)
 command -v openssl >/dev/null 2>&1 || { printf 'error: openssl is required\n' >&2; exit 1; }
 SIGN_KEY="$WORK/update-signing.pem"
 openssl genpkey -algorithm ed25519 -out "$SIGN_KEY" 2>/dev/null
@@ -87,10 +80,9 @@ fi
 printf '== configure-build key mapping ==\n'
 BIN="$WORK/bin"; mkdir -p "$BIN"
 ARGLOG="$WORK/cmake-argv.log"; ENVLOG="$WORK/cmake-env.log"
-# What the staged stub binary answers to --call-media-status. configure-build.sh
-# refuses to package a build with no call media engine, so the stub has to be
-# able to say both things -- and a case below flips it to prove the refusal is
-# real rather than assumed.
+# What the stub binary answers to --call-media-status. configure-build.sh
+# refuses a build without the call media engine; a case below flips this to
+# exercise that refusal.
 ENGINE_STATE="$WORK/engine-state"; printf 'yes\n' >"$ENGINE_STATE"
 
 cat >"$BIN/cmake" <<STUB
@@ -130,17 +122,13 @@ printf 'project(lightning VERSION 0.6.2)\n' >"$SRC/CMakeLists.txt"
 printf '[package]\nname="x"\n' >"$SRC/rust/Cargo.toml"
 printf '# lock\n' >"$SRC/rust/Cargo.lock"
 printf 'GPL\n' >"$SRC/LICENSE"; printf '# readme\n' >"$SRC/README.md"
-# packaging/common assets are copied from the real repo checkout, under the
-# SAME layout the scripts expect in CI: the packaging tree lives at
-# packaging-ci/ inside the application repository, so a fixture that puts it
-# at the root simulates a directory arrangement that no longer exists.
+# packaging/common assets are copied from the real checkout into the CI
+# layout: the packaging tree lives at packaging-ci/ inside the app repository.
 mkdir -p "$WORK/proj/packaging-ci/packaging"
 cp -r "$ROOT/packaging/common" "$WORK/proj/packaging-ci/packaging/common"
 
-# LIGHTNING_INSTALL_TYPE is mandatory: it decides which install strategy the
-# updater will use, so configure-build.sh refuses to guess it. The per-format
-# build scripts set it; this test is about GIF keys, so it supplies a valid one
-# and lets a case override it. (The requirement itself is exercised below.)
+# LIGHTNING_INSTALL_TYPE is mandatory (it selects the updater's install
+# strategy), so supply a valid one; its requirement is tested below.
 run_cfg() {
     : >"$ARGLOG"; : >"$ENVLOG"
     ( cd "$WORK/proj" && env "PATH=$BIN:$PATH" "CI_PROJECT_DIR=$WORK/proj" \
@@ -169,15 +157,13 @@ else
 fi
 
 # --- 3. install type and update trust root ---------------------------------
-# The install type decides which compiled-in install strategy the updater uses,
-# so a wrong value offers a user the wrong kind of update. There is deliberately
-# no default: guessing a package type would be worse than failing.
+# The install type selects the updater's install strategy; there is no
+# default, since guessing a package type is worse than failing.
 printf '== install type and update trust root ==\n'
 if run_cfg PUBLISH_PACKAGES=false LIGHTNING_INSTALL_TYPE=; then
     bad "configure-build ran without an install type"
 else
-    # ${VAR:?} treats unset and empty identically, which is what the per-format
-    # build scripts can realistically get wrong.
+    # ${VAR:?} treats unset and empty identically.
     grep -q 'LIGHTNING_INSTALL_TYPE' "$WORK/cfg.log" && ok "a missing install type is rejected by name" \
         || bad "missing install type gave an unhelpful error"
 fi
@@ -190,17 +176,15 @@ if run_cfg PUBLISH_PACKAGES=false LIGHTNING_INSTALL_TYPE=linux-rpm \
         UPDATE_SIGNING_PUBKEY_2026A=PUBKEYCANARYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=; then
     grep -q 'LIGHTNING_INSTALL_TYPE=linux-rpm' "$ARGLOG" \
         && ok "the install type reaches the build" || bad "install type not passed to cmake"
-    # The update trust root is a PUBLIC key: unlike the GIF keys it is NOT
-    # secret and IS passed on the command line, which is where the source's
-    # cache variable expects it.
+    # The update trust root is a public key, so unlike the GIF keys it is
+    # passed on the command line as the cache variable expects.
     grep -q 'LIGHTNING_UPDATE_PUBKEY_2026A=PUBKEYCANARY' "$ARGLOG" \
         && ok "the update public key reaches the build" || bad "update public key not passed to cmake"
 else
     bad "configure-build with an install type failed: $(tail -3 "$WORK/cfg.log")"
 fi
-# A build with no trust root compiled in is allowed (it fails closed at runtime)
-# and must not be turned into a build failure here; refusing to PUBLISH such a
-# build is validate-release-request.sh's job, not this script's.
+# A build without a trust root is allowed (it fails closed at runtime);
+# refusing to publish it is validate-release-request.sh's job.
 if run_cfg PUBLISH_PACKAGES=false LIGHTNING_INSTALL_TYPE=linux-deb; then
     grep -q 'LIGHTNING_UPDATE_PUBKEY_2026A=' "$ARGLOG" \
         && ok "an absent update public key still configures (fails closed at runtime)" \
@@ -211,14 +195,9 @@ fi
 
 
 # --- 4. the call media engine must be IN the staged binary ------------------
-# Lightning 0.8.0 shipped every Linux package with calling compiled out: the
-# source's LIGHTNING_ENABLE_WEBRTC is gated on a pkg-config probe, no build job
-# installed the GStreamer development files, and CMake configured the engine
-# away in one STATUS line. Nothing downstream noticed, because an engine-less
-# build installs, launches and syncs perfectly and only refuses calls.
-#
-# configure-build.sh now asks the STAGED BINARY, so the stub is made to answer
-# the way that build did and the refusal is exercised for real.
+# Without GStreamer dev files CMake silently configures the call engine out,
+# and such a build installs and runs fine but cannot call. configure-build.sh
+# asks the staged binary, so the stub answers the way that build would.
 printf '== call media engine guard ==\n'
 printf 'no\n' >"$ENGINE_STATE"
 if run_cfg PUBLISH_PACKAGES=false LIGHTNING_INSTALL_TYPE=linux-deb; then

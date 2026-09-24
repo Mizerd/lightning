@@ -1,20 +1,14 @@
 #!/usr/bin/env bash
 # Regenerate the development-only screenshot-demo media fixtures.
 #
-# These are small, deterministic, ABSTRACT raster images (gradients + simple
-# geometry) generated entirely by this script — no photographs, no real people,
-# no third-party/commercial artwork, no network. They exist only so the demo's
-# image/video/GIF/avatar rows render as real pictures through the production
-# media delegates (see docs/screenshot-demo.md → Media fixtures). They are bundled
-# ONLY in a LIGHTNING_ENABLE_SCREENSHOT_DEMO build and excluded from every
-# release artifact.
+# Small, deterministic, abstract images (gradients and geometry) with no
+# third-party content, so the demo's media rows render real pictures through
+# the production delegates. Bundled only in LIGHTNING_ENABLE_SCREENSHOT_DEMO
+# builds.
 #
 # Output: resources/screenshot-demo/*.png, *.gif, *.txt (committed).
-# Requires ImageMagick (`convert`). Re-running reproduces the same images.
-#
-# Fixtures are generated at display resolution (the timeline shows images at
-# <=360px, so larger is wasted bytes) while keeping each declared aspect ratio,
-# and quantized to a compact palette so the whole set stays tiny (<~150 KB).
+# Requires ImageMagick. Images are sized for display (<=360px) and quantized
+# to keep the set small.
 #
 #   scripts/generate-demo-media.sh
 set -euo pipefail
@@ -52,11 +46,8 @@ avatar priya  "#ef7b5b" "#a8431f" "P"
 avatar leo    "#5b6bef" "#2b358f" "L"
 
 # ── Message images ───────────────────────────────────────────────────────
-# Tasteful abstract art: smooth 3-corner (barycentric) gradients — modern
-# "gradient wallpaper" look that compresses cleanly with no banding — plus a few
-# crisp geometric accents. Real-looking pictures, never grey UI bars. Aspect
-# ratios match the mock's declared media sizes. `bary` fills a diagonal blend
-# from three corner colours.
+# Abstract art: three-corner gradients (`bary`) plus geometric accents, at the
+# aspect ratios the mock declares.
 bary() { # W H tlColor trColor blColor out
     "$CONVERT" -strip -size "$1x$2" xc: -sparse-color barycentric \
         "0,0 $3  $1,0 $4  0,$2 $5" "$6"
@@ -77,8 +68,7 @@ mk -size 600x600 "radial-gradient:#c05be0-#141a44" \
     -fill none -stroke "#ffffff33" -strokewidth 6 \
     -draw "circle 300,300 300,150" -draw "circle 300,300 300,96" \
     "$OUT/artwork.png"
-# "shot-timeline-dark.png" — the dark-theme hero shot: deep indigo→blue→violet
-# so the accent "pops", NOT grey UI bars.
+# "shot-timeline-dark.png": dark-theme hero shot, deep indigo to violet.
 bary 720 450 "#3b2f8c" "#2f6be0" "#7a3bd0" "$OUT/shot-timeline.png"
 mk "$OUT/shot-timeline.png" \
     -fill "#0f122688" -draw "rectangle 0,0 720,450" \
@@ -90,8 +80,7 @@ mk -size 600x600 xc:"#0d1020" \
     -fill "#3a2b6f" -draw "roundrectangle 30,312 288,570 16,16" \
     -fill "#eef1f7" -draw "roundrectangle 312,312 570,570 16,16" \
     "$OUT/palette.png"
-# Video poster (16:9) — a calm landscape (NO baked play button; the video card
-# overlays its own play control).
+# Video poster (16:9). No baked play button; the video card draws its own.
 bary 640 360 "#1a3f66" "#eab066" "#123452" "$OUT/timelapse.png"
 mk "$OUT/timelapse.png" -fill "#0c1f36" -draw "rectangle 0,306 640,360" \
     "$OUT/timelapse.png"
@@ -114,9 +103,8 @@ Lightning 0.6.4 (demo release notes)
 (This is a fictional screenshot-demo fixture — not a real release.)
 DOC
 
-# ── Shrink: reduce to a smooth palette with dithering OFF (+dither) so there is
-# no grain to bloat the PNG, then max compression (stable bytes). 160 colours
-# keeps the smooth gradients clean. Avatars re-quantize to a small palette.
+# Shrink: palette-reduce without dithering (grain bloats PNGs), then maximum
+# compression for stable bytes. Avatars use a smaller palette.
 "$MOGRIFY" -strip +dither -colors 160 \
     -define png:compression-level=9 -define png:compression-strategy=0 \
     "$OUT"/*.png

@@ -1,32 +1,20 @@
 #!/usr/bin/env bash
 # Lightning GUI suite — calls, screen share and per-participant volume.
 #
-# WHY THIS EXISTS. These four claims had been made from unit tests and from
-# reading code, and one of them was WRONG on the user's machine for weeks
-# ("set another person's volume, restart the client, the value is gone").
-# Two more — "0% mutes" and "above 100% is louder" — are about what reaches a
-# GStreamer `volume` element, which no offscreen suite can observe. So they
-# are driven here, through the real UI, on a real pair of clients in a real
-# call, and every assertion below is on evidence the LAYOUT CANNOT FAKE: a
-# log line the engine writes, or a value on disk.
+# Drives the real UI on two clients in a live call and asserts only on
+# evidence the layout cannot fake: engine log lines or values on disk. It
+# proves a control reaches the audio graph (`participant volume applied: ...
+# elements=` is logged only after g_object_set succeeded on a real element);
+# it does not prove audibility, so report that as NOT TESTED.
 #
-# WHAT IT PROVES AND WHAT IT DOES NOT. It proves the control reaches the
-# audio graph — `participant volume applied: ... elements=` is written only
-# after `g_object_set(element, "volume", …)` succeeded on a real element. It
-# does NOT prove audibility; nobody is listening. Report that half as
-# NOT TESTED and do not round it up.
-#
-# USE (on the GUI host, not over a bare ssh exec — see the env block):
+# Usage (on the GUI host, not over a bare ssh exec; see the env block):
 #     scripts/gui-suite-calls.sh                    # every check
 #     scripts/gui-suite-calls.sh volume micgain     # just those
 #
-# PREREQUISITES
-#   * TWO Lightning instances already running and already IN A CALL WITH EACH
-#     OTHER, on isolated throwaway XDG profiles whose paths contain
-#     `profile-A` / `profile-B`. The suite refuses to touch a process whose
-#     command line does not name one — the maintainer's own account, store
-#     and crypto are off limits, and a mis-aimed ydotool click is how that
-#     rule gets broken by accident.
+# Prerequisites
+#   * Two Lightning instances already in a call with each other, on isolated
+#     throwaway XDG profiles whose paths contain `profile-A` / `profile-B`.
+#     The suite refuses any process whose command line names neither.
 #   * scripts/gui-harness.sh's prerequisites: ydotoold against
 #     $YDOTOOL_SOCKET, KWin scripting over qdbus, ImageMagick, spectacle.
 #   * A Wayland/KDE session, with DBUS_SESSION_BUS_ADDRESS and
@@ -34,16 +22,14 @@
 #         export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
 #         export WAYLAND_DISPLAY=wayland-0
 #
-# COORDINATES ARE CALIBRATED, NOT DISCOVERED. Every click below is relative
-# to a window PINNED to 1707x1000 logical (this host is scale 1.5, so that is
-# 2560x1500 native), and the suite FAILS rather than clicking blind if KWin
-# refuses that geometry — it has refused before. If the call UI is relaid
-# out, re-derive the constants with the recipe in RECALIBRATE below; do not
-# guess them, and do not weaken an assertion to make a stale one pass.
+# Coordinates are calibrated, not discovered: every click is relative to a
+# window pinned to 1707x1000 logical (2560x1500 native at scale 1.5), and the
+# suite fails rather than clicking blind if KWin refuses that geometry. After
+# a call UI relayout, re-derive the constants per RECALIBRATE; do not guess.
 #
 # RECALIBRATE
 #   1. Pin the window:  setgeom_pid $A 0 0 1707 1000
-#   2. shot_pid $A /tmp/a.png   (spectacle is NATIVE, KWin is LOGICAL)
+#   2. shot_pid $A /tmp/a.png   (spectacle is native, KWin is logical)
 #   3. Read the control's native centre off the capture and multiply by
 #      1707/2560 = 0.6668 to get the logical offset used here.
 set -uo pipefail
@@ -68,20 +54,17 @@ PEOPLE_BTN_X=1063 PEOPLE_BTN_Y=201   # call bar's participants button
 VOL_Y=300                            # the volume slider's row in the popup
 VOL_MIN_X=1073                       # slider groove, left end  -> 0%
 VOL_MAX_X=1303                       # slider groove, right end -> 200%
-# The MICROPHONE chevron and the level inside its menu (2026-09-12). These
-# four are the ones most likely to be stale after a call-bar change; the
-# check that uses them says so in its failure text rather than reporting a
-# product defect, because a missed click and a dead control look identical.
-# CALIBRATED LIVE 2026-09-12 on a 1707x1000 window, per RECALIBRATE above:
-# the mic chevron's centre measured at native 2193,205 and the menu's groove
-# at native 2234..2487, y 423, divided by this host's 2560/1707.33.
+# Microphone chevron and the level slider inside its menu, measured per
+# RECALIBRATE (native 2193,205 and groove 2234..2487 at y 423). These are the
+# most likely to go stale after a call-bar change; the check's failure text
+# says so, since a missed click and a dead control look identical.
 MIC_CHEVRON_X=1463 MIC_CHEVRON_Y=137  # the chevron BESIDE the mic button
 MICGAIN_Y=282                         # the level slider's row inside the menu
 MICGAIN_MIN_X=1490                    # groove, left end  -> 0%
 MICGAIN_MAX_X=1659                    # groove, right end -> 200%
-# The portal's source tiles are placed as FRACTIONS of its own dialog, so a
-# different dialog size still hits the first source. Measured 2026-09-11:
-# a 738x766 dialog put "Laptop screen" at rel 189,233.
+# Source tiles are placed as fractions of the portal dialog so a different
+# dialog size still hits the first source (738x766 put "Laptop screen" at
+# rel 189,233).
 PORTAL_TILE_FX=0.256 PORTAL_TILE_FY=0.304
 
 PASS=0 FAIL=0
@@ -92,10 +75,9 @@ ok()   { PASS=$((PASS+1)); RESULTS+=("PASS  $1"); echo "PASS  $1"; }
 bad()  { FAIL=$((FAIL+1)); RESULTS+=("FAIL  $1 — $2"); echo "FAIL  $1 — $2" >&2; }
 note() { echo "      $*"; }
 
-# lines_since <log> <mark> <regex> — the log's new lines matching <regex>
-# STRICTLY after the mark: tail -n +N starts AT line N, so the un-incremented
-# form includes the last pre-existing line — and a second run of the same
-# check could then pass on the first run's evidence.
+# lines_since <log> <mark> <regex> — new lines matching <regex> strictly after
+# the mark (tail -n +N starts at N; without +1 a rerun could pass on the
+# previous run's evidence).
 lines_since() { tail -n +"$(( $2 + 1 ))" "$1" 2>/dev/null | grep -E "$3"; }
 mark_of()     { wc -l < "$1" 2>/dev/null || echo 0; }
 
@@ -103,20 +85,16 @@ mark_of()     { wc -l < "$1" 2>/dev/null || echo 0; }
 # `frames in the clear` count for one lane, or empty when that lane has never
 # carried a frame. Pass `stream` to pin it to ONE track.
 #
-# THE LINE NOW CARRIES `stream=` and this pattern must tolerate it, or every
-# counter silently reads empty and every check that compares two samples
-# passes by finding nothing twice.
-#
-# AND A LANE IS NOT A TRACK. Once a participant publishes share audio they
-# have TWO `video= false` tracks, so two consecutive unpinned samples can come
-# from different streams and their difference means nothing.
+# The pattern must tolerate `stream=`, or every counter reads empty and
+# two-sample comparisons pass by finding nothing. A lane is not a track: with
+# share audio a participant has two `video= false` tracks.
 counter_of() {
     local stream="${4:-}"
     grep -E "frames in the clear $2 stream= \"?${stream:-[^ ]*}\"? video= $3 count= [0-9]+" \
         "$1" 2>/dev/null | tail -1 | grep -oE '[0-9]+$'
 }
 
-# pid_for <profile-A|profile-B> — and it must be an ISOLATED profile.
+# pid_for <profile-A|profile-B> — refuses anything but an isolated profile.
 pid_for() {
     local want="$1" p
     for p in $(pgrep -x AppRun.wrapped; pgrep -x lightning-matri); do
@@ -126,14 +104,8 @@ pid_for() {
     return 1
 }
 
-# A CAPTURE IS AN ARTIFACT FOR THE OPERATOR, NEVER AN ASSERTION.
-#
-# Every check in this suite reads a log line or a value on disk, precisely so
-# that none of it depends on what a picture looks like. So a missing crop tool
-# must not be able to fail a run: shot_pid needs ImageMagick to convert
-# KWin's LOGICAL geometry into spectacle's NATIVE pixels, and without it this
-# falls back to the whole screen, which is still perfectly readable by a human
-# and still shows both clients.
+# Captures are for the operator, never assertions. Without ImageMagick to crop
+# to the window, shot_pid falls back to the whole screen.
 shot() {  # shot <pid> <name>
     mkdir -p "$LT_OUT"
     if [[ -n "$HAVE_MAGICK" ]] \
@@ -155,8 +127,7 @@ check_preflight() {
     pgrep -x ydotoold >/dev/null 2>&1   || why="${why:-ydotoold is not running}"
     command -v spectacle >/dev/null 2>&1 || why="${why:-no spectacle}"
     [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]] || why="${why:-no DBUS_SESSION_BUS_ADDRESS}"
-    # OPTIONAL, and deliberately not a precondition — see shot(). The GUI host
-    # this suite was written against has spectacle and no ImageMagick.
+    # Optional, not a precondition; see shot().
     HAVE_MAGICK=""
     command -v magick >/dev/null 2>&1 && HAVE_MAGICK=1
     [[ -n "$HAVE_MAGICK" ]] \
@@ -169,9 +140,8 @@ check_preflight() {
     ok preflight
 }
 
-# KWIN OVERRIDES GEOMETRY, and it has done it here before (a window asked for
-# 10,60 840x980 came back 0,0 853x1021), which invalidates every relative
-# coordinate below. So this is an assertion, not a request.
+# KWin can override requested geometry, which would invalidate every relative
+# coordinate, so this asserts rather than requests.
 pin_geometry() {   # silent; the caller decides whether it is a result
     setgeom_pid "$A" 0 0 "$WIN_W" "$WIN_H" >/dev/null 2>&1
     sleep 1.5
@@ -190,9 +160,8 @@ check_geometry() {
 }
 
 # ------------------------------------------------------------------- checks
-# A CALL IS FRAMES MOVING, not a button that lit up. Both directions on both
-# clients, sampled twice, because a stalled counter reads exactly like a
-# healthy one in a single sample.
+# A call is frames moving: both directions on both clients, sampled twice,
+# because a stalled counter looks healthy in a single sample.
 # stream_ids_in_lane <log> <direction> <video> — the DISTINCT stream ids that
 # have reported a clear-frame count in that lane, sorted.
 stream_ids_in_lane() {
@@ -204,13 +173,9 @@ streams_in_lane() { stream_ids_in_lane "$@" | wc -l; }
 
 check_call() {
     local a_out1 a_in1 b_out1 b_in1 a_out2 a_in2 b_out2 b_in2
-    # TWO SAMPLES OF A LANE ARE ONLY COMPARABLE IF THE LANE IS ONE TRACK.
-    # `counter_of` takes the NEWEST line, and each track counts from its own
-    # zero — so once a participant publishes share audio alongside the
-    # microphone there are two `video= false` tracks, consecutive samples can
-    # land on different ones, and the difference between them is noise. It can
-    # read as a stall on a healthy call or as progress on a stalled one.
-    # Refuse rather than report either.
+    # counter_of takes the newest line and each track counts from zero, so
+    # samples are only comparable when the lane is a single track (share
+    # audio adds a second `video= false` one). Refuse otherwise.
     local lane
     for lane in "$LT_A_LOG out" "$LT_A_LOG in" "$LT_B_LOG out" "$LT_B_LOG in"; do
         # shellcheck disable=SC2086
@@ -242,36 +207,30 @@ check_call() {
 # The per-participant volume on A's disk. QSettings' INI backend joins
 # sub-keys with a backslash, so the key reads `<slug>\callVolumes\<hex>`.
 #
-# EXACTLY ONE, never `tail -1`. A stale entry for a participant from an
-# earlier session sorts arbitrarily against this one, so taking the last
-# match can assert the wrong person's number — a false FAIL at best and a
-# silent wrong PASS at worst. More than one is a fixture problem the operator
-# has to clear, and the suite says so rather than guessing.
+# Require exactly one match, never `tail -1`: a stale entry for an earlier
+# participant sorts arbitrarily. More than one is a fixture problem.
 stored_volume() {
     local all n
     all=$(grep -oE 'callVolumes\\[a-f0-9]+=[0-9]+' "$LT_A_CONF" 2>/dev/null \
           | grep -oE '[0-9]+$')
     n=$(printf '%s\n' "$all" | grep -c '[0-9]' )
     if [[ "$n" != "1" ]]; then
-        # STDERR, not a variable: every caller reads this through $( ), which
-        # is a subshell, so an assignment here could never reach them.
+        # Report on stderr; callers read this through $( ), a subshell.
         echo "      stored_volume: expected exactly one stored participant volume, found $n" >&2
         return 1
     fi
     printf '%s\n' "$all"
 }
 
-# open_volume_popup — ONE click, the call bar's participants button. The
-# volume control is a Popup drawn inside the same window, so pidclick's
-# focus-and-activate is safe here; the harness's pidclick_nf rule is for
-# transient popups that activating a window would dismiss.
+# open_volume_popup — the call bar's participants button. The volume control
+# is a Popup inside the same window, so pidclick's activation is safe here.
 open_volume_popup() {
     pidclick "$A" "$PEOPLE_BTN_X" "$PEOPLE_BTN_Y" >/dev/null 2>&1
     sleep 2
 }
 
-# drag_volume <from-x> <to-x> — a plain click does NOT move this slider
-# (measured: the groove ignores it); the handle has to be dragged.
+# drag_volume <from-x> <to-x> — a click on the groove does not move this
+# slider; the handle has to be dragged.
 drag_volume() {
     pdrag "$A" "$1" "$VOL_Y" "$2" "$VOL_Y" >/dev/null 2>&1
     sleep 3
@@ -288,7 +247,7 @@ _volume_case() {  # _volume_case <name> <from> <to> <expected-percent>
     note "stored:  ${stored:-<none>}"
     shot "$A" "volume-$want"
     if [[ -z "$applied" ]]; then
-        # THE ABSENCE OF THE WARNING IS NOT THE PROOF. Say which it was.
+        # Absence of the warning is not proof; say which it was.
         if lines_since "$LT_A_LOG" "$mark" 'nowhere to land' >/dev/null; then
             bad "$name" "the value reached the engine and landed on NO element"
         else
@@ -306,27 +265,15 @@ _volume_case() {  # _volume_case <name> <from> <to> <expected-percent>
 check_volume_mute()    { _volume_case volume-0%-mutes    "$VOL_MAX_X" "$VOL_MIN_X" 0; }
 check_volume_boost()   { _volume_case volume-200%-boosts "$VOL_MIN_X" "$VOL_MAX_X" 200; }
 
-# PERSISTENCE IS NOT "THE NUMBER IS STILL IN THE FILE". The reported defect
-# was a value that survived to settings and never reached the audio again, so
-# the assertion is that the RESTARTED client applies it to a real element
-# with nobody touching the slider.
+# Persistence means the restarted client applies the stored value to a real
+# element without the slider being touched, not merely that it is on disk.
 check_volume_persists() {
     local before after mark
     before=$(stored_volume)
     [[ -n "$before" ]] || { bad volume-persists "nothing stored to survive; run the volume checks first"; return 1; }
-    # THE ONE ACTION HERE THAT REACHES PAST THE PID WE PROVED.
-    #
-    # Every click goes through pid_for, which refuses a process that is not
-    # on an isolated throwaway profile. A `systemctl --user restart` does
-    # not: it acts on a NAME, and on a host where that name happens to be a
-    # real client this would kill it. So require the unit to own exactly the
-    # pid the suite has been driving before touching it.
-    #
-    # The CGROUP, not MainPID. The fixture may be an AppImage, whose unit
-    # MainPID is the AppRun wrapper while the Qt process is its child — so a
-    # MainPID test fails in the safe direction but can never let the check
-    # run at all. Membership of the unit's cgroup proves the same ownership
-    # and is immune to wrappers and to Type=forking.
+    # The one action that is not scoped to a proven pid: `systemctl --user
+    # restart` acts on a unit name. Require the unit's cgroup (not MainPID,
+    # which is AppRun for an AppImage) to contain the pid being driven.
     if ! grep -q "$LT_A_UNIT" "/proc/$A/cgroup" 2>/dev/null; then
         bad volume-persists "pid $A is not in $LT_A_UNIT's cgroup — refusing to restart a unit this suite has not proven it owns"
         return 1
@@ -341,19 +288,14 @@ check_volume_persists() {
     pin_geometry \
         || { bad volume-persists "after the restart KWin gave ${GEOM_WAS}; the join click would be blind"; return 1; }
     mark=$(mark_of "$LT_A_LOG")
-    # A RESTARTED CLIENT COMES UP ON HOME, NOT IN THE ROOM. Clicking where the
-    # call button sits while a room is open just hits the Home screen, and the
-    # check then reported "the restarted client never applied the stored
-    # volume" — which reads as a product defect and is nothing of the kind.
-    # Open the room first.
+    # A restarted client comes up on Home, so open the room before clicking
+    # the call button.
     pidclick "$A" "$ROOM_ROW_X" "$ROOM_ROW_Y" >/dev/null 2>&1
     sleep 6
     pidclick "$A" "$CALL_JOIN_X" "$CALL_JOIN_Y" >/dev/null 2>&1
     sleep 25
     shot "$A" "volume-persists"
-    # AND SAY WHICH THING FAILED. Without this the absence of the volume line
-    # is reported as a volume defect even when the client never got into the
-    # call at all, which is a different investigation entirely.
+    # Distinguish "never joined the call" from a volume defect.
     if ! lines_since "$LT_A_LOG" "$mark" 'sfu joined' >/dev/null; then
         bad volume-persists "the restarted client never rejoined the call, so this says nothing about the stored volume — the value DID survive on disk as $before"
         return 1
@@ -368,25 +310,14 @@ check_volume_persists() {
     ok volume-persists
 }
 
-# THE MICROPHONE LEVEL REACHING THE AUDIO GRAPH — the 2026-09-12 round's
-# headline claim, and the one this project has already had to withdraw once in
-# this exact shape ("the slider read 200% and nothing had reached the audio
-# graph", 2026-09-11, fixed in `21f4a1a`).
+# Microphone level reaching the audio graph. Neither the readout (derived
+# from the slider) nor the stored `microphoneGain` is evidence; only
+# `microphone gain applied: … elements=N` with N>0, or its warning when the
+# pipeline had nowhere to put it.
 #
-# THE READOUT IS NOT EVIDENCE. It is computed from the slider's own value, so
-# it tracks the thumb whether or not anything downstream exists. Neither is
-# the stored value: `microphoneGain` on disk proves the SETTING was written.
-# The only evidence is `microphone gain applied: … elements=N` with N>0, which
-# SfuMediaEngine emits after `g_object_set` succeeded on a real named element,
-# and its sibling warning when the pipeline had nowhere to put it.
-#
-# IT DRIVES THE IN-CALL MENU, not Settings, so one run covers two claims: that
-# the value reaches the engine AND that a Slider inside a QQuickMenu can be
-# dragged at all (the menu lays its rows out in a ListView, which may steal a
-# drag). When it fails, those two causes are told apart by the failure text:
-# no `microphone gain` line of EITHER kind means the click or the drag never
-# reached the control, while the warning means the drag worked and the engine
-# had nowhere to land it.
+# Driven through the in-call menu, so it also covers dragging a Slider inside
+# a QQuickMenu. No `microphone gain` line of either kind means the click or
+# drag never reached the control; the warning means the engine had no target.
 _micgain_case() {   # _micgain_case <name> <from-x> <to-x> <expected-percent>
     local name="$1" from="$2" to="$3" want="$4" mark applied nowhere
     mark=$(mark_of "$LT_A_LOG")
@@ -416,16 +347,14 @@ _micgain_case() {   # _micgain_case <name> <from-x> <to-x> <expected-percent>
 check_micgain_mute()  { _micgain_case micgain-0%-reaches-the-graph "$MICGAIN_MAX_X" "$MICGAIN_MIN_X" 0; }
 check_micgain_boost() { _micgain_case micgain-200%-reaches-the-graph "$MICGAIN_MIN_X" "$MICGAIN_MAX_X" 200; }
 
-# The portal picker is a WINDOW of xdg-desktop-portal-kde, not a popup, so it
-# is addressed by its own pid. Lightning gives it 120 s (kRequestTimeoutMs)
-# and then releases — answer it in one pass, never across two ssh round trips.
+# The portal picker is a window of xdg-desktop-portal-kde, addressed by its
+# own pid. Lightning releases it after 120 s (kRequestTimeoutMs), so answer it
+# in one pass.
 check_share() {
     local marka markb portal g px py pw ph
     marka=$(mark_of "$LT_A_LOG"); markb=$(mark_of "$LT_B_LOG")
-    # WHICH INBOUND VIDEO STREAMS B ALREADY HAS. Without this the check
-    # matched ANY inbound video and passed on a completely broken share as
-    # long as a camera was publishing — and after this round's engine change
-    # the id is on the line, so it can be answered properly.
+    # Record B's existing inbound video streams so the check cannot pass on
+    # an already-running camera.
     local before_streams
     before_streams=$(stream_ids_in_lane "$LT_B_LOG" in true)
     pidclick "$A" "$SHARE_BTN_X" "$SHARE_BTN_Y" >/dev/null 2>&1
@@ -437,21 +366,12 @@ check_share() {
     local rx ry
     rx=$(awk -v w="${pw%%.*}" -v f="$PORTAL_TILE_FX" 'BEGIN{printf "%d", w*f}')
     ry=$(awk -v h="${ph%%.*}" -v f="$PORTAL_TILE_FY" 'BEGIN{printf "%d", h*f}')
-    # NOTE: the harness's pidclick_nf/keypid both END in `sleep`, so their
-    # exit status is the sleep's and `|| bad ...` on them is dead code. Any
-    # guard has to be explicit.
+    # pidclick_nf/keypid end in `sleep`, so `|| bad ...` on them never fires;
+    # guards must be explicit.
     pidclick_nf "$portal" "$rx" "$ry" >/dev/null 2>&1
     sleep 1
-    # ONE CLICK IS USUALLY THE WHOLE ANSWER, and the Enter is for the
-    # versions where it is not.
-    #
-    # Measured on the rig this was written against: selecting the source tile
-    # CONFIRMS — the dialog closes and the share starts — so by the time the
-    # Enter ran the picker was already gone, keypid's own focus guard
-    # correctly refused to type into whatever had focus instead, and the
-    # check passed on a step that never happened. That is a fixture quietly
-    # depending on something it did not do, so ask first: if the picker has
-    # closed, the click confirmed and there is nothing to send.
+    # Selecting the source tile usually confirms and closes the dialog; send
+    # Enter only if the picker is still open.
     if [[ -n "$(geom_pid "$portal")" ]]; then
         guard_pid "$portal" \
             || { bad share "the picker is still open but not active; Enter would have gone elsewhere"; return 1; }
@@ -463,7 +383,7 @@ check_share() {
     local publishing encoded received
     publishing=$(lines_since "$LT_A_LOG" "$marka" 'screen share publishing' | tail -1)
     encoded=$(lines_since "$LT_A_LOG" "$marka" 'first encoded frame screenShare= true' | tail -1)
-    # A stream B was NOT already receiving. That is the share.
+    # A stream B was not already receiving: the share.
     local new_stream
     new_stream=$(comm -13 <(printf '%s\n' "$before_streams") \
                           <(stream_ids_in_lane "$LT_B_LOG" in true) | head -1)
@@ -482,21 +402,13 @@ check_share() {
     [[ -n "$encoded"    ]] || why="${why:-A published but encoded no frame}"
     [[ -n "$received"   ]] || why="${why:-B received no video frames on a stream it was not already receiving; any video already flowing is NOT evidence of this share}"
     [[ -z "$why" ]] || { bad share "$why"; return 1; }
-    # WHAT THIS CHECK DOES **NOT** SAY, and it used to imply all three.
-    #
-    #  * Not that B drew a picture. These frames have been decrypted and
-    #    handed downstream, nothing more. On a host with no usable OpenGL the
-    #    scene graph falls back to Qt Quick's software adaptation, which has
-    #    NO NODE TYPE FOR VIDEO — measured 2026-09-12, one client, one call,
-    #    `QT_QUICK_BACKEND=software` the only change: the counter climbed past
-    #    500 against an empty rectangle. Asserting a render needs a capture a
-    #    human or a comparison looks at, which is what `shot` is for.
-    #  * Not that what arrived is the share rather than some OTHER new
-    #    stream. It is pinned to a stream B was not already receiving, which
-    #    rules out a camera that was already running; a camera switched on in
-    #    the same twelve seconds would still satisfy it.
-    #  * Not that the picture is CORRECT — aspect, crop and staleness are all
-    #    invisible here.
+    # What this check does not prove:
+    #  * That B rendered a picture: frames were decrypted and handed on. Qt
+    #    Quick's software backend has no video node and the counter still
+    #    climbs. Use `shot` for rendering.
+    #  * That the new stream is the share: a camera enabled in the same
+    #    window would also satisfy it.
+    #  * That the picture is correct (aspect, crop, staleness).
     note "PASS means B decrypted inbound video frames; it does NOT assert a picture was drawn"
     ok share
 }

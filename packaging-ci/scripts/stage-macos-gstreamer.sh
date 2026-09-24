@@ -5,92 +5,38 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
-# Stage the GStreamer runtime Lightning's call media engine needs into a macOS
-# .app bundle.
+# Stage the GStreamer runtime the call media engine needs into a macOS .app.
 #
-# WHY THIS EXISTS AT ALL. A GStreamer plugin is dlopen'd, never linked, so
-# nothing in the executable's import table names one and macdeployqt — which
-# walks Mach-O load commands — cannot discover a single plugin. Without this
-# step the app links libgstreamer, launches, and then refuses every call with
-# "missing_element:webrtcbin" because SfuMediaEngine::runtimeAvailable() probes
-# its element factories before it registers.
+# Plugins are dlopen'd, so macdeployqt cannot discover them; without this step
+# the app refuses every call with "missing_element:webrtcbin".
 #
-# LAYOUT, AND WHY IT IS NOT THE OBVIOUS ONE.
-#
-#   Contents/PlugIns/gstreamer-plugins/   the plugins themselves
+# Layout:
+#   Contents/PlugIns/gstreamer-plugins/   the plugins
 #   Contents/PlugIns/gstreamer-libs/      every dylib they load
 #   Contents/MacOS/gstreamer-1.0          symlink -> ../PlugIns/gstreamer-plugins
 #
-# The app looks for the plugin directory at applicationDirPath()/gstreamer-1.0
-# (src/calls/SfuMediaEngine.cpp), which on macOS is Contents/MacOS. A directory
-# of that NAME cannot be signed anywhere in the bundle — measured, not guessed:
+# The app looks in applicationDirPath()/gstreamer-1.0, but codesign rejects a
+# real directory with that name anywhere in the bundle: a dotted directory
+# name is taken for a nested bundle ("bundle format unrecognized"). A symlink
+# is sealed as a symlink, so the payload lives in dot-free directories and the
+# dotted path points at it.
 #
-#   $ codesign --force --sign - Lightning.app
-#   Lightning.app: bundle format unrecognized, invalid, or unsuitable
-#   In subcomponent: Lightning.app/Contents/PlugIns/gstreamer-1.0
+# The official framework is relocatable (@rpath everywhere), so only LC_RPATH
+# needs changing. Each staged binary gets two rpaths:
+#   @executable_path/../PlugIns/gstreamer-libs   when the app loads it;
+#   @loader_path/../gstreamer-libs               when the validator probes the
+#                                                directory from another tool.
+# The framework's own rpaths are stripped first; they name directories that do
+# not exist in the bundle.
 #
-# It is the DOT, not the location. codesign's default resource rules treat a
-# directory under MacOS/, PlugIns/, Frameworks/ ... as nested code, and a
-# directory whose name carries an extension is taken for a bundle — extension
-# "0", which is not a bundle format it knows. Three experiments on the same
-# tree separated the two candidate causes:
-#
-#   Contents/MacOS/gstreamer-1.0    (real dir)  -> codesign FAILS
-#   Contents/PlugIns/gstreamer-1.0  (real dir)  -> codesign FAILS, symlink or not
-#   Contents/PlugIns/gstreamer-plugins          -> signs
-#   Contents/MacOS/gstreamer-1.0 -> ../PlugIns/gstreamer-plugins (symlink)
-#                                               -> signs
-#
-# Which is why the payload sits in dot-free PlugIns subdirectories — the shape
-# Qt's own plugins already ship in here (PlugIns/platforms, PlugIns/quick) — and
-# the dotted path the application asks for is a SYMLINK onto it. A symlink is
-# sealed as a symlink, so codesign never tries to read a bundle out of it.
-#
-# INSTALL NAMES. The official GStreamer macOS framework is built relocatable:
-# every library's install id and every inter-library dependency is already
-# @rpath/libfoo.dylib. For the staged plugins and libraries that means no
-# dependency has to be rewritten at all — only LC_RPATH. Two are added to each,
-# because the plugins are reached through two different paths:
-#
-#   @executable_path/../PlugIns/gstreamer-libs      at run time, when the app
-#       loads them via the Contents/MacOS/gstreamer-1.0 symlink and @loader_path
-#       may or may not have been resolved through it;
-#   @loader_path/../gstreamer-libs                  when validate-macos-artifacts
-#       probes the real directory with a tool that lives somewhere else, where
-#       @executable_path means nothing.
-#
-# The pre-baked rpaths from the framework (@loader_path/../lib and friends) are
-# stripped first: they name directories that do not exist inside the bundle, and
-# leaving them would let a stray sibling directory satisfy a load by accident.
-#
-# THE MAIN EXECUTABLE IS DIFFERENT, AND THIS IS THE SUBTLE PART.
-#
-# It links GStreamer directly, so gstreamer-1.0.pc's `Requires: glib-2.0
-# gobject-2.0` puts @rpath/libglib-2.0.0.dylib, @rpath/libgobject-2.0.0.dylib
-# and @rpath/libintl.8.dylib on it — and macdeployqt, which runs BEFORE this
-# script, RESOLVES THOSE FROM HOMEBREW and rewrites them into
-# Contents/Frameworks, because Qt links glib too and Homebrew's copy is already
-# on its search list. Measured on the runner with a Qt+GStreamer test binary:
-#
-#   after macdeployqt:  @executable_path/../Frameworks/libglib-2.0.0.dylib
-#                       (the file there is Homebrew's, compat 8801 — Qt needs it)
-#   the plugins load:   PlugIns/gstreamer-libs/libglib-2.0.0.dylib  (compat 8201)
-#
-# Two GLib copies in one process is unavoidable and fine — Qt requires 8801 and
-# GStreamer was built against 8201 — but the APPLICATION's own
-# g_signal_connect/g_object_set calls operate on GstElements, so they have to
-# reach the same GObject type system the plugins registered in. Bound to
-# Homebrew's glib instead, they act on a type system that knows nothing about
-# those objects.
-#
-# Deleting the builder rpath BEFORE macdeployqt does NOT prevent this — also
-# measured: macdeployqt never needed our rpath to find Homebrew's glib, and the
-# same three libraries were deployed either way. The only reliable repair is the
-# one below: after staging, every dependency of the main executable whose
-# basename is part of the staged GStreamer set is rewritten to an EXPLICIT
-# @executable_path/../PlugIns/gstreamer-libs/... path, leaving dyld no search
-# order to get wrong. System dependencies (/usr/lib, /System) are never touched,
-# so a libz or libffi the platform provides stays the platform's.
+# The main executable links glib/gobject/libintl directly, and macdeployqt
+# (which runs first) resolves those to Homebrew's copies in
+# Contents/Frameworks, which Qt needs. Two GLib copies in one process are
+# fine, but the app's own g_object_* calls on GstElements must reach the same
+# GObject type system the plugins registered in. So after staging, every
+# executable dependency that is part of the staged set is rewritten to an
+# explicit @executable_path/../PlugIns/gstreamer-libs/... path. System
+# libraries (/usr/lib, /System) are never touched.
 
 APP_DIR="${1:-}"
 GST_PREFIX="${2:-}"
@@ -110,52 +56,41 @@ APP_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$CONTENTS/In
 MAIN_BINARY="$CONTENTS/MacOS/$APP_NAME"
 [[ -x "$MAIN_BINARY" ]] || die "main executable not found: $MAIN_BINARY"
 
-# The plugins that carry the elements SfuMediaEngine requires, plus the ones
-# the pipelines it builds reach for by name. Not the whole plugin directory:
-# that is ~250 plugins pulling gtk4, ffmpeg and x265 into the closure for
-# capabilities a Matrix client never uses.
+# Plugins carrying the elements SfuMediaEngine requires or its pipelines name,
+# not the whole directory (~250 plugins pulling in gtk4, ffmpeg and x265).
 #
-#   app                  appsink/appsrc — decoded receive frames into QVideoSink
-#   applemedia           avfvideosrc — camera AND `capture-screen=true` share
+#   app                  appsink/appsrc: decoded receive frames into QVideoSink
+#   applemedia           avfvideosrc: camera and `capture-screen=true` share
 #   audioconvert         audioconvert
 #   audiomixer           audiomixer (mixed receive path)
 #   audioresample        audioresample
-#   audiotestsrc         audiotestsrc — the silent source a muted publish uses
+#   audiotestsrc         audiotestsrc: the silent source a muted publish uses
 #   autodetect           autoaudiosrc/autoaudiosink/autovideosrc
-#   compositor           compositor (refuted as the share's rate stage, still
-#                        reachable from a pipeline description)
+#   compositor           compositor (reachable from a pipeline description)
 #   coreelements         queue valve capsfilter fakesink identity tee funnel
 #   dtls                 dtlssrtpenc/dtlssrtpdec/dtlsenc/dtlsdec
-#   jpeg                 jpegenc/jpegdec — the camera's compressed chain. The
-#                        application DECIDES whether a camera uses it by
-#                        building `videotestsrc ! jpegenc ! <entry> !
-#                        fakesink` once per process, so jpegenc is a runtime
-#                        requirement of the decision and not only of a test.
-#                        Without it a camera falls back to the raw entry —
-#                        measured on Windows as 5 fps at 1080p against 30.
-#                        Added 2026-09-17, after the new `camera compressed
-#                        (MJPG) chain:` line in --call-media-status reported
-#                        `unavailable ... no element "jpegenc"` from the
-#                        SHIPPED macOS bundle on its very first run. Nothing
-#                        before that line could have said so.
-#   level                level — the per-participant loudness meter
+#   jpeg                 jpegenc/jpegdec: the camera's compressed chain. The app
+#                        decides whether a camera uses it by building
+#                        `videotestsrc ! jpegenc ! <entry> ! fakesink`, so
+#                        jpegenc is needed for that decision too. Without it a
+#                        camera falls back to the much slower raw entry.
+#   level                level: the per-participant loudness meter
 #   nice                 nicesrc/nicesink (ICE)
 #   opus                 opusenc/opusdec
-#   osxaudio             osxaudiosrc/osxaudiosink — what autoaudio* resolves to
+#   osxaudio             osxaudiosrc/osxaudiosink: what autoaudio* resolves to
 #   rtp                  rtpopuspay/depay, rtpvp8pay/depay, rtpstorage
 #   rtpmanager           rtpbin and the rest of webrtcbin's internals
-#   sctp                 sctpenc/sctpdec — webrtcbin loads these for data
+#   sctp                 sctpenc/sctpdec: webrtcbin loads these for data
 #   srtp                 srtpenc/srtpdec
 #   videoconvertscale    videoconvert/videoscale
-#   videorate            videorate — the pinned 30/1 stage
+#   videorate            videorate: the pinned 30/1 stage
 #   videotestsrc         videotestsrc
-#   volume               volume — the per-participant gain
+#   volume               volume: the per-participant gain
 #   vpx                  vp8enc/vp8dec
 #   webrtc               webrtcbin
-#   webrtcdsp            webrtcdsp/webrtcechoprobe — the microphone AGC
+#   webrtcdsp            webrtcdsp/webrtcechoprobe: the microphone AGC
 #
-# Lightning's own VP8 payloader is compiled into the binary and registered at
-# gst_init time; it is deliberately not a plugin file.
+# Lightning's own VP8 payloader is compiled into the binary, not a plugin.
 PLUGINS=(
     app applemedia audioconvert audiomixer audioresample audiotestsrc
     autodetect compositor coreelements dtls level nice opus osxaudio
@@ -163,13 +98,9 @@ PLUGINS=(
     volume vpx webrtc webrtcdsp
 )
 
-# OPTIONAL, AND THE ORDER MATTERS — this is the Windows lesson, on the other
-# platform. `libgstjpeg.dll` was added to the Windows REQUIRED list before the
-# hand-built builder image carried it and killed pipeline 224; the rule written
-# from it is that a required entry and the thing that has to satisfy it are ONE
-# change, and the entry is the half that comes second. The loop below `die`s on
-# a missing required plugin, and macOS is `allow_failure`, so getting this
-# wrong costs the release its macOS asset silently.
+# Optional until a macOS job has proven it stages. The loop below dies on a
+# missing required plugin and macOS is allow_failure, so requiring it first
+# would silently cost a release its macOS asset.
 #
 # TO PROMOTE IT: once a macOS job reports `staged optional GStreamer plugin:
 # jpeg` and `camera compressed (MJPG) chain: available`, move `jpeg` into
@@ -183,44 +114,32 @@ mkdir -p "$PLUGIN_DIR" "$SUPPORT_DIR"
 work="$(mktemp -d)"
 trap 'rm -rf -- "$work"' EXIT
 
-# The bundle is arm64-only (CMAKE_OSX_ARCHITECTURES=arm64) but the official
-# GStreamer packages are universal, so half of every byte copied would be
-# x86_64 that can never run here.
+# The bundle is arm64-only but the official packages are universal.
 copy_thin() {
     local src="$1" dest="$2" lipo_err archs
     lipo_err="$(lipo -thin arm64 "$src" -output "$dest" 2>&1)" && return 0
-    # Not a fat file, or something else went wrong. Only the first is
-    # acceptable, and lipo's own message says which — reporting every failure as
-    # an architecture problem would hide a full disk or an unwritable path.
+    # Only "not a fat file" is acceptable here; any other lipo failure (full
+    # disk, unwritable path) must be reported as itself.
     archs="$(lipo -archs "$src" 2>/dev/null || echo unknown)"
     [[ "$archs" == "arm64" ]] || die "cannot thin $src (archs: $archs): $lipo_err"
     cp "$src" "$dest" || die "cannot copy $src to $dest"
 }
 
-# otool -L prints the file path as a header, then (for a library) its own
-# install id, then the dependencies — each dependency indented with a TAB. On a
-# fat file it repeats the header per architecture, which is why the tab, and
-# not `tail -n +2`, is what separates dependencies from headers.
+# otool -L indents each dependency with a tab; on a fat file it repeats the
+# header per architecture, so the tab (not `tail -n +2`) separates them.
 deps_of() { otool -L "$1" 2>/dev/null | grep '^	' | awk '{print $1}'; }
-# `|| true` is load-bearing: an executable has no LC_ID_DYLIB, so `grep -v`
-# matches nothing and returns 1 — which under `set -o pipefail` makes the
-# CALLER's assignment fail and `set -e` abort the script with no message.
+# `|| true`: an executable has no LC_ID_DYLIB, so grep returns 1, which under
+# pipefail would abort the caller with no message.
 id_of()   { otool -D "$1" 2>/dev/null | grep -v ':$' | head -1 || true; }
 rpaths_of() {
     otool -l "$1" 2>/dev/null \
         | awk '/^ *cmd LC_RPATH$/{f=1;next} f&&/^ *path /{print $2; f=0}'
 }
 is_macho() { file -b "$1" 2>/dev/null | grep -q 'Mach-O'; }
-# Every staged Mach-O, identified by CONTENT. A `-name '*.dylib'` filter would
-# be narrower than what the closure below actually copies — the basename comes
-# from the dependency record, which this script does not get to choose — and the
-# files such a filter missed would be exactly the ones no later loop repairs or
-# checks.
-# $SCANNER_DEST is named explicitly rather than by directory: it is the one
-# staged Mach-O that does NOT live under PlugIns (it is an executable, and it
-# belongs beside the main one), and leaving it out of this list would leave it
-# out of the rpath retarget, the self-containment proof and the arch check all
-# at once — the three things that make the rest of this file trustworthy.
+# Every staged Mach-O, found by content rather than by a `*.dylib` name filter
+# (basenames come from dependency records). $SCANNER_DEST is listed explicitly
+# because it lives in MacOS/, not PlugIns/, and must still get the rpath
+# retarget, the self-containment check and the arch check.
 staged_machos() {
     find "$PLUGIN_DIR" "$SUPPORT_DIR" "$SCANNER_DEST" -type f 2>/dev/null | while IFS= read -r f; do
         is_macho "$f" && printf '%s\n' "$f"
@@ -247,37 +166,15 @@ done
 printf 'staged %d GStreamer plugins (+%d optional)\n' \
     "${#PLUGINS[@]}" "$staged_optional"
 
-# THE REGISTRY HELPER, which was the one piece of the runtime this script
-# deliberately left out.
+# gst-plugin-scanner builds the plugin registry out of process. Its path is
+# compiled into libgstreamer as the builder's libexec directory, so without a
+# bundled copy every launch logs "External plugin loader failed" and GStreamer
+# falls back to scanning in-process.
 #
-# GStreamer builds its plugin registry by dlopen'ing every candidate in a
-# SEPARATE PROCESS — gst-plugin-scanner — so a plugin that aborts on load
-# cannot take the application down with it. The helper's path is compiled into
-# libgstreamer as the BUILDER's libexec directory, which does not exist inside
-# a relocated bundle, so every launch printed
-#
-#   GStreamer-WARNING **: External plugin loader failed. This most likely
-#   means that the plugin loader helper binary was not found ...
-#
-# and GStreamer fell back to scanning in-process. That fallback WORKS, which is
-# exactly why it survived: graceful fallback and silent absence are the same
-# observable, and the warning then sat at the top of every user's call log
-# looking like the cause of whatever else went wrong that session (it was
-# reported that way on 2026-09-09, alongside an unrelated SFU connect failure).
-#
-# It goes in Contents/MacOS, beside the main executable, for three reasons: it
-# is the executables directory, the name carries no dot (the constraint that
-# forced the plugins themselves behind a symlink — see the note at the top of
-# this file), and build-macos.sh's inside-out codesign pass finds every Mach-O
-# under the bundle, so it is ad-hoc signed with everything else. An unsigned
-# helper is SIGKILLed on Apple Silicon with no message, which looks identical
-# to a missing one.
-#
-# The app derives the path from its OWN location before gst_init and exports
-# GST_PLUGIN_SCANNER_1_0/GST_PLUGIN_SCANNER
-# (src/calls/GstBootstrap.cpp, scannerPathBesideExecutable). Neither half works
-# alone: this file without that change ships a binary nothing loads, and that
-# change without this file points at a path that is not there.
+# It lives in Contents/MacOS beside the main executable (no dot in the path,
+# and build-macos.sh's inside-out codesign pass signs it; an unsigned helper is
+# SIGKILLed on Apple Silicon). The app exports GST_PLUGIN_SCANNER from its own
+# location before gst_init (src/calls/GstBootstrap.cpp).
 SCANNER_SRC="$GST_PREFIX/libexec/gstreamer-1.0/gst-plugin-scanner"
 SCANNER_DEST="$CONTENTS/MacOS/gst-plugin-scanner"
 [[ -f "$SCANNER_SRC" ]] \
@@ -288,32 +185,24 @@ chmod 0755 "$SCANNER_DEST"
 printf 'staged the GStreamer registry helper (gst-plugin-scanner)\n'
 
 # Breadth-first closure over @rpath dependencies, resolved against the SDK's
-# lib/. A dependency that does not resolve there is a hard failure: shipping a
-# plugin whose library is absent produces a bundle that loads on this machine
-# (where the SDK exists) and dies on a user's.
+# lib/. An unresolvable dependency is fatal: the bundle would work only where
+# the SDK is installed.
 #
-# Seeded from the MAIN EXECUTABLE as well as the plugins. Its @rpath
-# dependencies are exactly the ones the linker took from gstreamer-1.0.pc, so a
-# seventh pkg_check_modules module added to Lightning's CMake lands here rather
-# than in a dyld error on a user's machine.
+# Seeded from the main executable too, so a new GStreamer module linked by
+# Lightning's CMake is picked up here rather than failing in dyld.
 #
-# The queue is a file rather than an array: /bin/bash on macOS is 3.2, where
-# expanding an EMPTY array under `set -u` is an error, and the terminating
-# round of a breadth-first walk is exactly an empty array.
+# The queue is a file, not an array: macOS /bin/bash 3.2 errors on expanding an
+# empty array under `set -u`.
 : >"$work/libs"
 : >"$work/queue"
 printf '%s\n' "$MAIN_BINARY" >>"$work/queue"
-# The registry helper is seeded too: it links the GStreamer core and glib in
-# its own right, and it runs as its OWN process with no Qt in it, so anything
-# it needs has to be in the bundle rather than merely reachable from the app.
+# The registry helper runs as its own process with no Qt, so its core and glib
+# dependencies must be bundled too.
 printf '%s\n' "$SCANNER_DEST" >>"$work/queue"
 for p in "${PLUGINS[@]}"; do
     printf '%s\n' "$PLUGIN_DIR/libgst${p}.dylib" >>"$work/queue"
 done
-# The OPTIONAL ones are seeded from what was actually staged, not from the
-# list: seeding a name that was not copied would put a non-existent file in
-# the dependency walk, and a plugin that IS copied and not walked keeps its
-# host rpaths and cannot load from the bundle at all. Either way silently.
+# Optional plugins are seeded from what was actually staged.
 for p in "${OPTIONAL_PLUGINS[@]}"; do
     [[ -f "$PLUGIN_DIR/libgst${p}.dylib" ]] \
         && printf '%s\n' "$PLUGIN_DIR/libgst${p}.dylib" >>"$work/queue"
@@ -327,28 +216,21 @@ while [[ -s "$work/queue" ]]; do
             [[ -n "$dep" ]] || continue
             [[ "$dep" == "$self" ]] && continue
             case "$dep" in
-                # Qt reaches the executable as @rpath/QtCore.framework/... —
-                # a framework, not a plain dylib, and macdeployqt's business.
+                # Qt frameworks are macdeployqt's business.
                 @rpath/*.framework/*) continue ;;
                 @rpath/*) base="${dep#@rpath/}" ;;
-                # After macdeployqt the executable also carries @executable_path
-                # entries; those are repaired further down, not walked here.
+                # @executable_path entries are repaired further down.
                 /usr/lib/*|/System/*|@executable_path/*|@loader_path/*) continue ;;
                 *)
-                    # An absolute host path on the MAIN EXECUTABLE is Qt's, and
-                    # it belongs to build-macos.sh's load-command repair pass and
-                    # to the validator's self-containment scan — both of which
-                    # already fail the build on it. Refusing it here as well
-                    # would stop the GStreamer staging on a defect it does not
-                    # own and cannot fix. On a STAGED library it is ours, and it
-                    # means the SDK is not the relocatable framework we think.
+                    # An absolute host path on the main executable is Qt's and
+                    # is handled by build-macos.sh's repair pass and the
+                    # validator. On a staged library it means the SDK is not
+                    # the relocatable framework we expect.
                     [[ "$macho" == "$MAIN_BINARY" ]] && continue
                     die "$(basename "$macho") has a non-relocatable dependency: $dep"
                     ;;
             esac
-            # A dependency that is not a plain file name would need a directory
-            # tree, not a file copy. Nothing in this SDK ships one; refuse
-            # rather than silently produce a path that cannot work.
+            # A dependency needing a directory tree cannot be a file copy.
             case "$base" in
                 */*) die "$(basename "$macho") needs $dep, which is not a plain dylib" ;;
             esac
@@ -356,8 +238,7 @@ while [[ -s "$work/queue" ]]; do
                 || die "$(basename "$macho") needs $dep, absent from $GST_PREFIX/lib"
             grep -qxF "$base" "$work/libs" && continue
             printf '%s\n' "$base" >>"$work/libs"
-            # Copy before queueing, so the next round reads the STAGED copy and
-            # the closure is proven against what actually ships.
+            # Copy before queueing, so the next round walks the staged copy.
             copy_thin "$GST_PREFIX/lib/$base" "$SUPPORT_DIR/$base"
             printf '%s\n' "$SUPPORT_DIR/$base" >>"$work/next"
         done < <(deps_of "$macho")
@@ -368,10 +249,8 @@ support_count="$(wc -l <"$work/libs" | tr -d ' ')"
 printf 'staged %s support libraries\n' "$support_count"
 
 # --- install names -----------------------------------------------------------
-# Every rpath list is SNAPSHOT to a file before the first install_name_tool
-# call. `while read … done < <(otool -l "$f")` would keep otool streaming the
-# very file being rewritten, and whether that is safe depends on whether the
-# toolchain's install_name_tool edits in place or writes-and-renames.
+# Snapshot each rpath list before rewriting: streaming otool over a file that
+# install_name_tool is modifying is only safe if it writes in place.
 retarget_rpaths() {
     local macho="$1" rp
     rpaths_of "$macho" >"$work/rpaths"
@@ -391,22 +270,14 @@ while IFS= read -r macho; do
 done <"$work/staged"
 printf 'retargeted rpaths on %d staged binaries\n' "$staged"
 
-# gst-plugin-scanner sits in MacOS/, not in a PlugIns subdirectory, so the
-# shared `@loader_path/../gstreamer-libs` above names Contents/ for it and
-# resolves to nothing. `@executable_path/../PlugIns/gstreamer-libs` is already
-# correct when the scanner is the executable — which it is, it runs as its own
-# process — and this second form covers the case where something else execs it
-# with the app as the main executable. One extra load command on ONE binary
-# rather than on all sixty.
+# gst-plugin-scanner sits in MacOS/, where `@loader_path/../gstreamer-libs`
+# resolves to nothing. This covers it being exec'd with the app as the main
+# executable.
 install_name_tool -add_rpath "@loader_path/../$SUPPORT_REL" "$SCANNER_DEST" \
     || die "could not point the registry helper at the bundled libraries"
 
-# The builder's SDK path arrives on the executable by default:
-# gstreamer-1.0.pc's `Libs:` line ends in -Wl,-rpath,${libdir}, so the link
-# records an absolute rpath into the runner's home. It is dead on a user's
-# machine and it is a builder path in a shipped artifact. A failed removal is
-# fatal rather than logged: reporting a removal that did not happen is the worst
-# possible line to read during an incident.
+# gstreamer-1.0.pc adds -Wl,-rpath,${libdir}, leaving an absolute builder path
+# on the executable. Remove it; a failed removal is fatal.
 removed_host_rpaths=0
 rpaths_of "$MAIN_BINARY" >"$work/main-rpaths"
 while IFS= read -r rp; do
@@ -423,10 +294,8 @@ if ! rpaths_of "$MAIN_BINARY" | grep -qxF "@executable_path/../$SUPPORT_REL"; th
     install_name_tool -add_rpath "@executable_path/../$SUPPORT_REL" "$MAIN_BINARY"
 fi
 
-# Bind the executable's GStreamer stack EXPLICITLY — see the long note at the
-# top of this file. @rpath would resolve, but it leaves dyld a search order, and
-# macdeployqt has already pointed some of these at Homebrew's copies in
-# Contents/Frameworks.
+# Bind the executable's GStreamer stack explicitly (see the note at the top):
+# macdeployqt has already pointed some of these at Homebrew's copies.
 rebound=0
 deps_of "$MAIN_BINARY" >"$work/main-deps"
 while IFS= read -r dep; do
@@ -450,8 +319,8 @@ ln -s "../PlugIns/gstreamer-plugins" "$CONTENTS/MacOS/gstreamer-1.0"
 [[ -d "$CONTENTS/MacOS/gstreamer-1.0" ]] || die "the plugin symlink does not resolve"
 
 # --- prove the staged set is closed and self-contained ------------------------
-# Not decoration: every failure mode of this script produces a bundle that runs
-# perfectly on the build machine.
+# Every failure mode of this script produces a bundle that runs on the build
+# machine, so check self-containment explicitly.
 unresolved=0
 { cat "$work/staged"; printf '%s\n' "$MAIN_BINARY"; } >"$work/verify"
 while IFS= read -r macho; do
@@ -474,8 +343,8 @@ while IFS= read -r macho; do
                 fi
                 ;;
             @executable_path/../Frameworks/*)
-                # Qt's own payload there is macdeployqt's business; a GStreamer
-                # library reached through it is the wrong copy.
+                # A GStreamer library reached through Qt's Frameworks is the
+                # wrong copy.
                 if [[ -f "$SUPPORT_DIR/$base" ]]; then
                     printf '  wrong copy: %s loads %s from the Qt frameworks\n' \
                         "${macho#"$APP_DIR"/}" "$base" >&2

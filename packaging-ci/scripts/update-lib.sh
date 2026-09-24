@@ -2,14 +2,9 @@
 
 # Shared constants and helpers for the signed update manifest.
 #
-# The update manifest is a SEPARATE artifact from dist/manifest.json. The latter
-# is the publication manifest (what this pipeline uploads to project 6); this one
-# is the small, signed document Lightning itself polls to learn that a newer
-# release exists. Keeping the names in one place stops the three scripts that
-# touch it (generate / sign / publish) from drifting apart.
-#
-# Do not enable command tracing in anything that sources this: the signing
-# script handles private key material.
+# The update manifest is the small signed document clients poll; it is separate
+# from dist/manifest.json, the publication manifest. Do not enable command
+# tracing in anything that sources this: the signing script handles key material.
 [[ -n "${BASH_VERSION:-}" ]] || { printf 'error: bash is required\n' >&2; exit 1; }
 
 # File names are part of the client contract (UPDATE-SPEC §2, §6). Changing
@@ -19,21 +14,15 @@ UPDATE_MANIFEST_NAME="update-manifest-v1.json"
 # shellcheck disable=SC2034
 UPDATE_SIG_NAME="${UPDATE_MANIFEST_NAME}.sig"
 
-# Generic-package name for the update documents. Deliberately NOT the
-# "lightning" package that holds the release artifacts: the update documents
-# have their own version namespace, including the mutable "latest" slot, and
-# must never be able to collide with, shadow, or be mistaken for a release
-# package file.
+# A separate generic package from "lightning", so the update documents (with
+# their mutable "latest" slot) can never collide with release artifacts.
 UPDATE_PACKAGE_NAME="${UPDATE_PACKAGE_NAME:-lightning-update}"
 
-# The stable slot Lightning polls. It is the ONE deliberately mutable location
-# in this pipeline; every other published path is immutable.
+# The slot clients poll; the only mutable published path.
 # shellcheck disable=SC2034
 UPDATE_LATEST_SLOT="latest"
-# The fixed GitHub release slot every installed client compiles in as its
-# metadata FALLBACK (lightning src/update/UpdateEndpoints.cpp). A constant for
-# the same reason the mirror hosts are: an environment variable could steer
-# the pipeline into writing a slot nobody reads, and every check would pass.
+# The GitHub fallback slot compiled into clients (src/update/UpdateEndpoints.cpp).
+# Constant so no environment variable can redirect it to a slot nobody reads.
 # shellcheck disable=SC2034
 if [[ "${UPDATE_LATEST_TAG:-}" != update-latest ]]; then
     UPDATE_LATEST_TAG="update-latest"
@@ -47,15 +36,13 @@ fi
 # shellcheck disable=SC2034
 UPDATE_SIG_ALG="ed25519"
 
-# Ed25519 SubjectPublicKeyInfo DER is exactly 44 bytes with this fixed 12-byte
-# prefix, followed by the raw 32-byte public key. Used to prove a supplied key
-# really is Ed25519 WITHOUT ever running `openssl pkey -text`, which would print
-# private key material.
+# Ed25519 SPKI DER is 44 bytes: this fixed 12-byte prefix plus the raw 32-byte
+# key. Checking the shape avoids `openssl pkey -text`, which prints private keys.
 UPDATE_ED25519_SPKI_PREFIX="302a300506032b6570032100"
 UPDATE_ED25519_SPKI_BYTES=44
 
-# Key ids appear in the published envelope and are matched against a compiled-in
-# table in Lightning. Restrict them to a boring, log-safe alphabet.
+# Key ids are published and matched against a compiled-in table; keep them
+# log-safe.
 update_valid_key_id() {
     [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]
 }
@@ -63,17 +50,9 @@ update_valid_key_id() {
 # ---------------------------------------------------------------------------
 # GitHub bandwidth mirror (MIRROR-SPEC §6)
 #
-# GitLab stays the release authority and the canonical binary source. GitHub
-# holds byte-identical copies of the SAME published artifacts so a client can
-# fetch the bytes from a faster host. Nothing GitHub says is ever an input to a
-# decision: the manifest is fetched only from GitLab, its signature is verified
-# against a key compiled into Lightning, and the SHA-256 a download is checked
-# against is fixed before any byte is fetched.
-#
-# The three hosts are constants on purpose. If they were overridable by an
-# environment variable, that variable could steer the mirror_url that ends up
-# INSIDE the signed manifest — the one field whose whole value is that the
-# release authority chose it.
+# GitHub holds byte-identical copies only; the signed manifest from GitLab
+# decides everything. The hosts are constants so no environment variable can
+# steer the mirror_url that ends up inside the signed manifest.
 # Consumed by the scripts that source this library.
 # shellcheck disable=SC2034
 UPDATE_MIRROR_API_HOST="https://api.github.com"
@@ -81,71 +60,49 @@ UPDATE_MIRROR_API_HOST="https://api.github.com"
 UPDATE_MIRROR_UPLOAD_HOST="https://uploads.github.com"
 UPDATE_MIRROR_DOWNLOAD_HOST="https://github.com"
 
-# ONE switch decides whether this pipeline mirrors, and it is the non-secret
-# half of the configuration. Deliberately NOT keyed on the token as well:
-# "repo set, token missing" must be a loud failure in the mirror job, not a
-# silent no-op that leaves a mirror_url in a signed manifest pointing at a
-# release nobody ever created.
+# Keyed on the repo only, not the token: "repo set, token missing" must fail
+# loudly in the mirror job rather than leave an unbacked mirror_url signed.
 update_mirror_enabled() {
     [[ -n "${GITHUB_MIRROR_REPO:-}" ]]
 }
 
-# <owner>/<repo>, and nothing that could carry a path segment, a scheme, a
-# query, or userinfo into a URL that is about to be signed.
+# <owner>/<repo> only: no path, scheme, query or userinfo in a signed URL.
 update_mirror_repo_valid() {
     [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
 }
 
-# GitHub rewrites an asset name that contains characters it does not accept
-# (spaces become dots, for one), which would leave the deterministic URL in the
-# manifest pointing at a name the release does not have. Refuse such a filename
-# instead of publishing a URL that will not resolve. Every artifact this
-# pipeline builds already matches.
-# '+' is deliberately NOT allowed: the upload endpoint takes the asset name in
-# a QUERY STRING, where '+' decodes to a space. GitHub would store the file
-# under a rewritten name and the mirror_url already inside the SIGNED manifest
-# would not resolve -- exactly the class of rewrite this predicate exists to
-# prevent. Refuse the name instead.
+# GitHub rewrites asset names it does not accept, which would break the
+# deterministic mirror_url in the signed manifest. '+' is excluded because the
+# upload endpoint takes the name in a query string, where it decodes to a space.
 update_mirror_filename_safe() {
     [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
 }
 
-# The immutable, version-specific asset URL. Never /releases/latest/download/…:
-# that is a GitHub-derived pointer, and the version a client installs must come
-# only from the signed manifest.
+# The immutable, version-specific asset URL. Never /releases/latest/download/:
+# the version a client installs must come only from the signed manifest.
 update_mirror_asset_url() { # repo tag filename
     printf '%s/%s/releases/download/%s/%s' \
         "$UPDATE_MIRROR_DOWNLOAD_HOST" "$1" "$2" "$3"
 }
 
 # ---------------------------------------------------------------------------
-# The bridge between this project and the trust table compiled into Lightning.
+# Mirrors the trust table in src/update/UpdateTrustStore.cpp, where each key id
+# has its own CMake variable (LIGHTNING_UPDATE_PUBKEY_2026A for
+# lightning-release-2026a). Adding a key id takes three steps, in order:
 #
-# Lightning's src/update/UpdateTrustStore.cpp holds ONE row per trusted key id,
-# and the public key for each row comes from its OWN CMake cache variable —
-# LIGHTNING_UPDATE_PUBKEY_2026A for lightning-release-2026a. The name is key-id
-# specific by design: a build can trust several ids at once, so one shared
-# variable could not express which key is which.
+#   1. App: a new trust-table row and LIGHTNING_UPDATE_PUBKEY_<ID> variable.
+#   2. Pipeline: an UPDATE_SIGNING_PUBKEY_<ID> CI variable, the mapping row
+#      below, and the -D flag in configure-build.sh, build-windows.sh and the
+#      Flatpak manifest.
+#   3. Only then switch UPDATE_SIGNING_KEY_ID to it.
 #
-# The consequence, and the reason this table is duplicated here: introducing
-# `lightning-release-2026b` is a THREE-part change, and any one of them done
-# alone produces a release that cannot verify its own updates.
-#
-#   1. Lightning (project 6): a new trust-table row AND a new
-#      LIGHTNING_UPDATE_PUBKEY_2026B cache variable.
-#   2. lightning-deploy (project 7): a new UPDATE_SIGNING_PUBKEY_2026B CI
-#      variable, the mapping row below, and the -D flag in configure-build.sh,
-#      build-windows.sh and the Flatpak manifest.
-#   3. Only then may UPDATE_SIGNING_KEY_ID be switched to it.
-#
-# Until step 2 is done, check-update-signing-keys.sh fails closed on the unknown
-# id rather than letting a pipeline sign with a key no shipped client trusts.
+# check-update-signing-keys.sh fails closed on an id missing from this table.
 # Consumed by the scripts that source this library.
 # shellcheck disable=SC2034
 UPDATE_CLIENT_TRUSTED_KEY_IDS=(lightning-release-2026a)
 
 # Name of the CI variable (and, one-to-one, the CMake cache variable minus its
-# LIGHTNING_ prefix) that carries the PUBLIC half for a given key id.
+# LIGHTNING_ prefix) that carries the public half for a given key id.
 update_pubkey_var_for_key_id() {
     case "$1" in
         lightning-release-2026a) printf 'UPDATE_SIGNING_PUBKEY_2026A' ;;
@@ -153,20 +110,14 @@ update_pubkey_var_for_key_id() {
     esac
 }
 
-# A raw Ed25519 public key is 32 bytes, which is exactly 44 base64 characters
-# ending in one '='. Shape-checking it here means a truncated or PEM-pasted
-# value is rejected with a clear message instead of silently embedding a key
-# that can never verify anything.
+# A raw 32-byte Ed25519 key is 44 base64 characters ending in one '=';
+# rejects truncated or PEM-pasted values early.
 update_valid_public_key_b64() {
     [[ "$1" =~ ^[A-Za-z0-9+/]{43}=$ ]]
 }
 
-# Write the DER SubjectPublicKeyInfo of a key PEM to a file, and prove it is
-# Ed25519 by its fixed 44-byte/12-byte-prefix shape.
-#
-# `openssl pkey -pubout` derives only the PUBLIC half, so this is safe to run on
-# a private key file. It is deliberately used instead of `openssl pkey -text`,
-# which would print private key material to stdout.
+# Write the DER SubjectPublicKeyInfo of a key PEM and prove it is Ed25519 by
+# shape. `-pubout` emits only the public half, so it is safe on a private key.
 #   $1 = key PEM path, $2 = output DER path, $3 = "public" when $1 is a pubkey
 update_write_spki_der() {
     local pem="$1" out="$2" kind="${3:-private}" size hex

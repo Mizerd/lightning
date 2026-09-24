@@ -5,14 +5,10 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
-# Authenticode signing hook — DISABLED unless a real signing credential is
-# supplied via protected CI variables. There is no fake or self-signed identity.
-# When WINDOWS_SIGNING_PFX_B64 is unset (every test pipeline), this is a no-op
-# and artifacts stay honestly unsigned. Enabling it also needs osslsigncode in
-# the builder image. Signing material is never printed, logged, committed, or
-# written into a job artifact; the decoded PFX and password live in mktemp files
-# removed immediately after use, and the password is passed via -readpass (not
-# argv) so it never appears in the process list.
+# Authenticode signing hook, a no-op unless WINDOWS_SIGNING_PFX_B64 is supplied
+# through protected CI variables; there is no self-signed identity. Needs
+# osslsigncode in the builder image. The PFX and password live only in mktemp
+# files removed on return, and -readpass keeps the password out of argv.
 sign_windows_file() {
     local target="$1"
     if [[ -z "${WINDOWS_SIGNING_PFX_B64:-}" ]]; then
@@ -43,8 +39,7 @@ REPORT_DIR="$WINDOWS_DIST/reports"
 
 require_var EXPECTED_SOURCE_SHA
 [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || die "Windows packaging requires a full source commit SHA"
-# Windows is a first-class release target since 0.6.3: it may run in both the
-# developer test path (PUBLISH_PACKAGES=false) and the publishing pipeline.
+# Windows runs in both the test path and the publishing pipeline.
 PUBLISHING="${PUBLISH_PACKAGES:-false}"
 [[ -f "$SOURCE_DIR/CMakeLists.txt" && -f "$ROOT/dist/version.env" ]] || \
     die "run prepare-pinned-source.sh before build-windows.sh"
@@ -74,25 +69,18 @@ for size in 16 32 48 64 128 192; do
 done
 magick "${icon_inputs[@]}" "$BUILD_DIR/Lightning.ico"
 
-# Product metadata for the ONE Lightning-owned PE. SignPath enforces file
-# metadata restrictions on signed artifacts, so these values are generated from
-# the single canonical release version and verified after staging by
-# verify-windows-metadata.py — they cannot drift from the release or from each
-# other. The publisher is the maintainer by name: there is no company called
-# "Mizerd" (that is a GitLab namespace), and a publisher field a user reads must
-# be factual. The internal registry path keeps its historical
-# Software\Mizerd\Lightning location on purpose — changing it would orphan the
-# uninstall registration of already-installed copies.
+# Product metadata for Lightning-owned PEs, generated from the release version
+# and checked after staging by verify-windows-metadata.py (SignPath enforces
+# file metadata on signed artifacts). The publisher is the maintainer by name;
+# "Mizerd" is only a GitLab namespace. The registry path keeps
+# Software\Mizerd\Lightning so existing uninstall registrations stay valid.
 WIN_PUBLISHER="Rokas Smetonis"
 WIN_COPYRIGHT="Copyright (C) 2026 Rokas Smetonis. GPL-3.0-or-later."
 WIN_SIGNING_STATE="$(windows_signing_state)"
 
-# The label and the reality must not diverge. Declaring a build "signed" while
-# no signing mechanism exists would stamp that claim into the PE metadata, the
-# MSI, the asset names, and the release page — a false statement about a
-# security property, which is worse than being plainly unsigned. The opposite
-# direction (signing configured, label still unsigned) only understates, so it
-# warns.
+# Never label a build signed without a signing mechanism: that would put a
+# false security claim into the PE metadata, MSI and release assets. The
+# reverse only understates, so it warns.
 if windows_signed; then
     [[ -n "${WINDOWS_SIGNING_PFX_B64:-}" || "${LIGHTNING_SIGNING_METHOD:-}" == signpath ]] || \
         die "LIGHTNING_WINDOWS_SIGNED=true but no signing mechanism is configured"
@@ -101,13 +89,8 @@ elif [[ -n "${WINDOWS_SIGNING_PFX_B64:-}" ]]; then
 fi
 
 IFS=. read -r version_major version_minor version_patch <<<"$BASE_VERSION"
-# One resource per Lightning-owned executable. They must NOT share one: the
-# metadata gate requires OriginalFilename to name the file it is actually in
-# (SignPath applies file-metadata restrictions to signed artifacts), and a
-# second binary carrying "Lightning.exe" would be a false claim about which file
-# a user is looking at. The resources are attached per target through
-# packaging/windows/version-resources.cmake, not through the global
-# CMAKE_EXE_LINKER_FLAGS this used to use.
+# One resource per executable: OriginalFilename must name the file it is in.
+# Attached per target through packaging/windows/version-resources.cmake.
 write_version_rc() { # $1 = rc path, $2 = OriginalFilename, $3 = InternalName,
                      # $4 = FileDescription, $5 = "icon" to embed the app icon
     local icon_line=""
@@ -144,33 +127,24 @@ EOF
 }
 write_version_rc "$BUILD_DIR/lightning-version.rc" \
     "Lightning.exe" "Lightning" "Lightning Matrix client" icon
-# The helper deliberately carries no icon: it is never launched by a user and
-# never appears in a shell that would show one.
+# The helper carries no icon; users never see it.
 write_version_rc "$BUILD_DIR/lightning-updater-version.rc" \
     "lightning-updater.exe" "lightning-updater" "Lightning update helper"
 ( cd "$BUILD_DIR" && x86_64-w64-mingw32-windres lightning-version.rc lightning-version.o )
 ( cd "$BUILD_DIR" && x86_64-w64-mingw32-windres lightning-updater-version.rc lightning-updater-version.o )
 
-# Populate the complete lockfile cache first because project 6 deliberately
-# invokes its actual build with --offline --locked.
+# The source build runs --offline --locked, so fill the cargo cache first.
 /opt/rust/cargo/bin/cargo fetch --locked --manifest-path "$SOURCE_DIR/rust/Cargo.toml"
 /opt/rust/cargo/bin/cargo fetch --locked --target x86_64-pc-windows-gnu \
     --manifest-path "$SOURCE_DIR/rust/Cargo.toml"
 
-# GIF provider keys: embed the project-7 protected+masked CI variables
-# GIPHY_API_KEY / KLIPY_API_KEY into this Windows build using the SAME mechanism
-# as official release packages (the CMake generator reads the build-only
-# LIGHTNING_BUILD_* names and writes them into an untracked build-tree header —
-# never a compiler command line, CMakeCache, install rule, package, or log; the
-# masked values do not appear in job output). This lets the test binary browse
-# GIFs with no local env file or variable on the tester's PC. When the CI
-# variables are absent the build stays keyless (the picker shows unconfigured),
-# preserving the previous behaviour. A key compiled into a distributed binary is
-# ultimately extractable — these test artifacts are developer-scoped and expire.
+# GIF provider keys use the same mechanism as every release build: the CMake
+# generator reads the build-only LIGHTNING_BUILD_* variables into an untracked
+# header, never a command line, cache entry, package or log. Without the CI
+# variables the build is keyless. An embedded key is ultimately extractable.
 gif_require=OFF
 gif_keys_embedded=false
-# Fail closed in a publishing pipeline: an official Windows release must embed
-# both provider keys (same rule as the Linux release builds).
+# A publishing pipeline must embed both keys.
 if [[ "$PUBLISHING" == true ]]; then
     [[ -n "${GIPHY_API_KEY:-}" ]] || die "official Windows build requires GIPHY_API_KEY"
     [[ -n "${KLIPY_API_KEY:-}" ]] || die "official Windows build requires KLIPY_API_KEY"
@@ -185,9 +159,8 @@ else
     printf 'GIF provider keys not supplied; building keyless\n'
 fi
 
-# Release artifacts report artifact_kind=release; the developer test path keeps
-# the unsigned-test marker. Windows packages are unsigned in both cases (the
-# signing hook is a no-op unless WINDOWS_SIGNING_PFX_B64 is configured).
+# artifact_kind=release only in a publishing pipeline. Packages are unsigned
+# either way unless WINDOWS_SIGNING_PFX_B64 is configured.
 if [[ "$PUBLISHING" == true ]]; then
     WIN_ARTIFACT_KIND=release
 else
@@ -210,18 +183,12 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DLIGHTNING_ARTIFACT_KIND="$WIN_ARTIFACT_KIND" \
     -DLIGHTNING_INSTALL_TYPE=windows-portable \
     -DLIGHTNING_UPDATE_PUBKEY_2026A="${UPDATE_SIGNING_PUBKEY_2026A:-}"
-# The generator has written the header; drop the key values from the build
-# environment so nothing downstream (compile, staging, packaging) sees them.
+# Drop the key values now that the generated header exists.
 unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY 2>/dev/null || true
-# The production lightning-matrix is a GUI-subsystem PE on Windows (WIN32_EXECUTABLE
-# set in the app CMake); --version / --help / --build-info still print to a
-# parent console. No subsystem flag is passed here.
-#
-# lightning-updater is built explicitly alongside it. It is a separate, tiny
-# console executable (Qt6::Core only) that performs the one install step that
-# cannot happen while Lightning is running. Every Windows package is assembled
-# from the staged tree below, so a helper that is not built here is a helper
-# that ships in none of the three packages -- and the update feature is inert.
+# lightning-matrix is a GUI-subsystem PE (WIN32_EXECUTABLE in the app CMake).
+# lightning-updater is a small console helper that performs the install step
+# that cannot run while Lightning is running; every package is assembled from
+# the staged tree, so it must be built here or no package carries it.
 cmake --build "$BUILD_DIR" --parallel "${BUILD_JOBS:-4}" \
     --target lightning-matrix lightning-updater
 
@@ -246,11 +213,9 @@ jq -n \
     >"$STAGE_DIR/build-info.json"
 cp /usr/local/share/lightning-windows-rpms.txt "$REPORT_DIR/builder-rpms.txt"
 
-# Product-metadata gate. Runs on the staged tree BEFORE anything is packaged or
-# signed, so a Lightning-owned binary that disagrees with the release version or
-# product name — or an upstream DLL that claims to be Lightning — fails the
-# build instead of reaching a signing request. Also emits the signing inventory
-# that says which PE files are ours and which are upstream.
+# Metadata gate on the staged tree, before packaging or signing: a mismatched
+# Lightning-owned binary, or an upstream DLL claiming to be Lightning, fails the
+# build. Also emits the signing inventory.
 python3 "$SCRIPT_DIR/verify-windows-metadata.py" \
     --stage "$STAGE_DIR" \
     --inventory "$ROOT/packaging-ci/packaging/windows/signing-inventory.json" \
@@ -258,11 +223,9 @@ python3 "$SCRIPT_DIR/verify-windows-metadata.py" \
     --publisher "$WIN_PUBLISHER" \
     --report "$REPORT_DIR/windows-signing-inventory.json"
 
-# The deterministic signing payload boundary (SignPath needs the artifact to
-# exist as a pipeline artifact, by itself, before a signing request). This
-# directory holds exactly the Lightning-owned PE files and their checksums — no
-# Qt runtime, no installers, no logs. A future signing job submits this path and
-# writes the signed binaries back over the staged copies before packaging.
+# The signing payload: exactly the Lightning-owned PE files and their
+# checksums. A signing job submits this directory and writes the signed
+# binaries back over the staged copies before packaging.
 SIGNING_DIR="$WINDOWS_DIST/signing-payload"
 mkdir -p "$SIGNING_DIR"
 for owned in Lightning.exe lightning-updater.exe; do
@@ -271,11 +234,8 @@ for owned in Lightning.exe lightning-updater.exe; do
 done
 cp "$STAGE_DIR/build-info.json" "$SIGNING_DIR/build-info.json"
 
-# Sign the staged executables BEFORE they are captured into the portable ZIP /
-# MSI / NSIS payloads, so a signed build signs the app itself, not just the
-# installers. The updater is signed for the same reason it is signed at all: it
-# is the process that replaces the application on disk, and an unsigned helper
-# beside a signed app is the weakest link, not a detail.
+# Sign the staged executables before they are packaged. The updater replaces
+# the application on disk, so it must be signed as well.
 sign_windows_file "$STAGE_DIR/Lightning.exe"
 sign_windows_file "$STAGE_DIR/lightning-updater.exe"
 
@@ -283,31 +243,15 @@ short_sha="${SOURCE_SHA:0:7}"
 artifact_base="Lightning-${BASE_VERSION}-${short_sha}-windows-x86_64"
 portable="$WINDOWS_DIST/${artifact_base}-portable.zip"
 
-# --- portable.marker: THE ORDERING BELOW IS THE ENTIRE MECHANISM -------------
+# --- portable.marker: the ordering below is the mechanism --------------------
 #
-# All three Windows packages (portable ZIP, MSI, NSIS setup) are produced from
-# this ONE staged tree. Lightning decides at startup whether it is a portable
-# installation by looking for a file named exactly "portable.marker" beside its
-# own executable, and it does that BEFORE the first QSettings is constructed --
-# there is no later opportunity to change its mind. Presence of the file is the
-# only signal; its contents are never parsed.
-#
-# So the file must exist in the stage for exactly the span of the `zip` call and
-# for nothing else:
-#
-#   * absent when wixl reads the stage  -> an MSI install writes to
-#     %LOCALAPPDATA% and HKCU exactly as it does today;
-#   * absent when makensis reads the stage (installer.nsi takes the whole tree
-#     with `File /r "${STAGE_DIR}/*"`) -> a setup.exe install likewise;
-#   * present in the ZIP -> an extracted folder keeps its settings, Matrix
-#     session, SDK store and crypto state inside itself and is copyable to
-#     another machine.
-#
-# A future edit that moves the `zip` invocation below the MSI/NSIS steps would
-# silently break portable mode for every user of the ZIP *and* make both
-# installed builds claim to be portable -- neither failure produces a build
-# error, which is why this is spelled out rather than left to the reading. The
-# validation script asserts both halves against the FINAL artifacts.
+# All three packages come from this one staged tree. Lightning treats itself as
+# portable when "portable.marker" sits beside its executable, checked before the
+# first QSettings is built. The file must therefore exist only for the `zip`
+# call: absent when wixl and makensis read the stage, present in the ZIP.
+# Moving the zip below the MSI/NSIS steps would break portable mode and make
+# both installers portable, with no build error. validate-windows-artifacts.sh
+# asserts both halves on the final artifacts.
 portable_marker="$STAGE_DIR/portable.marker"
 cat >"$portable_marker" <<'PORTABLE_MARKER'
 This file makes Lightning run in portable mode.
@@ -336,20 +280,15 @@ PORTABLE_MARKER
 ( cd "$WINDOWS_DIST" && find Lightning -type f -print0 | LC_ALL=C sort -z \
     | xargs -0 zip -X -q "$portable" )
 
-# Immediately, and before anything else reads the stage. `die` rather than a
-# bare rm so a filesystem that refused the delete cannot ship an installer that
-# detects as portable.
+# `die` rather than a bare rm, so a refused delete cannot ship an installer
+# that detects as portable.
 rm -f "$portable_marker"
 [[ ! -e "$portable_marker" ]] || \
     die "portable.marker survived into the installer stage; MSI/NSIS would detect as portable"
 
-# All three Windows packages come from this one staged tree, so the compiled-in
-# install type can only describe one of them. It says windows-portable, which is
-# correct for the ZIP just created above -- the ZIP has no installer to tell it
-# otherwise. The MSI carries an explicit marker file instead, and the NSIS
-# installer writes its own at install time (packaging/windows/installer.nsi).
-# The updater reads this marker to choose which compiled-in install strategy to
-# use; it can never introduce a new one.
+# The compiled-in install type is windows-portable, correct for the ZIP. The
+# MSI carries this marker instead, and the NSIS installer writes its own at
+# install time. The updater reads it to pick one of its compiled-in strategies.
 install_marker="$STAGE_DIR/.lightning-install-type"
 printf 'windows-msi\n' >"$install_marker"
 
@@ -362,9 +301,8 @@ msi="$WINDOWS_DIST/${artifact_base}.msi"
 wixl --arch x64 --output "$msi" "$wxs" 2>&1 | tee "$REPORT_DIR/wixl.log"
 sign_windows_file "$msi"
 
-# The setup EXE writes its own marker on install, so the MSI's copy must not be
-# baked into it -- otherwise an NSIS install would claim to be an MSI install
-# and the updater would hand a .msi to a directory the MSI does not own.
+# The setup EXE writes its own marker, so the MSI's copy must not be in it;
+# otherwise the updater would hand a .msi to an NSIS install.
 rm -f "$install_marker"
 
 setup="$WINDOWS_DIST/${artifact_base}-setup.exe"

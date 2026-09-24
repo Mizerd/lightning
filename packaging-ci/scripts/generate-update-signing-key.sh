@@ -2,16 +2,12 @@
 set -Eeuo pipefail
 
 # Operator tool. Generates one Ed25519 update-signing keypair and prints
-# everything that is NOT secret: the raw public key Lightning embeds, the key
+# everything that is not secret: the raw public key Lightning embeds, the key
 # id, and the instructions for loading the private half into CI.
 #
-# The private key is written to a file with mode 0600 and is NEVER printed. That
-# is not squeamishness: this script's output is the sort of thing that ends up
-# pasted into a chat window or scrolled back through in a terminal that is being
-# shared, and a printed signing key is a compromised signing key. The operator
-# loads it into GitLab by hand, from the file, and then removes the file.
-#
-# Run this OUTSIDE CI, on a trusted machine. Do not run it in a pipeline.
+# The private key is written to a 0600 file and never printed, since output
+# like this ends up pasted or screen-shared. Run on a trusted machine, never in
+# CI.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
@@ -34,8 +30,7 @@ update_valid_key_id "$key_id" || \
 key_file="${out_dir%/}/${key_id}.private.pem"
 [[ -e "$key_file" ]] && die "refusing to overwrite an existing key file: $key_file"
 
-# Create the file empty and locked down BEFORE openssl writes into it, so the
-# key never exists on disk under a permissive mode, not even momentarily.
+# Lock the file down before openssl writes the key into it.
 umask 077
 : >"$key_file"
 chmod 600 "$key_file"
@@ -56,10 +51,8 @@ openssl pkeyutl -sign -inkey "$key_file" -rawin -in "$probe" -out "$probe_sig" |
 openssl pkeyutl -verify -pubin -inkey "$probe_pub" -rawin -in "$probe" -sigfile "$probe_sig" >/dev/null 2>&1 || \
     die "self-test verification failed; do not use this key"
 
-# The two key-id-specific variable names, so the instructions below name the
-# REAL ones rather than a 2026a example the operator has to translate. An id
-# this project does not map yet (i.e. a rotation) gets an explicit placeholder
-# and the note that both projects need a new variable.
+# Name the real key-id-specific variables in the instructions; an unmapped id
+# (a rotation) gets a placeholder.
 pub_var="$(update_pubkey_var_for_key_id "$key_id" 2>/dev/null || true)"
 if [[ -n "$pub_var" ]]; then
     cmake_var="LIGHTNING_UPDATE_PUBKEY_${pub_var#UPDATE_SIGNING_PUBKEY_}"

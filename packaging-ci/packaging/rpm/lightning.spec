@@ -1,6 +1,5 @@
-# The binary is packaged from a pre-staged install root; do not split out a
-# separate -debuginfo/-debugsource subpackage (there are no build sources here
-# and the "exactly one RPM" packaging check expects a single artifact).
+# Packaged from a pre-staged install root: no debuginfo subpackage, and
+# build-rpm.sh expects exactly one RPM.
 %global debug_package %{nil}
 
 Name:           lightning
@@ -12,56 +11,29 @@ URL:            https://gitlab.smetonis.net/Mizerd/lightning
 
 Requires:       desktop-file-utils
 
-# Voice/video calling. GStreamer PLUGINS are dlopen'd from a plugin path at
-# runtime, so RPM's automatic dependency generator cannot see them — it reads
-# ELF NEEDED entries, and the binary links only gstreamer core/webrtc/sdp.
-# Without these the package installs cleanly and then refuses every call,
-# because the engine's runtime element probe fails.
-#
+# GStreamer plugins are dlopen'd, so rpm's dependency generator cannot see
+# them; without them every call is refused by the engine's element probe.
 #   plugins-base     : opus, audioconvert/resample, videoconvert/scale/rate
-#   plugins-good     : rtpopus/rtpvp8 pay+depay, autoaudiosrc/sink, vp8
-#   plugins-bad-free : webrtcbin, dtlssrtpenc/dec, srtp (the WebRTC core)
-#   libnice          : the ICE transport webrtcbin requires
-#   pipewire         : pipewiresrc, the Wayland/portal screen-capture source,
-#                      and pipewiresink
-#
-# The three sinks autoaudiosink can resolve to are all covered already, which
-# is NOT true on Debian and is worth recording so nobody "fixes" it here:
-# libgstalsa.so is in gstreamer1-plugins-base and libgstpulseaudio.so in
-# gstreamer1-plugins-good on Fedora, whereas Debian ships ALSA in a separate
-# gstreamer1.0-alsa package (see CALL_DEPENDS in scripts/build-deb.sh). Without
-# a sink a call installs, reports every engine check green — the probe only asks
-# for the `autodetect` FACTORIES — and produces no sound.
-# plugins-good also carries libgstximagesrc, the X11 screen-share fallback.
+#   plugins-good     : rtpopus/rtpvp8 pay+depay, autoaudiosrc/sink, vp8,
+#                      ximagesrc (X11 screen share)
+#   plugins-bad-free : webrtcbin, dtlssrtpenc/dec, srtp
+#   libnice          : ICE transport
+#   pipewire         : pipewiresrc (portal screen capture) and pipewiresink
+# Unlike Debian, Fedora ships the ALSA and Pulse sinks in plugins-base/good,
+# so no separate audio sink package is needed.
 Requires:       gstreamer1-plugins-base
 Requires:       gstreamer1-plugins-good
 Requires:       gstreamer1-plugins-bad-free
 Requires:       libnice-gstreamer1
 Requires:       pipewire-gstreamer
-# Spell checking is enchant-2 resolved at RUNTIME (dlopen), never linked, so
-# rpm cannot see it. Recommends, not Requires: without it the composer reports
-# "spell checking unavailable" and everything else works. Dictionaries are the
-# user's (hunspell-*).
+# enchant-2 is dlopen'd for spell checking; optional.
 Recommends:     enchant2
 
-# Qt IMAGE-FORMAT plugins, invisible to rpm's automatic dependency generator
-# for exactly the same reason as the GStreamer plugins above: they are
-# dlopen'd, never linked. Fedora's qt6-qtbase-gui carries libqgif, libqico and
-# libqjpeg and nothing else, so without these the RPM decodes GIF/ICO/JPEG plus
-# qtbase's built-in PNG/BMP/PPM/XBM/XPM — and no more.
-#
-# qt6-qtimageformats is a hard Requires because it provides libqwebp.so, and
-# Lightning's own byte sniffers ACCEPT image/webp (rooms::sniff_image_mime and
-# its C++ twins). Without it the client accepts, forwards and re-uploads a
-# format it cannot draw.
-#
-# kf6-kimageformats is a Recommends — dnf installs weak dependencies by
-# default — and it provides kimg_jxl.so, the ONLY Qt JPEG XL decoder that
-# exists anywhere: upstream qtimageformats has never contained one. Weak
-# rather than hard because it pulls libheif, x265, LibRaw and OpenEXR for the
-# one format Lightning wants from it, and because the client can be asked
-# which formats the running build decodes (`lightning-matrix
-# --image-format-status`), so its absence is visible rather than silent.
+# Qt image-format plugins are dlopen'd too; qt6-qtbase-gui carries only
+# gif/ico/jpeg. WebP (qt6-qtimageformats) is required because the client's
+# MIME sniffers accept it. JPEG XL comes only from kf6-kimageformats, which
+# pulls a large chain, so it is a Recommends; missing formats are reported by
+# --image-format-status.
 Requires:       qt6-qtimageformats
 Recommends:     kf6-kimageformats
 
@@ -83,12 +55,8 @@ appstreamcli validate --no-net %{buildroot}%{_datadir}/metainfo/lightning.metain
 
 %files
 %{_bindir}/lightning-matrix
-# The update helper, installed alongside the application by cmake --install.
-# %install copies the WHOLE staged tree and rpm's default
-# _unpackaged_files_terminate_build is 1, so omitting this line does not ship a
-# smaller package — it aborts build-rpm with "Installed (but unpackaged)
-# file(s) found: /usr/bin/lightning-updater", exactly as the missing scalable
-# icon broke pipeline 97.
+# %install copies the whole staged tree, so every installed file must be
+# listed here or rpmbuild aborts on unpackaged files.
 %{_bindir}/lightning-updater
 %{_datadir}/applications/lightning.desktop
 %{_datadir}/icons/hicolor/*/apps/lightning.png

@@ -39,10 +39,7 @@ import sys
 import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
-# packaging-ci/, NOT the application repository root. Both trees carry a
-# scripts/ and a tests/ directory since the packaging project was folded in, so
-# a path that walks up one level too far finds a real directory with none of
-# these files in it.
+# packaging-ci/, not the repository root; both have scripts/ and tests/.
 PACKAGING_ROOT = HERE.parent
 APP_ROOT = PACKAGING_ROOT.parent
 LIB = PACKAGING_ROOT / "scripts" / "lib.sh"
@@ -142,8 +139,7 @@ with tempfile.TemporaryDirectory() as tmp:
                 "no launcher entry",
                 "a payload with no launcher entry is refused")
 
-    # THE EXACT SHAPE packaging/common/lightning.desktop shipped in for four
-    # releases: a valid, validating desktop entry that names no icon.
+    # A valid desktop entry that names no icon, as shipped for four releases.
     tree = make_tree(base / "no-icon-key",
                      entry=GOOD_ENTRY.replace("Icon=lightning\n", ""))
     expect_fail(f'assert_desktop_launcher_payload Probe "{tree}"',
@@ -218,7 +214,7 @@ with tempfile.TemporaryDirectory() as tmp:
     expect_pass(f'assert_desktop_status Probe "{log}" 0 appimage',
                 "a published entry and a resolvable icon pass")
 
-    # THE REPORTED DEFECT, as the transcript would read.
+    # The reported defect, as the transcript would read.
     log = status_case(base, "invisible.txt", GOOD_STATUS
                       .replace("launcher entry: written",
                                "launcher entry: skipped: not an AppImage run")

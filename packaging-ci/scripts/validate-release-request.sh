@@ -22,11 +22,9 @@ case "$PUBLISH_PACKAGES" in
     *) die "PUBLISH_PACKAGES must be true or false" ;;
 esac
 
-# The ref's SHAPE is checked on EVERY pipeline, publishing or not. Git accepts
-# shell metacharacters in a ref name (`v1$(id)` and `a;b` both pass
-# check-ref-format), and the value is written into dist/version.env, which
-# every later script `source`s. resolve-version.sh also %q-quotes it; this is
-# the belt to that brace.
+# Checked on every pipeline: git accepts shell metacharacters in ref names, and
+# the value ends up in dist/version.env, which later scripts `source`.
+# resolve-version.sh also %q-quotes it.
 if [[ -n "${SOURCE_REF:-}" ]]; then
     [[ "$SOURCE_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$ ]] || \
         die "SOURCE_REF must be 1-255 characters of [A-Za-z0-9._/-] and start alphanumeric"
@@ -68,23 +66,16 @@ if [[ -n "${CI:-}" ]]; then
         die "publication is allowed only from the packaging project's default branch"
 fi
 
-# Official packages embed application GIF provider keys so installed clients work
-# without user configuration. Presence-only check (never the value, length, or
-# any fragment) so a release without keys fails here, before the expensive build.
+# Official packages embed the GIF provider keys. Presence-only check (never the
+# value or its length), so a release without keys fails before the build.
 [[ -n "${GIPHY_API_KEY:-}" ]] || die "official release requires the GIPHY_API_KEY CI variable"
 [[ -n "${KLIPY_API_KEY:-}" ]] || die "official release requires the KLIPY_API_KEY CI variable"
 printf 'GIPHY_API_KEY is configured\n'
 printf 'KLIPY_API_KEY is configured\n'
 
-# Update-signing consistency. Deliberately here, in the first job: the public
-# key is compiled into every package by the BUILD jobs, so a mismatch found
-# after the build is baked into artifacts that cannot be corrected. In CI
-# resolve-source declares the `signing` environment precisely so the private
-# key IS present here and the full check runs before anything is built (see
-# .gitlab-ci.yml). The public-only branch exists for a run without the key
-# -- a build-only pipeline on a misconfigured project, a local invocation --
-# and never applies to a publishing pipeline in CI, where require_var in the
-# full check refuses. Prints no key material.
+# Update-signing consistency, before the builds compile the public key in.
+# resolve-source uses the `signing` environment so the full check runs in CI;
+# --public-only covers runs without the private key (e.g. local invocations).
 if [[ -n "${UPDATE_SIGNING_KEY_B64:-}" ]]; then
     "$SCRIPT_DIR/check-update-signing-keys.sh"
 else

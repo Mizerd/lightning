@@ -10,9 +10,8 @@ include(CTest)
 # Human-facing release label. Keep in sync with project() and rust/Cargo.toml.
 set(APP_VERSION_LABEL "0.9.9")
 
-# Build metadata surfaced by `lightning-matrix --build-info` (booleans/strings
-# only; never secrets). The source SHA is resolved from git at configure time
-# and can be overridden by packaging (project 7 checks out a pinned commit).
+# Build metadata surfaced by `lightning-matrix --build-info` (never secrets).
+# The source SHA comes from git at configure time; packaging may override it.
 set(LIGHTNING_SOURCE_SHA "" CACHE STRING "Source commit SHA for --build-info")
 if(NOT LIGHTNING_SOURCE_SHA)
     execute_process(
@@ -38,13 +37,9 @@ endif()
 # "unsigned-test", "release", or "source" (default). Packaging sets this.
 set(LIGHTNING_ARTIFACT_KIND "source" CACHE STRING "Artifact kind for --build-info")
 
-# Optional compiler cache for local development. Packaging passes its own
-# -DCMAKE_<LANG>_COMPILER_LAUNCHER when it wants one (lightning-deploy's
-# configure-build.sh does), and an explicit setting always wins over this
-# block. It is deliberately confined to source builds -- an official package
-# sets LIGHTNING_ARTIFACT_KIND to something other than "source", so no release
-# artifact can silently pick up a developer's cache. Absent ccache is not an
-# error: the build simply proceeds uncached.
+# Auto-enable ccache for source builds only; an explicit compiler launcher
+# wins, and packaged builds (LIGHTNING_ARTIFACT_KIND != "source") never pick
+# up a developer's cache.
 option(LIGHTNING_DISABLE_CCACHE "Never auto-enable ccache, even for source builds" OFF)
 if(NOT LIGHTNING_DISABLE_CCACHE
         AND NOT CMAKE_CXX_COMPILER_LAUNCHER
@@ -57,23 +52,14 @@ if(NOT LIGHTNING_DISABLE_CCACHE
     endif()
 endif()
 
-# Update-manifest signature verification. Ed25519 through OpenSSL 3's EVP API;
-# Lightning implements no signature algorithm of its own. REQUIRED on purpose:
-# an updater that silently loses its ability to verify a signature would be far
-# worse than one that fails to configure. Only libcrypto is used, never libssl
-# (TLS stays Qt's job). Every packaging target already provides it --
-# mingw64-openssl in the Windows cross image, libssl-dev on Debian, and
-# openssl-devel on Fedora.
+# Update-manifest signatures are verified with Ed25519 via OpenSSL 3's EVP API.
+# REQUIRED: an updater must never silently lose signature verification. Only
+# libcrypto is used; TLS stays with Qt.
 find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)
 
-# zlib for the updater helper's ZIP reader (portable Windows archives are
-# deflate). Declared HERE, before the test targets below, because CMake is
-# sequential: when this ran after them, ZLIB::ZLIB did not yet exist and
-# updater-zip-safety-test was built WITHOUT LIGHTNING_UPDATER_HAVE_ZLIB. The
-# suite then exercised only stored entries and silently skipped the inflate
-# path that every real portable ZIP uses -- the shipped configuration was the
-# untested one. Optional: without zlib the helper still handles stored entries
-# and refuses deflated ones with a typed error.
+# zlib for the updater's ZIP reader (portable archives are deflated). Must be
+# found before the test targets so updater-zip-safety-test covers inflate.
+# Optional: without it, deflated entries are refused with a typed error.
 find_package(ZLIB)
 
 # The install/package type this build will report to the updater. Packaging
@@ -92,40 +78,25 @@ set(LIGHTNING_UPDATE_HOST "gitlab.smetonis.net" CACHE STRING
 set(LIGHTNING_UPDATE_PROJECT_ID "6" CACHE STRING
     "GitLab project id hosting the update package registry")
 
-# Hosts that may serve artifact BYTES in addition to the canonical host, so the
-# GitHub mirror can carry the download traffic -- AND, since 2026-09-03, the
-# hosts the fixed FALLBACK manifest slot may be served from (the same list
-# gates both roles: isAllowedFallbackManifestUrl is isAllowedUrlOn(mirror
-# hosts)). So adding a host here for bandwidth also lets it serve the
-# fallback metadata pair. That is safe only because the pair is verified by
-# the compiled-in Ed25519 key before a field is read, exactly like the
-# canonical copy; they can still never serve the release notes, and nothing
-# they return influences which version is installed beyond what the
-# signature allows -- see docs/updates.md and src/update/UpdateEndpoints.h.
-# github.com issues the redirect; the *.githubusercontent.com hosts serve the
-# object it redirects to.
+# Hosts besides the canonical one that may serve artifact bytes, and the
+# fallback manifest pair (isAllowedFallbackManifestUrl uses the same list).
+# Safe because the pair is verified against the compiled-in Ed25519 key before
+# use; see docs/updates.md and src/update/UpdateEndpoints.h. github.com
+# redirects to the *.githubusercontent.com hosts.
 set(LIGHTNING_UPDATE_MIRROR_HOSTS
     "github.com;objects.githubusercontent.com;release-assets.githubusercontent.com"
     CACHE STRING
     "Semicolon-separated hosts allowed to serve update ARTIFACTS (never metadata)")
 
-# The cache value is a CMake list, and a list expands to SEPARATE arguments
-# inside target_compile_definitions -- "a;b;c" becomes -DX="a -Db -Dc", which
-# gcc rejects outright ("macro names must be identifiers"). Hand the macro a
-# comma-separated string instead; the parser in UpdateEndpoints.cpp accepts
-# either separator. ($<SEMICOLON> does NOT help here: the split happens before
-# the generator expression is evaluated. Verified both ways with a probe.)
+# A list would expand to separate -D arguments in target_compile_definitions
+# ($<SEMICOLON> does not help), so pass a comma-separated string;
+# UpdateEndpoints.cpp accepts either separator.
 string(REPLACE ";" "," LIGHTNING_UPDATE_MIRROR_HOSTS_MACRO
     "${LIGHTNING_UPDATE_MIRROR_HOSTS}")
 
-# v0.7.3: where a MIRRORED copy of the signed manifest pair lives, used only
-# when the canonical host cannot be reached. Empty disables the fallback and
-# restores canonical-only metadata exactly. GitLab remains the authority: the
-# canonical host is always tried first, the Ed25519 signature is verified
-# identically whichever copy answered, and the client still refuses anything
-# that is not strictly newer than what is installed -- so the worst a stale
-# or hostile mirror can achieve here is to offer NO update, never a
-# downgrade and never an unsigned one.
+# Mirrored copy of the signed manifest pair, used only when the canonical host
+# is unreachable; empty disables it. The signature and the strictly-newer rule
+# apply identically, so a stale or hostile mirror can at worst offer no update.
 set(LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE
     "https://github.com/Mizerd/lightning/releases/download/update-latest"
     CACHE STRING
@@ -145,14 +116,9 @@ set(CMAKE_AUTORCC ON)
 option(ENABLE_RUST_SDK_BACKEND
     "Build the Matrix Rust SDK backend (requires cargo in PATH)" OFF)
 
-# Release/packaging guard: exclude the HTTP and mock backends from the shipped
-# lightning-matrix binary entirely, so a production package can only ever run the
-# Rust SDK backend (no --backend=http / --mock, no silent fallback). OFF for
-# ordinary dev/test builds, which keep mock/http buildable and testable per the
-# architecture contract; project 7 packaging sets it ON. When ON it REQUIRES
-# ENABLE_RUST_SDK_BACKEND=ON (enforced below) and only affects the main target —
-# the mock-based test executables compile their own MockMatrixClient and are
-# unaffected.
+# Release guard: drop the HTTP and mock backends from lightning-matrix so a
+# package can only run the Rust SDK backend. Packaging sets it; dev builds keep
+# mock/http. Affects only the main target; tests build their own mock client.
 option(LIGHTNING_RUST_ONLY
     "Ship ONLY the Rust backend: drop HTTP/mock from the lightning-matrix binary" OFF)
 if(LIGHTNING_RUST_ONLY AND NOT ENABLE_RUST_SDK_BACKEND)
@@ -162,17 +128,9 @@ if(LIGHTNING_RUST_ONLY AND NOT ENABLE_RUST_SDK_BACKEND)
 endif()
 
 # ---------------------------------------------------------------------------
-# Development-only screenshot/demo mode. Compiles the --screenshot-demo entry
-# point that boots the real UI on the in-memory mock backend with deterministic
-# fake accounts/rooms/timelines for promotional screenshots. It is DEVELOPMENT
-# ONLY and must be impossible to reach in a shipped binary:
-#   * default OFF;
-#   * a LIGHTNING_RUST_ONLY release FORCES it off (fatal error if combined) —
-#     the mock backend it needs is not even compiled into a release binary;
-#   * when OFF the lightning-matrix binary has no --screenshot-demo flag (preflight
-#     never parses it) and --build-info reports screenshot_demo_compiled:false.
-# The guarded code lives behind #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO in
-# main.cpp / AppController, so a default/release build compiles it to nothing.
+# Development-only --screenshot-demo mode: the real UI on the mock backend with
+# deterministic fake data. Off by default and incompatible with
+# LIGHTNING_RUST_ONLY, so a release binary never contains it.
 # ---------------------------------------------------------------------------
 option(LIGHTNING_ENABLE_SCREENSHOT_DEMO
     "Development only: compile the --screenshot-demo mode (never in a release)" OFF)
@@ -184,17 +142,11 @@ if(LIGHTNING_ENABLE_SCREENSHOT_DEMO AND LIGHTNING_RUST_ONLY)
 endif()
 
 # ---------------------------------------------------------------------------
-# Build-only GIF provider keys. Official release packages embed application
-# GIPHY/KLIPY keys so installed clients work without user configuration. The
-# key VALUES are read from the environment by a dedicated -P script and written
-# to a generated header in the build tree only. They never reach a compiler
-# command line, CMakeCache.txt, install rules, package contents, or logs. An
-# ordinary source build leaves the header keyless, preserving the missing-key
-# state. LIGHTNING_REQUIRE_GIF_KEYS makes the generator fail if either key is
-# absent (official release mode); project 7 sets it for publish builds.
-#
-# The generator reads:  LIGHTNING_BUILD_GIPHY_API_KEY / LIGHTNING_BUILD_KLIPY_API_KEY
-# (build-only names, distinct from the LIGHTNING_*_API_KEY runtime overrides).
+# Build-only GIF provider keys. A -P script reads
+# LIGHTNING_BUILD_GIPHY_API_KEY / LIGHTNING_BUILD_KLIPY_API_KEY from the
+# environment and writes them to a build-tree header only; they never reach a
+# compiler command line, CMakeCache.txt, install rules or logs. Source builds
+# stay keyless. LIGHTNING_REQUIRE_GIF_KEYS fails the build if either is absent.
 # ---------------------------------------------------------------------------
 option(LIGHTNING_REQUIRE_GIF_KEYS
     "Require embedded GIF provider keys (official release packaging)" OFF)
@@ -227,29 +179,15 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     Network
     Sql
     Widgets
-    # v0.7: native inline video/audio playback (QMediaPlayer/VideoOutput;
-    # FFmpeg backend by default on the pinned nixpkgs qtmultimedia).
+    # Inline video/audio playback.
     Multimedia
 )
-# QPlatformScreen, for the X11 screen-share fallback's native screen
-# rectangle. OPTIONAL and requested separately: a private module is only
-# defined when it is asked for by name, and a Qt packaged without private
-# headers simply will not have it. The one call site is guarded on
-# LIGHTNING_HAVE_QPA_SCREEN below, so a Qt without it still builds and the
-# fallback refuses honestly rather than capturing a guessed rectangle.
+# QPlatformScreen, for the X11 screen-share fallback's native screen rectangle.
+# Optional: the call site is guarded on LIGHTNING_HAVE_QPA_SCREEN and the
+# fallback refuses without it.
 find_package(Qt6 6.5 QUIET COMPONENTS GuiPrivate)
-# LOUD WHEN IT MATTERS. A Qt without private headers is a legitimate source
-# build, and the fallback refuses honestly there. It is NOT legitimate in a
-# package that means to ship the feature: the X11 picker would list nothing
-# and every no-portal user would be told to install a portal, with no line
-# anywhere saying why. That is precisely the silence that shipped 0.8.0's
-# Linux packages with no media engine, so packaging opts into the same
-# treatment it gets for GStreamer.
-#
+# Packaging (LIGHTNING_REQUIRE_WEBRTC) must not silently ship without it.
 # Debian/Ubuntu: qt6-base-private-dev. Fedora: qt6-qtbase-private-devel.
-# Both carry `qpa/qplatformscreen.h` AND the Qt6GuiPrivate CMake package;
-# the plain -dev packages carry neither (verified in debian:13.6-slim and
-# fedora:44).
 if(LIGHTNING_REQUIRE_WEBRTC AND UNIX AND NOT APPLE
         AND NOT TARGET Qt6::GuiPrivate)
     message(FATAL_ERROR
@@ -260,8 +198,7 @@ if(LIGHTNING_REQUIRE_WEBRTC AND UNIX AND NOT APPLE
         "development headers (Debian/Ubuntu: qt6-base-private-dev; Fedora: "
         "qt6-qtbase-private-devel).")
 endif()
-# v0.6.0 checkpoint 11: freedesktop notifications (Linux-first). Optional so
-# non-DBus platforms still build; NotificationManager degrades to a no-op.
+# Freedesktop notifications. Optional so non-DBus platforms still build.
 find_package(Qt6 6.5 COMPONENTS DBus)
 
 qt_standard_project_setup(REQUIRES 6.5)
@@ -270,19 +207,14 @@ qt_standard_project_setup(REQUIRES 6.5)
 # Localization (Qt Linguist).
 #
 # The catalogs are hand-maintained .ts files under i18n/. English is the
-# SOURCE language, but it still has a catalog for Qt plural forms.
+# source language, but it still has a catalog for Qt plural forms.
 #
-# LinguistTools is OPTIONAL on purpose. lrelease lives in a separate distro
-# package from the Qt development headers (Debian: qt6-tools-dev-tools, not
-# qt6-base-dev), and a hard requirement here would break every packaging job
-# that has not added it. Without it the build succeeds and the application is
-# English-only, LocalizationManager::translationsAvailable() reports false,
-# and the Settings page says so instead of offering unavailable languages.
+# LinguistTools is optional (lrelease is a separate distro package); without
+# it the app is English-only and LocalizationManager::translationsAvailable()
+# reports false.
 # ---------------------------------------------------------------------------
-# `en` is in the list even though English is the SOURCE language: Qt renders
-# a `%n room(s)` source string's "(s)" literally when no catalog is loaded, so
-# English needs a catalog carrying its plural forms and (after
-# -removeidentical) essentially nothing else.
+# `en` needs a catalog for its plural forms: without one Qt renders the "(s)"
+# of `%n room(s)` literally.
 set(LIGHTNING_LANGUAGE_CODES en zh_CN hi es ar fr bn pt ru id lt)
 set(LIGHTNING_TS_FILES "")
 foreach(_lang IN LISTS LIGHTNING_LANGUAGE_CODES)
@@ -298,10 +230,7 @@ if(Qt6LinguistTools_FOUND)
     foreach(_ts IN LISTS LIGHTNING_TS_FILES)
         get_filename_component(_base "${_ts}" NAME_WE)
         set(_qm "${LIGHTNING_QM_DIR}/${_base}.qm")
-        # -removeidentical drops entries whose translation equals the source
-        # (which would cost bytes and buy nothing); -nounfinished keeps
-        # UNFINISHED entries out of the binary catalog, so a half-translated
-        # string falls back to English instead of shipping a draft.
+        # -nounfinished: an unfinished translation falls back to English.
         add_custom_command(
             OUTPUT "${_qm}"
             COMMAND Qt6::lrelease -removeidentical -nounfinished -silent "${_ts}" -qm "${_qm}"
@@ -314,9 +243,8 @@ if(Qt6LinguistTools_FOUND)
     set_source_files_properties(${LIGHTNING_QM_FILES} PROPERTIES GENERATED TRUE)
     set(LIGHTNING_TRANSLATIONS_ENABLED ON)
 
-    # Manual only — never wired into ALL. lupdate REWRITES the tracked .ts
-    # files, so running it as a side effect of an ordinary build would edit
-    # the working tree under the developer. See docs/localization.md.
+    # Manual only: lupdate rewrites the tracked .ts files. See
+    # docs/localization.md.
     add_custom_target(update-translations
         COMMAND Qt6::lupdate
             -locations relative -no-obsolete
@@ -353,35 +281,19 @@ else()
     message(STATUS "pkg-config not found — cannot probe libsecret; using insecure fallback")
 endif()
 
-# Optional GStreamer webrtcbin voice-call media engine (v0.7.x round 3).
-# AUTO: built when the GStreamer WebRTC dev files are present. Packaged
-# builds without them keep CallController's honest no-media refusal — the
-# engine additionally re-probes its element factories at RUNTIME before it
-# is ever registered.
+# Optional GStreamer webrtcbin call media engine, built when the GStreamer
+# WebRTC dev files are present; without it CallController refuses calls. The
+# engine also re-probes its element factories at runtime.
 option(LIGHTNING_ENABLE_WEBRTC
     "Build the GStreamer webrtcbin voice-call media engine when available" ON)
-# REQUIRE it, for a build that must not silently ship without calling.
-#
-# The option above is AUTO by design: a source build on a machine with no
-# GStreamer should still produce a working client, and the runtime refusal is
-# honest. But "available" is decided by a pkg-config probe that says STATUS
-# and carries on, and a packaging job cannot hear the difference between "we
-# looked and it is not there" and "we forgot to install it". Lightning 0.8.0
-# shipped every Linux package with the media engine compiled out for exactly
-# that reason, and the artifacts said `call media engine built in: no` while
-# every job reported success.
-#
-# So a build that INTENDS to ship calling passes -DLIGHTNING_REQUIRE_WEBRTC=ON
-# and the probe becomes fatal. Packaging turns it on; a developer's source
-# build leaves it off and keeps the graceful degradation.
+# Packaging sets this so a missing GStreamer fails configuration instead of
+# silently shipping a build without calls.
 option(LIGHTNING_REQUIRE_WEBRTC
     "Fail configuration if the GStreamer WebRTC dev files are missing" OFF)
 set(HAVE_LIGHTNING_WEBRTC OFF)
 if(LIGHTNING_ENABLE_WEBRTC AND PkgConfig_FOUND)
-    # gstreamer-app-1.0 is for the received-video appsink: decoded frames are
-    # pulled out and pushed into a QML VideoOutput's QVideoSink, because the
-    # pinned toolchain ships no qml6glsink and a package cannot depend on a
-    # plugin that may be absent.
+    # gstreamer-app-1.0: received video goes through an appsink into a QML
+    # VideoOutput's QVideoSink, since qml6glsink may be absent.
     pkg_check_modules(GSTWEBRTC IMPORTED_TARGET
         gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0
         gstreamer-app-1.0
@@ -408,8 +320,7 @@ if(LIGHTNING_ENABLE_WEBRTC AND PkgConfig_FOUND)
         message(STATUS "GStreamer WebRTC not found — voice calls stay signaling-only (honest refusal)")
     endif()
 elseif(LIGHTNING_REQUIRE_WEBRTC)
-    # Both switches set, contradicting each other. Refusing beats guessing
-    # which one the caller meant.
+    # Contradictory switches.
     message(FATAL_ERROR
         "LIGHTNING_REQUIRE_WEBRTC=ON contradicts LIGHTNING_ENABLE_WEBRTC=OFF "
         "(or PkgConfig is unavailable). Pick one.")
@@ -498,9 +409,8 @@ set(APP_SOURCES
     src/auth/AuthManager.cpp
     src/auth/AccountManager.h
     src/auth/AccountManager.cpp
-    # Loopback redirect endpoint for OAuth browser sign-in. Built into every
-    # configuration: it is plain Qt Network with no Rust dependency, and the
-    # Rust backend is the only thing that drives it.
+    # Loopback redirect endpoint for OAuth browser sign-in (plain Qt Network,
+    # driven by the Rust backend).
     src/auth/OAuthCallbackServer.h
     src/auth/OAuthCallbackServer.cpp
 
@@ -721,9 +631,9 @@ set(APP_SOURCES
     src/presence/PresenceManager.h
     src/presence/PresenceManager.cpp
 
-    # Application updates. Deliberately free of every Matrix dependency: the
-    # updater is a separate trust boundary and must not be able to reach an
-    # account, a token or a store. See docs/updates.md.
+    # Application updates. Free of Matrix dependencies: the updater is a
+    # separate trust boundary with no access to accounts, tokens or stores.
+    # See docs/updates.md.
     src/update/Version.h
     src/update/Version.cpp
     src/update/InstallType.h
@@ -740,8 +650,8 @@ set(APP_SOURCES
     src/update/UpdateDownloader.cpp
     src/update/UpdateManager.h
     src/update/UpdateManager.cpp
-    # Shared with the updater helper: the one integrity primitive both ends
-    # of the hand-over use to prove the staged file is still the verified one.
+    # Shared with the updater helper: proves the staged file is still the
+    # verified one.
     src/updater/ArtifactDigest.h
     src/updater/ArtifactDigest.cpp
 )
@@ -758,10 +668,8 @@ if(ENABLE_RUST_SDK_BACKEND)
     )
 endif()
 
-# Development-only: the screenshot-demo scenario/control-panel controller.
-# Compiled into the app graph ONLY when the demo option is on, so it (and the
-# `app.demo` object it backs) is absent from every normal/release build. The
-# demo compile flag is applied per-target where these sources are used.
+# Development-only screenshot-demo controller (`app.demo`); compiled only when
+# the demo option is on.
 if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
     list(APPEND APP_SOURCES
         src/app/ScreenshotDemoController.h
@@ -769,16 +677,12 @@ if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
     )
 endif()
 
-# Everything except main.cpp — reused by timeline-pane-qml-test so it can
-# construct a real AppController and load the real QML module instead of
-# re-declaring a parallel object graph. Keeps mock/http so mock-based tests
-# still build even in a LIGHTNING_RUST_ONLY configuration.
+# Everything except main.cpp, shared with the QML test targets. Keeps mock/http
+# so mock-based tests build even with LIGHTNING_RUST_ONLY.
 if(HAVE_LIGHTNING_WEBRTC)
     list(APPEND APP_SOURCES
-        # ONE GStreamer init for the process, with the bundled plugin path
-        # applied BEFORE it. Both backends below used to init independently
-        # and only one of them set the path, so whichever was probed first
-        # decided whether a packaged build had a plugin registry at all.
+        # The single GStreamer init, which applies the bundled plugin path
+        # first.
         src/calls/GstBootstrap.h
         src/calls/GstBootstrap.cpp
         src/calls/GstCallMediaBackend.h
@@ -789,26 +693,22 @@ if(HAVE_LIGHTNING_WEBRTC)
         src/calls/CaptureDeviceSelection.cpp
         src/calls/RtpVp8Payloader.h
         src/calls/RtpVp8Payloader.cpp
-        # Window capture, ours because nothing shippable does it: the only
-        # capture element in the Windows SDK set takes a monitor index, and
-        # the one with a window handle is the UCRT-built d3d11 plugin this
-        # project cannot link against. Compiles to nothing off Windows.
+        # Windows window capture: the shipped GStreamer has no usable element
+        # that takes a window handle. Compiles to nothing off Windows.
         src/calls/WindowCaptureSrc.h
         src/calls/WindowCaptureSrc.cpp
         # Serves those captures as preview tiles to the picker.
         src/calls/ShareSourceImageProvider.h
         src/calls/ShareSourceImageProvider.cpp
-        # Only reachable through the SFU engine, and the one file that needs
-        # OpenSSL directly — keeping it here rather than in the shared app
-        # sources avoids linking libcrypto into every test target.
+        # Needs OpenSSL directly; kept out of the shared app sources so test
+        # targets do not link libcrypto.
         src/calls/CallFrameCryptor.h
         src/calls/CallFrameCryptor.cpp
-        # Received video: the pipeline decoded frames and dropped them into a
-        # fakesink until this existed.
+        # Delivers decoded received video to the UI.
         src/calls/SfuVideoRouter.h
         src/calls/SfuVideoRouter.cpp
-        # Share audio that does not send the call back to the call: which
-        # application streams the share carries, ours excluded.
+        # Selects the application audio a screen share carries, excluding our
+        # own so the call is not echoed back.
         src/calls/ShareAudioSources.h
         src/calls/ShareAudioSources.cpp)
 endif()
@@ -825,10 +725,7 @@ set(APP_QML_FILES
     qml/AppTextField.qml
     qml/AppComboBox.qml
     qml/AppSwitch.qml
-    # 2026-08-21 control-system round: themed replacements for the Qt Basic
-    # controls that were reaching production unstyled — square-cornered
-    # dialogs with grey stock buttons, body-text-grey progress bars and
-    # spinners, and a scrollbar that never saw a Lightning colour.
+    # Themed replacements for the unstyled Qt Basic controls.
     qml/AppDialog.qml
     qml/ImageCropDialog.qml
     qml/AppProgressBar.qml
@@ -851,8 +748,7 @@ set(APP_QML_FILES
     qml/RoomDelegate.qml
     # The room row context menu, shared by both navigation layouts.
     qml/RoomActionsMenu.qml
-    # 2026-08-23 navigation layouts: the room-list column is now a host with
-    # two interchangeable presenters.
+    # The room-list column hosts two interchangeable navigation layouts.
     qml/RoomListClassicPresenter.qml
     qml/RoomChannelsPresenter.qml
     qml/ChannelDelegate.qml
@@ -862,19 +758,16 @@ set(APP_QML_FILES
     # Space-shaped surface, reached from the rail's menu.
     qml/SpaceSettingsDialog.qml
     qml/UnreadBadge.qml
-    # "There is a call in this room", shared by BOTH room-row layouts. One
-    # component because the rule — and what it may cost — is the same in both,
-    # and it must never ask RtcController to refresh (that falls back to a
-    # full /state per idle room).
+    # Room-row call indicator, shared by both layouts. It must never ask
+    # RtcController to refresh (that falls back to a full /state per idle room).
     qml/RoomCallGlyph.qml
-    # Choose which display to share, on the platforms with no xdg portal.
-    # Never opens on Linux — the portal owns the picker there.
+    # Display picker for platforms without an xdg portal.
     qml/ScreenSharePicker.qml
     qml/NavigationLayoutCard.qml
     qml/MessageDelegate.qml
     # Element-style local image hiding: keeps the media box's exact geometry.
     qml/MediaHiddenPlaceholder.qml
-    # 2026-09-19: one-line summary for a collapsed media or link embed.
+    # One-line summary for a collapsed media or link embed.
     qml/CollapsedEmbedRow.qml
     qml/RoomActivityDelegate.qml
     qml/ShortcutRow.qml
@@ -972,9 +865,8 @@ set(APP_QML_FILES
     qml/AppTheme.qml
 )
 
-# Development-only: the screenshot-demo control panel QML is added to the module
-# ONLY when the demo option is on, so a normal/release module never contains it
-# (Main.qml's Loader references it by a runtime string, never a compiled type).
+# Development-only demo control panel, added only when the demo option is on.
+# Main.qml loads it by a runtime string, never a compiled type.
 if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
     list(APPEND APP_QML_FILES qml/DemoControlPanel.qml)
 endif()
@@ -992,10 +884,8 @@ endforeach()
 set_source_files_properties(qml/AppTheme.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
-# Development-only screenshot-demo media fixtures. Small, deterministic, license-
-# clear abstract images (see scripts/generate-demo-media.sh) bundled into the QML
-# module ONLY when the demo option is on, so they render through the real media
-# delegates. Excluded from every release artifact. Resolved at runtime as
+# Development-only demo media fixtures (scripts/generate-demo-media.sh),
+# bundled only when the demo option is on. Resolved at runtime as
 # :/qt/qml/MatrixClient/resources/screenshot-demo/<file>.
 set(DEMO_MEDIA_RESOURCES)
 if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
@@ -1018,10 +908,8 @@ if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
         resources/screenshot-demo/palette.png
         resources/screenshot-demo/timelapse.png
         resources/screenshot-demo/loop.gif
-        # v0.6.7: animated fixtures for the GIF picker's grid, derived from the
-        # stills above by scripts/generate-demo-gifs.sh (same license, same
-        # provenance). Demo mode has no network and no provider key, so the
-        # picker can only be photographed against bundled frames.
+        # Animated fixtures for the GIF picker (scripts/generate-demo-gifs.sh);
+        # demo mode has no network or provider key.
         resources/screenshot-demo/gif-coast.gif
         resources/screenshot-demo/gif-city.gif
         resources/screenshot-demo/gif-artwork.gif
@@ -1033,13 +921,10 @@ if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
     )
 endif()
 
-# Everything (app sources + compiled QML module) that a Qt executable needs
-# to run the real UI, factored into a function so timeline-pane-qml-test can
-# build a second binary wired up identically to lightning-matrix — a plain
-# static "backing" library here proved unable to get Qt's static QML plugin
-# auto-import to run reliably across target boundaries, so each Qt-executable
-# target instead calls qt_add_qml_module on itself directly (the arrangement
-# Qt documents and the one that's actually verified to work).
+# Everything a Qt executable needs to run the real UI (app sources and the QML
+# module). Each executable calls qt_add_qml_module on itself: a static backing
+# library did not get Qt's static QML plugin auto-import to work reliably
+# across target boundaries.
 function(_lightning_configure_qml_module target _scope)
     qt_add_qml_module(${target}
         URI MatrixClient
@@ -1050,28 +935,23 @@ function(_lightning_configure_qml_module target _scope)
             # Bundled UI fonts (OFL; licenses alongside). Loaded in main.cpp.
             "data/fonts/Manrope[wght].ttf"
             "data/fonts/JetBrainsMono[wght].ttf"
-            # v0.7 selectable UI families (Settings → Appearance → Font).
+            # Selectable UI families (Settings → Appearance → Font).
             "data/fonts/Inter[wght].ttf"
             "data/fonts/IBMPlexSans[wght].ttf"
             "data/fonts/SourceSans3[wght].ttf"
             "data/fonts/PlusJakartaSans[wght].ttf"
-            # v0.6.5 brand face for the trust surface (SPEC 1r); never a
-            # selectable body face.
+            # Brand face for the trust surface; never a selectable body face.
             "data/fonts/SpaceGrotesk[wght].ttf"
             # Icon glyphs for interface chrome (Apache-2.0 subset; see
             # scripts/generate-icon-font.sh and qml/Icon.qml).
             data/fonts/MaterialSymbolsRounded-subset.ttf
-            # Window icon for source runs (installed builds also get the
-            # hicolor theme icon). 256px so the title-bar/taskbar fallback
-            # stays crisp on high-DPI and on Windows, where there is no icon
-            # theme to supply a larger size.
+            # Window icon for source runs and Windows, which has no icon theme.
+            # 256px stays crisp on high-DPI.
             data/icons/hicolor/256x256/apps/lightning.png
-            # macOS menu-bar (status item) TEMPLATE icon — monochrome, alpha
-            # only, so AppKit recolours it for a light or a dark menu bar.
-            # Read only under Q_OS_MACOS (src/app/TrayIcon.cpp); listed on
-            # every platform so the resource set does not diverge between the
-            # many targets that register this QML module (~7 KB in total).
-            # Regenerate with scripts/generate-macos-menubar-icon.sh.
+            # macOS menu-bar template icon (alpha only, recoloured by AppKit).
+            # Used only on macOS but listed everywhere so every target's
+            # resource set is identical. Regenerate with
+            # scripts/generate-macos-menubar-icon.sh.
             data/icons/menubar/lightning-template-16.png
             data/icons/menubar/lightning-template-18.png
             data/icons/menubar/lightning-template-20.png
@@ -1084,19 +964,15 @@ function(_lightning_configure_qml_module target _scope)
             # build; see DEMO_MEDIA_RESOURCES above).
             ${DEMO_MEDIA_RESOURCES}
         RESOURCE_PREFIX /qt/qml
-        # Every Qt-executable target that calls qt_add_qml_module registers
-        # its own independent compiled copy of the same "MatrixClient" URI;
-        # each one needs a distinct scratch directory so two targets in the
-        # same build tree don't collide on it.
+        # Each target registers its own copy of the "MatrixClient" module and
+        # needs a distinct output directory.
         OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/qml-modules/${target}"
     )
 
     target_include_directories(${target} ${_scope} src)
 
-    # Compiled translation catalogs, embedded so a packaged application
-    # carries them without a data directory. LocalizationManager loads
-    # ":/i18n/lightning_<code>.qm". The resource NAME is per-target because
-    # every Qt-executable target registers its own copy of the QML module.
+    # Embedded translation catalogs, loaded by LocalizationManager from
+    # ":/i18n/lightning_<code>.qm". The resource name is per-target.
     if(LIGHTNING_TRANSLATIONS_ENABLED)
         qt_add_resources(${target} "lightning_i18n_${target}"
             PREFIX "/i18n"
@@ -1105,11 +981,8 @@ function(_lightning_configure_qml_module target _scope)
         add_dependencies(${target} lightning-translations)
         target_compile_definitions(${target} ${_scope} LIGHTNING_HAS_TRANSLATIONS=1)
     endif()
-    # qmltyperegistrar's generated qml_register_types_MatrixClient() probes
-    # for each QML_ELEMENT header with #if __has_include(<HeaderName.h>) — a
-    # bare filename, not the "models/HeaderName.h" path used by quoted
-    # includes elsewhere. Add each subdirectory holding a QML-registered type
-    # so that angle-bracket lookup resolves.
+    # qmltyperegistrar probes each QML_ELEMENT header as <HeaderName.h>, so
+    # every directory holding a registered type must be on the include path.
     target_include_directories(${target} ${_scope} src/models src/threads src/crypto src/gif src/update src/calls src/theme src/stickers)
     # Build-only GIF key header (may be keyless); include path only, no values.
     target_include_directories(${target} ${_scope} "${LIGHTNING_GENERATED_DIR}")
@@ -1126,28 +999,19 @@ function(_lightning_configure_qml_module target _scope)
         Qt6::Multimedia
         OpenSSL::Crypto
     )
-    # The X11 screen-share fallback needs one thing no public Qt API exposes:
-    # a screen's NATIVE, root-relative rectangle. `QScreen::geometry()` cannot
-    # be converted into one -- Qt leaves its top-left in native pixels and
-    # scales only the SIZE, and `devicePixelRatio()` is a rounded presentation
-    # value rather than the native/logical factor (measured on a real 2x4K
-    # desktop: dpr 2.00 where the true scale was 1.5). `QScreen::handle()`
-    # returns it exactly, and that needs QPlatformScreen's declaration.
-    #
-    # INTERFACE-ONLY: Qt6::GuiPrivate adds private include directories and
-    # links Qt6::Gui. It introduces no new shared library and therefore no
-    # packaging change. Linux only, which is the only platform whose capture
-    # element addresses a rectangle at all -- Windows and macOS take a display
-    # INDEX, so their translation units never see a private Qt header.
+    # The X11 share fallback needs a screen's native rectangle, which no public
+    # Qt API gives: QScreen::geometry() scales only the size and
+    # devicePixelRatio() is rounded. QPlatformScreen has it. Qt6::GuiPrivate
+    # adds include paths only (no new shared library). Linux only; Windows and
+    # macOS capture by display index.
     if(UNIX AND NOT APPLE AND TARGET Qt6::GuiPrivate)
         target_link_libraries(${target} ${_scope} Qt6::GuiPrivate)
         target_compile_definitions(${target} ${_scope}
             LIGHTNING_HAVE_QPA_SCREEN=1)
     endif()
 
-    # Update trust configuration. These are the ONLY values the updater takes
-    # from the build; everything else about an update is decided by compiled-in
-    # code, never by remote metadata.
+    # Update trust configuration: the only values the updater takes from the
+    # build.
     target_compile_definitions(${target} ${_scope}
         LIGHTNING_INSTALL_TYPE="${LIGHTNING_INSTALL_TYPE}"
         LIGHTNING_UPDATE_PUBKEY_2026A="${LIGHTNING_UPDATE_PUBKEY_2026A}"
@@ -1156,11 +1020,8 @@ function(_lightning_configure_qml_module target _scope)
         LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE="${LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE}"
         LIGHTNING_UPDATE_PROJECT_ID="${LIGHTNING_UPDATE_PROJECT_ID}"
     )
-    # DBus is a Linux/BSD desktop concept: freedesktop notifications and the
-    # session bus. Gate on platform as well as availability, so a Windows Qt
-    # that happens to ship the Qt6 DBus module does NOT compile the DBus path in
-    # and try to autolaunch a session bus at startup (the "dbus-1" lookup noise
-    # observed on native Windows). NotificationManager degrades to a no-op.
+    # Gate DBus on platform too: a Windows Qt that ships Qt6 DBus would
+    # otherwise try to autolaunch a session bus at startup.
     if(TARGET Qt6::DBus AND NOT WIN32 AND NOT APPLE)
         target_link_libraries(${target} ${_scope} Qt6::DBus)
         target_compile_definitions(${target} ${_scope} HAVE_QT_DBUS=1)
@@ -1189,16 +1050,9 @@ function(_lightning_configure_qml_module target _scope)
     # DeleteW/EnumerateW live in advapi32). WIN32 is true for both MSVC and the
     # MinGW cross-build; off Windows WinCredStore compiles as a no-op stub.
     if(WIN32)
-        # gdi32/user32 for the WINDOW CAPTURE source (WindowCaptureSrc.cpp):
-        # CreateDIBSection, BitBlt, StretchBlt, GdiFlush, PrintWindow.
-        #
-        # NOT implied. Measured in the cross-builder: the same translation
-        # unit links with SEVEN undefined references without -lgdi32 and zero
-        # with it, so relying on Qt to drag them in transitively would be a
-        # link failure waiting for the next Qt version to stop doing it.
-        # dwmapi is deliberately absent — WindowCaptureSrc resolves
-        # DwmGetWindowAttribute with GetProcAddress so the packaging closure
-        # gains no new import.
+        # gdi32/user32 for WindowCaptureSrc.cpp; linked explicitly rather than
+        # relying on Qt to pull them in. dwmapi is resolved at runtime with
+        # GetProcAddress to avoid a new import.
         target_link_libraries(${target} ${_scope} advapi32 gdi32 user32)
         target_compile_definitions(${target} ${_scope} HAVE_WINCRED=1)
     endif()
@@ -1207,19 +1061,13 @@ function(_lightning_configure_qml_module target _scope)
         add_dependencies(${target} matrix-client-rust-build)
         target_link_libraries(${target} ${_scope} matrix-client-rust)
         if(UNIX AND NOT APPLE)
-            # Rust static libs typically pull in libdl / libpthread / libm at
-            # some scale — link them defensively so growing the Rust surface
-            # later does not surprise us with link-time failures.
+            # Rust static libraries commonly need libdl/libpthread/libm.
             target_link_libraries(${target} ${_scope} dl pthread m)
         endif()
 
         target_compile_definitions(${target} ${_scope} ENABLE_RUST_SDK_BACKEND=1)
 
-        # v0.5.0-prep+9: initial E2EE gate. Both directions verified live
-        # against matrix.smetonis.net (Element Classic ↔ Lightning marker
-        # round-trip: expect_text=seen + encrypted_send=ok). Flip so
-        # CryptoManager::supportsE2ee() returns true for the Rust backend.
-        # HTTP and Mock still return false regardless.
+        # CryptoManager::supportsE2ee() is true for the Rust backend only.
         target_compile_definitions(${target} ${_scope} RUST_SDK_E2EE_WIRED=1)
     endif()
 
@@ -1232,7 +1080,7 @@ function(_lightning_configure_qml_module target _scope)
 endfunction()
 
 # The shipped executable keeps everything target-private; the shared test
-# library (below) needs the same configuration to PROPAGATE to the test
+# library (below) needs the same configuration to propagate to the test
 # executables that link it, so the visibility is a parameter.
 function(lightning_configure_qml_app target)
     _lightning_configure_qml_module(${target} PRIVATE)
@@ -1242,14 +1090,10 @@ endfunction()
 # recompiling all of APP_LIB_SOURCES per target. Linking the generated
 # ...plugin target is what runs the static QML module's type registration.
 function(lightning_configure_qml_test target)
-    # Qt runs qmlimportscanner once per QML-linking executable AT CONFIGURE
-    # TIME, serially: 51 invocations cost 119.6s of a 121s configure here
-    # (measured with cmake --profiling-format=google-trace). The scan exists to
-    # link static QML plugins; against a SHARED Qt build the plugins are
-    # resolved at runtime instead, which is why Qt itself skips the scan for
-    # its own test executables in shared builds. Our tests are never deployed,
-    # so skipping it changes nothing they rely on -- the MatrixClient module is
-    # linked explicitly through lightning-app-testlibplugin above.
+    # qmlimportscanner runs serially at configure time for every QML-linking
+    # executable and dominated configure time. It only matters for static Qt
+    # plugins; with a shared Qt, tests resolve plugins at runtime, and the
+    # MatrixClient module is linked explicitly via lightning-app-testlibplugin.
     set_target_properties(${target} PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
     target_link_libraries(${target} PRIVATE
         lightning-app-testlib
@@ -1269,11 +1113,9 @@ endfunction()
 # `cmake -B build` never requires the Rust toolchain.
 # ---------------------------------------------------------------------------
 if(ENABLE_RUST_SDK_BACKEND)
-    # NO find_package(SQLite3). The Rust staticlib is built with matrix-sdk's
-    # `bundled-sqlite`, so it CARRIES the SQLite amalgamation and defines every
-    # sqlite3_* symbol itself. Linking the system library beside it would put
-    # two SQLite implementations in one process, which is not a warning — it is
-    # whichever one the dynamic linker resolves first, silently, per symbol.
+    # No find_package(SQLite3): the Rust staticlib bundles SQLite (matrix-sdk
+    # `bundled-sqlite`), and linking the system library too would put two
+    # SQLite implementations in one process.
 
     find_program(CARGO_EXECUTABLE cargo)
     if(NOT CARGO_EXECUTABLE)
@@ -1295,11 +1137,8 @@ if(ENABLE_RUST_SDK_BACKEND)
     set(_rust_out_dir "${CMAKE_BINARY_DIR}/rust")
     set(_rust_staticlib "${_rust_out_dir}/${_cargo_profile}/libmatrix_client_rust.a")
 
-    # Enumerate the crate's sources instead of hand-listing them. The previous
-    # explicit list named 5 of the 11 files in rust/src, so editing oauth.rs,
-    # search.rs, uia.rs, discover.rs, ignore.rs or gifs.rs did NOT re-run cargo
-    # and the build silently linked a stale libmatrix_client_rust.a.
-    # CONFIGURE_DEPENDS re-runs the glob when a source is added or removed.
+    # Glob the crate's sources so editing any of them re-runs cargo;
+    # CONFIGURE_DEPENDS picks up added or removed files.
     file(GLOB_RECURSE _rust_sources CONFIGURE_DEPENDS "${_rust_dir}/src/*.rs")
 
     add_custom_command(
@@ -1330,12 +1169,9 @@ else()
     message(STATUS "Rust SDK backend disabled (use -DENABLE_RUST_SDK_BACKEND=ON to build it)")
 endif()
 
-# The shipped executable's own source list. In a LIGHTNING_RUST_ONLY release we
-# physically drop the HTTP and mock backend TUs from the binary (the shared
-# APP_SOURCES/APP_LIB_SOURCES keep them so mock-based tests still build).
-# AUTOMOC only processes headers that are target sources, so removing both the
-# .h and .cpp keeps the QObject mock/http clients and their moc out of the
-# binary; --build-info then reports http/mock_backend_compiled:false truthfully.
+# The shipped executable's sources. LIGHTNING_RUST_ONLY drops the HTTP and mock
+# backends (both .h and .cpp, so AUTOMOC skips them too); the shared lists keep
+# them for tests.
 set(APP_MAIN_SOURCES ${APP_SOURCES})
 if(LIGHTNING_RUST_ONLY)
     list(REMOVE_ITEM APP_MAIN_SOURCES
@@ -1346,16 +1182,14 @@ if(LIGHTNING_RUST_ONLY)
     )
 endif()
 
-# The application target and binary: `lightning-matrix`. The product is
-# "Lightning"; packaging gives the installed artifact its platform name
-# (Lightning.exe, Lightning.app). The persistent application identity
-# (QSettings organization/application names, store paths) is a separate,
-# stable literal in src/main.cpp and does not follow this name.
+# The binary is `lightning-matrix`; packaging renames it per platform
+# (Lightning.exe, Lightning.app). The persistent settings/store identity is a
+# separate literal in src/main.cpp and must not follow this name.
 qt_add_executable(lightning-matrix ${APP_MAIN_SOURCES})
 lightning_configure_qml_app(lightning-matrix)
 
 # Call sounds, rendered by scripts/generate-call-sounds.py (GPL-3.0-or-later).
-# Played by CallSoundPlayer from qrc:/sounds/<name>.wav. App target ONLY, not
+# Played by CallSoundPlayer from qrc:/sounds/<name>.wav. App target only, not
 # the QML module: every test target re-registers that, and the WAVs are ~2.4 MB.
 qt_add_resources(lightning-matrix "lightning_call_sounds"
     PREFIX "/sounds"
@@ -1375,29 +1209,17 @@ if(LIGHTNING_RUST_ONLY)
     target_compile_definitions(lightning-matrix PRIVATE LIGHTNING_RUST_ONLY=1)
 endif()
 # Development-only screenshot demo: drives the #ifdef guards in main.cpp /
-# AppController and the --build-info self-report. Only ever set on the shipped
-# target in a dedicated development build (never a release; the option guard
-# above rejects combining it with LIGHTNING_RUST_ONLY).
+# AppController and the --build-info self-report.
 if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
     target_compile_definitions(lightning-matrix PRIVATE LIGHTNING_ENABLE_SCREENSHOT_DEMO=1)
-    # v0.6.7: also define it TREE-WIDE in this configuration. Demo sources are
-    # gated by being added to the source list at all, but they are then
-    # compiled into every Qt-executable target here (the qml-app targets each
-    # rebuild the app sources), while this define reached only lightning-matrix.
-    # Any demo-only API guarded by the macro therefore existed in one target
-    # and not the others, and a caller in a shared source failed to compile —
-    # which is exactly what the GIF demo catalogue hit.
-    #
-    # This is still development-only: the option defaults OFF and is rejected
-    # outright for a Rust-only release build, so no release artifact sees it.
+    # Defined tree-wide: demo sources compile into every Qt-executable target,
+    # so demo-only APIs must exist in all of them.
     add_compile_definitions(LIGHTNING_ENABLE_SCREENSHOT_DEMO=1)
 endif()
 
-# On Windows the production binary is a GUI-subsystem PE so a normal
-# double-click never flashes or leaves a console window. --version / --help /
-# --build-info still print to a parent console when launched from one (main.cpp
-# attaches to it). Only the production executable gets this — test binaries stay
-# console-subsystem so CTest captures their output.
+# Windows: a GUI-subsystem binary, so launching never opens a console. main.cpp
+# attaches to a parent console for --version/--help. Test binaries stay console
+# so CTest captures their output.
 if(WIN32)
     set_target_properties(lightning-matrix PROPERTIES WIN32_EXECUTABLE ON)
 endif()
@@ -1406,38 +1228,19 @@ if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
 
     # ------------------------------------------------------------------
-    # One prebuilt copy of the application for the Qt-executable tests.
-    #
-    # Every one of these tests used to list ${APP_LIB_SOURCES} directly, so
-    # each test executable recompiled all ~150 application translation units
-    # and registered its own private copy of the MatrixClient QML module.
-    # Measured from build-rust/.ninja_log: that was 601 of the 621 CPU-minutes
-    # of compilation in a full build (32 targets x ~18.6 min each), against
-    # 19.6 CPU-minutes for lightning-matrix itself.
-    #
-    # Building it once as a static QML module library and linking it keeps
-    # every test's behaviour identical -- same sources, same defines, same
-    # module URI -- while compiling them once. This lives entirely inside
-    # BUILD_TESTING, and every packaging build configures with
-    # -DBUILD_TESTING=OFF, so no release artifact is affected.
+    # One prebuilt copy of the application for the Qt-executable tests, so
+    # the ~150 app sources compile once rather than once per test target.
+    # Packaging builds use -DBUILD_TESTING=OFF.
     qt_add_library(lightning-app-testlib STATIC ${APP_LIB_SOURCES})
     _lightning_configure_qml_module(lightning-app-testlib PUBLIC)
     target_link_libraries(lightning-app-testlib PUBLIC Qt6::Test)
 
-    # Consumed above. Blanking it here is what makes every `${APP_LIB_SOURCES}`
-    # in the test targets below expand to NOTHING, so each of those
-    # qt_add_executable() calls compiles only the test's own translation unit
-    # and picks the application up by linking lightning-app-testlib. If you are
-    # reading one of those targets and wondering where its ~150 sources went:
-    # this line is the answer.
+    # Blanked so every `${APP_LIB_SOURCES}` in the test targets below expands
+    # to nothing; they link lightning-app-testlib instead.
     set(APP_LIB_SOURCES "")
 
-    # SignPath Foundation OSS code-signing prerequisites that live in this
-    # repository: the Code signing policy document and its required attribution
-    # and roles, the privacy policy, both being linked from the project home
-    # page, one canonical release version across CMake/Cargo/user agent, the
-    # honest "unsigned" disclosure, and no committed SignPath secrets. Needs no
-    # compiler, so it runs in both build trees.
+    # SignPath Foundation code-signing prerequisites kept in this repository
+    # (policy documents, version consistency, no committed secrets).
     add_test(NAME signpath-compliance
         COMMAND "${CMAKE_COMMAND}"
             "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
@@ -1452,10 +1255,8 @@ if(BUILD_TESTING)
     target_link_libraries(app-data-paths-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME app-data-paths COMMAND app-data-paths-test)
 
-    # The Exec quoting for the AppImage launcher entry. Its own unit because
-    # src/main.cpp defines main() and cannot be linked into a test, so the
-    # only guard available there was a source scan -- and a review found
-    # several of those pass on broken code.
+    # Exec quoting for the AppImage launcher entry; its own unit because
+    # main.cpp cannot be linked into a test.
     qt_add_executable(desktop-entry-quoting-test
         tests/DesktopEntryQuotingTest.cpp
         src/app/DesktopEntryQuoting.cpp
@@ -1464,9 +1265,7 @@ if(BUILD_TESTING)
     target_link_libraries(desktop-entry-quoting-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME desktop-entry-quoting COMMAND desktop-entry-quoting-test)
 
-    # B021: what to say when the server refuses a room action. Pure string
-    # mapping plus a source contract that the handler consults it, so it
-    # links Core alone rather than the whole Rust-backed client.
+    # Messages for a refused room action. Pure string mapping; links Core only.
     qt_add_executable(room-action-error-test
         tests/RoomActionErrorTest.cpp
         src/matrix/RoomActionError.cpp
@@ -1477,8 +1276,7 @@ if(BUILD_TESTING)
     target_link_libraries(room-action-error-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-action-error COMMAND room-action-error-test)
 
-    # B017: the remembered MSC2346 network badge per room. Pure storage, so
-    # it links Core alone and needs neither the app nor a Matrix backend.
+    # The remembered MSC2346 network badge per room. Pure storage; Core only.
     qt_add_executable(bridge-label-store-test
         tests/BridgeLabelStoreTest.cpp
         src/storage/BridgeLabelStore.cpp
@@ -1487,15 +1285,9 @@ if(BUILD_TESTING)
     target_link_libraries(bridge-label-store-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME bridge-label-store COMMAND bridge-label-store-test)
 
-    # 2026-08-21: Windows true portability. Portable mode has to be decided
-    # BEFORE the first QSettings exists — after that the registry has already
-    # been touched and redirecting would leave state in two places — so the
-    # decision runs where there is no QCoreApplication and the executable
-    # directory comes from a platform API rather than applicationDirPath().
-    # The POLICY carries no platform guard, which is what lets all of it be
-    # tested here. The relocation cases are the point of the whole feature:
-    # state written under one root must resolve from another, with nothing
-    # retaining the old absolute path.
+    # Windows portable mode. It is decided before the first QSettings exists,
+    # without a QCoreApplication; the policy has no platform guard so it is
+    # testable here, including relocating state between roots.
     qt_add_executable(portable-mode-test
         tests/PortableModeTest.cpp
         src/storage/PortableMode.cpp
@@ -1505,19 +1297,16 @@ if(BUILD_TESTING)
     target_link_libraries(portable-mode-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME portable-mode COMMAND portable-mode-test)
 
-    # The portable session store. Deliberately does NOT compile PortableMode:
-    # the store takes its directory as a constructor argument, so this suite
-    # is hermetic and needs neither the portable decision nor its test seam.
-    # SecretStore.h only — SecretStore.cpp would drag in the WinCred and
-    # libsecret backends this suite exists to be independent of.
+    # The portable session store, hermetic: it takes its directory as an
+    # argument. SecretStore.h only; the .cpp would pull in the WinCred and
+    # libsecret backends.
     qt_add_executable(portable-secret-store-test
         tests/PortableSecretStoreTest.cpp
         src/storage/PortableSecretStore.h
         src/storage/PortableSecretStore.cpp
         src/storage/SecretStore.h
-        # The INSECURE FALLBACK belongs in this suite for the same reason the
-        # portable store does: both answer lastReadFailed(), and that one
-        # predicate is what every destructive decision in the app keys on.
+        # The insecure fallback also answers lastReadFailed(), which every
+        # destructive decision keys on.
         src/storage/InsecureFallbackSecretStore.h
         src/storage/InsecureFallbackSecretStore.cpp
     )
@@ -1558,9 +1347,7 @@ if(BUILD_TESTING)
         tests/RailLayoutTest.cpp
         src/spaces/RailLayoutStore.h
         src/spaces/RailLayoutStore.cpp
-        # The drag lives in the MODEL, so the gesture — preview reorder,
-        # grouping, and what a release writes — is testable without a rail,
-        # a ListView or a pointer.
+        # The drag logic lives in the model, so it is testable without a view.
         src/spaces/RailEntryModel.h
         src/spaces/RailEntryModel.cpp
         src/spaces/SpaceManager.h
@@ -1588,8 +1375,8 @@ if(BUILD_TESTING)
         src/storage/PortableMode.cpp
     )
     target_include_directories(localization-test PRIVATE src)
-    # The catalogs are read from the SOURCE tree (the .ts files, for the
-    # placeholder contract) and from the BUILD tree (the compiled .qm, to
+    # The catalogs are read from the source tree (the .ts files, for the
+    # placeholder contract) and from the build tree (the compiled .qm, to
     # prove one actually loads). Neither is a resource here: this target
     # deliberately does not build the QML module.
     target_compile_definitions(localization-test PRIVATE
@@ -1600,7 +1387,7 @@ if(BUILD_TESTING)
             LIGHTNING_QM_DIR="${LIGHTNING_QM_DIR}"
             LIGHTNING_LUPDATE_EXECUTABLE="$<TARGET_FILE:Qt6::lupdate>")
         add_dependencies(localization-test lightning-translations)
-        # The catalogs are embedded here too, at the SAME :/i18n prefix the
+        # The catalogs are embedded here too, at the same :/i18n prefix the
         # application uses, so the test exercises the real resource lookup
         # rather than a filesystem path that only exists in a build tree.
         qt_add_resources(localization-test "lightning_i18n_localization_test"
@@ -1630,15 +1417,13 @@ if(BUILD_TESTING)
     target_include_directories(settings-session-test PRIVATE src)
     target_link_libraries(settings-session-test PRIVATE Qt6::Core Qt6::Test)
     # The preview-default case reads docs/privacy.md: the code default and the
-    # published promise must move together, and once did not.
+    # published promise must move together.
     target_compile_definitions(settings-session-test PRIVATE
         REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME settings-session COMMAND settings-session-test)
 
-    # v0.9 (phase 11) "Send later": server (MSC4140) vs local queue policy,
-    # encrypted-room plaintext never persisted, "sending" persisted BEFORE
-    # dispatch, nothing leaves while disconnected, a mid-send crash is
-    # reported and never re-fired, sign-out drops the memory queue.
+    # "Send later": server (MSC4140) vs local queue policy, no persisted
+    # encrypted-room plaintext, crash and sign-out handling.
     qt_add_executable(scheduled-send-test
         tests/ScheduledSendTest.cpp
         src/models/ScheduledSendController.h
@@ -1657,11 +1442,8 @@ if(BUILD_TESTING)
     target_link_libraries(scheduled-send-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME scheduled-send COMMAND scheduled-send-test)
 
-    # v0.9 (phase 2) Activity Center model: classification (mentions,
-    # replies to me, replies in my threads, reactions to my messages,
-    # invites, whole-word keywords), own/echo/state exclusion, the model's
-    # own seen state with only the marker persisted, bounded newest-first,
-    # account switch drops everything, server seed honours the read flag.
+    # Activity Center model: classification, exclusions, seen state, bounds,
+    # account switch.
     qt_add_executable(activity-model-test
         tests/ActivityModelTest.cpp
         src/models/ActivityModel.h
@@ -1722,10 +1504,8 @@ if(BUILD_TESTING)
     target_link_libraries(custom-app-icon-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Test)
 
-    # User-selectable and user-importable fonts. The link list is part of the
-    # assertion: FontManager sees Qt, SettingsManager and the app-data paths
-    # and NOTHING ELSE — no MatrixClient, no network, nothing that could hand
-    # it a path chosen by anybody but the person at the keyboard.
+    # User-selectable and importable fonts. The link list is part of the
+    # contract: FontManager must not depend on the Matrix client or network.
     qt_add_executable(font-manager-test
         tests/FontManagerTest.cpp
         src/app/FontManager.h
@@ -1780,8 +1560,7 @@ if(BUILD_TESTING)
     set_tests_properties(storm-band-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.6.5: the recentEmoji QStringList property feeding the quick-react
-    # strip — MRU order, validity filtering, change signals.
+    # The recentEmoji property feeding the quick-react strip.
     qt_add_executable(emoji-catalog-recent-emoji-test
         tests/EmojiCatalogRecentEmojiTest.cpp
         src/models/EmojiCatalog.h
@@ -1866,11 +1645,8 @@ if(BUILD_TESTING)
     target_link_libraries(gif-key-config-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME gif-key-config COMMAND gif-key-config-test)
 
-    # One activation must produce exactly one send. The picker latch closes
-    # the common case (a second click or Return landing while the popup is
-    # still closing); this suite pins the controller-side backstop, which
-    # holds regardless of caller — identical in-flight destination+GIF is
-    # dropped, while a deliberate repeat after the first resolves is not.
+    # One activation, one send: the controller drops an identical in-flight
+    # destination+GIF, but not a deliberate repeat after the first resolves.
     qt_add_executable(gif-send-controller-dedup-test
         tests/GifSendControllerDedupTest.cpp
         src/gif/GifSendController.h
@@ -1898,26 +1674,13 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME gif-send-controller-dedup COMMAND gif-send-controller-dedup-test)
 
-    # NOT COVERED: history landing during an ACTIVE wheel animation.
-    #
-    # 9a0e41a's own regression test only simulates a direct contentY write, so
-    # it never exercises the momentum-vs-pagination race. An attempt to cover
-    # it here was withdrawn: the offscreen harness could be driven to keep the
-    # motion engine animating across a pagination round trip, but the anchor
-    # delegate then fell outside the ListView's created range and the test
-    # could not read the geometry it needed to assert on. Rather than weaken
-    # the assertion into something that passes on a settled engine — green
-    # while covering nothing, which is the exact gap that prompted the test —
-    # the case is left uncovered and recorded as NOT TESTED.
-    #
-    # The fix itself is sound by inspection: restoreCapturedAnchor() reads the
-    # LIVE contentY and applies a relative shift, and does not branch on
-    # whether a gesture or an animation is in flight, so momentum and touchpad
-    # travel the same code path. That is reasoning, not evidence.
+    # NOT COVERED: history landing during an active wheel animation. The
+    # offscreen harness cannot keep the anchor delegate in range across a
+    # pagination round trip. restoreCapturedAnchor() applies a relative shift
+    # to the live contentY either way, but that is reasoning, not evidence.
 
-    # Threads use the same prepend-on-requestOlder pattern as the main
-    # timeline but had no anchor mechanism at all, so loading older replies
-    # while scrolled up teleported the view.
+    # Threads prepend on requestOlder like the main timeline and need the same
+    # anchoring so older replies do not move the view.
     qt_add_executable(thread-panel-pagination-anchor-qml-test
         tests/ThreadPanelPaginationAnchorQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -1929,11 +1692,10 @@ if(BUILD_TESTING)
     set_tests_properties(thread-panel-pagination-anchor-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # P0 regression suite: the account-identity <-> SDK-store binding. The
-    # store path used to create a session must equal the one used to restore
-    # it; adoption of a divergent-case store must be unambiguous, idempotent
-    # and non-destructive; a reset that matched nothing must say so; and each
-    # failure condition must carry its own reason code.
+    # The account-identity <-> SDK-store binding: create and restore use the
+    # same store path; adoption of a divergent-case store is unambiguous,
+    # idempotent and non-destructive; a no-op reset says so; each failure has
+    # its own reason code.
     qt_add_executable(session-store-identity-test
         tests/SessionStoreIdentityTest.cpp
         src/app/SettingsManager.h
@@ -2000,11 +1762,9 @@ if(BUILD_TESTING)
     target_link_libraries(gif-collections-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME gif-collections COMMAND gif-collections-test)
 
-    # "Star a chat GIF" local store: content-hash dedup, item/byte-size caps
-    # that REFUSE rather than silently evict, account-scope isolation (two
-    # openFor() directories never see each other's rows), unstar deleting
-    # the file, and a stale/tampered index entry never surfacing an
-    # unplayable tile.
+    # Local "starred chat GIF" store: content-hash dedup, caps that refuse
+    # rather than evict, account isolation, unstar deletes the file, and a
+    # stale index entry never surfaces an unplayable tile.
     qt_add_executable(gif-starred-store-test
         tests/GifStarredStoreTest.cpp
         src/gif/GifResponseParser.h
@@ -2050,10 +1810,8 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME gif-send-controller COMMAND gif-send-controller-test)
 
-    # THE README DRIFTED A WHOLE RELEASE BEHIND and nothing compared them --
-    # see the header of the test for what that cost. Consistency only: it
-    # never says what the version should be, only that everything quoting one
-    # quotes the same one.
+    # Everything that quotes the release version (README included) quotes the
+    # same one.
     qt_add_executable(version-consistency-test tests/VersionConsistencyTest.cpp)
     target_compile_definitions(version-consistency-test PRIVATE
         REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
@@ -2066,9 +1824,8 @@ if(BUILD_TESTING)
     target_link_libraries(emoji-ui-contract-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME emoji-ui-contract COMMAND emoji-ui-contract-test)
 
-    # v0.6.5: the MemberProfilePopover single-instance convention (one shared
-    # popover per view, delegates route through the view) had no guard since
-    # 8a77ce8 — a per-delegate popover is a real, silent perf regression.
+    # The MemberProfilePopover single-instance convention: one shared popover
+    # per view; a per-delegate popover is a silent perf regression.
     qt_add_executable(profile-popover-contract-test
         tests/ProfilePopoverContractTest.cpp)
     target_compile_definitions(profile-popover-contract-test PRIVATE
@@ -2078,8 +1835,7 @@ if(BUILD_TESTING)
     add_test(NAME profile-popover-contract
         COMMAND profile-popover-contract-test)
 
-    # v0.6.5: the Settings verification card's visibility complement (the
-    # c259b60 invisible-failure fix) was unguarded — pin the predicates.
+    # The Settings verification card's visibility predicates.
     qt_add_executable(verification-card-contract-test
         tests/VerificationCardContractTest.cpp)
     target_compile_definitions(verification-card-contract-test PRIVATE
@@ -2089,9 +1845,8 @@ if(BUILD_TESTING)
     add_test(NAME verification-card-contract
         COMMAND verification-card-contract-test)
 
-    # v0.6.5: 1a/1d context-menu contracts — grouping, accelerators,
-    # quick-react liveness guard, radio flyout purity, signal-only mutation
-    # routing, and the permalink/leave wiring.
+    # Context-menu contracts: grouping, accelerators, quick-react liveness,
+    # radio flyouts, signal-only mutation, permalink/leave wiring.
     qt_add_executable(context-menu-contract-test
         tests/ContextMenuContractTest.cpp)
     target_compile_definitions(context-menu-contract-test PRIVATE
@@ -2100,11 +1855,9 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Test)
     add_test(NAME context-menu-contract COMMAND context-menu-contract-test)
 
-    # v0.6.6 UX rework: the Discord-style hover star that replaced the GIF
-    # starring context-menu rows — gating parity, HoverHandler-only hover
-    # detection (never a MouseArea), one activation function reached by tap/
-    # keyboard/accessibility action, mediaKey-keyed resolution, and live
-    # refresh from the store's own signals.
+    # The GIF hover star: gating parity, HoverHandler-only hover, one
+    # activation path for tap/keyboard/accessibility, mediaKey-keyed
+    # resolution, live refresh from the store.
     qt_add_executable(gif-hover-star-contract-test
         tests/GifHoverStarContractTest.cpp)
     target_compile_definitions(gif-hover-star-contract-test PRIVATE
@@ -2113,8 +1866,8 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Test)
     add_test(NAME gif-hover-star-contract COMMAND gif-hover-star-contract-test)
 
-    # v0.6.5: 1m emoji-picker redesign contract — category rail, grid
-    # metrics, footer preview, preserved choose()/recents ordering.
+    # Emoji picker contract: category rail, grid metrics, footer preview,
+    # choose()/recents ordering.
     qt_add_executable(emoji-picker-contract-test
         tests/EmojiPickerContractTest.cpp)
     target_compile_definitions(emoji-picker-contract-test PRIVATE
@@ -2123,8 +1876,7 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Test)
     add_test(NAME emoji-picker-contract COMMAND emoji-picker-contract-test)
 
-    # v0.6.5: 1n GIF-picker redesign contract — chrome restyle plus a
-    # belt-and-suspenders re-assertion of the exact-selection invariants.
+    # GIF picker contract: chrome plus the exact-selection invariants.
     qt_add_executable(gif-picker-redesign-contract-test
         tests/GifPickerRedesignContractTest.cpp)
     target_compile_definitions(gif-picker-redesign-contract-test PRIVATE
@@ -2134,22 +1886,20 @@ if(BUILD_TESTING)
     add_test(NAME gif-picker-redesign-contract
         COMMAND gif-picker-redesign-contract-test)
 
-    # v0.5.12: guard the non-circular sizing/visibility contracts for the
-    # two confirmation dialogs and timeline pagination header.
+    # Non-circular sizing/visibility of the two confirmation dialogs and the
+    # timeline pagination header.
     qt_add_executable(qml-binding-contract-test tests/QmlBindingContractTest.cpp)
     target_compile_definitions(qml-binding-contract-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
-        # A trust LABEL can be composed in C++ and merely displayed by QML —
-        # `app.sessionTrustState` is, and a QML-only scan cannot see it. The
-        # fourth trust surface was missed for exactly that reason.
+        # Trust labels composed in C++ (`app.sessionTrustState`) are invisible
+        # to a QML-only scan.
         LIGHTNING_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(qml-binding-contract-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME qml-binding-contract COMMAND qml-binding-contract-test)
 
-    # 0.5.14 checkpoint 1: a text scan cannot catch a QML type that was never
-    # registered (the PaginationController ReferenceError regression). This
-    # boots a real AppController on the mock backend and loads the real
-    # TimelinePane.qml through the real "MatrixClient" QML module.
+    # A text scan cannot catch a QML type that was never registered. This boots
+    # a real AppController on the mock backend and loads the real
+    # TimelinePane.qml through the "MatrixClient" module.
     qt_add_executable(timeline-pane-qml-test
         tests/TimelinePaneQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -2160,12 +1910,9 @@ if(BUILD_TESTING)
     set_tests_properties(timeline-pane-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # 2026-08-26: the rail's drop-to-make-a-folder gesture, driven by a REAL
-    # POINTER. RailLayoutTest covers the model and passed happily through two
-    # rounds in which the gesture was structurally unreachable, because it
-    # hands the model the row production could never produce. This one presses,
-    # moves and releases on the real SpacesRail item tree and asserts on the
-    # STORE — the only kind of test that could have caught either defect.
+    # The rail's drop-to-make-a-folder gesture, driven by a real pointer on the
+    # real SpacesRail and asserted on the store. RailLayoutTest covers only the
+    # model and cannot see an unreachable gesture.
     qt_add_executable(rail-drag-qml-test
         tests/RailDragQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -2176,10 +1923,8 @@ if(BUILD_TESTING)
     set_tests_properties(rail-drag-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # A Space's identity — name, topic, avatar — as the real Space settings
-    # dialog renders it. SpaceSettingsContractTest reads that file as TEXT and
-    # drives RoomInfoController directly; neither half can see a binding that
-    # never re-evaluates, which is what `root.info` (a spaceInfo() CALL) was.
+    # A Space's name, topic and avatar as the real Space settings dialog renders
+    # them; catches bindings that never re-evaluate, which text scans cannot.
     qt_add_executable(space-identity-qml-test
         tests/SpaceIdentityQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -2190,10 +1935,8 @@ if(BUILD_TESTING)
     set_tests_properties(space-identity-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.7 timeline-stability suite: the initial-hydration presentation gate,
-    # bottom-pinned stability under asynchronous row growth, scrolled-up
-    # anchor preservation, and row-scoped Set-diff model updates — the live
-    # room-open jump regressions, staged deterministically on the mock.
+    # Timeline stability: hydration gate, bottom pinning under async row
+    # growth, scrolled-up anchor preservation, row-scoped model updates.
     qt_add_executable(timeline-hydration-qml-test
         tests/TimelineHydrationQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -2204,13 +1947,8 @@ if(BUILD_TESTING)
     set_tests_properties(timeline-hydration-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # Follow-up to timeline-state-flood-perf (pure C++): measures the real
-    # QML pipeline (real AppController/MockMatrixClient, the real compiled
-    # TimelinePane.qml/MessageDelegate.qml) for a near-top pagination page of
-    # contiguous state-change rows (e.g. repeated display-name changes with
-    # no messages between them) versus the same page size of ordinary
-    # messages, and for several consecutive pages growing the same state
-    # group. See the test file header for exactly what is measured.
+    # QML-pipeline cost of a near-top page of contiguous state-change rows
+    # versus ordinary messages. See the test file header.
     qt_add_executable(timeline-state-flood-qml-perf-test
         tests/TimelineStateFloodQmlPerfTest.cpp
         ${APP_LIB_SOURCES}
@@ -2222,9 +1960,8 @@ if(BUILD_TESTING)
     set_tests_properties(timeline-state-flood-qml-perf PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.7: type-specific media placeholders — reserved aspect geometry for
-    # image/video/sticker, compact audio/voice rows, the decrypting text
-    # skeleton, and the shared Skeleton primitive's animation eligibility.
+    # Media placeholders: reserved geometry for image/video/sticker, compact
+    # audio rows, the decrypting skeleton, Skeleton animation eligibility.
     qt_add_executable(media-placeholder-qml-test
         tests/MediaPlaceholderQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -2235,12 +1972,9 @@ if(BUILD_TESTING)
     set_tests_properties(media-placeholder-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # 2026-09-06 tester report §2: which picture the image viewer opens. The
-    # Media tab walks history the timeline never loaded, and the viewer used
-    # to look the clicked key up in the LOADED TIMELINE and fall back to that
-    # list's last entry on a miss — so a click on a picture from March opened
-    # the newest loaded one. Pins the list-and-index contract and the refusal
-    # to substitute a neighbour.
+    # Which picture the image viewer opens: the Media tab walks history the
+    # timeline never loaded, so the viewer uses the given list and index and
+    # never substitutes a neighbour.
     qt_add_executable(media-viewer-navigation-qml-test
         tests/MediaViewerNavigationQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -2252,18 +1986,13 @@ if(BUILD_TESTING)
     set_tests_properties(media-viewer-navigation-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # 2026-08-26: the link-preview CONSENT gate. It used to stack a host
-    # row, a wrapped two-line privacy sentence and a full-width button —
-    # about four message lines of timeline for one unloaded link. This
-    # suite pins the compact replacement: one band, strictly smaller than
-    # the state the consent click leads to, with the privacy fact still
-    # stated before consent and the button still the only thing that
-    # consents.
-    # 2026-09-19: "collapse media and link embeds". Pins the six surfaces the
-    # setting covers, the exclusions that are DECISIONS (the reply quote, the
-    # consent gate), the reversible disclosure and its keyboard path, and the
-    # property that matters most — a collapsed attachment is NOT INSTANTIATED,
-    # so it cannot fetch or decode. `visible: false` would pass a weaker test.
+    # The link-preview consent gate: one compact band, smaller than what it
+    # leads to, with the privacy fact stated and the button the only thing
+    # that consents.
+    # "Collapse media and link embeds": the covered surfaces, the deliberate
+    # exclusions, the reversible disclosure, and that a collapsed attachment
+    # is not instantiated (so it cannot fetch). `visible: false` would pass a
+    # weaker test.
     qt_add_executable(collapsed-embeds-qml-test
         tests/CollapsedEmbedsQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -2284,9 +2013,7 @@ if(BUILD_TESTING)
     set_tests_properties(link-preview-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.7.2: the audio card's cover-art box keeps the artwork's aspect at
-    # every size. Bounding only the height left a tall cover in a full-width
-    # box at the cap, letterboxed with dead surface down both sides.
+    # The audio card's cover art keeps its aspect ratio at every size.
     qt_add_executable(audio-cover-art-aspect-test
         tests/AudioCoverArtAspectTest.cpp
         ${APP_LIB_SOURCES}
@@ -2297,10 +2024,9 @@ if(BUILD_TESTING)
     set_tests_properties(audio-cover-art-aspect PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.7: avatar pipeline — explicit loading/ready/missing/failed states
-    # through the real MediaBridge + MediaImageProvider, pixel-proven
-    # transparency (no fallback fill beneath a decoded avatar), stable
-    # identity-keyed fallback colours, and clean URL-change resets.
+    # Avatar pipeline: explicit loading/ready/missing/failed states through the
+    # real MediaBridge + MediaImageProvider, no fill beneath a decoded avatar,
+    # stable fallback colours, clean URL-change resets.
     qt_add_executable(avatar-pipeline-qml-test
         tests/AvatarPipelineQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -2311,9 +2037,8 @@ if(BUILD_TESTING)
     set_tests_properties(avatar-pipeline-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.7 regression: clicking a favorite GIF must choose the exact
-    # provider-qualified favorite from the visible model — never the first
-    # Trending item, never an index-zero substitute.
+    # Clicking a favourite GIF chooses exactly that item, never an index-zero
+    # substitute.
     qt_add_executable(gif-picker-selection-qml-test
         tests/GifPickerSelectionQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -2325,11 +2050,8 @@ if(BUILD_TESTING)
     set_tests_properties(gif-picker-selection-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # 2026-08-28 tester round: the Saved tab's PROVIDER half rendered for the
-    # first time (every earlier saved-tab test cleared favorites and covered
-    # only the local byte store), the empty-state copy asserted as visible,
-    # a real press-drag on the resize grip over a real Flickable, and the
-    # nav row's right-aligned list tabs asserted as geometry at two widths.
+    # The Saved tab's provider half and empty state, a real drag on the resize
+    # grip, and the nav row's list tabs as geometry at two widths.
     qt_add_executable(gif-saved-tab-qml-test
         tests/GifSavedTabQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -2340,9 +2062,8 @@ if(BUILD_TESTING)
     set_tests_properties(gif-saved-tab-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.7: authenticated startup lifecycle — the Boot/RestoringSession
-    # state, the never-instantiate-login guarantee for valid sessions, the
-    # genuine no-account and failed-restore login states.
+    # Startup lifecycle: Boot/RestoringSession, no login UI for valid sessions,
+    # the no-account and failed-restore login states.
     qt_add_executable(startup-session-test
         tests/StartupSessionTest.cpp
         ${APP_LIB_SOURCES}
@@ -2353,9 +2074,7 @@ if(BUILD_TESTING)
     set_tests_properties(startup-session PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.7: full account-switch lifecycle on a real AppController (mock
-    # backend): activation, switching state, room-target clearing, logout
-    # fallback to a remaining account, scoped background-account removal.
+    # Account-switch lifecycle on a real AppController (mock backend).
     qt_add_executable(account-switch-test
         tests/AccountSwitchTest.cpp
         ${APP_LIB_SOURCES}
@@ -2366,14 +2085,10 @@ if(BUILD_TESTING)
     set_tests_properties(account-switch PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # 2026-08-20 (C7): setting the signed-in account's own display name on a
-    # real AppController (mock backend). The caller-owned op id and the
-    # lifecycle guard are the point: a completion from a superseded generation
-    # or a foreign op must never update the cached identity. Also pins the
-    # code-point ceiling (never a byte slice — that splits a surrogate pair),
-    # explicit clear vs an empty-value refusal, the unicode round trip, and
-    # the registry re-fetch that a confirmed write must trigger, because sync
-    # does not feed that cache.
+    # Setting the account's own display name on a real AppController: stale
+    # generations and foreign op ids never update the cached identity; the
+    # code-point limit, clear vs empty refusal, and the registry re-fetch a
+    # confirmed write triggers (sync does not feed that cache).
     qt_add_executable(own-profile-test
         tests/OwnProfileTest.cpp
         ${APP_LIB_SOURCES}
@@ -2384,12 +2099,8 @@ if(BUILD_TESTING)
     set_tests_properties(own-profile PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.6.6 review (M2): AppController::isChatGifStarred/unstarChatGif's
-    # two-tier design (session-only fast path + durable content-hash
-    # fallback through MediaBridge) had no executable coverage — only
-    # MediaBridgeTest.cpp/GifStarredStoreTest.cpp exercising each half in
-    # isolation. Drives a real AppController (mock backend) with its
-    # MediaBridge repointed at a small controllable FakeClient.
+    # AppController::isChatGifStarred/unstarChatGif's two tiers (session fast
+    # path + durable content-hash fallback) against a controllable FakeClient.
     qt_add_executable(app-controller-chat-gif-starred-test
         tests/AppControllerChatGifStarredTest.cpp
         ${APP_LIB_SOURCES}
@@ -2401,10 +2112,8 @@ if(BUILD_TESTING)
     set_tests_properties(app-controller-chat-gif-starred PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # Where a window OPENS. The centring divided the whole virtual desktop
-    # rather than one screen, so with two monitors it aimed at the seam and on
-    # the maintainer's layout landed past the right edge: the window opened
-    # invisible. Behavioural — it asks where a window would go.
+    # Where a window opens: centred on one screen, not the whole virtual
+    # desktop.
     qt_add_executable(window-placement-test
         tests/WindowPlacementTest.cpp
         ${APP_LIB_SOURCES}
@@ -2415,8 +2124,8 @@ if(BUILD_TESTING)
     set_tests_properties(window-placement PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # The media browser's model: what it shows, and what it CLAIMS about how
-    # much of history it has seen. The second half is the point.
+    # The media browser's model: what it shows and what it claims about how
+    # much history it has seen.
     qt_add_executable(media-history-model-test
         tests/MediaHistoryModelTest.cpp
         ${APP_LIB_SOURCES}
@@ -2427,9 +2136,8 @@ if(BUILD_TESTING)
     set_tests_properties(media-history-model PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # Retiring a Rust client must not run on the GUI thread. Needs the real
-    # Rust backend, because the expensive part is dropping a real tokio
-    # runtime — so it is registered only where that backend exists.
+    # Retiring a Rust client must not block the GUI thread. Needs the real Rust
+    # backend (dropping a tokio runtime is the expensive part).
     if(ENABLE_RUST_SDK_BACKEND)
         qt_add_executable(rust-retirement-test
             tests/RustRetirementTest.cpp
@@ -2442,21 +2150,20 @@ if(BUILD_TESTING)
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
 
-    # v0.5.7: live-timeline diff translation + generation tracking. Pure
-    # Qt (no cargo), so it runs in both build trees.
+    # Live-timeline diff translation and generation tracking. Pure Qt, so it
+    # runs in both build trees.
     qt_add_executable(rust-timeline-ingest-test
         tests/RustTimelineIngestTest.cpp
         src/matrix/RustTimelineIngest.cpp
-        # v0.6.5: the ingest normalizes reply previews through the shared
-        # preview choke point.
+        # Reply previews go through the shared preview normalisation.
         src/matrix/EventPreview.cpp
     )
     target_include_directories(rust-timeline-ingest-test PRIVATE src)
     target_link_libraries(rust-timeline-ingest-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME rust-timeline-ingest COMMAND rust-timeline-ingest-test)
 
-    # v0.5.7: TimelineModel diff application (insert/replace/remove/
-    # truncate/reset, local-echo reconciliation, invalid-index self-heal).
+    # TimelineModel diff application (insert/replace/remove/truncate/reset,
+    # local-echo reconciliation, invalid-index self-heal).
     qt_add_executable(timeline-model-diff-test
         tests/TimelineModelDiffTest.cpp
         src/models/TimelineModel.h
@@ -2474,9 +2181,8 @@ if(BUILD_TESTING)
     target_link_libraries(timeline-model-diff-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME timeline-model-diff COMMAND timeline-model-diff-test)
 
-    # 0.5.14 checkpoint 2: state-activity grouping must be transparent
-    # through virtual SDK rows (date dividers, read markers, timeline
-    # start) and must still break on any visible message/media event.
+    # State-activity grouping passes through virtual rows (date dividers, read
+    # markers, timeline start) and breaks on any visible message.
     qt_add_executable(state-activity-grouping-test
         tests/StateActivityGroupingTest.cpp
         src/models/TimelineModel.h
@@ -2494,13 +2200,9 @@ if(BUILD_TESTING)
     target_link_libraries(state-activity-grouping-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME state-activity-grouping COMMAND state-activity-grouping-test)
 
-    # 2026-08-20 (C3): the member-profile sentence matrix. The Rust bridge no
-    # longer builds an English sentence for m.room.member profile changes — it
-    # sends typed old/new values — so the wording is built here, translatably,
-    # from the actor's RESOLVED display name. Names are untrusted plain text;
-    # these cases pin set/changed/cleared/avatar/both, the honest fallback
-    # when a value is missing (never empty quotes), and that markup in a name
-    # is never interpreted.
+    # Member-profile change sentences, built translatably from typed old/new
+    # values and the actor's resolved name. Names are untrusted plain text:
+    # markup is never interpreted and a missing value never renders as "".
     qt_add_executable(profile-activity-test
         tests/ProfileActivityTest.cpp
         src/models/TimelineModel.h
@@ -2518,10 +2220,8 @@ if(BUILD_TESTING)
     target_link_libraries(profile-activity-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME profile-activity COMMAND profile-activity-test)
 
-    # The hover toolbar is one per row, anchored in place; the row simply
-    # does not clip, so a one-line message no longer truncates it. (An
-    # earlier overlay-mapped shared instance was reverted — rows are rotated
-    # 180 degrees.) Exactly one row may show a bar at a time.
+    # One hover toolbar per row, anchored in place (rows do not clip); only one
+    # row shows it at a time.
     qt_add_executable(message-action-bar-fit-test
         tests/MessageActionBarFitTest.cpp)
     target_compile_definitions(message-action-bar-fit-test PRIVATE
@@ -2541,10 +2241,8 @@ if(BUILD_TESTING)
     add_test(NAME scroll-consistency-contract
         COMMAND scroll-consistency-contract-test)
 
-    # RUNTIME counterpart to scroll-consistency-contract: that test only
-    # scans QML source for "SmoothWheelArea" and cannot see a null
-    # scrollTarget, which makes a pane completely unscrollable (onWheel
-    # accepts the event and returns).
+    # Runtime counterpart to scroll-consistency-contract, which cannot see a
+    # null scrollTarget (that makes a pane unscrollable).
     qt_add_executable(smooth-wheel-area-runtime-test
         tests/SmoothWheelAreaRuntimeTest.cpp)
     lightning_configure_qml_test(smooth-wheel-area-runtime-test)
@@ -2554,16 +2252,11 @@ if(BUILD_TESTING)
     set_tests_properties(smooth-wheel-area-runtime PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # 2026-08-20 (C1): qml/CodeBlock.qml's own behaviour. A fenced block used
-    # to render inside the body's one RichText item, where Qt does not wrap
-    # <pre> and the delegate root is deliberately clip:false — so a terminal
-    # transcript painted straight out of the timeline. These cases pin the
-    # properties that make that impossible: a long line becomes horizontal
-    # SCROLL RANGE and never geometry, the gutter is never part of a copy,
-    # and a vertical wheel notch still belongs to the timeline.
-    # The Channels layout's rows, measured in real geometry. Every one of
-    # them was 0px tall — see the file header — and six source-scanning
-    # contract suites passed the whole time.
+    # CodeBlock.qml: a long line becomes horizontal scroll range, never
+    # geometry; the gutter is never copied; a vertical wheel notch still
+    # scrolls the timeline.
+    # The Channels layout's rows, measured in real geometry (source scans
+    # cannot catch a 0px row).
     qt_add_executable(channel-row-geometry-qml-test
         tests/ChannelRowGeometryQmlTest.cpp)
     lightning_configure_qml_test(channel-row-geometry-qml-test)
@@ -2580,13 +2273,8 @@ if(BUILD_TESTING)
     set_tests_properties(code-block-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # Measurement (not a fix): quantifies the cost of the state-activity
-    # grouping mechanism (TimelineModel::stateGroupLeaderRow /
-    # stateGroupEntriesFrom / emitPresentationGroupingChanged) under a long
-    # run of contiguous state-change rows (e.g. repeated display-name
-    # changes with no messages between them), and contrasts it with the
-    # same row count of ordinary messages. See the test file header for the
-    # exact mechanism and the closed-form costs it asserts against.
+    # Measurement, not a fix: the cost of state-activity grouping over a long
+    # run of state-change rows versus ordinary messages. See the test header.
     qt_add_executable(timeline-state-flood-perf-test
         tests/TimelineStateFloodPerfTest.cpp
         src/models/TimelineModel.h
@@ -2604,8 +2292,8 @@ if(BUILD_TESTING)
     target_link_libraries(timeline-state-flood-perf-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME timeline-state-flood-perf COMMAND timeline-state-flood-perf-test)
 
-    # v0.5.7: CacheStore must refuse encrypted-room rows on every write
-    # path — decrypted plaintext stays memory-only.
+    # CacheStore refuses encrypted-room rows on every write path; decrypted
+    # plaintext stays in memory.
     qt_add_executable(cache-store-security-test
         tests/CacheStoreSecurityTest.cpp
         src/storage/CacheStore.cpp
@@ -2616,8 +2304,8 @@ if(BUILD_TESTING)
     target_link_libraries(cache-store-security-test PRIVATE Qt6::Core Qt6::Sql Qt6::Test)
     add_test(NAME cache-store-security COMMAND cache-store-security-test)
 
-    # v0.5.9: semantic theme tokens + WCAG contrast for critical pairs +
-    # no stray hex colours in core view QML.
+    # Semantic theme tokens, WCAG contrast for critical pairs, no stray hex
+    # colours in core view QML.
     qt_add_executable(theme-tokens-test
         tests/ThemeTokensTest.cpp
         src/theme/IdentityColors.h
@@ -2633,13 +2321,13 @@ if(BUILD_TESTING)
     target_link_libraries(theme-tokens-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME theme-tokens COMMAND theme-tokens-test)
 
-    # v0.5.9: attachment pipeline — validation, MIME-from-content, queue
-    # state machine, retry, stale-completion rejection, lifecycle clears.
+    # Attachment pipeline: validation, MIME from content, queue state machine,
+    # retry, stale-completion rejection, lifecycle clears.
     qt_add_executable(attachment-queue-test
         tests/AttachmentQueueTest.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
-        # v0.7.x: the composer's draft hooks pull in the store.
+        # The composer's draft hooks pull in the store.
         src/app/DraftStore.h
         src/app/DraftStore.cpp
         src/app/SettingsManager.h
@@ -2656,8 +2344,8 @@ if(BUILD_TESTING)
         src/models/AttachmentQueueModel.cpp
         src/media/StagedImageStore.h
         src/media/StagedImageStore.cpp
-        # v0.7: the queue owns send-side video poster extraction. The suite
-        # installs the poster hook, so no QMediaPlayer is ever constructed.
+        # The queue owns send-side video poster extraction; the suite installs
+        # the poster hook so no QMediaPlayer is constructed.
         src/media/VideoPosterExtractor.h
         src/media/VideoPosterExtractor.cpp
         src/matrix/MatrixClient.h
@@ -2668,11 +2356,9 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
     add_test(NAME attachment-queue COMMAND attachment-queue-test)
 
-    # v0.7.2: poster extraction runs on its own thread. The first QVideoSink
-    # in a process costs ~931 ms (lazy Qt Multimedia backend init), and it
-    # used to be built inline on the GUI thread the moment a video scrolled
-    # into view. Unlike the suite above, this one DOES construct a real
-    # QMediaPlayer — that is the point.
+    # Poster extraction runs on its own thread: the first QVideoSink in a
+    # process costs ~1 s of Qt Multimedia initialisation. This suite does
+    # construct a real QMediaPlayer.
     qt_add_executable(video-poster-threading-test
         tests/VideoPosterThreadingTest.cpp
         src/media/VideoPosterExtractor.h
@@ -2684,13 +2370,8 @@ if(BUILD_TESTING)
     add_test(NAME video-poster-threading
              COMMAND video-poster-threading-test)
 
-    # 2026-08-20 (C8): playable materialization runs on its own thread.
-    # MediaBridge::writePlayableFile() wrote the whole decrypted A/V payload
-    # synchronously on the GUI thread — its own comment said so, and the
-    # gui-stall tracer's "playable-write" category existed to attribute it.
-    # This suite measures a synchronous baseline with the same payload on the
-    # same filesystem, then proves the call returns before the bytes are on
-    # disk and the caller's thread keeps beating through the write.
+    # Playable-file materialisation runs off the GUI thread: the call returns
+    # before the bytes are on disk and the caller keeps running meanwhile.
     qt_add_executable(playable-write-threading-test
         tests/PlayableWriteThreadingTest.cpp
         src/media/PlayableFileWriter.h
@@ -2704,9 +2385,8 @@ if(BUILD_TESTING)
     set_tests_properties(video-poster-threading PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.7.3: the initials disc a notification carries when an identity has
-    # no avatar. Pins the palette, hash and initials rule against qml's, so
-    # the disc in a notification matches the one in the room list.
+    # A notification's initials disc matches the room list's (palette, hash,
+    # initials rule).
     qt_add_executable(notification-avatar-test
         tests/NotificationAvatarTest.cpp
         src/notifications/FallbackAvatar.h
@@ -2721,9 +2401,8 @@ if(BUILD_TESTING)
     set_tests_properties(notification-avatar PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.5.9: user search + DM/room-creation/invite flows (debounce,
-    # stale-result rejection, existing-DM reuse, duplicate-submission
-    # blocking, partial invite success, sign-out invalidation).
+    # User search and DM/room creation/invite flows: debounce, stale results,
+    # existing-DM reuse, duplicate submission, partial invites, sign-out.
     qt_add_executable(conversation-flow-test
         tests/ConversationFlowTest.cpp
         src/app/ConversationController.h
@@ -2739,9 +2418,8 @@ if(BUILD_TESTING)
     target_link_libraries(conversation-flow-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME conversation-flow COMMAND conversation-flow-test)
 
-    # 2026-08-14: kick/ban moderation through RoomInfoController — snapshot
-    # permission ingestion, SDK-flag gating, one-in-flight discipline,
-    # sanitized result mapping, stale-result rejection on room switch.
+    # Kick/ban through RoomInfoController: permission snapshot, SDK-flag
+    # gating, one in flight, sanitized results, stale results on room switch.
     qt_add_executable(room-info-moderation-test
         tests/RoomInfoModerationTest.cpp
         src/app/RoomInfoController.h
@@ -2753,10 +2431,9 @@ if(BUILD_TESTING)
     target_link_libraries(room-info-moderation-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-info-moderation COMMAND room-info-moderation-test)
 
-    # v0.7.x room administration: member power levels, join rule and
-    # canonical alias through RoomInfoController — Matrix rule enforcement
-    # before dispatch, custom numeric levels preserved rather than rounded
-    # into presets, no optimistic local write, stale-answer rejection.
+    # Room administration: power levels, join rule and canonical alias.
+    # Matrix rules enforced before dispatch, custom levels preserved, no
+    # optimistic writes, stale answers rejected.
     qt_add_executable(room-power-levels-test
         tests/RoomPowerLevelsTest.cpp
         src/app/RoomInfoController.h
@@ -2768,10 +2445,9 @@ if(BUILD_TESTING)
     target_link_libraries(room-power-levels-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-power-levels COMMAND room-power-levels-test)
 
-    # v0.7.x pinned messages: PinnedMessagesController policy — snapshot
-    # ingestion, the complete-id-list contract behind isPinned(), offering
-    # exactly the action that applies, no optimistic apply, remote-change
-    # re-read, room-switch and sign-out clearing.
+    # PinnedMessagesController: snapshot ingestion, the complete-id-list behind
+    # isPinned(), the applicable action only, no optimistic apply, remote
+    # re-read, clearing on room switch and sign-out.
     qt_add_executable(pinned-messages-test
         tests/PinnedMessagesTest.cpp
         src/app/PinnedMessagesController.h
@@ -2783,11 +2459,9 @@ if(BUILD_TESTING)
     target_link_libraries(pinned-messages-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME pinned-messages COMMAND pinned-messages-test)
 
-    # MSC2545 stickers and custom emoji: StickerPackManager policy — snapshot
-    # ingestion and usage narrowing, the selection rules, canSave (plain mxc
-    # only, never gated on data nobody fetched), the send destination and the
-    # no-room-fallback thread rule, bounded emoticon lookup, and generation
-    # isolation across sign-out.
+    # MSC2545 stickers and custom emoji: StickerPackManager snapshot ingestion,
+    # selection rules, canSave (plain mxc only), send destination and thread
+    # rule, bounded emoticon lookup, sign-out isolation.
     qt_add_executable(sticker-packs-test
         tests/StickerPacksTest.cpp
         src/stickers/StickerPack.h
@@ -2805,12 +2479,9 @@ if(BUILD_TESTING)
     target_link_libraries(sticker-packs-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME sticker-packs COMMAND sticker-packs-test)
 
-    # Animated sticker tiles: the two contracts the picker depends on that
-    # fail SILENTLY. A `required property` no model serves builds zero
-    # delegates while the view's count stays right, and the picker matches
-    # MediaBridge's cache keys as plain strings, so a rename on the C++ side
-    # stops the match without breaking a build. Source-derived, so a new
-    # required property is covered without editing the test.
+    # Animated sticker tiles: a `required property` the model does not serve
+    # builds zero delegates silently, and the picker matches MediaBridge cache
+    # keys as strings. Derived from source, so new properties are covered.
     qt_add_executable(sticker-picker-tile-contract-test
         tests/StickerPickerTileContractTest.cpp
         src/stickers/StickerPack.h
@@ -2829,13 +2500,10 @@ if(BUILD_TESTING)
     add_test(NAME sticker-picker-tile-contract
         COMMAND sticker-picker-tile-contract-test)
 
-    # v0.7.x room upgrades: the banner-and-link contract. An unknown
-    # successor stays Unknown (never "inaccessible"), a joined one navigates
-    # without joining, an invited one joins BEFORE navigating, a failed join
-    # leaves the user in the old room with the reason shown, the successor
-    # must point BACK for the chain to count, and the room list DEMOTES a
-    # superseded room rather than filtering it. Above all: observing a
-    # tombstone never moves the user or joins anything.
+    # Room upgrades: unknown successors stay Unknown, joined ones navigate
+    # without joining, invited ones join first, a failed join leaves the user
+    # in place with the reason, the successor must point back, and superseded
+    # rooms are demoted. Observing a tombstone never moves or joins anything.
     qt_add_executable(room-upgrade-test
         tests/RoomUpgradeTest.cpp
         src/app/RoomUpgradeController.h
@@ -2859,16 +2527,9 @@ if(BUILD_TESTING)
     target_link_libraries(room-upgrade-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-upgrade COMMAND room-upgrade-test)
 
-    # v0.7.x Space settings: a Space IS a Matrix room, so its name, topic and
-    # avatar go through the SAME permission-gated room-edit backend, each
-    # gated on that state event's own required level. The avatar controls
-    # were missing entirely — a Space could be renamed but never given a
-    # picture from inside Lightning.
-    # 2026-08-26: this was a pure source scan. It now also instantiates
-    # RoomInfoController against a fake client to prove what the Permissions
-    # matrix will and will not DISPATCH, so it needs the controller and the
-    # client base the way room-info-moderation-test does — a scan alone cannot
-    # tell an offered write from a refused one.
+    # Space settings: name, topic and avatar go through the permission-gated
+    # room-edit backend, each gated on its own state event level. Also drives
+    # RoomInfoController against a fake client to prove what is dispatched.
     qt_add_executable(space-settings-contract-test
         tests/SpaceSettingsContractTest.cpp
         src/app/RoomInfoController.h
@@ -2884,11 +2545,8 @@ if(BUILD_TESTING)
     add_test(NAME space-settings-contract
         COMMAND space-settings-contract-test)
 
-    # v0.7.x read markers: "Mark as read" resolved its target from the LOADED
-    # timeline, which on the Rust backend only ever holds the OPEN room — so
-    # marking any other room read sent nothing and silently did nothing. Pins
-    # the capable-backend route, the legacy timeline-walk fallback, local-echo
-    # skipping, and inert handling of unknown targets.
+    # "Mark as read" for a room that is not open: the capable-backend route,
+    # the timeline-walk fallback, local-echo skipping, unknown targets.
     qt_add_executable(mark-room-read-test
         tests/MarkRoomReadTest.cpp
         src/models/RoomListModel.h
@@ -2906,13 +2564,9 @@ if(BUILD_TESTING)
     target_link_libraries(mark-room-read-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME mark-room-read COMMAND mark-room-read-test)
 
-    # Export a room. The renderers are pure (events in, string out), so this
-    # suite needs no filesystem and can assert on the exact shape of the file.
-    # Its load-bearing case is the ENCRYPTED one: CLAUDE.md §6 keeps
-    # encrypted-room plaintext memory-only and an export is the single
-    # deliberate exception, so it must be impossible to get a decrypted body
-    # into a file without the caller having passed the flag a UI only sets
-    # after asking in plain words.
+    # Export a room. The renderers are pure (events in, string out). The key
+    # case is the encrypted one: a decrypted body reaches a file only when the
+    # caller passes the flag the UI sets after explicit confirmation (§6).
     qt_add_executable(room-export-test
         tests/RoomExportTest.cpp
         src/models/RoomExport.h
@@ -2922,11 +2576,9 @@ if(BUILD_TESTING)
     target_link_libraries(room-export-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-export COMMAND room-export-test)
 
-    # Widgets. Lightning lists them and opens them in the user's browser
-    # rather than embedding them, so almost all the weight is on one property:
-    # no QML path may hand the desktop a URL that did not come from the
-    # model's own validated list. The URL rules themselves live in Rust with
-    # their own tests; this covers the boundary.
+    # Widgets open in the user's browser, so the boundary under test is that
+    # no QML path hands the desktop a URL outside the model's validated list.
+    # The URL rules themselves are tested in Rust.
     qt_add_executable(widget-controller-test
         tests/WidgetControllerTest.cpp
         src/models/WidgetController.h
@@ -2948,9 +2600,8 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME widget-controller COMMAND widget-controller-test)
 
-    # 0.8.5 user-chosen name colours: the manager's caching and dedup, which
-    # is what makes colorFor() safe to call from a per-name QML binding, plus
-    # the second gate on a profile-field value that ends up on a QML colour.
+    # User-chosen name colours: caching and dedup (so colorFor() is safe in a
+    # per-name binding) and validation of a profile value used as a colour.
     qt_add_executable(name-color-manager-test
         tests/NameColorManagerTest.cpp
         src/profile/NameColorManager.h
@@ -2970,9 +2621,8 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME name-color-manager COMMAND name-color-manager-test)
 
-    # 2026-09-05: the global-profile lookup behind mention pills and the
-    # profile popover for users the member snapshot cannot name — one ask
-    # per user per session, cached answers, remembered refusals.
+    # Global-profile lookup for mention pills and the profile popover: one
+    # request per user per session, cached answers, remembered refusals.
     qt_add_executable(user-profile-resolver-test
         tests/UserProfileResolverTest.cpp
         src/profile/UserProfileResolver.h
@@ -2992,12 +2642,10 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME user-profile-resolver COMMAND user-profile-resolver-test)
 
-    # v0.7.x message forwarding: ForwardController policy — refusal of
-    # redacted/local-echo/undecryptable sources, plain-body text forwarding
-    # with NO relation (a forwarded thread reply must land as an ordinary
-    # message), media RE-FETCHED and re-uploaded rather than mxc-copied, a
-    # failure that leaves the dialog open, and the stale-fetch race across a
-    # second begin()/cancel().
+    # ForwardController: refuses redacted/local-echo/undecryptable sources,
+    # forwards text with no relation (a thread reply lands as an ordinary
+    # message), re-fetches and re-uploads media rather than copying the mxc,
+    # keeps the dialog open on failure, handles the stale-fetch race.
     qt_add_executable(forward-message-test
         tests/ForwardMessageTest.cpp
         src/app/ForwardController.h
@@ -3018,10 +2666,8 @@ if(BUILD_TESTING)
         PRIVATE Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
     add_test(NAME forward-message COMMAND forward-message-test)
 
-    # v0.7.x: the thread-participant fetch bound — concurrency cap, FIFO
-    # queue, slot release on success AND on a failed (empty) answer,
-    # deduplication against cached/in-flight/queued roots, and room-switch
-    # invalidation of queued-but-not-started work.
+    # Thread-participant fetch bound: concurrency cap, FIFO queue, slot release
+    # on success and failure, dedup, room-switch invalidation.
     qt_add_executable(thread-facepile-bound-test
         tests/ThreadFacepileBoundTest.cpp
         src/threads/ThreadManager.h
@@ -3034,9 +2680,7 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Test)
     add_test(NAME thread-facepile-bound COMMAND thread-facepile-bound-test)
 
-    # v0.7.x Discover / Join: directory search model (debounce, paging,
-    # stale-op rejection) and the discovery controller (join/knock error
-    # categories, wait-for-room, space children cache, sign-out clears).
+    # Discover / Join: directory search model and the discovery controller.
     qt_add_executable(room-discovery-test
         tests/RoomDiscoveryTest.cpp
         src/app/RoomDiscoveryController.h
@@ -3059,8 +2703,8 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME room-discovery COMMAND room-discovery-test)
 
-    # v0.7.x server-side message search: debounce, roomName resolution,
-    # paging, stale superseding, scope changes, sign-out clears.
+    # Server-side message search: debounce, room names, paging, stale
+    # superseding, scope changes, sign-out.
     qt_add_executable(message-search-test
         tests/MessageSearchControllerTest.cpp
         src/models/MessageSearchController.h
@@ -3080,9 +2724,9 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME message-search COMMAND message-search-test)
 
-    # v0.7.x UIA + device sign-out: challenge round-trip, wrong-password
-    # retry, cancel, current-device guard, OAuth console URL. Credentials
-    # never persist — the suite asserts flow state only.
+    # UIA + device sign-out: challenge round trip, wrong-password retry,
+    # cancel, current-device guard, OAuth console URL. Credentials never
+    # persist.
     qt_add_executable(uia-session-test
         tests/UiaSessionTest.cpp
         src/app/UiaController.h
@@ -3102,8 +2746,8 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME uia-session COMMAND uia-session-test)
 
-    # v0.7.x personal moderation: ignore/unignore round trips, remote list
-    # pushes, report prompt flow, and the notification ignore guard.
+    # Personal moderation: ignore/unignore, remote list pushes, reporting, and
+    # the notification ignore guard.
     qt_add_executable(moderation-test
         tests/ModerationTest.cpp
         src/app/ModerationController.h
@@ -3141,8 +2785,8 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME moderation COMMAND moderation-test)
 
-    # v0.7.x drafts: scoping, encrypted-room memory-only policy, debounce
-    # staleness, send/clear retirement, account isolation.
+    # Drafts: scoping, encrypted-room memory-only policy, debounce staleness,
+    # retirement on send/clear, account isolation.
     qt_add_executable(draft-store-test
         tests/DraftStoreTest.cpp
         src/app/DraftStore.h
@@ -3180,9 +2824,8 @@ if(BUILD_TESTING)
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
         src/storage/PortableMode.cpp
-        # Header only (settings-session-test precedent): AUTOMOC supplies
-        # the SecretStore metaobject; the .cpp would drag in the real
-        # backends this suite must not depend on.
+        # Header only: AUTOMOC supplies the SecretStore metaobject; the .cpp
+        # would pull in the real backends.
         src/storage/SecretStore.h
     )
     target_include_directories(draft-store-test PRIVATE src)
@@ -3190,9 +2833,7 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Qml Qt6::Test)
     add_test(NAME draft-store COMMAND draft-store-test)
 
-    # 2026-08-18: opt-in GUI stall heartbeat (LIGHTNING_GUI_STALL_TRACE) —
-    # detection, duration measurement, Scope attribution, healthy-loop
-    # silence.
+    # Opt-in GUI stall heartbeat (LIGHTNING_GUI_STALL_TRACE).
     qt_add_executable(gui-stall-trace-test
         tests/GuiStallTraceTest.cpp
         src/app/GuiStallTracer.h
@@ -3203,9 +2844,8 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Test)
     add_test(NAME gui-stall-trace COMMAND gui-stall-trace-test)
 
-    # 2026-08-18 tester report #2: contract pins for the round's QML
-    # surfaces (copy image, reply thumbs, receipt popover honesty, space
-    # invite + nested subspaces, rail indent, initial avatars).
+    # QML contracts: copy image, reply thumbnails, receipt popover, space
+    # invites and nested subspaces, rail indent, initial avatars.
     qt_add_executable(tester-report-2-contract-test
         tests/TesterReport2ContractTest.cpp
     )
@@ -3218,10 +2858,8 @@ if(BUILD_TESTING)
     set_tests_properties(tester-report-2-contract PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # 2026-08-19 Element-parity round: the unified Space Home "Rooms and
-    # spaces" list (Joined badges, capability-gated selection UI), the
-    # rail's inline space expansion, and the reader popover's per-reader
-    # timestamps — plus the non-exclusive-TapHandler guards on all of it.
+    # The Space Home "Rooms and spaces" list, the rail's inline expansion, the
+    # reader popover's timestamps, and the non-exclusive TapHandler guards.
     qt_add_executable(element-parity-contract-test
         tests/ElementParityContractTest.cpp
     )
@@ -3234,8 +2872,8 @@ if(BUILD_TESTING)
     set_tests_properties(element-parity-contract PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # 2026-08-19: SpaceManager::setSpaceChildSuggested plumbing — pending
-    # ops, foreign-op rejection, refused-send failure, logout isolation.
+    # SpaceManager::setSpaceChildSuggested: pending ops, foreign-op rejection,
+    # refused sends, logout isolation.
     qt_add_executable(space-child-suggest-test
         tests/SpaceChildSuggestTest.cpp
         src/spaces/SpaceManager.h
@@ -3248,19 +2886,15 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Test)
     add_test(NAME space-child-suggest COMMAND space-child-suggest-test)
 
-    # 2026-08-19 scroll round 2: the sliding window in ReverseListProxyModel.
-    # Per-frame cost was MEASURED to scale with total instantiated items, so
-    # the proxy has to be able to take rows back, not merely delay them. Every
-    # window transition must be one insert/remove at one end, the mapping must
-    # stay exactly invertible, and a live message must not slide a reader who
-    # is deep in history.
+    # The sliding window in ReverseListProxyModel: per-frame cost scales with
+    # instantiated rows, so the proxy must release rows. Each transition is one
+    # insert/remove at one end, the mapping stays invertible, and a live
+    # message does not move a reader deep in history.
     qt_add_executable(reverse-list-proxy-window-test
         tests/ReverseListProxyWindowTest.cpp
         src/models/ReverseListProxyModel.h
         src/models/ReverseListProxyModel.cpp
-        # The proxy attributes its row construction for stall tracing, so a
-        # standalone target needs the tracer too (same reason media-bridge
-        # and forward already carry it).
+        # The proxy attributes row construction for stall tracing.
         src/app/GuiStallTracer.h
         src/app/GuiStallTracer.cpp
     )
@@ -3270,9 +2904,8 @@ if(BUILD_TESTING)
     add_test(NAME reverse-list-proxy-window
              COMMAND reverse-list-proxy-window-test)
 
-    # 2026-08-18 voice-call signaling pipes: MSC2746 state machine —
-    # ringing, glare, busy auto-reject, cross-device settlement, invite
-    # lifetime, LRU absorption, honest placeCall refusal, logout reset.
+    # MSC2746 call signalling: ringing, glare, busy auto-reject, cross-device
+    # settlement, invite lifetime, LRU absorption, placeCall refusal, logout.
     qt_add_executable(call-controller-test
         tests/CallControllerTest.cpp
         src/calls/CallController.h
@@ -3282,10 +2915,8 @@ if(BUILD_TESTING)
         src/calls/RtcController.cpp
         src/calls/SfuCallController.h
         src/calls/SfuCallController.cpp
-        # SfuCallController.h answers `windowCaptureSupported` inline from
-        # wincap::available(), so every target that includes the header needs
-        # the symbol. Off Windows this file compiles to `fitInto` plus a
-        # handful of stubs and pulls in no GStreamer at all.
+        # SfuCallController.h calls wincap::available() inline, so every target
+        # including it needs this file; off Windows it is a few stubs.
         src/calls/WindowCaptureSrc.h
         src/calls/WindowCaptureSrc.cpp
         src/calls/CallParticipantModel.h
@@ -3310,32 +2941,28 @@ if(BUILD_TESTING)
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
         src/storage/PortableMode.cpp
-        # Header only (settings-session-test precedent): AUTOMOC supplies
-        # the SecretStore metaobject; the .cpp would drag in the real
-        # backends this suite must not depend on.
+        # Header only: AUTOMOC supplies the SecretStore metaobject; the .cpp
+        # would pull in the real backends.
         src/storage/SecretStore.h
     )
     target_include_directories(call-controller-test PRIVATE src)
     target_link_libraries(call-controller-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
-    # SfuCallController reads a screen's NATIVE rectangle off QPlatformScreen
-    # for the X11 screen-share fallback; see the note in
-    # _lightning_configure_qml_module. Interface target: include paths only.
+    # The X11 share fallback reads QPlatformScreen; see
+    # _lightning_configure_qml_module.
     if(UNIX AND NOT APPLE AND TARGET Qt6::GuiPrivate)
         target_link_libraries(call-controller-test PRIVATE Qt6::GuiPrivate)
         target_compile_definitions(call-controller-test PRIVATE
             LIGHTNING_HAVE_QPA_SCREEN=1)
     endif()
-    # The Linux fallback's regression guard reads the controller's own source:
-    # whether a capture rectangle is DERIVED from devicePixelRatio() is not
-    # observable from the API, and deriving it again is the defect.
+    # Reads the controller's source: deriving a capture rectangle from
+    # devicePixelRatio() is the defect and is not observable through the API.
     target_compile_definitions(call-controller-test PRIVATE
         "SOURCE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
     add_test(NAME call-controller COMMAND call-controller-test)
 
-    # 2026-08-18 round 2: the ring policy wired to its real owners on a
-    # full AppController — ignore/mute/backlog gates, ringForCalls, missed
-    # classification, notification-decline routing.
+    # Ring policy on a full AppController: ignore/mute/backlog gates,
+    # ringForCalls, missed classification, notification-decline routing.
     qt_add_executable(call-ring-policy-test
         tests/CallRingPolicyTest.cpp
         ${APP_LIB_SOURCES}
@@ -3368,9 +2995,8 @@ if(BUILD_TESTING)
     set_tests_properties(call-ring-policy PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # Screenshot harness for the in-call header bar. Not a test: it renders
-    # the real component in a real window and saves a PNG, so a visual
-    # complaint can be checked visually. Built only under BUILD_TESTING.
+    # Not a test: renders the in-call header bar in a real window and saves a
+    # PNG for visual checks.
     qt_add_executable(call-bar-shot
         tests/CallBarShot.cpp
         ${APP_LIB_SOURCES}
@@ -3378,11 +3004,9 @@ if(BUILD_TESTING)
     lightning_configure_qml_test(call-bar-shot)
     target_link_libraries(call-bar-shot PRIVATE Qt6::Test)
 
-    # 2026-08-23 MatrixRTC phase 2: LiveKit-compatible frame encryption.
-    # Asserts the WIRE FORMAT against livekit-client's own implementation —
-    # header sizes, trailer layout, and the exact IV construction — plus the
-    # safety properties (no key means no output, a tampered frame fails, a
-    # wrong key index is dropped rather than guessed).
+    # LiveKit-compatible frame encryption, checked against livekit-client's
+    # wire format (header, trailer, IV construction), plus: no key means no
+    # output, tampered frames fail, wrong key indices are dropped.
     qt_add_executable(call-frame-cryptor-test
         tests/CallFrameCryptorTest.cpp
         src/calls/CallFrameCryptor.cpp
@@ -3392,11 +3016,8 @@ if(BUILD_TESTING)
         PRIVATE Qt6::Core Qt6::Test OpenSSL::Crypto)
     add_test(NAME call-frame-cryptor COMMAND call-frame-cryptor-test)
 
-    # 2026-08-23: routing received video to a QML VideoOutput. Standalone
-    # (two files, no app graph) because the class it tests deliberately knows
-    # nothing about calls — it is a sink table with lifetime discipline, and
-    # the defects it prevents are a dead tile still receiving frames and one
-    # participant's video landing in another's tile.
+    # Routing received video to QML VideoOutputs: a dead tile must stop
+    # receiving frames and no participant's video may land in another's tile.
     qt_add_executable(sfu-video-router-test
         tests/SfuVideoRouterTest.cpp
         src/calls/SfuVideoRouter.cpp
@@ -3406,21 +3027,17 @@ if(BUILD_TESTING)
         PRIVATE Qt6::Core Qt6::Multimedia Qt6::Test)
     add_test(NAME sfu-video-router COMMAND sfu-video-router-test)
 
-    # Navigation layouts: SpaceChannelModel's flat, GLOBAL list of Space
-    # folders. The defects it exists to prevent are the ones the previous
-    # active-Space design shipped with — a layout that silently became the
-    # other layout at Home, and a subspace's rooms listed twice because the
-    # only available child accessor was TRANSITIVE.
+    # SpaceChannelModel's flat, global list of Space folders: the layout must
+    # not change at Home, and a subspace's rooms must not be listed twice (the
+    # SDK child accessor is transitive).
     qt_add_executable(space-channels-test
         tests/SpaceChannelsTest.cpp
         src/models/SpaceChannelModel.h
         src/models/SpaceChannelModel.cpp
         src/models/DirectAvatarResolver.h
         src/models/DirectAvatarResolver.cpp
-        # The rooms come from the CLIENT, not from RoomListModel: that model is
-        # scoped to the active Space and filtered by the chips, which would
-        # make this layout's global groups vanish the moment a Space was
-        # selected.
+        # Rooms come from the client, not RoomListModel, which is scoped to the
+        # active Space and filtered.
         src/spaces/SpaceManager.h
         src/spaces/SpaceManager.cpp
         src/spaces/RailLayoutStore.h
@@ -3437,12 +3054,9 @@ if(BUILD_TESTING)
     target_link_libraries(space-channels-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME space-channels COMMAND space-channels-test)
 
-    # 2026-08-23: the host/presenter SEPARATION. A source-scan suite on
-    # purpose — what it defends is which file contains what, which no runtime
-    # assertion can see. Chiefly: a presenter must never reach up into the
-    # host by id (the 2026-08-19 dead-click shape), only one presenter is
-    # instantiated, Channels never renders without a Space, and every new
-    # theme token is DERIVED rather than added to eleven palettes.
+    # Host/presenter separation, as a source scan because it is about which
+    # file contains what: presenters never reach the host by id, one presenter
+    # is instantiated, Channels needs a Space, and new theme tokens are derived.
     qt_add_executable(navigation-layout-contract-test
         tests/NavigationLayoutContractTest.cpp
     )
@@ -3454,11 +3068,9 @@ if(BUILD_TESTING)
     add_test(NAME navigation-layout-contract
              COMMAND navigation-layout-contract-test)
 
-    # 2026-08-23 MatrixRTC observation: the session store's op-id/room
-    # matching and generation isolation, poke coalescing (including a poke
-    # that lands during an in-flight read), slot-closed suppression, one
-    # face per person across devices, and the join-block reasons staying
-    # distinguishable.
+    # MatrixRTC session store: op-id/room matching, generation isolation, poke
+    # coalescing (including during an in-flight read), slot-closed
+    # suppression, one face per person, distinct join-block reasons.
     qt_add_executable(rtc-session-test
         tests/RtcSessionTest.cpp
         ${APP_LIB_SOURCES}
@@ -3469,7 +3081,7 @@ if(BUILD_TESTING)
     set_tests_properties(rtc-session PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.9.0: m.location (MSC3488) and live beacons (MSC3672).
+    # m.location (MSC3488) and live beacons (MSC3672).
     qt_add_executable(location-message-test
         tests/LocationMessageTest.cpp
         ${APP_LIB_SOURCES}
@@ -3480,8 +3092,7 @@ if(BUILD_TESTING)
     set_tests_properties(location-message PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.9.0: Mjolnir-style policy lists — op discipline, and the decision
-    # that following a list does not enforce it.
+    # Policy lists: op discipline, and following a list does not enforce it.
     qt_add_executable(policy-list-controller-test
         tests/PolicyListControllerTest.cpp
         ${APP_LIB_SOURCES}
@@ -3492,7 +3103,7 @@ if(BUILD_TESTING)
     set_tests_properties(policy-list-controller PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.9.0 MSC4108: the sign-in-another-device state machine.
+    # MSC4108: the sign-in-another-device state machine.
     qt_add_executable(qr-login-controller-test
         tests/QrLoginControllerTest.cpp
         ${APP_LIB_SOURCES}
@@ -3503,9 +3114,8 @@ if(BUILD_TESTING)
     set_tests_properties(qr-login-controller PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.9.0: the general load gate. A load-time QML error is invisible to
-    # qmlformat, to qmlcachegen and to every contract suite that reads source
-    # text — see the header of QmlComponentLoadTest.cpp.
+    # Load gate: load-time QML errors are invisible to qmlformat, qmlcachegen
+    # and source-scanning suites. See QmlComponentLoadTest.cpp.
     qt_add_executable(qml-component-load-test
         tests/QmlComponentLoadTest.cpp
         ${APP_LIB_SOURCES}
@@ -3518,8 +3128,8 @@ if(BUILD_TESTING)
     set_tests_properties(qml-component-load PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # 2026-08-18 round 2: incoming-call corner card contracts + a real
-    # offscreen instantiation against a live ringing CallController.
+    # Incoming-call card contracts plus a real offscreen instantiation against
+    # a ringing CallController.
     qt_add_executable(call-ui-contract-test
         tests/CallUiContractTest.cpp
         ${APP_LIB_SOURCES}
@@ -3533,9 +3143,8 @@ if(BUILD_TESTING)
     set_tests_properties(call-ui-contract PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # 2026-08-18 round 3: the REAL WebRTC handshake — two GstCallMediaBackend
-    # instances in one process (test-tone mode, no audio devices) complete a
-    # full ICE + DTLS-SRTP negotiation over loopback host candidates.
+    # A real WebRTC handshake: two GstCallMediaBackends in one process
+    # (test-tone mode) complete ICE + DTLS-SRTP over loopback.
     if(HAVE_LIGHTNING_WEBRTC)
         qt_add_executable(call-media-loopback-test
             tests/CallMediaLoopbackTest.cpp
@@ -3550,10 +3159,8 @@ if(BUILD_TESTING)
             Qt6::Core Qt6::Test PkgConfig::GSTWEBRTC)
         add_test(NAME call-media-loopback COMMAND call-media-loopback-test)
 
-            # 2026-09-08: the bundled-plugin rule, with no runtime required.
-        # Deliberately NOT in sfu-media-engine-test, which QSKIPs its whole
-        # suite when the SFU runtime is unavailable — and a skipped case
-        # reports as a pass through ctest, so it could never be trusted there.
+        # The bundled-plugin rule, needing no runtime. Kept out of
+        # sfu-media-engine-test, whose whole-suite QSKIP reports as a pass.
         qt_add_executable(gst-bootstrap-test
             tests/GstBootstrapTest.cpp
             src/calls/GstBootstrap.h
@@ -3564,12 +3171,8 @@ if(BUILD_TESTING)
             Qt6::Core Qt6::Test PkgConfig::GSTWEBRTC)
         add_test(NAME gst-bootstrap COMMAND gst-bootstrap-test)
 
-    # 2026-08-23: SfuMediaEngine had NO test while becoming the engine
-        # every call runs through — the .well-known discovery fix turned it
-        # from unreachable into the default path in one commit, and the next
-        # real run died instantly on pressing call. Test-source mode only:
-        # this exercises pipeline construction, the crypto pad probes and
-        # teardown, not the network.
+        # SfuMediaEngine in test-source mode: pipeline construction, the crypto
+        # pad probes and teardown, not the network.
         qt_add_executable(sfu-media-engine-test
             tests/SfuMediaEngineTest.cpp
             src/calls/GstBootstrap.h
@@ -3593,18 +3196,15 @@ if(BUILD_TESTING)
         target_compile_definitions(sfu-media-engine-test PRIVATE
             HAVE_LIGHTNING_WEBRTC
             "LIGHTNING_SFU_ENGINE_SOURCE=\"${CMAKE_CURRENT_SOURCE_DIR}/src/calls/SfuMediaEngine.cpp\""
-            # The gst_init ORDERING check reads both backends and the shared
-            # bootstrap: which function runs first cannot be observed from
-            # inside a process that has already initialised GStreamer.
+            # The gst_init ordering check reads the sources: ordering cannot be
+            # observed after GStreamer is initialised.
             "SOURCE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
         target_link_libraries(sfu-media-engine-test PRIVATE
             Qt6::Core Qt6::Multimedia Qt6::Test
             PkgConfig::GSTWEBRTC OpenSSL::Crypto)
-        # A REAL call against a REAL homeserver, headless. Needs the Rust
-        # backend (it logs in and syncs), so it is only built with it, and it
-        # SKIPS unless the LIGHTNING_LIVE_* environment names a server, an
-        # account and a room. Registered so it is built and kept compiling;
-        # inert without credentials.
+        # A real call against a real homeserver, headless. Needs the Rust
+        # backend and skips unless LIGHTNING_LIVE_* names a server, account and
+        # room; registered so it keeps compiling.
         if(ENABLE_RUST_SDK_BACKEND)
             qt_add_executable(call-live-diagnostic-test
                 tests/CallLiveDiagnostic.cpp
@@ -3624,9 +3224,8 @@ if(BUILD_TESTING)
         set_tests_properties(call-media-loopback PROPERTIES TIMEOUT 120)
     endif()
 
-    # v0.6.0: SDK-backed thread foundation — lifecycle (open/close/switch),
-    # root/reply identity via the composite timeline id, failure states,
-    # thread-only send path, encrypted-thread fixtures, participants.
+    # SDK thread foundation: lifecycle, root/reply identity via the composite
+    # timeline id, failure states, thread-only send path, encrypted threads.
     qt_add_executable(thread-controller-test
         tests/ThreadControllerTest.cpp
         src/threads/ThreadController.h
@@ -3649,8 +3248,7 @@ if(BUILD_TESTING)
         src/models/AttachmentQueueModel.cpp
         src/media/StagedImageStore.h
         src/media/StagedImageStore.cpp
-        # v0.7: see attachment-queue-test — the poster hook keeps this
-        # suite free of any real media backend.
+        # The poster hook keeps this suite free of a real media backend.
         src/media/VideoPosterExtractor.h
         src/media/VideoPosterExtractor.cpp
         src/matrix/MatrixClient.h
@@ -3663,7 +3261,7 @@ if(BUILD_TESTING)
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
         src/storage/PortableMode.cpp
-        # v0.7.x: ThreadController's draft hooks pull in the store.
+        # ThreadController's draft hooks pull in the store.
         src/app/DraftStore.h
         src/app/DraftStore.cpp
     )
@@ -3672,9 +3270,8 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Qml Qt6::Test)
     add_test(NAME thread-controller COMMAND thread-controller-test)
 
-    # v0.6.0 checkpoint 7: read-only E2EE health model — readiness states,
-    # tri-state trust, backup/recovery distinctions, generation isolation,
-    # and the no-secrets contract.
+    # Read-only E2EE health model: readiness, tri-state trust, backup/recovery
+    # distinctions, generation isolation, no secrets.
     qt_add_executable(crypto-health-model-test
         tests/CryptoHealthModelTest.cpp
         src/crypto/CryptoHealthModel.h
@@ -3685,9 +3282,8 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME crypto-health-model COMMAND crypto-health-model-test)
 
-    # B011: the policy half of "this device can never decrypt anything" —
-    # the tri-state latch (Unknown is neither a fault nor a clearance) and
-    # the re-check rate limit that keeps the /keys/query backstop cheap.
+    # "This device can never decrypt" policy: the tri-state latch (Unknown is
+    # neither fault nor clearance) and the /keys/query re-check rate limit.
     qt_add_executable(own-device-key-watch-test
         tests/OwnDeviceKeyWatchTest.cpp
         src/crypto/OwnDeviceKeyWatch.h
@@ -3698,9 +3294,8 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Test)
     add_test(NAME own-device-key-watch COMMAND own-device-key-watch-test)
 
-    # v0.7: verified-session bootstrap status state machine — phase
-    # derivation from sanitized SDK state streams, key-count accumulation,
-    # idempotency, and per-session reset isolation.
+    # Session bootstrap status: phase derivation from sanitized SDK state, key
+    # counts, idempotency, per-session reset.
     qt_add_executable(crypto-bootstrap-model-test
         tests/CryptoBootstrapModelTest.cpp
         src/crypto/CryptoBootstrapModel.h
@@ -3726,10 +3321,9 @@ if(BUILD_TESTING)
     set_tests_properties(verification-flow PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # THE ROW'S RIGHT RAIL IS SHARED. Geometric cases over the real
-    # MessageDelegate: the hover action bar must end before the read-receipt
-    # facepile begins on a short row, and must keep the row's corner on a
-    # tall one. Reported 2026-09-14 as avatars sitting on the bar's buttons.
+    # The row's right rail is shared: geometric cases over the real
+    # MessageDelegate check that the hover bar ends before the receipt
+    # facepile on a short row and keeps the corner on a tall one.
     qt_add_executable(message-rail-collision-test
         tests/MessageRailCollisionTest.cpp
     )
@@ -3739,12 +3333,9 @@ if(BUILD_TESTING)
     set_tests_properties(message-rail-collision PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # A restore that could not reach the homeserver must READ as offline.
-    # Setting the state once at login_ok is not enough: startSync() and the
-    # sync lane's own "starting" both report Syncing on the way to a server
-    # that is not there, and AppController renders that as "Loading rooms..."
-    # over a room list that is already complete. Drives the real event
-    # dispatcher; no FFI handle, no store, no network.
+    # A restore that cannot reach the homeserver must read as offline, even
+    # though startSync() and the sync lane report Syncing on the way. Drives
+    # the real event dispatcher; no FFI handle, store or network.
     if(ENABLE_RUST_SDK_BACKEND)
         qt_add_executable(offline-restore-state-test
             tests/OfflineRestoreStateTest.cpp
@@ -3755,11 +3346,9 @@ if(BUILD_TESTING)
         set_tests_properties(offline-restore-state PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-        # A field the Rust lane computes and the bridge forgets to carry is
-        # invisible to every test that drives a fake client, because the fake
-        # emits the signal itself. `delayed_category` was dropped that way and
-        # nothing could see it. Drives the real dispatcher with the real
-        # payload; no FFI handle, no store, no network.
+        # Fields the Rust lane computes must survive the bridge; a fake client
+        # emits signals itself and cannot see a dropped field. Drives the real
+        # dispatcher with the real payload.
         qt_add_executable(rtc-bridge-payload-test
             tests/RtcBridgePayloadTest.cpp
         )
@@ -3769,11 +3358,8 @@ if(BUILD_TESTING)
         set_tests_properties(rtc-bridge-payload PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-        # An image sent to a room with no timeline open produced no
-        # notification and no Activity row: the live-sync handler dropped
-        # every media msgtype, and the bridge's own private copy of the
-        # msgtype mapping called whatever survived a plain text message.
-        # Drives the real dispatcher; no FFI handle, no store, no network.
+        # Media messages from live sync must produce notifications and Activity
+        # rows with the right msgtype. Drives the real dispatcher.
         qt_add_executable(sync-message-row-test
             tests/SyncMessageRowTest.cpp
         )
@@ -3783,10 +3369,8 @@ if(BUILD_TESTING)
         set_tests_properties(sync-message-row PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-        # A call must never quietly downgrade an encrypted room to cleartext.
-        # A stale room-list read said "not encrypted" for a room that was,
-        # and the call then published media in the clear while the peer ran
-        # its decryptor over it. Pure unit test: no network, no media.
+        # A call must never downgrade an encrypted room to cleartext on a stale
+        # room-list read. Pure unit test.
         qt_add_executable(call-encryption-state-test
             tests/CallEncryptionStateTest.cpp
         )
@@ -3797,12 +3381,10 @@ if(BUILD_TESTING)
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
 
-    # B011: a device whose published identity key is not its own can never
-    # decrypt anything, and used to say nothing at all. Covers the answer
-    # reaching the application layer as durable state, the tri-state that
-    # keeps "could not be established" from reading as "broken", the corner
-    # card that explains it and offers the sign-out repair with its honest
-    # cost, and the timeline row that stops promising an endless wait.
+    # A device whose published identity key is not its own can never decrypt.
+    # Covers the durable state, the tri-state that keeps "unknown" from reading
+    # as "broken", the corner card and its sign-out repair, and the timeline
+    # row that stops promising an endless wait.
     qt_add_executable(encryption-identity-fault-test
         tests/EncryptionIdentityFaultTest.cpp
         ${APP_LIB_SOURCES}
@@ -3830,10 +3412,9 @@ if(BUILD_TESTING)
     set_tests_properties(qr-image-provider PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # The show-QR panel inside the REAL SettingsScreen verification card:
-    # present only while the SDK has a live code, opaque provider URL (no
-    # flow id), the confirm prompt gated on the SDK's scan report, and the
-    # panel retiring on dismissal and on completion. Zero QML warnings.
+    # The show-QR panel in the real SettingsScreen card: shown only while the
+    # SDK has a live code, opaque provider URL, confirm gated on the SDK's scan
+    # report, retired on dismissal and completion. Zero QML warnings.
     qt_add_executable(verification-qr-qml-test
         tests/VerificationQrQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -3844,14 +3425,10 @@ if(BUILD_TESTING)
     set_tests_properties(verification-qr-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # Server-synchronized per-room notification modes: the AppController
-    # entry point (cache-first write, capability-gated server write and
-    # refresh), account-scoped SettingsManager storage with legacy-key
-    # fallback (mode 0 removes the scoped key only when no legacy value
-    # shadows it), and cache reconciliation from USER-DEFINED backend
-    # reports only — gated by the per-room sync-failure state (a differing
-    # report never overrides an unsynced local choice).
-    # Rust-backend slots QSKIP without ENABLE_RUST_SDK_BACKEND.
+    # Server-synchronised per-room notification modes: the AppController entry
+    # point, account-scoped storage with legacy-key fallback, and
+    # reconciliation from user-defined backend reports that never overrides an
+    # unsynced local choice. Rust-backend slots QSKIP without the Rust backend.
     qt_add_executable(room-notification-mode-test
         tests/RoomNotificationModeTest.cpp
         ${APP_LIB_SOURCES}
@@ -3860,9 +3437,8 @@ if(BUILD_TESTING)
     target_link_libraries(room-notification-mode-test PRIVATE Qt6::Test)
     add_test(NAME room-notification-mode COMMAND room-notification-mode-test)
 
-    # v0.7 thread parity: ownership of the single shared VoiceRecorder.
-    # Pins that a live recording is refused-not-stolen, which is what keeps
-    # the microphone from being orphaned with no owner and no UI to stop it.
+    # Ownership of the shared VoiceRecorder: a live recording is refused, not
+    # stolen, so the microphone is never orphaned.
     qt_add_executable(voice-ownership-test
         tests/VoiceOwnershipTest.cpp
         ${APP_LIB_SOURCES}
@@ -3873,9 +3449,8 @@ if(BUILD_TESTING)
     set_tests_properties(room-notification-mode PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # One-line semantic event summaries for side surfaces (room list,
-    # notifications): poll fallbacks, mention markdown, newline collapse,
-    # bounded length. Pins the multi-line poll room-row regression.
+    # One-line event summaries for the room list and notifications: poll
+    # fallbacks, mention markdown, newline collapse, bounded length.
     qt_add_executable(event-preview-test
         tests/EventPreviewTest.cpp
         src/matrix/EventPreview.h
@@ -3885,9 +3460,8 @@ if(BUILD_TESTING)
     target_link_libraries(event-preview-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME event-preview COMMAND event-preview-test)
 
-    # v0.6.0 checkpoint 11: the pure notification decision policy — privacy
-    # modes, mention metadata, local room modes, active-room suppression,
-    # never-expose-ciphertext.
+    # Notification decision policy: privacy modes, mention metadata, room
+    # modes, active-room suppression, never exposing ciphertext.
     qt_add_executable(notification-manager-test
         tests/NotificationManagerTest.cpp
         src/notifications/NotificationManager.h
@@ -3916,35 +3490,23 @@ if(BUILD_TESTING)
             PRIVATE HAVE_QT_DBUS=1)
     endif()
     add_test(NAME notification-manager COMMAND notification-manager-test)
-    # THE DAEMON'S ABSENCE IS A PROPERTY OF THE TEST, NOT OF THE HOST.
-    #
-    # The call cases have asserted since 2026-08-18 that "the DBus daemon is
-    # absent here", which is true in CI and FALSE on a KDE desktop — the same
-    # binary would take the daemon branch there, so the tray-fallback case
-    # would pass or fail depending on whose machine ran it. Point the session
-    # bus at an address nothing is listening on. QDBusConnection caches the
-    # connection per thread on first use, so this has to be the environment
-    # rather than anything a case can do.
+    # Point the session bus at a dead address so the tray-fallback cases behave
+    # the same on a desktop with a notification daemon as in CI. QDBusConnection
+    # caches per thread, so this must be the environment.
     set_tests_properties(notification-manager PROPERTIES
         ENVIRONMENT "DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/lightning-no-daemon")
 
-    # v0.5.11: safe link previews — URL extraction with scheme allow-list,
-    # GIF MIME classification, encrypted-room privacy gating, bounded cache,
-    # stale rejection, settings defaults.
+    # Link previews: URL extraction with a scheme allow-list, GIF MIME, encrypted
+    # room gating, bounded cache, stale rejection, settings defaults.
     qt_add_executable(link-preview-test
         tests/LinkPreviewTest.cpp
         src/models/LinkPreview.h
         src/models/LinkPreview.cpp
         src/models/LinkPreviewController.h
         src/models/LinkPreviewController.cpp
-        # Not a link-preview dependency, despite the name of the class that
-        # pulls it in: LinkPreviewController::linkifiedBody() is the TIMELINE
-        # BODY renderer for a message with no formatted_body (MessageDelegate
-        # binds bodyLabel.text to it), and it sizes inline emoji through
-        # MessageHtml::markEmoji for the same reason sanitize() does — so the
-        # two body paths cannot show one emoji at two sizes. MessageHtml is
-        # Qt6::Core only, so this adds no library to a target that links
-        # Qt6::Core alone.
+        # LinkPreviewController::linkifiedBody() is also the timeline body
+        # renderer for plain messages and sizes emoji through
+        # MessageHtml::markEmoji like sanitize() does. Qt6::Core only.
         src/models/MessageHtml.h
         src/models/MessageHtml.cpp
         src/app/SettingsManager.h
@@ -3959,8 +3521,8 @@ if(BUILD_TESTING)
     target_link_libraries(link-preview-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME link-preview COMMAND link-preview-test)
 
-    # v0.5.11: avatar/media request layer — dedup, per-size keys, bounded
-    # LRU, sign-out stale rejection, failure marking with explicit retry.
+    # Avatar/media requests: dedup, per-size keys, bounded LRU, sign-out stale
+    # rejection, failure marking with explicit retry.
     qt_add_executable(media-bridge-test
         tests/MediaBridgeTest.cpp
         src/media/MediaBridge.h
@@ -3977,23 +3539,19 @@ if(BUILD_TESTING)
         src/matrix/MatrixClient.cpp
     )
     target_include_directories(media-bridge-test PRIVATE src)
-    # Gui/Multimedia only for the poster extractor MediaBridge now owns;
-    # tests never construct it (lazy), so no multimedia backend spins up.
-    # Quick for MediaImageProvider: the decode-bound cases call requestImage
-    # directly. No window or scene graph is created.
+    # Gui/Multimedia for MediaBridge's lazily constructed poster extractor;
+    # Quick for MediaImageProvider (requestImage is called directly, no window).
     target_link_libraries(media-bridge-test
         PRIVATE Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Quick Qt6::Test)
     add_test(NAME media-bridge COMMAND media-bridge-test)
 
-    # v0.7 voice round: waveform bucket math (max-preserving downsample,
-    # loudness normalization, bounds) — pure static helper, no audio
-    # backend is ever constructed.
+    # Waveform bucket math: max-preserving downsample, normalisation, bounds.
     qt_add_executable(voice-recorder-test
         tests/VoiceRecorderTest.cpp
         src/media/VoiceRecorder.h
         src/media/VoiceRecorder.cpp
-        # mediaScratchRoot(): the recorder writes into the portable
-        # folder when portable, the OS temp directory otherwise.
+        # mediaScratchRoot(): the portable folder when portable, else the OS
+        # temp directory.
         src/storage/PortableMode.cpp
     )
     target_include_directories(voice-recorder-test PRIVATE src)
@@ -4001,8 +3559,8 @@ if(BUILD_TESTING)
         PRIVATE Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
     add_test(NAME voice-recorder COMMAND voice-recorder-test)
 
-    # v0.7: shared inline-playback coordinator — single audible owner,
-    # owner-checked release, stopAll generation for room/account switches.
+    # Inline playback coordinator: one audible owner, owner-checked release,
+    # stopAll generation for room/account switches.
     qt_add_executable(media-playback-controller-test
         tests/MediaPlaybackControllerTest.cpp
         src/media/MediaPlaybackController.h
@@ -4014,9 +3572,8 @@ if(BUILD_TESTING)
     add_test(NAME media-playback-controller
              COMMAND media-playback-controller-test)
 
-    # v0.5.11: bare-localpart user lookup — candidate derivation from the
-    # authenticated account's server, profile confirmation before exposure,
-    # merge deduplication with provenance, stale-result rejection.
+    # Bare-localpart user lookup: candidates from the account's server, profile
+    # confirmation before exposure, dedup with provenance, stale rejection.
     qt_add_executable(user-lookup-test
         tests/UserLookupTest.cpp
         src/models/UserSearchModel.h
@@ -4030,8 +3587,8 @@ if(BUILD_TESTING)
     target_link_libraries(user-lookup-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME user-lookup COMMAND user-lookup-test)
 
-    # v0.5.11: backward-pagination policy — single-flight, viewport-fill
-    # budget, no-progress stop, retry, stale room/reset/sign-out isolation.
+    # Backward pagination: single flight, viewport-fill budget, no-progress
+    # stop, retry, stale room/reset/sign-out isolation.
     qt_add_executable(pagination-controller-test
         tests/PaginationControllerTest.cpp
         src/models/PaginationController.h
@@ -4051,9 +3608,8 @@ if(BUILD_TESTING)
     target_link_libraries(pagination-controller-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME pagination-controller COMMAND pagination-controller-test)
 
-    # v0.5.19: device-aware wheel-scroll math — per-notch distance/ordering,
-    # coalescing, partial-delta accumulation, direction reversal, pixel vs
-    # angle distinction, bound clamping, motion cancellation.
+    # Wheel-scroll math: per-notch distance, coalescing, partial deltas,
+    # reversal, pixel vs angle, clamping, cancellation.
     qt_add_executable(timeline-scroll-controller-test
         tests/TimelineScrollControllerTest.cpp
         src/models/TimelineScrollController.h
@@ -4064,8 +3620,8 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME timeline-scroll-controller COMMAND timeline-scroll-controller-test)
 
-    # v0.5.11: automatic read receipts — visibility conjunction, debounce
-    # cancellation, eligibility, duplicate suppression, ordering.
+    # Automatic read receipts: visibility, debounce, eligibility, duplicate
+    # suppression, ordering.
     qt_add_executable(read-receipt-coordinator-test
         tests/ReadReceiptCoordinatorTest.cpp
         src/models/ReadReceiptCoordinator.h
@@ -4106,8 +3662,8 @@ if(BUILD_TESTING)
     target_link_libraries(room-state-model-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-state-model COMMAND room-state-model-test)
 
-    # v0.6.5: matrix.to room permalink formatting (1d Copy room link) —
-    # alias preferred, id fallback, messagePermalink's encoding convention.
+    # matrix.to room permalinks: alias preferred, id fallback, same encoding as
+    # messagePermalink.
     qt_add_executable(room-permalink-test
         tests/RoomPermalinkTest.cpp
         src/models/RoomListModel.h
@@ -4125,12 +3681,8 @@ if(BUILD_TESTING)
     target_link_libraries(room-permalink-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-permalink COMMAND room-permalink-test)
 
-    # WHICH APPLICATIONS A SHARE'S AUDIO CARRIES, and the one that must never
-    # be in it: ourselves. The decision is a pure function over a PipeWire
-    # property map, so it is tested with no PipeWire, no GStreamer and no
-    # call — which is the only reason this fix has any coverage at all, since
-    # the echo it removes can only be observed from the far end of a real
-    # two-party call.
+    # Which applications a share's audio carries, never ourselves. A pure
+    # function over PipeWire properties, testable without PipeWire or a call.
     qt_add_executable(share-audio-sources-test
         tests/ShareAudioSourcesTest.cpp
         src/calls/ShareAudioSources.h
@@ -4140,16 +3692,10 @@ if(BUILD_TESTING)
     target_link_libraries(share-audio-sources-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME share-audio-sources COMMAND share-audio-sources-test)
 
-    # Unified inbox: recognising which bridged network a conversation belongs
-    # to from a ghost user id or a portal alias. The negatives carry the
-    # weight — mislabelling an ordinary contact with an underscore in their
-    # localpart is worse than showing no badge.
-    #
-    # 2026-09-06: it also covers the MSC2346 answer that supplements that
-    # inference, which is why the room list is linked in. The inference can
-    # only ever answer for a DM (it needs `m.direct` or a portal alias), so
-    # the case that matters — a bridged GROUP getting a badge at all — is not
-    # a string question and cannot be tested on the pure functions alone.
+    # Bridged-network recognition from ghost user ids and portal aliases; the
+    # negatives matter most (a false badge is worse than none). Also covers
+    # the MSC2346 answer, which needs the room list because only it can badge
+    # a bridged group.
     qt_add_executable(bridge-network-test
         tests/BridgeNetworkTest.cpp
         src/matrix/BridgeNetwork.h
@@ -4167,8 +3713,8 @@ if(BUILD_TESTING)
     target_link_libraries(bridge-network-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME bridge-network COMMAND bridge-network-test)
 
-    # v0.6.1: quick switcher result model — matching, categories, bounded
-    # results, routing payload, logout clearing.
+    # Quick switcher model: matching, categories, bounded results, routing
+    # payload, logout clearing.
     qt_add_executable(quick-switcher-test
         tests/QuickSwitcherTest.cpp
         src/models/QuickSwitcherModel.h
@@ -4189,9 +3735,8 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME quick-switcher COMMAND quick-switcher-test)
 
-    # v0.7.x Matrix presence: PresenceManager policy — watch bookkeeping,
-    # batch application, unknown-vs-offline honesty, the disabled-server
-    # latch, session clearing, publication gating, batch rotation.
+    # PresenceManager policy: watch bookkeeping, batches, unknown vs offline,
+    # the disabled-server latch, session clearing, publication gating.
     qt_add_executable(presence-manager-test
         tests/PresenceManagerTest.cpp
         src/presence/PresenceManager.h
@@ -4213,9 +3758,8 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME presence-manager COMMAND presence-manager-test)
 
-    # Profile banners (MSC4427 over MSC4133): the policy half. "No banner",
-    # "not asked yet" and "this server has no extended profiles" are three
-    # different facts that all render as nothing.
+    # Profile banners (MSC4427 over MSC4133), policy half: "no banner", "not
+    # asked yet" and "server has no extended profiles" are distinct states.
     qt_add_executable(profile-banner-test
         tests/ProfileBannerTest.cpp
         src/profile/ProfileBannerManager.h
@@ -4238,10 +3782,9 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME profile-banner COMMAND profile-banner-test)
 
-    # Profile bios (MSC4440 over MSC4133) + the decorative badge table. Same
-    # honesty as banners: "no bio", "not asked yet" and "this server has no
-    # extended profiles" are three different facts that all render as nothing,
-    # and only the third stops the client asking.
+    # Profile bios (MSC4440 over MSC4133) and the badge table. As with banners,
+    # three empty states stay distinct; only "no extended profiles" stops the
+    # client asking.
     qt_add_executable(profile-bio-badge-test
         tests/ProfileBioBadgeTest.cpp
         src/profile/ProfileBioManager.h
@@ -4264,8 +3807,7 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME profile-bio-badge COMMAND profile-bio-badge-test)
 
-    # v0.6.1: E2EE diagnostics redaction — never reveals full ids, stable for
-    # correlation.
+    # E2EE diagnostics redaction: never full ids, stable for correlation.
     qt_add_executable(e2ee-diagnostics-test
         tests/E2eeDiagnosticsTest.cpp
         src/crypto/E2eeDiagnostics.h
@@ -4275,8 +3817,8 @@ if(BUILD_TESTING)
     target_link_libraries(e2ee-diagnostics-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME e2ee-diagnostics COMMAND e2ee-diagnostics-test)
 
-    # v0.7 design shell: interface-chrome icon hygiene (no emoji as chrome,
-    # every Icon name mapped, subset font shipped).
+    # Chrome icon hygiene: no emoji as chrome, every Icon name mapped, subset
+    # font shipped.
     qt_add_executable(icon-chrome-test
         tests/IconChromeTest.cpp
     )
@@ -4286,10 +3828,9 @@ if(BUILD_TESTING)
     target_link_libraries(icon-chrome-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME icon-chrome COMMAND icon-chrome-test)
 
-    # 0.8.x: the crop/adjust pre-step every display-image upload goes through.
-    # The maths is pure and lives in `imagecrop::`; this proves the rectangle,
-    # the cap and the FORMAT HONESTY (bytes are the format they are named) and
-    # that an SVG is refused by magic before anything decodes it.
+    # The crop/adjust step for display-image uploads (`imagecrop::`): the
+    # rectangle, the size cap, bytes matching their named format, and SVG
+    # refused by magic before decoding.
     qt_add_executable(image-crop-test
         tests/ImageCropTest.cpp
         src/media/ImageCropper.h
@@ -4304,9 +3845,8 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME image-crop COMMAND image-crop-test)
 
-    # 0.8.x: the wiring contract — ONE crop dialog, every display-image upload
-    # site routed through it, and the sites deliberately left alone (chat
-    # attachments, Save-As, the local app icon) still left alone.
+    # Crop wiring: one crop dialog, every display-image upload routed through
+    # it, and chat attachments, Save-As and the local app icon left alone.
     qt_add_executable(image-crop-contract-test
         tests/ImageCropDialogContractTest.cpp
     )
@@ -4315,8 +3855,8 @@ if(BUILD_TESTING)
     target_link_libraries(image-crop-contract-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME image-crop-contract COMMAND image-crop-contract-test)
 
-    # v0.7: desktop-integration contract (launcher entry, hicolor icons,
-    # install rules, Qt identity wiring).
+    # Desktop integration: launcher entry, hicolor icons, install rules, Qt
+    # identity wiring.
     qt_add_executable(desktop-integration-test
         tests/DesktopIntegrationTest.cpp
     )
@@ -4326,12 +3866,9 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME desktop-integration COMMAND desktop-integration-test)
 
-    # v0.7: offscreen visual-verification suite. Renders each design theme on
-    # a representative Fusion-styled surface set (swatches + Button + TextField
-    # + open ComboBox popup + initials avatar), grabs deterministic PNG
-    # snapshots as artifacts, and asserts sampled pixels match each theme's own
-    # tokens — proving themes switch cleanly and popups inherit the themed
-    # palette (the dropdown-goes-wrong-colour regression) without a display.
+    # Offscreen visual verification: renders each theme on representative
+    # controls (including an open ComboBox popup), saves PNG snapshots and
+    # checks sampled pixels against the theme's tokens.
     qt_add_executable(theme-snapshot-test
         tests/ThemeSnapshotTest.cpp
         ${APP_LIB_SOURCES}
@@ -4342,11 +3879,8 @@ if(BUILD_TESTING)
     set_tests_properties(theme-snapshot PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;LIGHTNING_SNAPSHOT_DIR=${CMAKE_CURRENT_BINARY_DIR}/snapshots")
 
-    # Whole-shell design acceptance: renders the real MainScreen in a window
-    # (mock backend, bundled fonts) across the three design themes and
-    # representative sizes, saves PNG snapshots, and asserts rendered
-    # geometry (340px thread panel, composer placement) and token-sampled
-    # pixels.
+    # Whole-shell acceptance: renders the real MainScreen per theme and size,
+    # saves PNGs, and asserts geometry and token-sampled pixels.
     qt_add_executable(design-acceptance-test
         tests/DesignAcceptanceTest.cpp
         ${APP_LIB_SOURCES}
@@ -4357,31 +3891,27 @@ if(BUILD_TESTING)
     set_tests_properties(design-acceptance PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;LIGHTNING_SNAPSHOT_DIR=${CMAKE_CURRENT_BINARY_DIR}/snapshots")
 
-    # In-shell Settings (correction spec §3): rail/room list stay, timeline
-    # region swaps, header + gear chip states, featured theme cards with
-    # fixed palettes, instant theme switching, functional layout/text-size
-    # controls, close restores chat.
+    # In-shell Settings: rail and room list stay, the timeline region swaps,
+    # theme cards, instant theme switching, layout/text-size controls, close
+    # restores chat.
     qt_add_executable(settings-shell-qml-test
         tests/SettingsShellQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
     lightning_configure_qml_test(settings-shell-qml-test)
     target_link_libraries(settings-shell-qml-test PRIVATE Qt6::Test)
-    # The SOURCE qml directory, so a case can compare two files that must
-    # agree. The engine here loads the COMPILED module, which cannot answer
-    # "does QuickSwitcher's hand-kept section list still match the nav rows".
+    # The source qml directory, for cases that compare two files which must
+    # agree; the engine only sees the compiled module.
     target_compile_definitions(settings-shell-qml-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     add_test(NAME settings-shell-qml COMMAND settings-shell-qml-test)
     set_tests_properties(settings-shell-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # Login-screen session repair: the classified failure card replaces the
-    # old single-message dead end. Asserts the repair is invocable with ZERO
-    # typing (the old button read an empty user field and could not run),
-    # that it targets the account that actually failed rather than the active
-    # one, per-reason action sets, destructive confirmation naming the
-    # account, and that raw form text no longer drives a reset.
+    # Login-screen session repair: the failure card offers a repair that needs
+    # no typing, targets the account that failed, varies actions by reason,
+    # confirms destructive steps by account name, and never resets from raw
+    # form text.
     qt_add_executable(login-repair-qml-test
         tests/LoginRepairQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -4394,9 +3924,8 @@ if(BUILD_TESTING)
     set_tests_properties(login-repair-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # Rebuilt main composer (SPEC §2): one card, toolbar row over input row,
-    # exact control order/geometry, borderless input, markdown round-trip,
-    # theme-tracked card pixels, zero QML warnings.
+    # Main composer: one card, toolbar over input, control order and geometry,
+    # markdown round trip, theme-tracked pixels, zero QML warnings.
     qt_add_executable(composer-qml-test
         tests/ComposerQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -4407,11 +3936,9 @@ if(BUILD_TESTING)
     set_tests_properties(composer-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # 2026-08-18 tester report (Element chat export): the Home surface's
-    # buttons actually fire, reactions wrap, a redacted message cannot be
-    # pinned, Alt+V opens skin tones, a clicked room link does not flash a
-    # modal, voice recording has pause/done/preview, the timeline has
-    # middle-click autoscroll, and the audio card fits and remembers.
+    # Home buttons fire, reactions wrap, redacted messages cannot be pinned,
+    # Alt+V opens skin tones, room links do not flash a modal, voice recording
+    # pause/done/preview, middle-click autoscroll, the audio card.
     qt_add_executable(tester-report-fixes-test
         tests/TesterReportFixesTest.cpp
         ${APP_LIB_SOURCES}
@@ -4419,17 +3946,15 @@ if(BUILD_TESTING)
     lightning_configure_qml_test(tester-report-fixes-test)
     target_compile_definitions(tester-report-fixes-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
-        # Some reported defects live in C++ lifecycle rather than in QML —
-        # the 2026-09-20 room-rebuild storm was one.
+        # Some cases cover C++ lifecycle rather than QML.
         LIGHTNING_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(tester-report-fixes-test PRIVATE Qt6::Test)
     add_test(NAME tester-report-fixes COMMAND tester-report-fixes-test)
     set_tests_properties(tester-report-fixes PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # 2026-08-18 tester report: the shell must stay usable at the app's own
-    # minimum window size — the composer keeps a readable width and still
-    # grows with a multi-line draft in a short window.
+    # At the minimum window size the composer keeps a readable width and still
+    # grows with a multi-line draft.
     qt_add_executable(narrow-shell-layout-test
         tests/NarrowShellLayoutTest.cpp
         ${APP_LIB_SOURCES}
@@ -4440,11 +3965,10 @@ if(BUILD_TESTING)
     set_tests_properties(narrow-shell-layout PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # Creation UX (New Conversation / Create Room / Create Space dialog):
-    # per-tab instantiation (the Space tab must instantiate NO encryption
-    # control), shared-search clearing + focus handoff on tab switch, name
-    # validation gating, busy/error states, existing-DM reuse ordering, and
-    # keyboard result selection.
+    # New Conversation / Create Room / Create Space dialog: per-tab
+    # instantiation (no encryption control on the Space tab), search clearing
+    # and focus on tab switch, name validation, busy/error states, existing-DM
+    # reuse, keyboard selection.
     qt_add_executable(creation-dialog-qml-test
         tests/CreationDialogQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -4455,9 +3979,8 @@ if(BUILD_TESTING)
     set_tests_properties(creation-dialog-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # Startup platform guard: the DISPLAY / WAYLAND_DISPLAY preflight is an
-    # X11/Wayland concept and must fire only on Unix-like non-macOS platforms.
-    # Header-only pure predicate, so no app sources are linked.
+    # The DISPLAY / WAYLAND_DISPLAY preflight fires only on Unix-like
+    # non-macOS platforms. Header-only predicate.
     qt_add_executable(startup-checks-test
         tests/StartupChecksTest.cpp
         src/app/StartupChecks.h
@@ -4466,9 +3989,8 @@ if(BUILD_TESTING)
     target_link_libraries(startup-checks-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME startup-checks COMMAND startup-checks-test)
 
-    # Compiled default backend (Rust when the SDK backend is built, else HTTP)
-    # and --backend=NAME parsing. Includes AppController.h for the enum only —
-    # no app sources are linked, just the header's inline/constexpr helpers.
+    # Compiled default backend and --backend=NAME parsing. Uses only
+    # AppController.h's inline helpers; no app sources are linked.
     qt_add_executable(backend-selection-test
         tests/BackendSelectionTest.cpp
         src/app/BackendSelection.h
@@ -4483,10 +4005,8 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME backend-selection COMMAND backend-selection-test)
 
-    # Production-exclusion contract for the development-only screenshot demo:
-    # runs the real lightning-matrix binary and asserts --build-info's
-    # screenshot_demo_compiled line and (when the option is OFF, i.e. every
-    # release/default build) that --screenshot-demo is rejected in preflight.
+    # Runs the real binary: --build-info reports screenshot_demo_compiled, and
+    # with the option off --screenshot-demo is rejected in preflight.
     qt_add_executable(screenshot-demo-exclusion-test
         tests/ScreenshotDemoExclusionTest.cpp
     )
@@ -4500,12 +4020,8 @@ if(BUILD_TESTING)
     add_dependencies(screenshot-demo-exclusion-test lightning-matrix)
     add_test(NAME screenshot-demo-exclusion COMMAND screenshot-demo-exclusion-test)
 
-    # --log-file / --console contract, asserted against the REAL binary.
-    # src/main.cpp defines main() and cannot be linked into a test, and a
-    # source scan cannot see what a binary does with an argument vector: both
-    # defects this pins (a --log-file standing after a flag that exits created
-    # no file at all; the status commands' printed output never reached the
-    # file) shipped through a tree whose scans were green.
+    # --log-file / --console, asserted against the real binary: main.cpp cannot
+    # be linked into a test and a source scan cannot see argument handling.
     qt_add_executable(diagnostic-output-test
         tests/DiagnosticOutputTest.cpp
     )
@@ -4515,10 +4031,8 @@ if(BUILD_TESTING)
     add_dependencies(diagnostic-output-test lightning-matrix)
     add_test(NAME diagnostic-output COMMAND diagnostic-output-test)
 
-    # Development-only screenshot-demo DATASET contract: structure (Spaces,
-    # required room types, poll, thread), determinism (stable ids + fixed
-    # clock), and safety (only fictional *.example identities). Exercises
-    # MockMatrixClient::setScreenshotDemoMode directly.
+    # Development-only demo dataset: structure, determinism (stable ids, fixed
+    # clock), and only fictional *.example identities.
     qt_add_executable(screenshot-demo-data-test
         tests/ScreenshotDemoDataTest.cpp
         src/matrix/MatrixClient.h
@@ -4536,13 +4050,10 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME screenshot-demo-data COMMAND screenshot-demo-data-test)
 
-    # Development-only screenshot-demo MULTI-ACCOUNT contract: the three
-    # fictional accounts, deterministic order + *.example identities, account-
-    # local dataset isolation with mutation survival, deterministic reset, and
-    # the in-memory (never production/libsecret) SecretStore. Drives a real
-    # AppController(MockBackend, screenshotDemo=true) through beginScreenshotDemo
-    # and the real switchToAccount path, so it needs the full app graph and the
-    # demo compile flag. Only built when the demo option is on.
+    # Development-only demo multi-account contract: three fictional accounts,
+    # per-account dataset isolation, deterministic reset, an in-memory
+    # SecretStore. Drives a real AppController through the real account
+    # switch. Built only with the demo option.
     if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
         qt_add_executable(screenshot-demo-accounts-test
             tests/ScreenshotDemoAccountsTest.cpp
@@ -4557,10 +4068,8 @@ if(BUILD_TESTING)
         set_tests_properties(screenshot-demo-accounts PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-        # Development-only screenshot-demo MEDIA contract: every image/video/GIF
-        # row and avatar resolves to bundled fixture bytes through the mock media
-        # bridge, correct MIME, no network. Bundles the demo fixtures so the
-        # fetch path can resolve them. Only built when the demo option is on.
+        # Development-only demo media: every media row and avatar resolves to
+        # bundled fixture bytes with the right MIME and no network.
         qt_add_executable(screenshot-demo-media-test
             tests/ScreenshotDemoMediaTest.cpp
             src/matrix/MatrixClient.h
@@ -4581,10 +4090,8 @@ if(BUILD_TESTING)
             Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
         add_test(NAME screenshot-demo-media COMMAND screenshot-demo-media-test)
 
-        # Development-only screenshot-demo local-interactions contract: poll vote
-        # change, invite accept/reject, mark unread, reactions and message send
-        # mutate the in-memory demo scene through the real backend interface;
-        # reset restores it; all are no-ops outside demo mode.
+        # Development-only demo interactions mutate the in-memory scene through
+        # the real backend interface; reset restores it; no-ops outside demo.
         qt_add_executable(screenshot-demo-interactions-test
             tests/ScreenshotDemoInteractionsTest.cpp
             src/matrix/MatrixClient.h
@@ -4603,10 +4110,9 @@ if(BUILD_TESTING)
         add_test(NAME screenshot-demo-interactions
             COMMAND screenshot-demo-interactions-test)
 
-        # Development-only screenshot-demo SCENARIO controller contract: every
-        # required scenario activates to the right account/room/page/thread/
-        # theme/window size; presets resolve; per-account selected rooms restore
-        # on switch-back; panel toggles reach the mock; reset restores defaults.
+        # Development-only demo scenarios: each activates the right
+        # account/room/page/thread/theme/window size; presets resolve; reset
+        # restores defaults.
         qt_add_executable(screenshot-demo-scenario-test
             tests/ScreenshotDemoScenarioTest.cpp
             ${APP_LIB_SOURCES}
@@ -4614,9 +4120,8 @@ if(BUILD_TESTING)
         lightning_configure_qml_test(screenshot-demo-scenario-test)
         target_compile_definitions(screenshot-demo-scenario-test PRIVATE
             LIGHTNING_ENABLE_SCREENSHOT_DEMO=1
-            # The Channels case reads the controller's own source: which
-            # navigation layout a scenario selects, and in what ORDER, is not
-            # observable from the catalogue it exposes.
+            # Reads the controller's source: the layout a scenario selects, and
+            # the order, is not observable from its catalogue.
             "SOURCE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
         target_link_libraries(screenshot-demo-scenario-test PRIVATE Qt6::Test)
         add_test(NAME screenshot-demo-scenario
@@ -4624,10 +4129,8 @@ if(BUILD_TESTING)
         set_tests_properties(screenshot-demo-scenario PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-        # Development-only screenshot-demo CONTROL PANEL contract in a real
-        # (offscreen) QML window: the panel loads with no QML warnings and no
-        # layout gap, the boot scenario and window presets resize the actual
-        # window, and hide/restore works.
+        # Development-only demo control panel in an offscreen window: loads
+        # without warnings or layout gaps; presets resize the window.
         qt_add_executable(screenshot-demo-panel-qml-test
             tests/ScreenshotDemoPanelQmlTest.cpp
             ${APP_LIB_SOURCES}
@@ -4653,8 +4156,8 @@ if(BUILD_TESTING)
     target_link_libraries(markdown-format-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME markdown-format COMMAND markdown-format-test)
 
-    # v0.9 slash commands: registry, parse rules (// escape, letters-only
-    # command words), and completion matching. Pure, no composer needed.
+    # Slash commands: registry, parse rules (// escape, letters-only command
+    # words), completion. Pure.
     qt_add_executable(slash-commands-test
         tests/SlashCommandsTest.cpp
         src/models/SlashCommands.h
@@ -4666,9 +4169,8 @@ if(BUILD_TESTING)
     target_link_libraries(slash-commands-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME slash-commands COMMAND slash-commands-test)
 
-    # v0.9 rich composer: the QTextDocument -> Matrix serializer. Every
-    # formatting type's HTML shape, the plain fallback derived beside it,
-    # the whitelist property, and link-target safety.
+    # Rich composer QTextDocument -> Matrix serializer: HTML per formatting
+    # type, the plain fallback, the whitelist, link-target safety.
     qt_add_executable(rich-composition-test
         tests/RichCompositionTest.cpp
         src/models/RichComposition.h
@@ -4681,9 +4183,8 @@ if(BUILD_TESTING)
     set_tests_properties(rich-composition PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.7 outgoing @-mentions: pure tokenizer (trigger boundaries, inline
-    # code / fenced-block rejection, query capture + cap, ref shifting, and
-    # matrix.to link expansion).
+    # @-mention tokenizer: trigger boundaries, code rejection, query capture
+    # and cap, ref shifting, matrix.to expansion.
     qt_add_executable(mention-tokenizer-test
         tests/MentionTokenizerTest.cpp
         src/models/MentionTokenizer.h
@@ -4693,11 +4194,8 @@ if(BUILD_TESTING)
     target_link_libraries(mention-tokenizer-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME mention-tokenizer COMMAND mention-tokenizer-test)
 
-    # The environment a spawned browser inherits. Inside an AppImage that
-    # environment points at the bundle, so xdg-open's browser loads the
-    # bundle's glib ahead of the host's and never starts -- reported as
-    # "clicking links doesn't open them in browser". Asserted on the
-    # environment, because what a browser does with it is not observable.
+    # The environment a spawned browser inherits: inside an AppImage it must
+    # not point at the bundle, or the browser loads our glib and never starts.
     qt_add_executable(url-launcher-test
         tests/UrlLauncherTest.cpp
         src/app/UrlLauncher.h
@@ -4707,14 +4205,10 @@ if(BUILD_TESTING)
     target_link_libraries(url-launcher-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME url-launcher COMMAND url-launcher-test)
 
-    # The composer's emoji face, asserted on the FORMAT the document ends up
-    # with. Qt's per-character fallback differs by version, so emoji have to be
-    # NAMED; the composer is mixed text, so the face is applied per-range by the
-    # highlighter rather than as a font.family. The first attempt set only the
-    # Qt 6 list API and the composer kept the default face while the picker was
-    # already correct -- a source scan sees the call, only reading the applied
-    # format shows which property the layout honours. Needs Qt6::Gui for
-    # QTextDocument.
+    # The composer's emoji face, asserted on the document's applied format:
+    # Qt's fallback differs by version, so emoji faces are applied per range by
+    # the highlighter, and only the applied format shows which property the
+    # layout honours. Needs Qt6::Gui for QTextDocument.
     qt_add_executable(mention-highlighter-emoji-test
         tests/MentionHighlighterEmojiTest.cpp
         src/models/MentionHighlighter.h
@@ -4726,12 +4220,10 @@ if(BUILD_TESTING)
     add_test(NAME mention-highlighter-emoji
              COMMAND mention-highlighter-emoji-test)
 
-    # Legacy Matrix SSO (m.login.sso): the loopback callback listener driven
-    # over REAL sockets in both flows, plus AuthManager's discovery/login
-    # policy. Covers token extraction, missing/empty token, duplicate and
-    # stale callbacks, malformed and oversized requests, timeout,
-    # cancellation, provider scoping, and that OAuth callback parsing is
-    # unaffected. Needs a QGuiApplication for the Qt network event loop.
+    # Legacy Matrix SSO (m.login.sso): the loopback callback listener over real
+    # sockets plus AuthManager's discovery/login policy: tokens, duplicate and
+    # stale callbacks, malformed/oversized requests, timeout, cancellation,
+    # provider scoping, OAuth parsing unaffected.
     qt_add_executable(sso-callback-test
         tests/SsoCallbackTest.cpp
     )
@@ -4740,9 +4232,8 @@ if(BUILD_TESTING)
         PRIVATE lightning-app-testlib Qt6::Test)
     add_test(NAME sso-callback COMMAND sso-callback-test)
 
-    # v0.9 slash commands, composer half: which backend verb a command runs,
-    # with which arguments and body spec, and the draft-preservation contract
-    # (a refusal never destroys what the user typed).
+    # Slash commands, composer half: which backend verb runs with which
+    # arguments, and a refusal never destroys the draft.
     qt_add_executable(slash-command-composer-test
         tests/SlashCommandComposerTest.cpp
     )
@@ -4751,9 +4242,8 @@ if(BUILD_TESTING)
         PRIVATE lightning-app-testlib Qt6::Test)
     add_test(NAME slash-command-composer COMMAND slash-command-composer-test)
 
-    # The opt-in sync-latency tracer: inert when disabled, no room ids, an
-    # unobserved stage is not reported as instant, bounded journey table, and
-    # a sync gap past the threshold is reported.
+    # Opt-in sync-latency tracer: inert when off, no room ids, unobserved
+    # stages not reported as instant, bounded table, gap reporting.
     qt_add_executable(sync-latency-tracer-test
         tests/SyncLatencyTracerTest.cpp
         src/app/SyncLatencyTracer.h
@@ -4763,9 +4253,8 @@ if(BUILD_TESTING)
     target_link_libraries(sync-latency-tracer-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME sync-latency-tracer COMMAND sync-latency-tracer-test)
 
-    # v0.7 outgoing @-mentions: the current-room member suggestion model —
-    # request on activation, filter/rank/dedup, own-user exclusion, stale
-    # op-id rejection, room-switch + logout clearing, membersChanged re-request.
+    # @-mention member suggestions: request on activation, filter/rank/dedup,
+    # own user excluded, stale op ids, room-switch/logout clearing.
     qt_add_executable(mention-suggestion-test
         tests/MentionSuggestionModelTest.cpp
         src/models/MentionSuggestionModel.h
@@ -4799,9 +4288,8 @@ if(BUILD_TESTING)
     target_link_libraries(message-html-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME message-html COMMAND message-html-test)
 
-    # Inline emoji sizing (MessageHtml::markEmoji): what a body renders as
-    # when it carries an emoji, including the big-emoji suppression and the
-    # code-span exclusion. Behavioural, not a source scan.
+    # Inline emoji sizing (MessageHtml::markEmoji): big-emoji suppression and
+    # code-span exclusion. Behavioural.
     qt_add_executable(message-emoji-size-test
         tests/MessageEmojiSizeTest.cpp
         src/models/MessageHtml.h
@@ -4811,9 +4299,8 @@ if(BUILD_TESTING)
     target_link_libraries(message-emoji-size-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME message-emoji-size COMMAND message-emoji-size-test)
 
-    # Shared control system: rendered proof that AppButton kinds,
-    # SegmentedControl, AppTextField, and the AppComboBox popup are flat,
-    # token-driven, and theme-tracking — no Fusion bevels or gradients.
+    # Rendered proof that the shared controls are flat, token-driven and
+    # theme-tracking.
     qt_add_executable(control-system-test
         tests/ControlSystemTest.cpp
         ${APP_LIB_SOURCES}
@@ -4824,9 +4311,8 @@ if(BUILD_TESTING)
     set_tests_properties(control-system PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # Design button system (SPEC §1): offscreen pixel proof that Style A is
-    # bare at rest with a soft hover tint, Style B is the accent-soft chip,
-    # Style C is the accent fill, and keyboard focus draws the accent ring.
+    # Button styles, offscreen pixel checks: A bare with hover tint, B the
+    # accent-soft chip, C the accent fill, keyboard focus ring.
     qt_add_executable(button-system-test
         tests/ButtonSystemTest.cpp
         ${APP_LIB_SOURCES}
@@ -4837,9 +4323,8 @@ if(BUILD_TESTING)
     set_tests_properties(button-system PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.6.5 shared menu language (SPEC §0): AppMenu/AppMenuItem metrics and
-    # ink, keycap chips, section labels, status chips, danger rows, and the
-    # cascading flyout with its Escape-innermost-first contract.
+    # AppMenu/AppMenuItem metrics and ink, keycaps, section labels, status
+    # chips, danger rows, cascading flyouts closing innermost first on Escape.
     qt_add_executable(menu-system-qml-test
         tests/MenuSystemQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -4850,8 +4335,8 @@ if(BUILD_TESTING)
     set_tests_properties(menu-system-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.6.5: 1q mention-popup behavior — role chips, query header, selected
-    # row keycap, accessibility, plus source-scan sub-tests (needs QML_DIR).
+    # Mention popup: role chips, query header, selected-row keycap,
+    # accessibility, and source scans (needs QML_DIR).
     qt_add_executable(mention-popup-contract-test
         tests/MentionPopupContractTest.cpp
         ${APP_LIB_SOURCES}
@@ -4864,8 +4349,8 @@ if(BUILD_TESTING)
     set_tests_properties(mention-popup-contract PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.6.5: 1h account switcher — vertical identity cards, real-data-only
-    # meta, live-id switch guard, preserved confirmations.
+    # Account switcher: identity cards, real data only, live-id switch guard,
+    # confirmations.
     qt_add_executable(identity-card-account-menu-test
         tests/IdentityCardAccountMenuTest.cpp
         ${APP_LIB_SOURCES}
@@ -4879,8 +4364,7 @@ if(BUILD_TESTING)
     set_tests_properties(identity-card-account-menu PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.6.5: 1p member profile — omitted affordances stay omitted, DM-reuse
-    # preserved, role chips, clipboard round-trip.
+    # Member profile: omitted affordances, DM reuse, role chips, clipboard.
     qt_add_executable(member-profile-popover-contract-test
         tests/MemberProfilePopoverContractTest.cpp
         ${APP_LIB_SOURCES}
@@ -4895,8 +4379,8 @@ if(BUILD_TESTING)
     set_tests_properties(member-profile-popover-contract PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.6.5: 1r trust card — brand-fixed rendering, complete/pending steps,
-    # no QR affordance, no app.* coupling.
+    # Trust card: brand-fixed rendering, step states, no QR affordance, no
+    # app.* coupling.
     qt_add_executable(trust-card-test
         tests/TrustCardTest.cpp
         ${APP_LIB_SOURCES}
@@ -4909,8 +4393,8 @@ if(BUILD_TESTING)
     set_tests_properties(trust-card PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.6.5: 1t invite dialog — chips, already-member pre-check, room
-    # header, per-user result states (this dialog had zero coverage before).
+    # Invite dialog: chips, already-member pre-check, room header, per-user
+    # result states.
     qt_add_executable(invite-people-dialog-qml-test
         tests/InvitePeopleDialogQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -4924,8 +4408,8 @@ if(BUILD_TESTING)
     set_tests_properties(invite-people-dialog-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-    # v0.6.5: 1j/1k quick switcher — mode transitions, honest command
-    # actions, live theme execution, Escape (the audit's G2 coverage gap).
+    # Quick switcher: mode transitions, command actions, live theme execution,
+    # Escape.
     qt_add_executable(quick-switcher-modes-qml-test
         tests/QuickSwitcherModesQmlTest.cpp
         ${APP_LIB_SOURCES}
@@ -4940,9 +4424,8 @@ if(BUILD_TESTING)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # ------------------------------------------------------------------
-    # Update system. Every one of these links only the handful of sources it
-    # exercises -- never the application -- so they compile in seconds and an
-    # updater change does not drag the whole app graph with it.
+    # Update system. Each suite links only the sources it exercises, never the
+    # application.
     set(_update_crypto_sources
         src/update/Version.cpp
         src/update/InstallType.cpp
@@ -4978,25 +4461,20 @@ if(BUILD_TESTING)
         src/update/UpdateDownloader.cpp
         src/update/UpdateManager.cpp
         src/updater/ArtifactDigest.cpp
-        # The helper's OWN argument parser, so the suite can feed it exactly
-        # what UpdateManager builds. The two used to meet only in the field.
+        # The helper's own argument parser, fed exactly what UpdateManager
+        # builds.
         src/updater/UpdaterArgs.cpp
-        # UpdateManager stages downloads under the Lightning-owned cache root,
-        # which is portable-aware — a portable copy must stage inside its own
-        # folder rather than %LOCALAPPDATA%.
+        # Downloads stage under the portable-aware cache root.
         src/storage/AppDataPaths.cpp
         src/storage/PortableMode.cpp)
     target_include_directories(update-manager-state-test PRIVATE src)
-    # The suite scans the update sources to prove no GitHub API is reachable
-    # from them. Give it the path rather than letting it guess from the binary
-    # location, so it can hard-fail instead of silently finding nothing.
+    # Give the scan an explicit path so it hard-fails rather than silently
+    # finding nothing.
     target_compile_definitions(update-manager-state-test PRIVATE
         LIGHTNING_UPDATE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/update")
 
-    # Both update suites compile src/update/*.cpp themselves, so without these
-    # they would validate the header DEFAULTS while the shipped application
-    # validates the configured values -- the suites would stop being evidence
-    # about a build that overrides either variable.
+    # The suites compile src/update/*.cpp themselves; pass the configured
+    # values so they test the build's settings, not the header defaults.
     foreach(_update_test IN ITEMS update-manifest-test update-manager-state-test)
         target_compile_definitions(${_update_test} PRIVATE
             LIGHTNING_UPDATE_HOST="${LIGHTNING_UPDATE_HOST}"
@@ -5013,9 +4491,8 @@ if(BUILD_TESTING)
         src/updater/ArtifactDigest.cpp)
     target_include_directories(updater-helper-args-test PRIVATE src)
     target_link_libraries(updater-helper-args-test PRIVATE Qt6::Core Qt6::Test)
-    # The suite also runs the REAL helper binary end to end (a digest mismatch
-    # must refuse before anything is touched; a match must install), so it
-    # needs the helper's path and the helper built first.
+    # Also runs the real helper binary end to end (a digest mismatch refuses
+    # before touching anything; a match installs).
     target_compile_definitions(updater-helper-args-test PRIVATE
         LIGHTNING_UPDATER_HELPER_PATH="$<TARGET_FILE:lightning-updater>")
     add_dependencies(updater-helper-args-test lightning-updater)
@@ -5032,9 +4509,8 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME updater-zip-safety COMMAND updater-zip-safety-test)
 
-    # The room-list registry: the index space the SDK's diffs address, kept
-    # apart from the room map they do not. Pure QJson in, QHash/QStringList
-    # out, so it needs no FFI and builds in both trees.
+    # The room-list registry: the index space the SDK's diffs address. Pure
+    # QJson in, QHash/QStringList out; no FFI.
     qt_add_executable(rust-room-registry-test
         tests/RustRoomRegistryTest.cpp
         src/matrix/RustRoomRegistry.cpp
@@ -5068,11 +4544,8 @@ if(BUILD_TESTING)
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     add_test(NAME updates-ui-contract COMMAND updates-ui-contract-test)
 
-    # tests/ShortcutRegistryTest.cpp shipped with the rebindable-shortcuts
-    # feature in cca3011 and was NEVER REGISTERED HERE, so its 19 cases have
-    # never been built or run once. Found while fixing the thread composer's
-    # Ctrl+B: the suite that covers conflict refusal, reserved sequences and
-    # global-vs-editor shadowing was dead the whole time that code shipped.
+    # Conflict refusal, reserved sequences and global-vs-editor shadowing for
+    # rebindable shortcuts.
     qt_add_executable(shortcut-registry-test
         tests/ShortcutRegistryTest.cpp
         src/app/ShortcutRegistry.h
@@ -5088,12 +4561,9 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME shortcut-registry COMMAND shortcut-registry-test)
 
-    # 2026-08-28: when a rail folder exists and when it stops existing. The
-    # deletion rule Rokas asked for ("if a folder is empty, delete it") is a
-    # fact about the STORE and never about what the rail managed to render,
-    # and the same suite pins the drag defect that was manufacturing empty
-    # folders: a reorder named every folder row in its atomic write, which
-    # emptied every COLLAPSED folder it passed.
+    # When a rail folder exists: an empty folder is deleted, decided from the
+    # store rather than the rendered rail. Also pins that a reorder does not
+    # empty the collapsed folders it passes.
     qt_add_executable(rail-folder-lifecycle-test
         tests/RailFolderLifecycleTest.cpp
         src/spaces/RailLayoutStore.h
@@ -5115,10 +4585,9 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME rail-folder-lifecycle COMMAND rail-folder-lifecycle-test)
 
-    # 2026-08-28: the People list scoped to the selected Space — the Space
-    # roster SpaceManager fetches, the Classic list's DM scope, and the
-    # Channels Space view's People group. The fail directions are opposite in
-    # the two layouts and that is the point of the suite.
+    # The People list scoped to the selected Space: the Space roster, the
+    # Classic DM scope and the Channels People group, whose failure directions
+    # are opposite.
     qt_add_executable(space-people-scope-test
         tests/SpacePeopleScopeTest.cpp
         src/models/RoomListModel.h
@@ -5146,12 +4615,9 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME space-people-scope COMMAND space-people-scope-test)
 
-    # 2026-08-31: unread badge ATTRIBUTION. Two direct messages were missed
-    # because the Direct Messages tile is a synthesised pseudo row that never
-    # carried an unread total at all, while Home counted DMs and Space rooms
-    # it does not list. The invariant is one line — a tile's badge counts what
-    # that tile's view lists — and every case asserts BOTH halves, so a badge
-    # that is merely non-zero cannot pass.
+    # Unread badge attribution: a tile's badge counts exactly what that tile's
+    # view lists (the synthesised DM tile included). Every case asserts both
+    # halves, so a merely non-zero badge cannot pass.
     qt_add_executable(unread-badge-attribution-test
         tests/UnreadBadgeAttributionTest.cpp
         src/models/SpaceChannelModel.h
@@ -5181,12 +4647,11 @@ if(BUILD_TESTING)
 endif()
 
 # ----------------------------------------------------------------------
-# The update helper. A deliberately tiny, separate binary: it performs the one
-# step that cannot happen while Lightning is running, and its link line IS its
-# isolation guarantee. Qt6::Core only -- no Network (it never downloads), no
-# Qml/Gui, and none of src/matrix, src/app or src/storage, so it cannot reach a
-# Matrix account, a token or a store even by mistake. It only ever receives an
-# artifact Lightning has already verified.
+# The update helper: a tiny separate binary for the one step that cannot run
+# while Lightning is running. Its link line is its isolation guarantee:
+# Qt6::Core only, nothing from src/matrix, src/app or src/storage, so it cannot
+# reach an account, token or store. It only receives already-verified
+# artifacts.
 qt_add_executable(lightning-updater
     src/updater/main.cpp
     src/updater/UpdaterArgs.h        src/updater/UpdaterArgs.cpp
@@ -5263,19 +4728,14 @@ else()
             DESTINATION
             "${CMAKE_INSTALL_DATADIR}/icons/hicolor/${_icon_size}x${_icon_size}/apps")
     endforeach()
-    # The scalable slot: launchers and docks that support SVG prefer it over
-    # any raster size, so the mark stays crisp at every zoom/DPI. Same "thick"
-    # artwork the raster sizes are generated from.
+    # The scalable icon, preferred by launchers that support SVG.
     install(FILES data/icons/lightning.svg
         DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps"
         RENAME lightning.svg)
 endif()
 
-# Dismissing a link preview: per-(room,event) keying so one click can never
-# collapse a card above the reader, the dismissal checked before the auto-load
-# dispatch, undo that grants no consent, and the bounded oldest-released set.
-# Appended (rather than placed beside link-preview-test) purely to avoid
-# colliding with concurrent edits elsewhere in this file.
+# Dismissing a link preview: per-(room,event) keying, dismissal checked before
+# the auto-load dispatch, undo that grants no consent, bounded released set.
 if(BUILD_TESTING)
     qt_add_executable(link-preview-dismiss-test
         tests/LinkPreviewDismissTest.cpp
@@ -5283,8 +4743,7 @@ if(BUILD_TESTING)
         src/models/LinkPreview.cpp
         src/models/LinkPreviewController.h
         src/models/LinkPreviewController.cpp
-        # linkifiedBody() renders the timeline body, so the controller pulls
-        # in MessageHtml; it is Qt6::Core only and adds no library here.
+        # linkifiedBody() pulls in MessageHtml (Qt6::Core only).
         src/models/MessageHtml.h
         src/models/MessageHtml.cpp
         src/matrix/MatrixClient.h
@@ -5296,16 +4755,11 @@ if(BUILD_TESTING)
 endif()
 
 # ---------------------------------------------------------------------------
-# Composer spell checking (2026-08-28).
+# Composer spell checking.
 #
-# Appended rather than added to APP_SOURCES because that list is consumed
-# above (APP_LIB_SOURCES is deliberately blanked once the shared test library
-# has taken it), and because this file is shared with concurrent work: an
-# append cannot disturb a list another round is editing.
-#
-# Both consumers get the sources: the application, and the shared test
-# library every C++/QML test target links. The testlib only exists when tests
-# are enabled, hence the TARGET guard.
+# Appended rather than added to APP_SOURCES, which is consumed and blanked
+# above. Both the application and the shared test library (when tests are
+# enabled) get the sources.
 # ---------------------------------------------------------------------------
 set(LIGHTNING_SPELL_SOURCES
     src/text/SpellBackend.h
@@ -5313,9 +4767,8 @@ set(LIGHTNING_SPELL_SOURCES
     src/text/SpellChecker.h
     src/text/SpellChecker.cpp
 )
-# macOS: NSSpellChecker lives in an Objective-C++ unit (AppKit never reaches
-# the common C++). OBJCXX is enabled here, where it is first needed, and
-# every consumer of the spell sources links AppKit for it.
+# macOS: NSSpellChecker lives in an Objective-C++ unit. OBJCXX is enabled
+# here, and every consumer of the spell sources links AppKit.
 if(APPLE)
     enable_language(OBJCXX)
     list(APPEND LIGHTNING_SPELL_SOURCES src/text/SpellBackendMac.mm)
@@ -5331,12 +4784,9 @@ if(TARGET lightning-app-testlib)
     endif()
 endif()
 
-# Composer spell checking + the tray badge (2026-08-28). Deliberately a
-# STANDALONE target rather than one linking lightning-app-testlib: everything
-# under test here is pure — a tokenizer, a policy, and a static label rule —
-# and the link list is part of the assertion. SpellChecker sees Qt and its own
-# backend interface and nothing else; nothing that could hand it a network, a
-# room, or a message it was not given.
+# Spell checking and the tray badge. Standalone rather than linking
+# lightning-app-testlib: everything under test is pure, and the link list is
+# part of the contract (SpellChecker sees only Qt and its backend interface).
 if(BUILD_TESTING)
     qt_add_executable(composer-spell-test
         tests/ComposerSpellTest.cpp
@@ -5359,8 +4809,7 @@ if(BUILD_TESTING)
     add_test(NAME composer-spell COMMAND composer-spell-test)
 endif()
 
-# The spell underline against the PRODUCTION composer, not against the policy
-# behind it. Offscreen, like every other QML suite here.
+# The spell underline against the production composer, offscreen.
 if(BUILD_TESTING)
     qt_add_executable(composer-spell-qml-test
         tests/ComposerSpellQmlTest.cpp
@@ -5373,11 +4822,9 @@ if(BUILD_TESTING)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
-# CameraPortal against a fake xdg-desktop-portal on a PRIVATE session bus: the
-# grant a portal sends in the same breath as its reply (a stored permission,
-# no dialog) must not be lost. That race kept the camera dark in the published
-# Flathub build. Needs QtDBus and a `dbus-daemon` on PATH; the suite skips
-# itself without the daemon rather than failing.
+# CameraPortal against a fake xdg-desktop-portal on a private session bus: a
+# grant sent together with the portal's reply must not be lost. Needs QtDBus
+# and `dbus-daemon`; skips without the daemon.
 if(BUILD_TESTING AND TARGET Qt6::DBus AND NOT WIN32 AND NOT APPLE)
     qt_add_executable(camera-portal-test
         tests/CameraPortalTest.cpp

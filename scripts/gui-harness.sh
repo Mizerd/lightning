@@ -1,51 +1,34 @@
 #!/usr/bin/env bash
 # Lightning GUI harness — KWin scripting + ydotool on KDE/Wayland.
 #
-# COMMITTED SO IT STOPS BEING REBUILT. This lived in a session scratchpad and
-# was reconstructed from scratch on 2026-09-10 after the previous copy went
-# with the scratchpad; the two calibration facts below cost most of that time.
-# It is deliberately host-shaped (KDE/Wayland, KWin scripting over qdbus,
-# ydotool through a uinput device) and makes no attempt to be portable.
+# Host-specific by design: KDE/Wayland, KWin scripting over qdbus, ydotool
+# through a uinput device.
 #
 # USE:  source scripts/gui-harness.sh
-#       PID=$(pgrep -x lightning-matri | head -1)   # comm is TRUNCATED at 15
+#       PID=$(pgrep -x lightning-matri | head -1)   # comm is truncated to 15 chars
 #       pidclick "$PID" 200 223 ; shot_pid "$PID" /tmp/a.png
 #
 # PREREQUISITES: ydotoold running against $YDOTOOL_SOCKET with write access to
 # /dev/uinput (an ACL entry is enough, no group needed), and ImageMagick for
 # shot_pid's crop.
 #
-# SCROLLING IS scripts/gui-wheel.py. `pdrag` below scrolls a Flickable that is
-# `interactive`, but a desktop ScrollView is not, and that made whole panels
-# unreachable (the Space Home settings' "Leave Space" among them).
-# gui-wheel.py creates its own uinput mouse and emits REL_WHEEL directly:
-#     python3 scripts/gui-wheel.py -8 80    # 8 clicks DOWN, 80ms apart
-# Position the pointer over the target pane first (moveto), because a wheel
-# event goes to whatever is under the cursor.
+# Scrolling: use scripts/gui-wheel.py (its own uinput mouse emitting
+# REL_WHEEL); `pdrag` only scrolls an `interactive` Flickable, and a desktop
+# ScrollView is not one. Move the pointer over the target pane first.
+#     python3 scripts/gui-wheel.py -8 80    # 8 clicks down, 80ms apart
+# `ydotool mousemove -w -y -5` should also emit wheel events (untested).
 #
-# THIS USED TO SAY "ydotool 1.0.4 has no wheel command at all", and that was
-# true of its COMMANDS and wrong about the tool. Read out of the pinned
-# binary on 2026-09-17: the four commands really are click/mousemove/type/key,
-# and `mousemove` carries `-w, --wheel  Move mouse wheel relatively`, so
-# `ydotool mousemove -w -y -5` emits the axis without a second uinput device.
-# gui-wheel.py stays the documented path because it is the one that has
-# actually driven a capture here; the ydotool flag is recorded so the next
-# session does not rebuild a device it does not need. NOT EXERCISED — a
-# capability read out of a binary is not a capability that has scrolled a pane.
+# Only drive a throwaway fixture account on an isolated XDG profile; confirm
+# it from /proc/<pid>/environ before terminating anything.
 #
-# ALWAYS drive a throwaway fixture account on an ISOLATED XDG profile, and
-# confirm it from /proc/<pid>/environ before terminating anything. The
-# maintainer's own account, store and crypto are off limits.
-#
-# TWO TRAPS THIS ENCODES, both of which have cost captures before:
-#  1. curpos/activewin MUST be nonce-tagged. journalctl|grep|tail -1 otherwise
-#     returns a line from an EARLIER call and every click lands stale.
-#  2. KWin's pointer space is LOGICAL (this desktop is scale 1.5); spectacle
-#     captures are NATIVE. Convert before clicking off a screenshot.
+# Traps:
+#  1. curpos/activewin are nonce-tagged; otherwise journalctl|tail -1 can
+#     return an earlier call's line.
+#  2. KWin's pointer space is logical (scale 1.5 here); spectacle captures
+#     are native. Convert before clicking off a screenshot.
 set -uo pipefail
 export YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-$HOME/.ydotool_socket}"
-# PINNED, because an ephemeral `nix shell` copy is exactly what a store GC
-# collected on 2026-09-10 and the harness came back with no ydotool at all.
+# Pinned: an ephemeral `nix shell` copy is lost to store GC.
 export PATH="$HOME/.cache/nix-gcroots/ydotool/bin:$PATH"
 
 kwin_run() {   # run a KWin script, return its journal output for this nonce
@@ -94,8 +77,7 @@ focus_pid() {  # raise and activate the window owned by <pid>
     sleep 0.3
 }
 
-# GUARD: refuse to type unless the intended window is actually active. Without
-# this a login once went into a browser window.
+# Refuse to type unless the intended window is active.
 guard_pid() {
     local want="$1" got
     got=$(activewin | awk '{print $1}')
@@ -104,14 +86,9 @@ guard_pid() {
 
 cursorpos() { kwin_run "print('__NONCE__ ' + workspace.cursorPos.x + ',' + workspace.cursorPos.y);"; }
 
-# moveto <x> <y> — CLOSED LOOP, and it has to be.
-#
-# `ydotool mousemove -a` is NOT usable on this host: measured 2026-09-10, it
-# put (400,300) at (2000,0) and then parked every later request at (1,1). Its
-# absolute axis range does not correspond to this 5120x1440 logical desktop.
-# RELATIVE moves are exact (+100+50 landed at exactly +100+50), so aim by
-# delta from where the pointer actually is, then VERIFY and correct. Three
-# passes is plenty; the loop exits as soon as it is on target.
+# moveto <x> <y> — closed loop. `ydotool mousemove -a` does not map onto this
+# desktop's logical coordinates, but relative moves are exact, so move by
+# delta, verify and correct (at most three passes).
 moveto() {
     local wx="$1" wy="$2" i cur cx cy
     for i in 1 2 3; do
@@ -144,16 +121,10 @@ typepid() { focus_pid "$1" && guard_pid "$1" && ydotool type --key-delay 12 -- "
 
 # keypid <pid> <keycode>:<pressed>...   e.g.  keypid "$PID" 28:1 28:0   (Return)
 #
-# RAW LINUX KEYCODES, NOT KEY NAMES. ydotool 1.0.4's own help says it: "Since
-# there's no way to know how many keyboard layouts are there in the world,
-# we're using raw keycodes now", and — the half that costs a session —
-# "Non-interpretable values, such as 0, aaa, l0l, will only cause a delay".
-# So `keypid $PID Return` typed nothing and reported SUCCESS, which is how it
-# reached a capture and was diagnosed as a focus problem instead. The guard
-# below turns that silence into a refusal; it is the only reason this is a
-# function and not a one-liner. Codes are the KEY_* values in
-# /usr/include/linux/input-event-codes.h (28 Return, 1 Escape, 15 Tab,
-# 14 BackSpace, 29 LeftCtrl, 42 LeftShift, 56 LeftAlt, 103/108/105/106 arrows).
+# Raw Linux keycodes (KEY_* in linux/input-event-codes.h: 28 Return,
+# 1 Escape, 15 Tab, 14 BackSpace, 29 LeftCtrl, 42 LeftShift, 56 LeftAlt,
+# 103/108/105/106 arrows). ydotool silently ignores a key name, so the guard
+# below refuses non-numeric input.
 keypid()  {
     local pid="$1" arg
     for arg in "${@:2}"; do
@@ -211,8 +182,7 @@ setgeom_pid() {  # setgeom_pid <pid> <x> <y> <w> <h>   (LOGICAL coords)
 }
 
 # pdrag <pid> <x1> <y1> <x2> <y2> — press, move in steps, release.
-# ydotool 1.0.4 has NO wheel command, so a Flickable is scrolled by dragging.
-# The intermediate steps matter: a single jump reads as a click, not a flick.
+# Intermediate steps matter: a single jump reads as a click, not a flick.
 pdrag() {
     local pid="$1" x1="$2" y1="$3" x2="$4" y2="$5" i n=12
     focus_pid "$pid" || return 1
@@ -229,11 +199,8 @@ pdrag() {
 
 # pidclick_nf — click WITHOUT re-activating the window first.
 #
-# pidclick calls focus_pid, and activating a window that already has an open
-# popup DISMISSES the popup, so every attempt to click a context-menu item
-# landed on whatever was underneath. Use this for anything inside a menu,
-# combo or other transient popup; the window is already active by definition,
-# because the popup is open.
+# Activating a window closes its open popup, so use this inside menus,
+# combos and other transient popups.
 pidclick_nf() {
     local pid="$1" rx="$2" ry="$3"
     local g gx gy; g=$(geom_pid "$pid") || return 1; read -r gx gy _ _ <<<"$g"
@@ -242,16 +209,9 @@ pidclick_nf() {
     sleep 0.4
 }
 
-# TWO POPUP RULES, both learned the hard way on 2026-09-10.
-#
-# 1. NEVER shot_pid BETWEEN opening a menu and clicking an item in it.
-#    spectacle takes a capture that DISMISSES transient popups, so the click
-#    then lands on whatever was underneath — which for a message context menu
-#    is another message's row, and it looks exactly like a mis-aimed click.
-#    Measure the item's offset from the opening click ONCE, then replay
+# Popup rules:
+# 1. Never shot_pid between opening a menu and clicking an item: spectacle
+#    dismisses transient popups. Measure the item offset once, then replay
 #    open-then-click with no capture in between.
-# 2. Use pidclick_nf inside a popup. pidclick calls focus_pid, and activating
-#    a window that already has an open popup closes the popup.
-#
-# A file dialog is a WINDOW, not a popup, and is exempt from both — it shows
-# up in the window list under the same pid and can be typed into directly.
+# 2. Use pidclick_nf inside a popup.
+# A file dialog is a window, not a popup, and is exempt from both.

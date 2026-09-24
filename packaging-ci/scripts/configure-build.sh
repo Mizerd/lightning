@@ -18,20 +18,16 @@ BUILD_JOBS="${BUILD_JOBS:-2}"
 [[ -f "$SOURCE_DIR/LICENSE" && -f "$SOURCE_DIR/README.md" ]] || \
     die "Lightning source must include its licence and README"
 
-# Which package this build will become. The binary reports it to the updater,
-# which uses it to pick a compiled-in install strategy -- so a wrong value here
-# means a user is offered the wrong kind of update. Callers must set it; there
-# is deliberately no default, because guessing would be worse than failing.
+# The updater picks its install strategy from this, so there is deliberately
+# no default: a wrong guess would offer users the wrong kind of update.
 : "${LIGHTNING_INSTALL_TYPE:?must be set by the per-format build script}"
 case "$LIGHTNING_INSTALL_TYPE" in
     linux-appimage|linux-deb|linux-rpm|linux-flatpak|linux-snap) ;;
     *) die "unsupported LIGHTNING_INSTALL_TYPE for a Linux package: $LIGHTNING_INSTALL_TYPE" ;;
 esac
 
-# Public half of the update-manifest signing key, embedded so the client can
-# verify a manifest. Empty is allowed and fails CLOSED: such a build can check
-# for updates but can never accept one. Never the private key -- that stays a
-# protected CI variable and is only ever used by the signing job.
+# Public update-manifest signing key. Empty fails closed: the build can check
+# for updates but never accept one. The private key never reaches this job.
 if [[ -n "${UPDATE_SIGNING_PUBKEY_2026A:-}" ]]; then
     printf 'Update signing public key: embedded (key id %s)\n' \
         "${UPDATE_SIGNING_KEY_ID:-lightning-release-2026a}"
@@ -39,13 +35,10 @@ else
     printf 'Update signing public key: NOT set — this build cannot accept updates\n'
 fi
 
-# Official release packages embed application GIF provider keys so installed
-# clients work without user configuration. Values come from the protected CI
-# variables GIPHY_API_KEY / KLIPY_API_KEY and are mapped to the build-only
-# LIGHTNING_BUILD_* names the source generator reads from the environment — never
-# passed on a command line, echoed, or written to a dotenv/artifact. This runs
-# in a child process, so the exports do not leak back to the caller, and the
-# generated header is scrubbed on exit. Keyless build-only pipelines skip this.
+# Official builds embed the GIF provider keys. They reach the source generator
+# only through the build-only LIGHTNING_BUILD_* environment variables — never a
+# command line, log, dotenv or artifact — and the generated header is scrubbed
+# on exit.
 REQUIRE_GIF_KEYS=OFF
 GENERATED_GIF_HEADER="$BUILD_DIR/generated/LightningGifBuildKeys.h"
 scrub_gif_header() { rm -f "$GENERATED_GIF_HEADER" 2>/dev/null || true; }
@@ -62,18 +55,15 @@ fi
 export CMAKE_BUILD_PARALLEL_LEVEL="$BUILD_JOBS"
 export CARGO_BUILD_JOBS="$BUILD_JOBS"
 
-# Persistent per-runner build caches. Every package runner bind-mounts its own
-# host cache directory at /cache into job containers; runners never share one.
-# Everything stored there derives from public sources only.
+# Per-runner cache at /cache (never shared between runners); it holds only
+# data derived from public sources.
 CACHE_ROOT=""
 if [[ -d /cache && -w /cache ]]; then
     CACHE_ROOT=/cache
 fi
 
 if [[ -n "$CACHE_ROOT" ]]; then
-    # Registry index, crate sources, and git checkouts survive across jobs, so
-    # a warm build skips the network fetch and keeps stable source mtimes for
-    # cargo's fingerprints.
+    # Keeps crate sources and stable mtimes for cargo's fingerprints.
     export CARGO_HOME="$CACHE_ROOT/cargo-home"
 else
     export CARGO_HOME="$ROOT/work/cargo-home"
@@ -83,10 +73,8 @@ export CXXFLAGS="${CXXFLAGS:-} -ffile-prefix-map=$ROOT=/usr/src/lightning -fdebu
 export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$ROOT=/usr/src/lightning"
 mkdir -p "$CARGO_HOME" "$STAGE_DIR"
 
-# The source pins CARGO_TARGET_DIR to <build>/rust, so persist that exact
-# location via a symlink onto the runner cache. Cargo's own fingerprints
-# decide what is reusable; the Rust tree never sees the GIF keys, so this is
-# safe for official builds as well.
+# The source pins CARGO_TARGET_DIR to <build>/rust; symlink it onto the cache.
+# The Rust tree never sees the GIF keys, so this is safe for official builds.
 if [[ -n "$CACHE_ROOT" ]]; then
     mkdir -p "$CACHE_ROOT/cargo-target" "$BUILD_DIR"
     if [[ ! -e "$BUILD_DIR/rust" || -L "$BUILD_DIR/rust" ]]; then
@@ -94,9 +82,8 @@ if [[ -n "$CACHE_ROOT" ]]; then
     fi
 fi
 
-# C++ compile cache. Deliberately disabled for publishing builds: object files
-# compiled from the generated GIF-key header must never persist outside the
-# job. Build-only pipelines carry no keys, so caching them is safe.
+# No ccache for publishing builds: objects compiled from the GIF-key header
+# must not outlive the job.
 CCACHE_ARGS=()
 if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
     printf 'C++ compile cache disabled for the official (key-embedding) build\n'
@@ -113,24 +100,9 @@ printf 'Cargo: '; cargo --version
 printf 'Fetching locked Rust dependencies before the source-enforced offline build\n'
 cargo fetch --locked --manifest-path "$SOURCE_DIR/rust/Cargo.toml"
 
-# Voice/video calling is requested EXPLICITLY even though the source option
-# already defaults to ON, because the default is not what decides it: the
-# source only sets HAVE_LIGHTNING_WEBRTC when a pkg-config probe finds the
-# GStreamer WebRTC development files, and with none installed it configures the
-# engine OUT and says so in one STATUS line among hundreds. Every Linux 0.8.0
-# package shipped that way -- `--call-media-status` in the published deb
-# answered "call media engine built in: no" and `ldd` named no GStreamer at
-# all, so calling, screen sharing and the camera were compiled out and the app
-# refused every call. Naming the option here does not change what CMake DOES;
-# it changes what this script is entitled to assert afterwards, which is the
-# staged-binary check at the end of this file.
-#
-# LIGHTNING_REQUIRE_WEBRTC=ON is the half that fails FAST. The source added it
-# for exactly this: with it, a failed probe becomes a CMake FATAL_ERROR naming
-# the missing pkg-config modules, so the job dies during CONFIGURE rather than
-# after the ~30 minutes of Rust it takes to reach the staged-binary check at
-# the end of this file. Both guards stay — this one catches a missing dev
-# package early, and that one is the only thing that proves what was STAGED.
+# Without the GStreamer dev files CMake silently configures the call engine
+# out. LIGHTNING_REQUIRE_WEBRTC=ON turns that into a configure-time error; the
+# staged-binary check at the end of this file proves what was actually built.
 cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_INSTALL_PREFIX=/usr \
@@ -148,17 +120,13 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
 cmake --build "$BUILD_DIR" --parallel "$BUILD_JOBS"
 DESTDIR="$STAGE_DIR" cmake --install "$BUILD_DIR"
 
-# The keys were consumed at configure/compile time and are embedded in the
-# binary. Remove the generated plaintext header and drop the build-only env
-# values now; the EXIT trap is a backstop.
+# The keys are embedded now; drop the plaintext header and env values (the
+# EXIT trap is a backstop).
 scrub_gif_header
 unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY 2>/dev/null || true
 
-# Every Linux format is assembled from this staged tree, so a helper that is not
-# installed here is a helper that ships in none of them — and Lightning's in-app
-# updater has nothing to hand a verified artifact to. Fail here, where the cause
-# is obvious, rather than in one format's payload audit (or, for the RPM, in an
-# "installed but unpackaged file" abort).
+# Every Linux format is assembled from this stage, so fail here if the update
+# helper is missing rather than in a per-format audit.
 [[ -x "$STAGE_DIR/usr/bin/lightning-updater" ]] || \
     die "the update helper was not installed: $STAGE_DIR/usr/bin/lightning-updater"
 
@@ -167,9 +135,8 @@ unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY 2>/dev/null ||
 patchelf --remove-rpath "$STAGE_DIR/usr/bin/lightning-matrix"
 patchelf --remove-rpath "$STAGE_DIR/usr/bin/lightning-updater"
 
-# Since Lightning 0.7 the source installs its own desktop entry and hicolor
-# icons via cmake --install; the copy here is only a fallback so older
-# pinned source SHAs (pre-icon) can still be rebuilt.
+# Fallback for pinned sources older than 0.7, which did not install their own
+# desktop entry.
 if [ ! -f "$STAGE_DIR/usr/share/applications/lightning.desktop" ]; then
     install -Dm0644 "$ROOT/packaging-ci/packaging/common/lightning.desktop" \
         "$STAGE_DIR/usr/share/applications/lightning.desktop"
@@ -199,21 +166,10 @@ printf '%s\n' "$staged_build_info" | grep -qx 'http_backend_compiled: false' \
 printf '%s\n' "$staged_build_info" | grep -qx 'mock_backend_compiled: false' \
     || die "staged binary compiled the mock backend"
 
-# Fail closed on the call media engine. Ask the BINARY, not the build log: the
-# build log is what everybody read in 0.8.0 and it never said the engine was
-# missing. `--call-media-status` is the source's own probe, and its first line
-# is decided purely by whether HAVE_LIGHTNING_WEBRTC was defined at compile
-# time -- which is exactly the question a build job can answer.
-#
-# Only that line is asserted here. The lines under it describe the RUNTIME
-# (whether gst_init found plugins, and whether every element the engine needs
-# is registered), and a build image is the wrong place to judge those: a deb
-# gets its plugins from its Depends and an AppImage from its own bundle. The
-# per-format validators run the same command against the INSTALLED artifact
-# and require the engine to be genuinely usable there.
-#
-# The command exits non-zero whenever the engine cannot be used, so its status
-# is deliberately not the test.
+# Fail closed on the call media engine by asking the staged binary. Only the
+# compile-time "built in" line is asserted: runtime plugin availability is
+# checked by each format's validator against the installed artifact. The exit
+# status is non-zero whenever the engine is unusable, so it is not the test.
 call_media_status="$(timeout 60s "$STAGE_DIR/usr/bin/lightning-matrix" --call-media-status 2>&1 || true)"
 printf '%s\n' "$call_media_status"
 printf '%s\n' "$call_media_status" >"$ROOT/dist/call-media-status-build.txt"

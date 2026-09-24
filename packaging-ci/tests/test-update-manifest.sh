@@ -9,13 +9,8 @@ set -Eeuo pipefail
 # Every key used here is generated inside the test at run time. No key material
 # is committed, and the tests below prove none of it reaches a log.
 
-# The PACKAGING tree, which is where this suite's scripts, packaging
-# manifests and fixtures live -- not the repository root. Since the
-# packaging project was folded into the application repository those
-# are different directories, and the application has a scripts/ of its
-# own, so `git rev-parse --show-toplevel` resolved to a real directory
-# with none of these files in it. Derived from this file's own
-# location so it holds wherever the tree is checked out.
+# The packaging tree (not the repository root, which has its own scripts/),
+# derived from this file's location.
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 JQ="$(command -v jq)"
 command -v openssl >/dev/null 2>&1 || { printf 'error: openssl is required\n' >&2; exit 1; }
@@ -70,11 +65,9 @@ IS_EXACT_TAG=true
 PUBLISHING=true
 EOF
     printf 'deb-bytes-%s\n' "$RANDOM" >"$TR/dist/lightning_${ver}_amd64.deb"
-    # The Ubuntu lane's deb. A REQUIRED input to write-manifest.sh — the
-    # publication manifest lists it — even though it is deliberately absent
-    # from the SIGNED UPDATE manifest this file is about, because an Ubuntu
-    # deb install reports the same `linux-deb` install type as a Debian one
-    # and the updater would have two candidates it cannot choose between.
+    # The Ubuntu deb: required by write-manifest.sh, but absent from the
+    # signed update manifest because it reports the same `linux-deb` install
+    # type as the Debian one and the updater could not choose between them.
     printf 'deb-ubuntu-bytes-%s\n' "$RANDOM" \
         >"$TR/dist/lightning_${ver}_ubuntu2604_amd64.deb"
     printf 'rpm-bytes-%s\n' "$RANDOM" >"$TR/dist/lightning-${ver}-1.x86_64.rpm"
@@ -100,10 +93,8 @@ EOF
     export MOCK_STATE_DIR="$MSTATE" MOCK_CURL_LOG="$MLOG"
     export MOCK_SOURCE_SHA="$SHA" MOCK_RELEASE_VERSION="$ver" MOCK_JQ="$JQ"
     export UPDATE_SIGNING_KEY_B64="$KEY_A_B64"
-    # sign-update-manifest.sh runs the consistency gate, which requires the key
-    # id to be one Lightning actually trusts and the public variable to be that
-    # key's public half. The rest of this suite is about manifest mechanics, so
-    # it supplies both honestly; the gate's own behaviour is tested separately.
+    # sign-update-manifest.sh's consistency gate needs a trusted key id and
+    # its matching public half; the gate itself is tested separately.
     export UPDATE_SIGNING_KEY_ID=lightning-release-2026a
     export UPDATE_SIGNING_PUBKEY_2026A="$KEY_A_PUB_B64"
     export UPDATE_RELEASED_AT="$PINNED_TS"
@@ -341,11 +332,9 @@ mv "$WORK/held.json" "$UPD"
 run "$ROOT/scripts/sign-update-manifest.sh" || bad "re-signing failed"
 
 printf '== signing-key consistency gate ==\n'
-# Nothing else in the pipeline connects the private key that SIGNS the manifest,
-# the public key COMPILED INTO the packages, and the key id the client trusts.
-# Out of step, the pipeline still succeeds and publishes a correctly signed
-# manifest that every package it just built must reject — invisible until a user
-# clicks "check for updates", and unfixable for that release.
+# Nothing else ties together the signing private key, the public key compiled
+# into the packages and the trusted key id. Out of step, the pipeline publishes
+# a correctly signed manifest that every package it built rejects.
 GATE="$ROOT/scripts/check-update-signing-keys.sh"
 gate() { run env "$@" "$GATE"; }
 
@@ -355,9 +344,8 @@ gate UPDATE_SIGNING_KEY_ID=lightning-release-2026a \
     && note "a matching key id / private key / public key triple is accepted" \
     || bad "a correct triple was rejected"
 
-# The defect the gate exists for: the public half of a DIFFERENT key embedded in
-# the packages. Both values are valid Ed25519 keys, so only the comparison
-# catches it.
+# The public half of a different valid key embedded in the packages; only the
+# comparison catches it.
 if gate UPDATE_SIGNING_KEY_ID=lightning-release-2026a \
         UPDATE_SIGNING_KEY_B64="$KEY_A_B64" \
         UPDATE_SIGNING_PUBKEY_2026A="$KEY_B_PUB_B64"; then
@@ -369,8 +357,7 @@ grep -qF "$KEY_A_PUB_B64" "$TR/out.log" || grep -qF "$KEY_B_PUB_B64" "$TR/out.lo
     && bad "the mismatch diagnostic printed key material" \
     || note "the mismatch diagnostic prints neither key"
 
-# (c): a publishing pipeline REFUSES an empty public key rather than shipping
-# packages whose update feature can never accept anything.
+# (c): a publishing pipeline refuses an empty public key.
 if gate UPDATE_SIGNING_KEY_ID=lightning-release-2026a \
         UPDATE_SIGNING_KEY_B64="$KEY_A_B64" \
         UPDATE_SIGNING_PUBKEY_2026A=""; then
@@ -658,11 +645,9 @@ fi
 # =============================================================================
 # GitHub bandwidth mirror (MIRROR-SPEC §6, §7 "Deploy side")
 #
-# GitLab stays the release authority and the canonical binary source; GitHub
-# holds byte-identical copies of the SAME published artifacts, and the signed
-# manifest points at both. Everything below is exercised against the stateful
-# mock, which models the GitHub tag/release/upload endpoints and the anonymous
-# asset download separately from the GitLab ones.
+# GitLab stays the release authority; GitHub holds byte-identical copies and
+# the signed manifest points at both. The mock models GitHub's tag, release,
+# upload and anonymous download endpoints separately from GitLab's.
 # =============================================================================
 
 printf '== mirror disabled: no mirror_url, and mirroring is a clean no-op ==\n'
@@ -752,9 +737,8 @@ else
 fi
 [[ ! -f "$MSTATE/github/release_created" ]] \
     && note "no GitHub release was created for a mismatched tag" || bad "a release was created anyway"
-# Only "not there yet" is retryable. A rejected credential must fail at once,
-# not sit through the whole tag wait: the lookup runs in a command substitution,
-# where a hard failure and an absent tag are otherwise indistinguishable.
+# Only "not there yet" is retryable. A rejected credential fails at once; in a
+# command substitution a hard failure would otherwise look like an absent tag.
 poll_start=$SECONDS
 if run env MOCK_GITHUB_TAG_UNAUTHORIZED=true \
         GITHUB_MIRROR_TAG_WAIT_SECONDS=90 GITHUB_MIRROR_TAG_POLL_SECONDS=30 \
@@ -921,9 +905,9 @@ if run env MOCK_GITHUB_TOKEN_EXPIRES="$dying" "$ROOT/scripts/github-mirror-prefl
 else
     note "a token dying tomorrow is refused before publication"
 fi
-# A manifest refresh needs nothing from GitHub: with a DEAD token the
-# preflight and the release mirror both step aside, and the slot job (best
-# effort) is the only one that would fail.
+# A manifest refresh needs nothing from GitHub: with a dead token the
+# preflight and release mirror step aside, and only the best-effort slot job
+# fails.
 : >"$MLOG"
 run env MOCK_GITHUB_TAG_UNAUTHORIZED=true UPDATE_REFRESH_LATEST_ONLY=true "$ROOT/scripts/github-mirror-preflight.sh" \
     && note "a manifest refresh skips the preflight even with a dead token" || bad "refresh blocked by the preflight"
@@ -974,18 +958,15 @@ cmp -s "$SLOT/$MANIFEST_NAME" "$UPD" && note "the slot now carries the refreshed
 sig_line="$(grep -n "POST .*assets?name=${SIG_NAME}\$" "$MLOG" | head -1 | cut -d: -f1)"
 man_line="$(grep -n "POST .*assets?name=${MANIFEST_NAME}\$" "$MLOG" | head -1 | cut -d: -f1)"
 [[ -n "$sig_line" && -n "$man_line" && "$sig_line" -lt "$man_line" ]] && note "signature is replaced before the manifest" || bad "replacement order"
-# A CDN THAT SERVES THE PREVIOUS OBJECT AT A 200 IS RETRIED, NOT FAILED.
-# This is what happened to 0.9.3 (pipeline 183, job 1462): the bytes were
-# uploaded correctly and read back 1.5 s later from an edge that had not
-# expired, and a loop that broke on the status code and then compared the
-# digest ONCE turned someone else's propagation delay into a hard failure.
+# A CDN serving the previous object with a 200 is retried, not failed: the
+# digest must be compared inside the retry loop.
 : >"$MLOG"
 run env MOCK_GITHUB_STALE_READBACKS=2 UPDATE_SLOT_READBACK_POLL_SECONDS=1 \
     "$ROOT/scripts/mirror-update-manifest-to-github.sh" || bad "a stale-but-200 read-back failed the slot job"
 grep -q 'bytes do not match yet' "$TR/out.log" \
     && note "a stale-but-200 read-back is retried until the bytes match" || bad "the stale read-back was not retried"
 cmp -s "$SLOT/$MANIFEST_NAME" "$UPD" && note "the slot still carries the promoted bytes" || bad "slot bytes after the stale-read case"
-# AND THE GATE IS NOT WEAKENED: bytes that never match still fail the job.
+# Bytes that never match still fail the job.
 if run env MOCK_GITHUB_STALE_READBACKS=999 UPDATE_SLOT_READBACK_WAIT_SECONDS=0 \
     UPDATE_SLOT_READBACK_POLL_SECONDS=1 "$ROOT/scripts/mirror-update-manifest-to-github.sh"; then
     bad "a read-back that never matched the promoted bytes passed"

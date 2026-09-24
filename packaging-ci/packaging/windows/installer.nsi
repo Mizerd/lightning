@@ -1,14 +1,10 @@
 Unicode true
-; THE INSTALLER NEVER ASKS FOR ADMINISTRATOR RIGHTS UP FRONT.
-;
-; `user` is deliberate and must stay. `highest` (what the stock MultiUser.nsh
-; wants for an All Users choice) raises a UAC prompt on EVERY double-click by
-; an administrator -- which is most home users -- for a per-user install that
-; needs no rights at all. Instead the installer runs unprivileged, installs
-; "Just for me" by default exactly as every release up to 0.9.9 did, and
-; only when "All users" is chosen (page, /ALLUSERS, or an existing per-machine
-; installation being upgraded) does it relaunch ITSELF elevated through
-; ShellExecuteEx "runas" and wait for that copy's exit code.
+; Never ask for administrator rights up front. `highest` (what MultiUser.nsh
+; wants for an All Users choice) prompts every administrator on every
+; double-click, for a per-user install that needs no rights. The installer
+; runs unprivileged, installs "Just for me" by default, and relaunches itself
+; elevated through ShellExecuteEx "runas" only when "All users" is chosen
+; (page, /ALLUSERS, or upgrading an existing per-machine install).
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 
@@ -39,20 +35,17 @@ SetCompressor /SOLID lzma
   !error "COPYRIGHT is required"
 !endif
 
-; The internal registry path keeps its historical Software\Mizerd\Lightning
-; location on purpose (build-windows.sh explains why). It holds ONLY the
-; installer's own InstallDir; the application's settings live under
-; Software\MatrixClient and are never touched by this script.
+; The registry path keeps its historical Software\Mizerd\Lightning location
+; (see build-windows.sh). It holds only the installer's InstallDir; the app's
+; settings live under Software\MatrixClient and are never touched here.
 !define REG_APP "Software\Mizerd\Lightning"
 !define REG_UNINSTALL "Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightning"
-; Written into $INSTDIR: "user" or "machine". Read by the uninstaller (which
-; context to clean, whether to elevate) and by the in-app updater
-; (src/update/InstallType.cpp), which must hand an upgrade to the SAME scope
-; -- a per-user upgrade of a per-machine install would leave two copies.
+; Written into $INSTDIR: "user" or "machine". Read by the uninstaller and by
+; the in-app updater (src/update/InstallType.cpp), which must upgrade in the
+; same scope or leave two copies.
 !define SCOPE_MARKER ".lightning-install-scope"
-; ShellExecuteEx failed because the user declined the UAC prompt. Returned as
-; the installer's exit code so a silent caller can tell "not approved" from
-; "failed", and the in-app updater explains it (UpdateManager.cpp).
+; The user declined the UAC prompt. A distinct exit code lets a silent caller
+; tell "not approved" from "failed" (see UpdateManager.cpp).
 !define EXIT_ELEVATION_DECLINED 1223
 ; Elevation was "granted" but the relaunched copy is still not an
 ; administrator (UAC disabled for a standard account), or the command line
@@ -62,10 +55,8 @@ SetCompressor /SOLID lzma
 
 Name "Lightning ${PRODUCT_VERSION}"
 OutFile "${OUTPUT_FILE}"
-; The per-user default. .onInit replaces it per scope; there is deliberately
-; no InstallDirRegKey, because the remembered directory lives under HKCU for a
-; per-user installation and under HKLM for a per-machine one, and a static
-; attribute can only name one of them.
+; The per-user default; .onInit replaces it per scope. No InstallDirRegKey:
+; the remembered directory is under HKCU or HKLM depending on scope.
 InstallDir "$LOCALAPPDATA\Programs\Lightning"
 Icon "${STAGE_DIR}/Lightning.ico"
 UninstallIcon "${STAGE_DIR}/Lightning.ico"
@@ -411,34 +402,24 @@ FunctionEnd
 Section "Lightning application (required)" SEC_APP
   SectionIn RO
   SetOutPath "$INSTDIR"
-  ; THE PAYLOAD MUST BE ABLE TO FAIL OUT LOUD.
-  ;
-  ; `File /r` opens every target CREATE_ALWAYS, which fails with a sharing
-  ; violation on any file Windows has mapped -- Lightning.exe if the user
-  ; double-clicks setup with Lightning open, or a DLL still held by the
-  ; update helper. With no ClearErrors/IfErrors and no SetErrorLevel there
-  ; was no path at all from a per-file failure to a non-zero exit, so a
-  ; silent /S upgrade could install nothing and report success. The client
-  ; trusts that exit code completely and tells the user the update was
-  ; installed, with the old version still running.
+  ; The payload must be able to fail. `File /r` fails with a sharing
+  ; violation on any mapped file (Lightning running, or a DLL held by the
+  ; update helper), and the client trusts this exit code completely, so a
+  ; silent /S upgrade must not report success after installing nothing.
   ClearErrors
   File /r "${STAGE_DIR}/*"
   IfErrors payloadFailed
   FileOpen $0 "$INSTDIR\.lightning-install-root" w
-  ; The marker files decide what the UNINSTALLER and the UPDATER may do:
-  ; without the install-root marker the uninstaller refuses forever, without
-  ; the install-type marker an installed copy reads as portable and the
-  ; updater swaps a directory the installer owns, and without the scope
-  ; marker a per-machine copy would be upgraded per-user. Every write is
-  ; checked, so a failure cannot leave a broken installation reported as good.
+  ; The marker files decide what the uninstaller and updater may do (the
+  ; uninstaller refuses without the root marker; without the type marker the
+  ; install reads as portable; without the scope marker a per-machine copy
+  ; is upgraded per-user). Every write is checked.
   IfErrors markerFailed
   FileWrite $0 "Lightning ${PRODUCT_VERSION}$\r$\n"
   FileClose $0
-  ; Tell the updater which of the three Windows packages this installation is.
-  ; All three are built from one staged tree, so the compiled-in value says
-  ; windows-portable and only the installer that actually placed these files can
-  ; correct it. Without this, an EXE installation would be offered an MSI
-  ; upgrade for a directory the Windows Installer does not own.
+  ; The compiled-in install type says windows-portable (all three packages
+  ; share one staged tree); only the installer can correct it. Otherwise an
+  ; EXE install would be offered an MSI upgrade.
   ClearErrors
   FileOpen $0 "$INSTDIR\.lightning-install-type" w
   IfErrors markerFailed

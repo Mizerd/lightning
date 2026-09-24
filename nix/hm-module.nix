@@ -45,7 +45,7 @@ in
           uiFont = "Inter";
         };
       };
-      # Remove settings that may cause issues
+      # Drop keys the app owns; writing them from Nix would corrupt state.
       apply =
         attrs:
         (lib.removeAttrs
@@ -76,8 +76,7 @@ in
         cfg.package
       ];
 
-      # Activation script that sets all settings on top of the original file (if any)
-      # The easiest and fastest way I found to do this is by using `inittool` to run a separate command for each setting
+      # Merge each setting into the existing file with one `initool` call per key.
       activation = lib.mkIf (cfg.settings != { }) {
         lightningMatrixClientMergeSettings = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
           run mkdir -p "$(dirname "${cfg.settingsFilePath}")"
@@ -86,8 +85,7 @@ in
           fi
           ${
             let
-              # We need to split each setting into a list containing its path
-              # and process the values to retain only the possible/valid ones
+              # [section ... key value] lists; unsupported value types are dropped.
               settingsList = lib.filter (list: list != null) (
                 lib.mapAttrsToListRecursive (
                   path: value:
@@ -113,10 +111,8 @@ in
                     path ++ [ processedValue ]
                 ) cfg.settings
               );
-              # Snippets to avoid a HUGE line
               setSetting = ''${lib.getExe pkgs.initool} set "${cfg.settingsFilePath}"'';
-              # We need to create a temporary file for each option
-              # `initool` on its own does not replace the value inside the original file, only returns the result
+              # initool prints the result instead of editing in place.
               pipeReplace = ''> "${cfg.settingsFilePath}.tmppipe" && mv "${cfg.settingsFilePath}.tmppipe" "${cfg.settingsFilePath}"'';
             in
             lib.concatStringsSep "\n" (

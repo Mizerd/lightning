@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # Build the Lightning AppImage from the shared Release staged tree.
 #
-# Reuses configure-build.sh (same build, GIF-key handling, and RPATH
-# removal as the deb/rpm), then bundles Qt libraries, platform plugins, and
-# the dynamic QML modules with pinned linuxdeploy releases. AppImage is
-# unsandboxed by design; the bundle must be self-contained apart from the
-# documented base-system excludelist (glibc, GL, X11).
+# Reuses configure-build.sh, then bundles Qt, plugins and QML modules with
+# pinned linuxdeploy releases. The bundle must be self-contained apart from
+# linuxdeploy's base-system excludelist (glibc, GL, X11, Wayland).
 #
 # Outputs:
 #   dist/Lightning-<LOGICAL_VERSION>-x86_64.AppImage
@@ -30,11 +28,8 @@ LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/1-
 LINUXDEPLOY_SHA256=c86d6540f1df31061f02f539a2d3445f8d7f85cc3994eee1e74cd1ac97b76df0
 PLUGIN_QT_URL="https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/1-alpha-20240109-1/linuxdeploy-plugin-qt-x86_64.AppImage"
 PLUGIN_QT_SHA256=f53349093d333a6558c560844c1a0f64a3b6bd077bf02740af3ad3dbb8827433
-# The pack step is appimagetool's, not linuxdeploy's -- see PRUNE below for
-# why it has to be. `continuous` is a moving tag, and the sha256 is the point:
-# if upstream republishes it, fetch_tool fails the build rather than silently
-# packing with something nobody reviewed. A mismatch here is not a bug, it is
-# the pin doing its job; refresh it deliberately.
+# appimagetool packs (see PRUNE below). `continuous` is a moving tag, so the
+# sha256 pin fails the build if upstream republishes; refresh it deliberately.
 APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
 APPIMAGETOOL_SHA256=a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0
 
@@ -58,100 +53,47 @@ strip --strip-unneeded "$APPDIR/usr/bin/lightning-matrix"
 test -x "$APPDIR/usr/bin/lightning-updater" || die "update helper missing from the staged tree"
 strip --strip-unneeded "$APPDIR/usr/bin/lightning-updater"
 
-# The QML runtime modules ELF scanning cannot discover. Keep aligned with
-# the deb QML_DEPENDS list in build-deb.sh (source of both: the production
-# QML import scan).
+# QML modules ELF scanning cannot discover; keep aligned with QML_DEPENDS in
+# build-deb.sh.
 export QML_SOURCES_PATHS="$ROOT/work/lightning/qml"
-# Offscreen is required so the validation job (and headless users) can run
-# the bundle; wayland keeps the primary platform native.
+# offscreen for validation and headless use; wayland for native sessions.
 export EXTRA_PLATFORM_PLUGINS="libqoffscreen.so;libqwayland-generic.so;libqwayland-egl.so"
-# Plugin DIRECTORIES linuxdeploy-plugin-qt does not deploy on its own, and
-# the 0.9.0 AppImage shipped without both:
-#   tls                        — Qt's OpenSSL backend. Without it every
-#                                QNetworkAccessManager https request fails
-#                                ("TLS initialization failed"): the update
-#                                manifest fetch, the update download, the GIF
-#                                self-test. usr/plugins/tls existed and was
-#                                EMPTY. Matrix traffic was unaffected (rustls).
-#   wayland-shell-integration  — xdg-shell. Without it Qt logs "No shell
-#                                integration named xdg-shell found", refuses
-#                                its own wayland platform plugin and falls back
-#                                to xcb, i.e. XWayland — where a screen share
-#                                captures a black root window.
-#   wayland-decoration-client / wayland-graphics-integration-client — the
-#                                client-side decorations a compositor without
-#                                server-side ones needs, and the EGL path.
+# Plugin directories linuxdeploy-plugin-qt does not deploy by default:
+#   tls                        — OpenSSL backend; without it every Qt https
+#                                request (update check, GIF) fails
+#   wayland-shell-integration  — xdg-shell; without it Qt falls back to
+#                                XWayland, where screen shares are black
+#   wayland-decoration-client / wayland-graphics-integration-client — client
+#                                side decorations and the EGL path
 export EXTRA_QT_PLUGINS="tls;wayland-shell-integration;wayland-decoration-client;wayland-graphics-integration-client"
 export VERSION="$LOGICAL_VERSION"
 export LDAI_OUTPUT="$OUT"
 export APPIMAGE_EXTRACT_AND_RUN=1
 
-# Extra --library arguments accumulated below. Declared here so the
-# expansion is well-defined under `set -u` when no plugins are staged.
+# Extra --library arguments; declared up front for `set -u`.
 LINUXDEPLOY_PLUGIN_ARGS=()
 
 # linuxdeploy-plugin-qt finds Qt through qmake6.
 command -v qmake6 >/dev/null || die "qmake6 missing in build image"
 export QMAKE=$(command -v qmake6)
 
-# linuxdeploy's excludelist keeps libgpg-error on the host but bundles
-# libgcrypt, and the two are version-locked (trixie's libgcrypt needs
-# gpgrt_* symbols older distros lack — seen live on Ubuntu 24.04 in
-# validate-snap). Ship the exact libgpg-error the bundled libgcrypt was
-# built against.
-# BOTH executables are declared. linuxdeploy only resolves libraries for, and
-# rewrites the RPATH of, the executables it is told about — an unlisted binary
-# is copied along by the usr/ tree and then fails to start on any host without
-# Qt6, which is precisely the host an AppImage exists for. The helper is the
-# process that installs the update, so a helper that cannot start turns the
-# whole feature into a silent failure at the last step.
-# Voice/video calling: GStreamer PLUGINS are dlopen'd from a plugin path, so
-# linuxdeploy cannot discover them the way it discovers linked libraries —
-# it walks ELF NEEDED entries, and the binary links only gstreamer
-# core/webrtc/sdp. Staging them into the AppDir BEFORE linuxdeploy runs
-# means it also resolves and bundles each plugin's own dependencies.
-#
-# An AppImage that ships the binary without these installs and launches
-# perfectly and then refuses every call, because the engine's runtime
-# element probe fails — the worst kind of packaging bug, because nothing
-# about it looks like packaging.
+# GStreamer plugins are dlopen'd, so linuxdeploy cannot discover them from
+# ELF NEEDED entries. Without them every call is refused by the engine's
+# element probe.
 GST_PLUGIN_SRC="/usr/lib/x86_64-linux-gnu/gstreamer-1.0"
 GST_PLUGIN_DEST="$APPDIR/usr/lib/gstreamer-1.0"
-# NOT `if [ -d ... ]`. The previous revision skipped this whole block when the
-# directory was absent, and the build job installed no GStreamer at all, so it
-# was skipped on every build: no plugins staged, no AppRun hook written, and a
-# green pipeline. Absence is now the loud case, because on THIS image the
-# plugins are installed by the job and their absence can only mean the job
-# changed.
+# Fatal rather than skipped: the job installs the plugins, so absence means
+# the job changed.
 [[ -d "$GST_PLUGIN_SRC" ]] || die "no GStreamer plugins at $GST_PLUGIN_SRC: the build job did not install the runtime plugin packages, so the AppImage would bundle none and refuse every call"
 mkdir -p "$GST_PLUGIN_DEST"
 
-# THE LICENCE TRAVELS WITH THE BINARIES. Eleven of the plugins staged below
-# are gst-plugins-good (rtp, rtpmanager, vpx, autodetect, pulseaudio, alsa,
-# video4linux2, ximagesrc, level, volume, audioparsers) and this script staged
-# no licence text of any kind -- a grep for licen/COPYING/LICENSE across this
-# file and its validator returned one hit, and it was a comment about HEVC.
-# Every AppImage, and every snap (which repacks the AppImage), has shipped
-# LGPL-2.1 binaries without their licence.
-#
-# The text is vendored in this repository rather than copied from the build
-# host, for the same reason the Windows stage takes it from there: the host
-# packages do not reliably carry it, and a build-time fetch is a build-time
-# network dependency this lane does not have.
+# Many staged plugins are gst-plugins-good (LGPL-2.1); ship its licence. The
+# text is vendored because host packages do not reliably carry it.
 GOOD_LICENSE_SRC="$ROOT/packaging-ci/packaging/common/licenses/gst-plugins-good-1.0"
 [[ -f "$GOOD_LICENSE_SRC/COPYING" ]] || die "the vendored gst-plugins-good licence is missing at $GOOD_LICENSE_SRC: the AppImage bundles its binaries and must carry its licence"
 APPIMAGE_LICENSE_DEST="$APPDIR/usr/share/licenses/lightning-gstreamer/gst-plugins-good-1.0"
-# `install -m`, NOT `mkdir -p` + `cp -a`, and the difference failed a job.
-#
-# Git records only the executable bit, so a fresh CI checkout takes its modes
-# from the runner's umask — which is 0000 in this image, giving 666 files and
-# 777 directories. `cp -a` faithfully preserved that into the payload and
-# `validate-appimage`'s world-writable scan rejected the AppImage:
-# `error: world-writable content`. Nothing about the licence text was wrong;
-# the copy carried a permission the repository never had.
-#
-# Pinning the mode makes the result independent of the umask the build happens
-# to run under, which is what every other staged file here already does.
+# `install -m`, not `cp -a`: the CI checkout runs under umask 0000, and
+# copying its 666 modes fails validate-appimage's world-writable check.
 install -d -m 0755 "$APPIMAGE_LICENSE_DEST"
 install -m 0644 "$GOOD_LICENSE_SRC/COPYING" "$APPIMAGE_LICENSE_DEST/COPYING"
 install -m 0644 "$GOOD_LICENSE_SRC/PROVENANCE.txt" \
@@ -159,72 +101,30 @@ install -m 0644 "$GOOD_LICENSE_SRC/PROVENANCE.txt" \
 install -Dm644 "$ROOT/LICENSE" \
     "$APPDIR/usr/share/licenses/Lightning-GPL-3.0.txt"
 
-# Exactly what the call engine loads, and nothing else -- bundling the whole
-# directory would add tens of megabytes of codecs nothing ever opens. Each name
-# was resolved against this build image from the elements the Linux source
-# actually names: SfuMediaEngine::runtimeAvailable's kRequired list, every
-# element appearing in a pipeline description, AND every element probed at
-# runtime through elementAvailable()/gst_element_factory_find() OUTSIDE
-# kRequired. That last clause is not padding -- it is where `ximagesrc` lives,
-# and an element no call requires is invisible to every runtime check we have.
-# A MISSING one is a packaging regression rather than a distribution
-# limitation, so it is fatal here.
-#
-# Grouped by why it is needed:
+# Exactly the plugins the engine loads: its kRequired list, every element in
+# a pipeline description, and every element probed at runtime outside
+# kRequired. The hook below replaces the system plugin path, so an element
+# missing here is missing for good; absence is fatal.
 #   coreelements                        queue valve capsfilter tee fakesink identity
 #   webrtc nice dtls srtp               webrtcbin and its ICE/DTLS-SRTP transport
-#   sctp                                NOT named anywhere in Lightning. webrtcbin
-#                                       loads it ITSELF for the data channel, and
-#                                       LiveKit's subscriber offer puts one in
-#                                       media section 0 -- which under
-#                                       bundle-policy=max-bundle owns the transport
-#                                       every audio and video section rides on.
-#                                       Windows shipped for months able to SEND and
-#                                       unable to RECEIVE because this was missing.
-#   opus rtp rtpmanager vpx             the codecs and their RTP payloaders
-#   app                                 appsink/appsrc: the received-video path
-#   audioconvert audioresample          format conversion on both audio legs
-#   audiotestsrc videotestsrc           in kRequired: the engine REFUSES without them
-#   videoconvertscale videorate volume  the publish chain and per-participant volume
-#   autodetect pulseaudio alsa          device selection, enumeration, and a
-#                                       real sink on every desktop: autoaudiosink
-#                                       resolves to pipewiresink, pulsesink or
-#                                       alsasink depending on the host, and an
-#                                       AppImage carries no system plugins to
-#                                       fall back on
+#   sctp                                loaded by webrtcbin itself for the data
+#                                       channel, which owns the bundled transport;
+#                                       without it nothing is received
+#   opus rtp rtpmanager vpx             codecs and RTP payloaders
+#   app                                 appsink/appsrc: received video
+#   audioconvert audioresample          audio format conversion
+#   audiotestsrc videotestsrc           required by the engine
+#   videoconvertscale videorate volume  publish chain, per-participant volume
+#   autodetect pulseaudio alsa          device selection and a sink on any host
 #   pipewire                            pipewiresrc: portal screen capture
-#   ximagesrc                           the X11 screen-share fallback, used when
-#                                       no xdg portal answers. It is NOT in
-#                                       kRequired -- correctly, a call does not
-#                                       need it -- so `--call-media-status` is
-#                                       GREEN on a bundle without it while the
-#                                       feature is DEAD: SfuCallController probes
-#                                       the RUNNING REGISTRY, and the hook below
-#                                       REPLACES the system plugin path, so the
-#                                       host's plugins-good is invisible. The
-#                                       route then refuses with "install
-#                                       gst-plugins-good" -- a package the user
-#                                       very likely already has and which would
-#                                       change nothing. Nothing we can run
-#                                       against the artifact can see its absence,
-#                                       so staging it is the only defence.
-#   video4linux2                        v4l2src: the camera (autovideosrc is
-#                                       deliberately not used -- see the source)
-#   webrtcdsp                           the microphone AGC, live-confirmed audible
-#   audioparsers playback typefindfunctions   supporting demux/parse paths
-#   opengl                              glupload/glcolorconvert/glcolorscale/
-#                                       gldownload: the GPU scale path for a
-#                                       screen share, which is now the DEFAULT.
-#                                       Without it a packaged run logs
-#                                       `element "glupload" is not available in
-#                                       this build` and quietly uses the CPU --
-#                                       measured on the 0.8.2 AppImage, and the
-#                                       ladder degrading cleanly is exactly why
-#                                       nothing failed to reveal it. Its own
-#                                       deps (libgstgl, libgraphene, libjpeg,
-#                                       libpng) come from the ldd walk below;
-#                                       libGL/libEGL are deliberately NOT
-#                                       bundled, per linuxdeploy's excludelist.
+#   ximagesrc                           X11 screen-share fallback (not in
+#                                       kRequired, so no runtime check sees it)
+#   video4linux2                        v4l2src: the camera
+#   webrtcdsp                           microphone AGC
+#   audioparsers playback typefindfunctions   demux/parse support
+#   opengl                              GPU scaling for screen share (else
+#                                       silently CPU); libGL/libEGL stay on the
+#                                       host per linuxdeploy's excludelist
 GST_REQUIRED_PLUGINS=(
     libgstcoreelements
     libgstwebrtc libgstnice libgstdtls libgstsrtp libgstsctp
@@ -237,22 +137,10 @@ GST_REQUIRED_PLUGINS=(
     libgstpipewire libgstvideo4linux2 libgstximagesrc
     libgstwebrtcdsp
     libgstaudioparsers libgstplayback libgsttypefindfunctions
-    # libgstlevel — the capture level meter, and the ONLY thing that can tell
-    #               a live microphone from a dead one. Silence encodes and
-    #               encrypts exactly like speech, so every counter downstream
-    #               of the encoder reports a healthy call either way; a whole
-    #               day went into the crypto path on 2026-09-16 for a capture
-    #               that was producing nothing. Measured absent from the
-    #               shipped 0.9.7 AppImage (`publishing microphone: ...
-    #               level= false`), where the app degrades gracefully — which
-    #               is precisely why the absence was silent.
-    # libgstjpeg  — jpegenc/jpegdec, the camera's MJPG chain. Also measured
-    #               absent from 0.9.7: `camera MJPG chain unavailable,
-    #               cameras will use the raw entry: no element "jpegenc"`, and
-    #               raw-only means a USB 2.0 camera cannot reach 720p30.
-    # Both are in gstreamer1.0-plugins-good, which this job already installs,
-    # so REQUIRED is safe here — unlike the Windows lane, whose builder image
-    # is built by hand and where a required entry must follow the rebuild.
+    # libgstlevel — capture level meter, the only way to tell a live
+    #               microphone from a silent one
+    # libgstjpeg  — the camera's MJPG chain; raw-only cannot reach 720p30 on
+    #               USB 2.0
     libgstlevel libgstjpeg
 )
 for plugin in "${GST_REQUIRED_PLUGINS[@]}"; do
@@ -261,38 +149,12 @@ for plugin in "${GST_REQUIRED_PLUGINS[@]}"; do
     cp "$GST_PLUGIN_SRC/$plugin.so" "$GST_PLUGIN_DEST/"
 done
 
-# NSS's OWN PKCS#11 MODULES, which is the SIXTH time a library has loaded its
-# own plugins out from under every check we have -- and the first time it cost
-# us an entire call lane.
-#
-# Debian builds `libsrtp2` against NSS, not OpenSSL. `ldd libsrtp2.so.1` names
-# libnss3/libnspr4/libnssutil3/libplc4/libplds4, linuxdeploy's ELF walk bundles
-# all five, and every payload assertion passes. But NSS does no crypto itself:
-# it dlopens `libsoftokn3.so` (the PKCS#11 softoken), which in turn dlopens
-# `libfreebl3.so`, from a directory it derives at RUNTIME from libnss3's own
-# path. Nothing in an ELF NEEDED list mentions them, so nothing staged them.
-#
-# UNCONFINED THIS HIDES COMPLETELY, because essentially every desktop Linux has
-# NSS installed for its browser, and NSS finds the host's copy. MEASURED under
-# strict snap confinement 2026-09-13, where `/usr` is the BASE SNAP's and
-# core24 carries no NSS at all: libsrtp cannot initialise a cipher,
-# `srtp_add_stream` returns init_fail (err 5), `srtpenc` posts "Could not
-# initialize SRTP encoder", the publisher pipeline dies and the subscriber
-# never gets a receive pad. The snap has therefore NEVER been able to carry
-# call media in either direction, while its signalling, membership, media-key
-# distribution, SDP and ICE were all perfect -- which is exactly why it looked
-# like anything but packaging.
-#
-# The AppImage carries the identical gap and is one NSS-less host away from the
-# same failure, so this is staged HERE, for both.
-#
-# THE SOURCE DIRECTORY IS DERIVED FROM libnss3.so ITSELF, not hard-coded, and
-# the first attempt at this failed the build for exactly that reason: it looked
-# in `/usr/lib/x86_64-linux-gnu/nss`, which is where Debian used to keep these
-# and no longer does — on trixie `dpkg -L libnss3` puts every one of them
-# directly in `/usr/lib/x86_64-linux-gnu`. Deriving the path is also the
-# HONEST thing to do, because "beside libnss3" is precisely how NSS itself
-# finds them at runtime, so this cannot drift from the rule it is implementing.
+# NSS's PKCS#11 modules. Debian's libsrtp2 uses NSS, which dlopens
+# libsoftokn3 (and it libfreebl3) at runtime from beside libnss3, so no NEEDED
+# list names them. On a host without NSS (always, under snap confinement) SRTP
+# cannot initialise and calls carry no media. Staged here for the AppImage and
+# the snap. The directory is derived from libnss3.so, as NSS itself does;
+# Debian has moved these before.
 NSS_MODULE_SRC="$(dirname "$(ldconfig -p | awk '/libnss3\.so/ {print $NF; exit}')")"
 [[ -n "$NSS_MODULE_SRC" && -d "$NSS_MODULE_SRC" ]] || \
     die "cannot locate libnss3.so in the build image: libsrtp2 is built against NSS here, so without its modules SRTP cannot initialise and every call carries no media"
@@ -309,26 +171,10 @@ for mod in "${NSS_REQUIRED_MODULES[@]}"; do
     cp "$NSS_MODULE_SRC/$mod.so" "$APPDIR/usr/lib/"
 done
 
-# THE REGISTRY HELPER, which is not a plugin and is not found like one.
-#
-# GStreamer builds its registry by dlopen'ing each candidate in a SEPARATE
-# `gst-plugin-scanner` process, so one plugin that crashes on load cannot take
-# the app down with it. The path to that helper is compiled into libgstreamer
-# and names the BUILD IMAGE, so a bundle that does not carry it prints
-#
-#   GStreamer-WARNING: External plugin loader failed. This most likely means
-#   that the plugin loader helper binary was not found or could not be run.
-#
-# at every launch and scans in-process instead. 0.9.4 shipped exactly that --
-# the same defect the macOS bundle had, found by RUNNING the AppImage rather
-# than by any job, because the fallback works and the warning is the only
-# symptom. Log noise plus lost crash isolation, not a call failure.
-#
-# Debian moved this helper between releases (it was under
-# /usr/lib/<triplet>/gstreamer1.0/gstreamer-1.0/ before trixie), so the
-# candidates are searched rather than assumed -- and absence is FATAL, because
-# on this image libgstreamer1.0-0 is installed and the helper missing can only
-# mean the layout moved again.
+# gst-plugin-scanner builds the registry in a separate process for crash
+# isolation. Its path is compiled into libgstreamer, so without a bundled copy
+# every launch warns "External plugin loader failed" and scans in-process.
+# Debian has moved it between releases, so search the known locations.
 GST_SCANNER_DEST="$APPDIR/usr/libexec/gstreamer-1.0"
 gst_scanner_src=""
 for candidate in \
@@ -344,37 +190,16 @@ done
     die "gst-plugin-scanner is not in any known location in the build image: GStreamer would print 'External plugin loader failed' at every launch and scan in-process"
 mkdir -p "$GST_SCANNER_DEST"
 cp "$gst_scanner_src" "$GST_SCANNER_DEST/gst-plugin-scanner"
-# Explicitly, not inherited from the source file's mode: it is exec'd, and a
-# non-executable helper is indistinguishable at runtime from an absent one.
+# Explicit mode: a non-executable helper behaves like an absent one.
 chmod 0755 "$GST_SCANNER_DEST/gst-plugin-scanner"
 printf 'Staged gst-plugin-scanner from %s\n' "$gst_scanner_src"
 
-# libgstpipewire IS NOT ENOUGH: libpipewire LOADS ITS OWN PLUGINS.
-#
-# Staging the GStreamer plugin and bundling libpipewire-0.3.so.0 gets you an
-# element that registers, builds a pipeline, and then dies the moment it runs:
-#
-#   [E] pw.loop can't make support.system handle: No such file or directory
-#   pipeline error element="capsrc" reason="Failed to connect"
-#
-# That is 0.8.0/142 on the maintainer's KDE desktop: the portal picker appears,
-# a node id and an fd come back, and the capture never starts. libpipewire
-# dlopens SPA plugins and PipeWire modules from paths compiled in at build time
-# (/usr/lib/x86_64-linux-gnu/{spa-0.2,pipewire-0.3}) and reads its module LIST
-# from a config file it has no compiled-in fallback for. All three are staged
-# here and pointed at by the AppRun hook.
-#
-# WHY ONLY SCREEN SHARE BROKE. Audio is autoaudiosrc -> pulsesrc/alsasrc and
-# libpulse is a socket client with no plugin directory of its own; the camera is
-# v4l2src. Screen capture is the one path through libpipewire, which is why
-# audio worked both ways and video RECEIVE worked while sharing was dead.
-#
-# DELIBERATELY NOT THE WHOLE spa-0.2 TREE. Its other subdirectories (alsa,
-# bluez5, aec, filter-graph, avb) need libasound, libfftw3f, liblilv, libmysofa
-# and libebur128, none of which is bundled -- staging them would add libraries
-# that cannot load. support/ is what the reported error names; videoconvert/ is
-# staged because the client.conf below names it in context.spa-libs
-# (video.convert.*) and a video capture is exactly what this feature is.
+# libpipewire dlopens its own SPA plugins and modules from build-time paths
+# and reads its module list from client.conf, so all three are staged and
+# pointed at by the AppRun hook; without them pipewiresrc fails with "can't
+# make support.system handle" (screen share only; audio and camera do not use
+# libpipewire). Only support/ and videoconvert/ (named by client.conf) are
+# staged: the other SPA directories need libraries that are not bundled.
 SPA_SRC="/usr/lib/x86_64-linux-gnu/spa-0.2"
 PW_MODULE_SRC="/usr/lib/x86_64-linux-gnu/pipewire-0.3"
 for spa_subdir in support videoconvert; do
@@ -384,12 +209,9 @@ for spa_subdir in support videoconvert; do
     cp "$SPA_SRC/$spa_subdir"/*.so "$APPDIR/usr/lib/spa-0.2/$spa_subdir/"
 done
 
-# SIX OF THESE SEVEN ARE HARD-REQUIRED, and the reason is in Debian's own
-# client.conf: it lists them WITHOUT `flags = [ ifexists nofail ]`, so a missing
-# one makes pw_context_new() return NULL rather than degrade. Only module-rt
-# carries those flags; without it you lose realtime scheduling and nothing else.
-# The whole directory is deliberately NOT copied -- the rest need libroc,
-# libpulse, libavahi, libsndfile and libssl at load time.
+# Debian's client.conf loads all but module-rt without `ifexists nofail`, so a
+# missing one makes pw_context_new() fail. The rest of the directory needs
+# libraries that are not bundled.
 PW_REQUIRED_MODULES=(
     libpipewire-module-protocol-native
     libpipewire-module-client-node
@@ -406,12 +228,8 @@ for pw_module in "${PW_REQUIRED_MODULES[@]}"; do
     cp "$PW_MODULE_SRC/$pw_module.so" "$APPDIR/usr/lib/pipewire-0.3/"
 done
 
-# THE NON-OBVIOUS HALF. With both directories staged and both env vars set but
-# no config, pw_loop_new() succeeds and pw_context_new() then fails with
-# `can't load config client.conf`. libpipewire carries no built-in module list;
-# context.modules comes only from this file. Debian's own copy is shipped rather
-# than a hand-written one so it stays authoritative for the exact libpipewire
-# version bundled beside it.
+# libpipewire has no built-in module list; without client.conf
+# pw_context_new() fails. Debian's copy matches the bundled libpipewire.
 PW_CLIENT_CONF=""
 for candidate in /opt/pipewire-conf/usr/share/pipewire/client.conf \
                  /usr/share/pipewire/client.conf; do
@@ -426,49 +244,23 @@ printf 'PipeWire client stack staged: %d SPA dirs, %d modules, client.conf from 
 
 # --- Qt image-format plugins --------------------------------------------------
 #
-# THE SAME CLASS OF DEFECT AS THE GSTREAMER BLOCK ABOVE, and it shipped for
-# just as long. A Qt image format is a dlopen'd plugin, so linuxdeploy-plugin-qt
-# only ever deployed what qtbase itself carries -- libqgif, libqico, libqjpeg --
-# and every released AppImage decoded exactly those three plus qtbase's built-in
-# PNG/BMP/PPM/XBM/XPM. Verified on the shipped artifact: 0.8.0's
-# usr/plugins/imageformats holds three files.
+# Qt image formats are dlopen'd plugins; linuxdeploy-plugin-qt deploys only
+# qtbase's gif/ico/jpeg. WebP is required because the client's MIME sniffers
+# accept it. JPEG XL comes only from KDE's kimageformats (kimg_jxl.so), never
+# from Qt, so Windows and macOS have none.
 #
-# WEBP IS THE ONE THAT MAKES IT A CORRECTNESS BUG rather than a missing extra.
-# Lightning's own byte sniffers ACCEPT image/webp -- rooms::sniff_image_mime in
-# the Rust bridge and its four C++ twins -- so the client accepted, forwarded
-# and re-uploaded a format it could not draw. Windows has staged qwebp.dll all
-# along and macdeployqt copies libqwebp.dylib, so Linux was the only platform
-# where accept and decode disagreed.
-#
-# JPEG XL is the reported symptom and it does NOT come from Qt.
-# qt/qtimageformats has never contained a JPEG XL plugin -- at v6.11.1 it is
-# dds, icns, jp2, macheif, macjp2, mng, tga, tiff, wbmp, webp. Every Qt JXL
-# decoder in existence is KDE's kimageformats (kimg_jxl.so). That is why this
-# staging takes ONE file from each of two different upstreams, and why Windows
-# and macOS get no JXL at all; the per-platform table is in the release notes
-# and in lib.sh's assert_image_formats.
-#
-# WHAT IS DELIBERATELY NOT SHIPPED, so nobody adds it back by reflex:
-#   avif  -- kimg_avif drags libaom, librav1e, libSvtAv1Enc, libgav1, libyuv
-#            and ~20 abseil libraries: 20+ MB, three AV1 ENCODERS, for a format
-#            no Matrix client has been observed to send.
-#   heif  -- kimg_heif needs libheif, and LIBHEIF DLOPENS ITS OWN CODEC PLUGINS
-#            from /usr/lib/x86_64-linux-gnu/libheif. Staging the plugin without
-#            them registers the format and then decodes nothing, which is worse
-#            than not offering it -- the sctp/SPA lesson in a third costume.
-#            HEVC licensing is a second reason.
-#   svg   -- CLAUDE.md §6: SVG must never reach a media path as active content.
-#            Its absence here is a security property, not an oversight.
+# Deliberately not shipped:
+#   avif  -- pulls three AV1 encoders and ~20 abseil libraries (20+ MB)
+#   heif  -- libheif dlopens its own codec plugins, so it would register and
+#            decode nothing; HEVC licensing too
+#   svg   -- SVG must never reach a media path as active content (security)
 QT_IMAGE_PLUGIN_DEST="$APPDIR/usr/plugins/imageformats"
-# Two sources, because no single package provides both. The build job installs
-# qt6-image-formats-plugins (libqwebp) and unpacks kimageformat6-plugins into
-# /opt/kimageformats WITHOUT installing it, exactly as it does for pipewire-bin:
-# installing it would pull libheif, libraw, OpenEXR and x265 into the image and
-# put kimg_avif.so and kimg_heif.so in the same directory this stages from,
-# where a later glob would ship them by accident.
+# kimageformat6-plugins is unpacked into /opt/kimageformats rather than
+# installed, which keeps its heavy dependencies and unwanted plugins out of the
+# image.
 QT_IMAGE_PLUGIN_SRC_QT="/usr/lib/x86_64-linux-gnu/qt6/plugins/imageformats"
 QT_IMAGE_PLUGIN_SRC_KF="/opt/kimageformats/usr/lib/x86_64-linux-gnu/qt6/plugins/imageformats"
-# name:source-directory. Named one by one; there is no glob anywhere here.
+# name:source-directory, named individually (no globs).
 QT_IMAGE_REQUIRED_PLUGINS=(
     "libqwebp.so:$QT_IMAGE_PLUGIN_SRC_QT"
     "kimg_jxl.so:$QT_IMAGE_PLUGIN_SRC_KF"
@@ -477,13 +269,9 @@ mkdir -p "$QT_IMAGE_PLUGIN_DEST"
 for entry in "${QT_IMAGE_REQUIRED_PLUGINS[@]}"; do
     img_plugin="${entry%%:*}"
     img_src="${entry#*:}/$img_plugin"
-    # Absence is fatal, for the reason the GStreamer block gives: a skipped
-    # block and a green pipeline is how this shipped in the first place.
     [[ -f "$img_src" ]] || die "Qt image-format plugin $img_plugin not found at $img_src: the build job did not install/unpack the package that provides it, so the AppImage would ship a client that accepts image formats it cannot decode"
     cp "$img_src" "$QT_IMAGE_PLUGIN_DEST/"
-    # THE SOURCE PATH, NOT THE STAGED COPY -- see the GStreamer note below.
-    # Handing linuxdeploy a file already inside the AppDir makes it skip the
-    # NEEDED walk, and libwebp/libjxl would never be bundled.
+    # The source path, not the staged copy (see the GStreamer note below).
     LINUXDEPLOY_PLUGIN_ARGS+=(--library "$img_src")
 done
 printf 'Qt image-format plugins staged: %d (%s)\n' \
@@ -491,19 +279,9 @@ printf 'Qt image-format plugins staged: %d (%s)\n' \
     "$(printf '%s ' "${QT_IMAGE_REQUIRED_PLUGINS[@]%%:*}")"
 
 # ── Qt Wayland integration plugins ───────────────────────────────────────
-# linuxdeploy-plugin-qt deploys the wayland PLATFORM plugin (libqwayland-
-# generic/-egl) and libQt6WaylandClient, but NOT the shell-integration,
-# decoration-client or graphics-integration-client plugins: naming them in
-# EXTRA_QT_PLUGINS is silently ignored by the pinned alpha build (0.9.1
-# pipeline 174 -- tls deployed from that same list, wayland-shell-integration
-# did not, and validate-appimage caught the empty payload). Without
-# libxdg-shell.so Qt logs "No shell integration named xdg-shell found",
-# refuses its own wayland platform plugin and falls back to XWayland, where a
-# screen share captures a black root window -- the exact regression 1b773c2
-# set out to fix. Hand-staged here like the GStreamer and image-format
-# plugins so it does not depend on the plugin's EXTRA_QT_PLUGINS handling;
-# their NEEDED libraries (Qt6WaylandClient, wayland-client) are bundled by
-# linuxdeploy either way, and --library points at the SOURCE so its walk runs.
+# The pinned linuxdeploy-plugin-qt ignores the Wayland entries in
+# EXTRA_QT_PLUGINS, so these are hand-staged. Without libxdg-shell.so Qt falls
+# back to XWayland, where screen shares capture a black root window.
 QT_PLUGIN_SRC_BASE="/usr/lib/x86_64-linux-gnu/qt6/plugins"
 QT_WAYLAND_REQUIRED_PLUGINS=(
     "wayland-shell-integration/libxdg-shell.so"
@@ -530,81 +308,34 @@ done
 printf 'Qt Wayland integration plugins staged: %d required + %d optional dir(s)\n' \
     "${#QT_WAYLAND_REQUIRED_PLUGINS[@]}" "$wl_optional"
 
-# Declared to linuxdeploy so their own NEEDED libraries are bundled into
-# usr/lib, where the AppRun's LD_LIBRARY_PATH will find them.
-#
-# THE SOURCE PATH, NOT THE STAGED COPY, and the difference is the whole bug.
-# Handing linuxdeploy a file that is ALREADY inside the AppDir makes it treat
-# the library as deployed and skip it, so it never walks that plugin's own
-# NEEDED list. Pipeline 139 staged all 28 plugins correctly and bundled none
-# of their dependencies: libgstsctp, libgstallocators, libgstnet,
-# libgstbadaudio, libnice, libvpx, libsrtp2 and libasound were all absent, so
-# every interesting plugin failed to load and the engine reported
-# `missing_element:webrtcbin` — an AppImage with a complete plugin directory
-# and no calling. Caught by validate-appimage's launch check, which is exactly
-# what it was added for.
-#
-# linuxdeploy also drops its own copy of each plugin into usr/lib. That is
-# harmless: GStreamer only scans GST_PLUGIN_SYSTEM_PATH_1_0, which the AppRun
-# hook points at usr/lib/gstreamer-1.0, so the copies in usr/lib are never
-# loaded as plugins — they are just the price of getting their dependencies
-# resolved.
+# Declared to linuxdeploy so their NEEDED libraries are bundled into usr/lib.
+# Pass the source path: a file already inside the AppDir is treated as
+# deployed and its NEEDED list is never walked. The extra copies linuxdeploy
+# drops into usr/lib are harmless, since GStreamer only scans
+# GST_PLUGIN_SYSTEM_PATH_1_0.
 for plugin in "${GST_REQUIRED_PLUGINS[@]}"; do
     LINUXDEPLOY_PLUGIN_ARGS+=(--library "$GST_PLUGIN_SRC/$plugin.so")
 done
 
-# AND THEN COPY THE DEPENDENCIES OURSELVES.
-#
-# NOTE, and re-test this before trusting it: the belief that `--library` never
-# walks a plugin's NEEDED list is TRUE of 139/140 and FALSE of 141. Pipeline
-# 141's build log shows linuxdeploy deploying dependencies for each staged
-# plugin and copying libgstsctp-1.0.so.0, libgstallocators-1.0.so.0,
-# libgstnet-1.0.so.0 and libsrtp2.so.1 into usr/lib itself, rpath set to
-# $ORIGIN. Those four were PRESENT in 141 and still unreachable, because a
-# plugin in usr/lib/gstreamer-1.0 resolving $ORIGIN never looks in usr/lib.
-# So this loop may now be redundant; it is kept because it is harmless and
-# because nothing has re-tested removing it. What fixed 141 is the hook's
-# LD_LIBRARY_PATH, not this copy.
-#
-# The 139/140 history, which the source-path form above addresses:
-# libgstsctp-1.0.so.0, libgstallocators-1.0.so.0, libgstnet-1.0.so.0,
-# libgstbadaudio-1.0.so.0, libnice.so.10, libvpx.so.9 and libsrtp2.so.1 all
-# absent — so webrtcbin did not exist and the engine reported
-# `missing_element:webrtcbin`. A complete plugin directory and no calling.
-#
-# So resolve them with the loader itself and copy what is missing. `ldd`
-# answers with the paths the dynamic linker WOULD use, which is the same
-# question the AppImage asks at runtime, and it recurses — so one pass over
-# the staged plugins covers their transitive closure too.
-#
-# WHAT IS DELIBERATELY NOT COPIED: anything already in the AppDir (linuxdeploy
-# put it there and rewrote it), and the base-system set linuxdeploy's own
-# excludelist leaves on the host — glibc and its siblings, the X libraries,
-# ALSA. Bundling those is how an AppImage breaks on a host whose loader
-# disagrees with the build image's.
+# Also copy the plugins' dependencies ourselves, resolved transitively by
+# ldd. This may be redundant with linuxdeploy's own walk, but it is harmless
+# and has not been re-tested without. Skip anything already in the AppDir and
+# the base-system set linuxdeploy's excludelist leaves on the host.
 gst_dep_copied=0
 gst_dep_skipped=0
 while IFS= read -r dep; do
     [[ -n "$dep" ]] || continue
     dep_name="$(basename "$dep")"
-    # Already bundled by linuxdeploy, in either location.
+    # Already bundled by linuxdeploy.
     [[ -e "$APPDIR/usr/lib/$dep_name" ]] && { gst_dep_skipped=$((gst_dep_skipped+1)); continue; }
     case "$dep_name" in
         # The loader, the C/C++ runtime and their siblings: never bundle.
         ld-linux*|libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|\
         libgcc_s.so.*|libstdc++.so.*|libresolv.so.*)
             gst_dep_skipped=$((gst_dep_skipped+1)); continue ;;
-        # Base system per linuxdeploy's excludelist: X, ALSA, GL, D-Bus --
-        # and WAYLAND, which cost a release to learn. GitHub issue #9: the
-        # 0.9.1 AppImage bundled its own libwayland-client.so.0, older than
-        # the host's and missing wl_display_dispatch_queue_timeout, so the
-        # HOST's Mesa EGL was handed our copy, EGL initialisation failed and
-        # the client aborted before a window existed on every native Wayland
-        # session. The client library of a display protocol belongs to the
-        # host exactly as libEGL and libgbm beside it do, and any machine
-        # running a Wayland session has it by definition. The packed-plugin
-        # audit below shares this list for that reason: it must not reject a
-        # dependency this loop is right to leave out.
+        # Base system per linuxdeploy's excludelist: X, ALSA, GL, D-Bus and
+        # Wayland (a bundled libwayland-client broke the host's Mesa EGL,
+        # issue #9). The packed-plugin audit below uses the same list.
         libX*.so.*|libxcb*.so.*|libasound.so.*|libGL*.so.*|libEGL*.so.*|\
         libwayland-*.so.*|\
         libdrm.so.*|libgbm.so.*|libdbus-1.so.*|libudev.so.*|libsystemd.so.*)
@@ -619,14 +350,11 @@ done < <(
 )
 printf 'GStreamer plugin dependencies: %d copied, %d already present or base system\n' \
     "$gst_dep_copied" "$gst_dep_skipped"
-# A plugin set this size cannot have zero private dependencies. Zero means the
-# resolution silently produced nothing, which is how this shipped twice.
+# Zero copied means the resolution silently produced nothing.
 [[ "$gst_dep_copied" -gt 0 ]] || \
     die "resolved no GStreamer plugin dependencies at all — the bundle would ship plugins that cannot load"
 
-# Every staged plugin must now resolve against the AppDir, not against this
-# build image. Asked of the loader with the AppDir as the search path, which
-# is the arrangement the AppImage actually runs in.
+# Every staged plugin must resolve against the AppDir, as it will at runtime.
 gst_unresolved=""
 for staged_plugin in "$GST_PLUGIN_DEST"/*.so; do
     [[ -e "$staged_plugin" ]] || continue
@@ -642,12 +370,8 @@ done
 printf 'All %d staged GStreamer plugins resolve against the AppDir\n' \
     "${#GST_REQUIRED_PLUGINS[@]}"
 
-# The same two steps for the image-format plugins, and for the same reason: the
-# `--library` declaration above is believed to walk their NEEDED lists, but that
-# belief was TRUE of one pipeline and FALSE of two others (see the note above),
-# so the codec libraries are resolved with the loader and copied here as well.
-# libwebp/libjxl are private to these plugins -- nothing else in the bundle
-# links them -- so a missed copy is a plugin that registers and cannot decode.
+# The same for the image-format plugins, whose codec libraries (libwebp,
+# libjxl) nothing else in the bundle links.
 img_dep_copied=0
 img_dep_skipped=0
 while IFS= read -r dep; do
@@ -662,14 +386,8 @@ while IFS= read -r dep; do
         libwayland-*.so.*|\
         libdrm.so.*|libgbm.so.*|libdbus-1.so.*|libudev.so.*|libsystemd.so.*)
             img_dep_skipped=$((img_dep_skipped+1)); continue ;;
-        # QT IS LINUXDEPLOY'S, and this is the ONE way this loop must differ
-        # from the GStreamer one above: a GStreamer plugin links no Qt, an
-        # image-format plugin links libQt6Core/Gui/DBus. Dropping an unpatched
-        # Debian copy into usr/lib before linuxdeploy runs would hand its Qt
-        # plugin a file it did not deploy, and `cp -n` means the correct one
-        # could never replace it afterwards. What this loop is FOR is the
-        # plugins' private codecs -- libwebp, libjxl, libhwy, liblcms2,
-        # libsharpyuv -- which linuxdeploy has no other reason to bundle.
+        # Qt is deployed by linuxdeploy; an unpatched Debian copy placed
+        # first would never be replaced (`cp -n`).
         libQt6*)
             img_dep_skipped=$((img_dep_skipped+1)); continue ;;
     esac
@@ -682,9 +400,7 @@ done < <(
 )
 printf 'Qt image-format plugin dependencies: %d copied, %d already present or base system\n' \
     "$img_dep_copied" "$img_dep_skipped"
-# libwebp and libjxl cannot both already be in the AppDir at this point: Qt
-# links neither. Zero copied means the resolution produced nothing, which is
-# precisely how the GStreamer set shipped broken twice.
+# Qt links neither libwebp nor libjxl, so zero copied means nothing resolved.
 [[ "$img_dep_copied" -gt 0 ]] || \
     die "resolved no Qt image-format plugin dependencies at all — the bundle would ship plugins that cannot decode"
 
@@ -703,9 +419,8 @@ done
 printf 'All %d staged Qt image-format plugins resolve against the AppDir\n' \
     "${#QT_IMAGE_REQUIRED_PLUGINS[@]}"
 
-# linuxdeploy's generated AppRun sources every apprun-hooks/*.sh. Without this
-# hook the plugins are bundled and never found: GStreamer scans its COMPILED-IN
-# system path, which points at the build image.
+# linuxdeploy's AppRun sources every apprun-hooks/*.sh. Without this hook
+# GStreamer scans its compiled-in path, which names the build image.
 mkdir -p "$APPDIR/apprun-hooks"
 cat >"$APPDIR/apprun-hooks/gstreamer.sh" <<'HOOK'
 # EVERY variable this hook sets is preserved first under the AppImage
@@ -793,11 +508,13 @@ export GST_REGISTRY_1_0="${XDG_CACHE_HOME:-$HOME/.cache}/lightning/gst-registry.
 mkdir -p "$(dirname "$GST_REGISTRY_1_0")" 2>/dev/null || true
 HOOK
 
-# DEPLOY ONLY. The pack step is appimagetool's, below, because a library has
-# to be REMOVED between the two and linuxdeploy will not let that stand: its
-# `--output appimage` re-runs "Deploying dependencies for existing files",
-# which walks what is already in the AppDir and copies their NEEDED back in.
-# Delete a library and pack with linuxdeploy and you get it right back.
+# Deploy only. appimagetool packs below, because linuxdeploy's own
+# `--output appimage` re-deploys dependencies and would restore the libraries
+# pruned in between.
+# Both executables are declared: linuxdeploy only bundles libraries for, and
+# rewrites the RPATH of, executables it is told about.
+# libgpg-error is on linuxdeploy's excludelist but libgcrypt is bundled, and
+# the two are version-locked, so ship the matching libgpg-error.
 "$TOOLS/linuxdeploy" --appdir "$APPDIR" \
     --desktop-file "$APPDIR/usr/share/applications/lightning.desktop" \
     --icon-file "$APPDIR/usr/share/icons/hicolor/192x192/apps/lightning.png" \
@@ -807,32 +524,11 @@ HOOK
     "${LINUXDEPLOY_PLUGIN_ARGS[@]}" \
     --plugin qt
 
-# ── PRUNE THE HOST'S GRAPHICS AND DISPLAY STACK ──────────────────────────
-#
-# THE CLIENT LIBRARY OF A DISPLAY PROTOCOL BELONGS TO THE HOST, ALWAYS.
-#
-# GitHub issue #9, against 0.9.1, from the Arch AUR packager, and it is the
-# other half of the same regression this script's Wayland staging created.
-# 0.9.0 shipped without the xdg-shell plugin, so Qt refused Wayland and fell
-# back to XWayland; nothing ever asked the bundled libwayland-client to do
-# anything. Staging the plugin made Qt take the Wayland path for real, and
-# then Mesa's EGL -- which is the HOST's, loaded through the host driver --
-# was handed OUR libwayland-client.so.0, which is older than the host's and
-# does not export `wl_display_dispatch_queue_timeout`. EGL initialisation
-# fails, "EGL not available", QRhiGles2 cannot make a context, and the
-# process aborts before a window exists. The reporter proved it precisely:
-# LD_PRELOADing the host's copy makes it start. Confirmed here against the
-# shipped 0.9.1 payload -- the bundled copy exports the symbol zero times.
-#
-# So these come out and the host's are used, which is what the AppImage
-# excludelist has always said about the display and driver stack. Qt's own
-# libQt6WaylandClient STAYS: that is ours to ship. On a host with no Wayland
-# at all the platform plugin simply fails to load and Qt falls back to xcb,
-# which is the correct outcome and the one 0.9.0 got by accident.
-#
-# validate-appimage.sh asserts their ABSENCE, because "graceful fallback and
-# silent absence are the same observable" cuts both ways: a library that
-# should not be there is just as invisible as one that should.
+# Prune the Wayland client libraries: they belong to the host. The host's
+# Mesa EGL, handed an older bundled libwayland-client lacking
+# wl_display_dispatch_queue_timeout, fails to initialise and the app aborts
+# (issue #9). libQt6WaylandClient stays. validate-appimage.sh asserts their
+# absence.
 PRUNE_HOST_LIBS=(
     libwayland-client.so.0
     libwayland-cursor.so.0
@@ -848,70 +544,17 @@ for lib in "${PRUNE_HOST_LIBS[@]}"; do
     [ "$found" = 1 ] || echo "note: $lib was not bundled, nothing to prune"
 done
 
-# ── THE TEN PACKAGES linuxdeploy DOES NOT ATTRIBUTE ─────────────────────────
+# Third-party licences. linuxdeploy already deploys Debian copyright files for
+# what it bundles, but not for libraries staged past it or unpacked into /opt.
+# This pass attributes every bundled shared object to its Debian package via
+# the dpkg file lists (Policy 12.5 makes the copyright file mandatory) and
+# ships that copyright; deriving the set from the payload keeps it correct
+# across base-image bumps. An object that cannot be attributed is fatal.
+# Packages unpacked into /opt with `dpkg-deb -x` are in no dpkg list, so their
+# own extracted copyright files are indexed too.
 #
-# 2026-09-19, and the first version of this comment was WRONG in a way worth
-# keeping, because it is this project's own recorded lesson wearing a new
-# costume. It claimed the shipped AppImage carried licence text for one
-# project out of ~150. It does not: **linuxdeploy deploys Debian copyright
-# files by design** (its binary carries a "copyright files manager" that
-# shells out to `dpkg-query`), and the published 0.9.8 payload already
-# contains **235 `usr/share/doc/<pkg>/copyright` files, 4.95 MB** — including
-# libavcodec61, libx264-164, libx265-215, libqt6core6t64 and libglib2.0-0t64,
-# every one of which the first draft named as shipping bare.
-#
-# The claim came from a probe that searched for `*licen*` and `COPYING*`.
-# Debian names the file `copyright`. That pattern finds TWO files where
-# `-name copyright` finds 235 — "a probe that answers absent for everything
-# is a broken probe until it has answered present for something", and it was
-# believed because the answer was the one being looked for.
-#
-# WHAT IS ACTUALLY OWED, measured against the published payload: **ten
-# packages** whose libraries are in the AppImage and whose copyright is not,
-# because they are hand-staged past linuxdeploy's excludelist or unpacked
-# into /opt rather than installed — kimageformat6-plugins,
-# libspa-0.2-modules, libcom-err2, libexpat1, libfontconfig1, libfreetype6,
-# libgmp10, libharfbuzz0b, libopengl0, zlib1g. Verified: all ten libraries
-# present, all ten copyright files absent.
-#
-# So this harvest is a SECOND, independently derived attribution pass, not a
-# rescue of a bare payload. It is kept whole rather than narrowed to those
-# ten because deriving the set from the payload is what makes it survive a
-# base-image bump; a hand list of ten goes stale the first time linuxdeploy's
-# excludelist changes and nothing says so. mksquashfs deduplicates identical
-# files, so the overlap with linuxdeploy's own copies costs approximately
-# nothing.
-#
-# AND SOME OF IT IS GPL, NOT LGPL. Debian's libavcodec61 copyright says
-# outright: "For building the default Debian packages some of the GPL licensed
-# files are used, so the resulting binaries are licensed under GPL v2+." Qt
-# Multimedia's ffmpeg plugin drags in libavcodec/libavformat/libavutil and with
-# them libx264, libx265, libxvidcore, libdvdnav, libdvdread, libgme and
-# libopenmpt — all GPL-2-or-later. Lightning is GPL-3.0-or-later so the
-# combination is fine, but the SOURCE obligation for those is GPL's, not
-# LGPL §6's, and that is a maintainer decision recorded in docs/open-items.md.
-# This block discharges the half that has exactly one right answer.
-#
-# WHY dpkg AND NOT A HAND-WRITTEN LIST. Every file in this payload came out of
-# a Debian package on this pinned image, and Debian Policy §12.5 makes
-# /usr/share/doc/<pkg>/copyright mandatory and complete. A hand-maintained list
-# goes stale the first time linuxdeploy's ELF walk pulls in one more library
-# and nothing says so; an index built from the dpkg file list cannot. Measured
-# in this base image: 236 binary packages, 236 copyright files, 4.9 MB, against
-# a 136 MB AppImage.
-#
-# IT IS FATAL, NOT A WARNING. A file nobody can attribute is the one case that
-# matters — it means something entered the payload from outside the package
-# manager and nobody knows its terms. "Graceful fallback and silent absence are
-# the same observable" is this script's oldest lesson.
-#
-# TWO SOURCES, BECAUSE TWO PACKAGES ARE UNPACKED RATHER THAN INSTALLED. The
-# job downloads kimageformat6-plugins and pipewire-bin and `dpkg-deb -x`s them
-# into /opt, deliberately, to keep libheif/libraw/OpenEXR/x265 out of the
-# image. Those files are in the payload and are in NO dpkg file list, so an
-# index built from /var/lib/dpkg alone reports kimg_jxl.so as unattributable
-# and kills the job. `dpkg-deb -x` extracts usr/share/doc/<pkg>/copyright with
-# everything else, so the unpacked roots carry their own answer.
+# Part of the ffmpeg closure is GPL-2+ rather than LGPL; see
+# docs/open-items.md for the source-offer decision.
 LICENSE_INDEX="$ROOT/work/licence-basename-index"
 : >"$LICENSE_INDEX"
 for list in /var/lib/dpkg/info/*.list; do
@@ -933,13 +576,9 @@ test -s "$LICENSE_INDEX" || die "could not build a licence basename index: no /v
 THIRD_PARTY_LICENSES="$APPDIR/usr/share/licenses/third-party"
 install -d -m 0755 "$THIRD_PARTY_LICENSES"
 
-# Lightning's own shared objects are covered by Lightning-GPL-3.0.txt, staged
-# above. MEASURED on the 0.9.8 payload this list matches NOTHING — the Rust
-# bridge is linked statically into the executable and every one of the 406
-# objects came out of a Debian package — so it is a guard for a future build
-# that ships one, not a live exemption. Named rather than pattern-matched on
-# purpose: a pattern would silently absolve a third-party file that happened to
-# match it, which is the whole failure this block exists to stop.
+# Lightning's own shared objects, covered by Lightning-GPL-3.0.txt. Currently
+# none (the Rust bridge is linked statically). Named, not pattern-matched, so a
+# third-party file cannot be absolved by accident.
 OUR_OWN_OBJECTS=(
     liblightning_rust_bridge.so
     libmatrix_rust_bridge.so
@@ -949,9 +588,7 @@ is_our_own() {
     for o in "${OUR_OWN_OBJECTS[@]}"; do [ "$n" = "$o" ] && return 0; done
     return 1
 }
-# The GNU build-id of an ELF object. strip and patchelf both preserve the
-# SHF_ALLOC .note.gnu.build-id section, so this is stable across everything
-# linuxdeploy does to a deployed library, where a byte compare is not.
+# GNU build-id: preserved by strip and patchelf, unlike the file bytes.
 build_id() {
     readelf -n "$1" 2>/dev/null | awk '/Build ID:/ { print $NF; exit }'
 }
@@ -968,26 +605,10 @@ while IFS= read -r -d '' object; do
         harvest_attributed=$((harvest_attributed + 1))
         continue
     fi
-    # A BASENAME IS NOT AN IDENTITY, and taking the first match is how the
-    # wrong licence ships silently. MEASURED on the 0.9.8 payload: nine Qt 6
-    # plugins (libqgif, libqico, libqjpeg, libqxcb, libqoffscreen, the two
-    # xcb integrations and the two input-context plugins) share a basename
-    # with files in `libqt5gui5t64`, and a sorted first-match picks the Qt 5
-    # package — whose binaries are not in the payload at all. Both are Qt
-    # under the same terms so nothing false shipped, but the MECHANISM would
-    # ship the wrong licence the first time two packages with different
-    # terms collide, which is exactly what this harvest exists to prevent.
-    #
-    # Resolved by identity, because the candidate files are all still on disk
-    # in this image. An exact byte compare settles a file linuxdeploy left
-    # untouched; but linuxdeploy STRIPS and rpath-patches what it deploys, so a
-    # deployed object never byte-matches its pristine package copy — which is
-    # why the nine Qt 6 plugins above landed as "ambiguous" the first time this
-    # ran for real. The GNU build-id survives both operations, and a Qt 6
-    # plugin carries libqt6gui6's build-id, not libqt5gui5t64's, so it is the
-    # identity that actually resolves the collision. Ambiguity that survives
-    # BOTH is a hard error, not a guess — a misattributed object must stop the
-    # build exactly as an unattributed one does.
+    # A basename can belong to several packages (e.g. Qt 5 and Qt 6 plugins
+    # share names). Disambiguate by byte compare, then by build-id (linuxdeploy
+    # strips and patches what it deploys). Remaining ambiguity is fatal: a
+    # guessed attribution could ship the wrong licence.
     mapfile -t cands < <(awk -v n="$base" -F'\t' '$1 == n { print }' "$LICENSE_INDEX")
     hit=""
     if [ "${#cands[@]}" -eq 1 ]; then
@@ -1048,8 +669,7 @@ for pkg in $(printf '%s\n' "${!HARVEST_PKGS[@]}" | sort); do
     harvest_bytes=$((harvest_bytes + $(stat -c %s "$src")))
 done
 
-# The count is the assertion, not the presence of the directory: a harvest that
-# silently comes back short is the defect this project has paid for four times.
+# Assert the count so a short harvest cannot pass silently.
 [ "$harvest_copied" -ge 100 ] \
     || die "only $harvest_copied third-party licence files were harvested; this payload has always needed well over a hundred, so the index or the walk is broken"
 printf 'third-party licences: %s payload objects, %s Debian packages, %s files, %s bytes\n' \
@@ -1059,19 +679,9 @@ ARCH=x86_64 "$TOOLS/appimagetool" --no-appstream "$APPDIR" "$OUT"
 
 test -s "$OUT" || die "AppImage not produced at $OUT"
 
-# ASK THE PACKED ARTIFACT, and ask it the right question.
-#
-# Pipelines 139, 140 and 141 each verified something upstream of the squashfs
-# and shipped anyway. The gate that actually caught them is validate-appimage,
-# which launches the binary on an image carrying no Qt and no GStreamer. This
-# block is an EARLIER WARNING in the job that can still fix it, not a
-# replacement for that gate.
-#
-# It must not repeat 141's mistake in a new costume. A bare `ldd ... | grep
-# "not found"` has NO TEETH HERE: this job apt-installs the GStreamer runtime,
-# so every library a plugin needs resolves from /usr/lib/x86_64-linux-gnu
-# whether or not it was bundled. The question is therefore not "did the loader
-# find it" but "did it find it INSIDE THE BUNDLE".
+# Verify the packed artifact (an early warning; validate-appimage is the real
+# gate). This image has the GStreamer runtime installed, so a bare "not found"
+# check proves nothing: require dependencies to resolve inside the bundle.
 verify_dir="$(mktemp -d -p "$ROOT/work")"
 trap 'rm -rf "$verify_dir"' EXIT
 if ! ( cd "$verify_dir" && "$ROOT/$OUT" --appimage-extract >extract.log 2>&1 ); then
@@ -1080,10 +690,8 @@ if ! ( cd "$verify_dir" && "$ROOT/$OUT" --appimage-extract >extract.log 2>&1 ); 
 fi
 verify_root="$verify_dir/squashfs-root"
 
-# The hook is what makes usr/lib reachable from usr/lib/gstreamer-1.0 at all.
-# Both assertions are anchored: linuxdeploy emits one `source` line PER hook,
-# so a bare 'apprun-hooks' match is satisfied by the Qt hook alone, and a bare
-# 'LD_LIBRARY_PATH' match is satisfied by this file's own comments.
+# Anchored matches: a bare 'apprun-hooks' also matches the Qt hook's line, and
+# a bare 'LD_LIBRARY_PATH' matches the hook's comments.
 [[ -f "$verify_root/AppRun" ]] || die "packed bundle has no AppRun"
 grep -q 'gstreamer\.sh' "$verify_root/AppRun" \
     || die "packed AppRun does not source gstreamer.sh; the GStreamer hook is inert"
@@ -1100,9 +708,8 @@ done
 [[ "$packed_plugins" -eq "${#GST_REQUIRED_PLUGINS[@]}" ]] || \
     die "AppImage carries $packed_plugins of ${#GST_REQUIRED_PLUGINS[@]} GStreamer plugins"
 
-# Resolve each plugin the way the AppRun arranges it, then reject any
-# dependency satisfied from OUTSIDE the bundle unless it is base system --
-# the same allowlist the copy loop applies, for the same reason.
+# Reject any non-base dependency resolved from outside the bundle (same
+# allowlist as the copy loop).
 packed_escaped=""
 for staged_plugin in "$verify_root/usr/lib/gstreamer-1.0"/*.so; do
     [[ -e "$staged_plugin" ]] || continue
@@ -1133,15 +740,7 @@ fi
 printf 'Packed AppImage: %d GStreamer plugins, every non-base dependency satisfied from inside the bundle\n' \
     "$packed_plugins"
 
-# AND THE IMAGE-FORMAT PLUGINS, in the packed squashfs, for the reason this
-# repository keeps re-learning: verifying the AppDir is not verifying the
-# artifact. The AppDir is written by this script; the squashfs is written by
-# linuxdeploy's pack step, which re-runs "Deploying dependencies for existing
-# files" and has been observed to move and rewrite what it finds there.
-#
-# Run this block against any AppImage built before 2026-08-28 and it fails on
-# the first name: those artifacts carry libqgif/libqico/libqjpeg and nothing
-# else.
+# Image-format plugins in the packed squashfs, not just the AppDir.
 packed_img=0
 for entry in "${QT_IMAGE_REQUIRED_PLUGINS[@]}"; do
     img_plugin="${entry%%:*}"
@@ -1152,10 +751,8 @@ done
 [[ "$packed_img" -eq "${#QT_IMAGE_REQUIRED_PLUGINS[@]}" ]] || \
     die "AppImage carries $packed_img of ${#QT_IMAGE_REQUIRED_PLUGINS[@]} Qt image-format plugins; it would accept image formats it cannot decode"
 
-# Present is not loadable. Resolve each the way the AppRun arranges it and
-# reject a dependency satisfied from outside the bundle -- this job has libwebp
-# and libjxl installed, so a bare `ldd` here would pass on a bundle that ships
-# neither.
+# Present is not loadable: dependencies must resolve inside the bundle (this
+# image has libwebp and libjxl installed).
 packed_img_escaped=""
 for staged_plugin in "$verify_root/usr/plugins/imageformats"/*.so; do
     [[ -e "$staged_plugin" ]] || continue
@@ -1182,8 +779,7 @@ done
 printf 'Packed AppImage: %d Qt image-format plugins (%s), every non-base dependency satisfied from inside the bundle\n' \
     "$packed_img" "$(printf '%s ' "${QT_IMAGE_REQUIRED_PLUGINS[@]%%:*}")"
 
-# AND THE PIPEWIRE CLIENT STACK, in the packed artifact, for the same reason:
-# the plugin being present proved nothing about the library it loads for itself.
+# The PipeWire client stack in the packed artifact.
 for pw_required in usr/lib/spa-0.2/support/libspa-support.so \
                    usr/lib/pipewire-0.3/libpipewire-module-protocol-native.so \
                    usr/lib/pipewire-0.3/libpipewire-module-client-node.so \

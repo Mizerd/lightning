@@ -74,30 +74,22 @@ def project_version() -> str:
 def main() -> int:
     text = METAINFO.read_text(encoding="utf-8")
 
-    # 1. Every screenshot URL that names one of our own tags must name a tag
-    #    that actually contains the file. A URL pointing somewhere else is not
-    #    this test's business; it is checked by appstreamcli where there is a
-    #    network.
+    # 1. Every screenshot URL naming one of our tags must name a tag that
+    #    contains the file. Other URLs are left to appstreamcli.
     pattern = re.compile(
         r"https://raw\.githubusercontent\.com/[^/]+/[^/]+/(?P<ref>[^/]+)/"
         r"(?P<path>\S+?)</image>")
     version = project_version()
-    # THE RELEASE COMMIT'S OWN STATE IS NOT A FAILURE. A release prepares the
-    # metainfo for the tag it is about to be given, so between the commit and
-    # the pipeline creating `v<version>` the URLs name a tag that does not
-    # exist yet. Refusing that would make the check unsatisfiable in exactly
-    # the commit it most needs to run in -- so for that one ref the question
-    # becomes "will the tag cut from THIS tree contain the file", which the
-    # COMMITTED tree answers (not the working tree: an untracked file is in
-    # the working tree and in no tag). Every other unknown ref is skipped.
+    # The release commit's refs name the tag it is about to receive, which
+    # does not exist yet. For that one ref, check that the committed tree
+    # (not the working tree) contains the file. Other unknown refs are
+    # skipped.
     pending = f"v{version}" if version else None
     found = 0
     for match in pattern.finditer(text):
         ref, path = match.group("ref"), match.group("path")
-        # HOISTED ABOVE THE TAG LOOKUP, so it is unconditional. Sitting inside
-        # the tag-exists branch let a ref that is neither a known tag nor this
-        # version -- a typo like v0.9.7 -- fall through to `skip`, assert
-        # nothing, and not even count toward the found>0 vacuity guard.
+        # Checked before the tag lookup so a ref that is neither a known tag
+        # nor this version (a typo) cannot fall through to `skip` uncounted.
         if pending:
             check(ref == pending,
                   f"the screenshot ref {ref} names this version ({pending})")
@@ -105,11 +97,8 @@ def main() -> int:
         if rc != 0:
             if ref == pending:
                 found += 1
-                # ASK GIT, NOT THE FILESYSTEM. An UNTRACKED file passes
-                # is_file() and no tag can ever contain it -- and since §4
-                # forbids `git add .`, staging is explicit and a new
-                # screenshot being left untracked is exactly the near-miss
-                # this test exists to catch.
+                # Ask git, not the filesystem: an untracked screenshot passes
+                # is_file() but can never be in a tag.
                 rc, _ = git("cat-file", "-e", f"HEAD:{path}")
                 check(rc == 0,
                       f"{path} is COMMITTED in the tree that will become "
@@ -125,8 +114,7 @@ def main() -> int:
         check(bool(out.strip()),
               f"{path} exists at {ref} (the URL in the metainfo would 404)")
 
-    # A scan that matches nothing passes vacuously, which is how a sweep
-    # silently stops testing anything. See CLAUDE.md's mutation-check rule.
+    # Guard against a scan that matches nothing and passes vacuously.
     check(found > 0,
           "at least one screenshot URL naming a known tag was checked "
           f"(checked {found})")
@@ -140,8 +128,8 @@ def main() -> int:
               f"the newest <release> is {version}, matching the project "
               f"(metainfo says {releases[0]})")
 
-    # 3. And the script written to enforce that must still agree, so that a
-    #    checker with no callers cannot quietly rot.
+    # 3. The script that enforces this must agree too, so it cannot rot
+    #    unused.
     script = ROOT / "packaging-ci/scripts/update-metainfo-release.sh"
     if script.exists() and version:
         proc = subprocess.run(

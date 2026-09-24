@@ -10,10 +10,7 @@ shopt -s nullglob
 packages=("$ROOT"/dist/*.deb)
 (( ${#packages[@]} == 1 )) || die "expected exactly one DEB package"
 package="${packages[0]}"
-# Suffix-aware, because there are two deb lanes now. Each validate job
-# `needs:` exactly one build job, so dist/ still holds exactly one deb — but
-# WHICH one depends on the lane, and a validator that accepted either would
-# happily pass the Ubuntu deb on Debian and call it proven.
+# Suffix-aware: each lane must validate its own deb, never the other lane's.
 expected="lightning_${DEB_VERSION}${DEB_SUFFIX:+_$DEB_SUFFIX}_amd64.deb"
 [[ "$(basename "$package")" == "$expected" ]] || die "unexpected DEB filename"
 [[ ! -e "$ROOT/work/lightning" ]] || die "validation must not receive a source checkout"
@@ -30,8 +27,7 @@ trap cleanup EXIT
 dpkg-deb --extract "$package" "$audit_root"
 binary="$audit_root/usr/bin/lightning-matrix"
 [[ -x "$binary" ]] || die "packaged executable is missing"
-# The update helper ships beside the application in every format. Without it the
-# in-app updater has nothing to hand a verified .deb to and the feature is inert.
+# Without the update helper the in-app updater is inert.
 updater="$audit_root/usr/bin/lightning-updater"
 [[ -x "$updater" ]] || die "packaged update helper is missing"
 file "$binary" "$updater" | tee "$ROOT/dist/deb-file.txt"
@@ -78,11 +74,8 @@ if grep -Ei 'module .* is not installed|cannot load library|failed to load.*plug
     die "DEB headless launch reported a missing runtime component"
 fi
 
-# The call media engine, asked of the INSTALLED package. This is the one check
-# that can see the 0.8.0 defect: an engine-less build installs cleanly, launches
-# cleanly, passes every audit above, and then refuses every call. It also proves
-# the GStreamer plugin Depends resolved, because the engine's element probe runs
-# against whatever apt actually pulled in.
+# Ask the installed package for its call media engine: an engine-less build
+# passes every check above. This also proves the GStreamer Depends resolved.
 set +e
 (cd /tmp && timeout 60s /usr/bin/lightning-matrix --call-media-status) \
     >"$ROOT/dist/deb-call-media-status.txt" 2>&1
@@ -90,9 +83,7 @@ call_media_status=$?
 set -e
 assert_call_media_engine DEB "$ROOT/dist/deb-call-media-status.txt" "$call_media_status"
 
-# THE VOICE-DELAY PROPERTY, asked of the same shipped artifact. See
-# assert_queue_selftest in lib.sh for what it measures and why it is not yet a
-# hard gate.
+# Voice-delay self-test; see assert_queue_selftest in lib.sh.
 set +e
 (cd /tmp && timeout 180s /usr/bin/lightning-matrix --call-queue-selftest) \
     >"$ROOT/dist/deb-queue-selftest.txt" 2>&1
@@ -100,10 +91,8 @@ queue_selftest_status=$?
 set -e
 assert_queue_selftest DEB "$ROOT/dist/deb-queue-selftest.txt" "$queue_selftest_status"
 
-# THE CALL SOUNDS, asked of the same shipped artifact. WARN-ONLY: this
-# container has no sound server, and QSoundEffect cannot reach Ready without an
-# output device, so here the answer is normally UNMEASURED. The transcript is
-# kept regardless. See assert_call_sounds_status in lib.sh.
+# Call sounds, warn-only: without an output device QSoundEffect never reaches
+# Ready, so this is normally unmeasured here. See assert_call_sounds_status.
 set +e
 (cd /tmp && timeout 60s /usr/bin/lightning-matrix --call-sounds-status) \
     >"$ROOT/dist/deb-call-sounds-status.txt" 2>&1
@@ -111,19 +100,14 @@ call_sounds_status=$?
 set -e
 assert_call_sounds_status DEB "$ROOT/dist/deb-call-sounds-status.txt" "$call_sounds_status"
 
-# The image DECODERS, proving the Depends/Recommends this package declares
-# actually resolved. A Qt image format is a dlopen'd plugin, so dpkg-shlibdeps
-# can see none of it -- the same blind spot as the QML modules and the
-# GStreamer plugins. Debian's libqt6gui6 carries libqgif/libqico/libqjpeg only,
-# so before qt6-image-formats-plugins was declared this package installed
-# cleanly and could not draw a WebP its own byte sniffers accept.
+# Image decoders are dlopen'd plugins; prove the declared Depends/Recommends
+# actually resolved.
 set +e
 (cd /tmp && timeout 60s env QT_QPA_PLATFORM=offscreen /usr/bin/lightning-matrix --image-format-status) \
     >"$ROOT/dist/deb-image-format-status.txt" 2>&1
 image_format_status=$?
 set -e
-# jxl is expected here: apt installs Recommends by default, so an ordinary
-# `apt-get install ./lightning.deb` pulls kimageformat6-plugins.
+# jxl is expected: apt installs Recommends (kimageformat6-plugins) by default.
 assert_image_formats DEB "$ROOT/dist/deb-image-format-status.txt" "$image_format_status" jxl
 
 # The generated build-only key header must never ship inside the package.
@@ -131,8 +115,7 @@ if grep -q 'LightningGifBuildKeys.h' "$ROOT/dist/deb-contents.txt"; then
     die "DEB contains the generated GIF build-key header"
 fi
 
-# GIF provider configuration must hold with every key variable unset, proving
-# the values are embedded in the binary rather than read from the environment.
+# With every key variable unset, prove the GIF keys are embedded in the binary.
 gif_env_clear() {
     env -u GIPHY_API_KEY -u KLIPY_API_KEY \
         -u LIGHTNING_GIPHY_API_KEY -u LIGHTNING_KLIPY_API_KEY \

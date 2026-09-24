@@ -5,10 +5,9 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
-# Structural validation of the assembled Lightning.app. This proves the bundle
-# is well-formed, self-contained, arm64, and runnable on this machine — it does
-# NOT prove it is distributable. Gatekeeper acceptance is checked and reported
-# honestly as a known failure; see docs/macos-packaging.md.
+# Structural validation of the assembled Lightning.app: well-formed,
+# self-contained, arm64 and runnable here. It does not prove distributability;
+# Gatekeeper rejection is expected and reported. See docs/macos-packaging.md.
 
 [[ $# -eq 1 ]] || die "usage: validate-macos-artifacts.sh <dist/macos>"
 MACOS_DIST="$1"
@@ -47,9 +46,7 @@ for key in CFBundleIdentifier CFBundleExecutable CFBundleName \
            CFBundleShortVersionString CFBundleVersion LSMinimumSystemVersion; do
     check "Info.plist has $key" test -n "$(plist_get "$key")"
 done
-# Not cosmetic: the client records voice messages, and macOS kills any process
-# that opens the microphone without a usage string. A bundle missing this is
-# broken at runtime, so it is a hard failure here.
+# macOS kills a process that opens the microphone without a usage string.
 check "Info.plist declares NSMicrophoneUsageDescription" \
     test -n "$(plist_get NSMicrophoneUsageDescription)"
 
@@ -65,21 +62,11 @@ check "main executable is Mach-O" sh -c \
     "file -b '$CONTENTS/MacOS/$APP_NAME' | grep -q 'Mach-O.*arm64'"
 
 # --- self-containment --------------------------------------------------------
-# Every dependency must resolve inside the bundle or in /System|/usr/lib. A
-# leftover /opt/homebrew dependency means macdeployqt missed a library and the
-# app would only launch on this build machine.
+# Every dependency must resolve inside the bundle or in /System and /usr/lib.
 #
-# The install NAME (LC_ID_DYLIB) is deliberately excluded. macdeployqt copies
-# Homebrew's frameworks without rewriting their own IDs, so every bundled
-# framework still calls itself /opt/homebrew/opt/qt*/lib/... That string is what
-# a future linker would record, not something dyld resolves at run time — the
-# loader follows the *dependent's* load command, which is @rpath or
-# @executable_path. Treating the ID as a leak flagged all 46 frameworks on a
-# bundle that runs correctly.
-#
-# `otool -L` prints: line 1 the file path, line 2 the install ID (for
-# libraries/frameworks only), then the dependencies. `otool -D` yields the ID on
-# its own, so it can be subtracted precisely instead of guessing a line offset.
+# The install name (LC_ID_DYLIB) is excluded: macdeployqt leaves Homebrew's
+# framework IDs unchanged, but dyld follows the dependent's load command, not
+# the ID. `otool -D` yields the ID so it can be subtracted exactly.
 deps_of() {
     local macho="$1" id
     id="$(otool -D "$macho" 2>/dev/null | tail -n +2 | head -1)"
@@ -96,9 +83,8 @@ else
     printf '  ok: executable has no /opt/homebrew or /usr/local dependencies\n'
 fi
 
-# Same check across the whole bundle. Every Mach-O is identified by content
-# rather than by permission bits or extension, because framework payloads carry
-# neither a .dylib suffix nor a consistent mode.
+# Mach-O files are identified by content: framework payloads have neither a
+# .dylib suffix nor a consistent mode.
 : >"$REPORT_DIR/otool-all.txt"
 leaked=0
 checked=0
@@ -119,17 +105,16 @@ else
 fi
 
 # --- Qt runtime --------------------------------------------------------------
-# The modules Lightning links; if macdeployqt missed one the app dies at launch.
+# The modules Lightning links; a missing one kills the app at launch.
 for fw in QtCore QtGui QtQml QtQuick QtQuickControls2 QtNetwork QtSql QtWidgets QtMultimedia; do
     check "framework bundled: $fw" test -d "$CONTENTS/Frameworks/${fw}.framework"
 done
-# QML plugins live under Resources/qml; without them the UI fails to instantiate
-# even though the app links fine.
+# Without the QML plugins the UI fails to instantiate even though it links.
 check "QML modules bundled" test -d "$CONTENTS/Resources/qml"
 for qml_mod in QtQuick QtQml; do
     check "QML module present: $qml_mod" test -d "$CONTENTS/Resources/qml/$qml_mod"
 done
-# Cocoa platform plugin — without it Qt cannot create a window at all.
+# Without the cocoa platform plugin Qt cannot create a window.
 check "cocoa platform plugin bundled" \
     test -f "$CONTENTS/PlugIns/platforms/libqcocoa.dylib"
 
@@ -137,22 +122,18 @@ qt_fw_count="$(find "$CONTENTS/Frameworks" -maxdepth 1 -name '*.framework' 2>/de
 printf '  bundled frameworks: %s\n' "$qt_fw_count"
 
 # --- call media engine (GStreamer) -------------------------------------------
-# Everything here exists because the failure mode is INVISIBLE from outside: a
-# bundle with no plugins installs, launches, renders, syncs, and then refuses
-# every call with "Joining isn't available". Checking that some files were
-# copied is not enough either, so this section ends by building a real GStreamer
-# registry out of the bundled plugins and asking for every element by name.
+# A bundle with no plugins launches and syncs but refuses every call, so this
+# section ends by building a real registry from the bundled plugins and asking
+# for every element by name.
 GST_PLUGIN_LINK="$CONTENTS/MacOS/gstreamer-1.0"
 GST_PLUGIN_DIR="$CONTENTS/PlugIns/gstreamer-plugins"
 GST_LIB_DIR="$CONTENTS/PlugIns/gstreamer-libs"
 GST_SCANNER="$CONTENTS/MacOS/gst-plugin-scanner"
 
-# The app looks for applicationDirPath()/gstreamer-1.0 and nothing else
-# (src/calls/SfuMediaEngine.cpp). It has to be a SYMLINK: codesign refuses to
-# seal a directory whose name carries an extension, and "1.0" is one — see
-# scripts/stage-macos-gstreamer.sh for the three experiments that established
-# it. Assert the symlink, that it resolves, AND that it resolves to the staged
-# payload: each check alone passes on a bundle that cannot place a call.
+# The app looks only in applicationDirPath()/gstreamer-1.0, which must be a
+# symlink because codesign rejects a dotted directory name (see
+# stage-macos-gstreamer.sh). Check that it is a symlink, that it resolves, and
+# that it resolves to the staged payload.
 check "plugin path is a symlink"      test -L "$GST_PLUGIN_LINK"
 check "plugin path resolves"          test -d "$GST_PLUGIN_LINK"
 check "plugin payload directory"      test -d "$GST_PLUGIN_DIR"
@@ -174,15 +155,9 @@ for plugin in app applemedia audioconvert audiomixer audioresample audiotestsrc 
 done
 check "GStreamer core library bundled" test -f "$GST_LIB_DIR/libgstreamer-1.0.0.dylib"
 
-# THE REGISTRY HELPER. Its absence is the exact failure shape this project has
-# now paid for five times — sctp on Windows, ximagesrc, opengl, the AppImage's
-# Qt tls/wayland plugins, and this: GStreamer falls back to scanning plugins
-# in-process and everything still works, so nothing fails, and all the bundle
-# does is print "External plugin loader failed" into every user's log.
-# Graceful fallback and silent absence are the same observable unless something
-# asserts the payload. Presence, executability and a signature are three
-# different failures here: an unsigned or mis-signed helper is SIGKILLed on
-# Apple Silicon with no message at all, which looks identical to a missing one.
+# Without the registry helper GStreamer silently scans in-process and logs
+# "External plugin loader failed". An unsigned helper is SIGKILLed on Apple
+# Silicon with no message, so presence, mode and signature are all checked.
 check "GStreamer registry helper bundled" test -f "$GST_SCANNER"
 check "GStreamer registry helper is executable" test -x "$GST_SCANNER"
 if [[ -f "$GST_SCANNER" ]]; then
@@ -196,16 +171,9 @@ if [[ -f "$GST_SCANNER" ]]; then
     fi
 fi
 
-# The executable must link GStreamer — the media engine is the only thing in
-# Lightning that does, and its CMake probe fails silently — and it must link the
-# BUNDLED one, EXPLICITLY.
-#
-# `grep libgstreamer` alone would not prove the second half. macdeployqt runs
-# before the staging step and resolves the executable's @rpath GStreamer-stack
-# dependencies out of Homebrew, rewriting them into Contents/Frameworks:
-# measured on the runner, libglib/libgobject/libintl all landed there, pointing
-# the app's own g_* calls at Qt's GLib while the plugins use GStreamer's. The
-# staging script rebinds them; this is the check that proves it happened.
+# The executable must link the bundled GStreamer explicitly. macdeployqt
+# resolves its glib/gobject/libintl dependencies to Homebrew's copies in
+# Contents/Frameworks; the staging script rebinds them and this proves it.
 main_deps="$(otool -L "$CONTENTS/MacOS/$APP_NAME" 2>/dev/null | grep '^	' | awk '{print $1}' || true)"
 if printf '%s\n' "$main_deps" \
      | grep -qxF "@executable_path/../PlugIns/gstreamer-libs/libgstreamer-1.0.0.dylib"; then
@@ -242,11 +210,9 @@ else
     printf '  ok: no GStreamer libraries in the Qt framework directory\n'
 fi
 
-# The builder's SDK path arrives here by default: gstreamer-1.0.pc's Libs line
-# ends in -Wl,-rpath,${libdir}, so the link records an absolute rpath into the
-# runner's home. Scoped to the executable and the staged payload ON PURPOSE —
-# Homebrew's libjpeg/libdbus/libjasper carry /opt/homebrew/Cellar rpaths of
-# their own, and this check is about what this packaging step added.
+# gstreamer-1.0.pc adds an absolute rpath into the runner's home. Scoped to the
+# executable and the staged payload: Homebrew's own libraries carry
+# /opt/homebrew/Cellar rpaths that this step did not add.
 rpaths_of() {
     otool -l "$1" 2>/dev/null \
         | awk '/^ *cmd LC_RPATH$/{f=1;next} f&&/^ *path /{print $2; f=0}'
@@ -271,20 +237,14 @@ else
     printf '  ok: no builder rpaths in the executable or the staged GStreamer runtime\n'
 fi
 
-# Closure. Every @rpath dependency of every staged binary has to be present in
-# gstreamer-libs, and every staged binary has to be arm64. Neither is implied by
-# the element probe below, and a support library that is merely absent produces
-# a bundle that works perfectly on the build machine and nowhere else.
-#
-# Mach-O files are identified by CONTENT, not by a '*.dylib' name filter: the
-# staged basenames come from dependency records, and anything that did not end
-# in .dylib would be skipped by exactly the check meant to catch it.
+# Closure: every @rpath dependency of every staged binary must be in
+# gstreamer-libs, and every staged binary must be arm64. The element probe
+# below implies neither. Mach-O files are identified by content, not name.
 gst_unresolved=0
 gst_wrong_arch=0
 while IFS= read -r macho; do
     file -b "$macho" 2>/dev/null | grep -q 'Mach-O' || continue
-    # `|| true`: a file with no LC_ID_DYLIB makes `grep -v` return 1, which
-    # under `set -o pipefail` fails the assignment and `set -e` aborts.
+    # `|| true`: no LC_ID_DYLIB makes grep return 1 under pipefail.
     self="$(otool -D "$macho" 2>/dev/null | grep -v ':$' | head -1 || true)"
     if [[ "$(lipo -archs "$macho" 2>/dev/null)" != "arm64" ]]; then
         printf '  not arm64: %s\n' "${macho#"$APP_DIR"/}" >&2
@@ -320,29 +280,18 @@ else
     printf '  ok: every staged GStreamer binary is arm64\n'
 fi
 
-# THE check. Everything above is still file inspection: it cannot tell you
-# whether GStreamer can build a registry out of these plugins and hand back the
-# elements. So build one — through the SYMLINK the application itself uses, not
-# the real directory, because that string is what SfuMediaEngine constructs and
-# a symlink pointing somewhere else would otherwise pass every check here.
+# Build a real registry through the symlink the application itself uses, and
+# ask for every element.
 #
-# THE PROBE TOOL IS REBUILT, NOT BORROWED, and that detail is the difference
-# between a real check and a decorative one. The bundle ships no gst-inspect of
-# its own, so it comes from the SDK — but the SDK's copy carries
-# @executable_path/../lib in its own LC_RPATH, and dyld resolves @rpath against
-# the MAIN EXECUTABLE's rpaths as well as the loading library's. Probing with it
-# as-is lets the SDK's lib/ quietly satisfy anything the bundle is missing:
-# measured, by deleting libvpx.9.dylib from a staged bundle and watching vp8enc
-# resolve anyway. A copy with every rpath stripped and one absolute rpath into
-# the bundle's own gstreamer-libs can see nothing else.
+# The probe tool is a copy of the SDK's gst-inspect with its rpaths replaced by
+# one absolute rpath into the bundle's gstreamer-libs. Used as-is, its
+# @executable_path/../lib rpath would let the SDK satisfy anything the bundle
+# is missing.
 #
-# The GST_*_1_0 variables are cleared alongside the unversioned ones because
-# GStreamer reads the VERSIONED name first: a leftover GST_PLUGIN_PATH_1_0 in
-# the runner's environment would point the scan at the SDK's ~250 plugins and
-# report every element resolving from a bundle containing none.
+# The versioned GST_*_1_0 variables are cleared too because GStreamer reads
+# them first; a leftover one would point the scan at the SDK.
 #
-# Its absence is a hard failure, not a skip: a validation that cannot run is not
-# a validation that passed.
+# A missing probe tool is a failure, not a skip.
 GST_SDK_PREFIX="${LIGHTNING_MACOS_GSTREAMER_PREFIX:-$HOME/opt/gstreamer/GStreamer.framework/Versions/1.0}"
 GST_INSPECT="$GST_SDK_PREFIX/bin/gst-inspect-1.0"
 if [[ ! -x "$GST_INSPECT" ]]; then
@@ -361,9 +310,8 @@ else
         install_name_tool -delete_rpath "$rp" "$probe" 2>/dev/null || true
     done <"$probe_dir/rpaths"
     install_name_tool -add_rpath "$(cd "$GST_LIB_DIR" && pwd -P)" "$probe"
-    # install_name_tool invalidates the signature, and Apple Silicon kills an
-    # unsigned-but-signature-bearing binary outright (SIGKILL, no message),
-    # which would read here as "every element is missing".
+    # install_name_tool invalidates the signature, and Apple Silicon SIGKILLs
+    # such a binary, which would read as "every element is missing".
     codesign --force --sign - --timestamp=none "$probe" >/dev/null 2>&1 || true
 
     gst_registry="$probe_dir/registry.bin"
@@ -379,25 +327,14 @@ else
         failures=$((failures + 1))
         gst_elements_state=unproven
     else
-        # REQUIRED is SfuMediaEngine::runtimeAvailable()'s own probe list plus
-        # the macOS capture sources and the receive-path elements its pipelines
-        # name — AND sctpenc/sctpdec, which that rule cannot reach.
+        # REQUIRED is SfuMediaEngine::runtimeAvailable()'s probe list plus the
+        # macOS capture sources and the receive-path elements its pipelines
+        # name, plus sctpenc/sctpdec: webrtcbin loads those itself for the data
+        # channel that LiveKit's subscriber offer bundles every media section
+        # onto, so without them nothing is received.
         #
-        # Nothing in Lightning names them: webrtcbin loads them itself for the
-        # DATA CHANNEL, and LiveKit's subscriber offer puts a data channel in
-        # media section 0, which under bundle-policy=max-bundle owns the
-        # transport every audio and video section rides on. Windows shipped
-        # without the plugin and could SEND while receiving nothing at all, and
-        # a required-element list derived from what the application spells out
-        # is precisely what failed to notice. This bundle stages sctp today;
-        # without this line, trimming the PLUGINS list would break macOS the
-        # same way with every check still green.
-        #
-        # ADVISORY is the set the engine explicitly tolerates the absence
-        # of — SfuMediaEngine.cpp says so of `compositor` in as many words, and
-        # registers without webrtcdsp (losing only the microphone AGC). Failing
-        # the whole packaging job for an element the engine never requires would
-        # be a spurious red on the next GStreamer release that splits a plugin.
+        # ADVISORY is what the engine tolerates missing (compositor, and
+        # webrtcdsp at the cost of the microphone AGC).
         gst_missing=0
         for element in \
             webrtcbin nicesrc nicesink dtlssrtpenc dtlssrtpdec opusenc opusdec \
@@ -434,20 +371,10 @@ else
             gst_elements_state=resolved
         fi
 
-        # AND THE REGISTRY IS BUILT BY THE BUNDLED HELPER, NOT BY THE
-        # FALLBACK.
-        #
-        # Everything above passes on a bundle with no gst-plugin-scanner at
-        # all, because GStreamer scans in-process when it cannot exec one and
-        # the elements resolve either way. That is precisely the shape this
-        # project keeps shipping — graceful fallback and silent absence are
-        # the same observable — so this asks the SHIPPED helper to do the
-        # scan and fails on the warning GStreamer prints when it could not.
-        #
-        # A FRESH registry is mandatory: with the cached one from the element
-        # probe above, nothing is scanned, no helper is exec'd, and this check
-        # passes on a bundle with no helper in it. That is the difference
-        # between asserting the payload and asserting a cache.
+        # The registry must be built by the bundled helper, not by the
+        # in-process fallback, which resolves the same elements. A fresh
+        # registry is required: with the cached one nothing is scanned and no
+        # helper is exec'd.
         scanner_registry="$probe_dir/registry-scanner.bin"
         scanner_log="$probe_dir/scanner.log"
         env \
@@ -482,30 +409,20 @@ gst_lib_count="$(find "$GST_LIB_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l | t
 printf '  GStreamer: %s plugins, %s support libraries\n' "$gst_plugin_count" "$gst_lib_count"
 
 # --- licences ----------------------------------------------------------------
-# THE PUBLISHED 0.9.8 BUNDLE CARRIED NO LICENCE FILE AT ALL — measured, `find
-# Lightning.app -iname '*licen*' -o -iname 'COPYING*'` over 2,066 files returned
-# nothing. Lightning is GPL-3.0-or-later and §4 requires its own text to
-# accompany the program, so the first thing asserted here is ours.
-#
-# Asserted on the BUNDLE, never on the script that stages it: every packaging
-# defect of this shape in this repository — sctp, ximagesrc, the Qt TLS backend,
-# the Wayland shell integration, gst-plugins-good — was named in a script and
-# absent from the artifact.
+# Asserted on the bundle, not on the staging script. Lightning is
+# GPL-3.0-or-later and must ship its own licence text.
 check "Lightning's own GPL-3 text is in the bundle" \
     test -s "$APP_DIR/Contents/Resources/licenses/Lightning-GPL-3.0.txt"
 check "the staged gst-plugins-good licence is present" \
     test -s "$APP_DIR/Contents/Resources/licenses/lightning-gstreamer/gst-plugins-good-1.0/COPYING"
 
 # --- signature ---------------------------------------------------------------
-# Ad-hoc signature must be structurally valid or the bundle will not run on
-# Apple Silicon at all.
+# An invalid ad-hoc signature will not run on Apple Silicon at all.
 check "code signature verifies" codesign --verify --deep --strict "$APP_DIR"
 codesign -dv --verbose=4 "$APP_DIR" >"$REPORT_DIR/codesign-info.txt" 2>&1 || true
 
-# Gatekeeper is EXPECTED to reject this bundle: it is ad-hoc signed, not
-# Developer ID signed, and not notarized. Recorded as evidence rather than
-# asserted as a pass, so nobody mistakes a green pipeline for a distributable
-# artifact.
+# Gatekeeper is expected to reject an ad-hoc, un-notarized bundle; recorded as
+# evidence, not asserted.
 if spctl --assess --type execute --verbose=4 "$APP_DIR" >"$REPORT_DIR/spctl.txt" 2>&1; then
     printf '  note: Gatekeeper ACCEPTED the bundle (unexpected for an ad-hoc signature)\n'
     GATEKEEPER=accepted
@@ -515,38 +432,24 @@ else
 fi
 
 # --- launch smoke ------------------------------------------------------------
-# Headless CLI entry points only. The runner has a GUI session, but asserting on
-# a real window from CI would be flaky and is not what this proves; this
-# confirms the bundled binary and its frameworks actually load and execute.
+# Headless CLI entry points only: this proves the binary and its frameworks
+# load, not that a window works.
 if "$CONTENTS/MacOS/$APP_NAME" --version >"$REPORT_DIR/version.txt" 2>&1; then
     printf '  ok: bundled binary runs (--version): %s\n' "$(tr -d '\n' <"$REPORT_DIR/version.txt")"
 else
     printf '  FAIL: bundled binary could not execute --version\n' >&2
     failures=$((failures + 1))
 fi
-# THE CHECK THAT WOULD HAVE CAUGHT THE LAST THREE ROUNDS.
-#
-# Everything above proves the bundle's SHAPE — the plugins are there, every
-# dependency resolves inside the bundle, every element resolves when the probe
-# is handed the plugin path explicitly. None of it proves the APPLICATION finds
-# them, and that is exactly what was broken on Windows: the plugin path was
-# applied after gst_init had already run, so a bundle with correct plugins
-# still refused every call.
-#
-# --call-media-status probes through the same functions AppController calls, so
-# a pass here means the shipped bundle would offer a call button.
+# The checks above prove the bundle's shape, not that the application finds
+# its plugins. --call-media-status probes through the same functions
+# AppController uses.
 if "$CONTENTS/MacOS/$APP_NAME" --call-media-status         >"$REPORT_DIR/call-media-status.txt" 2>&1; then
     check "the bundled app can place calls"         grep -qF 'RESULT: calls can be placed and answered'             "$REPORT_DIR/call-media-status.txt"
-    # It must be the bundle's OWN plugins. Falling back to a system GStreamer
-    # would pass on this runner (which has one installed) and fail on every
-    # user's Mac, which is the worst possible shape for a check.
+    # Must be the bundle's own plugins: this runner has a system GStreamer that
+    # users do not.
     check "the bundled app used its own plugin directory"         grep -Eq '^bundled plugin directory: .*gstreamer-1\.0'             "$REPORT_DIR/call-media-status.txt"
-    # AND ITS REGISTRY HELPER, asked of the shipped binary rather than of the
-    # layout. This is the line that ties the three places that have to agree:
-    # GstBootstrap derives the path from applicationDirPath(),
-    # stage-macos-gstreamer.sh puts the file there, and this asserts the
-    # running app resolved one. A grep over the staging script would pass on a
-    # bundle where the app looks somewhere else entirely.
+    # Asked of the running app, which ties together GstBootstrap's path, the
+    # staging script's layout and the file actually being there.
     check "the bundled app found its registry helper" \
         grep -Eq '^plugin scanner: .*/gst-plugin-scanner$' \
             "$REPORT_DIR/call-media-status.txt"
@@ -557,43 +460,29 @@ else
     failures=$((failures + 1))
 fi
 
-# THE VOICE-DELAY PROPERTY, asked of the same shipped bundle. See
-# assert_queue_selftest in packaging-ci/scripts/lib.sh for what it measures.
-# NOT a hard gate yet, deliberately: a verdict is required, a FAILING verdict
-# only warns until it has reported PASS on every platform once.
-#
-# TIMEOUT, like every other call site. Without one a hung probe burns the Mac
-# mini to the three-hour job ceiling, on the one host this project has a
-# standing history of nursing back online.
+# Voice-delay self-test; see assert_queue_selftest in lib.sh. A verdict is
+# required, a failing verdict only warns for now. Bounded so a hung probe
+# cannot hold the Mac until the job timeout.
 queue_selftest_status=0
 run_bounded 300 "$CONTENTS/MacOS/$APP_NAME" --call-queue-selftest \
     >"$REPORT_DIR/queue-selftest.txt" 2>&1 || queue_selftest_status=$?
-# ONE judgement, shared with every other format, in SOFT mode: this validator
-# accumulates failures and reports them together rather than dying on the
-# first, so the helper reports and returns instead of exiting.
+# Soft mode: this validator accumulates failures instead of dying on the first.
 if ! assert_queue_selftest macOS "$REPORT_DIR/queue-selftest.txt" \
         "$queue_selftest_status" soft; then
     failures=$((failures + 1))
 fi
-# THE CALL SOUNDS, asked of the same bundle. WARN-ONLY like every other
-# format (see assert_call_sounds_status in lib.sh); it never adds to
-# `failures`. This is the one lane that may actually MEASURE it, because the
-# runner is a real Mac and CoreAudio normally presents an output device even
-# with nothing plugged in -- the transcript names the one it found. Bounded
-# with run_bounded, not GNU timeout, which macOS has not got.
+# Call sounds, warn-only like every format (see assert_call_sounds_status in
+# lib.sh). CoreAudio normally presents an output device even with nothing
+# plugged in, so this lane can usually measure. run_bounded, because macOS has
+# no GNU timeout.
 call_sounds_status=0
 run_bounded 60 "$CONTENTS/MacOS/$APP_NAME" --call-sounds-status \
     >"$REPORT_DIR/call-sounds-status.txt" 2>&1 || call_sounds_status=$?
 assert_call_sounds_status macOS "$REPORT_DIR/call-sounds-status.txt" \
     "$call_sounds_status"
-# THE IMAGE DECODERS, asked of the bundle the same way. macdeployqt copies
-# every plugin in its default categories, so this bundle gets Homebrew
-# qtimageformats' set (webp, tiff, icns, jp2, mng, tga, wbmp) plus qmacheif,
-# which is Qt's ImageIO-backed HEIF plugin and exists on macOS alone. It does
-# NOT get JPEG XL: Qt has never shipped a JXL plugin and Homebrew packages no
-# build of KDE's kimageformats, which is the only implementation. So `jxl` is
-# deliberately NOT required here — the check asserts the required set and
-# leaves JPEG XL reported as a platform limit, which is the honest answer.
+# Image decoders. macdeployqt ships Homebrew qtimageformats plus qmacheif. JPEG
+# XL is not required: no Qt JXL plugin exists for macOS, so it is reported as a
+# platform limit.
 if "$CONTENTS/MacOS/$APP_NAME" --image-format-status \
         >"$REPORT_DIR/image-format-status.txt" 2>&1; then
     check "the bundled app can decode every image format Lightning accepts" \
@@ -617,15 +506,9 @@ else
 fi
 
 # --- leak scan ---------------------------------------------------------------
-# Same intent as the Windows validator — an artifact must not carry runner
-# tokens, provider key VALUES, or the builder's private paths.
-#
-# Scanning for generic strings like "PRIVATE KEY" does not work here: Qt's TLS
-# code contains PEM header literals ("-----BEGIN PRIVATE KEY-----") as ordinary
-# format strings, so that pattern matches a perfectly clean bundle. Scanning for
-# the variable NAMES is equally meaningless — a name is not a secret. What
-# matters is whether a real secret value ended up in the payload, so the actual
-# values are scanned when they were supplied.
+# An artifact must not carry runner tokens, provider key values or builder
+# paths. Values are scanned, not names: Qt's TLS code contains PEM header
+# literals, and a variable name is not a secret.
 leak_hits=0
 scan_for() {
     local label="$1" pattern="$2"
@@ -637,20 +520,14 @@ scan_for() {
 scan_for "a GitLab runner token" 'glrt-'
 scan_for "an SSH private key" '-----BEGIN OPENSSH PRIVATE KEY-----'
 scan_for "a builder SSH path" "$HOME/.ssh"
-# The GStreamer SDK lives in the runner's home, so it is a class of builder path
-# the /opt/homebrew checks above never covered. The rpath sweep in the GStreamer
-# section catches load commands; this catches an embedded string anywhere.
+# The GStreamer SDK lives in the runner's home; this catches an embedded string
+# anywhere, beyond the rpath sweep above.
 scan_for "the builder's GStreamer SDK path" "$GST_SDK_PREFIX"
 
-# GIF provider keys are a conditional check, not an unconditional one. When the
-# project's GIPHY_API_KEY/KLIPY_API_KEY variables are available the build
-# *deliberately* compiles them in, exactly like the Windows test path, so the
-# picker works without local configuration — finding them is then correct, not a
-# leak. The property worth enforcing is the opposite one: a build that reported
-# itself keyless must not contain a key. build-info.json records which happened.
+# A build may deliberately embed the GIF keys (build-info.json says so). What
+# must hold is that a build reporting itself keyless contains no key.
 #
-# Written as full `if` blocks: under `set -e` a trailing `[[ ... ]] && cmd` whose
-# test is false makes the whole list return 1 and aborts the script.
+# Full `if` blocks: under `set -e` a false trailing `[[ ]] && cmd` aborts.
 GIF_EMBEDDED="$(jq -r '.gif_keys_embedded // false' "$CONTENTS/Resources/build-info.json" 2>/dev/null || echo unknown)"
 if [[ "$GIF_EMBEDDED" == "true" ]]; then
     printf '  note: GIF provider keys are intentionally embedded in this build\n'

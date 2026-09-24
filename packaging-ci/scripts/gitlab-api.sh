@@ -6,8 +6,7 @@
 
 gitlab_api_init() {
     require_var CI_API_V4_URL
-    # Publication and release writes are hard-wired to Lightning project 6; a
-    # settable variable must never be able to redirect them elsewhere.
+    # Writes are hard-wired to project 6; no variable may redirect them.
     : "${TARGET_PROJECT_ID:=6}"
     : "${LIGHTNING_PROJECT_ID:=$TARGET_PROJECT_ID}"
     [[ "$TARGET_PROJECT_ID" == 6 ]] || die "publication target must be Lightning project 6"
@@ -26,14 +25,10 @@ gitlab_api_init() {
     else
         die "CI_JOB_TOKEN is unavailable and LIGHTNING_PUBLISH_TOKEN is not configured"
     fi
-    # Canonical (public) API root: the durable URLs recorded in the manifest
-    # and release links are always built from CI_API_V4_URL so consumers get
-    # the public host.
+    # Recorded URLs always use the public host.
     CANONICAL_API_ROOT="${CI_API_V4_URL%/}/projects/${TARGET_PROJECT_ID}"
-    # Request base: PUBLISH_API_BASE lets CI route the publish-chain's own
-    # requests through the internal GitLab endpoint (the runner fleet's
-    # existing convention), bypassing the public proxy path and its
-    # request-body limits. Credentials stay in request headers either way.
+    # PUBLISH_API_BASE routes requests through the internal endpoint,
+    # bypassing the public proxy's request-body limits.
     API_ROOT="${PUBLISH_API_BASE:-$CI_API_V4_URL}"
     API_ROOT="${API_ROOT%/}/projects/${TARGET_PROJECT_ID}"
     PACKAGE_NAME="${PACKAGE_NAME:-lightning}"
@@ -46,14 +41,9 @@ api_request_url() {
     printf '%s' "${url/#"$CANONICAL_API_ROOT"/$API_ROOT}"
 }
 
-# NO REDIRECTS, EVER, on a request that carries the token. curl strips only
-# `Authorization:` and `Cookie:` when a redirect changes host; a custom header
-# such as `JOB-TOKEN:` or `PRIVATE-TOKEN:` is re-sent verbatim to wherever the
-# `Location:` points. On the plaintext internal path anything that can answer
-# for the endpoint could reply `302 https://elsewhere/` and collect a token
-# with write access to project 6's registry and releases. None of these
-# endpoints redirect, so a redirect is itself the anomaly worth failing on --
-# the same argument mirror-release-to-github.sh makes for the GitHub token.
+# Never follow redirects with the token: curl re-sends custom headers such as
+# `JOB-TOKEN:` to any redirect target, and on the plaintext internal path that
+# would leak a token with write access. These endpoints never redirect.
 api_request() {
     "$CURL_BIN" --silent --show-error --max-redirs 0 \
         --header "${AUTH_HEADER_NAME}: ${AUTH_HEADER_VALUE}" "$@"

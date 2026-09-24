@@ -2,12 +2,11 @@ FROM fedora@sha256:6c75d5bf57cb0fa5aa4b92c6a83c86c791644496d9ac230de7711f5b8ec3b
 
 ARG RUST_TOOLCHAIN=1.95.0
 ARG QT_MULTIMEDIA_VERSION=6.11.2
-# ENV, not ARG: a --build-arg could otherwise replace this digest and
-# silently disable the checksum gate on a download that is EXECUTED.
+# ENV, not ARG: a --build-arg must not be able to replace the digest of a
+# download that is executed.
 ENV QT_MULTIMEDIA_SHA256=967b5e02ec6b793cdb360622cd6e703132836af983208d678dae4b50f109cd9f
 ARG FFMPEG_VERSION=7.1.1
-# ENV, not ARG: a --build-arg could otherwise replace this digest and
-# silently disable the checksum gate on a download that is EXECUTED.
+# ENV, not ARG (see above).
 ENV FFMPEG_SHA256=733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1
 
 LABEL org.opencontainers.image.title="Lightning Windows cross-package builder" \
@@ -19,32 +18,16 @@ LABEL org.opencontainers.image.title="Lightning Windows cross-package builder" \
       net.smetonis.lightning.ffmpeg="7.1.1" \
       net.smetonis.lightning.rust="${RUST_TOOLCHAIN}"
 
-# The base image is content-addressed. The compiler, Qt, Rust installer,
-# installer generators, and Wine are also pinned to concrete Fedora NEVRAs.
-# Transitive RPMs are captured in /usr/local/share/lightning-windows-rpms.txt
-# so every CI artifact records the exact resolved image contents.
+# The base image is content-addressed and the toolchain packages are pinned to
+# Fedora NEVRAs; transitive RPMs are recorded in
+# /usr/local/share/lightning-windows-rpms.txt for every CI artifact.
 #
-# A pin is only as durable as Fedora's mirrors. gcc, nasm, python3 and rustup
-# were bumped on 2026-08-26 because their previous NEVRAs had been superseded
-# and dnf could no longer resolve them AT ALL -- the image had become
-# unbuildable from this file, silently, some time before anyone tried. They are
-# BUILD-HOST tools (FFmpeg's native helpers, the rustup installer); the Rust
-# toolchain itself is RUST_TOOLCHAIN and the cross compiler is
-# mingw64-gcc-c++, both pinned separately and both unchanged. Expect to have to
-# do this again: check with `dnf repoquery` inside the base image rather than
-# assuming a rebuild will reproduce the previous one.
-# QT MOVED 6.11.1 -> 6.11.2 ON 2026-09-16 BECAUSE FEDORA WITHDREW 6.11.1, NOT
-# BECAUSE ANYTHING HERE WANTED A NEWER QT. A v7 build died on
-# `No match for argument: qt6-qtshadertools-devel-6.11.1-1.fc44.x86_64`, and a
-# sweep of all 31 pinned NVRs in this file against the repos found EXACTLY these
-# eight gone and the other 23 still there — so the rot is the Qt stack and
-# nothing else. Re-run that sweep before assuming a future failure is wider than
-# it is, and VALIDATE THE PROBE FIRST: the first version of it used a dnf5
-# argument that does not exist, every query came back empty, and all 31 looked
-# withdrawn. Ask it about a package you know is present and one you know is not.
-#
-# The release numbers are NOT uniform — qtmultimedia is -2 where the rest are
-# -1 — so copy them from `dnf repoquery`, never by editing the version string.
+# Fedora withdraws superseded NEVRAs, which makes this file unbuildable without
+# any change here (build-host tools and the Qt stack have both needed bumps).
+# Check with `dnf repoquery` inside the base image, and validate the probe
+# against a package known to exist and one known not to before trusting it.
+# Release numbers are not uniform (qtmultimedia is -2, the rest -1), so copy
+# them from `dnf repoquery` rather than editing the version string.
 RUN dnf install -y --setopt=install_weak_deps=False \
         bash \
         ca-certificates \
@@ -118,31 +101,18 @@ COPY packaging/windows/cargo-windows-wrapper \
 COPY packaging/windows/toolchain-mingw64.cmake \
     /usr/local/share/lightning-windows/toolchain-mingw64.cmake
 
-# Cross-build FFmpeg (LGPLv3, shared) for the Windows target so Qt Multimedia's
-# FFmpeg backend can be built. The Fedora MinGW Qt ships ONLY the Windows Media
-# Foundation backend, which delivers a video's first buffered frames and then
-# stalls the surface; the FFmpeg backend decodes it correctly. LGPL build (no
-# --enable-gpl / --enable-nonfree; native decoders only). --disable-iconv drops
-# the subtitle charset path Lightning does not use (and which fails under
-# GCC 16 + MinGW). The native host compiler must use the NATIVE assembler, so
-# /usr/bin precedes the target bin dir on PATH here; the cross tools are still
-# resolved by their x86_64-w64-mingw32- prefix.
-# EVERY DOWNLOAD IN THIS FILE HAS A STALL GUARD, and it is not decoration.
-# A v7 attempt sat on a `curl` to gstreamer.freedesktop.org for SIXTEEN MINUTES
-# at near-zero CPU with nothing in the build log, and a plain `curl --silent`
-# has no timeout at all, so a genuinely stalled connection would hang the build
-# for ever. `--speed-limit` with `--speed-time` aborts a transfer that drops
-# below 10 kB/s for a minute, `--retry` gives a flaky mirror three goes, and the
-# sha256 check after each download is unchanged and still the integrity gate.
+# Cross-build FFmpeg (LGPLv3, shared, native decoders only) for Qt Multimedia's
+# FFmpeg backend. Fedora's MinGW Qt ships only the WMF backend, which stalls
+# video after the first buffered frames. --disable-iconv drops a subtitle path
+# Lightning does not use and which fails under GCC 16 + MinGW. /usr/bin comes
+# first on PATH so FFmpeg's host helpers use the native assembler.
 #
-# BE HONEST ABOUT WHAT THAT SIXTEEN MINUTES WAS, because the obvious reading is
-# wrong: **this installer is 960 MB**. A later run fetched it at ~560 kB/s,
-# which is 28 minutes of a step that prints nothing and burns no CPU — and that
-# is indistinguishable from a hang unless you measure the bytes. The first
-# attempt was killed without measuring them, so "it was stalled" is a guess and
-# is recorded here as one. The way to tell, next time, is the file itself:
+# Every download has a stall guard: `--speed-limit`/`--speed-time` abort a
+# transfer below 10 kB/s for a minute, `--retry` covers flaky mirrors, and the
+# sha256 check stays the integrity gate. The GStreamer installer is ~960 MB, so
+# a slow download looks like a hang; compare the file size twice, some seconds
+# apart, to tell them apart:
 #     sudo stat -c %s /proc/<curl-pid>/root/tmp/gstreamer-mingw.exe
-# twice, fifteen seconds apart. A stall is zero delta; slow is not.
 RUN set -eu; \
     url="https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"; \
     curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
@@ -172,15 +142,11 @@ RUN set -eu; \
     file /usr/x86_64-w64-mingw32/sys-root/mingw/bin/avcodec-*.dll \
         | grep -F 'PE32+ executable'
 
-# Fedora's 6.11.2 MinGW multimedia RPM contains Qt6Multimedia.dll and the
-# Windows Media Foundation backend but omits the QtMultimedia QML module and the
-# FFmpeg backend plugin. Build both from the matching official Qt source: the
-# quickmultimedia QML module and ffmpegmediaplugin (the FFmpeg decode backend,
-# which links the av*/sw* DLLs cross-built above). The WMF plugin is NOT built
-# here (its sources include <D3d11.h>, which is case-sensitive on this Linux
-# cross-build) — the RPM's windowsmediaplugin.dll is kept as the fallback. The
-# FFmpeg plugin's PCH also includes <D3d11.h>, so a case-only symlink to the
-# lowercase MinGW header lets it compile. Host ShaderTools supplies qsb.
+# Fedora's MinGW multimedia RPM omits the QtMultimedia QML module and the
+# FFmpeg backend plugin, so both are built from the matching Qt source. The WMF
+# plugin is not built (its sources include <D3d11.h>, which is case-sensitive
+# here); the RPM's copy is the fallback. A case-only symlink lets the FFmpeg
+# plugin's PCH find <D3d11.h>. Host ShaderTools supplies qsb.
 RUN set -eu; \
     dnf install -y --setopt=install_weak_deps=False \
         qt6-qtshadertools-devel-6.11.2-1.fc44.x86_64; \
@@ -221,102 +187,48 @@ RUN set -eu; \
         /usr/share/licenses/lightning-qtmultimedia-qml-source/; \
     rm -rf /tmp/qtmultimedia.tar.xz /tmp/qtmultimedia-src /tmp/qtmultimedia-build
 
-# Declared HERE, not beside the other ARGs at the top: an instruction added
-# above the FFmpeg and Qt Multimedia builds invalidates their layers, and those
-# cannot be rebuilt today -- four of this image's pinned Fedora NEVRAs (gcc,
-# nasm, python3, rustup) have already been superseded upstream, so the dnf step
-# resolves nothing (docs/windows-runner-operations.md).
+# Declared here rather than at the top: anything added above the FFmpeg and Qt
+# Multimedia builds invalidates their layers, and those may not be rebuildable
+# once Fedora withdraws pinned NEVRAs (docs/windows-runner-operations.md).
 ARG GSTREAMER_VERSION=1.28.5
-# ENV, not ARG: a --build-arg could otherwise replace this digest and
-# silently disable the checksum gate on a download that is EXECUTED.
+# ENV, not ARG (see above).
 ENV GSTREAMER_SHA256=43feae04c3ab6f7a14de580f79b97daa0c391623e6fbdfc940d61df07d749768
 
 COPY packaging/windows/gst-element-probe.c \
     /usr/local/share/lightning-windows/gst-element-probe.c
 
-# GStreamer for the MatrixRTC call media engine (CMakeLists.txt gates it on
-# pkg_check_modules(gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0
-# gstreamer-app-1.0 gstreamer-video-1.0 gstreamer-rtp-1.0); without them
-# HAVE_LIGHTNING_WEBRTC stays OFF and the shipped Windows binary refuses every
-# call with the honest signaling-only message).
+# GStreamer for the call media engine. CMake enables the engine only when
+# pkg-config finds gstreamer-{1.0,webrtc,sdp,app,video,rtp}-1.0; otherwise the
+# Windows binary refuses every call.
 #
-# WHY THE OFFICIAL SDK AND NOT FEDORA'S mingw64 RPMS. Fedora ships
-# mingw64-gstreamer1{,-plugins-base,-good,-plugins-bad-free}, and every element
-# this engine needs is missing from them: no webrtcbin plugin (only the
-# libgstwebrtc-1.0-0.dll *library*), no nice/ICE, no srtp, no opus, no vpx, no
-# webrtcdsp. The upstream MinGW SDK carries all of them, built for this same
-# x86_64-w64-mingw32 target.
+# The official MinGW SDK, not Fedora's mingw64 packages, which lack webrtcbin,
+# nice, srtp, opus, vpx and webrtcdsp. The installer is Inno Setup 6.7 data that
+# innoextract 1.10 and 7-Zip cannot read, so it runs in its own silent mode
+# under Wine (already present for the smoke test).
 #
-# The installer is Inno Setup 6.7 data, which innoextract 1.10 cannot read
-# ("Could not determine setup data version"), and 7-Zip cannot open at all.
-# Wine is already in this image for the packaging smoke test, so the installer
-# is run in its own silent mode instead -- the vendor's own extraction path,
-# with no third-party unpacker in the trust chain.
+# Only a subset (~26 MB of 2.4 GB) is installed: the plugins below, the runtime
+# DLLs their import closure needs, headers, .pc files and import libraries.
 #
-# ONLY A SUBSET IS INSTALLED. The extracted SDK is 2.4 GB; what lands in the
-# image is ~26 MB: 29 plugin DLLs, the 19 runtime DLLs their PE-import closure
-# needs, the headers, the .pc files and the import libraries. Everything else
-# (ffmpeg, gtk, curl, x264, gst-devtools, 240 other plugins) is discarded.
+# A collision with a Fedora sysroot DLL is a hard error. The SDK is a UCRT
+# build and Fedora's MinGW is msvcrt; mingw-w64's wchar.h makes mbstate_t a
+# struct under _UCRT and an int otherwise, so libstdc++ symbols mangle
+# differently and a process gets one libstdc++-6.dll. The d3d11 and
+# mediafoundation plugins import such symbols and are deliberately not shipped
+# (Wine loads them anyway, so the element probe cannot catch it; see
+# docs/windows-packaging.md). Capture uses ksvideosrc and gdiscreencapsrc.
+# Everything the shipped set imports from the colliding DLLs exists in
+# Fedora's copies, so no Fedora runtime DLL is replaced.
 #
-# THE COLLISION RULE IS A HARD ERROR, NOT AN OVERWRITE. The upstream SDK is a
-# UCRT build and Fedora's MinGW is an msvcrt build, and mingw-w64-headers'
-# wchar.h keys `mbstate_t` on exactly that (`struct _Mbstatet` under _UCRT,
-# `int` otherwise), so `std::codecvt<wchar_t, char, mbstate_t>` mangles
-# differently in the two libstdc++ builds. A process gets exactly ONE
-# libstdc++-6.dll. Measured with objdump: of the 267 SDK plugins, exactly two of
-# the ones we would want -- libgstd3d11.dll (d3d11screencapturesrc) and
-# libgstmediafoundation.dll (mfvideosrc) -- carry normal imports of the
-# `_Mbstatet` forms that Fedora's libstdc++ does not export (GetProcAddress:
-# ABSENT). They are DELIBERATELY NOT SHIPPED even though they are the better
-# capture path; see docs/windows-packaging.md for the cost, and note that Wine
-# loads them anyway, so the element probe cannot decide this one. Windows
-# capture uses ksvideosrc (libgstwinks) and gdiscreencapsrc
-# (libgstwinscreencap), which are clean. With those two out,
-# every symbol the shipped SDK set imports from every colliding DLL
-# (libglib/libgobject/libgio/libgmodule, libcrypto, libssl, libintl, libgcc,
-# libstdc++, libwinpthread) is present in the Fedora copy -- verified symbol by
-# symbol -- so no Fedora runtime DLL is replaced and the staging script's
-# existing single-source resolution from the sysroot stays correct. The install
-# loop below FAILS if a future Fedora update introduces a new collision.
+# The plugin list and the `expected=` count in the verify stage are one fact in
+# two places; change both in the same commit. The count is a literal on
+# purpose: a derived count would pass however many plugins failed to install.
 #
-# THE PLUGIN LIST BELOW AND THE `wc -l` COUNT IN THE VERIFY STAGE ARE ONE FACT
-# IN TWO PLACES. `libgstjpeg.dll` was added to the list on 2026-09-02 and that
-# number was left at 27, which made this Dockerfile UNBUILDABLE — and nobody
-# found out for ten days, because the image was not rebuilt in that window. So
-# the "rebuild the builder image" operator step CLAUDE.md carried as open could
-# not have succeeded if anyone had tried it. The count is deliberately a
-# hard-coded literal rather than something derived from this list: a derived
-# count would pass however many plugins failed to install, which is the one
-# thing it exists to catch. Change both, in the same commit.
+# A required plugin must land here, and the image be rebuilt and deployed,
+# before stage-windows-runtime.py lists it as required.
 #
-# `libgstlevel.dll` is here for v7 (2026-09-16). The capture chain's level
-# meter is what distinguishes a live microphone from a dead one, and Windows
-# is where "nobody can hear me" is reported — a 0.9.7 Windows call logged
-# `publishing microphone: ... level= false` because the plugin was not in this
-# image. It was added to the staging script's REQUIRED list before this image
-# carried it once already and killed pipeline 224; the required entry is the
-# half that must come SECOND, after the image is built and deployed.
-# THE LICENCE SET IS INCOMPLETE AND THE SDK CANNOT FIX IT — SETTLED 2026-09-16.
-# This image stages seven plugins from gst-plugins-good — jpeg, rtp, rtpmanager,
-# autodetect, directsound, directsoundsrc, vpx, and level from v7 — and the loop
-# below cannot name that set, because **the SDK does not ship its licence**.
-# Extracted once to a path that is not deleted (`/srv/gst-sdk-licences` on
-# 10.195.35.2): 88 licence directories, `gst-plugins-bad-1.0`,
-# `gst-plugins-base-1.0`, `gst-plugins-rs`, `gst-rtsp-server-1.0`,
-# `gstreamer-1.0` — and NOTHING matching "good".
-#
-# So `gst-plugins-good-1.0` was not a wrong name, it is an absent one, and the
-# earlier attempt to add it could never have worked. Verified on the ARTIFACT
-# too: `unzip -l` on the shipped 0.9.7 portable lists twelve directories under
-# licenses/lightning-gstreamer and none is good's.
-#
-# The gap is REAL and is an LGPL compliance defect, not cosmetics: every Windows
-# package this project has shipped carries gst-plugins-good binaries with no
-# licence text. Fixing it means SOURCING the text rather than copying it — the
-# set is LGPL-2.1+ and its COPYING comes from the gst-plugins-good release, not
-# from this SDK. That is a maintainer decision about what to ship and from
-# where, so it is written down here and in docs/open-items.md rather than
-# guessed at a third time. The `ls -1` below stays: it is what answered this.
+# The SDK ships no gst-plugins-good licence text (the `ls -1` below lists what
+# it does ship), so that text is vendored in this repository and staged by
+# stage-windows-runtime.py.
 RUN set -eu; \
     url="https://gstreamer.freedesktop.org/data/pkg/windows/${GSTREAMER_VERSION}/mingw/gstreamer-1.0-mingw-x86_64-${GSTREAMER_VERSION}.exe"; \
     curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
@@ -366,24 +278,12 @@ RUN set -eu; \
         fi; \
         install -m 0755 "$src/bin/$runtime" "$sysroot/bin/$runtime"; \
     done; \
-    # THE OPENGL PLUGIN'S OWN DEPENDENCIES, and it does not load without
-    # every one of them. Measured with objdump against the extracted SDK:
-    # libgstopengl.dll imports libgstcontroller, libgraphene, libjpeg-8 and
-    # libpng16 on top of the core libraries above, and libgstgl needs
-    # libgmodule. None of those are in the list above, and the Fedora
-    # sysroot baseline supplies only libglib/libgobject/libwinpthread —
-    # established by taking the imports of plugins that ALREADY stage
-    # successfully and subtracting the staged set.
-    #
-    # SKIP-IF-PRESENT rather than fail-if-present, and only for these. The
-    # loop above is right to treat a collision as fatal: those are core
-    # GStreamer libraries and silently replacing Fedora's copy is how a
-    # process ends up with two of something. These are ordinary third-party
-    # libraries that Fedora's mingw stack may legitimately already ship
-    # (Qt pulls libpng and libjpeg), and in that case the correct action is
-    # to USE Fedora's rather than to fail the build or overwrite it. The
-    # invariant that matters — no Fedora runtime DLL is ever replaced — is
-    # preserved either way.
+    # The opengl plugin's own dependencies (libgstcontroller, libgraphene,
+    # libjpeg-8, libpng16, and libgmodule for libgstgl), found with objdump.
+    # Skip-if-present rather than fail-if-present: these are ordinary
+    # third-party libraries Fedora's stack may already ship (Qt pulls libpng
+    # and libjpeg), and using Fedora's copy keeps the rule that no Fedora
+    # runtime DLL is ever replaced.
     for gldep in \
         libgstcontroller-1.0-0.dll libgraphene-1.0-0.dll \
         libgmodule-2.0-0.dll libjpeg-8.dll libpng16.dll; do \
@@ -429,16 +329,10 @@ RUN set -eu; \
         $(x86_64-w64-mingw32-pkg-config --cflags --libs gstreamer-1.0); \
     rm -rf /tmp/gstreamer-mingw.exe /tmp/gstreamer-sdk /tmp/gst-wine
 
-# THE ELEMENT-SYMBOL PROBE IN THIS STAGE HAS ONE ENTRY THAT CANNOT FAIL.
-# Every pair names an element whose string can only come from that plugin's own
-# gst_element_register -- webrtcbin/webrtc, jpegdec/jpeg, sctpenc/sctp -- which
-# is what caught `sctpenc` missing from a `libgstsctp` that was present for
-# months. `level:libgstlevel` is NOT that check: the element and the plugin
-# share a name, so the literal "level" sits in .rdata whether or not the
-# element registers, and the entry degrades to file existence. The registration
-# evidence for it arrives when stage-windows-runtime.py puts "level" in
-# GSTREAMER_ELEMENTS and the wine probe asks the real registry -- the promotion
-# commit that follows this image, not this one.
+# The element-symbol probe below checks that each element name appears in its
+# plugin, which only that plugin's gst_element_register would contain. For
+# level:libgstlevel this degrades to file existence, since element and plugin
+# share a name; the Wine registry probe (GSTREAMER_ELEMENTS) covers it.
 RUN chmod 0755 /usr/local/libexec/lightning-windows/cargo \
     && rpm -qa --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' \
        | LC_ALL=C sort > /usr/local/share/lightning-windows-rpms.txt \

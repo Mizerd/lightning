@@ -19,10 +19,8 @@ SYSTEM_DLLS = {
     "dnsapi.dll", "dsound.dll", "dwmapi.dll", "dwrite.dll", "dxgi.dll",
     "dxva2.dll",
     "evr.dll", "gdi32.dll", "imm32.dll", "iphlpapi.dll", "kernel32.dll",
-    # DirectSound, the Core Audio device enumerator and the kernel-streaming
-    # user-mode library: the three OS audio/capture entry points the GStreamer
-    # directsound, wasapi2 and winks plugins bind to. All ship in System32 and
-    # none is redistributable.
+    # DirectSound, the Core Audio device enumerator and kernel streaming: the
+    # OS entry points the directsound, wasapi2 and winks plugins bind to.
     "ksuser.dll", "mmdevapi.dll",
     "mf.dll", "mfplat.dll", "mfreadwrite.dll", "mfuuid.dll", "mpr.dll",
     "msvcrt.dll", "netapi32.dll", "ncrypt.dll", "ntdll.dll", "ole32.dll",
@@ -39,10 +37,8 @@ PLUGIN_FILES = {
         "qgif.dll", "qico.dll", "qjpeg.dll", "qsvg.dll", "qtiff.dll",
         "qwebp.dll",
     ),
-    # ffmpegmediaplugin is the FFmpeg decode backend Lightning pins on Windows
-    # (QT_MEDIA_BACKEND=ffmpeg); windowsmediaplugin (WMF) is kept as a fallback.
-    # Staging the FFmpeg plugin makes the recursive import-walk pull in the
-    # avcodec/avformat/avutil/swscale/swresample runtime DLLs automatically.
+    # FFmpeg is the multimedia backend Lightning pins on Windows; WMF is the
+    # fallback. The import walk pulls in the FFmpeg runtime DLLs.
     "multimedia": ("windowsmediaplugin.dll", "ffmpegmediaplugin.dll"),
     "networkinformation": ("qnetworklistmanager.dll",),
     "platforms": ("qwindows.dll",),
@@ -55,74 +51,32 @@ QML_RUNTIME_ENTRIES = (
     "QML", "Qt", "QtCore", "QtMultimedia", "QtNetwork", "QtQml", "QtQuick",
 )
 
-# GStreamer plugins for the MatrixRTC call media engine.
+# GStreamer plugins for the call media engine.
 #
-# A GStreamer plugin is dlopen'd, never linked, so NOTHING in any executable's
-# import table names one and the recursive PE-import walk below cannot discover
-# a single one of them. They are copied explicitly and then SEEDED into that
-# walk, which is what pulls their own runtime DLLs (libgstreamer-1.0-0.dll,
-# libnice-10.dll, libopus-0.dll, libsrtp2-1.dll, liborc-0.4-0.dll and the rest)
-# out of the sysroot.
+# Plugins are dlopen'd, so the PE-import walk below cannot find them; they are
+# copied explicitly and then seeded into the walk to pull in their own DLLs.
 #
-# The directory name is a CONTRACT with the application:
-# SfuMediaEngine::runtimeAvailable() points GST_PLUGIN_PATH at
-# `<exe dir>/gstreamer-1.0` and clears GST_PLUGIN_SYSTEM_PATH before gst_init,
-# because the compiled-in default plugin path is the builder's sysroot and does
-# not exist on a user's machine. Rename this directory and every call refuses
-# with "missing_element:webrtcbin" on a machine that has the plugins on disk.
+# The directory name is a contract with the application: SfuMediaEngine points
+# GST_PLUGIN_PATH at `<exe dir>/gstreamer-1.0` and clears the system path
+# (the compiled-in default is the builder's sysroot).
 #
-# The set is the engine's own element requirements, mapped to the plugin that
-# REGISTERS each one (several other plugins merely mention the names, which is
-# why this list was derived from the registering plugin rather than from a
-# string match). Windows capture is ksvideosrc + gdiscreencapsrc: the
-# mediafoundation and d3d11 plugins are UCRT builds whose `mbstate_t` differs
-# from this msvcrt toolchain's, so they import libstdc++ symbols the staged
-# libstdc++-6.dll does not export (docs/windows-packaging.md).
+# Each entry is the plugin that registers the element, not one that merely
+# mentions it. Windows capture is ksvideosrc + gdiscreencapsrc: the
+# mediafoundation and d3d11 plugins are UCRT builds that import libstdc++
+# symbols this msvcrt toolchain's libstdc++-6.dll does not export
+# (docs/windows-packaging.md).
 GSTREAMER_PLUGIN_DIR = "gstreamer-1.0"
-# Plugins the builder image MAY carry. Staged when present, logged when not,
-# never fatal — for a plugin the shipped app does not yet use.
-#
-# 2026-09-12: EMPTY, and that is the end of a two-week story worth keeping.
-#
-# `libgstjpeg.dll` was added to packaging/windows/Dockerfile on 2026-09-02 and
-# to the required list at the same time, but the builder image on the runner
-# host is built by hand under a fixed tag (docs/windows-runner-operations.md,
-# "Changing the builder image") and was never rebuilt — so the 0.9.0 release
-# died twice in `build-windows` on "required GStreamer plugin is missing from
-# the builder image", and requiring it was rolled back to this list. It sat
-# here because BOTH halves were needed: the app had to be able to negotiate
-# image/jpeg, and the image had to actually carry the plugin.
-#
-# Both are now true. The app half is in `SfuMediaEngine.cpp`
-# (`cameraJpegEntry()`, `jpegCameraChainAvailable()`, the MJPG-then-raw
-# fallback) and has been for longer than the record said; the image half is
-# builder `...-v6`, built 2026-09-12 and proven by a green `windows-package-
-# test`. So the plugin moves back to GSTREAMER_PLUGINS, where its ABSENCE is
-# fatal again — which is what you want once the app will actually try to load
-# it, because a missing decoder then means every camera silently falls back to
-# raw and nobody finds out until a USB 2.0 camera cannot reach 720p30.
-# AND THE ONE PLUGIN THAT WAS OPTIONAL HAS BEEN PROMOTED — 2026-09-16 evening.
-#
-# `libgstlevel.dll` is the capture level meter: silence encodes and encrypts
-# exactly like speech, so every counter downstream of the encoder reports a
-# healthy call either way, and a full day went into the crypto path for a
-# capture that was producing nothing. It spent the afternoon OPTIONAL because
-# listing it as required before the hand-built builder image carried it is what
-# killed `build-windows` in pipeline 224 — "a Dockerfile change alone changes
-# nothing", and the required list is only as true as the image's last build.
-#
-# The order that made it safe, and the order to repeat for the next one:
-#   1. add the plugin to `packaging/windows/Dockerfile` (bumping the verify
-#      stage's plugin COUNT literal in the same commit — they are one fact in
-#      two places);
-#   2. BUILD the image on the runner host and point `config.toml` at the new
-#      tag, keeping the previous tag in `allowed_images`;
-#   3. `gitlab-runner verify`;
-#   4. only THEN move the name here and add the element below.
-# Builder `fedora44-qt6.11.2-...-v7` carries it, deployed and verified on
-# 2026-09-16; the entry moved after that, not before.
-# Empty again, and the mechanism stays: the next plugin that has to wait for a
-# builder image goes here rather than into GSTREAMER_PLUGINS.
+# Plugins staged when the builder image carries them and skipped with a
+# warning otherwise. The builder image is built by hand on the runner host
+# (docs/windows-runner-operations.md), so a Dockerfile change alone changes
+# nothing, and a plugin required before the image carries it fails the build.
+# Order for adding a plugin:
+#   1. add it to packaging/windows/Dockerfile, bumping the verify stage's
+#      plugin count in the same commit;
+#   2. build the image on the runner host and point config.toml at the new
+#      tag, keeping the previous one in allowed_images;
+#   3. run `gitlab-runner verify`;
+#   4. only then move it into GSTREAMER_PLUGINS and add its element below.
 OPTIONAL_GSTREAMER_PLUGINS: tuple[str, ...] = ()
 
 GSTREAMER_PLUGINS = (
@@ -139,53 +93,20 @@ GSTREAMER_PLUGINS = (
     "libgstopus.dll",              # opusenc, opusdec
     "libgstrtp.dll",               # rtpopuspay/depay, rtpvp8pay/depay
     "libgstrtpmanager.dll",        # rtpbin and friends, used inside webrtcbin
-    # sctpenc/sctpdec. NOT optional, and nothing in Lightning names them:
-    # webrtcbin loads them itself for the DATA CHANNEL, and LiveKit's
-    # SUBSCRIBER offer puts a data channel in media section 0. With
-    # bundle-policy=max-bundle every audio and video section is bundled onto
-    # THAT section's transport, so without this plugin webrtcbin cannot build
-    # the transport the media rides on: `_get_or_create_data_channel_transports:
-    # code should not be reached`, then not one `pad-added` for the whole call.
-    #
-    # The failure is silent and one-directional and looked like anything but a
-    # missing plugin. Windows SENT audio the far end could hear — our own
-    # publisher offer is media-only, so its bundle owner is the audio section —
-    # while receiving nothing at all in either media kind. The answer SDP is
-    # byte-identical with and without it, which is why comparing SDP text
-    # refuted the theory before a control run brought it back.
+    # sctpenc/sctpdec: nothing in Lightning names them, but webrtcbin loads
+    # them for the data channel that LiveKit's subscriber offer puts in media
+    # section 0. Under max-bundle every media section rides that transport, so
+    # without this plugin nothing is received, while sending still works.
     "libgstsctp.dll",              # sctpenc, sctpdec
-    # jpegdec, for the CAMERA. A UVC webcam offers both MJPG and raw modes,
-    # and `ksvideosrc` exposes the MJPG ones as `image/jpeg`. With no JPEG
-    # decoder in the build, `image/jpeg` can never negotiate, so the camera
-    # falls back to raw YUY2 — which at 1280x720 is 18.4 MB/s and hits a USB 2.0
-    # ceiling at TEN FRAMES PER SECOND. That is the reported Windows camera
-    # frame rate, and it is a packaging gap rather than a pipeline one.
-    #
-    # Note `libjpeg-8.dll` has been staged all along as a LIBRARY dependency
-    # of Qt and libgstopengl. A DLL of the right name is not the element: the
-    # same distinction that shipped Windows for months with libgstsctp-1.0-0
-    # present and `sctpenc` missing.
+    # jpegdec for UVC cameras' MJPG modes. Without it the camera falls back to
+    # raw YUY2, which USB 2.0 limits to about 10 fps at 720p. libjpeg-8.dll
+    # (a Qt dependency) is a library, not this element.
     "libgstjpeg.dll",              # jpegdec (MJPG camera modes)
     "libgstlevel.dll",             # level — the capture level meter (v7+)
-    # jpegdec was OPTIONAL until 2026-09-12 — see
-    # OPTIONAL_GSTREAMER_PLUGINS.
     "libgstsrtp.dll",              # srtpenc, srtpdec, used inside dtlssrtp*
-    # glupload, glcolorconvert, glcolorscale, gldownload — the opt-in GPU
-    # scale path for a screen share (LIGHTNING_SHARE_GPU=1).
-    #
-    # THIS IS A SECOND LIST, AND STAGING IT IN THE BUILDER IMAGE IS NOT
-    # ENOUGH. packaging/windows/Dockerfile puts the plugin in the image's
-    # SYSROOT so the toolchain has it; this tuple is what actually goes into
-    # the shipped zip. Adding it there and not here produced a build whose
-    # log said `element "glupload" is not available in this build` — the
-    # app's own fallback catching a packaging gap, correctly, and the second
-    # time in this round that an artifact was nearly handed over claiming a
-    # capability it did not have.
-    #
-    # Its dependencies (libgstgl-1.0-0, libgraphene-1.0-0,
-    # libgstcontroller-1.0-0, libjpeg-8, libpng16) need no entry: the seeded
-    # import walk below pulls them out of the sysroot, which is exactly what
-    # that walk is for.
+    # The opt-in GPU scale path for screen share (LIGHTNING_SHARE_GPU=1). The
+    # Dockerfile puts the plugin in the sysroot; this tuple is what ships.
+    # Its dependencies come through the seeded import walk.
     "libgstopengl.dll",            # glupload, glcolorconvert, glcolorscale
     "libgstvideoconvertscale.dll", # videoconvert, videoscale
     "libgstvideorate.dll",         # videorate
@@ -200,50 +121,31 @@ GSTREAMER_PLUGINS = (
     "libgstwinscreencap.dll",      # gdiscreencapsrc (screen share)
 )
 
-# What the engine asks the registry for. This mirrors SfuMediaEngine.cpp's
-# kRequired probe plus the elements its gst_parse pipeline descriptions name;
-# `lightningrtpvp8pay` is deliberately absent because Lightning registers that
-# one itself and no plugin file carries it. validate-windows-artifacts.sh reads
-# this list and runs it against the packaged tree under Wine.
+# What the engine asks the registry for: SfuMediaEngine.cpp's kRequired probe
+# plus the elements its pipeline descriptions name. `lightningrtpvp8pay` is
+# absent because Lightning registers it itself. validate-windows-artifacts.sh
+# runs this list against the packaged tree under Wine.
 GSTREAMER_ELEMENTS = (
     "appsink", "audioconvert", "audioresample", "audiotestsrc", "autoaudiosink",
     "autoaudiosrc", "capsfilter", "dtlssrtpdec", "dtlssrtpenc", "fakesink",
     "gdiscreencapsrc",
-    # The GPU screen-share scale path (LIGHTNING_SHARE_GPU=1). Probed against
-    # the SHIPPED tree for the same reason as sctp below: the app degrades to
-    # the CPU when these are absent and says so in its log, which is the right
-    # behaviour and also means a packaging gap would never fail a build. It
-    # would just quietly stop being a GPU path — which is exactly what the
-    # previous artifact did.
+    # GPU share path: the app falls back to the CPU when these are missing, so
+    # only this probe would notice a packaging gap.
     "glcolorconvert", "glcolorscale", "gldownload", "glupload",
-    # jpegdec, the element the MJPG camera chain builds on. Staging
-    # `libgstjpeg.dll` is NOT the same claim: this file's own comment beside
-    # that plugin says so — libgstsctp-1.0-0.dll was present for months while
-    # `sctpenc` was missing, and Windows received no media the whole time. The
-    # DLL is the tin; this list is what asks whether anything is in it.
+    # A staged plugin DLL does not prove the element registers; this list does.
     "jpegdec",
-    # AND jpegenc, WHICH IS NOT DECORATION BESIDE IT.
-    #
-    # The app decides whether a camera takes the MJPG chain at all by BUILDING
-    # `videotestsrc ! jpegenc ! <entry> ! fakesink` once per process
-    # (SfuMediaEngine::jpegCameraChainAvailable). So jpegenc is a runtime
-    # requirement of the DECISION, not just of some test: if it ever fails to
-    # register, every Windows camera silently demotes to the raw entry and the
-    # 10 fps ceiling comes back with nothing in any log to say why. Both
-    # elements ship in libgstjpeg.dll today, which is exactly the assumption
-    # that made `sctpenc` invisible while its plugin was present.
+    # jpegenc: the app decides whether a camera uses the MJPG chain by
+    # building `videotestsrc ! jpegenc ! <entry> ! fakesink`
+    # (SfuMediaEngine::jpegCameraChainAvailable). Without it every camera
+    # silently falls back to the raw entry.
     "jpegenc",
     "ksvideosrc",
-    # level. Staging libgstlevel.dll is NOT this claim: the element and the
-    # plugin share a name, so the Dockerfile symbol probe cannot fail for it.
-    # THIS list is what makes the wine probe ask the real registry.
+    # The capture level meter. The Dockerfile symbol probe cannot fail for it
+    # (element and plugin share a name), so this list is what checks it.
     "level",
     "nicesink", "nicesrc", "opusdec", "opusenc",
     "queue", "rtpbin", "rtpopusdepay", "rtpopuspay", "rtpvp8depay", "rtpvp8pay",
-    # Probed even though no Lightning pipeline names them: webrtcbin loads
-    # them for the data channel, and their absence broke every incoming track
-    # while every other check passed. A probe list that only covers what the
-    # app spells out cannot see a dependency the element loads for itself.
+    # Loaded by webrtcbin for the data channel, not named by Lightning.
     "sctpdec", "sctpenc",
     "srtpenc", "tee", "valve", "videoconvert", "videorate", "videoscale",
     "videotestsrc", "volume", "vp8dec", "vp8enc", "webrtcbin", "webrtcdsp",
@@ -273,10 +175,8 @@ def main() -> None:
     executable = args.build / "lightning-matrix.exe"
     if not executable.is_file():
         raise SystemExit(f"Windows application executable is missing: {executable}")
-    # The update helper ships beside the application in every Windows package
-    # (all three are built from this one stage). Without it the in-app updater
-    # has nothing to hand the verified artifact to and the feature is inert, so
-    # a missing helper is a build failure rather than a silently smaller stage.
+    # Every Windows package ships the update helper; without it the in-app
+    # updater is inert, so its absence is a build failure.
     updater = args.build / "lightning-updater.exe"
     if not updater.is_file():
         raise SystemExit(f"Windows update helper is missing: {updater}")
@@ -288,9 +188,7 @@ def main() -> None:
     shutil.copy2(updater, args.stage / "lightning-updater.exe")
 
     # Lightning embeds its own QML but imports Qt's runtime modules. Copy the
-    # selected target import families (not the Qt SDK or QtTest imports) so
-    # transitive module metadata/plugins remain coherent, including the
-    # separately built QtMultimedia module.
+    # selected import families (not the SDK or QtTest imports).
     qml_source = QT_ROOT / "qml"
     qml_target = args.stage / "qml"
     qml_target.mkdir()
@@ -354,22 +252,11 @@ def main() -> None:
         copy_tree(license_dir, licenses / license_dir.name)
     source_licenses = pathlib.Path("/usr/share/licenses/lightning-qtmultimedia-qml-source")
     copy_tree(source_licenses, licenses / source_licenses.name)
-    # GStreamer and the libraries linked into its plugins (libnice, opus, vpx,
-    # libsrtp, orc, zlib, webrtc-audio-processing) are LGPL/BSD redistributables,
-    # so their licence texts ship with the binaries that carry them.
+    # Licence texts for GStreamer and the libraries in its plugins.
     gstreamer_licenses = pathlib.Path("/usr/share/licenses/lightning-gstreamer")
     copy_tree(gstreamer_licenses, licenses / gstreamer_licenses.name)
-    # gst-plugins-good's licence comes from THIS REPOSITORY, not the SDK.
-    #
-    # Seven of the staged plugins are gst-plugins-good binaries and the
-    # upstream MinGW SDK does not ship their licence: extracted and listed
-    # once, it carries 88 licence directories and nothing matching "good". So
-    # every Windows package this project has ever shipped carried LGPL-2.1
-    # binaries with no licence text — a compliance defect, not cosmetics.
-    #
-    # Vendoring it here fixes it without a builder-image rebuild, which is
-    # what had stalled it. Provenance and what is still the maintainer's call
-    # are in PROVENANCE.txt beside the text.
+    # gst-plugins-good's licence is vendored in this repository because the
+    # upstream MinGW SDK does not ship it. See PROVENANCE.txt beside the text.
     good_licenses = (args.source / "packaging-ci" / "packaging" / "common"
                      / "licenses" / "gst-plugins-good-1.0")
     if not (good_licenses / "COPYING").is_file():
@@ -377,13 +264,9 @@ def main() -> None:
             f"the vendored gst-plugins-good licence is missing at "
             f"{good_licenses} — every staged gst-plugins-good binary would "
             f"ship without it")
-    # Copied with an EXPLICIT mode rather than through copy_tree, which
-    # preserves the source's. Git records only the executable bit, so a fresh
-    # CI checkout takes its modes from the runner's umask — 0000 in these
-    # images, giving 666 files. That is invisible in a ZIP on Windows, but the
-    # identical `cp -a` in the AppImage lane carried 666 into the payload and
-    # `validate-appimage`'s world-writable scan rejected the build. Same
-    # source tree, same hazard; pinned here for the same reason.
+    # Explicit mode rather than copy_tree: git records only the executable
+    # bit, so a checkout under umask 0000 gives 666 files, which the AppImage
+    # validator's world-writable scan rejects.
     good_dest = licenses / "lightning-gstreamer" / "gst-plugins-good-1.0"
     good_dest.mkdir(parents=True, exist_ok=True)
     for name in ("COPYING", "PROVENANCE.txt"):
@@ -397,16 +280,9 @@ def main() -> None:
 
     available = {p.name.lower(): p for p in (SYSROOT / "bin").glob("*.dll")}
     copied = {p.name.lower() for p in args.stage.rglob("*.dll")}
-    # Both Lightning-owned executables seed the dependency walk. The helper links
-    # only Qt6::Core (plus zlib), so it adds nothing the application does not
-    # already pull in — but seeding it is what MAKES that true rather than
-    # assumed, and it is what would catch a future helper that grows a new
-    # dependency the stage does not carry.
-    #
-    # `rglob("*.dll")` is what seeds the GStreamer plugins copied above, and it
-    # has to: nothing imports them, so without being seeded here their own
-    # runtime libraries would never be staged and every plugin would fail to
-    # load on the user's machine with the files sitting right beside it.
+    # Both executables seed the dependency walk, so a new dependency of the
+    # helper is caught. rglob("*.dll") seeds the GStreamer plugins, which
+    # nothing imports.
     queue = sorted([
         args.stage / "Lightning.exe",
         args.stage / "lightning-updater.exe",

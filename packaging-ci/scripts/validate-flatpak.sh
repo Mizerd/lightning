@@ -54,11 +54,8 @@ set -e
 grep -Eiq "module .* is not installed|could not find|failed to load|error while loading shared libraries" \
     dist/flatpak-launch.log && { cat dist/flatpak-launch.log; die "launch reported missing components"; }
 
-# The call media engine, asked of the INSTALLED Flatpak against the real
-# org.kde.Platform runtime. A Flatpak depends on its runtime for the plugins
-# rather than bundling them, so this is the check that would catch a runtime
-# bump quietly dropping one -- and, like every other format, the only check
-# that can see an engine-less build at all.
+# Ask the installed Flatpak for its call media engine. The plugins come from
+# the runtime, so this also catches a runtime bump that drops one.
 set +e
 timeout 60s flatpak run --user --command=sh "$APP_ID" -c \
     "cd /tmp && QT_QPA_PLATFORM=offscreen exec /app/bin/lightning-matrix --call-media-status" \
@@ -67,9 +64,7 @@ call_media_status=$?
 set -e
 assert_call_media_engine Flatpak dist/flatpak-call-media-status.txt "$call_media_status"
 
-# THE VOICE-DELAY PROPERTY, asked of the same shipped artifact. See
-# assert_queue_selftest in lib.sh for what it measures and why it is not yet a
-# hard gate.
+# Voice-delay self-test; see assert_queue_selftest in lib.sh.
 set +e
 timeout 180s flatpak run --user --command=sh "$APP_ID" -c \
     "cd /tmp && QT_QPA_PLATFORM=offscreen exec /app/bin/lightning-matrix --call-queue-selftest" \
@@ -78,10 +73,8 @@ queue_selftest_status=$?
 set -e
 assert_queue_selftest Flatpak dist/flatpak-queue-selftest.txt "$queue_selftest_status"
 
-# THE CALL SOUNDS, asked of the same shipped artifact. WARN-ONLY: this
-# container has no sound server, and QSoundEffect cannot reach Ready without an
-# output device, so here the answer is normally UNMEASURED. The transcript is
-# kept regardless. See assert_call_sounds_status in lib.sh.
+# Call sounds, warn-only: without an output device QSoundEffect never reaches
+# Ready, so this is normally unmeasured here. See assert_call_sounds_status.
 set +e
 timeout 60s flatpak run --user --command=sh "$APP_ID" -c \
     "cd /tmp && QT_QPA_PLATFORM=offscreen exec /app/bin/lightning-matrix --call-sounds-status" \
@@ -90,11 +83,7 @@ call_sounds_status=$?
 set -e
 assert_call_sounds_status Flatpak dist/flatpak-call-sounds-status.txt "$call_sounds_status"
 
-# The image DECODERS, asked of the RUNTIME. The Flatpak is the one Linux
-# format that was never broken here: org.kde.Platform//6.11 ships libqwebp.so
-# and kimg_jxl.so (and 27 more), so this pins a property the runtime provides
-# rather than one this repository staged -- and it is exactly the check that
-# would catch a runtime bump quietly dropping either.
+# Image decoders come from org.kde.Platform; catch a runtime bump dropping one.
 set +e
 timeout 60s flatpak run --user --command=sh "$APP_ID" -c \
     "cd /tmp && QT_QPA_PLATFORM=offscreen exec /app/bin/lightning-matrix --image-format-status" \
@@ -125,20 +114,15 @@ fi
 # Leak audit inside the mounted app tree.
 appdir="$FLATPAK_USER_DIR/app/$APP_ID/current/active/files"
 test -d "$appdir" || die "installed app files missing"
-# The update helper comes from the source's own install(TARGETS ...) rule. A
-# Flatpak is updated by Flatpak, so Lightning never RUNS the helper here — but
-# its presence proves the install rule placed BOTH executables, and its absence
-# would mean that rule had failed in every format built the same way.
+# Flatpak never runs the update helper, but its presence proves the install
+# rule placed both executables.
 test -x "$appdir/bin/lightning-updater" || die "update helper missing from the app tree"
 grep -RIl -e /nix/store -e /home/roksme -e /builds/ \
     -e 'LIGHTNING_GIPHY_API_KEY=' -e 'LIGHTNING_KLIPY_API_KEY=' \
     -e 'PRIVATE-TOKEN:' -e 'recovery_key=' "$appdir" \
     && die "forbidden path or credential marker in app tree"
-# The exported build manifest (files/manifest.json) legitimately references
-# the flatpak-internal /run/build/<module> sandbox paths in its own build
-# options — every flatpak bundle carries them, and the credential/private
-# markers above still apply to it. Any OTHER file referencing /run/build
-# would mean RPATH/debug-path leakage and stays fatal.
+# files/manifest.json legitimately references /run/build/<module>; any other
+# file doing so means RPATH/debug-path leakage.
 grep -RIl -e /run/build/ "$appdir" | grep -v '/manifest\.json$' | grep -q . \
     && die "forbidden /run/build reference outside the exported manifest"
 find "$appdir" -name 'LightningGifBuildKeys.h' | grep -q . \

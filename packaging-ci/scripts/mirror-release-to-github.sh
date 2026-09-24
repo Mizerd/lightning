@@ -4,34 +4,19 @@ set -Eeuo pipefail
 # Mirror the already-published release binaries to a GitHub Release
 # (MIRROR-SPEC §6).
 #
-# GitLab is the release authority and the canonical binary source. GitHub is a
-# BANDWIDTH MIRROR: it holds byte-identical copies of the same artifacts, and
-# the signed update manifest points at both. A compromise of the mirror alone
-# cannot ship a trusted update — the manifest is signed by a key GitHub never
-# holds, it is fetched only from GitLab, and the SHA-256 every download is
-# checked against is fixed before the first byte is fetched.
+# GitLab is the release authority; GitHub only holds byte-identical copies. A
+# compromised mirror cannot ship an update: the manifest is signed with a key
+# GitHub never holds, is fetched only from GitLab, and pins every SHA-256.
 #
-# Placement: AFTER finalize-release (the GitLab tag and Release must already
-# exist) and BEFORE publish-update-manifest (so the `latest` slot is promoted
-# only once every mirror URL has been proved to serve the right bytes).
+# Runs after finalize-release (the tag must exist) and before
+# publish-update-manifest (so `latest` is promoted only once every mirror URL
+# serves the right bytes). It uploads the exact dist/ files recorded in
+# dist/manifest.json, and never overwrites or deletes a GitHub asset: an
+# identical one is reused so retries converge, a differing one is fatal.
 #
-# What this script does NOT do, deliberately:
-#   * It builds nothing. The bytes uploaded are the exact local dist/ files
-#     recorded in dist/manifest.json — the same ones publish-packages uploaded
-#     and verify-published-packages re-downloaded and hash-checked.
-#   * It fetches the bytes from nowhere else. A mirror assembled from a third
-#     source would not be a mirror.
-#   * It never overwrites or deletes a GitHub asset. An already-present,
-#     byte-identical asset is accepted (so a retry converges); a differing one
-#     is a hard failure.
-#
-# Credential handling mirrors sign-update-manifest.sh and build-windows.sh:
-# GITHUB_MIRROR_TOKEN is written into a mktemp curl config file with mode 0600
-# and an EXIT trap that unlinks it, so it is never echoed, never placed in an
-# argument vector (argv is world-readable through /proc on a shared runner),
-# never written into the working tree, and never included in an artifact.
-# Command tracing (set -x) must stay off in this script and everything it
-# sources.
+# GITHUB_MIRROR_TOKEN lives only in a 0600 curl config file removed on exit,
+# never in argv (readable via /proc) or output. Keep `set -x` off here and in
+# everything sourced.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
@@ -42,9 +27,7 @@ source "$SCRIPT_DIR/gitlab-api.sh"
 source "$SCRIPT_DIR/update-lib.sh"
 
 ROOT="$(project_dir)"
-# gitlab_api_init is used for the shared publication contract and CURL_BIN only.
-# This script makes no GitLab API request; the GitLab auth header it prepares is
-# never sent to GitHub.
+# Only for the publication contract and CURL_BIN; no GitLab request is made.
 gitlab_api_init
 release_contract_env
 
@@ -53,9 +36,7 @@ verification="$ROOT/dist/verification.json"
 update_manifest="$ROOT/dist/${UPDATE_MANIFEST_NAME}"
 
 [[ -f "$manifest" ]] || die "publication manifest is missing"
-# Same guard as finalize-release.sh and generate-update-manifest.sh: the mirror
-# advertises bytes as retrievable, so it may only be built from a publication
-# that was verified.
+# Only mirror a publication that was verified.
 [[ -f "$verification" ]] || die "verification record is missing; refusing to mirror"
 [[ "$(jq -er '.source_sha' "$manifest")" == "$SOURCE_SHA" ]] || die "manifest source SHA mismatch"
 [[ "$(jq -er '.version' "$manifest")" == "$PACKAGE_VERSION" ]] || die "manifest version mismatch"
@@ -63,9 +44,8 @@ update_manifest="$ROOT/dist/${UPDATE_MANIFEST_NAME}"
 
 # --- Disabled: a clean no-op, but never a silent one -------------------------
 if ! update_mirror_enabled; then
-    # The one case where doing nothing would be wrong: the signed manifest that
-    # is about to be promoted already promises mirror URLs. Skipping here would
-    # publish links to a release that was never created.
+    # A signed manifest that already promises mirror URLs must not be
+    # promoted without the mirror release it points at.
     if [[ -f "$update_manifest" ]] && \
        jq -e '[.artifacts[] | select(has("mirror_url"))] | length > 0' "$update_manifest" >/dev/null; then
         die "the signed update manifest carries mirror_url values but GITHUB_MIRROR_REPO is not set"
@@ -74,25 +54,19 @@ if ! update_mirror_enabled; then
     printf 'Nothing was uploaded, and the update manifest carries no mirror_url\n'
     exit 0
 fi
-# A lull REFRESH of the update manifest (UPDATE_REFRESH_LATEST_ONLY=true)
-# adds no package: everything this job would upload was mirrored and verified
-# when the release was created. It exits here, before the first request, so
-# the refresh -- the one operation that keeps GitLab-reachable clients
-# current -- can never be blocked by a dead mirror token. publish-update-
-# manifest `needs` this job; success here satisfies that edge honestly.
+# A manifest refresh adds no package; everything was mirrored at release time.
+# Exit before any request so a dead mirror token cannot block the refresh.
 if [[ "${UPDATE_REFRESH_LATEST_ONLY:-false}" == true ]]; then
     printf 'Manifest refresh (UPDATE_REFRESH_LATEST_ONLY=true): the release mirror is untouched and GitHub is not contacted\n'
     exit 0
 fi
 
-# Enabled, so the token is REQUIRED. Half-configured is a loud failure, not a
-# skip: this job runs before the `latest` promotion precisely so that a mirror
-# that cannot be completed stops the release from advertising it.
+# Enabled, so the token is required: a mirror that cannot be completed must
+# stop the `latest` promotion rather than be skipped.
 require_var GITHUB_MIRROR_TOKEN
 update_mirror_repo_valid "$GITHUB_MIRROR_REPO" || \
     die "GITHUB_MIRROR_REPO must be <owner>/<repo>"
-# Shape-check only; the value is never printed, and the check is what makes the
-# curl config file below safe to quote.
+# Shape-check only (never printed); it makes the curl config below safe to quote.
 [[ "$GITHUB_MIRROR_TOKEN" =~ ^[A-Za-z0-9_.-]{20,255}$ ]] || \
     die "GITHUB_MIRROR_TOKEN is not a plausible GitHub token (expected 20-255 chars of [A-Za-z0-9_.-])"
 
@@ -111,8 +85,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# curl reads the credential from a file rather than from an argument, so the
-# token never appears in argv or in a process listing.
+# Credential via config file, never argv.
 {
     printf 'header = "Authorization: Bearer %s"\n' "$GITHUB_MIRROR_TOKEN"
     printf 'header = "Accept: application/vnd.github+json"\n'
@@ -122,19 +95,15 @@ trap cleanup EXIT
 api_base="${UPDATE_MIRROR_API_HOST}/repos/${GITHUB_MIRROR_REPO}"
 upload_base="${UPDATE_MIRROR_UPLOAD_HOST}/repos/${GITHUB_MIRROR_REPO}"
 
-# Token-bearing, so it deliberately does NOT follow redirects: an Authorization
-# header must never be replayed to a host we did not choose. curl strips it
-# across hosts anyway, but the API endpoints used here do not redirect at all,
-# so a redirect would itself be the surprise worth failing on.
+# Token-bearing, so no redirects: these endpoints never redirect, and the
+# Authorization header must not reach a host we did not choose.
 gh_get() { # url output -> prints status
     local url="$1" out="$2"
     "$CURL_BIN" --silent --show-error --max-redirs 0 \
         --config "$auth_conf" --output "$out" --write-out '%{http_code}' "$url"
 }
 
-# Anonymous, exactly as a Lightning client will fetch it: no token, no
-# credential file. A mirror asset that is only readable with the publishing
-# token is not a mirror asset.
+# Anonymous, exactly as a client fetches it.
 gh_get_anonymous() { # url output -> prints status
     local url="$1" out="$2"
     "$CURL_BIN" --silent --show-error --location --max-redirs 5 \
@@ -146,17 +115,13 @@ size_of() { wc -c <"$1" | tr -d ' '; }
 
 # --- The mirrored tag must exist, and must be the SAME commit ----------------
 #
-# GitLab push-mirrors refs to GitHub asynchronously, so the tag finalize-release
-# just created may not have arrived yet. Two failure modes are being avoided:
-# a create call that simply fails, and — far worse — a create call at a tag name
-# GitHub does not have, which GitHub would satisfy by creating the tag itself
-# from the default branch. That would publish a "release" of a different commit.
-# So: wait for the tag, then prove it peels to the released commit. This is the
-# `gh release create --verify-tag` guarantee, made explicit.
-# Prints the commit sha and returns 0; returns 10 for "not there yet" (the only
-# retryable outcome). Every other failure calls die, which exits this command
-# substitution's subshell with 1 — so the caller can tell "keep waiting" from
-# "stop", and a 401 never turns into a five-minute wait.
+# GitLab push-mirrors refs asynchronously, so the tag may not have arrived.
+# Creating a release for a tag GitHub lacks would make GitHub tag the default
+# branch, so wait for the tag and prove it peels to the released commit (the
+# `gh release create --verify-tag` guarantee).
+# Prints the commit sha and returns 0; returns 10 for "not there yet", the only
+# retryable outcome. Anything else dies (subshell exit 1), so a 401 never
+# turns into a five-minute wait.
 resolve_mirror_tag_commit() {
     local ref_json="$tmp_dir/tag-ref.json" status obj_type obj_sha tag_json
     status="$(gh_get "${api_base}/git/ref/tags/${RELEASE_TAG}" "$ref_json")" || \
@@ -211,10 +176,8 @@ printf 'GitHub tag %s peels to the released commit %s\n' "$RELEASE_TAG" "$SOURCE
 
 # --- Files to mirror, proved to be the published bytes ------------------------
 #
-# Read from the publication manifest, and re-hashed locally ONLY to prove the
-# local file still is the file that was published and verified. The manifest's
-# sha256 remains authoritative; a disagreement is a hard failure, never a silent
-# re-record.
+# The publication manifest's sha256 is authoritative; the local re-hash only
+# proves the file is still the published one, and a mismatch is fatal.
 declare -a mirror_files=() mirror_names=() mirror_shas=() mirror_sizes=()
 while IFS= read -r entry; do
     filename="$(jq -er '.filename' <<<"$entry")"
@@ -241,10 +204,8 @@ done < <(jq -c '.entries[]' "$manifest")
 
 # --- The signed manifest and this job must agree on every URL ----------------
 #
-# generate-update-manifest.sh derives mirror_url from the same three inputs, but
-# it runs in an earlier stage. If the two ever disagreed, the promoted manifest
-# would point at an asset this job did not create. Cross-check rather than
-# assume, and do it before uploading anything.
+# generate-update-manifest.sh derives mirror_url in an earlier stage from the
+# same inputs; cross-check before uploading anything.
 if [[ -f "$update_manifest" ]]; then
     while IFS= read -r row; do
         u_name="$(jq -er '.filename' <<<"$row")"
@@ -254,8 +215,7 @@ if [[ -f "$update_manifest" ]]; then
         expected="$(update_mirror_asset_url "$GITHUB_MIRROR_REPO" "$RELEASE_TAG" "$u_name")"
         [[ "$u_mirror" == "$expected" ]] || \
             die "the signed update manifest's mirror_url for $u_name is $u_mirror, not $expected"
-        # No pipeline here: grep -q exits early, and under `set -o pipefail` the
-        # resulting SIGPIPE on the producer would fail a successful match.
+        # No pipe: grep -q exits early and SIGPIPE would fail under pipefail.
         grep -Fxq "$u_name" <<<"$(printf '%s\n' "${mirror_names[@]}")" || \
             die "the signed update manifest advertises a mirror for $u_name, which is not in the publication manifest"
     done < <(jq -c '.artifacts[]' "$update_manifest")
@@ -270,24 +230,10 @@ status="$(gh_get "${api_base}/releases/tags/${RELEASE_TAG}" "$release_json")" ||
 
 mirror_notes() { # output
     local canonical="${LIGHTNING_RELEASE_BASE_URL:-https://gitlab.smetonis.net/Mizerd/lightning}/-/releases/${RELEASE_TAG}"
-    # THE RELEASE NOTES COME FIRST, and they are the same bytes the GitLab
-    # release carries: resolve-source writes dist/release-notes.md from
-    # project 6's docs/releases/<tag>.md, this job already `needs` that
-    # artifact, and finalize-release resolves the GitLab description from the
-    # very same file. Two pages describing one release must not describe it
-    # differently.
-    #
-    # This page used to be the mirror notice ALONE, so the GitHub release said
-    # what the mirror is and nothing whatever about what changed — and GitHub
-    # is where most people actually land. The notice is kept, because "GitHub
-    # decides nothing" is a real invariant and not decoration, but it belongs
-    # BELOW the thing the reader came for.
-    #
-    # A missing notes file is a WARNING, never fatal. By the time this job
-    # runs the tag and the GitLab release already exist, and failing after
-    # that point is the most expensive failure this pipeline has — it cost the
-    # 0.7.5 round a hand-finished release. Boilerplate alone is a worse page,
-    # not a broken one.
+    # Release notes first, from the same file finalize-release uses for the
+    # GitLab description, then the mirror notice. A missing notes file only
+    # warns: the tag and GitLab release already exist, so failing here would
+    # leave a half-finished release.
     : >"$1"
     local notes_src="$ROOT/dist/release-notes.md"
     if [[ -s "$notes_src" ]]; then
@@ -332,9 +278,7 @@ case "$status" in
         body="$tmp_dir/create-release.json"
         response="$tmp_dir/create-response.json"
         mirror_notes "$notes"
-        # tag_name only, never target_commitish: the tag was proved above to
-        # exist and to peel to the released commit, and naming a commitish is
-        # what would let GitHub create a tag of its own.
+        # tag_name only: a target_commitish would let GitHub create its own tag.
         jq -n \
             --arg tag_name "$RELEASE_TAG" \
             --arg name "Lightning ${PACKAGE_VERSION}" \
@@ -364,11 +308,8 @@ esac
 
 # --- Upload, idempotently ----------------------------------------------------
 #
-# An asset already present with the expected size is left alone: re-uploading it
-# would either duplicate it or require deleting a published file. A differing
-# one is a hard failure — this job never overwrites and never deletes, because a
-# mirror silently replacing a published byte is exactly the property the whole
-# design exists to prevent.
+# An asset already present with the expected size is left alone; a differing
+# one is fatal. The mirror never overwrites or deletes a published file.
 existing_asset() { # name -> prints the asset object, empty when absent
     jq -c --arg n "$1" '[.assets[]? | select(.name == $n)] | first // empty' "$release_json"
 }
@@ -409,11 +350,8 @@ done
 
 # --- Verify, anonymously -----------------------------------------------------
 #
-# Re-read the release so the listing reflects the uploads just made, then fetch
-# every asset the way a client will: no token, over the deterministic
-# version-specific URL that is (or will be) in the signed manifest. Size and
-# SHA-256 are compared against dist/manifest.json — the record the published
-# bytes were verified against — never against the local file alone.
+# Re-read the release, then fetch every asset anonymously from the URL the
+# signed manifest uses, checking size and SHA-256 against dist/manifest.json.
 status="$(gh_get "${api_base}/releases/tags/${RELEASE_TAG}" "$release_json")" || \
     die "GitHub release re-read request failed"
 [[ "$status" == 200 ]] || die "GitHub release re-read returned HTTP $status"
@@ -448,8 +386,7 @@ for i in "${!mirror_names[@]}"; do
         <<<"$assets_record")"
 done
 
-# Record for diagnostics and for the operator. No credential, no token, no
-# header value: only public URLs and already-published checksums.
+# Diagnostic record: public URLs and published checksums only.
 jq -n \
     --arg version "$PACKAGE_VERSION" \
     --arg tag "$RELEASE_TAG" \

@@ -14,70 +14,38 @@
           ninja
           pkg-config
           gcc
-          # ---- Local build accelerators (OPT-IN) ----
-          # Present in the shell so a contributor never has to install
-          # anything, but deliberately NOT wired up by default: nothing
-          # here changes how a build behaves unless the developer asks
-          # for it at configure time (see the hints printed below).
-          #
-          # They are kept out of CMakeLists.txt on purpose. The
-          # lightning-deploy packaging pipeline and every official build
-          # must be byte-for-byte unaffected by a local convenience, and
-          # a hardcoded compiler launcher would make the build FAIL on
-          # any machine without the tool. Opting in writes the choice
-          # into the tree's own CMakeCache.txt, which is untracked.
-          #
-          # Why they are worth opting into here: this project rebuilds
-          # ~6100 objects and relinks ~40 executables whenever a widely
-          # included header (MatrixClient.h, AppController.h) or the
-          # target list changes, and the debug binaries are large.
+          # Opt-in build accelerators (see the hints printed below). Kept
+          # out of CMakeLists.txt so official builds are unaffected and a
+          # machine without the tool still builds.
           ccache
           mold
           qt.qttools
           qt.wrapQtAppsHook
-          # Rust toolchain — only used when ENABLE_RUST_SDK_BACKEND=ON.
-          # Kept in the default shell so contributors can flip the flag
-          # without a second shell.
+          # Rust toolchain, used when ENABLE_RUST_SDK_BACKEND=ON.
           rustc
           cargo
         ];
 
-        # Qt QuickControls2 ships inside qtdeclarative in the current
-        # nixpkgs qt6 attribute set — there is no separate qtquickcontrols2
-        # attr, and referencing it makes evaluation fail.
-        # libsecret + glib are used by src/storage/LibSecretStore.cpp for
-        # Secret Service integration (v0.4).
-        # xkeyboard_config is needed by libxkbcommon / xcb-cursor when the
-        # xcb platform plugin loads.
+        # QuickControls2 ships inside qtdeclarative (there is no separate
+        # attribute). libsecret + glib back src/storage/LibSecretStore.cpp;
+        # xkeyboard_config is needed when the xcb platform plugin loads.
         buildInputs = with pkgs; [
           qt.qtbase
           qt.qtdeclarative
           qt.qtsvg
           qt.qtwayland
-          # v0.7: native inline video/audio playback (QMediaPlayer /
-          # VideoOutput). nixpkgs builds qtmultimedia with BOTH the
-          # default FFmpeg backend (ffmpeg-full linked via RPATH — no
-          # plugin-path setup needed) and the GStreamer backend.
+          # Inline media playback; nixpkgs builds both the FFmpeg and
+          # GStreamer backends.
           qt.qtmultimedia
-          # v0.7 media round: Qt Multimedia dlopens libpipewire-0.3 at
-          # runtime for native PipeWire audio; when it cannot be resolved
-          # (the live capture showed exactly that warning on every launch)
-          # Qt falls back to the PulseAudio client library, and the
-          # captured FLAC-playback crash aborted inside that fallback
-          # (pa_context_get_state assertion). The host desktop runs
-          # PipeWire, so making the library resolvable lets Qt use the
-          # native path. See the LD_LIBRARY_PATH export below.
+          # Qt Multimedia dlopens libpipewire-0.3; without it Qt falls back
+          # to the PulseAudio client, which crashed on FLAC playback
+          # (pa_context_get_state assertion). See LD_LIBRARY_PATH below.
           pipewire
           libsecret
           glib
           xkeyboard_config
-          # v0.7.x voice calls: the WebRTC media engine is GStreamer's
-          # webrtcbin (gst-plugins-bad) — ICE via libnice, DTLS-SRTP,
-          # Opus. Listed explicitly (not just ridden in transitively via
-          # qtmultimedia's GStreamer backend) because the app itself now
-          # links gstreamer-webrtc-1.0/gstreamer-sdp-1.0. libnice
-          # provides the nicesrc/nicesink elements webrtcbin requires;
-          # its plugin dir joins GST_PLUGIN_SYSTEM_PATH_1_0 below.
+          # Call media engine: webrtcbin (gst-plugins-bad), linked directly.
+          # libnice provides the nicesrc/nicesink elements webrtcbin needs.
           gst_all_1.gstreamer
           gst_all_1.gst-plugins-base
           gst_all_1.gst-plugins-good
@@ -86,22 +54,9 @@
         ];
 
         shellHook = ''
-          # ------------------------------------------------------------
-          # v0.4.3: Purge Qt env inherited from a running KDE Plasma /
-          # GNOME / etc. session before setting the flake-consistent
-          # values.
-          #
-          # Root cause of the reported crash: a KDE Plasma session on
-          # NixOS exports QT_PLUGIN_PATH pointing at the system-wide
-          # qtbase (e.g. 6.11.0). Our flake pulls qtbase 6.11.1 from
-          # nixos-unstable and the executable is linked against it.
-          # When Qt initialises its platform plugin, it walks
-          # QT_PLUGIN_PATH first, loads a helper plugin from the 6.11.0
-          # tree into the 6.11.1 process, hits the version check, and
-          # aborts BEFORE it can print any error — that is why
-          # QT_DEBUG_PLUGINS=1 produced no output. Purging first, then
-          # setting from ${qt.qtbase} keeps a single Qt in the picture.
-          # ------------------------------------------------------------
+          # Purge Qt paths inherited from the desktop session: a plugin
+          # from the system Qt loaded into the flake's Qt fails the version
+          # check and aborts silently, before any debug output.
           unset QT_PLUGIN_PATH
           unset QT_QPA_PLATFORM_PLUGIN_PATH
           unset QML_IMPORT_PATH
@@ -119,15 +74,11 @@
           # QML-plugin configs (silences the harmless "quickmultimediaplugin
           # ... will not be linked" configure warning; loading stays dynamic).
           export QT_ADDITIONAL_PACKAGES_PREFIX_PATH="${qt.qtmultimedia}"
-          # Qt Multimedia resolves libpipewire-0.3 by dlopen at runtime;
-          # nix develop does not put buildInputs on the loader path, so
-          # scope exactly one directory onto it. Without this Qt falls
-          # back to the PulseAudio client (see the pipewire buildInputs
-          # comment; the captured FLAC crash aborted in that fallback).
+          # nix develop does not put buildInputs on the loader path; expose
+          # only pipewire so Qt Multimedia can dlopen libpipewire-0.3.
           export LD_LIBRARY_PATH="${pkgs.pipewire}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          # webrtcbin needs the libnice GStreamer plugin (nicesrc/
-          # nicesink); nixpkgs ships it in libnice's own output, which
-          # the gst hook does not add on its own.
+          # nixpkgs ships the libnice GStreamer plugin in libnice's own
+          # output, which the gst hook does not add.
           export GST_PLUGIN_SYSTEM_PATH_1_0="${pkgs.libnice.out}/lib/gstreamer-1.0''${GST_PLUGIN_SYSTEM_PATH_1_0:+:$GST_PLUGIN_SYSTEM_PATH_1_0}"
 
           echo "Lightning dev shell — Qt ${qt.qtbase.version}"

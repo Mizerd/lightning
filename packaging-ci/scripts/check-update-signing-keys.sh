@@ -5,27 +5,16 @@ set -Eeuo pipefail
 # inputs agree with each other AND with the client that has to accept the result:
 #
 #   UPDATE_SIGNING_KEY_ID       the id written into the signature envelope
-#   UPDATE_SIGNING_KEY_B64      the PRIVATE key that signs the manifest (CI only)
-#   UPDATE_SIGNING_PUBKEY_<id>  the PUBLIC key COMPILED INTO the packages
+#   UPDATE_SIGNING_KEY_B64      the private key that signs the manifest (CI only)
+#   UPDATE_SIGNING_PUBKEY_<id>  the public key compiled into the packages
 #
-# Why this exists at all: nothing else connects them. The signing job uses the
-# private key; the build jobs embed the public one; the client trusts a key id
-# from a table compiled into it. Get any pair out of step and the pipeline still
-# succeeds — it publishes a correctly signed manifest that every package it just
-# built must reject. That failure is invisible until a user clicks "check for
-# updates", and it is unfixable for that release: the wrong public key is already
-# compiled into the shipped binaries.
+# If any pair is out of step the pipeline still succeeds but publishes a
+# manifest its own packages reject, and the wrong public key is already
+# compiled in, so it cannot be fixed for that release. An empty public key is
+# therefore fatal for a publishing pipeline.
 #
-# So all three are checked here, and an empty public key is a REFUSAL for a
-# publishing pipeline rather than a warning. A build with no key compiled in
-# fails closed, which is right — but shipping such a build knowingly, from a
-# pipeline that holds the private key, is shipping a feature that cannot work.
-#
-# Credential handling: the private key is decoded through stdin into a mktemp
-# file with mode 0600 and an EXIT trap, never placed in argv, and never printed.
-# NEITHER key is printed by this script, not even on a mismatch — a diff of two
-# keys is not a useful diagnostic and the habit is what leaks material. Do not
-# enable `set -x` here.
+# The private key is decoded via stdin to a 0600 temp file removed on exit.
+# Neither key is ever printed, not even on a mismatch. Do not enable `set -x`.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
@@ -36,11 +25,8 @@ source "$SCRIPT_DIR/update-lib.sh"
 command -v openssl >/dev/null 2>&1 || \
     die "openssl is required to check the update-signing key consistency"
 
-# `--public-only`: check everything that does not need the PRIVATE key. The
-# private key is environment-scoped to the signing job (see .gitlab-ci.yml),
-# so the first job of a publishing pipeline -- which must still refuse a
-# release whose public key is unset or malformed BEFORE the builds bake it
-# in -- runs this mode; the signing job runs the full check.
+# `--public-only` skips the private key, which is scoped to the signing job;
+# the first job uses it to reject a bad public key before builds embed it.
 PUBLIC_ONLY=false
 case "${1:-}" in
     "") ;;
@@ -54,9 +40,7 @@ key_id="$UPDATE_SIGNING_KEY_ID"
 update_valid_key_id "$key_id" || \
     die "UPDATE_SIGNING_KEY_ID must be 1-64 chars of [A-Za-z0-9._-] starting alphanumeric"
 
-# The id must be one a shipped Lightning actually trusts. A manifest signed with
-# an id absent from the compiled-in table is rejected by every client, and the
-# server can never introduce a key — so this is not a formality.
+# Clients reject any key id absent from their compiled-in table.
 trusted=false
 for known in "${UPDATE_CLIENT_TRUSTED_KEY_IDS[@]}"; do
     [[ "$key_id" == "$known" ]] && trusted=true
@@ -83,16 +67,13 @@ chmod 600 "$key_file"
 cleanup() { rm -f "$key_file"; rm -rf "$work"; }
 trap cleanup EXIT
 
-# Decode via stdin so the key never appears in an argument vector (argv is
-# world-readable through /proc on a shared runner).
+# Decode via stdin so the key never appears in argv (readable via /proc).
 if ! printf '%s' "$UPDATE_SIGNING_KEY_B64" | base64 -d >"$key_file" 2>/dev/null; then
     die "UPDATE_SIGNING_KEY_B64 is not valid base64"
 fi
 [[ -s "$key_file" ]] || die "UPDATE_SIGNING_KEY_B64 decoded to an empty key"
 
-# update_public_key_b64 derives ONLY the public half (openssl pkey -pubout) and
-# proves the key is Ed25519 by its fixed SPKI shape. `openssl pkey -text` is
-# never used anywhere in this pipeline: it prints private key material.
+# Derives only the public half and checks the Ed25519 SPKI shape.
 derived_pub="$(update_public_key_b64 "$key_file" private)" || \
     die "the configured signing key is not a usable Ed25519 private key"
 

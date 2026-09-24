@@ -1,70 +1,25 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# THE FLATHUB PRE-SUBMISSION GATE, RUN THE WAY FLATHUB RUNS IT.
+# Local Flathub pre-submission gate (not a CI job): manifest, builddir and repo
+# lint, run the way Flathub runs them.
 #
-# This is not a CI job. It is the local gate the maintainer asked for — "on the
-# machine that supports flatpak, run the full lint and confirm it is good for
-# submission" — and it exists as a tracked file for one reason: every time it
-# has been hand-rolled, the flags came out wrong and the wrong conclusion got
-# written down.
+# Build through `flathub-build` from org.flatpak.Builder so the flags match
+# Flathub's buildbot exactly, in particular --compose-url-policy=full: with the
+# default `partial` policy the catalogue gets a media_baseurl plus relative
+# image paths, which flatpak-builder-lint reports as
+# appstream-external-screenshot-url / appstream-remote-icon-not-mirrored.
 #
-# WHAT WENT WRONG ON 2026-09-17, because this script is the fix for it.
+# Traps handled here:
+#  1. No session bus: flatpak-builder inside the sandbox resolves its sdk via
+#     `flatpak info` on the host through the spawn portal, and without a bus it
+#     fails with "Unable to find sdk". Run everything under dbus-run-session.
+#  2. The sandbox maps the host uid to nobody, so a user-owned work directory
+#     is read-only inside it ("Can't create state directory").
+#  3. `cmd | tail` reports tail's status; statuses here come from the command.
 #
-# A rig driver invoked `flatpak-builder` directly with
-# `--mirror-screenshots-url=https://dl.flathub.org/media/` and no
-# `--compose-url-policy`. The default policy is `partial`, which makes
-# appstreamcli compose write the catalogue as
-# `<components media_baseurl="https://dl.flathub.org/media/">` plus RELATIVE
-# image paths — and `flatpak-builder-lint` tests each `<image>` with a bare
-# `startswith("https://dl.flathub.org/media")` and never resolves
-# `media_baseurl` (verified in its own source: `checks/screenshots.py` and
-# `appstream.is_remote_icon_mirrored`). So the repo lint reported
-# `appstream-external-screenshot-url` and `appstream-remote-icon-not-mirrored`
-# on a manifest that is fine.
-#
-# `--compose-url-policy=full` was then tried and recorded as REFUTED. It was
-# not: that run's log says `Cache hit for cleanup, skipping`, and the cleanup
-# stage is where flatpak-builder runs appstreamcli compose. The flag never
-# reached the tool. Re-run with a cold cache it changes the output completely —
-# `<components version="1.0">` with absolute `https://dl.flathub.org/media/...`
-# URLs — and both errors go away. Measured 2026-09-19 on Lightning's own
-# builddir: 20/20 image URLs and 2/2 remote icons absolute, `lint builddir` and
-# `lint repo` both exit 0 with no output.
-#
-# GENERALISE: a flag tested over a cache hit was never tested. The stage that
-# would have consumed it did not run.
-#
-# `flathub-build`, shipped inside the org.flatpak.Builder flatpak, passes the
-# exact set Flathub's own buildbot uses — including BOTH flags — so this script
-# calls that and never assembles its own argument list:
-#
-#   --verbose --force-clean --sandbox --keep-build-dirs
-#   --override-source-date-epoch 1321009871 --user --install-deps-from=flathub
-#   --ccache --mirror-screenshots-url=https://dl.flathub.org/media
-#   --compose-url-policy=full --repo=repo builddir <manifest>
-#
-# THREE TRAPS THIS SCRIPT HANDLES, ALL PAID FOR ALREADY.
-#
-#  1. NO SESSION BUS, NO BUILD. flatpak-builder inside the org.flatpak.Builder
-#     sandbox resolves its sdk by running `flatpak info` ON THE HOST through
-#     the spawn portal, which needs a bus carrying org.freedesktop.Flatpak.
-#     Without one it dies at init with "Unable to find sdk org.kde.Sdk version
-#     6.11" while `flatpak info org.kde.Sdk//6.11` in the same shell prints the
-#     ref. `dbus-run-session` is the whole fix; D-Bus activates the portal from
-#     /usr/libexec/flatpak-portal by itself. Three builds were lost to this.
-#  2. THE SANDBOX CANNOT WRITE A HOST-OWNED DIRECTORY. It maps host uid 1000 to
-#     nobody, so a work directory owned by the invoking user is read-only
-#     inside it and the lint dies with "Can't create state directory: ...
-#     Permission denied" before it reads anything. That looks like a lint
-#     failure and is not one.
-#  3. `cmd | tail` MAKES `$?` THE STATUS OF `tail`. It reported "builder rc=0"
-#     over a build that never started. Every status here comes from PIPESTATUS
-#     or from the command itself.
-#
-# WHAT THIS DOES NOT ANSWER: whether the app WORKS. A lint reads metadata. The
-# sandbox + portal call path — camera, screen share, audio both ways — has to
-# be exercised by hand from the installed build; see docs/live-validation.md.
+# A lint reads metadata only; it says nothing about whether calls, camera or
+# screen share work in the installed build.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
@@ -80,10 +35,8 @@ command -v dbus-run-session >/dev/null 2>&1 || die "dbus-run-session is not inst
 flatpak info org.flatpak.Builder >/dev/null 2>&1 \
     || die "org.flatpak.Builder is not installed: flatpak install -y flathub org.flatpak.Builder"
 
-# The submission set is two files at the repository ROOT, deliberately, so
-# the Flathub repository is a straight copy of them. There is no flathub.json:
-# it existed only to restrict the build to x86_64, and once aarch64 built
-# green on Flathub (2026-09-22) an empty one meant the same as none.
+# The submission set lives at the repository root so the Flathub repository
+# is a straight copy of it.
 for f in org.lightning_matrix.Lightning.yaml cargo-sources.json; do
     [ -f "$REPO_ROOT/$f" ] || die "missing submission file: $REPO_ROOT/$f"
 done
@@ -121,9 +74,8 @@ set -e
 printf 'build rc=%s (log: %s)\n' "$build_rc" "$WORKDIR/build.log"
 tail -5 "$WORKDIR/build.log" || true
 
-# A CACHE HIT ON `cleanup` MEANS THE CATALOGUE WAS NOT REGENERATED, and that is
-# exactly how the 2026-09-17 refutation went wrong. Say so rather than let the
-# next reader assume the flags applied.
+# A cache hit on `cleanup` means compose did not re-run, so the compose flags
+# were never applied in this run.
 if grep -q 'Cache hit for cleanup' "$WORKDIR/build.log"; then
     printf 'WARNING: the cleanup stage was served from cache, so appstreamcli compose did NOT re-run.\n'
     printf '         Any conclusion about the compose URL policy from this run is void.\n'
@@ -162,10 +114,9 @@ printf 'repo lint rc=%s\n' "$repo_rc"
 
 printf '== verdict ==\n'
 printf 'manifest=%s builddir=%s repo=%s\n' "$manifest_rc" "$builddir_rc" "$repo_rc"
-# A SILENT PASS IS NOT EVIDENCE. Mutate the manifest and confirm the linter
-# fires before believing a clean run — `app-id` renamed gives
-# appid-filename-mismatch, `--filesystem=host` added gives
-# finish-args-host-filesystem-access. Both have been used here twice.
+# Mutation-check a clean run: renaming `app-id` should give
+# appid-filename-mismatch, adding `--filesystem=host` should give
+# finish-args-host-filesystem-access.
 printf 'a clean run is only evidence once it has been mutation-checked; see the note at the end of this script\n'
 
 [ "$manifest_rc" -eq 0 ] && [ "$builddir_rc" -eq 0 ] && [ "$repo_rc" -eq 0 ] \
