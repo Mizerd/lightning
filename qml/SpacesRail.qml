@@ -3,54 +3,26 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.7 design shell: the far-left rail (68 px). Top-to-bottom: Home ("all
-// rooms"), Space avatars (40×40, radius 12, active = accent outline), then a
-// bottom cluster with Settings and the account avatar that opens the account
-// switcher popover. The rail is always visible — it is the primary
-// navigation column, not a Spaces-only affordance.
+// The far-left rail: Home, Space tiles, then a bottom cluster with Settings and
+// the account avatar (opens the account switcher). Always visible.
 //
-// ── Dragging ──────────────────────────────────────────────────────────────
-//
-// The rows come from `app.railEntries` (a real QAbstractListModel), NOT from a
-// JavaScript array. That is what makes the drag feel like Element's: the model
-// emits a genuine `beginMoveRows` for the preview position, so the neighbours
-// ANIMATE out of the way while the pointer is still down, and the delegate
-// holding the gesture is never destroyed by a refresh underneath it. The
-// previous version rebuilt a JS array on every change, which is a model reset:
-// no move transition, every delegate torn down, and the resulting position
-// only discoverable after release — reported as "kinda hard to tell exactly
-// where you are moving them".
-//
-// What a drag looks like: THE TILE ITSELF MOVES. It follows the pointer at
-// full opacity and its neighbours animate out of the way around it, which is
-// Element's behaviour and what was asked for in those words — "spaces should
-// always be their normal image and move freely without a line appearing
-// between them".
-//
-// An earlier revision drew three things at once (a dimmed gap where the tile
-// would land, an accent insertion line at that gap, and a floating copy of the
-// tile under the pointer). All three are gone: the tile IS the feedback, and
-// where it currently sits IS where it will land, so a separate line claiming
-// the same thing was noise on 68 px of chrome.
-//
-// The one thing still drawn on top of the movement is the GROUP target: a ring
-// on the Space or folder a release would file into. It arms the moment the
-// pointer is on that tile and needs no dwell to be safe, because NOTHING MOVES
-// while the pointer is on a tile — dragging THROUGH one on the way somewhere
-// else changes the order not at all. See `readingAt` below for why that rule
-// replaced two earlier ones that made grouping unreachable.
+// Dragging: rows come from app.railEntries, a real QAbstractListModel, so a
+// preview position is a genuine beginMoveRows. Neighbours animate aside while
+// the pointer is down and the dragged delegate is never destroyed. The tile
+// itself follows the pointer, and where it sits is where it lands; no separate
+// insertion line. The only overlay is a ring on the Space or folder a release
+// would file into. Nothing moves while the pointer is on a tile (see
+// `readingAt`), so that target needs no dwell.
 Rectangle {
     id: root
     color: AppTheme.rail
 
-    // Emitted by the Add Space tile below the Space list; MainScreen routes
-    // it into the creation dialog's Space mode.
+    // Emitted by the Add Space tile; MainScreen opens the creation dialog in
+    // Space mode.
     signal createSpaceRequested()
 
-    // The Direct Messages tab, CHANNELS ONLY. Classic reaches DMs through its
-    // People filter chip over one activity-ordered list; a tab there would be
-    // a second route to the same rows in a layout the maintainer asked to
-    // leave untouched.
+    // The Direct Messages tab, Channels only. Classic reaches DMs through its
+    // People filter chip.
     readonly property bool peopleTabVisible:
         app.settings && app.settings.roomNavigationLayout === 1
     Binding {
@@ -58,542 +30,211 @@ Rectangle {
         property: "peopleEntryVisible"
         value: root.peopleTabVisible
     }
-    // "Other rooms" is the mirror image: CLASSIC only. The tile narrows a Home
-    // that shows everything, which is what Classic's Home is; Channels' Home
-    // already lists exactly the rooms in no Space, so the two tiles opened the
-    // same page. Reported live 2026-09-03.
+    // "Other rooms", Classic only: in Channels, Home already lists exactly the
+    // rooms in no Space.
     Binding {
         target: app.railEntries
         property: "orphansEntryVisible"
         value: !root.peopleTabVisible
     }
-    // The same condition, told to the model that computes the badges. A
-    // tile's badge counts what that tile's view lists, and Home lists
-    // different things in the two layouts: in Channels the DMs are on the
-    // tile above and every Space's rooms are on its own tile, so Home
-    // counting them pointed at a message that could not be there. That is how
-    // two direct messages were missed on 2026-08-31.
+    // Tell the badge model too: a tile's badge counts what its view lists, and
+    // Home lists different things in the two layouts.
     Binding {
         target: app.spaces
         property: "directMessagesHaveOwnTile"
         value: root.peopleTabVisible
     }
-    // A SELECTION THAT NO LONGER HAS A TILE MUST NOT SURVIVE. Switching to
-    // Classic removes the People tab, and leaving the selection on it would
-    // leave the whole shell scoped to a tab with nothing rendering it — the
-    // room list scoped to DMs with no visible control saying so, and no way
-    // back but to click a Space.
+    // A selection whose tile disappears (People tab when switching to Classic)
+    // must not survive, or the shell stays scoped to an invisible tab.
     onPeopleTabVisibleChanged: {
         if (!peopleTabVisible && app.spaces
             && app.spaces.activeSpaceId === "@people")
             app.spaces.activeSpaceId = ""
-        // And the same rescue the other way: switching to Channels removes
-        // the "Other rooms" tile, and a selection left on it would scope the
-        // shell to a tile with nothing rendering it. Home is where it lands,
-        // which in Channels shows the very same rooms.
+        // Likewise the "Other rooms" tile when switching to Channels; land on
+        // Home, which shows the same rooms there.
         if (peopleTabVisible && app.spaces
             && app.spaces.activeSpaceId === "@orphans")
             app.spaces.activeSpaceId = ""
     }
 
-    // How many of a Space's rooms are revealed under its tile. SESSION state,
-    // unlike the expansion itself: "show me five more" is a momentary
-    // request, where "this Space is open" is how the user wants to navigate
-    // and is persisted by RailLayoutStore. Held on the rail root so ListView
-    // recycling and model resets never forget it.
+    // How many of a Space's rooms are revealed under its tile. Session state,
+    // unlike the expansion (persisted by RailLayoutStore). Held on the rail
+    // root so recycling and model resets do not lose it.
     property var railReveal: ({})
     // Bumped on every SpaceManager change so the revealed-rooms bindings
-    // (function calls, which QML tracks through this read) re-evaluate.
+    // (function calls) re-evaluate.
     property int spacesRevision: 0
 
-    /// A row's height — its tile plus air above and below. The divider row
-    /// (Home, or People when it is shown) adds its own band for the handoff
-    /// rule beneath it.
-    ///
-    /// ONE SOURCE, because the drag's row arithmetic accumulates these and
-    /// the delegate draws them: a literal in either place is a mis-drop at
-    /// any interface size but the one it was written at.
+    /// A row's height: tile plus air above and below. The divider row adds its
+    /// own band. One source, because the drag's row arithmetic and the delegate
+    /// must agree at every interface size.
     readonly property int normalRowBand: railTileSize + 2 * rowPad
     readonly property int dividerRowBand: normalRowBand + AppTheme.scaled(10)
     readonly property int railRoomRowBand: railRoomTileSize + 2 * rowPad
 
-    /// ── THE TILES DO NOT MOVE, AND NOTHING IS DRAWN BETWEEN THEM ───────
-    ///
-    /// Indenting per level was the first answer and it was reported as "they
-    /// keep sticking out more and more and create like a wave pattern". Moving
-    /// the depth into connector lanes was the second, and a visual audit
-    /// measured what that cost: 59% of a 116px rail spent on line-work and
-    /// void, with depth encoded as the LENGTH of a horizontal rule — 10px per
-    /// level at the widest stop and FOUR at the default width — and lanes that
-    /// began in empty background, never attaching to the parent they stood
-    /// for. It read as a wiring diagram with avatars stapled to one edge.
-    ///
-    /// So there are no lines. Containment is a tinted REGION behind the run,
-    /// which is what Discord does, what this rail's own folders already did,
-    /// and the one device that costs no horizontal space at all. Depth beyond
-    /// the first step is carried by SIZE — a Space, a subspace, a room — which
-    /// is Element's answer and is also free.
-    ///
-    /// THE GUTTER IS SIZED BY WHAT IT HOLDS, and it was not: this margin was
-    /// a literal 14 with nothing tying it to the expander it has to carry.
-    /// At the narrowest rail that left the chevron 2.8px from the rail's own
-    /// outer edge and 4px from its tile — hard against the window frame, and
-    /// reading as something that had fallen off the column rather than as
-    /// something belonging to the tile beside it.
-    ///
-    /// IT WAS NOT CLIPPED, and the first version of this comment said it was.
-    /// That came from eyeballing a 2x upscale and assuming the glyph was as
-    /// wide as the size it is given; an `Icon` sizes by FONT PIXEL SIZE and a
-    /// chevron's advance is 7.2px of the 12 it was asked for, so the arithmetic
-    /// that predicted x = -2 was out by the difference. Measure the item.
-    ///
-    /// ── AND THE GUTTER WAS BUDGETED AGAINST A PHANTOM ────────────────
-    ///
-    /// It was sized from the chevron's ADVANCE (7.2px of the 12 it is given).
-    /// Its INK is 3.3. The glyph was right-anchored, so a quarter of the
-    /// gutter was the font's own empty side bearing — and the visible mark
-    /// ended up with 13px of bare rail on one side and 9px on the other,
-    /// beside a 59px tile. Measured: the proximity gap was 2.7x the mark's
-    /// own width, so it read as debris in the frame rather than as a control
-    /// ON the tile. (For scale: the search magnifier one column right has
-    /// 12x12 of ink. This had 3.3x6.0 — a seventh of the area.)
-    ///
-    /// So it is positioned by its INK, not by its box, and the box's centre
-    /// and the ink's centre coincide to a quarter-pixel (measured, not
-    /// assumed). Bigger too: 16 where it was 12.
-    ///
-    /// Moving the chevron per level was considered and refused: it is what
-    /// "the chevrons are unevenly distanced" already asked to have removed.
+    /// Tiles do not indent and nothing is drawn between them: containment is a
+    /// tinted region behind the run (as in Discord and this rail's folders), and
+    /// depth beyond the first step is carried by tile size. Neither costs width.
+    /// The chevron is positioned by its ink, not its box (the glyph's advance is
+    /// wider than its ink, and a right-anchored box leaves side bearing in the
+    /// gutter).
     readonly property int chevronGlyphSize: AppTheme.scaled(16)
-    // `chevronInset` lived here and had no reader anywhere in the tree once
-    // the plate took over the gutter's budget — while a comment still cited
-    // it as one of the gutter's four tenants. A token nothing reads is a
-    // number that cannot be wrong, which is exactly how it outlived the
-    // thing it described.
-    /// The ink inside that box — about 0.26 of the font size for this glyph.
-    /// Used to place it, because placing the BOX leaves a quarter of the
-    /// gutter as side bearing and pushes the mark away from its tile.
-    /// 0.36, and it was 0.26 — 4px of ink for a control, which a critique
-    /// could not find on screen without knowing where to look. The gutter is
-    /// 14 and the advance about 9, so this still clears both sides.
+    /// Approximate ink width of the chevron glyph relative to its font size;
+    /// used to place the ink rather than the box.
     readonly property int chevronInkWidth: Math.round(chevronGlyphSize * 0.36)
-    /// Ink to tile. Two pixels: a control belongs to the thing it acts on.
+    /// Ink to tile: a control sits against the thing it acts on.
     readonly property int chevronTileGap: AppTheme.scaled(2)
-    /// HOW FAR THE ACTIVE RING REACHES OUTSIDE ITS TILE, and the chevron's
-    /// gap is measured from THAT, not from the tile.
-    ///
-    /// Reported as "clipping" on 2026-09-18, with an arrow at a selected
-    /// Space whose expander had lost its right arm. Nothing was clipped: the
-    /// 2px accent ring is drawn OUTSIDE the tile's bounds, so a selected
-    /// tile's visible edge is not `tileColumnX`, and a gap measured to the
-    /// tile put the glyph's ink exactly where the ring paints. The two
-    /// overlapped, and only ever on the one tile the user had just clicked,
-    /// which is why every capture taken while auditing this column looked
-    /// fine. (WHICH ONE PAINTED OVER WHICH is not what made it unreadable
-    /// and an earlier version of this comment asserted it backwards: the
-    /// chevron is declared AFTER the ring and neither carries a `z`, so the
-    /// glyph drew on top of a saturated accent stroke. A thin
-    /// `textSecondary` arm on the accent reads as missing either way. §16
-    /// already carries this lesson for this exact glyph — measure it, do not
-    /// narrate it.)
-    ///
-    /// The ring came in from 4 to 2 as part of that, which is also the
-    /// tighter reading: at 4 it floated, unattached to the tile it marks.
-    /// THE GUTTER'S BUDGET IS WRITTEN IN ONE PLACE ONLY, at
-    /// `railSideMargin` — it was briefly written in three, two of them
-    /// already stale by the time they were read.
+    /// How far the active ring reaches outside its tile. The chevron's gap is
+    /// measured from the ring, not the tile, or the glyph overlaps the ring on
+    /// the selected tile. The gutter's budget is written only at railSideMargin.
     readonly property int tileRingOutset: AppTheme.scaled(2)
 
-    /// ── THE ANCHOR MUST BE AS WIDE AS THE TIP IT CARRIES ────────────────
-    ///
-    /// Every tooltip in this file hangs off an invisible anchor at the
-    /// rail's right edge, because Qt's Basic style places an attached
-    /// tooltip with `x: (parent.width - implicitWidth) / 2` — CENTRED on
-    /// its attachee. Centring is only harmless while the tip is NARROWER
-    /// than the anchor: past that the surplus spills LEFT, back over the
-    /// rail, and the anchor's whole purpose is undone.
-    ///
-    /// The anchors were a flat `AppTheme.scaled(150)`, so the account
-    /// tile — whose text is the Matrix user id, the widest string the rail
-    /// shows — drew a 258px slab at x 17..274 on a 78px rail, covering the
-    /// avatar it describes and 61px of the column (measured 2026-09-19,
-    /// both depth styles). It is not an account-tile defect: the same
-    /// literal is on all seven anchors, so any Space or room whose name
-    /// runs long does it too.
-    ///
-    /// `railTipFloor` keeps the old 150 as a FLOOR — it is what gives a
-    /// short tip its air off the rail edge, and every tip already measured
-    /// against that floor keeps the position it was verified at.
-    /// `railTipWidth` is the live width of the ONE shared instance
-    /// Main.qml hardens (there is no per-row ToolTip here, deliberately, so
-    /// every anchor reads the same object; only the anchor whose tip is
-    /// actually showing has a pointer over it). Read as a PROPERTY, not
-    /// through a function: a binding that reaches state through a call is
-    /// not bound to it.
-    ///
-    /// This cannot loop. The tip's `implicitWidth` is a function of its
-    /// text and font alone, and its `x` is a function of that and of the
-    /// anchor's width — nothing downstream feeds back into the text.
+    /// Tooltips hang off an invisible anchor at the rail's right edge. The Basic
+    /// style centres a tooltip on its anchor, so a tip wider than the anchor
+    /// spills back over the rail. The anchor is therefore at least as wide as
+    /// the shared tooltip (railTipWidth, the one instance Main.qml configures),
+    /// with 150 as a floor. Read as a property so the binding tracks it. No
+    /// loop: the tip's implicitWidth depends only on its text and font.
     readonly property int railTipFloor: AppTheme.scaled(150)
     readonly property real railTipWidth:
         ToolTip.toolTip ? ToolTip.toolTip.implicitWidth : 0
-    /// THE LEFT WALL OF THE CHEVRON'S SLOT: the deepest region inset any row
-    /// can carry. Pulling the glyph in to clear the ring pushed it OUT of the
-    /// innermost region at the minimum width — the same "a shape left its
-    /// region" defect this column was audited for a day earlier, reintroduced
-    /// by the fix for the ring. Derived from the cap rather than from the
-    /// row's own depth on purpose: a chevron that moves per level is what
-    /// "the chevrons are unevenly distanced" already asked to have removed.
-    ///
-    /// The gutter is exactly full at the minimum width; its arithmetic is
-    /// at `railSideMargin`, which is the one place that states it.
+    /// Left wall of the chevron's slot: the deepest region inset any row can
+    /// carry, so the glyph never leaves the innermost region. Derived from the
+    /// cap, not the row's depth, so chevrons align across levels.
     readonly property int chevronSlotLeft: bandInset(maxBandLayers)
-    /// THE SELF BADGE SITS ON THE AVATAR'S EDGE AND COVERS NONE OF THE FACE.
-    ///
-    /// It was anchored to the tile's square bounding box at a 6.5% margin,
-    /// which put its centre 15.4px from the centre of a disc of radius 20 —
-    /// INSIDE the avatar, so it sat on the picture. Reported as covering the
-    /// profile.
-    ///
-    /// Placed by the geometry instead: the centre goes
-    /// `avatarR + dotR - ring` from the avatar's centre along the 45-degree
-    /// diagonal, so the state ink lands exactly at the disc's edge and only
-    /// the ring — which is rail-coloured, and whose whole job is to separate
-    /// the badge from what is under it — overlaps the picture at all.
+    /// The self badge sits on the avatar's edge: its centre is placed at avatarR
+    /// + dotR - ring along the 45° diagonal, so only its rail-coloured ring
+    /// overlaps the picture.
     readonly property int selfDotSize: AppTheme.scaled(13)
-    /// PresenceDot insets its state disc by 2px; the fallback below matches
-    /// it so both land in the same place.
+    /// Matches PresenceDot's 2px inset of its state disc.
     readonly property int selfDotRing: 2
     readonly property real selfDotMargin:
         railTileSize
         - (railTileSize / 2
            + (railTileSize / 2 + selfDotSize / 2 - selfDotRing) / Math.SQRT2
            + selfDotSize / 2)
-    /// THE PLATE THE MARK SITS IN. A chevron alone in a column reads as
-    /// debris — it was described exactly that way twice, once as "stray
-    /// marks in the gutter" and once as "out of place alone" — so it gets a
-    /// surface, resting as well as hovered, and the hover state is now a
-    /// brightening of something already there rather than a shape appearing
-    /// out of nothing.
-    /// SQUARE, AND SIZED FOR THE WIDER OF THE TWO GLYPHS.
-    ///
-    /// The first plate was 10 wide by 22 tall and the maintainer reported it
-    /// as changing size between states. It never changed size — the INK did.
-    /// Measured off a capture at dpr 1.5, `expand_more`'s ink is 12x6 device
-    /// px and `chevron_right`'s is 7x12: the two are transposes of each
-    /// other, so a tall narrow pill holds a wide flat mark in one state and a
-    /// tall thin one in the other, and the pair reads as two different boxes.
-    /// A SQUARE plate is the only shape that looks the same around both.
-    /// Sized from the wider ink (8 logical) plus a real 2px of air.
+    /// A plate behind the chevron, resting and hovered, so it reads as a control
+    /// rather than a stray mark. Square and sized for the wider of the two
+    /// glyphs: expand_more and chevron_right have transposed ink boxes, so any
+    /// other shape looks like it changes size between states.
     readonly property int chevronPlatePad: AppTheme.scaled(2)
     readonly property int chevronInkLongest: AppTheme.scaled(8)
     readonly property int chevronPlateWidth:
         chevronInkLongest + 2 * chevronPlatePad
     readonly property int chevronPlateHeight: chevronPlateWidth
-    /// AND THE MARK IS NOT CENTRED IN ITS OWN BOX. Same capture: with the
-    /// plate centred on the glyph's box, `expand_more`'s ink sat 3 device px
-    /// nearer the top than the bottom (12 above, 15 below) — 1 logical px
-    /// high — while `chevron_right`'s was within half a pixel. So the glyph
-    /// is nudged DOWN by that much when it is the one that needs it, which
-    /// is the vertical half of the same rule the x already follows: place the
-    /// INK, never the box.
+    /// expand_more's ink sits about 1px high in its box, so nudge it down; place
+    /// the ink, never the box.
     readonly property int chevronInkRise: AppTheme.scaled(1)
-    /// ONE place decides where the control goes, and the glyph and its plate
-    /// both read it. The PLATE is what has to clear the ring now — it is the
-    /// control's real edge — so the gap is measured from the plate and the
-    /// ink follows it inwards.
+    /// One place decides where the control goes. The plate is the control's real
+    /// edge, so the gap to the ring is measured from the plate.
     readonly property real chevronPlateLeft:
         Math.max(chevronSlotLeft,
                  tileColumnX - tileRingOutset - chevronTileGap
                  - chevronPlateWidth)
     readonly property real chevronInkLeft:
         chevronPlateLeft + (chevronPlateWidth - chevronInkWidth) / 2
-    /// NOTE: the box's width is the glyph's ADVANCE, not `chevronGlyphSize`,
-    /// and the ink centres in the ADVANCE (measured: box centre and ink
-    /// centre agree to a quarter-pixel). So the placement below is written at
-    /// the Icon itself, where its own `width` is in scope — computing it here
-    /// from the font SIZE put the mark 5px from its tile instead of 2.
-    /// ── THE TWO MARGINS ARE NOT THE SAME, AND THEY WERE ───────────────
-    ///
-    /// One `railSideMargin` was mirrored on both edges, so the RIGHT side of
-    /// the rail was as wide as the chevron column on the left while holding
-    /// nothing at all — reported as "the space bar is a bit too wide for
-    /// comfort, especially on the right side, it's just empty space there",
-    /// and it was: 24px of it at every width.
-    ///
-    /// The left gutter is a COLUMN with a control in it and is sized by that
-    /// control. The right margin is air, so it is sized like air. The rail
-    /// loses 16px at every stop and the tiles keep every pixel of theirs.
-    /// ONE MARGIN, BOTH SIDES. The asymmetric pair that replaced it was the
-    /// right fix for the wrong problem: it did remove dead space on the right
-    /// and it moved the tile column 8.8px off the rail's own centre, which a
-    /// design audit measured as a 3.3:1 split and the maintainer reported as
-    /// "top and bottom ui is not centered and stuck to the right side".
-    ///
-    /// THE RAIL HELD THREE DISAGREEING CENTRE LINES AT ONCE, all visible in
-    /// its bottom 200px: the tile column, the Home divider, and the bottom
-    /// separator — and the separator was the one that was CORRECTLY centred
-    /// on the rail, which is exactly why the cog and avatar beside it looked
-    /// wrong. The separator published the true centre and the tiles refused
-    /// it.
-    ///
-    /// 14 beside a 44px tile in a 72px rail is Discord's proportion. The
-    /// earlier complaint that the margins were "just empty space there" was
-    /// about 24px of void beside a 40px tile in an 88px one.
-    /// 14 until 2026-09-18, when the expander was given a PLATE to sit in
-    /// ("they seem out of place alone") and the gutter had to hold one more
-    /// tenant. It is a column with a control in it and it is now sized by the
-    /// whole control rather than by the mark inside it:
-    /// inset 3 + plate 12 + gap 2 + ring 2 = 19.
-    ///
-    /// AND IT COSTS WIDTH ON BOTH SIDES, deliberately. This is ONE token for
-    /// both edges because the tile column is centred on it, and centring is
-    /// what fixed "top and bottom ui is not centered and stuck to the right
-    /// side". So sizing the left gutter by its tenants adds the same air on
-    /// the right, and the rail goes 68 -> 78 logical px at 100%. That is the
-    /// price of the gutter holding a real control rather than a loose mark,
-    /// and it is worth saying out loud because this file also records "the
-    /// space bar is a bit too wide for comfort" as a report from the same
-    /// maintainer. If it has to come back, the plate is the thing to shrink.
+    /// One margin on both sides, so the tile column stays centred on the rail.
+    /// The left gutter holds the chevron control: inset 3 + plate 12 + gap 2 +
+    /// ring 2 = 19. The same air appears on the right. If the rail must narrow,
+    /// shrink the plate. The Icon's box width is its advance and its ink centres
+    /// in it, so the placement is written at the Icon itself.
     readonly property int railSideMargin:
         root.classicDepth ? AppTheme.scaled(10) : AppTheme.scaled(19)
 
-    /// ── THE 0.9.8 RAIL, ON REQUEST ─────────────────────────────────────
-    ///
-    /// The tinted regions are a big change to a surface that is on screen
-    /// every second the app is open, and they replaced a cue — stepping the
-    /// tile in — that people had a year of muscle memory for. This restores
-    /// that cue for anyone who wants it. `app.settings` is read DEFENSIVELY
-    /// because this component is loaded standalone by three suites and by
-    /// the layout probe, none of which set up an AppController.
-    ///
-    /// CLASSIC IS A PLAIN TOP-LEVEL SPACE LIST — Element's rail, and this
-    /// client's own before the hierarchy landed. `RailEntryModel::setFlat`
-    /// does the real work: no subspace is listed, nothing is expandable and
-    /// nothing is expanded, so the rows simply are not there. What is left
-    /// here is what this component draws on top of them, and every one of
-    /// these is a consequence of the rows rather than a second opinion
-    /// about them: no tinted region, no cap backdrop, no plate under a
-    /// chevron there is no longer any reason to draw, one tile size, and
-    /// the narrower side margin the rail had before the gutter grew to hold
-    /// that plate.
-    ///
-    /// NOTHING IS HIDDEN, and this is the line to check before believing
-    /// otherwise: a subspace is still joined, still in its parent's room
-    /// list, still reachable by search and by permalink. It is not listed a
-    /// second time down the side of the window. The expansion state it had
-    /// is kept, not cleared, so switching back to Regions restores exactly
-    /// the rail the person left.
+    /// Classic depth: a plain top-level Space list, as before the hierarchy.
+    /// RailEntryModel::setFlat drops subspaces and expansion from the rows; this
+    /// component then draws no regions, cap backdrops or chevron plates, one
+    /// tile size, and the narrower margin. `app.settings` is read defensively
+    /// because suites load this component standalone. Nothing is hidden:
+    /// subspaces stay joined and reachable via their parent's room list, search
+    /// and permalinks. Expansion state is kept, so switching back restores the
+    /// rail exactly.
     readonly property bool classicDepth:
         app.settings ? app.settings.spacesRailDepthStyle === 1 : false
-    /// THE WIDTH NOW BUYS SOMETHING. It used to buy indent, then lanes; both
-    /// were spent on structure rather than on content, so dragging the rail
-    /// wider changed the tiles by nothing at all. Past the default the tile
-    /// itself grows, up to a ceiling, and then the margins take the rest.
-    /// ── 40..48, AND IT WAS 40..56 ─────────────────────────────────────
-    ///
-    /// "Icons are way too big", and the measurement that settles it is the
-    /// product's own ladder in one screenshot: a room-list avatar is 21, a
-    /// "Jump back in" avatar 33, the WELCOME HERO PORTRAIT 57 — and the rail
-    /// tile was 59. A persistent navigation chip was larger than the hero.
-    ///
-    /// 44 rather than Discord's 48, because Discord's rail carries top-level
-    /// servers only and this one also carries four tint layers, a nested tile
-    /// step and revealed room tiles. A denser column needs a smaller unit.
-    /// The derived steps stay legible: x0.85 -> 37, x0.7 -> 31, and at the
-    /// 40 floor a room tile is 28, which is the bottom for two initials. At
-    /// 59 the REVEALED ROOM tile was 41 — larger than a Discord server icon,
-    /// for a room.
+    /// Past the default width the tile grows up to a ceiling, then the margins
+    /// take the rest. 40..48: a denser column than Discord's (tint layers,
+    /// nested steps, revealed rooms), so a smaller unit. Derived tiers stay
+    /// legible (a room tile is 28 at the 40 floor).
     readonly property int railTileSize:
         Math.min(AppTheme.scaled(48),
                  Math.max(AppTheme.scaled(40),
                           width - 2 * railSideMargin))
-    /// PROPORTIONAL, and it was a raw `radiusLg` of 12 against a scaled tile
-    /// — so the corner ratio moved with the UI font. At 59 it was 0.203,
-    /// which is boxy; 0.27 is the squircle band (iOS 0.225, Discord 0.33).
-    /// 0.30 of the tile, and PROPORTIONAL AT EVERY TIER through
-    /// `tileRadiusFor()` below. A flat radius made a 34px room tile 40%
-    /// squarer than the 41px subspace above it, which cancels part of the
-    /// size ladder those two tiers exist to express.
+    /// Proportional corners (0.30 of the tile) at every tier via
+    /// tileRadiusFor(), so the size ladder is not undone by flatter corners.
     readonly property int railTileRadius: tileRadiusFor(railTileSize)
     function tileRadiusFor(size) { return Math.round(size * 0.30) }
-    /// One rule for the glyph inside a pseudo tile — Home, People, the
-    /// settings cog, the "+". They were a RAW 22 (unscaled, a real defect at
-    /// 140%), a scaled 22 and a scaled 20, all in one 59px box: a ratio of
-    /// 0.37 against Material's and Discord's 0.50.
+    /// Glyph size inside a pseudo tile (Home, People, cog, "+"): half the tile.
     readonly property int railChipIconSize: Math.round(railTileSize * 0.5)
-    /// Both dividers, one rule. The Home handoff divider was `x:
-    /// tileColumnX` with 80% of the tile's width — flush with the tile's LEFT
-    /// edge and 20% short on the right, centred under nothing.
+    /// Both dividers, one rule.
     readonly property int railDividerWidth: Math.round(railTileSize * 0.8)
     readonly property int railDividerX:
         tileColumnX + Math.round((railTileSize - railDividerWidth) / 2)
-    /// ONE x for every tile, CENTRED — the audit's one unambiguous keep, and
-    /// centring is what R1 above restores. Past the tile's clamp the extra
-    /// width splits evenly, so dragging the rail wider buys symmetric air
-    /// rather than one fat side.
+    /// One centred x for every tile. Extra width splits evenly.
     readonly property int tileColumnX: Math.round((width - railTileSize) / 2)
-    /// ONE step down for anything nested, however deep — the same decision
-    /// Element makes with its 32 -> 24 avatar, and for the same reason: a
-    /// per-level shrink runs out after three steps.
-    /// 0.833, and it was 0.85 — which at a 48px tile gives 41, an ODD width
-    /// on an even rail, so the nested rung centred on x=38.5 where every
-    /// other tile in the column centres on 38.0. Half a pixel, on the one
-    /// rule this rail has: every tile shares one axis. 0.833 gives 40.
-    ///
-    /// ── AND THE RATIO ALONE CANNOT KEEP THAT PROMISE ────────────────────
-    ///
-    /// That reasoning was done at the 48px tile and holds only there. A
-    /// derived tile is placed at `tileColumnX + round((railTileSize -
-    /// rowTileSize) / 2)`, which is exact only when the derived size has
-    /// the SAME PARITY as `railTileSize` — otherwise the halved difference
-    /// is a .5 and `Math.round` takes it away from the centre. At the 40px
-    /// tile, which is the rail's minimum AND its shipped default, 0.833
-    /// gives 33 against an even 40: measured live 2026-09-19, the full tile
-    /// spanned x 19..59 (centre 39.0) while the nested tile spanned 23..56
-    /// (centre 39.5), with 4px of air on the left and 3px on the right.
-    /// Five of the rail's nine widths were off on one tier or both.
-    ///
-    /// So parity is enforced rather than hoped for: round the HALF
-    /// difference and double it. That moves the rendered size by at most
-    /// one pixel (33 -> 34 and 37 -> 36 on the two tiers that were wrong)
-    /// and makes the placement exact at every width the rail can take.
-    ///
-    /// Written out at both tiers rather than shared through a helper: a
-    /// binding that reaches its state through a FUNCTION CALL is not bound
-    /// to that state, so a `pairedTileSize(ratio)` call here would freeze
-    /// at whatever `railTileSize` was on first evaluation and stop
-    /// following the interface size — the defect this rail was audited for
-    /// twice already.
+    /// One step down for anything nested, however deep (as Element does). The
+    /// derived size must have the same parity as railTileSize, or the halved
+    /// difference is .5 and the tile sits half a pixel off the shared axis; so
+    /// round the half difference and double it. Written out at both tiers rather
+    /// than through a helper function, which the binding would not track.
     readonly property int railNestedTileSize:
         railTileSize - 2 * Math.round((railTileSize
                                        - railTileSize * 0.833) / 2)
-    /// A REVEALED ROOM'S tile. 0.7 of the Space tile, which is what the
-    /// literal 28 was at the size it was written at — and paired to the
-    /// Space tile for the reason written above it.
+    /// A revealed room's tile: 0.7 of the Space tile, paired for parity as
+    /// above.
     readonly property int railRoomTileSize:
         railTileSize - 2 * Math.round((railTileSize
                                        - railTileSize * 0.7) / 2)
-    /// Air above and below a tile inside a run, and the extra a run adds
-    /// after its last row so the next group reads as a separate thing.
+    /// Air above and below a tile in a run, and the extra after a run's last
+    /// row.
     readonly property int rowPad: AppTheme.scaled(4)
-    /// The gap between two tiles in the column. ONE number, so the bottom
-    /// cluster breathes like the list above it rather than at `spacing8`.
+    /// The gap between two tiles. One number, shared with the bottom cluster.
     readonly property int railTileGap: 2 * rowPad + AppTheme.spacing4
-    /// TWO SIZES, BECAUSE THERE ARE TWO MEANINGS. One gap ran every break in
-    /// the rail, and measured against the rows' own heights that made
-    /// "leaving a nested region" and "an entirely different top-level Space"
-    /// land 2.3px apart — the largest semantic break in the column did not
-    /// read as one. A nested close needs only enough air to show the
-    /// parent's tint through it; a top-level break has nothing behind it and
-    /// has to carry on its own.
+    /// Two gap sizes for two meanings: leaving a nested region needs only enough
+    /// air to show the parent's tint; a top-level break must carry on its own.
     readonly property int groupGap: AppTheme.scaled(8)
     readonly property int groupBreakGap: AppTheme.scaled(18)
-    /// ── THE REGIONS STACK, one per ANCESTOR ───────────────────────────
-    ///
-    /// The first version drew ONE region per row, tinted by that row's own
-    /// depth, and a depth-2 run therefore REPLACED its parent's tint for the
-    /// rows it covered: three runs under one Space read as three unrelated
-    /// bands stacked vertically rather than as two things inside a third.
-    ///
-    /// Every row now draws a region for each of its ancestors, outermost
-    /// first, each one inset and a step further from the rail than the one
-    /// containing it. A parent's region therefore runs unbroken behind every
-    /// descendant it owns, and the nesting is visible as LAYERS.
-    ///
-    /// CAPPED AT FOUR, and it was three. Asked directly — "are these
-    /// supposed to be the same color?" — of two regions that are nested one
-    /// inside the other and wear the same tint, because both sit at or past
-    /// the cap. They are, and that is the cap admitting it cannot say
-    /// "deeper" any more; the honest fix is to make the cap deeper rather
-    /// than to explain it.
-    ///
-    /// THE WIDTH FOR IT COMES FROM THE INSET, not from the rail. Each layer
-    /// costs `2 * bandInsetStep` and pushes the innermost edge right, and the
-    /// expander has to stay inside that edge (see `railSideMargin`).
-    ///
-    /// TAKEN ONE RUNG FURTHER on a design audit's measurement: across the
-    /// whole stack the inset moved a region's width by 9px on a 94px rail,
-    /// while ONE TINT STEP is visible everywhere at once. Depth is carried by
-    /// TONE; the inset only exists so an edge exists to see the tone against,
-    /// and 2/3/4/5 gives that edge in a rail 20px narrower than the one
-    /// 3/5/7/9 was drawn for. A 1px step is 1.5 device px on a HiDPI screen
-    /// and is visible.
-    /// THREE, and it was four. The tone ladder now has a ceiling (see
-    /// `AppTheme.railNestSurfaces`) because the rail had become the brightest
-    /// band in the window, and a shorter ladder is what a dark rail affords:
-    /// the total range a receding column can spend is about 2.8:1, and five
-    /// rungs inside it are steps nobody can see.
-    ///
-    /// THE INSET TAKES OVER WHAT THE TONE GAVE UP. Three 1px hairlines at
-    /// 1.45:1 were measured reading as "a botched drop shadow" rather than as
-    /// nested boxes; 2px steps at a quieter tone read as edges. Bounded by
-    /// the expander, which has to sit INSIDE the innermost region: the
-    /// deepest inset is `bandInset(maxBandLayers)` and it is the left wall of
-    /// the chevron's slot (`chevronSlotLeft`), so the two move together and
-    /// neither may be changed alone.
+    /// Regions stack, one per ancestor, outermost first, each inset a step
+    /// further, so a parent's region runs unbroken behind all its descendants.
+    /// Depth is carried mainly by tone (AppTheme.railNestSurfaces); the inset
+    /// provides an edge to see it against. Capped at three: the rail must stay
+    /// dark and receding, and more rungs than that are not distinguishable. The
+    /// deepest inset, bandInset(maxBandLayers), is the chevron slot's left wall
+    /// (chevronSlotLeft); change them together.
     readonly property int maxBandLayers: 3
-    /// Base 1, step 1 — so the ladder is 1/2/3 and the DEEPEST inset is 3.
-    /// Previous ladders were 2/4/6 and 1/3/5; each time the deepest inset
-    /// moved, it moved the wall the expander is clamped against.
+    /// Base 1, step 1: insets 1/2/3. Moving the deepest inset moves the wall the
+    /// expander is clamped against.
     readonly property int bandInsetBase: AppTheme.scaled(1)
-    /// 1, and it was 2. The widening to 2 was made so "the shape carries
-    /// what the tone gave up" when the ladder was flattened to ΔL* 3. The
-    /// ladder now steps an even 3.4 in LIGHTNESS along the chain that is
-    /// actually drawn (AppTheme) rather than evenly in alpha, so tone carries
-    /// the nesting again and the inset can hand back the 2px — which is most
-    /// of what the expander's plate needed.
+    /// 1px: the tone ladder steps evenly in lightness, so the inset only needs
+    /// to provide an edge.
     readonly property int bandInsetStep: AppTheme.scaled(1)
-    /// Rung 0 is a FOLDER's container, which sits one step OUTSIDE hierarchy
-    /// depth 1 because it contains it.
+    /// Rung 0 is a folder's container, one step outside hierarchy depth 1.
     function bandInset(depth) {
         return bandInsetBase
                + (Math.min(depth, maxBandLayers) - 1) * bandInsetStep
     }
-    /// CONCENTRIC, and it was not. The radius stepped by one while the inset
-    /// stepped by three, so the corners of two nested regions were not
-    /// parallel: the visible band between them pinched from 3px to about 2.4
-    /// at every corner. A rounded rectangle inset by N inside another is
-    /// concentric only when its radius is smaller by exactly N.
-    ///
-    /// AND IT WAS A RAW LITERAL. `AppTheme.radiusMd` does not scale, so at
-    /// 140% every other thing in this rail grew and the corners did not —
-    /// the bands read measurably boxier against the tiles they hold.
+    /// Concentric: an inset of N inside a rounded rectangle is concentric only
+    /// if its radius is smaller by exactly N. Scaled, so corners grow with the
+    /// interface.
     function bandRadius(depth) {
-        // MUCH ROUNDER, asked for by name: "round the shapes more around the
-        // subspaces". The ladder was 7/5/3, which at a 74px-wide band reads
-        // as a rectangle with its corners filed off rather than as a soft
-        // container.
-        //
-        // STILL EXACTLY CONCENTRIC. A rounded rectangle inset by N inside
-        // another is concentric only when its radius is smaller by exactly N,
-        // and Material names non-concentric nesting as the thing that makes
-        // corners look unbalanced — so the ladder steps down by
-        // `bandInsetStep`, the same number the inset steps in by, and no
-        // other: the radius steps by `bandInsetStep`, exactly as the inset
-        // does, which is what keeps them concentric at any ladder.
+        // Rounder corners, still concentric: the radius steps by bandInsetStep,
+        // exactly as the inset does.
         return Math.max(AppTheme.scaled(4),
                         AppTheme.scaled(16)
                         - Math.min(depth, maxBandLayers) * bandInsetStep)
     }
 
-    /// Both stops are the tile's own range plus the gutter, so the gutter is
-    /// a CONSTANT across the whole range a reader can drag to — which is why
-    /// the tile grows in the middle of it and the margins take the rest only
-    /// once the tile has stopped.
+    /// Both stops are the tile range plus the gutter, so the gutter is constant
+    /// across the draggable range.
     readonly property int minRailWidth:
         AppTheme.scaled(40) + 2 * railSideMargin
     readonly property int maxRailWidth:
         AppTheme.scaled(48) + 2 * railSideMargin
 
     function revealCount(spaceId) {
-        // NO ROOMS ON A FLAT RAIL. The model drops every nested SPACE for
-        // Classic (`RailEntryModel::setFlat`), but a revealed room is drawn
-        // by this component out of `railLayout`'s expansion state, which
-        // Classic deliberately does NOT clear — so the rail must decline to
-        // read it rather than the store forgetting it. Keeping the store
-        // intact is what makes switching back and forth lossless: every
-        // Space a person had open is still open when they return to Regions.
+        // No revealed rooms in Classic. The model drops nested Spaces, but
+        // revealed rooms come from railLayout's expansion state, which Classic
+        // keeps so that switching back is lossless; so the rail declines to
+        // read it.
         if (root.classicDepth)
             return 0
         if (!app.railLayout || !app.railLayout.spaceExpanded(spaceId))
@@ -608,31 +249,12 @@ Rectangle {
         next[spaceId] = revealCount(spaceId) + 5
         railReveal = next
     }
-    // The space's DIRECT joined child rooms, most recently active first — the
-    // quick-access reading of "top rooms". Unjoined children are join
-    // offers, not rooms this rail can open; they live on Space Home.
-    //
-    // DIRECT, NOT TRANSITIVE, AND THAT IS THE WHOLE BUG.
-    //
-    // This called `childRoomsDetailed`, which returns the entire subtree, so
-    // every room of every descendant Space was listed under every ancestor
-    // tile — a Discord bridge with server spaces and category subspaces drew
-    // each channel under its category, its server AND the umbrella above
-    // them. Reported 2026-09-17 with a tree diagram; the reporter's words
-    // were "the hierarchy is like… out of order".
-    //
-    // The call site went stale rather than being wrong when written: it was
-    // added when the rail had no subspace nesting at all, where transitive
-    // was a defensible reading of "what this Space contains". Six days later
-    // the rail gained real nesting, and the commit that added it fixed this
-    // exact flattening in every other surface and missed this one line. The
-    // Channels column is protected from the same mistake by a contract test
-    // that bans the accessor BY NAME; the rail had no such test.
-    //
-    // `directChildRoomsDetailed` had to gain `lastActivity` for this — see
-    // SpaceManager.cpp. Without it the sort below silently degrades to state
-    // order (the `|| 0` guards keep it from being NaN, which is worse: it
-    // would not have looked broken).
+    // The Space's direct joined child rooms, most recently active first.
+    // Unjoined children are join offers and live on Space Home. Direct, not
+    // transitive (childRoomsDetailed returns the whole subtree, which listed
+    // every descendant's rooms under every ancestor). directChildRoomsDetailed
+    // carries lastActivity for the sort; the `|| 0` guards keep it from being
+    // NaN.
     function topRoomsInSpace(spaceId) {
         void spacesRevision
         if (!app.spaces || !spaceId || spaceId.charAt(0) !== "!")
@@ -641,13 +263,8 @@ Rectangle {
         rooms.sort(function(a, b) {
             return (b.lastActivity || 0) - (a.lastActivity || 0)
         })
-        // THEN THE USER'S ARRANGEMENT, if there is one. Reported right after
-        // the subspaces were made draggable — "I can't rearrange rooms inside
-        // subspaces, subspaces and spaces work okay" — and it is the same
-        // request one level down. Activity order stays the DEFAULT, so a
-        // Space nobody has arranged behaves exactly as it always did; the
-        // store only reorders what it was told about, and anything it has
-        // not heard of keeps its place at the end.
+        // Then the user's own arrangement from the store, if any. Activity
+        // order is the default; unknown rooms keep their place at the end.
         if (!app.railLayout)
             return rooms
         var ids = []
@@ -670,13 +287,9 @@ Rectangle {
         target: app.spaces
         function onSpacesChanged() { root.spacesRevision++ }
     }
-    // ── "Show me this Space" ──────────────────────────────────────────
-    //
-    // The model has already expanded the chain and rebuilt the rows by the
-    // time this arrives; all that is left is to put the row on screen. Qt.
-    // callLater because the ListView has not laid the new rows out yet —
-    // positioning against a count it has not seen scrolls to the wrong place
-    // or to nothing at all.
+    // Scroll a requested Space into view. The model has already expanded and
+    // rebuilt the rows; Qt.callLater because the ListView has not laid them out
+    // yet.
     Connections {
         target: app.railEntries
         function onRevealRequested(spaceId) {
@@ -690,8 +303,8 @@ Rectangle {
             })
         }
     }
-    // The expansion lives in the store, so a toggle has to re-evaluate the
-    // reveal bindings too.
+    // Expansion lives in the store, so a toggle re-evaluates the reveal
+    // bindings.
     Connections {
         target: app.railLayout
         function onLayoutChanged() { root.spacesRevision++ }
@@ -704,15 +317,13 @@ Rectangle {
         }
     }
 
-    // ── Drag state that belongs to the VIEW ──────────────────────────────
-    // The order, the drop target and the reorder/group decision all live in
-    // the model (see RailEntryModel). What is left here is what only the view
-    // can know: where the pointer is, and what the proxy should look like.
+    // View-side drag state. Order, drop target and the reorder/group decision
+    // live in RailEntryModel; the view only knows the pointer and the proxy's
+    // look.
     readonly property bool dragging: app.railEntries.dragging
     property real dragViewportY: 0
-    // The pointer in CONTENT coordinates. The dragged tile centres itself on
-    // this, which is what makes it follow the pointer rather than snap between
-    // slots — the model reorder underneath moves its neighbours.
+    // The pointer in content coordinates. The dragged tile centres on this so
+    // it follows the pointer; the model reorder moves its neighbours.
     property real dragContentY: 0
 
     function beginTileDrag(entryId, sceneY) {
@@ -723,21 +334,9 @@ Rectangle {
         return true
     }
 
-    // A ROW IS NOT ONE HEIGHT, and this used to assume it was.
-    //
-    // It returned `normalRowBand` for every row but the first, with the first
-    // SAMPLED at the start of a gesture because the handoff divider makes it
-    // taller. That was exactly true while every tile was `railTileSize`, and
-    // stopped being true when a nested Space's tile became a step smaller
-    // (2026-09-18) and the last row of a group started carrying the gap
-    // below it: 6px per nested row and 8px per group ABOVE the pointer,
-    // which is invisible on a shallow rail and drops a slot off on a deep
-    // one. Every row derives its own band now, the divider included, so
-    // there is nothing left to sample.
-    //
-    // Read from the MODEL rather than from the delegate: `rowTop` exists
-    // precisely because a delegate's `y` is being interpolated by the move
-    // and displaced transitions while a drag is live.
+    // Each row derives its own band (tile size, trailing gap, divider). Read
+    // from the model rather than the delegate, whose `y` is being animated by
+    // move/displaced transitions during a drag.
     function rowBand(index) {
         var e = app.railEntries.entryAt(index)
         if (!e)
@@ -749,26 +348,16 @@ Rectangle {
         var tile = e.hierarchyChild === true ? railNestedTileSize
                                              : railTileSize
         // The gap belongs to the row whose innermost run ends, matching the
-        // delegate's own `trailingGap` — the two are one number and a
-        // literal in either place is a mis-drop.
-        //
-        // `ownsRegion` reduces to "has child ROWS" here, and so does the
-        // delegate's: its other arm is `expansionCol.visible`, which is false
-        // for the whole of a drag. This function is only ever asked during
-        // one, so the two agree exactly when it matters.
-        // THE SAME UNCAPPED DEPTH the delegate uses. A capped one disagreed
-        // with the delegate on every row past the cap, and this arithmetic is
-        // what the drag maps the pointer through.
+        // delegate's trailingGap. `ownsRegion` reduces to "has child rows" here
+        // and in the delegate, since the expansion column is hidden during a
+        // drag. Uses the same uncapped depth as the delegate.
         var owns = e.bandNextLevel > e.level
         var depth = Math.max(0, e.level) + (owns ? 1 : 0)
         var gap = depth > 0 && e.bandNextLevel >= 0
                   && e.bandNextLevel < depth
                   ? (e.bandNextLevel < 1 ? groupBreakGap : groupGap) : 0
-        // AND THE CAP SEAM, which the delegate adds to its own height. This
-        // function is what the drag maps the pointer through, so a term in
-        // one and not the other is a drop that lands somewhere the reader was
-        // not pointing — which is exactly the defect the `ownsRegion` comment
-        // above records having shipped once already.
+        // The cap seam too, which the delegate adds to its height. Any term in
+        // one and not the other maps the pointer to the wrong row.
         var seam = groupGap
         var capOpens = owns && depth > maxBandLayers
                        && e.bandPrevLevel >= maxBandLayers
@@ -778,57 +367,24 @@ Rectangle {
         return tile + 2 * rowPad + gap
                + (capOpens ? seam : 0) + (capCloses ? seam : 0)
     }
-    // DERIVED from the row heights, not read off `itemAtIndex(i).y`.
-    //
-    // Every row is exactly its tile band tall while a drag is live — the
-    // revealed-rooms columns are hidden for the duration — so accumulating is
-    // exact. And it is the only way to be animation-independent: the move and
-    // displaced transitions interpolate `y` for 140 ms, so a pointer held
-    // still would map to one row, then to its neighbour, then back, and the
-    // dragged entry would oscillate between two slots.
+    // Derived from row heights, not itemAtIndex(i).y: transitions interpolate y
+    // for 140 ms, so a still pointer would oscillate between two slots. Rows
+    // are exactly their tile band tall during a drag (revealed rooms are
+    // hidden).
     function rowTop(index) {
         var y = 0
         for (var i = 0; i < index && i < list.count; ++i)
             y += rowBand(i) + list.spacing
         return y
     }
-    // THE TILE IS THE GROUP TARGET; THE GAP BETWEEN TILES IS THE REORDER
-    // TARGET. This is Discord's rule and it is the third attempt at this
-    // decision, because the first two were both structurally unreachable.
-    //
-    //   v1: "the middle 24 px of a row is the group zone". Reaching that
-    //   middle means first crossing the row's near edge, which REORDERED —
-    //   so the tile being aimed at stepped aside and the row under the
-    //   pointer became the dragged entry, which is never a group target.
-    //
-    //   v2: "short of the row's midpoint you are resting, past it you have
-    //   pushed through". The geometry was right and the dispatch was not:
-    //   the resting branch ended in `updateDrag(row, !dwellTimer.running)`,
-    //   and `running` is TRUE for the whole 250 ms the dwell is being
-    //   served — so the second pointer sample inside the target's near half
-    //   reordered anyway, and the branch that then fired stopped the very
-    //   dwell it was waiting for. Grouping needed a frozen mouse to happen
-    //   at all.
-    //
-    // Both had the same shape: a reading that MOVES THINGS while the user is
-    // still aiming. So nothing moves while the pointer is on a tile, full
-    // stop. A gesture that never disturbs its own target cannot fail the way
-    // those two did, and it needs no dwell to compensate — a pointer sweeping
-    // across a tile on the way somewhere else changes the order not at all,
-    // which is what the dwell was standing in for.
-    //
-    // The bands, measured off the TILE and not off the row band: every tile
-    // is 40 px at y = 4 inside its row, so a 24 px group band centred on the
-    // tile's own centre leaves 12 px of dead space at each end. Between two
-    // adjacent 48 px rows that is a 28 px reorder gap (12 + 4 spacing + 12),
-    // which is a comfortable target, and it means the visual centre of a tile
-    // — where a person aims — is now the middle of the group band instead of
-    // sitting exactly on the old boundary.
+    // The tile is the group target; the gap between tiles is the reorder target
+    // (Discord's rule). Nothing moves while the pointer is on a tile, so aiming
+    // at a tile never disturbs it and no dwell is needed. A 24px group band
+    // centred on each tile leaves a 28px reorder gap between adjacent rows.
     readonly property int tileGroupInset: 12
     readonly property int tileGroupBand: 24
-    // ONE total, monotone reading of the pointer. Returns either { row: i }
-    // (the pointer is on row i's tile) or { gap: g } (the pointer is in the
-    // gap before row g; gaps run 0..count, so `count` is the end of the rail).
+    // A total, monotone reading of the pointer: { row: i } (on row i's tile) or
+    // { gap: g } (in the gap before row g; `count` is the end).
     function readingAt(contentY) {
         for (var i = 0; i < list.count; ++i) {
             var top = rowTop(i)
@@ -839,16 +395,10 @@ Rectangle {
         }
         return { gap: list.count }
     }
-    // The dragged block's own slot is the GAP its tile came out of — the tile
-    // is drawn under the pointer, not here. There is nothing to group with and
-    // nowhere new to move, so a pointer over it holds everything still.
-    /// Can the entry currently being dragged be dropped ONTO a tile?
-    ///
-    /// Only a top-level entry can: a folder is a top-level grouping, so a
-    /// subspace has nothing to be filed into, and the model refuses it.
-    /// Asking here as well is not a second copy of that rule — it is what
-    /// stops the view from sending a gesture somewhere the model will decline
-    /// and then doing nothing at all with it.
+    // The dragged block's own slot holds everything still.
+    /// Only a top-level entry can be dropped onto a tile (folders are
+    /// top-level). The model refuses otherwise; asking here keeps the view from
+    /// sending a gesture that would do nothing.
     function draggedCanGroup() {
         var held = app.railEntries ? app.railEntries.draggingEntryId : ""
         if (!held)
@@ -867,27 +417,16 @@ Rectangle {
         return entry.entryId === held
                || (entry.folderId !== undefined && entry.folderId === held)
     }
-    // ONE dispatch, called by the pointer AND by the auto-scroll. The
-    // auto-scroll used to end in its own unconditional reorder, which meant
-    // any auto-scroll step disarmed a grouping the user had just aimed —
-    // every 16 ms, for as long as the pointer was within 44 px of an edge.
+    // One dispatch for the pointer and the auto-scroll, so auto-scroll steps do
+    // not disarm a grouping the user is aiming at.
     function applyPointerReading(contentY) {
         if (!root.dragging)
             return
         var reading = readingAt(contentY)
-        // ── A DRAG THAT CANNOT GROUP HAS NO "DO NOTHING" READING ─────────
-        //
-        // `readingAt` answers "the pointer is ON a tile" or "it is in a gap",
-        // and a tile reading means GROUP. A subspace cannot be grouped — a
-        // rail folder is a top-level device — so `hoverGroup()` refused it
-        // and returned, moving nothing. The tile bands are most of the
-        // column's height, so a subspace drag was inert almost everywhere the
-        // pointer could be: it lifted, it followed, and it never reordered.
-        //
-        // For those drags a tile is not a target, it is a POSITION: above its
-        // midpoint means before it, below means after. `legalGap()` then
-        // snaps that to a boundary between the dragged row's own siblings, so
-        // this cannot turn into a reparent.
+        // A drag that cannot group (a subspace) treats a tile as a position:
+        // above its midpoint is before it, below is after. legalGap() snaps
+        // that to a boundary between the dragged row's own siblings, so it
+        // cannot reparent.
         if (reading.row !== undefined && !draggedCanGroup()) {
             var rowMid = rowTop(reading.row) + rowBand(reading.row) / 2
             app.railEntries.hoverGap(contentY < rowMid ? reading.row
@@ -895,10 +434,8 @@ Rectangle {
             return
         }
         if (reading.row !== undefined) {
-            // A target the pointer has LEFT must stop being lit AND stop
-            // being armed: `endDrag` groups on the flag, not on where the
-            // pointer is, so a stale one would make a folder out of a
-            // release over the gap.
+            // A target the pointer has left must also be disarmed: endDrag
+            // groups on the flag, not the pointer position.
             if (rowIsDraggedBlock(reading.row))
                 app.railEntries.clearDropTarget()
             else
@@ -916,12 +453,9 @@ Rectangle {
         applyPointerReading(dragContentY)
     }
 
-    // Where the dragged tile parks once a release would GROUP: the centre of
-    // the target's own row. The tile stops following the pointer and shrinks
-    // onto the target, so the two are visibly about to become one thing —
-    // and, just as importantly, the full-size dragged tile stops covering the
-    // ring that says which Space it would land in. -1 while reordering, where
-    // the tile follows the pointer exactly.
+    // Where the dragged tile parks when a release would group: the target row's
+    // centre. It shrinks onto the target and stops covering the target ring. -1
+    // while reordering.
     readonly property real groupAnchorY: {
         if (!root.dragging || !app.railEntries.grouping)
             return -1
@@ -929,8 +463,7 @@ Rectangle {
         return r < 0 ? -1 : rowTop(r) + rowBand(r) / 2
     }
 
-    // Auto-scroll while dragging near either end, so a rail longer than the
-    // window does not force the user to drop, scroll and start again.
+    // Auto-scroll while dragging near either end.
     Timer {
         id: autoScroll
         interval: 16
@@ -941,7 +474,7 @@ Rectangle {
             var maxY = Math.max(0, list.contentHeight - list.height)
             var step = 0
             if (root.dragViewportY < zone) {
-                // Progressive: the closer to the edge, the faster.
+                // Progressive: faster closer to the edge.
                 step = -Math.ceil((zone - root.dragViewportY) / 4)
             } else if (root.dragViewportY > list.height - zone) {
                 step = Math.ceil(
@@ -953,10 +486,8 @@ Rectangle {
             if (next === list.contentY)
                 return
             list.contentY = next
-            // The pointer did not move, but the row under it did — so this
-            // goes through the SAME dispatch a pointer move does. It used to
-            // end in its own unconditional reorder, which cancelled an armed
-            // grouping every 16 ms near either edge.
+            // The row under a still pointer changed, so go through the same
+            // dispatch as a pointer move.
             root.dragContentY = root.dragViewportY + list.contentY
             root.applyPointerReading(root.dragContentY)
         }
@@ -964,8 +495,7 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
-        // SYMMETRIC. The `+ 2` here made the rail's top inset 18 against a
-        // bottom of 12 — "top and bottom ui is not centered", vertically.
+        // Symmetric with the bottom inset.
         anchors.topMargin: AppTheme.spacing12
         anchors.bottomMargin: AppTheme.spacing12
         spacing: 0
@@ -975,42 +505,24 @@ Rectangle {
             objectName: "spacesRailList"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            // AIR BEFORE THE DIVIDER. There was none: a scrolled rail clipped
-            // its last tile flat, mid-monogram, with the bottom cluster's
-            // divider jammed against the cut edge — measured at 0px, against
-            // 10px of clearance on the divider at the top of the rail.
-            // AND ENOUGH OF IT THAT THE FADE ONLY EVER COVERS EMPTY
-            // SUBSTRATE. At `railTileGap` the fade's 16px overlapped the last
-            // tile by 5, dimming its bottom edge ~25% — a tile that looks
-            // faulty rather than a column that looks scrollable.
+            // Air before the divider, enough that the bottom fade only covers
+            // empty rail rather than dimming the last tile.
             Layout.bottomMargin: AppTheme.scaled(16)
-            // A real model, so a preview reorder is a MOVE and not a reset.
+            // A real model, so a preview reorder is a move, not a reset.
             model: app.railEntries
             clip: true
             spacing: AppTheme.spacing4
-            // Recycling is off on purpose: a rail holds a handful of rows, and
-            // a recycled delegate mid-drag is how the gesture loses its own
-            // tile.
+            // No recycling: few rows, and a recycled delegate mid-drag loses
+            // the tile.
             reuseItems: false
 
-            // NO SCROLLBAR. A 78px column of round tiles does not have room
-            // for a rail-length vertical bar beside them, and what it drew
-            // was a hard grey line down the one edge every region boundary
-            // meets — "ugly as hell", and the fade below already says the
-            // column continues. The wheel, a drag and the keyboard all still
-            // scroll it; Discord's rail makes the same call.
+            // No scrollbar: there is no room beside the tiles, and the fade
+            // shows the column continues. Wheel, drag and keyboard still
+            // scroll.
 
-            // ── The bottom fade ──────────────────────────────────────────
-            //
-            // A guillotined tile is the loudest "this is broken" artefact a
-            // scrolling column can produce, and it is also the ONLY thing
-            // here that says the rail scrolls at all — there is no persistent
-            // scrollbar and no other indicator. A partly-scrolled tile
-            // dissolves into the rail instead of being cut flat.
-            //
-            // A direct child of the ListView, NOT of its contentItem: a child
-            // of the content scrolls with it and the fade would slide away
-            // from the edge it exists to soften.
+            // Bottom fade: a partly scrolled tile dissolves instead of being
+            // cut flat, and it is the only scroll indicator. A direct child of
+            // the ListView, not its contentItem, so it does not scroll away.
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
@@ -1024,8 +536,8 @@ Rectangle {
                 }
             }
 
-            // What makes the rearrangement read as movement rather than as a
-            // jump. `displaced` covers the rows the moved one pushed past.
+            // Animated moves; `displaced` covers the rows the moved one pushed
+            // past.
             move: Transition {
                 NumberAnimation {
                     properties: "y"
@@ -1064,14 +576,8 @@ Rectangle {
                 required property bool dropTarget
                 required property bool folderLast
                 required property bool draggable
-                // DECLARED, or they are `undefined` and everything that
-                // reads them quietly takes the other branch — QML does not
-                // complain about an unknown property on a delegate, it just
-                // hands back undefined. Both of these shipped unread for
-                // several hours: the field's corner-squaring children were
-                // `!undefined` (so a run was always square at both ends) and
-                // the group gap was never added. Caught by a geometric case
-                // comparing `rowTop()` against the delegates, not by looking.
+                // Must be declared: an undeclared role reads as undefined
+                // silently.
                 required property int bandPrevLevel
                 required property int bandNextLevel
 
@@ -1084,119 +590,58 @@ Rectangle {
                     folderId.length > 0 && !isFolder
 
                 width: list.width
-                // 48 = 40px tile + 4px on each side so the active accent
-                // outline (drawn at -4px margins) is never clipped by the
-                // list bounds — this was the Home-icon clipping defect.
-                // Home carries the handoff divider (32×2) below its tile.
-                // The handoff divider sits under the LAST navigation tab, so
-                // it separates the tabs from the Spaces rather than splitting
-                // the tabs from each other.
+                // The handoff divider sits under the last navigation tab,
+                // separating the tabs from the Spaces.
                 readonly property bool carriesDivider:
                     root.peopleTabVisible ? isPeople : isHome
-                // SCALED, WITH THE TILE IT HOLDS. Measured on a real build:
-                // the rail widened from 112 to 152 between 100% and 140%
-                // interface and the tile stayed exactly 38px of colour — all
-                // the extra width went into the gutters. Every calculation
-                // around it already used `railTileSize`, which IS scaled, so
-                // the drawn tile was the one thing that did not move. The
-                // band is `tile + 8` (4px above and below) and the divider
-                // row adds its own 10.
-                //
-                // NOTE for the next reader: the 2026-09-17 note on this file
-                // said "at 140% the tiles grew and the indent did not". The
-                // tiles did not grow either; both were unscaled, and only
-                // the indent was fixed at the time.
+                // Scaled with its tile: tile + 8 (4px above and below); the
+                // divider row adds its own 10.
                 readonly property int tileBandHeight:
                     carriesDivider
                     ? root.dividerRowBand
                     : spaceItem.rowTileSize + 2 * root.rowPad
-                /// Anything nested is drawn one step smaller, at any depth.
-                /// EVERY ROW THE SAME SIZE IN CLASSIC. The nested step is
-                /// part of the region language — a smaller tile inside a
-                /// tinted box reads as contained — and on a flat rail it
-                /// reads as a tile that shrank for no reason.
+                /// Anything nested is one step smaller, at any depth. Every row
+                /// is the same size in Classic, where there are no regions to
+                /// explain the step.
                 readonly property int rowTileSize:
                     (spaceItem.hierarchyChild && !root.classicDepth)
                     ? root.railNestedTileSize : root.railTileSize
 
-                /// How many nested regions this row draws, capped: one per
-                /// ancestor, plus its own when it owns the run below it.
+                /// Nested regions this row draws, capped: one per ancestor, plus
+                /// its own when it owns the run below.
                 readonly property int bandLayers:
                     Math.min(root.maxBandLayers,
                              Math.max(0, spaceItem.level)
                              + (spaceItem.ownsRegion ? 1 : 0))
-                /// Which rung of the ladder the INNERMOST region on this row
-                /// is painted with — the surface the expander's plate sits
-                /// on, and therefore the one it has to step up from. A row
-                /// with no region at all sits on the rail itself, and it
-                /// counts as rung 0 here for one reason: +2 from rung 0 is
-                /// L* 11.78 against the rail's 4.95, the SAME 6.8 ΔL* step
-                /// the plate gets over every region. Counting it as -1 made
-                /// a collapsed Space's plate 3.4 above the rail and an
-                /// expanded one's 6.8 above its region — a control that
-                /// changes weight with the state of the thing it toggles,
-                /// which is the same complaint as the box that changed size.
-                /// WHICH RUNG THE EXPANDER'S PLATE IS PAINTED WITH.
-                ///
-                /// Two rungs ABOVE the region it sits on — except where that
-                /// runs out of ladder, and then two rungs BELOW instead.
-                /// `Math.min(last, tint + 2)` clamped to the ceiling, so on a
-                /// row already at the top rung the plate took the band's own
-                /// colour and the control simply disappeared: MEASURED on a
-                /// Windows guest at depth 3 as plate #97B8A7 against band
-                /// #97B7A7, ΔL* 0.28 — invisible, and invisible exactly where
-                /// the rail is busiest and the expander matters most.
-                ///
-                /// Going down at the ceiling keeps the plate a CONTRAST
-                /// rather than a direction: what makes it read as a control
-                /// is that it differs from its background, not that it is
-                /// lighter than it.
+                /// The ladder rung for the expander's plate: two rungs above the
+                /// region it sits on, or two below where that runs past the top
+                /// of the ladder (clamping would make the plate the band's own
+                /// colour). A row with no region counts as rung 0, so the
+                /// plate's contrast is the same collapsed or expanded.
                 readonly property int plateRung: {
                     var last = AppTheme.railNestSurfaces.length - 1
                     var up = spaceItem.innermostTint + 2
                     return up <= last ? up
                                       : Math.max(0, spaceItem.innermostTint - 2)
                 }
-                /// `bandLayers`, NOT `bandLayers - 1`. A region layer at
-                /// INDEX i draws DEPTH i + 1 (see the Repeater's own
-                /// `depth`), so the innermost layer's depth IS `bandLayers`
-                /// and the subtraction named the layer one step OUTSIDE it.
-                /// The Repeater already carries this correction in a comment
-                /// — "INDEX `depth`, NOT `depth - 1`", caught by measuring a
-                /// capture — and the plate never got it, so `plateRung`'s
-                /// "two rungs" came out as one: MEASURED live on 2026-09-19,
-                /// depth 1 plate #1a1f29 on band #141920, 3.13 ΔL* where a
-                /// REGION boundary is 3.4, while a row with no region (the
-                /// `0` arm below) got the full 6.73. That is precisely the
-                /// "a control that changes weight with the state of the
-                /// thing it toggles" failure `plateRung` records preventing.
+                /// `bandLayers`, not `bandLayers - 1`: the layer at index i
+                /// draws depth i + 1, so the innermost layer's depth is
+                /// bandLayers.
                 readonly property int innermostTint:
                     spaceItem.bandLayers > 0
                     ? spaceItem.bandTint(spaceItem.bandLayers) : 0
-                /// Does a run hang off this tile — subspaces as model rows,
-                /// or rooms revealed inside this delegate?
+                /// Whether a run hangs off this tile: subspace rows or revealed
+                /// rooms.
                 readonly property bool ownsRegion:
                     spaceItem.bandNextLevel > spaceItem.level
                     || expansionCol.visible
-                /// How deep this row's own region really is, uncapped.
+                /// This row's own region depth, uncapped.
                 readonly property int trueBandDepth:
                     Math.max(0, spaceItem.level)
                     + (spaceItem.ownsRegion ? 1 : 0)
-                /// ── NO TWO REGIONS THAT TOUCH WEAR ONE TINT ───────────
-                ///
-                /// The stack is capped, so every row past the cap draws its
-                /// own region as "the innermost layer" — which meant a
-                /// depth-5 region was drawn directly inside a depth-4 one at
-                /// the same inset AND the same tint, and the two were the
-                /// same picture. Asked in those words: "are these supposed to
-                /// be the same color?" They were, and the honest answer is
-                /// that the cap had stopped distinguishing.
-                ///
-                /// Past the cap the innermost layer ALTERNATES between the
-                /// last two rungs, so a parent and the child drawn on top of
-                /// it always differ. The ancestor layers are untouched, which
-                /// is what keeps the alternation from colliding with the
-                /// depth-(cap-1) region on the same row.
+                /// Past the cap, the innermost layer alternates between the last
+                /// two rungs so a parent and the child drawn on it always
+                /// differ. Ancestor layers are unchanged.
                 function bandTint(depth) {
                     if (depth < spaceItem.bandLayers)
                         return depth
@@ -1205,86 +650,20 @@ Rectangle {
                         return depth
                     return root.maxBandLayers + (overflow % 2)
                 }
-                /// The air after the last row of a run, added by that row.
-                ///
-                /// KEYED ON THE ROW'S INNERMOST REGION, and it used to be
-                /// keyed on depth 1 — the top-level group. That left every
-                /// INNER run butting straight into the next one with only
-                /// `ListView.spacing` between them: reported as "the lowest
-                /// level runs out of color, there are small gaps between them
-                /// where the color should end, we want to separate it
-                /// cleanly", with two runs of the same tint reading as one
-                /// shape with a hairline notch through it.
-                ///
-                /// The gap is not a hole in the parent, because a layer whose
-                /// own run continues BRIDGES it (see the Repeater's height).
-                /// So what a reader sees between two sibling runs is the
-                /// parent's tint, at full height, which is the separation.
-                /// KEYED ON THE TRUE DEPTH, not the capped one, and that
-                /// distinction is a real defect the capped version shipped.
-                ///
-                /// `bandLayers` stops at `maxBandLayers`, so a row at depth 7
-                /// followed by one at depth 4 compared 4 < 4 and spent NO
-                /// gap — while the tint alternation, which only ever promised
-                /// that a parent differs from its child, put both regions on
-                /// the same rung. Measured: a deep-level-8 run and a
-                /// burst-space run rendered as one unbroken `#91969D` with no
-                /// boundary pixel between them, at the same inset.
-                ///
-                /// The uncapped depth restores the guarantee the cap broke:
-                /// two regions can still share a tint, and they can no longer
-                /// TOUCH while doing it.
-                /// ── THE SEAM PAST THE DEPTH CAP ────────────────────────
-                ///
-                /// Reported as "these should be rounded", of a hard square
-                /// edge between two bands. A design study measured it and
-                /// found a case none of the existing rules covers: a child
-                /// region OPENING PAST THE CAP. Past `maxBandLayers` the
-                /// child cannot be inset any further, so parent and child sit
-                /// at the SAME inset with no gap, and the only thing telling
-                /// them apart is 1.33:1 of tone — at a full-bleed straight
-                /// edge, which reads as a fold in one surface rather than as
-                /// one thing inside another. Worse, the tone alternation is
-                /// non-monotonic: sometimes the deeper band is lighter,
-                /// sometimes darker, so tone cannot even say which side is
-                /// inside.
-                ///
-                /// A RADIUS ALONE WOULD NOT HAVE FIXED IT, which is why this
-                /// is not what was asked for. Two 3px corner notches are
-                /// 3.9px² out of a 66x41 band — invisible — and the radius
-                /// cannot grow, because the enclosing band is 2px outside it
-                /// and concentricity is what keeps nested corners from
-                /// looking unbalanced. Worse still, rounding alone fills the
-                /// notch with whatever is BEHIND, which is the GRANDPARENT's
-                /// band at 1.73:1 — the largest step in the ladder, at the
-                /// boundary that should show the smallest.
-                ///
-                /// So the seam is AIR IN THE PARENT'S OWN TONE, and the
-                /// radius is what keeps that air from reading as a slot. The
-                /// resulting vocabulary has two boundaries that can never be
-                /// confused: a run ENDS and shows 8px of the grandparent;
-                /// a child BEGINS and shows 3px of the parent.
-                /// The seam is the AIR the corner turns in, not the radius
-                /// itself. It was written as `bandRadius(maxBandLayers)` when
-                /// that was 3; the radii are 14/12/10 now and a ten-pixel
-                /// notch between every over-cap parent and child would be a
-                /// gap, not a seam — and it would compete with the 8px a run
-                /// that genuinely ENDS already spends.
-                /// 8, and it was 4. THE ROUNDING ONLY READS WHERE THERE IS
-                /// BACKGROUND BEHIND THE CORNER, and at 4 there was not:
-                /// consecutive regions stacked all but flush, so of 24
-                /// corners in a deep run only 4 met open rail and the other
-                /// 20 were a corner curving in meeting one curving out. The
-                /// radii went to 14/12/10 and bought twenty pinches.
-                ///
-                /// Eight is the same air a run that ENDS already spends, so
-                /// every boundary between two regions is now one number and
-                /// the three different junction treatments a critique
-                /// measured collapse to one.
+                /// The air after the last row of a run, keyed on the row's
+                /// innermost region at its true (uncapped) depth, so sibling
+                /// runs never touch and two same-tinted regions cannot merge. A
+                /// layer whose own run continues bridges the gap, so the reader
+                /// sees the parent's tint between siblings. Past the cap a child
+                /// region cannot be inset further, so parent and child would
+                /// share an edge. The cap seam is air in the parent's tone, with
+                /// the radius keeping it from reading as a slot: a run that ends
+                /// shows 8px of the grandparent; a child that begins shows the
+                /// parent. Eight, the same as a run ending, so every region
+                /// boundary uses one number.
                 readonly property int capSeamSize: root.groupGap
-                /// Guarded on the parent's band already being present at this
-                /// inset, so a cap seam can never stack with the gap a run
-                /// that truly ends already spends.
+                /// Only when the parent's band is present at this inset, so a
+                /// cap seam never stacks with a run's end gap.
                 readonly property bool capOpens:
                     spaceItem.ownsRegion
                     && spaceItem.trueBandDepth > root.maxBandLayers
@@ -1294,13 +673,9 @@ Rectangle {
                     && spaceItem.bandNextLevel < spaceItem.trueBandDepth
                     && spaceItem.bandNextLevel >= root.maxBandLayers
                 readonly property int capSeamTop: capOpens ? capSeamSize : 0
-                /// WHERE THIS ROW'S CONTENT STARTS. The cap seam moves the
-                /// BAND down, and everything drawn on the band has to move
-                /// with it: the tile, its chevron, its revealed rooms. It did
-                /// not, so on a row that opens a seam the tile stayed at the
-                /// row's top and stuck out through the top edge of its own
-                /// region — reported as "blue DL looks very bad, the whole
-                /// region". A shape outside the shape that contains it.
+                /// Where this row's content starts: the cap seam moves the band
+                /// down, and the tile, chevron and revealed rooms must move with
+                /// it.
                 readonly property int contentTop: capSeamTop
                 readonly property int capSeamBottom:
                     capCloses ? capSeamSize : 0
@@ -1311,10 +686,8 @@ Rectangle {
                     ? (spaceItem.bandNextLevel < 1 ? root.groupBreakGap
                                                    : root.groupGap)
                     : 0
-                // The seam comes out of the ROW, not out of the band: there
-                // are only `rowPad` (4) pixels of band above a tile, and
-                // taking 3 of them would leave the band clipping the tile it
-                // is drawn for.
+                // The seam comes out of the row, not the band, which has only
+                // 4px above the tile.
                 height: tileBandHeight
                         + (expansionCol.visible ? expansionCol.height + 2 : 0)
                         + spaceItem.trailingGap
@@ -1322,57 +695,31 @@ Rectangle {
 
                 property bool isActive: app.spaces && !isFolder
                                         && app.spaces.activeSpaceId === spaceItem.spaceId
-                // How far the tile is lifted from its own slot to sit under
-                // the pointer. Zero for every row but the one being dragged,
-                // so nothing else pays for it.
+                // Lift from the tile's own slot to sit under the pointer; zero
+                // for other rows.
                 readonly property real dragLift:
                     !spaceItem.dragged
                     ? 0
                     : (root.groupAnchorY >= 0 ? root.groupAnchorY
                                               : root.dragContentY)
                       - (spaceItem.y + spaceItem.tileBandHeight / 2)
-                // Above its neighbours while it travels over them.
+                // Above its neighbours while it travels.
                 z: spaceItem.dragged ? 10 : 0
-                // Indentation: a filed Space steps in a little, a subspace
-                // steps in per level, and the whole thing is clamped to
-                // whatever the rail's CURRENT width can carry.
-                //
-                // The clamp used to be the literal 14, which was right for
-                // exactly one rail width because the rail had exactly one
-                // width. Now it is `root.indentBudget`, so widening the rail
-                // reveals more depth and narrowing it back hides it again,
-                // with no mode to switch and no level to count.
-                // GATED ON THE `expanded` ROLE, NOT ON A FUNCTION CALL.
-                //
-                // `revealCount()` asks `app.railLayout.spaceExpanded(id)`,
-                // which is a Q_INVOKABLE — so a binding that reaches the
-                // expansion state only through it records NO dependency on
-                // it and never re-evaluates when it changes. Expanding a
-                // Space that HAS subspaces inserts model rows, which rebuilds
-                // the delegate and hides that; a LEAF category inserts none,
-                // so its chevron flipped open (that reads the role, which
-                // does update) and its rooms stayed hidden until an unrelated
-                // toggle or an app restart rebuilt the rail.
-                //
-                // Reported as "a room did not appear under its space until
-                // Lightning restarted" and filed as sync staleness. It was
-                // not: Space Home listed the rooms the whole time. Same shape
-                // as `root.info` in Space settings — a CALL where a binding
-                // was needed.
+                // Gated on the `expanded` role, not revealCount(), which calls
+                // a Q_INVOKABLE and records no dependency: a leaf Space's
+                // chevron would open without its rooms appearing until the rail
+                // was rebuilt.
                 readonly property int revealed:
                     (isRealSpace && spaceItem.expanded)
                         ? root.revealCount(spaceItem.spaceId) : 0
                 readonly property var revealedRooms:
                     revealed > 0 ? root.topRoomsInSpace(spaceItem.spaceId) : []
-                /// The revealed rooms as the CURRENT GESTURE has arranged
-                /// them, or null when no gesture is live. See the Repeater
-                /// below: while a drag is running this is the model, so the
-                /// arrangement a reader sees is the one the release writes.
+                /// The revealed rooms as the live gesture has arranged them, or
+                /// null. While dragging this is the Repeater's model, so what
+                /// the reader sees is what the release writes.
                 property var roomPreview: null
                 property int roomDragIndex: -1
-                /// Moves the dragged room to `to` in the preview. Clamped,
-                /// so a pointer dragged past either end parks at that end
-                /// rather than falling out of the list.
+                /// Moves the dragged room to `to`, clamped to the ends.
                 function moveRoomPreview(to) {
                     if (!spaceItem.roomPreview || spaceItem.roomDragIndex < 0)
                         return
@@ -1384,11 +731,8 @@ Rectangle {
                     next.splice(target, 0, next.splice(
                         spaceItem.roomDragIndex, 1)[0])
                     spaceItem.roomDragIndex = target
-                    // A NEW ARRAY, not a mutation. QML compares `var`
-                    // properties by reference, so splicing the bound list in
-                    // place changes what the Repeater reads and tells it
-                    // nothing — the rail would only redraw on the next
-                    // unrelated update.
+                    // A new array: `var` properties compare by reference, so an
+                    // in-place splice notifies nothing.
                     spaceItem.roomPreview = next
                 }
                 function commitRoomOrder() {
@@ -1411,36 +755,16 @@ Rectangle {
                                  : spaceItem.spaceId === "@orphans"
                                    ? qsTr("Other rooms") : spaceItem.name
 
-                // ── The open folder's container ─────────────────────────────
-                // One surface behind the header and its members, which is the
-                // whole difference between a folder and several adjacent
-                // Spaces. Drawn per row and squared off between them, so the
-                // run reads as continuous however long it is.
+                // The open folder's container: one surface behind the header
+                // and members, squared off between rows so the run reads as
+                // continuous.
                 Rectangle {
                     visible: (spaceItem.isFolder && !spaceItem.collapsed)
                              || spaceItem.inFolder
-                    // ── ON THE SAME LADDER AS THE HIERARCHY REGIONS ──
-                    //
-                    // It was not, and the two defects that came out of that
-                    // were both invisible to every check here.
-                    //
-                    // FIRST, `z: -2` put this container ON TOP of the region
-                    // stack (z -21..-17), in a colour those regions already
-                    // used — so a Space tree filed into a folder was painted
-                    // flat and lost its nesting entirely. Measured on a
-                    // capture: inside a folder, exactly ONE region tint
-                    // appeared in the whole rail. Nothing was wrong with the
-                    // model; the picture was drawn over.
-                    //
-                    // SECOND, the margins were a RAW 6 against a ladder in
-                    // SCALED units — 6 lands between depth 1 and depth 2, so
-                    // a container was drawn NARROWER than the regions it
-                    // contains, and the boundary between two groups became
-                    // four corner arcs and a hairline inside 20px.
-                    //
-                    // A folder and a hierarchy region say the same thing, so
-                    // they are one device: this is rung 0, outside depth 1,
-                    // behind everything.
+                    // On the same ladder as the hierarchy regions: rung 0,
+                    // outside depth 1, behind everything, with scaled margins.
+                    // Drawn above the regions or at a raw inset, it flattened a
+                    // Space tree filed into a folder.
                     anchors.left: parent.left
                     anchors.right: parent.right
                     objectName: "railFolderContainer"
@@ -1481,17 +805,14 @@ Rectangle {
                     }
                 }
 
-                // Active outline: 2 px accent ring offset from the tile.
-                // The offset is `tileRingOutset` and NOT a literal, because
-                // the chevron's placement is measured from this ring's outer
-                // edge — see that property. Two numbers, one fact.
+                // Active outline: 2px accent ring offset by tileRingOutset,
+                // which the chevron's placement is measured from.
                 Rectangle {
                     objectName: "railSpaceActiveRing"
                     anchors.fill: spaceTile
                     anchors.margins: -root.tileRingOutset
-                    // CONCENTRIC: a rounded rect outset by N is concentric
-                    // with its tile only when its radius is larger by exactly
-                    // N. It was +3 against an outset of 4.
+                    // Concentric: an outset of N needs a radius larger by
+                    // exactly N.
                     radius: root.railTileRadius + root.tileRingOutset
                     color: "transparent"
                     border.color: AppTheme.accent
@@ -1499,16 +820,12 @@ Rectangle {
                     visible: spaceItem.isActive
                 }
 
-                // Handoff divider between Home and the Space tiles: a rule
-                // four fifths of a tile wide, so it stays narrower than the
-                // tiles it separates at every interface size.
+                // Handoff divider between Home and the Space tiles, four fifths
+                // of a tile wide.
                 Rectangle {
                     visible: spaceItem.carriesDivider
-                    // CENTRED UNDER THE TILE, and it was `x: tileColumnX` at
-                    // 80% of the tile's width — flush with the tile's LEFT
-                    // edge and 20% short on the right, centred under nothing.
-                    // Shares its rule with the bottom cluster's separator so
-                    // the two read as one device used twice.
+                    // Centred under the tile; shares its rule with the bottom
+                    // separator.
                     width: root.railDividerWidth
                     height: 2; radius: 1
                     color: AppTheme.border
@@ -1517,56 +834,22 @@ Rectangle {
                     anchors.bottomMargin: 2
                 }
 
-                // ── The group field ─────────────────────────────────────
-                //
-                // What a run of nested rows sits ON, instead of what used to
-                // be drawn BETWEEN them. Common region: the Gestalt cue that
-                // needs no horizontal space, which is the whole reason it is
-                // the one every narrow rail converges on — Discord tints a
-                // pill behind a folder's servers, and this rail's own folder
-                // container has done exactly this since it shipped.
-                // ── WHAT THE CAP SEAM SHOWS ─────────────────────────────
-                //
-                // The parent's own tone, and this rectangle is the only thing
-                // that can supply it. The layer stack draws ONE region per
-                // depth, so behind the cap layer sits the depth-(cap-1) band
-                // — the GRANDPARENT. Open a seam without this and the air
-                // fills with rung 2 against rung 4: 1.73:1, the largest step
-                // in the ladder, appearing at the one boundary that should
-                // show the smallest. It would say "grandparent" exactly where
-                // the picture is trying to say "one deeper".
-                //
-                // Its own objectName, deliberately: `railGroupField` is
-                // counted by a geometric case that requires each layer to be
-                // narrower than the one containing it, and this one is at the
-                // SAME inset by construction. A fractional z rather than an
-                // equal one, because same-z siblings paint in document order
-                // and that is not a thing to rely on twice.
+                // The group field: nested rows sit on a tinted region instead
+                // of anything drawn between them (no horizontal cost). At a cap
+                // seam this supplies the parent's tone; without it the seam
+                // would show the grandparent's band behind the cap layer. Its
+                // own objectName (railGroupField) because a geometric test
+                // requires each region layer to be narrower than its container,
+                // and this one shares the inset by design. A fractional z so
+                // paint order does not depend on document order.
                 Rectangle {
                     objectName: "railCapBackdrop"
-                    // ── VISIBLE WHENEVER THE ROW IS PAST THE CAP ─────
-                    //
-                    // It was gated on the SEAM, and the seam is gated on the
-                    // row above already being at the cap — so in the common
-                    // case, a parent shallower than the cap owning a child at
-                    // it, the backdrop was never drawn. The cap layer's
-                    // rounded corners then exposed whatever was behind them,
-                    // which is the GRANDPARENT's band: measured on a capture
-                    // as two rows where x 5..8 reads the depth-2 tone instead
-                    // of the depth-3 one. Reported as a stray corner beside
-                    // the teal and purple tiles, and it is exactly the notch
-                    // this rectangle exists to fill.
-                    //
-                    // The seam and the backdrop are different questions. The
-                    // seam asks "is there air here"; the backdrop asks "what
-                    // colour is behind this child's corners", and the answer
-                    // to the second is "its parent" on every row past the
-                    // cap, air or no air.
-                    // Nothing to back on to in Classic: this rectangle
-                    // exists to be the PARENT REGION's colour in the notch a
-                    // child's rounded corner opens, and Classic draws no
-                    // regions, so leaving it on would paint a lone band on
-                    // bare rail.
+                    // Visible on every row past the cap, not only where a seam
+                    // opens: the cap layer's rounded corners would otherwise
+                    // expose the grandparent's band. The seam asks whether
+                    // there is air; this answers what colour is behind the
+                    // child's corners (always its parent). Off in Classic,
+                    // which draws no regions.
                     visible: !root.classicDepth
                              && spaceItem.trueBandDepth > root.maxBandLayers
                     anchors.left: parent.left
@@ -1578,31 +861,13 @@ Rectangle {
                             + (spaceItem.bandNextLevel >= root.maxBandLayers
                                ? list.spacing + spaceItem.trailingGap : 0)
                     z: -20 + root.maxBandLayers - 0.5
-                    // SQUARE, AND IT HAS TO BE. This rectangle exists for
-                    // one purpose: to be the PARENT's colour in the notch a
-                    // child's rounded corner opens at the cap. A radius here
-                    // rounds it away from that notch, and what shows through
-                    // is whatever is further back — the GRANDPARENT, a rung
-                    // too light, with a hard full-width edge above it.
-                    //
-                    // It was briefly given `bandRadius(maxBandLayers)` on the
-                    // reasoning that a run's last row has an end to round.
-                    // That was speculative, it was wrong, and it was MEASURED
-                    // wrong on two machines: a Windows guest captured the same
-                    // junction on the build before and after and found the
-                    // parent's rung persisting under the child's corner
-                    // before, and the grandparent's rung filling it after; a
-                    // second sweep on Linux found the same notch unfilled.
-                    // The square corner that prompted the change was a
-                    // different defect entirely — `folderLast` stamped over a
-                    // folder's top-level members only (RailEntryModel).
-                    //
-                    // If a real end-of-run corner ever needs rounding here, it
-                    // needs a rectangle that is square where the child's
-                    // corner is and rounded where the run stops. One radius
-                    // cannot be both.
+                    // Square by necessity: this fills the notch a child's
+                    // rounded corner opens with the parent's colour. A radius
+                    // would round it away from the notch and show the
+                    // grandparent. A rounded run end would need a separate
+                    // rectangle.
                     radius: 0
-                    // THE OTHER PARITY — the rung the child is not wearing.
+                    // The other parity: the rung the child is not wearing.
                     color: AppTheme.railNestSurfaces[
                         Math.min(AppTheme.railNestSurfaces.length - 1,
                                  root.maxBandLayers
@@ -1611,37 +876,16 @@ Rectangle {
                 }
 
                 Repeater {
-                    // ── ONE REGION PER ANCESTOR, OUTERMOST FIRST ────────
-                    //
-                    // `model` is the row's own depth, so a depth-3 row draws
-                    // three rectangles: its top-level Space's region, its
-                    // parent's inside that, and its own inside that. The
-                    // parent's region therefore runs unbroken behind every
-                    // descendant instead of being replaced by the deeper
-                    // one's tint, which is what made three runs under one
-                    // Space read as three unrelated bands.
-                    //
-                    // NOT hidden during a drag, and the lanes this replaced
-                    // were. `stampGroupField` runs inside `applyRows`, the
-                    // one chokepoint every row set passes through — the drag
-                    // PREVIEW included — so the layers a reader sees
-                    // mid-gesture are the layers the release will produce.
-                    // That is the whole answer to "can these be rearranged
-                    // cleanly": the drop target is drawn, not imagined.
-                    // …AND THE OWNER IS INSIDE ITS OWN REGION. A row at
-                    // depth L draws L layers as a member, plus ONE MORE when
-                    // it is the tile that owns the run below it — so the
-                    // region reads as "this Space and everything in it"
-                    // rather than as a band that begins under it. A
-                    // top-level Space is at depth 0 and draws exactly that
-                    // one, which is why an expanded Space is boxed and a
-                    // collapsed one sits on bare rail.
-                    // ZERO IN CLASSIC, which is the whole region system
-                    // turned off at ONE place. Every rectangle in this
-                    // ladder is this Repeater's delegate, so there is no
-                    // second switch to forget — and a `model` of 0 does not
-                    // instantiate them, where a `visible` binding on each
-                    // would build them all and then hide them.
+                    // One region per ancestor, outermost first: `model` is the
+                    // row's depth, so a depth-3 row draws three rectangles and
+                    // a parent's region runs unbroken behind its descendants.
+                    // The row that owns the run below draws one more, so an
+                    // expanded Space is boxed with its contents. Not hidden
+                    // during a drag: stampGroupField runs in applyRows, which
+                    // the drag preview also passes through, so the layers shown
+                    // are what the release produces. Zero in Classic: a model
+                    // of 0 instantiates nothing, where `visible` on each
+                    // delegate would build and hide them.
                     model: root.classicDepth
                            ? 0
                            : Math.min(root.maxBandLayers,
@@ -1652,29 +896,16 @@ Rectangle {
                         objectName: "railGroupField"
                         required property int index
                         readonly property int depth: index + 1
-                        // THE INNERMOST DRAWN LAYER SPEAKS FOR EVERYTHING
-                        // BELOW IT. Past the cap a region would be narrower
-                        // than the tile it contains, so a depth-6 row joins
-                        // the depth-4 layer rather than getting two nobody
-                        // can see — and its bounds are then "depth >= 4",
-                        // which is what `bandDepth` says.
+                        // Past the cap a row joins the innermost drawn layer,
+                        // whose bounds are then "depth >= cap".
                         readonly property int bandDepth:
                             depth === root.maxBandLayers
                             ? root.maxBandLayers : depth
-                        // Compared against the NEIGHBOURS' depths, per layer.
-                        // A pair of booleans on the row could only ever have
-                        // described the innermost one.
-                        //
-                        // The owner's layer opens ON THE OWNER, by
-                        // definition. For every other layer the row above is
-                        // either another member (deeper or equal) or this
-                        // region's own owner (exactly one shallower), and
-                        // neither of those is an opening — so a layer opens
-                        // only where the row above is outside it altogether.
-                        // IT MUST SURVIVE THE CAP. `depth === level + 1` is
-                        // a depth the cap has already clipped away for an
-                        // over-cap owner, so its layer never opened and was
-                        // squared off instead — which is the seam.
+                        // Compared against the neighbours' depths per layer.
+                        // The owner's layer opens on the owner; any other layer
+                        // opens only where the row above is outside it. Must
+                        // survive the cap: `depth === level + 1` is already
+                        // clipped away for an over-cap owner.
                         readonly property bool isOwnerLayer:
                             spaceItem.ownsRegion
                             && depth === Math.min(spaceItem.trueBandDepth,
@@ -1682,11 +913,8 @@ Rectangle {
                         readonly property bool opensHere:
                             isOwnerLayer
                             || spaceItem.bandPrevLevel < bandDepth - 1
-                        // TRUE DEPTH ON THE CAP LAYER. Comparing the capped
-                        // one is the same mistake `trailingGap` records
-                        // having shipped once: a row deeper than the cap
-                        // compares its neighbour against a number the cap has
-                        // flattened, and never closes.
+                        // True depth on the cap layer; the capped depth would
+                        // never close.
                         readonly property bool closesHere:
                             spaceItem.bandNextLevel
                             < (depth === root.maxBandLayers
@@ -1695,25 +923,14 @@ Rectangle {
                         anchors.right: parent.right
                         anchors.leftMargin: root.bandInset(depth)
                         anchors.rightMargin: root.bandInset(depth)
-                        // THE CAP LAYER STARTS BELOW THE SEAM. Every other
-                        // layer still starts at the row's top — the seam
-                        // belongs to the child that opens, not to the parent
-                        // it opens inside.
+                        // The cap layer starts below the seam; the seam belongs
+                        // to the child that opens.
                         y: depth === root.maxBandLayers
                            ? spaceItem.capSeamTop : 0
-                        // PLUS THE LIST'S OWN SPACING while this layer's run
-                        // continues, or the layer is not one shape at all:
-                        // `ListView.spacing` puts 4px of rail background
-                        // between consecutive delegates, and a per-row
-                        // rectangle that stops at its own delegate leaves
-                        // that seam showing through the middle of the group.
-                        // Measured on a capture — two bands with a 4px dark
-                        // line between them — not reasoned about.
-                        // …AND THE TRAILING GAP TOO, for a layer whose own
-                        // run carries on past it: the gap belongs to the run
-                        // that ENDED, so a region still open across it has to
-                        // cover it or the parent gets a notch where its child
-                        // happened to stop.
+                        // Plus the list's spacing while this layer's run
+                        // continues, or a 4px strip of rail shows between rows.
+                        // Plus the trailing gap for a layer whose run carries
+                        // on, since that gap belongs to the run that ended.
                         height: spaceItem.height - spaceItem.trailingGap
                                 - (depth === root.maxBandLayers
                                    ? spaceItem.capSeamTop
@@ -1721,24 +938,16 @@ Rectangle {
                                 + (closesHere
                                    ? 0
                                    : list.spacing + spaceItem.trailingGap)
-                        // Outermost furthest back, so each layer is drawn ON
-                        // the one containing it.
+                        // Outermost furthest back.
                         z: -20 + depth
                         radius: root.bandRadius(depth)
-                        // INDEX `depth`, NOT `depth - 1`. Rung 0 of the
-                        // ladder is a FOLDER's container, which sits outside
-                        // hierarchy depth 1 — so reading it here shifted the
-                        // whole ramp one rung down and made the first
-                        // boundary the quietest instead of the evenest.
-                        // Caught by measuring a capture, not by reading this
-                        // line, which is correct-looking either way.
+                        // Index `depth`, not `depth - 1`: rung 0 is a folder's
+                        // container, outside hierarchy depth 1.
                         color: AppTheme.railNestSurfaces[
                             Math.min(AppTheme.railNestSurfaces.length - 1,
                                      spaceItem.bandTint(depth))]
                         Rectangle {
-                            // Square off the top when this layer's run
-                            // continues above, so a run of any length reads
-                            // as one shape.
+                            // Square off the top while the run continues above.
                             visible: !bandLayer.opensHere
                             anchors.left: parent.left
                             anchors.right: parent.right
@@ -1757,56 +966,19 @@ Rectangle {
                     }
                 }
 
-                // The expander: a quiet tree glyph living ENTIRELY in the
-                // gutter left of the tile, never touching the active accent
-                // outline. Right-pointing when closed, down when open — the
-                // tree convention. It reveals BOTH the Space's subspaces (as
-                // real hierarchy rows, inserted by the model) and its top
-                // rooms, which is the whole of what the Space contains.
+                // The expander, in the gutter left of the tile, never touching
+                // the active ring. Right when closed, down when open. Reveals
+                // the Space's subspaces (as model rows) and its top rooms.
                 Item {
                     id: expandChevronArea
                     objectName: "railSpaceExpandChevron"
-                    // ── ON THE TILE, not in the gutter ──────────────────
-                    //
-                    // The gutter belongs to the lanes now, and a lane is four
-                    // to ten pixels wide — a twelve-pixel glyph cannot stand
-                    // in one without covering its neighbours. It also has no
-                    // business there: the lanes say what CONTAINS this Space,
-                    // and the chevron says what this Space is DOING, which is
-                    // a fact about the tile.
-                    //
-                    // So it is a badge in the tile's bottom-left corner, at
-                    // the same place on every tile at every depth. It is
-                    // PERMANENT for a Space with something to open — hover-only
-                    // was tried for one revision and the report was immediate,
-                    // "I don't see how to collapse it" — and it never touches a
-                    // line, so the tree behind it stays unbroken.
-                    //
-                    // ONLY WHEN THERE IS SOMETHING TO EXPAND. It used to
-                    // appear on hover over ANY real Space, so a Space with no
-                    // joined subspaces offered a control that opened nothing
-                    // — reported as "remove this small arrow left of space,
-                    // it does nothing now". `expandable` is the model's own
-                    // answer (childSpaceCount > 0) and was already computed;
-                    // the chevron simply never read it.
+                    // Only when there is something to expand (`expandable`,
+                    // from the model), and permanent rather than hover-only so
+                    // it is discoverable.
                     visible: spaceItem.isRealSpace && spaceItem.expandable
                              && !root.dragging
-                    // ── IN THE GUTTER, AND THE TILE IS LEFT WHOLE ───────
-                    //
-                    // Third home, and the first one that costs nothing. A
-                    // notch straddling the tile's corner was measured biting
-                    // a 10x14px hole out of a 40px tile and filling it with
-                    // rail background — a quarter of that corner, on ten of
-                    // the twenty tiles, so the column's own silhouette came
-                    // out eroded. Its disc was 1.07:1 against the rail, which
-                    // is to say invisible, and the only thing anyone could
-                    // actually see was a 5x3px tick sitting in a dent.
-                    //
-                    // The gutter is empty now that nothing is drawn in it, so
-                    // the mark that lost to the lanes wins by default. It has
-                    // the gutter to itself, so it keeps ONE x at every depth
-                    // and needs no disc: there is no longer a line for it to
-                    // interrupt, and nothing for it to be read against.
+                    // In the gutter, leaving the tile whole, at one x for every
+                    // depth.
                     width: root.tileColumnX
                     height: spaceItem.tileBandHeight
                     x: 0
@@ -1814,105 +986,49 @@ Rectangle {
                     Icon {
                         id: expandGlyph
                         objectName: "railSpaceExpandGlyph"
-                        // PLACED BY ITS INK. Right-anchoring the BOX spent a
-                        // quarter of the gutter on the font's own empty side
-                        // bearing and left the visible mark 9px from the tile
-                        // it acts on — a gap 2.7x the mark's own width, which
-                        // is why it read as debris rather than as a control.
-                        //
-                        // `width` here is the glyph's own ADVANCE, and the
-                        // ink is centred in it. Not a binding loop: an
-                        // Icon's width comes from its font metrics and does
-                        // not depend on where it is put.
-                        // Tracks its tile while the rail is wide enough to
-                        // let it, and clamps into the innermost region when
-                        // it is not. `width` is the glyph's ADVANCE and the
-                        // ink is centred in it, so the box is offset by half
-                        // the side bearing to put the INK where this says.
-                        // NOT ROUNDED. The advance carries a fractional side
-                        // bearing, so rounding the BOX moves the INK by that
-                        // much — and the gutter is exactly full, so rounding
-                        // moved it straight back out of its own region.
-                        // Placing the ink is the whole point of this
-                        // expression; round it and it is placing the box.
+                        // Placed by its ink: `width` is the glyph's advance
+                        // with the ink centred in it, so the box is offset by
+                        // half the side bearing. Not a loop: an Icon's width
+                        // depends only on font metrics. Tracks its tile,
+                        // clamped into the innermost region. Not rounded:
+                        // rounding the box moves the ink, and the gutter is
+                        // exactly full.
                         x: root.chevronInkLeft
                            - (width - root.chevronInkWidth) / 2
                         anchors.verticalCenter: parent.verticalCenter
-                        // BOTH glyphs sit high in their own box and they do
-                        // not sit high by the same amount — measured in the
-                        // square plate: `expand_more` needed 1.33 and
-                        // `chevron_right` 0.67 of the rise to centre. NOT
-                        // rounded, for the reason x is not: a rounded offset
-                        // is a whole pixel of error on a 12px control.
+                        // Both glyphs sit high in their box by different
+                        // amounts (expand_more 1.33, chevron_right 0.67 of the
+                        // rise). Not rounded, like x.
                         anchors.verticalCenterOffset:
                             (spaceItem.expanded ? 1.33 : 0.67)
                             * root.chevronInkRise
-                        // ONE MEANING: open or closed. A separate glyph for
-                        // "this one dives" was tried twice and rejected both
-                        // times — as `chevron_right` it was indistinguishable
-                        // from "collapsed", and as an arrow it read as a stray
-                        // mark in the gutter.
+                        // One meaning: open or closed.
                         name: spaceItem.expanded ? "expand_more"
                                                  : "chevron_right"
                         size: root.chevronGlyphSize
-                        // STEPPED WITH THE REGION UNDER IT. The glyph's
-                        // colour was constant while the region it sits on
-                        // gets a tint step lighter each level, so the same
-                        // control measured 4.37:1 at depth 1 and 3.01:1 at
-                        // depth 3 — a third of its contrast lost, at the
-                        // depth where the rail is busiest. It moves with its
-                        // background now, in whichever direction the theme
-                        // takes: `text` is dark on a light preset, so the
-                        // same tint darkens there.
-                        // ONE INK, and it used to step with the band under
-                        // it. That was the right answer to a ladder that
-                        // climbed 34 ΔL*; the ladder spans 12 now, so a
-                        // single colour clears its contrast floor at every
-                        // depth (measured 7.2:1 on bare rail against 3.4:1 on
-                        // the old brightest rung) and the control stops
-                        // changing colour as a reader scrolls past it.
+                        // One ink at every depth: the region ladder is narrow
+                        // enough that a single colour clears its contrast floor
+                        // everywhere.
                         color: chevronHover.hovered ? AppTheme.text
                                                     : AppTheme.textSecondary
                     }
-                    // THE PLATE. It was hover-only and 20px square centred
-                    // on the glyph's BOX — so at rest there was nothing under
-                    // the mark at all, and on hover a plate appeared that was
-                    // wider than the gutter and offset from the ink by the
-                    // font's side bearing. It is always drawn now, positioned
-                    // from the same one place the ink is, and hover is a
-                    // brightening rather than an appearance.
+                    // The plate: always drawn, positioned from the same place
+                    // as the ink; hover brightens it.
                     Rectangle {
                         objectName: "railSpaceExpandPlate"
-                        // THE PLATE IS A RUNG OF THE REGION LADDER, so in
-                        // Classic it has nothing to step up FROM: its whole
-                        // job is to lift the chevron off the region under it
-                        // (see `plateRung`), and on bare rail it would be a
-                        // grey box behind a glyph that reads fine without
-                        // one — which is how 0.9.8 drew it.
+                        // Not drawn in Classic: its job is to lift the chevron
+                        // off a region, and there are none.
                         visible: !root.classicDepth
                         x: root.chevronPlateLeft
                         width: root.chevronPlateWidth
                         height: root.chevronPlateHeight
-                        // Centred on the ROW, not on the glyph's box — the
-                        // glyph is the thing that moves to meet it.
+                        // Centred on the row; the glyph moves to meet it.
                         anchors.verticalCenter: parent.verticalCenter
                         radius: AppTheme.radiusSm
-                        // ONE RUNG UP THE RAIL'S OWN LADDER, not `hover`.
-                        // A resting plate filled with `hover` measures L*
-                        // 19.75 on the depth-1 region — above the ladder's
-                        // deliberate ceiling (16.99) AND above the room list
-                        // beside it (13.83) — so one slab per expandable
-                        // Space would have rebuilt exactly what the ceiling
-                        // round measured and removed: the rail as the
-                        // brightest vertical band in the window. Stepping the
-                        // ladder keeps the plate inside the system it sits
-                        // in, and it follows every theme by construction.
-                        // TWO rungs, not one: one rung is the same 3.4 ΔL*
-                        // that separates two REGIONS, and a control has to
-                        // read as a control rather than as another band. Two
-                        // puts it 6.75 ΔL* over the region it sits on and
-                        // still four below `hover`, which is what the hover
-                        // state now has left to say.
+                        // Two rungs up the rail's own ladder, not `hover`,
+                        // which would be brighter than the ladder's ceiling and
+                        // the room list. One rung is the step between regions;
+                        // two reads as a control.
                         color: chevronHover.hovered
                                ? AppTheme.hover
                                : AppTheme.railNestSurfaces[spaceItem.plateRung]
@@ -1936,43 +1052,27 @@ Rectangle {
                     objectName: "railSpaceTile"
                     width: spaceItem.rowTileSize
                     height: spaceItem.rowTileSize
-                    // CENTRED on the column, not left-aligned to it: a smaller
-                    // tile inset on one side only reads as misaligned, where
-                    // the same tile inset equally on both reads as smaller.
+                    // Centred on the column, so a smaller tile reads as
+                    // smaller, not misaligned.
                     x: root.tileColumnX
                        + Math.round((root.railTileSize
                                      - spaceItem.rowTileSize) / 2)
                     y: spaceItem.contentTop + AppTheme.scaled(4)
                        + spaceItem.dragLift
-                    // THIS ROW'S OWN SIZE, not the top-level one. A nested
-                    // tile drawn at the full tile's radius is proportionally
-                    // rounder than its parent, which reads as a different
-                    // shape rather than as a smaller one.
+                    // This row's own size: a nested tile at the full tile's
+                    // radius would look rounder than its parent.
                     radius: root.tileRadiusFor(spaceItem.rowTileSize)
-                    // ACTIVE is ONE language for every tile in the rail: the
-                    // accent ring above, plus a soft accent WASH here (a tint,
-                    // not a block). A solid bolt fill four pixels inside a bolt
-                    // ring reads as one yellow blob rather than as "you are
-                    // here".
+                    // Active: the accent ring plus a soft accent wash.
                     color: spaceItem.dropTarget ? AppTheme.accentSoft
                            : spaceItem.isActive ? AppTheme.accentSoft
                            : spaceItem.isFolder ? AppTheme.cardElevated
                            : spaceItem.pseudo ? AppTheme.cardElevated
                                               : "transparent"
-                    // NO BORDER HERE — see `railSpaceDropRing` at the bottom
-                    // of this tile. The group ring used to be
-                    // `border.width: dropTarget ? 3 : 0` on this very
-                    // Rectangle, and a Qt Rectangle paints its border INSIDE
-                    // its own bounds, under every child that fills it.
-                    // Full opacity, always. The tile keeps its normal image
-                    // while it is dragged; dimming it made the one thing the
-                    // user is looking at the hardest thing to see.
-                    //
-                    // Scale carries the merge: the dragged tile shrinks onto
-                    // the target it has parked on (see dragLift), and the
-                    // target opens up a little to receive it, so the two read
-                    // as about to become one thing rather than as one tile
-                    // sitting on another.
+                    // No border here (see railSpaceDropRing): a Qt border
+                    // paints inside the bounds, under the children. Full
+                    // opacity while dragged. Scale carries the merge: the
+                    // dragged tile shrinks onto the target and the target grows
+                    // slightly to receive it.
                     scale: spaceItem.dragged
                            ? (root.groupAnchorY >= 0 ? 0.56 : 1.06)
                            : spaceItem.dropTarget ? 1.08 : 1.0
@@ -1987,31 +1087,16 @@ Rectangle {
                         visible: spaceItem.pseudo
                         name: spaceItem.isHome ? "home"
                               : spaceItem.isPeople ? "person" : "workspaces"
-                        // ONE RULE, HALF THE TILE. These were RAW literals
-                        // — 22 and 20, unscaled, so they stayed put at 140%
-                        // interface while the tile around them grew — and at
-                        // a 59px tile they gave a glyph ratio of 0.37 against
-                        // Material's and Discord's 0.50.
+                        // Half the tile.
                         size: root.railChipIconSize
-                        // Follows the tile: accent ink on the active wash, the
-                        // plain icon ink otherwise. accentText was the ink for
-                        // a solid fill that no longer exists, and on a soft
-                        // wash it is unreadable.
-                        // WHITE WHEN SELECTED, and it was the ACCENT on an
-                        // accent wash: measured 1.41:1, against 5.95:1 for
-                        // the unselected tile beside it. Selection made the
-                        // one item you most need to read four times harder to
-                        // read. The wash carries "you are here"; the glyph's
-                        // job is to stay legible on it.
+                        // Plain text ink when selected: the accent on an accent
+                        // wash is unreadable. The wash carries the state.
                         color: spaceItem.isActive ? AppTheme.text
                                                   : AppTheme.textSecondary
                     }
 
-                    // The folder tile: a COMPOSITE of the Spaces inside it,
-                    // the way Discord's is. A generic letter tile tells the
-                    // user the one thing they already know ("this is a
-                    // folder"); the member avatars tell them which folder,
-                    // which is the only question a collapsed folder raises.
+                    // The folder tile is a composite of its members' avatars,
+                    // which identifies the folder.
                     Loader {
                         anchors.fill: parent
                         active: spaceItem.isFolder
@@ -2027,18 +1112,9 @@ Rectangle {
                     Avatar {
                         anchors.fill: parent
                         visible: !spaceItem.pseudo && !spaceItem.isFolder
-                        // MUST equal the rendered edge: Avatar bakes the
-                        // rounded-square mask as `radius * 1000 / size`
-                        // permille of the bitmap, so a stale 40 here gave a
-                        // scaled tile a corner 40% too round.
-                        // THIS ROW'S SIZE, not the base one. `Avatar.size` is
-                        // the mask's permille denominator, so a nested tile
-                        // rendered at 41 with a mask baked from 48 came out
-                        // at r/size 0.356 against the 0.30 every other tier
-                        // uses — MORE round than the band containing it,
-                        // which is the classic wrong-nesting read. The
-                        // Rectangle beneath it was already correct, which is
-                        // what made the two disagree.
+                        // Must equal the rendered edge: Avatar bakes the mask
+                        // as radius * 1000 / size permille, so a different size
+                        // gives the wrong corner.
                         size: spaceItem.rowTileSize
                         circle: false
                         squareRadius: root.tileRadiusFor(spaceItem.rowTileSize)
@@ -2048,7 +1124,7 @@ Rectangle {
                         mxc: spaceItem.avatarUrl
                     }
 
-                    // Unread count badge (rail-coloured ring per design).
+                    // Unread count badge with a rail-coloured ring.
                     Rectangle {
                         visible: spaceItem.unreadTotal > 0
                                  && !spaceItem.isActive
@@ -2078,58 +1154,21 @@ Rectangle {
                         }
                     }
 
-                    // ── THE GROUP RING, AND IT IS DRAWN OUTSIDE ───────────
-                    //
-                    // The rail's whole grouping affordance is "a ring on the
-                    // Space or folder a release would file into". On a real
-                    // Space it was never once drawn: it was
-                    // `border.width: dropTarget ? 3 : 0` on the tile itself,
-                    // and `Avatar { anchors.fill: parent }` paints over a
-                    // Rectangle's border because a Qt border is INSIDE the
-                    // bounds. Measured mid-drag 2026-09-19 with the drag
-                    // parked on a target tile: the row read the avatar's own
-                    // purple from edge to edge, not one accent pixel, while
-                    // the tile WAS 43px against an unhovered 40 — so the
-                    // property was set, the ring was painted, and the avatar
-                    // covered it. The `accentSoft` wash the same branch asks
-                    // for is hidden by the same child. All that survived was
-                    // the 8% scale-up, which on a 40px tile is 1.6px a side.
-                    //
-                    // A CHILD OF THE TILE, not a sibling like the active
-                    // ring, and that is the whole reason this is not two
-                    // lines. A drop target ALSO scales to 1.08, and `scale`
-                    // is a transform: it does not move the tile's x/y/w/h, so
-                    // a sibling anchored to those bounds keeps its unscaled
-                    // geometry while the tile grows THROUGH it — 2px of
-                    // outset against 1.6px of growth leaves 0.4px of ring. A
-                    // child rides the same transform, so the outset holds at
-                    // every tile size, every interface scale and both depth
-                    // styles.
-                    //
-                    // WHOLLY OUTSIDE, outset by its own stroke: a border is
-                    // painted inside the item's bounds, so a ring outset by
-                    // exactly its own width puts every one of its pixels
-                    // past the tile's edge and there is nothing left for a
-                    // child to cover. Thicker than the active ring, at 3
-                    // against 2, which is the distinction the retired border
-                    // was reaching for — "you are here" and "a release here
-                    // merges these two" must not be the same stroke.
-                    //
-                    // It may exceed `tileRingOutset` by a pixel because the
-                    // chevron's gutter, which is what that budget protects,
-                    // is `visible: … && !root.dragging` — and a tile can
-                    // only be a drop target DURING a drag. The two are never
-                    // on screen together.
+                    // The group ring, drawn wholly outside the tile (outset by
+                    // its own stroke): a border inside the tile would be
+                    // covered by the Avatar. A child rather than a sibling so
+                    // it rides the tile's scale transform. 3px against the
+                    // active ring's 2px so "you are here" and "a release merges
+                    // these" differ. It may exceed tileRingOutset because the
+                    // chevron is hidden during drags, the only time a tile is a
+                    // drop target.
                     Rectangle {
                         id: spaceDropRing
                         objectName: "railSpaceDropRing"
                         readonly property int stroke: AppTheme.scaled(3)
                         anchors.fill: parent
                         anchors.margins: -stroke
-                        // CONCENTRIC with the tile it rings: a rounded rect
-                        // outset by N matches only when its radius is larger
-                        // by exactly N, and it reads THIS row's radius
-                        // because a nested tile is rounded for its own size.
+                        // Concentric with this row's tile radius.
                         radius: spaceTile.radius + stroke
                         color: "transparent"
                         border.color: AppTheme.accent
@@ -2138,27 +1177,11 @@ Rectangle {
                     }
                 }
 
-                // Drag to rearrange. Vertical only — the rail is a column, and
-                // a sideways twitch is not a reorder. Pseudo rows are excluded:
-                // "All rooms" is a view of everything.
-                //
-                // The gesture's state lives in the MODEL, not here.
-                //
-                // ── BOUND TO THE TILE BAND, AND IT WAS NOT ─────────────────
-                //
-                // A handler acts within its PARENT, and this one's parent was
-                // the whole delegate — which includes `expansionCol`, the
-                // revealed rooms drawn underneath the tile. So a press on a
-                // ROOM armed the SPACE's drag, and the room's own handler
-                // never activated at all: instrumented, `onActiveChanged`
-                // never fired once. What looked like a working room reorder
-                // in a capture was the activity sort re-running because the
-                // tap underneath had opened the room.
-                //
-                // Reparented to an item that covers the tile band only. Same
-                // device `expandChevronArea` already uses two hundred lines
-                // up, and the reason is the same: a handler's reach is its
-                // parent's geometry, so the geometry is the API.
+                // Drag to rearrange, vertical only; pseudo rows are excluded.
+                // Gesture state lives in the model. Parented to an item
+                // covering only the tile band: a handler acts within its
+                // parent, and on the whole delegate a press on a revealed room
+                // would arm the Space's drag instead.
                 Item {
                     id: tileDragArea
                     width: parent.width
@@ -2183,28 +1206,16 @@ Rectangle {
                             root.updateTileDrag(centroid.scenePosition.y)
                     }
                 }
-                // THE TILE BAND, NOT THE WHOLE ROW — and it lives here for
-                // the reason the DragHandler above it does: a handler's
-                // reach is its parent's geometry, so the geometry is the
-                // API.
-                //
-                // On the delegate itself this reported `hovered` for
-                // EVERYTHING the delegate spans — the revealed-room rows,
-                // the trailing gap, the cap seam. Both readers of it then
-                // spoke about the wrong row: the tile's hover ring lit up
-                // on a Space three rows above the pointer, and the Space's
-                // tooltip (delay 500) replaced the room's own (delay 300)
-                // two hundred milliseconds later, so pointing at a revealed
-                // room named its PARENT, beside the parent's tile. Measured
-                // 2026-09-19 on a real rail: pointing at a room tile at
-                // y 462 put "category 1" at y 333-365, beside the Space at
-                // y 327-367.
+                // Hover over the tile band only, for the same reason as the
+                // DragHandler: on the whole delegate it would report hover over
+                // revealed rooms too, lighting the wrong ring and showing the
+                // parent's tooltip for a room.
                 HoverHandler { id: spaceHover }
                 }
 
-                // Right-click: folders are renamed and unmade here, and a
-                // Space can be filed without a drag. The primary way to MAKE
-                // one is dropping a Space onto another Space.
+                // Right-click: rename or unmake folders, or file a Space
+                // without a drag. Dropping a Space onto another is the primary
+                // way to make a folder.
                 TapHandler {
                     acceptedButtons: Qt.RightButton
                     enabled: !root.dragging
@@ -2229,12 +1240,8 @@ Rectangle {
                     }
                 }
 
-                // SAME OUTSET AS THE RING, and it was a raw -3 against the
-                // ring's 2. The chevron's gap is budgeted against the tile's
-                // visible edge, so an outset that reaches further out than
-                // the ring quietly spent that gap while a row was hovered —
-                // the same "the visible edge is not `tileColumnX`" defect
-                // this file fixed one property up, left behind as a literal.
+                // Same outset as the ring; the chevron's gap is budgeted
+                // against it.
                 Rectangle {
                     anchors.fill: spaceTile
                     anchors.margins: -root.tileRingOutset
@@ -2242,26 +1249,18 @@ Rectangle {
                     color: AppTheme.hover
                     visible: spaceHover.hovered && !spaceItem.isActive
                              && !root.dragging
-                    // BELOW the tree, not level with it. At equal z the later
-                    // sibling wins, so the halo painted over the last three
-                    // pixels of the elbow and the line stopped on the halo
-                    // instead of on the tile — only while hovered, which is
-                    // exactly when the reader is looking at that row.
+                    // Below the tree, so the halo does not paint over the
+                    // elbow.
                     z: -2
                 }
 
                 TapHandler {
-                    // A single tap on a REAL Space opens its overview — the
-                    // unified rooms-and-spaces list REPLACES the chat view
-                    // (openSpaceHome also activates the space, so the
-                    // room-list column follows). The pseudo tiles only filter:
-                    // they have no overview to open and must not tear down the
-                    // open room. There is deliberately NO double-tap; the
-                    // chevron is the one expansion trigger. Scoped to the tile
-                    // band (the expansion rows below carry their own handlers)
-                    // and excluding the chevron's gutter — TapHandlers are
-                    // non-exclusive across subtrees, so without the exclusion a
-                    // chevron click would also navigate.
+                    // A tap on a real Space opens its overview (openSpaceHome
+                    // also activates the Space). Pseudo tiles only filter and
+                    // must not close the open room. No double-tap: the chevron
+                    // is the one expansion trigger. Scoped to the tile band and
+                    // excluding the chevron gutter, since TapHandlers are
+                    // non-exclusive across subtrees.
                     enabled: !root.dragging
                     function pointOnChevron(eventPoint) {
                         if (!expandChevronArea.visible)
@@ -2290,25 +1289,13 @@ Rectangle {
                     }
                 }
 
-                // ── The tooltip hangs off the rail, not over it ─────────
-                //
-                // Attached, not a declared child: a declared ToolTip is a full
-                // Popup (background + Label) instantiated PER ROW, and the
-                // attached form reuses the one shared instance Main.qml
-                // hardens to plain text. A Space name is remote text, so that
-                // hardening is not optional and a per-row ToolTip must not be
-                // introduced to move this.
-                //
-                // Qt centres an attached tooltip on the item it is attached to
-                // and puts it ABOVE. Attached to the row, that is the middle
-                // of the rail one row up — measured covering 15 of the 28
-                // pixels of the tile above, in a column whose only identity
-                // cue is a two-letter avatar, while ~37px of rail sat unused
-                // beside it. So it is attached to an invisible anchor that
-                // starts at the rail's right edge and hangs BELOW the row:
-                // centred there the tooltip clears the rail entirely, and
-                // "above the anchor" puts it beside the row it describes
-                // rather than over the one before it.
+                // Tooltip anchor. Attached rather than a declared ToolTip,
+                // which would build a Popup per row; the shared instance in
+                // Main.qml is hardened to plain text, which a remote Space name
+                // requires. Qt centres an attached tooltip on its item and
+                // places it above, which covered the tile above; so it hangs
+                // off an invisible anchor starting at the rail's right edge,
+                // below the row.
                 Item {
                     objectName: "railSpaceTipAnchor"
                     x: spaceItem.width
@@ -2320,23 +1307,9 @@ Rectangle {
                     ToolTip.delay: 500
                 }
 
-                // THE REVEALED ROOMS NEED NO FIELD OF THEIR OWN.
-                //
-                // They used to get a separate rectangle, because a nested
-                // Space run sat on a tint while a room run floated on bare
-                // rail though both are the same statement about the same
-                // tile. Once a tile draws the region it OWNS, that rectangle
-                // is the owner's own layer: it already spans this delegate,
-                // tile band and revealed rooms together, at the inset and
-                // tint one step in from this row's own. Two things drawing
-                // one region is how they drift apart.
-
-                // Inline expansion: up to `revealed` of the space's top rooms
-                // as 28px tiles, then a "+N" pill revealing 5 more. Tiles
-                // indent one step past the owning tile so the hierarchy reads.
-                // The reorder gesture, on an item of its OWN. See the long
-                // note below for why it is neither on each row nor on the
-                // Column itself.
+                // Inline expansion: up to `revealed` top rooms as small tiles,
+                // then a "+N" pill revealing 5 more. The reorder gesture is on
+                // an item of its own (see below).
                 Item {
                     id: roomDragArea
                     x: 0
@@ -2376,29 +1349,11 @@ Rectangle {
 
                 Column {
                     id: expansionCol
-                    // ── ITS OWN GEOMETRY, AND IT LOST IT ────────────────
-                    //
-                    // `visible`, `y`, `width` and `spacing` were deleted by a
-                    // careless edit that removed a sibling block and took the
-                    // four lines above it. ONE mistake, three live failures,
-                    // and every one of them looked like a different bug:
-                    //
-                    //  * no Space revealed any room anywhere, because a
-                    //    Column with no width lays out nothing;
-                    //  * `visible` defaulted to TRUE, so the delegate added
-                    //    `expansionCol.height + 2` to EVERY row while
-                    //    `rowBand()` — which the drag's pointer arithmetic
-                    //    accumulates — did not, drifting ~2px per row;
-                    //  * so a drop landed a row and a half from the pointer
-                    //    and silently made a folder out of a Space the user
-                    //    was never pointing at.
-                    //
-                    // A full CTest run passed throughout: the mock fixture
-                    // reveals no rooms, so the Column is empty there and the
-                    // divergence is zero. GENERALISE: when a slice-and-splice
-                    // edit removes a block, diff what it actually removed —
-                    // the boundary you searched for is not the boundary you
-                    // meant.
+                    // Keep `visible`, `y`, `width` and `spacing`: without them
+                    // the Column lays out nothing, and a default visible: true
+                    // adds height rowBand() does not count, so drops land on
+                    // the wrong row. The mock fixture reveals no rooms, so
+                    // tests cannot see this.
                     visible: spaceItem.revealed > 0
                              && spaceItem.revealedRooms.length > 0
                              && !root.dragging
@@ -2423,11 +1378,8 @@ Rectangle {
                             Rectangle {
                                 anchors.fill: roomTile
                                 anchors.margins: -root.tileRingOutset
-                                // CONCENTRIC, and derived: `radius: 10` was
-                                // right only at 100% scale and only at the
-                                // minimum rail width. A rounded rect outset
-                                // by N is concentric only at its tile's
-                                // radius PLUS N, at every size.
+                                // Concentric: the tile's radius plus the
+                                // outset, at every size.
                                 radius: roomTile.radius + root.tileRingOutset
                                 color: AppTheme.hover
                                 visible: roomHover.hovered
@@ -2440,13 +1392,8 @@ Rectangle {
                                 radius: root.tileRadiusFor(
                                             root.railRoomTileSize)
                                 color: "transparent"
-                                // THE SAME x AS EVERY OTHER TILE. A room used
-                                // to sit half a step further in, giving the
-                                // expansion column an offset that lined up
-                                // with nothing; now its 28px size is what
-                                // says it is a room, exactly as Element's own
-                                // one-step avatar shrink does, and the column
-                                // stays a column.
+                                // The same x as every other tile; the smaller
+                                // size says it is a room.
                                 x: root.tileColumnX
                                    + Math.round((root.railTileSize
                                                  - root.railRoomTileSize) / 2)
@@ -2488,8 +1435,8 @@ Rectangle {
                             HoverHandler { id: roomHover }
                             TapHandler {
                                 // Opening from the rail also activates the
-                                // space so the room-list column follows —
-                                // openRoom itself never touches activeSpaceId.
+                                // Space so the room list follows; openRoom
+                                // never touches activeSpaceId.
                                 onTapped: {
                                     if (app.spaces)
                                         app.spaces.activeSpaceId =
@@ -2498,10 +1445,7 @@ Rectangle {
                                         expansionRoomRow.modelData.roomId)
                                 }
                             }
-                            // Off the rail, for the reason the Space tile's
-                            // own anchor carries: centred on a 28px tile a
-                            // tooltip covers its neighbours, and the rail has
-                            // nothing else to identify them by.
+                            // Off the rail, like the Space tile's anchor.
                             Item {
                                 x: expansionRoomRow.width
                                    - expansionRoomRow.x
@@ -2555,15 +1499,9 @@ Rectangle {
                         TapHandler {
                             onTapped: root.showMoreRooms(spaceItem.spaceId)
                         }
-                        // OFF THE RAIL, like every other tip here. This one
-                        // was written `x: morePill.width` — the pill's own
-                        // 32px, which is a coordinate INSIDE the rail, not
-                        // the rail's right edge — so the tooltip was centred
-                        // over the tile column and covered the revealed rooms
-                        // above it. The row this anchor sits in spans the
-                        // whole rail width, so `root.width` is its right
-                        // edge; `morePill.y` is read because the pill is
-                        // vertically centred in a taller row.
+                        // Off the rail: `root.width` is this row's right edge;
+                        // `morePill.y` because the pill is centred in a taller
+                        // row.
                         Item {
                             x: root.width
                             y: morePill.y + morePill.height
@@ -2580,16 +1518,12 @@ Rectangle {
                 }
             }
 
-            // Add Space: part of the list CONTENT, so it sits directly below
-            // the last Space tile, scrolls with the tiles, and never overlaps
-            // the pinned Settings/account cluster.
+            // Add Space, part of the list content: it follows the last tile,
+            // scrolls with the list and never overlaps the pinned bottom
+            // cluster.
             footer: Item {
                 width: list.width
-                // THE TILE'S OWN HEIGHT, and it was a literal 48 that
-                // predates a resizable tile. With the tile at 59 the content
-                // reached 63 inside a 48px footer, so `contentHeight` was 15
-                // short: the "+" clipped at the bottom of a scrolled rail and
-                // the scrollbar's range was wrong.
+                // The tile's own height, so contentHeight is correct.
                 height: railAddSpaceButton.visible
                         ? root.railTileSize + 2 * root.rowPad : 0
                 IconButton {
@@ -2606,11 +1540,8 @@ Rectangle {
                              && app.conversations.supported
                     Accessible.name: qsTr("Create a Space")
                     onClicked: root.createSpaceRequested()
-                    // A QUIET SIBLING, not a hole. An outlined transparent
-                    // square in a column of filled tiles reads as a GAP —
-                    // and it sits at the column's end, where the rail was
-                    // already dissolving. Filled at 40% so it is clearly the
-                    // lightest tile without being an absence.
+                    // Filled at 40% so it reads as the lightest tile rather
+                    // than a gap.
                     Rectangle {
                         anchors.fill: parent
                         z: -1
@@ -2622,14 +1553,8 @@ Rectangle {
                         border.color: AppTheme.borderStrong
                     }
                 }
-                // OFF THE RAIL, for the reason the Space tile's own anchor
-                // carries. Attached to the button, Qt centred the tip on it
-                // and put it ABOVE — measured 2026-09-19 at x 6-116,
-                // y 937-969, over the rail and across the last Space tile at
-                // y 925-965. A SIBLING of the button rather than a child, so
-                // the x is the footer's own coordinate space (it spans the
-                // rail's full width) and no reparenting into the control's
-                // contentItem is assumed.
+                // Off the rail, like the Space tile's anchor. A sibling of the
+                // button, so x is in the footer's full-width coordinates.
                 Item {
                     x: root.width
                     y: railAddSpaceButton.y + railAddSpaceButton.height
@@ -2642,13 +1567,8 @@ Rectangle {
             }
         }
 
-        // ── Bottom cluster: settings + account ─────────────────────────────
-        // THE SAME DIVIDER THE HANDOFF ROW USES, centred on the TILE COLUMN.
-        // This one was `spacing12` against the RAIL while every tile aligns
-        // to the column — so it published one centre line and the tiles
-        // another, 8.8px apart, and it was the separator that was right. It
-        // is also why the cog and avatar beside it read as a separate widget
-        // bolted under the rail rather than as the bottom of the same column.
+        // Bottom cluster: settings and account. The same divider as the handoff
+        // row, centred on the tile column.
         Rectangle {
             Layout.alignment: Qt.AlignLeft
             Layout.leftMargin: root.railDividerX
@@ -2659,43 +1579,30 @@ Rectangle {
             visible: app.loggedIn
         }
 
-        // ONE GAP, the column's own. This was `spacing8` where every tile
-        // above it is separated by 12.
+        // The column's own gap.
         Item { implicitHeight: root.railTileGap; visible: app.loggedIn }
 
         IconButton {
             id: railSettingsButton
             objectName: "railSettingsButton"
-            // ON THE COLUMN, which is now the rail's own centre. The note
-            // that used to sit here said the tiles above were not centred, so
-            // a centred cog would be the only thing that moved — true while
-            // the margins were asymmetric, and false since.
+            // On the column, which is the rail's centre.
             Layout.alignment: Qt.AlignLeft
             Layout.leftMargin: root.tileColumnX
             implicitWidth: root.railTileSize
             implicitHeight: root.railTileSize
             radius: root.railTileRadius
-            // A FILL, like the Home and People chips. A 17x19 glyph in a
-            // 59px invisible box sat directly above a 59px solid disc — an
-            // optical weight ratio near 5:1, which is why the two could not
-            // read as siblings.
+            // A fill, like the Home and People chips, so it sits with the
+            // avatar below.
             restingColor: AppTheme.cardElevated
             iconName: "settings"
             iconSize: root.railChipIconSize
-            // Accent chip while the in-shell Settings view is open;
-            // clicking again returns to chat.
+            // Accent chip while in-shell Settings is open; clicking again
+            // returns to chat.
             active: app.currentScreen === 2
             visible: app.loggedIn
-            // v0.7.x: the badge names WHY the cog wants attention, so a
-            // screen reader is not left with a bare "Settings" while a red
-            // dot sits on it.
-            // ONE badge, never two dots on 68px of chrome. Verification
-            // outranks an update: a security state the user must act on is
-            // not the same class of thing as a release being available, and
-            // colouring them alike would devalue the red one.
-            // The PERSISTENT fact, not the dismissible card: dismissing the
-            // corner prompt stops the interruption, and the badge is what is
-            // left to say an update is still waiting.
+            // The badge says why the cog wants attention (for screen readers
+            // too). One badge: verification outranks an update. Shows the
+            // persistent state, not the dismissible prompt.
             readonly property bool _updateBadge:
                 app.updateManager && app.updateManager.updateAvailable
             readonly property string _attentionText:
@@ -2708,13 +1615,8 @@ Rectangle {
             onClicked: app.currentScreen === 2 ? app.showMain()
                                                : app.showSettings()
 
-            // OFF THE RAIL. Attached to the cog, Qt centred the tip on it
-            // and put it ABOVE — measured 2026-09-19 at x 6-72, y 1011-1043,
-            // entirely over the rail and across the Space tile above it.
-            // `railSettingsButton.x` is what the ColumnLayout actually
-            // assigned, so this follows the column rather than restating
-            // `tileColumnX`; the anchor hangs off the cog's BOTTOM so
-            // "above the anchor" lands beside the cog itself.
+            // Off the rail, following the cog's layout x; hangs off its bottom
+            // so the tip sits beside the cog.
             Item {
                 x: root.width - railSettingsButton.x
                 y: railSettingsButton.height
@@ -2725,31 +1627,24 @@ Rectangle {
                 ToolTip.delay: 500
             }
 
-            // Attention badge: this session is not verified AND the user
-            // has not dismissed the reminder. A dot, not a full "!" glyph —
-            // the rail is 68px of chrome and the tooltip carries the words.
-            // Ringed in the rail colour so it reads as a badge sitting ON
-            // the cog rather than part of the glyph.
+            // Attention badge: this session is unverified and the reminder has
+            // not been dismissed. A dot; the tooltip carries the words.
+            // Rail-coloured ring.
             Rectangle {
                 objectName: "railSettingsAlertBadge"
                 visible: app.sessionVerificationWarning || parent._updateBadge
                 anchors.right: parent.right
                 anchors.top: parent.top
-                // ON THE GEAR'S SHOULDER, not floating in the button's
-                // padding. It was anchored to the 59px BUTTON while the glyph
-                // inside it is 23 — measured at 24.9px from the glyph's
-                // centre, further than the glyph is wide, so it read as an
-                // unattached red dot up and to the right of the cog.
+                // On the gear's shoulder, relative to the glyph rather than the
+                // button.
                 anchors.margins:
                     Math.round((root.railTileSize - root.railChipIconSize) / 2)
                     - AppTheme.scaled(3)
                 width: AppTheme.scaled(10)
                 height: AppTheme.scaled(10)
                 radius: height / 2
-                // `danger`/`warning` became INK-ONLY roles on 2026-08-21
-                // (they route light on dark themes so they stay AA as text);
-                // a badge is a FILL and must ask for the saturated fill by
-                // name, or the dot renders as a pale rose smudge on the rail.
+                // danger/warning are ink-only roles; a badge is a fill and asks
+                // for the saturated fill by name.
                 color: app.sessionVerificationWarning ? AppTheme.dangerFill
                                                       : AppTheme.warningFill
                 border.color: AppTheme.rail
@@ -2759,27 +1654,21 @@ Rectangle {
 
         Item { implicitHeight: root.railTileGap; visible: app.loggedIn }
 
-        // Account avatar (40 px circle) with presence dot; opens the
-        // account switcher popover.
+        // Account avatar with presence; opens the account switcher.
         Item {
             id: railAccount
             objectName: "railAccountTile"
-            // ON THE COLUMN — see the cog above for why the note that used
-            // to be here is no longer true.
+            // On the column, like the cog.
             Layout.alignment: Qt.AlignLeft
             Layout.leftMargin: root.tileColumnX
-            // implicitWidth, NOT width: this is a ColumnLayout child, and a
-            // layout takes an aligned item's PREFERRED size — which falls
-            // back to whatever `width` happened to be at the first pass and
-            // then never looks again. Written as `width` it stayed 40px at
-            // every interface size while the cog above it (already an
-            // implicit size) scaled correctly.
+            // implicitWidth, not width: a layout takes the preferred size, and
+            // `width` would stick at its first value instead of scaling.
             implicitWidth: root.railTileSize
             implicitHeight: root.railTileSize
             visible: app.loggedIn
 
-            // Invokable results do not re-evaluate on signals; refresh the
-            // record whenever the registry or selection changes.
+            // Invokable results do not re-evaluate on signals; refresh on
+            // registry or selection changes.
             property var activeAccount: ({})
             function refreshAccount() {
                 activeAccount = app.accounts
@@ -2805,37 +1694,19 @@ Rectangle {
             Avatar {
                 id: railAvatar
                 anchors.fill: parent
-                // Same rule as the Space tiles: Avatar's mask is a permille
-                // of `size`, so it must be the rendered edge.
+                // Avatar's mask is a permille of `size`, so it must be the
+                // rendered edge.
                 size: root.railTileSize
                 circle: true
                 name: railAccount.activeAccount.displayName
                       || railAccount.localpart
                 mxc: railAccount.activeAccount.avatarUrl || ""
-                // Key by the MXID like every other self-avatar surface —
-                // a display-name key gave the rail its own colour and
-                // recoloured on rename.
+                // Keyed by MXID like every self-avatar.
                 colorKey: app.accounts ? app.accounts.activeUserId : ""
             }
-            // THIS BADGE SHOWS THE ACCOUNT'S REAL PRESENCE.
-            //
-            // It was a CONNECTION indicator — green when the sync socket was
-            // up — and it was the only self-status in the app, so the answer
-            // to "what am I showing as?" was a question it could not answer.
-            // Reported 2026-09-19 as not showing the correct status.
-            //
-            // The lifecycle (watch/unwatch, unknown renders NOTHING rather
-            // than a fabricated Offline, offline drawn as a hollow ring so
-            // the three states differ in FORM and not only in hue) all lives
-            // in PresenceDot, which every other surface already uses. The
-            // rail was the one place hand-rolling a rival indicator.
-            //
-            // CONNECTION IS NOT LOST, it moves to the tooltip. That is the
-            // same argument PresenceDot itself makes about `unavailable`: a
-            // dot has no room for prose, so the only thing it could do with a
-            // second fact is paint another colour, which is a fabricated
-            // indicator by another name. The sentence goes where there is
-            // room for a sentence.
+            // The account's real presence via PresenceDot (unknown renders
+            // nothing, offline is a hollow ring). Connection state goes in the
+            // tooltip rather than a second colour.
             PresenceDot {
                 id: railSelfPresence
                 objectName: "railSelfPresenceDot"
@@ -2849,12 +1720,9 @@ Rectangle {
                 Accessible.role: Accessible.Indicator
                 Accessible.name: statusText
             }
-            // AND WHEN THE SERVER HAS NO PRESENCE TO GIVE, the badge still
-            // has to say something: PresenceDot renders nothing for an
-            // unknown state, which is right for a PEER and would leave the
-            // user's own tile with no indicator at all on a server with
-            // presence disabled. This is the old connection dot, kept for
-            // exactly that case and visible only then.
+            // Fallback when the server has no presence to give: the connection
+            // dot, visible only then, so the user's own tile always has an
+            // indicator.
             Rectangle {
                 objectName: "railConnectionDot"
                 visible: !railSelfPresence.visible
@@ -2885,11 +1753,8 @@ Rectangle {
                 z: -1
             }
             TapHandler { onTapped: railAccountMenu.open() }
-            // OFF THE RAIL, and this was the worst of the three: the user id
-            // is the widest string the rail shows, so attached to the avatar
-            // it drew a 242px slab at x 6-248, y 1063-1095 — directly over
-            // the settings cog at y 1048-1088, the one tile you are most
-            // likely to be aiming at next (measured 2026-09-19).
+            // Off the rail: the user id is the widest tooltip and would cover
+            // the cog.
             Item {
                 x: root.width - railAccount.x
                 y: railAccount.height
@@ -2904,45 +1769,16 @@ Rectangle {
             AccountMenu {
                 id: railAccountMenu
                 x: parent.width + AppTheme.spacing8
-                // THE POPOVER GROWS UPWARD FROM THE TILE'S BOTTOM, AND
-                // KEEPING IT INSIDE THE WINDOW IS QT'S JOB, NOT A BINDING'S.
-                //
-                // v0.6.5 clamped the top here, with
-                // `Math.max(_windowTopLocalY + spacing12,
-                //           parent.height - implicitHeight)`, where
-                // `_windowTopLocalY` was `parent.mapFromItem(null, 0, 0).y`
-                // re-read whenever `root.height` changed — `root.height`
-                // being there precisely because mapFromItem() is not
-                // reactive.
-                //
-                // MEASURED 2026-09-20, in the running app: that snapshot is
-                // taken ONCE, during start-up, while this ColumnLayout has
-                // not had its first pass and the account tile is still 12 px
-                // from the rail's TOP. It cached -12 for the rest of the
-                // session, so the first term evaluated to 0 and 0 beat the
-                // real -239 — the popover opened with its top level with the
-                // TILE'S top and ~200 px of it off the bottom of the window,
-                // on every open, until a window resize poked `root.height`
-                // and refreshed the snapshot (which is why any check that
-                // resized first saw a working switcher). The list's own
-                // height was never involved: `implicitHeight` was already
-                // 279 at that single evaluation, and the same defect
-                // reproduces on the code from before the switcher was
-                // rebuilt, at implicitHeight 488.
-                //
-                // `margins` is the same clamp expressed where it cannot go
-                // stale: QQuickPopup pushes the popup inside the window at
-                // every reposition, in C++, from the geometry that exists at
-                // that instant. What is left here is arithmetic on the
-                // parent tile alone, in the tile's own coordinates, which
-                // re-evaluates on its own and cannot be wrong for having run
-                // early.
+                // The popover grows upward from the tile's bottom; keeping it
+                // inside the window is left to `margins`, which QQuickPopup
+                // enforces at every reposition. A binding using mapFromItem()
+                // is not reactive and was cached before first layout, pushing
+                // the popover off-screen.
                 margins: AppTheme.spacing12
                 y: parent.height - implicitHeight
             }
-            // Development-only: the screenshot-demo "account-switching" scenario
-            // opens the real account switcher popover. Null target in a
-            // non-demo build makes this an inert no-op.
+            // Screenshot demo: the account-switching scenario opens the real
+            // popover. Inert in a non-demo build.
             Connections {
                 target: app.demo
                 enabled: app.screenshotDemoActive
@@ -2951,10 +1787,8 @@ Rectangle {
         }
     }
 
-    // ── Folders ──────────────────────────────────────────────────────────
-    // Ordering and grouping the rail is DEVICE-LOCAL, deliberately: Matrix
-    // has no standard for either, so anything stored on the server would be a
-    // private invention only Lightning could read. See RailLayoutStore.
+    // Folders. Ordering and grouping are device-local: Matrix has no standard
+    // for either (see RailLayoutStore).
     AppMenu {
         id: railMenu
         objectName: "railContextMenu"
@@ -2964,24 +1798,19 @@ Rectangle {
         property string folderName: ""
         property bool isFolder: false
         property bool collapsed: false
-        // A subspace is Matrix's arrangement. It can be expanded and opened;
-        // it cannot be filed or ordered, and offering to would promise
-        // something this layer cannot deliver.
+        // A subspace is Matrix's arrangement: it can be expanded and opened,
+        // not filed or ordered.
         property bool hierarchyChild: false
-        // A REAL Space (not Home, not "Other rooms", not a local folder), so
-        // the Space-only actions are offered only where they mean something.
+        // Space-only actions are offered only on a real Space.
         readonly property bool isRealSpace:
             !isFolder && spaceId.charAt(0) === "!"
-        // Sampled when the menu opens, not bound: spaceIsMuted() is a call
-        // over every room in the Space and carries no NOTIFY of its own.
+        // Sampled when the menu opens: spaceIsMuted() has no NOTIFY.
         property bool spaceMuted: false
-        // Same treatment, same reason: read once from the row that was
-        // right-clicked, so "Mark as read" can be honestly disabled when
-        // there is nothing to mark.
+        // Read once so "Mark as read" can be disabled when there is nothing to
+        // mark.
         property int spaceUnread: 0
-        // Sable's menu names the Space it belongs to at the top. AppMenu's
-        // own context header does that here — the row it was opened from is
-        // no longer under the pointer once the menu is up.
+        // Names the Space the menu belongs to, since the row is no longer under
+        // the pointer.
         contextLabel: railMenu.isFolder
                       ? railMenu.folderName
                       : (app.spaces ? app.spaces.spaceName(railMenu.spaceId)
@@ -3009,40 +1838,21 @@ Rectangle {
             iconName: "delete"
             text: qsTr("Delete folder")
             visible: railMenu.isFolder
-            // The Spaces inside come back to the top level where the folder
-            // was; nothing is left and nothing is removed from the account,
-            // so this needs no confirmation.
+            // The Spaces inside return to the top level; nothing is removed
+            // from the account, so no confirmation.
             onTriggered: app.railLayout.deleteFolder(railMenu.entryId)
         }
 
         AppMenuSeparator { visible: railMenu.isFolder }
 
-        // Mute the whole Space. Matrix has no "mute a Space" primitive — a
-        // Space is a room with no timeline, so muting it silences nothing —
-        // so this does what a person would otherwise do by hand to each room
-        // inside it. Unmute restores "follow the account default", the state
-        // a room is in before anyone touched it, rather than asserting "all
-        // messages" for rooms that never asked for it.
-        // ── Home: mark EVERY room read ───────────────────────────────
-        //
-        // Per-room and per-Space have existed for a while and the sweep did
-        // not, so an account that had drifted could only be caught up one
-        // room at a time. It lives on the Home tile because Home is the one
-        // that means "everything"; the Space tile keeps its own scoped
-        // version directly below.
-        //
-        // It clears the bell too: the receipt this sends is what
-        // ActivityModel::markRoomReadUpTo listens for, so the room list and
-        // the Activity badge come down together rather than one of them
-        // being left behind.
+        // Home: mark every room read. It clears the bell too, since the receipt
+        // is what ActivityModel::markRoomReadUpTo listens for.
         AppMenuItem {
             objectName: "railMarkAllRoomsRead"
             iconName: "done_all"
             text: qsTr("Mark all rooms read")
             visible: !railMenu.isFolder && railMenu.spaceId === ""
-            // Nothing unread is nothing to do, and a control that would do
-            // nothing should say so — the same restraint the Space item
-            // below applies.
+            // Disabled when nothing is unread.
             enabled: railMenu.spaceUnread > 0
             onTriggered: app.roomList.markAllRoomsRead()
         }
@@ -3051,8 +1861,7 @@ Rectangle {
             iconName: "done_all"
             text: qsTr("Mark as read")
             visible: railMenu.isRealSpace
-            // A Space with nothing unread has nothing to mark, and a control
-            // that would do nothing should say so rather than pretend.
+            // Disabled when nothing is unread.
             enabled: railMenu.spaceUnread > 0
             onTriggered: app.markSpaceRead(railMenu.spaceId)
         }
@@ -3069,12 +1878,9 @@ Rectangle {
             objectName: "railSpaceInvite"
             iconName: "person_add"
             text: qsTr("Invite")
-            // Deliberately NOT gated on canInvite. That gate reads
-            // app.roomInfo, which follows whatever surface last pointed it
-            // somewhere — usually the open room, not this Space — so gating on
-            // it would grey the row out because nobody has LOOKED, which is a
-            // different and worse lie than offering something the server may
-            // refuse. The invite dialog reports the server's answer honestly.
+            // Not gated on canInvite: app.roomInfo usually points at the open
+            // room, not this Space. The invite dialog reports the server's
+            // answer.
             visible: railMenu.isRealSpace
             onTriggered: spaceInviteDialog.openFor(railMenu.spaceId)
         }
@@ -3087,10 +1893,8 @@ Rectangle {
         }
         AppMenuItem {
             objectName: "railSpaceShareLink"
-            // Every glyph here has to exist in the bundled Material Symbols
-            // SUBSET, which carries exactly the icons the app already uses —
-            // a name the subset does not cover renders as tofu, not as a
-            // missing icon. IconChromeTest pins the whole set.
+            // Every glyph must exist in the bundled Material Symbols subset, or
+            // it renders as tofu. IconChromeTest pins the set.
             iconName: "link"
             text: qsTr("Share link…")
             visible: railMenu.isRealSpace
@@ -3126,8 +1930,7 @@ Rectangle {
             visible: !railMenu.isFolder && railMenu.inFolder.length > 0
             onTriggered: app.railLayout.setSpaceFolder(railMenu.spaceId, "")
         }
-        // One entry per existing folder, so filing a Space never requires a
-        // drag — a rail with twenty Spaces is a long way to drag one.
+        // One entry per folder, so filing a Space never requires a drag.
         Repeater {
             model: (railMenu.isFolder || railMenu.hierarchyChild)
                    ? [] : app.railLayout.folders
@@ -3142,15 +1945,10 @@ Rectangle {
         }
     }
 
-    // ── What the Space menu opens ────────────────────────────────────────
-    // Hosted here, exactly as the folder-name dialog is: a delegate that
-    // reached up into its host by id is how the reader popover's click ended
-    // up silently dead, so the rows stay signal-only and every shared surface
-    // is ONE instance owned by the view.
+    // Shared surfaces for the Space menu, one instance owned by the view; rows
+    // only emit signals.
 
-    // The clipboard write. A hidden TextEdit is the app's existing proxy for
-    // this (RoomsPanel uses the same one for room links); text is cleared
-    // immediately after the copy so a permalink does not sit in a live item.
+    // Hidden TextEdit clipboard proxy (as in RoomsPanel), cleared immediately.
     TextEdit {
         id: railLinkClipboard
         visible: false
@@ -3158,8 +1956,8 @@ Rectangle {
         height: 0
     }
 
-    // matrix.to, the public link — never an authenticated media or client URL.
-    // Alias-preferred, id fallback, which is RoomListModel's own convention.
+    // matrix.to public link; alias preferred, id fallback (RoomListModel's
+    // convention).
     function spaceLink(spaceId) {
         if (!app.roomList || !spaceId || spaceId.length === 0)
             return ""
@@ -3187,10 +1985,8 @@ Rectangle {
         onInviteRequested: (spaceId) => spaceInviteDialog.openFor(spaceId)
     }
 
-    // Share: the link itself, selectable, with the two things anyone actually
-    // does with it. Lightning has no OS share sheet, and inventing one that
-    // silently copied would make "Share" and "Copy link" the same control
-    // under two names.
+    // Share: the link, selectable, with its two actions. There is no OS share
+    // sheet, so no fake one.
     AppDialog {
         id: shareLinkDialog
         objectName: "railShareLinkDialog"
@@ -3211,7 +2007,7 @@ Rectangle {
         contentItem: ColumnLayout {
             spacing: AppTheme.spacing8
             Label {
-                // Remote or externally chosen text: never markup.
+                // Untrusted text: never markup.
                 textFormat: Text.PlainText
                 Layout.fillWidth: true
                 Layout.maximumWidth: 380
@@ -3263,9 +2059,8 @@ Rectangle {
         id: folderNameDialog
         objectName: "railFolderNameDialog"
         property string folderId: ""
-        // Set when the folder is being created FROM a Space's menu: that
-        // Space goes straight into it, which is what "new folder" means when
-        // you asked for it while pointing at something.
+        // Set when creating the folder from a Space's menu: that Space goes
+        // straight in.
         property string pendingSpaceId: ""
         title: folderId.length > 0 ? qsTr("Rename folder") : qsTr("New folder")
         standardButtons: Dialog.Ok | Dialog.Cancel
@@ -3292,12 +2087,8 @@ Rectangle {
         }
         onRejected: pendingSpaceId = ""
 
-        // A LAID-OUT content item, not a bare child. A raw Item dropped into
-        // a Dialog's contentData is positioned by nothing: it sat at the
-        // bottom of the panel, off-centre, with the header's space above it —
-        // reported as "the text to create a folder is not centered and sitting
-        // on the bottom of the bubble". AppDialog's own usage note says
-        // ColumnLayout for exactly this reason.
+        // A laid-out content item: a raw Item in a Dialog's contentData is
+        // positioned by nothing (see AppDialog's usage note).
         contentItem: ColumnLayout {
             spacing: AppTheme.spacing8
 
@@ -3309,8 +2100,7 @@ Rectangle {
                 lineHeightMode: Text.ProportionalHeight
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textMeta
-                // Says the one thing a person needs to know before naming it:
-                // this is theirs, and nobody else will ever see it.
+                // Folders are local to this device.
                 text: qsTr("Folders are only on this device. Other clients, "
                            + "and everyone else, see your spaces unchanged.")
             }

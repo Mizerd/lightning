@@ -3,52 +3,33 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The room's media, files and links — browsed over the WHOLE accessible
-// history, not just the part the timeline happens to have loaded.
-//
-// The old Media tab read `app.timeline.mediaEntries()`, so finding an image
-// from March meant scrolling the conversation back to March. This drives
-// MediaHistoryModel, which walks /messages on its own cursor
-// (rust/src/mediahistory.rs) and never moves the reader's timeline.
-//
-// # Completeness is shown, not implied
-//
-// The strip under the toolbar always says how much history has been examined
-// and whether the start was reached. "No images" after 60 events and "no
-// images in 12,000 events, all of history" are different answers, and a
-// browser that renders both as an empty grid is lying about the second.
-// `undecryptableCount` is the third state: history that exists and cannot be
-// read, which in an encrypted room would otherwise just look like less media.
+// The room's media, files and links across the whole accessible history, not
+// just what the timeline has loaded. Drives MediaHistoryModel, which walks
+// /messages on its own cursor (rust/src/mediahistory.rs) and never moves the
+// reader's timeline. Completeness is shown, not implied: the strip under the
+// toolbar says how much history was examined and whether the start was reached,
+// and undecryptableCount reports history that exists but cannot be read.
 Item {
     id: root
 
-    /// The model — app.mediaHistory, handed in so this component owns no
-    /// global lookups and can be instantiated in a test.
+    /// The model (app.mediaHistory), passed in so this component has no global
+    /// lookups and can be tested.
     property var model: null
     /// The room whose history is browsed.
     property string roomId: ""
-    /// Ask the host to open the image viewer on `index` of `entries` — the
-    /// browser's OWN image list, in view order, so the viewer pages through
-    /// the room's media history.
-    ///
-    /// Both halves are handed over deliberately. The signal used to carry a
-    /// media key alone, and the viewer looked that key up in
-    /// `app.timeline.imageEntries()` — the images the open TIMELINE has
-    /// paginated, which is a different list and by construction does not hold
-    /// the history this browser exists to reach. The lookup missed, the
-    /// viewer fell back to the last entry of that other list, and clicking a
-    /// picture from March opened the newest loaded one instead.
+    /// Ask the host to open the image viewer at `index` of `entries`, this
+    /// browser's own image list in view order. Passing a key alone made the
+    /// viewer search the timeline's loaded images, which do not contain this
+    /// history.
     signal openImagesRequested(var entries, int index)
-    /// Ask the host to jump the timeline to this event. Resolving and
-    /// paginating around it is the host's existing search/permalink path —
-    /// this component never navigates.
+    /// Ask the host to jump the timeline to this event via its existing
+    /// search/permalink path; this component never navigates.
     signal jumpToEventRequested(string eventId)
 
     readonly property bool ready: model !== null && model.available
 
-    // Categories, in the order the prompt asks for them. "media" is the
-    // combined visual view; the individual ones stay reachable, which is the
-    // point of keeping both.
+    // Categories. "media" is the combined visual view; the individual ones stay
+    // reachable.
     readonly property var categories: [
         { key: "media",  label: qsTr("Media") },
         { key: "image",  label: qsTr("Images") },
@@ -58,15 +39,11 @@ Item {
         { key: "link",   label: qsTr("Links") },
     ]
     property string category: "media"
-    /// Grid for visual categories, list for the rest — and the choice is
-    /// remembered per KIND rather than globally, because a grid of files is
-    /// useless and a list of photos is slow to scan.
+    /// Grid for visual categories, list for the rest.
     property bool gridMode: category === "media" || category === "image"
                             || category === "video"
 
-    // The initial value matters as much as a change: `onCategoryChanged`
-    // fires only when it CHANGES, so without pushing it here the model kept
-    // its default (everything) and the Media tab listed files and links.
+    // Push the initial value too: onCategoryChanged only fires on change.
     onCategoryChanged: root.applyCategory()
     onModelChanged: root.applyCategory()
     Component.onCompleted: root.applyCategory()
@@ -79,9 +56,7 @@ Item {
         if (!model)
             return
         model.roomId = roomId
-        // The first page is fetched when the browser becomes visible, not on
-        // room change: walking history for a tab nobody opened is a request
-        // the user did not ask for.
+        // Fetch the first page when shown, not on room change.
         if (visible)
             model.loadMore()
     }
@@ -94,13 +69,8 @@ Item {
         anchors.fill: parent
         spacing: AppTheme.spacing8
 
-        // ── Category tabs ────────────────────────────────────────────────
-        //
-        // A Flow, not a horizontal scroller. This lives in a side panel whose
-        // width the user controls and which clamps narrow, so a scroller hid
-        // Files and Links behind a gesture nobody would guess was there. Six
-        // short labels wrap to two rows and every category stays one click
-        // away at any panel width.
+        // Category tabs in a Flow, so all six stay one click away in a narrow
+        // panel.
         Flow {
             Layout.fillWidth: true
             Layout.leftMargin: AppTheme.spacing12
@@ -112,8 +82,8 @@ Item {
                 delegate: AppButton {
                     required property var modelData
                     text: modelData.label
-                    // The selected category reads as a real button; the rest
-                    // are ghosts, matching the segmented rows elsewhere here.
+                    // The selected category is a real button; the rest are
+                    // ghosts.
                     kind: root.category === modelData.key ? "secondary" : "ghost"
                     size: "sm"
                     onClicked: root.category = modelData.key
@@ -122,7 +92,7 @@ Item {
             }
         }
 
-        // ── Search and filters ───────────────────────────────────────────
+        // Search and filters
         RowLayout {
             Layout.fillWidth: true
             Layout.leftMargin: AppTheme.spacing12
@@ -148,8 +118,7 @@ Item {
             }
         }
 
-        // Sender filter. Only offered once more than one person has appeared,
-        // because a menu with one name in it is noise.
+        // Sender filter, offered once more than one person appears.
         RowLayout {
             Layout.fillWidth: true
             Layout.leftMargin: AppTheme.spacing12
@@ -177,7 +146,7 @@ Item {
             }
         }
 
-        // ── The honest completeness line ─────────────────────────────────
+        // The completeness line
         Label {
             objectName: "mediaBrowserCoverage"
             Layout.fillWidth: true
@@ -218,12 +187,12 @@ Item {
             }
         }
 
-        // ── The results ──────────────────────────────────────────────────
+        // The results
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            // Empty state, and it is careful about WHICH empty it is.
+            // Empty state, specific about which kind of empty.
             Label {
                 anchors.centerIn: parent
                 width: parent.width - AppTheme.spacing24 * 2
@@ -258,9 +227,8 @@ Item {
                 cellHeight: cellWidth
                 ScrollBar.vertical: AppScrollBar {}
                 SmoothWheelArea {}
-                // Paginate when the end comes into view. loadMore() is a
-                // no-op while a page is in flight or the walk is done, so a
-                // fast scroll cannot storm the homeserver.
+                // Paginate when the end comes into view. loadMore() is a no-op
+                // while a page is in flight or the walk is done.
                 onContentYChanged: {
                     if (contentY + height > contentHeight - cellHeight * 2)
                         root.requestMore()
@@ -286,8 +254,7 @@ Item {
                     if (contentY + height > contentHeight - height)
                         root.requestMore()
                 }
-                // Date headers, locale-resolved in C++ (DateGroupRole) so the
-                // month name and order are never guessed here.
+                // Date headers, locale-resolved in C++ (DateGroupRole).
                 section.property: "dateGroup"
                 section.criteria: ViewSection.FullString
                 section.delegate: Rectangle {
@@ -313,8 +280,7 @@ Item {
                 }
             }
 
-            // A quiet spinner rather than a blocking state: the grid stays
-            // usable while older history arrives.
+            // A quiet spinner; the grid stays usable while older history loads.
             BusyIndicator {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
@@ -326,8 +292,7 @@ Item {
             }
         }
 
-        // Retry is offered rather than assumed: a failed page means the rest
-        // of history is UNKNOWN, not absent.
+        // A failed page means the rest of history is unknown, so offer Retry.
         AppButton {
             Layout.alignment: Qt.AlignHCenter
             Layout.bottomMargin: AppTheme.spacing12
@@ -342,9 +307,7 @@ Item {
             model.loadMore()
     }
 
-    /// Opening a row. An image opens in the viewer; everything else jumps to
-    /// the message it came from, which is the action that always makes sense
-    /// and reuses the host's existing navigation.
+    /// An image opens in the viewer; anything else jumps to its message.
     function activate(row) {
         if (!model)
             return
@@ -352,11 +315,9 @@ Item {
         if (!entry || !entry.eventId)
             return
         if (entry.kind === "image") {
-            // The INDEX comes from the model, not from a search: the model
-            // owns the ordering and a second implementation of it here could
-            // only ever drift. (`entry.mxc` used to be sent as the media key,
-            // which is also wrong — the bridge is keyed by event id, and an
-            // encrypted room's mxc is not fetchable at all.)
+            // The index comes from the model, which owns the ordering. The
+            // bridge is keyed by event id (an encrypted room's mxc is not
+            // fetchable).
             var index = model.imageIndexForRow(row)
             if (index < 0)
                 return

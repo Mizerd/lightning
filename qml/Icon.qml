@@ -1,11 +1,9 @@
 import QtQuick
 import MatrixClient
 
-// v0.7 design shell: single icon primitive for ALL interface chrome.
-// Renders a Material Symbols Rounded glyph by name (codepoint-mapped, so
-// no ligature shaping is required), inherits theme colours, and keeps one
-// optical size. Interface chrome must never use emoji as icons; real emoji
-// belong only in user content and reactions.
+// The icon primitive for all interface chrome: a Material Symbols Rounded
+// glyph by name (codepoint-mapped, so no ligature shaping), theme-coloured,
+// one optical size. Interface chrome never uses emoji as icons.
 Text {
     // Remote or externally chosen text: never markup.
     textFormat: Text.PlainText
@@ -49,8 +47,8 @@ Text {
         "done_all": "\ue877",
         "lock": "\ue899",
         "lock_open": "\ue898",
-        // v0.6.5: was the legacy Material Icons codepoint (\ue853), which the
-        // Symbols variable font never carried \u2014 the glyph rendered blank.
+        // The Symbols font's codepoint (the legacy Material Icons one renders
+        // blank).
         "account_circle": "\uf20b",
         "verified_user": "\uf013",
         "palette": "\ue40a",
@@ -94,7 +92,7 @@ Text {
         "link": "\ue250",
         "format_list_bulleted": "\ue241",
         "format_quote": "\ue244",
-        // v0.7: inline media playback controls.
+        // Inline media playback controls.
         "pause": "\ue034",
         "stop": "\ue047",
         "volume_up": "\ue050",
@@ -108,9 +106,8 @@ Text {
         "fit_screen": "\uea10",
         "chevron_left": "\ue5cb",
         "chevron_right": "\ue5cc",
-        // v0.6.5 menu-language glyphs (SPEC 1a-1v): flyout radio rows, the
-        // Lightning bolt (outline at the subset's FILL=0), keycap icons,
-        // new-conversation rows, and the emoji-picker category rail.
+        // Menu glyphs: flyout radio rows, the bolt (outline, as the subset is
+        // FILL=0), keycap icons, new-conversation rows, emoji category rail.
         "radio_button_checked": "\ue837",
         "radio_button_unchecked": "\ue836",
         "bolt": "\uea0b",
@@ -123,9 +120,8 @@ Text {
         "flight": "\ue539",
         "lightbulb": "\ue90f",
         "emoji_symbols": "\uea1e",
-        // Call surface (2026-08-23). Codepoints resolved from upstream
-        // Material Symbols; the bundled font is a SUBSET, so every name here
-        // must also be in scripts/generate-icon-font.sh or it renders tofu.
+        // Call surface. The bundled font is a subset: every name here must also
+        // be in scripts/generate-icon-font.sh or it renders as tofu.
         "mic_off": "\ue02b",
         "call_end": "\uf0bc",
         "videocam_off": "\ue04c",
@@ -139,19 +135,15 @@ Text {
     })
 
     text: _codepoints[name] !== undefined ? _codepoints[name] : ""
-    // The family comes from AppTheme like every other face in the app. It was
-    // the one raw family literal in the tree that was neither a deliberate
-    // preview nor a mirror, which also made it invisible to a family sweep.
+    // The family comes from AppTheme like every other face.
     font.family: AppTheme.iconFont
     font.pixelSize: size
     color: AppTheme.textSecondary
     verticalAlignment: Text.AlignVCenter
     horizontalAlignment: Text.AlignHCenter
-    // Native (hinted, device-pixel) rasterisation, not the distance-field
-    // path: an icon is a static glyph at one size, and the distance field's
-    // resampling is what read as "pixelated" on the profile card's Message
-    // button (2026-09-05). The scale factor is applied through the DPR, so
-    // native glyphs stay crisp under interface zoom; only an animated
-    // `scale` transform would soften them, and no icon here is scaled.
+    // Native (hinted) rasterisation rather than distance fields, whose
+    // resampling looks pixelated for static glyphs. Interface zoom goes
+    // through the DPR, so native glyphs stay crisp; no icon is animated with
+    // `scale`.
     renderType: Text.NativeRendering
 }

@@ -3,12 +3,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.9 (phase 11): "Send later". Presets in the user's LOCAL time, a custom
-// date/time, and the room's pending scheduled messages (edit text /
-// reschedule / cancel / send now). The mode line is the honest part: a
-// message the SERVER holds (MSC4140) goes out whether or not Lightning is
-// running; one Lightning holds needs Lightning running and connected at
-// that moment, and in an encrypted room it is not even written to disk.
+// "Send later": presets in local time, a custom date/time, and the room's
+// pending scheduled messages (edit, reschedule, cancel, send now). The mode
+// line is honest: a message the server holds (MSC4140) goes out regardless; one
+// Lightning holds needs Lightning running and connected, and in an encrypted
+// room it is not written to disk.
 Dialog {
     id: root
     objectName: "sendLaterDialog"
@@ -23,7 +22,7 @@ Dialog {
     padding: AppTheme.spacing16
 
     readonly property var scheduler: app.scheduledSends
-    // The composed message snapshot to schedule; empty map = pending-only.
+    // The composed message to schedule; empty map = pending-only.
     property var message: ({})
     property string choice: "30m"
     // Editing an existing entry's text.
@@ -70,8 +69,7 @@ Dialog {
         return -1
     }
     readonly property bool customInvalid: root.choice === "custom" && root.sendAtMs() < 0
-    // Re-evaluated when the support probe answers: the invokable alone
-    // carries no dependency, `serverScheduling` does.
+    // serverScheduling carries the dependency; the invokable alone does not.
     readonly property bool serverMode: {
         if (!scheduler || !hasMessage)
             return false
@@ -80,14 +78,10 @@ Dialog {
                                         message.threadRootId || "",
                                         message.replyToEventId || "")
     }
-    // RE-READ ON EVERY OPEN, not bound. `roomIsEncrypted` is a Q_INVOKABLE,
-    // so a binding on it depends on `roomId` alone — and this dialog is ONE
-    // instance per composer, reused for the life of the room. Turn on
-    // encryption and schedule a message in the same session and the id never
-    // changed, so a stale `false` told the user Lightning would keep their
-    // message when an encrypted room's scheduled message is held in memory
-    // only and is discarded when the app closes. That is a durability
-    // promise, not a cosmetic label.
+    // Re-read on every open, not bound: roomIsEncrypted is a Q_INVOKABLE and
+    // this dialog is reused for the room's lifetime, so enabling encryption
+    // would leave a stale false and promise durability that an encrypted room's
+    // in-memory schedule does not have.
     property bool encryptedRoom: false
     function refreshEncryptedRoom() {
         encryptedRoom = !!scheduler && root.roomId !== ""
@@ -95,9 +89,7 @@ Dialog {
     }
     onOpened: refreshEncryptedRoom()
     onRoomIdChanged: refreshEncryptedRoom()
-    // The room's pending entries, from the NOTIFYING `pending` property so
-    // the list refreshes on every change (an invokable in a binding does
-    // not re-run).
+    // From the notifying `pending` property, so the list refreshes on change.
     readonly property var roomPending: {
         if (!scheduler)
             return []
@@ -193,8 +185,8 @@ Dialog {
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textMeta
             }
-            // THE honest line. Never "will definitely send while your
-            // computer is off" unless the server holds it.
+            // The honest line: never promise delivery while the computer is off
+            // unless the server holds it.
             Label {
                 objectName: "sendLaterModeLine"
                 Layout.fillWidth: true

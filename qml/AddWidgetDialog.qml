@@ -3,29 +3,21 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// ADDING A WIDGET to a room.
-//
-// A widget is a page a room advertises (docs/widgets.md). Lightning lists
-// them and opens them in the user's browser; it never embeds them, and this
-// dialog does not change that — what it writes is the same
-// `im.vector.modular.widgets` state event every other client lists, and the
-// result appears in this room's Widgets tab like any other.
-//
-// The "browser" here is a picker of KINDS, not a catalogue of services. There
-// is no integration manager: those are web applications that would have to
-// be embedded, which is the thing this client decided not to do. Every kind
-// offered is a page at an address the user already has.
+// Adding a widget to a room (see docs/widgets.md). Writes the same
+// `im.vector.modular.widgets` state event every client lists; Lightning
+// opens widgets in the browser and never embeds them. It offers kinds of
+// widget at addresses the user already has, not a catalogue: an
+// integration manager would itself have to be embedded.
 Dialog {
     id: root
     objectName: "addWidgetDialog"
 
     // `app` is absent when a suite loads the module without the application
-    // context; a null here keeps every binding below quiet until it exists.
+    // context; null keeps the bindings below quiet.
     readonly property var widgets: typeof app !== "undefined" ? app.widgets : null
 
-    // MSC1236's types, the ones every client that lists widgets understands.
-    // Each entry: the type written to the event, a label, and a hint about
-    // what address it wants. Order is by how often people actually add them.
+    // MSC1236 types every widget-listing client understands: the event type, a
+    // label and an address hint, ordered by how often they're added.
     readonly property var kinds: [
         { type: "m.custom",   label: qsTr("Web page"),
           hint: qsTr("Any https page — a dashboard, a document, a board.") },
@@ -158,10 +150,8 @@ Dialog {
             wrapMode: Text.WordWrap
             color: AppTheme.textMuted
             font.pixelSize: AppTheme.textMeta
-            // What this does and does not do, in one breath: it is public to
-            // the room, and it opens in a browser rather than inside
-            // Lightning — which is the same sentence the Widgets tab makes
-            // about every widget it lists.
+            // It's public to the room and opens in a browser, as the Widgets
+            // tab says about every widget.
             text: qsTr("Everyone in the room will see this widget. Lightning "
                        + "opens widgets in your browser, so the page never "
                        + "reaches your account, keys or messages.")
@@ -195,9 +185,9 @@ Dialog {
                          && !root.widgets.writing
                 onClicked: {
                     root.errorText = ""
-                    // An empty name would list the widget by its TYPE
-                    // ("m.custom"); the kind's own label is what the field
-                    // showed as its placeholder, so it is what the user saw.
+                    // An empty name would list the widget by its type
+                    // ("m.custom"), so use the kind's label, which the
+                    // placeholder showed.
                     const kind = root.kinds[kindBox.currentIndex]
                     const name = nameField.text.trim().length > 0
                                ? nameField.text.trim() : kind.label

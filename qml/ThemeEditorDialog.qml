@@ -3,32 +3,20 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings → Appearance → Custom theme.
+// Custom theme editor (Settings → Appearance → Custom theme): a full-window
+// workspace with the editable roles, a live preview of the whole app, and the
+// colour picker. The picker is inline rather than a ColorDialog so it never
+// covers the preview.
 //
-// A FULL-WINDOW workspace, not a settings popover. Three columns: the editable
-// roles, a live preview of the whole app, and the colour picker for whichever
-// role is being edited. The picker is INLINE rather than a platform
-// ColorDialog because a modal dialog opens on top of the preview, and watching
-// the preview is the entire point of the editor.
+// A Popup parented to Overlay.overlay with explicit geometry: AppDialog centres
+// in its parent, which here is a scrolled settings column.
 //
-// It is a Popup parented to `Overlay.overlay` and sized to it. It used to be an
-// AppDialog, and AppDialog centres itself in its PARENT — which for a dialog
-// declared inside the Appearance page is a scrolled settings column, not the
-// window. It sized itself off `Overlay.overlay` too, whose fallback branch left
-// it locked at 1216x736 and hanging off the bottom of the screen with the reset
-// controls below the edge. Explicit geometry against the overlay removes both.
+// The chrome uses AppTheme's invariant editor tokens and draws its own controls
+// (see `editorCanvas` in AppTheme.qml): the shared controls follow the selected
+// theme, and a theme being edited can make them unreadable.
 //
-// The chrome is painted in AppTheme's INVARIANT editor tokens and draws its own
-// buttons, fields and scrollbar. See the comment beside `editorCanvas` in
-// AppTheme.qml: everything in the shared control set follows the storm*
-// namespace, which follows the selected theme — so an editor built from it goes
-// blank the moment someone paints their panel and their body ink the same
-// colour, taking the reset button with it.
-//
-// It holds no draft. Every change commits to CustomThemeStore immediately,
-// which is why there is no Save button and why Reset is the undo — a draft
-// would need a second copy of the palette, and the two could then disagree
-// about what the user picked.
+// No draft: every change commits to CustomThemeStore immediately, so there is
+// no Save button and Reset is the undo.
 Popup {
     id: root
     objectName: "themeEditorDialog"
@@ -42,135 +30,55 @@ Popup {
     modal: true
     closePolicy: Popup.CloseOnEscape
 
-    // Opening the editor with nothing to edit would show an empty name field
-    // and no chips. A theme with no overrides is a real, harmless state — it
-    // simply follows its base — so the first one is created here rather than
-    // waiting for the first colour pick.
+    // Create the theme on open so there is something to edit; a theme with no
+    // overrides simply follows its base.
     onOpened: if (!root.store.exists) root.store.createTheme("")
 
     readonly property var store: app.customTheme
 
-    // ── Geometry ─────────────────────────────────────────────────────────
-    //
-    // THE SIDE COLUMNS USED TO BE PINNED AT 330 AND 320, AND THAT MADE THE
-    // PREVIEW UNUSABLE ON ANY ORDINARY WINDOW. Measured on the GUI at four
-    // sizes (the mock's natural size is 880x560, scaled down to fit and never
-    // up):
-    //
-    //   1920 wide  scale 1.00   the size the mock was designed against
-    //   1440x900   scale 0.852  preview 750x477, 45% of the column bare
-    //   1024x680   scale 0.380  preview 334x213, 69% bare, 2 of 26 roles shown
-    //    953x833   scale 0.299  preview 263x167, 81% bare — and 953 is the
-    //                           window width recorded in the maintainer's own
-    //                           config, so this is the ordinary case
-    //    820x620   scale 0.148  preview 130x82
-    //    640x420   NO PREVIEW AT ALL, and the Done button off-screen: the two
-    //              fixed columns are 650px of a window the app's own
-    //              `minimumWidth` (Main.qml) allows to be 640.
-    //
-    // Body text inside the mock is ~4px tall at 0.299. Judging a colour on
-    // that is not possible, so on the maintainer's window the preview — the
-    // entire justification for an inline picker rather than a modal
-    // ColorDialog — was already hidden, by the editor's own furniture.
-    //
-    // Two changes. The columns are now RANGES rather than constants, and
-    // below `compact` the picker stops being a third column and overlays the
-    // ROLE column instead. That honours the recorded reason for the inline
-    // picker exactly: the rule is that the picker must not cover the PREVIEW,
-    // and the role list is the one thing a person does not need in the
-    // instant after they clicked a role.
-    //
-    // The preview never re-flows when a role is selected, which is the OTHER
-    // recorded promise: in wide mode the third column is reserved whether or
-    // not a role is open (and now holds the readability report when it is
-    // not), and in compact mode the picker is an overlay, so the stage width
-    // is identical in both states either way.
-    //
-    // WHERE THE BREAKPOINT IS, AND WHY IT IS NOT LOWER. Three columns cost
-    // ~0.457 of the width, two cost ~0.235, so below some width the third
-    // column is buying a role list at the price of the preview. 1380 is where
-    // three columns still deliver ~0.81 scale; under it they do not, so they
-    // fold. Crossing the breakpoint therefore makes the preview JUMP larger,
-    // which is deliberate and legible — the picker column visibly folds away
-    // in the same frame, so the growth reads as the layout changing rather
-    // than as a glitch.
-    //
-    // PREDICTED scale after this change, from the arithmetic below; the
-    // measured values are in the round's report:
-    //   1920  1.000 (capped)      1440  0.870 (was 0.852)
-    //   1380  0.809               1379  1.000 (two columns)
-    //   1024  0.814 (was 0.380)    953  0.733 (was 0.299)
-    //    820  0.582 (was 0.148)    640  0.377 (was: no preview at all)
+    // Geometry. Side columns are ranges rather than fixed widths, so the
+    // preview stays usable on ordinary windows. Below `compact` the picker
+    // overlays the role column instead of taking a third column; the picker
+    // must never cover the preview, and the role list is not needed while a
+    // role is open. The preview never reflows when a role is selected: in wide
+    // mode the third column is always reserved (holding the readability report
+    // when no role is open), and in compact mode the picker is an overlay. The
+    // breakpoint (1380) is where three columns still give the preview a usable
+    // scale; below it they fold, and the preview visibly grows as the column
+    // folds away.
     readonly property int headerHeight: 68
     readonly property bool compact: root.width < 1380
     readonly property int workColumnWidth:
         Math.max(268, Math.min(330, Math.round(root.width * 0.235)))
-    // Capped a little tighter than the role column: ColorPickerPanel's
-    // natural width is 288 and everything in it stretches, so 304 costs it
-    // one swatch per row and buys the preview 20px at every wide size.
+    // Slightly tighter than the role column: ColorPickerPanel's natural width
+    // is 288 and everything in it stretches.
     readonly property int pickerColumnWidth:
         Math.max(272, Math.min(304, Math.round(root.width * 0.222)))
-    // What the picker occupies while it is open. In compact mode it is drawn
-    // over the role column, so it costs the preview nothing.
+    // Where the picker sits while open; in compact mode it covers the role
+    // column.
     readonly property int pickerPanelX:
         root.compact ? 0 : root.width - root.pickerColumnWidth
     readonly property int pickerPanelWidth:
         root.compact ? root.workColumnWidth : root.pickerColumnWidth
-    // IN COMPACT MODE THE PANEL HAS TO BE ASKED FOR, AND THE REPORT IS A
-    // REASON TO ASK. The first cut showed it only while a role was being
-    // edited, which made the readability report — this round's headline
-    // surface — unreachable on any window under 1380, INCLUDING the
-    // maintainer's own 953. `reportOpen` is what the header badge sets, so
-    // the badge does the same thing in both modes: it puts the report in
-    // front of you.
+    // In compact mode the panel must be asked for, and the header badge opens
+    // it for the readability report, so the report is reachable at every width.
     property bool reportOpen: false
     readonly property bool pickerPanelVisible:
         !root.compact || root.editingRole.length > 0 || root.reportOpen
-    // True while the panel is COVERING the role column rather than sitting
-    // beside the preview. Everything underneath must stop taking input.
+    // True while the panel covers the role column; everything underneath must
+    // stop taking input.
     readonly property bool pickerPanelCovers:
         root.compact && root.pickerPanelVisible
 
-    // ── Readability ──────────────────────────────────────────────────────
-    //
-    // The findings for the palette as the application would actually paint
-    // it. `previewPalette` is the SAME resolved object the preview renders,
-    // so the report is about the pixels on screen rather than about the
-    // sparse override map — which matters, because the commonest failures are
-    // an interaction between a colour the user changed and one they inherited
-    // from the base and never looked at.
-    //
-    // See CustomThemeStore's header for what is checked and why it is
-    // calibrated against the eleven shipped presets.
-    //
-    // THROTTLED, AND THE MEASUREMENT IS WHY. Graded straight off
-    // `previewPalette` the report re-evaluated once per MOUSE SAMPLE while the
-    // picker was dragged: the whole ~40-key palette crossed into C++ twice
-    // (once for the summary, once for the open role's live readout — FOUR
-    // times since the skipped-check pass was added beside each) and the
-    // report's Repeater tore down and rebuilt a delegate per finding — with
-    // thirteen findings on screen that is ~780 delegate rebuilds over one
-    // drag. Measured on the GUI, 60-sample drag, identical protocol and the
-    // same binary:
-    //
-    //   the editor before this round      1050 / 1170 / 1180 ms CPU
-    //   with the QML hoist, audit removed    0 /   10 /    0 ms
-    //   with the QML hoist and an untimed audit
-    //                                     1280 / 1320 / 1330 ms
-    //
-    // So the hoist took the per-sample cost to essentially nothing and an
-    // unthrottled report handed all of it back and more. A trailing 120 ms
-    // throttle cuts ~60 evaluations per drag to about five while a number
-    // watched at 8 Hz still visibly climbs, which is all the live readout
-    // needs to teach with.
-    //
-    // THROTTLE, NOT DEBOUNCE: `auditTimer` is only started when it is not
-    // already running, so it fires DURING the drag rather than only after it
-    // — and because every change restarts nothing, the last change always
-    // leaves a pending fire, so the FINAL sample always lands. A debounce
-    // would freeze the numbers for the whole gesture, and a throttle that
-    // dropped its trailing edge would leave the report describing a colour
-    // the user no longer has.
+    // Readability findings for the palette as the app would paint it:
+    // previewPalette is the same resolved object the preview renders, so
+    // inherited colours are checked too. See CustomThemeStore for what is
+    // checked. Throttled: graded on every drag sample, the palette crossed into
+    // C++ several times per sample and the report rebuilt its delegates,
+    // costing about a second of CPU per drag. A trailing 120 ms throttle
+    // (auditTimer starts only when not running) updates during the drag and
+    // always lands the final sample; a debounce would freeze the numbers for
+    // the whole gesture.
     property var auditPalette: root.previewPalette
     onPreviewPaletteChanged: if (!auditTimer.running) auditTimer.start()
     Timer {
@@ -182,26 +90,15 @@ Popup {
     readonly property var readabilityReport: root.store.audit(root.auditPalette)
     readonly property int readabilityProblems: root.readabilityReport.length
 
-    // WHAT COULD NOT BE CHECKED, WHICH IS NOT THE SAME AS WHAT PASSED.
-    //
-    // The store refuses to grade a pair whose colour is see-through, and it
-    // is right to (a translucent fill composites over whatever is behind it,
-    // so its contrast is unknowable). Nothing said so: measured on the Storm
-    // base, the live readout under `textPrimary` listed SEVEN rows where the
-    // table holds EIGHT checks naming it, and the header badge said
-    // "Readable" over the pair that had never been graded. An unqualified
-    // clean bill over a question nobody answered is the badge lying, however
-    // honest the C++ under it.
+    // What could not be checked is not what passed. The store refuses to grade
+    // a translucent colour (its contrast is unknowable), so report those
+    // separately rather than letting the badge say "Readable".
     readonly property var readabilitySkipped:
         root.store.auditSkipped(root.auditPalette, "")
     readonly property int readabilityUnchecked: root.readabilitySkipped.length
-    // The two reasons read completely differently to a user: "your colour is
-    // see-through" is something they chose and can change, "this build has no
-    // such colour" is a bug in us. A palette can hold BOTH, and that is the
-    // realistic shape of the second one arriving: Storm always contributes a
-    // translucent `hover`, so a renamed key would land beside it and a single
-    // count under a single sentence would blame us for the user's colour or
-    // the user for ours. Counted apart, and said apart.
+    // "Your colour is see-through" (the user's choice) and "this build has no
+    // such colour" (our bug) are counted and reported separately; a palette can
+    // hold both.
     readonly property int readabilityMissing: {
         var rows = root.readabilitySkipped
         var n = 0
@@ -214,21 +111,16 @@ Popup {
     readonly property int readabilityTranslucent:
         root.readabilityUnchecked - root.readabilityMissing
 
-    // The role currently open in the picker. Held on the dialog, not on the
-    // row: a Repeater delegate can be destroyed while the picker is open (the
-    // list scrolls, the group filter changes) and the pending role would go
-    // with it.
+    // The role open in the picker. Held on the dialog: a Repeater row can be
+    // destroyed while the picker is open.
     property string editingRole: ""
     property string editingLabel: ""
     property bool confirmingReset: false
-    // The base-theme grid. Collapsed by default — see the comment beside it.
+    // The base-theme grid, collapsed by default (see below).
     property bool basesExpanded: false
-    // What the role list is narrowed to. 26 roles across 6 groups is exactly
-    // the size at which typing beats scrolling.
+    // Filter for the role list.
     property string roleFilter: ""
-    // Import/share state. `notice` is a transient confirmation line; it is
-    // cleared by the timer below so it cannot sit there claiming something
-    // that happened a minute ago.
+    // Import/share state. `notice` is transient and cleared by the timer below.
     property bool importing: false
     property string importError: ""
     property string notice: ""
@@ -253,23 +145,11 @@ Popup {
         root.importError = ""
         root.importing = false
         root.editingRole = ""
-        // A SHARED THEME IS SOMEBODY ELSE'S WORK AND NOBODY CHECKED IT.
-        // Both of the unreadable themes this round measured arrived exactly
-        // this way — pasted, accepted, and confirmed with a cheerful line.
-        // The count is deferred by a frame because the store has only just
-        // emitted its change and `readabilityProblems` reads the palette
-        // AppTheme resolves from it.
-        //
-        // AND THE AUDIT IS FORCED FORWARD FIRST, or the cheerful line counts
-        // the WRONG THEME. `auditPalette` starts as a binding to
-        // `previewPalette`, but the throttle below assigns to it imperatively
-        // — and the first such assignment destroys the binding for good, so
-        // from then on it only moves when that 120 ms timer fires. The notice
-        // timer runs at 0 ms, so after one colour drag anywhere in the
-        // session, an import reported the problem count of the theme you had
-        // BEFORE importing. (The same shape this repo already records for
-        // `Image.source`: an imperative write is not an update, it is the end
-        // of the binding.)
+        // Report the problem count of an imported theme, since nobody has
+        // checked it. Deferred a frame because the store has only just emitted
+        // its change. Force the audit first: the throttle assigns auditPalette
+        // imperatively, which destroyed its binding, so otherwise the count
+        // would describe the previous theme.
         root.auditPalette = root.previewPalette
         importNoticeTimer.restart()
     }
@@ -284,8 +164,7 @@ Popup {
             : qsTr("Theme imported.")
     }
 
-    // The clipboard shuttle for Share. A hidden TextEdit is how every other
-    // copy in this application reaches the clipboard.
+    // Clipboard shuttle for Share, as used elsewhere in the app.
     TextEdit {
         id: themeClipboard
         visible: false
@@ -293,33 +172,16 @@ Popup {
         height: 0
     }
 
-    // The palette the preview paints. Resolved BY ID, so the preview shows the
-    // custom theme whether or not the application is currently running it.
-    // Main.qml keeps AppTheme.customOverrides / customBase bound to the
-    // store, so id 12 already resolves to base-plus-overrides. Reading it
-    // through paletteForTheme keeps the preview on the SAME resolver the
-    // running application uses — a second merge here could disagree with it.
+    // The palette the preview paints, resolved by id so it shows the custom
+    // theme whether or not it is active. Uses the same resolver as the running
+    // app (Main.qml keeps AppTheme.customOverrides/customBase bound to the
+    // store).
     readonly property var previewPalette: AppTheme.paletteForTheme(12)
 
-    // THE TWO HOT INPUTS, READ ONCE PER CHANGE INSTEAD OF ONCE PER ROW.
-    //
-    // `effectiveColor` and `isOverridden` are called from the role list, which
-    // instantiates every one of its 26 rows (there is no virtualisation in a
-    // ColumnLayout). Each row asked for `store.colors` FOUR times — the
-    // swatch's colour, its border width, its border colour, and the reset
-    // button's `visible` — and `store.colors` is a Q_PROPERTY returning a
-    // QVariantMap BY VALUE, so every one of those was a fresh
-    // QVariantMap -> QJSValue conversion: 104 per repaint. `effectiveColor`
-    // additionally called AppTheme.paletteForTheme() for every NON-overridden
-    // role, and that function builds a fresh ~45-key object literal on every
-    // call and caches nothing — up to 26 more per repaint.
-    //
-    // All of it re-ran on every `customThemeChanged`, which fires once per
-    // MOUSE SAMPLE while the picker is dragged. Measured on the GUI before
-    // this change: a 60-sample drag cost 680 ms of process CPU against a
-    // 50 ms control (the same drag over dead canvas) and rendered 15 frames,
-    // ~24 fps. Hoisting both onto `root` makes them one conversion and one
-    // palette build per change, whatever the row count.
+    // The two hot inputs, read once per change instead of per row: store.colors
+    // returns a QVariantMap by value (a fresh conversion per read), and
+    // paletteForTheme() builds a fresh object per call. The role list
+    // instantiates all 26 rows and repaints on every drag sample.
     readonly property var overrideColors: root.store.colors
     readonly property var basePalette:
         AppTheme.paletteForTheme(root.store.baseTheme)
@@ -329,9 +191,9 @@ Popup {
         if (overrides && overrides[rolekey] !== undefined)
             return overrides[rolekey]
         var pal = root.basePalette
-        // paletteForTheme resolves SEMANTIC role names; a few store keys are
-        // the palette's own spelling (inputBg -> inputBackground, mention ->
-        // mentionBadge, reaction -> reactionBackground).
+        // paletteForTheme uses semantic names; a few store keys differ (inputBg
+        // -> inputBackground, mention -> mentionBadge, reaction ->
+        // reactionBackground).
         var alias = root.storeKeyAliases[rolekey]
         var lookup = alias !== undefined ? alias : rolekey
         if (pal[lookup] !== undefined)
@@ -339,14 +201,9 @@ Popup {
         return AppTheme.editorTextMuted
     }
 
-    // ONE MAP, AND IT IS THE STORE'S. This was an object literal here, and
-    // the readability table in CustomThemeStore.cpp carried the same three
-    // pairs a second time in its two key columns — two hand-kept copies of
-    // one fact, neither asserted against the other. Read once into a property
-    // because `effectiveColor` runs for all 26 rows on every repaint and this
-    // dialog's hot inputs are hoisted for exactly that reason;
-    // `everyCheckGradesTheColourItsRoleWouldEdit` is what keeps the two
-    // spellings of every check in agreement now.
+    // The store's own alias map, read once.
+    // everyCheckGradesTheColourItsRoleWouldEdit keeps the two spellings in
+    // agreement.
     readonly property var storeKeyAliases: root.store.roleAliases()
 
     function isOverridden(rolekey) {
@@ -354,8 +211,7 @@ Popup {
         return overrides !== undefined && overrides[rolekey] !== undefined
     }
 
-    // One verb, because the badge now has two ways in (pointer and keyboard)
-    // and they must not drift apart.
+    // One entry point for pointer and keyboard.
     function openReport() {
         root.editingRole = ""
         root.reportOpen = true
@@ -387,8 +243,7 @@ Popup {
         return ""
     }
 
-    // CustomThemeStore stores #RRGGBB and nothing else; the picker hands back
-    // a QML color, whose toString() is #AARRGGBB.
+    // CustomThemeStore stores #RRGGBB; a QML color's toString() is #AARRGGBB.
     function toHex(c) {
         function two(v) {
             var s = Math.round(v * 255).toString(16).toUpperCase()
@@ -406,9 +261,7 @@ Popup {
         return ""
     }
 
-    // Groups, narrowed by the filter. A group with nothing left in it is
-    // dropped rather than shown empty — a header over nothing is worse than
-    // no header.
+    // Groups narrowed by the filter; empty groups are dropped.
     readonly property var roleGroups: {
         var out = []
         var seen = {}
@@ -430,8 +283,7 @@ Popup {
         return out
     }
 
-    // ── Self-contained controls ──────────────────────────────────────────
-    // Painted in the invariant editor tokens; see the file header.
+    // Self-contained controls, painted in the invariant editor tokens.
     component EditorButton: AbstractButton {
         id: btn
         property bool primary: false
@@ -482,18 +334,16 @@ Popup {
         color: AppTheme.editorCanvas
     }
 
-    // A plain Item, not the ColumnLayout directly: the picker/report panel
-    // below is POSITIONED rather than laid out (it changes column in compact
-    // mode), and a Rectangle parented to a ColumnLayout becomes a layout item
-    // — it would be stacked under the header instead of floating over the
-    // role column.
+    // A plain Item: the picker/report panel is positioned, not laid out (it
+    // moves column in compact mode), and a child of a ColumnLayout would become
+    // a layout item.
     contentItem: Item {
 
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
 
-        // ── Header ───────────────────────────────────────────────────────
+        // Header
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: root.headerHeight
@@ -505,13 +355,8 @@ Popup {
                 anchors.rightMargin: AppTheme.spacing24
                 spacing: AppTheme.spacing16
 
-                // ELIDING, AND THAT IS NOT COSMETIC. A Label with no elide
-                // reports its full text as its implicit width, a RowLayout
-                // will not shrink a child below that, and the button cluster
-                // beside it is pushed off the window: measured at 640x420 —
-                // a size the app's own `minimumWidth` allows — the header ran
-                // to x=639 and DONE WAS COMPLETELY OFF-SCREEN, leaving Escape
-                // as the only way out of the editor.
+                // Elides: an unelided Label's implicit width would push the
+                // button cluster, including Done, off a narrow window.
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
@@ -544,43 +389,22 @@ Popup {
                             elide: Label.ElideRight
                         }
 
-                        // THE VERDICT, ALWAYS ON SCREEN.
-                        //
-                        // The full report shares a panel with the picker, so
-                        // it is not visible while a colour is open — the one
-                        // thing that must never be hidden is the ANSWER. This
-                        // is the whole state of the theme in one word, and
-                        // clicking it opens the report: in wide mode by
-                        // closing the picker, in compact mode by also raising
-                        // the panel, which is otherwise down.
+                        // The verdict, always on screen. The full report shares
+                        // a panel with the picker, so this badge is the one
+                        // place the answer is always visible; clicking it opens
+                        // the report.
                         Rectangle {
                             objectName: "themeReadabilityBadge"
                             implicitWidth: verdictLabel.implicitWidth
                                            + AppTheme.spacing8 * 2
                             implicitHeight: 22
                             radius: AppTheme.radiusPill
-                            // Shown whenever there is something to say, not
-                            // only once the user has edited something: the
-                            // report and the badge must never disagree about
-                            // whether this theme has a problem.
-                            //
-                            // INCLUDING "we could not check one of them" —
-                            // but ONLY where the badge is the sole route to
-                            // that fact. In COMPACT mode the report is not on
-                            // screen, so hiding the qualification there is
-                            // how an unanswered question turns back into a
-                            // pass. In WIDE mode the report column is
-                            // permanent and already carries the sentence —
-                            // and a new theme on the stock Storm base has one
-                            // ungradable pair from the moment it is created,
-                            // so an unconditional clause would qualify the
-                            // header of every pristine theme before the user
-                            // had touched anything. That is exactly the
-                            // failure this table's own calibration is tuned
-                            // to avoid: a warning that fires on a stock theme
-                            // teaches people to ignore every warning. The
-                            // TEXT change is what fixes the reported defect;
-                            // this clause only decides where it can be read.
+                            // Shown whenever there is something to say. The
+                            // "could not check" clause appears only in compact
+                            // mode, where the badge is the sole route to it; in
+                            // wide mode the report column already says it, and
+                            // a stock Storm base always has one ungradable
+                            // pair, so it would qualify every pristine theme.
                             visible: root.store.overrideCount > 0
                                      || root.readabilityProblems > 0
                                      || (root.compact
@@ -592,11 +416,7 @@ Popup {
                             border.color: root.readabilityProblems > 0
                                           ? AppTheme.editorDanger
                                           : AppTheme.editorBorderStrong
-                            // Keyboard, for the same reason as the role rows
-                            // and the base chips: this was a MouseArea with
-                            // an Accessible.role and no way to reach it, and
-                            // it is the control that opens this round's
-                            // headline surface.
+                            // Keyboard reachable.
                             activeFocusOnTab: true
                             Accessible.role: Accessible.Button
                             Accessible.name: verdictLabel.text
@@ -619,10 +439,8 @@ Popup {
                             Label {
                                 id: verdictLabel
                                 anchors.centerIn: parent
-                                // A PASS THAT LEAVES SOMETHING UNANSWERED
-                                // SAYS SO. "Readable" over a palette holding
-                                // an ungradable pair is a claim this editor
-                                // has not earned — see `readabilitySkipped`.
+                                // A pass that leaves something unchecked says
+                                // so (see readabilitySkipped).
                                 text: root.readabilityProblems > 0
                                       ? qsTr("%n thing(s) hard to read",
                                              "custom theme readability",
@@ -650,26 +468,15 @@ Popup {
                     }
                 }
 
-                // The actions, in their own Row.
-                //
-                // A Row and NOT more RowLayout children: a linear layout
-                // hands its slack to items it thinks can grow, and the
-                // buttons ended up separated by a couple of hundred pixels
-                // each ("buttons on the top are spaced apart very widely").
-                // A Row positions children at their implicit widths with a
-                // fixed gap and skips invisible ones, which is exactly what
-                // a button cluster wants.
+                // A Row rather than RowLayout children: a layout hands slack to
+                // its items and spread the buttons apart.
                 Row {
-                    // Pinned to the top-RIGHT corner explicitly. Relying on
-                    // the title column's fillWidth to push the cluster over
-                    // works only for as long as nothing else in this header
-                    // ever grows.
+                    // Pinned to the top-right explicitly.
                     Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
                     spacing: AppTheme.spacing8
 
-                    // Reset-to-default, with its confirmation inline. A second
-                    // dialog on top of this one would be painted by the shared
-                    // dialog shell, which is exactly what this surface cannot
+                    // Reset with an inline confirmation; a second dialog would
+                    // use the shared dialog shell, which this surface cannot
                     // depend on.
                     Label {
                         anchors.verticalCenter: parent.verticalCenter
@@ -705,10 +512,8 @@ Popup {
                         onClicked: root.confirmingReset = true
                     }
 
-                    // Applying is a separate decision from authoring: the
-                    // preview below renders the custom palette whether or not
-                    // the running application uses it, so a theme can be built
-                    // and looked at before it takes over the window.
+                    // Applying is separate from authoring: the preview shows
+                    // the custom palette whether or not the app uses it.
                     EditorButton {
                         objectName: "themeApplyButton"
                         visible: app.settings.theme !== 12
@@ -738,7 +543,7 @@ Popup {
             Layout.fillHeight: true
             spacing: 0
 
-            // ── Roles ────────────────────────────────────────────────────
+            // Roles
             Rectangle {
                 id: workColumn
                 Layout.preferredWidth: root.workColumnWidth
@@ -747,22 +552,13 @@ Popup {
                 Layout.fillHeight: true
                 color: AppTheme.editorPanel
 
-                // NOTHING UNDER THE OVERLAY MAY TAKE INPUT. In compact mode
-                // the picker panel occupies exactly this column's rectangle,
-                // and a plain Rectangle accepts no mouse buttons — so before
-                // this line a click on the panel's own margins, its section
-                // gaps or the filler below the picker fell straight through
-                // to whatever role row was hidden underneath and silently
-                // switched the role being edited. `enabled: false` also takes
-                // the whole subtree out of the tab chain, so Tab cannot walk
-                // into rows nobody can see.
+                // Nothing under the overlay may take input: in compact mode the
+                // picker panel covers this column and a plain Rectangle accepts
+                // no buttons, so clicks fell through to hidden rows. `enabled:
+                // false` also removes them from the tab chain.
                 enabled: !root.pickerPanelCovers
 
-                // The seam the picker column has always had, on the side that
-                // never had one: the panel simply stopped and the canvas
-                // began, so the editor was bordered on the right and not on
-                // the left. A 1px asymmetry is small and it reads as
-                // unfinished, which is the complaint this round is answering.
+                // A seam on this side too, matching the picker column's border.
                 Rectangle {
                     anchors.right: parent.right
                     height: parent.height
@@ -775,7 +571,7 @@ Popup {
                     anchors.margins: AppTheme.spacing16
                     spacing: AppTheme.spacing8
 
-                    // ── Your themes ──────────────────────────────────
+                    // Your themes
                     Label {
                         text: qsTr("Your themes")
                         color: AppTheme.editorTextSecondary
@@ -844,8 +640,8 @@ Popup {
                         }
                     }
 
-                    // The active theme's name, edited in place. A theme people
-                    // are meant to SHARE needs a name that says what it is.
+                    // The theme's name, edited in place; a shared theme needs a
+                    // name.
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.topMargin: AppTheme.spacing4
@@ -873,23 +669,12 @@ Popup {
                             Accessible.role: Accessible.EditableText
                             Accessible.name: qsTr("Theme name")
                             text: root.store.name
-                            // Committed AS IT IS TYPED. editingFinished alone
-                            // meant Enter or a focus change, and neither is
-                            // reliably reached here: clicking a colour region
-                            // in the sample window is a MouseArea that takes
-                            // no active focus, and pressing Done destroys the
-                            // field. A name typed and then clicked away from
-                            // was simply lost.
-                            //
-                            // onTextEdited, not onTextChanged: it fires for
-                            // USER edits only, so the store write can never be
-                            // triggered by the `text` binding itself. Writing
-                            // the store re-evaluates that binding with the
-                            // same string, which setText early-returns on, so
-                            // the caret does not move. setName only truncates
-                            // at 48 (the field's own maximumLength) and never
-                            // trims, so nothing snaps back under the cursor
-                            // mid-word.
+                            // Committed as typed: editingFinished is not
+                            // reliably reached (a click on the sample window
+                            // takes no focus, and Done destroys the field).
+                            // onTextEdited fires for user edits only, so the
+                            // text binding cannot trigger a write, and setName
+                            // only truncates at 48 and never trims.
                             onTextEdited: root.store.name = text
                             onEditingFinished: root.store.name = text
                             Label {
@@ -983,9 +768,8 @@ Popup {
                             selectedTextColor: AppTheme.editorAccentInk
                             font.family: AppTheme.monoFont
                             font.pixelSize: AppTheme.textMeta
-                            // A shared theme is a single compact line; the cap
-                            // is far above any real one and stops a paste of
-                            // something else entirely from being held here.
+                            // Far above any real shared theme; stops holding an
+                            // unrelated paste.
                             maximumLength: 8192
                             Accessible.role: Accessible.EditableText
                             Accessible.name: qsTr("Paste a shared theme")
@@ -1027,18 +811,10 @@ Popup {
                         color: AppTheme.editorBorder
                     }
 
-                    // COLLAPSED BY DEFAULT, AND THAT IS A SPACE DECISION.
-                    //
-                    // Eleven chips in a 2-up Flow is six rows — about 235px,
-                    // held permanently, for a control touched ONCE per theme.
-                    // The role list underneath it, which is the editor's whole
-                    // job, got whatever was left: measured, 8 of 26 roles
-                    // visible at 1440x900 and 2 of 26 at 1024x680. The
-                    // allocation was the exact inverse of the use.
-                    //
-                    // Collapsed it still answers the question it exists to
-                    // answer — which base am I on — because the current one is
-                    // shown as its own chip, painted in its own palette.
+                    // Collapsed by default: the full grid takes about 235px
+                    // permanently for a control used once per theme, starving
+                    // the role list. Collapsed, the current base is still shown
+                    // as its own chip.
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing8
@@ -1059,7 +835,7 @@ Popup {
                         }
                     }
 
-                    // The current base, shown while the grid is collapsed.
+                    // The current base, shown while collapsed.
                     Rectangle {
                         Layout.fillWidth: true
                         visible: !root.basesExpanded
@@ -1098,17 +874,15 @@ Popup {
                         }
                     }
 
-                    // Base-theme chips, each painting its own palette. A
-                    // combo box shows a NAME; this shows the thing the name
-                    // refers to, which is the only useful question here.
+                    // Base-theme chips painted in their own palettes.
                     Flow {
                         Layout.fillWidth: true
                         visible: root.basesExpanded
                         spacing: AppTheme.spacing6
 
                         Repeater {
-                            // 12 is this theme itself: a cycle QML resolves as
-                            // an undefined palette rather than as an error.
+                            // 12 is this theme itself; a cycle resolves as an
+                            // undefined palette.
                             model: AppTheme.themeList.filter((t) => t.id !== 12
                                                              && t.id !== 0)
                             delegate: Rectangle {
@@ -1159,12 +933,7 @@ Popup {
                                     }
                                 }
 
-                                // Keyboard. A base chip was a Rectangle with a
-                                // MouseArea, so it could not be reached at
-                                // all: measured, the whole tab ring was eight
-                                // stops — the header buttons, the name field
-                                // and the five collection buttons — and not
-                                // one of them changed a colour.
+                                // Keyboard reachable.
                                 activeFocusOnTab: true
                                 Accessible.role: Accessible.RadioButton
                                 Accessible.name: baseChip.modelData.name
@@ -1177,11 +946,9 @@ Popup {
                                         e.accepted = true
                                     }
                                 }
-                                // Inset, not outset: an outset ring is drawn
-                                // outside the chip's own bounds, which is the
-                                // shape §16 records as making every
-                                // neighbour's spacing budget wrong. This is
-                                // the same inset EditorButton already uses.
+                                // Inset, not outset: an outset ring breaks
+                                // neighbours' spacing. Same inset as
+                                // EditorButton.
                                 Rectangle {
                                     anchors.fill: parent
                                     anchors.margins: 2
@@ -1210,10 +977,8 @@ Popup {
                         color: AppTheme.editorBorder
                     }
 
-                    // Narrowing the list. Twenty-six roles in six groups is
-                    // where typing starts to beat scrolling, and it matters
-                    // most on the small windows where only a handful of rows
-                    // fit at all.
+                    // Filter field: with 26 roles, typing beats scrolling,
+                    // especially on small windows.
                     Rectangle {
                         Layout.fillWidth: true
                         implicitHeight: 30
@@ -1242,14 +1007,11 @@ Popup {
                             Accessible.role: Accessible.EditableText
                             Accessible.name: qsTr("Find a colour")
                             onTextEdited: root.roleFilter = text
-                            // ESCAPE MUST STILL CLOSE THE EDITOR.
-                            // QQuickKeysAttached accepts the event BEFORE it
-                            // calls a named-key handler, so an unconditional
-                            // handler here swallows Escape and the dialog's
-                            // own CloseOnEscape never fires — with the filter
-                            // focused, the editor could not be closed from
-                            // the keyboard at all. Clear the filter when there
-                            // is one; otherwise hand the key on.
+                            // Escape must still close the editor: Keys accepts
+                            // the event before a named handler runs, so an
+                            // unconditional handler would swallow it. Clear the
+                            // filter if there is one; otherwise pass the key
+                            // on.
                             Keys.onEscapePressed: (event) => {
                                 if (text.length === 0) {
                                     event.accepted = false
@@ -1309,12 +1071,9 @@ Popup {
                                     Layout.fillWidth: true
                                     spacing: 2
 
-                                    // The group header was editorTextMuted at
-                                    // menuSectionSize and measured close to
-                                    // invisible in a capture — which left a
-                                    // 26-row list with no navigation at all.
-                                    // editorTextSecondary is the same
-                                    // typographic rung with ink you can find.
+                                    // editorTextSecondary: the muted ink was
+                                    // nearly invisible, leaving the list
+                                    // without navigation.
                                     Label {
                                         Layout.topMargin: AppTheme.spacing6
                                         text: modelData.name
@@ -1341,18 +1100,11 @@ Popup {
                                                         modelData.key)))
                                             readonly property string hex:
                                                 root.toHex(resolved)
-                                            // THREE ANSWERS FOR ONE COLOUR,
-                                            // RECONCILED. The swatch beside
-                                            // this row paints a translucent
-                                            // inherited value WITH its alpha,
-                                            // the hex prints the opaque
-                                            // triple, and the audit refuses
-                                            // to grade it at all. Only the
-                                            // third of those was ever
-                                            // explained. Storm's `hover` is
-                                            // Qt.alpha(_stoHover, 0.22), so
-                                            // this is the stock state of a
-                                            // fresh theme, not an edge case.
+                                            // A translucent inherited value (e.g.
+                                            // Storm's `hover`) paints with its alpha
+                                            // in the swatch, prints as an opaque hex,
+                                            // and is not graded by the audit; this
+                                            // flag lets the row explain that.
                                             readonly property bool seeThrough:
                                                 resolved.a < 0.999
                                             Layout.fillWidth: true
@@ -1363,10 +1115,7 @@ Popup {
                                                    ? AppTheme.editorInset
                                                    : "transparent"
 
-                                            // Keyboard, for the same reason as
-                                            // the base chips: the 26 rows that
-                                            // ARE this editor were unreachable
-                                            // without a pointer.
+                                            // Keyboard reachable.
                                             activeFocusOnTab: true
                                             Accessible.role: Accessible.Button
                                             Accessible.name:
@@ -1391,32 +1140,11 @@ Popup {
                                                 border.width: 2
                                                 border.color: AppTheme.editorAccent
                                             }
-                                            // A Flickable does not follow
-                                            // focus, so tabbing through 26
-                                            // rows walked the focus ring
-                                            // straight out of the clipped
-                                            // viewport with nothing on screen
-                                            // moving — the keyboard path
-                                            // existed and was still unusable.
-                                            //
-                                            // mapToItem, not a bare `y`: the
-                                            // row's direct parent is the
-                                            // per-group ColumnLayout, so `y`
-                                            // alone is group-relative.
-                                            // `roleColumn` has no y of its
-                                            // own, so its space and the
-                                            // Flickable's content space
-                                            // coincide.
-                                            //
-                                            // Clamped although the two
-                                            // branches already bound
-                                            // themselves — assigning
-                                            // `contentY` does NOT clamp
-                                            // (StopAtBounds governs dragging,
-                                            // not assignment), so the clamp is
-                                            // free insurance against a future
-                                            // contentHeight that stops
-                                            // tracking implicitHeight.
+                                            // A Flickable does not follow focus, so
+                                            // scroll the focused row into view.
+                                            // mapToItem because the row's parent is
+                                            // its group's ColumnLayout. Clamped, since
+                                            // assigning contentY does not clamp.
                                             onActiveFocusChanged: {
                                                 if (!activeFocus)
                                                     return
@@ -1452,35 +1180,12 @@ Popup {
                                                 anchors.rightMargin: AppTheme.spacing6
                                                 spacing: AppTheme.spacing8
 
-                                                // THE SWATCH IS THE DATA; THE
-                                                // CHANGED MARK IS AN ANNOTATION
-                                                // ON IT, AND IT USED TO BE THE
-                                                // LOUDER OF THE TWO. A 2px
-                                                // accent ring around a 24px
-                                                // chip is a quarter of its
-                                                // area, so on a theme with a
-                                                // dozen overrides the list read
-                                                // as a wall of blue rectangles
-                                                // with the colours hidden
-                                                // inside them. The mark is a
-                                                // separate dot now and the
-                                                // swatch keeps a neutral
-                                                // outline whatever its state.
-                                                // THE BADGE IS INSIDE ITS OWN
-                                                // BOX. §16: a thing drawn
-                                                // outside its own bounds makes
-                                                // every neighbour's budget
-                                                // wrong, and the obvious
-                                                // spelling here — a 26px
-                                                // swatch with the dot hung off
-                                                // its corner at negative y —
-                                                // is exactly that. The cell is
-                                                // 30px, the swatch sits 4px
-                                                // below its top edge, and the
-                                                // dot occupies the corner the
-                                                // swatch gave up. Nothing
-                                                // overhangs, so the row's
-                                                // spacing means what it says.
+                                                // The swatch is the data; the "changed"
+                                                // mark is a separate dot rather than an
+                                                // accent ring that would dominate the
+                                                // list. The dot sits inside the cell's own
+                                                // bounds (the swatch is inset 4px), so
+                                                // nothing overhangs.
                                                 Item {
                                                     implicitWidth: 30
                                                     implicitHeight: 30
@@ -1517,7 +1222,7 @@ Popup {
                                                     Layout.fillWidth: true
                                                     spacing: 0
                                                     Label {
-                                                        // Remote or externally chosen text: never markup.
+                                                        // Untrusted text: never markup.
                                                         textFormat: Text.PlainText
                                                         Layout.fillWidth: true
                                                         text: roleRow.modelData.label
@@ -1526,15 +1231,9 @@ Popup {
                                                         font.pixelSize: AppTheme.textMeta
                                                         elide: Label.ElideRight
                                                     }
-                                                    // THE VALUE. Reading your
-                                                    // own theme used to take 26
-                                                    // clicks — the picker was
-                                                    // the only place any hex
-                                                    // was ever shown, one role
-                                                    // at a time. Copying a tone
-                                                    // from one role to another
-                                                    // is the commonest thing a
-                                                    // person does here.
+                                                    // The value, shown on every row so a tone
+                                                    // can be read and copied between roles
+                                                    // without opening the picker.
                                                     Label {
                                                         objectName: "themeRoleHex_"
                                                             + roleRow.modelData.key
@@ -1596,7 +1295,7 @@ Popup {
                 }
             }
 
-            // ── Preview ──────────────────────────────────────────────────
+            // Preview
             Item {
                 id: previewFrame
                 Layout.fillWidth: true
@@ -1612,21 +1311,16 @@ Popup {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
 
-                        // The preview renders at its NATURAL size and is
-                        // scaled DOWN to fit, never up. Stretching a shell
-                        // mock re-flows it into proportions the real window
-                        // never has — a 1200px-wide room list, a two-line
-                        // composer — and then the user is judging colours on
-                        // a layout that does not exist. Scaling up would
-                        // blur it: Item.scale renders at the original
-                        // resolution first.
+                        // Rendered at natural size and scaled down to fit,
+                        // never up: stretching reflows the mock into
+                        // proportions the real window never has, and scaling up
+                        // blurs it.
                         ThemePreviewDemo {
                             id: preview
                             objectName: "themePreviewDemo"
                             pal: root.previewPalette
-                            // The user's OWN layout. Previewing the Classic
-                            // column to somebody who runs Channels shows them
-                            // where a colour lands in a column they never see.
+                            // The user's own layout, so colours land where they
+                            // will actually be seen.
                             channels: app.settings
                                       && app.settings.roomNavigationLayout === 1
                             highlightRole: root.editingRole
@@ -1655,14 +1349,10 @@ Popup {
                 }
             }
 
-            // ── Picker slot ──────────────────────────────────────────────
-            // RESERVED, not occupied. The picker itself is positioned
-            // manually below, because in compact mode it is drawn OVER the
-            // role column rather than beside the preview, and one panel that
-            // moves is the only way to keep a single instance of the picker's
-            // HSV state. This item exists solely so the layout keeps the
-            // preview off the reserved strip in wide mode — which is what
-            // stops the preview re-flowing when a role is opened.
+            // Picker slot: reserved, not occupied. The picker is positioned
+            // manually below (it overlays the role column in compact mode,
+            // keeping one instance of its HSV state); this item keeps the
+            // preview from reflowing in wide mode.
             Item {
                 Layout.preferredWidth: root.pickerColumnWidth
                 Layout.minimumWidth: root.pickerColumnWidth
@@ -1673,13 +1363,9 @@ Popup {
         }
     }
 
-    // ── The picker / report panel ────────────────────────────────────────
-    //
-    // One instance, two homes. Wide: the reserved third column, always
-    // visible — the picker when a role is open, the readability report when
-    // one is not, so the column is never the 320x830 rectangle holding two
-    // sentences that it used to be (measured: 98.5% flat panel colour).
-    // Compact: an overlay on the role column, shown only while editing.
+    // The picker/report panel, one instance with two homes. Wide: the reserved
+    // third column, showing the picker when a role is open and the readability
+    // report otherwise. Compact: an overlay on the role column while editing.
     Rectangle {
         id: pickerPanel
         x: root.pickerPanelX
@@ -1689,15 +1375,10 @@ Popup {
         visible: root.pickerPanelVisible
         color: AppTheme.editorPanel
 
-        // THE EVENT SINK, AND IT MUST BE DECLARED FIRST.
-        //
-        // A Rectangle's `acceptedMouseButtons` is Qt::NoButton, so the panel
-        // consumed nothing: presses, hover, wheel and the cursor shape all
-        // reached the column it is drawn over. Declared FIRST it is the
-        // BOTTOM sibling, so every real control in the panel is above it and
-        // still wins; it only catches what nothing else wanted. The explicit
-        // arrow cursor is part of the fix — without it the hidden row's
-        // PointingHandCursor showed through over bare panel.
+        // Event sink, declared first so it is the bottom sibling: a Rectangle
+        // accepts no mouse buttons, so without it presses, hover, wheel and
+        // cursor shape fell through to the column underneath. Controls above it
+        // still win.
         MouseArea {
             anchors.fill: parent
             hoverEnabled: true
@@ -1706,22 +1387,10 @@ Popup {
             onWheel: (wheel) => wheel.accepted = true
         }
 
-        // THE SEAM IS POSITIONED, NOT ANCHORED, and the difference is a
-        // whole column of the wrong colour.
-        //
-        // It was `anchors.left: compact ? undefined : parent.left` with the
-        // mirror on `anchors.right`. The panel is built while `root.width` is
-        // still 0, so `compact` is true and `right` binds; when the real
-        // width arrives and `left` binds too, the anchor system has BOTH
-        // edges, writes `width` directly, and destroys the `width: 1`
-        // binding — which the later clearing of `right` can no longer undo.
-        // A 1px rule became a 268px slab of `editorBorder` across the whole
-        // picker/report column: MEASURED #4C596D on a dark base where
-        // `editorPanel` is #2A3140, and #C4D2E7 on a light one.
-        //
-        // It put the readability panel's own text on the wrong surface, and
-        // on a light base that text measured 4.44:1 — the panel that enforces
-        // 4.5:1 failing its own bar. A source read cannot see any of this.
+        // The seam is positioned, not anchored: the panel is built while width
+        // is 0 (compact), and switching anchors later let the anchor system
+        // overwrite the `width: 1` binding, turning the rule into a full-width
+        // slab.
         Rectangle {
             x: root.compact ? parent.width - width : 0
             y: 0
@@ -1759,13 +1428,9 @@ Popup {
                 onClosed: root.editingRole = ""
             }
 
-            // THE LIVE READOUT, AND THE REASON IT SHOWS PASSES TOO.
-            //
-            // Every pair the open role takes part in, graded as you drag.
-            // A warning that merely disappears teaches nothing; a number
-            // climbing past its bar while the crosshair moves is what makes
-            // the relationship between a colour and its readability visible
-            // at the moment the user can act on it.
+            // Live readout: every pair the open role takes part in, graded as
+            // you drag, passes included, so a number climbing past its bar
+            // shows the relationship.
             ColumnLayout {
                 id: roleReadability
                 objectName: "themeRoleReadability"
@@ -1773,41 +1438,19 @@ Popup {
                 visible: root.editingRole.length > 0 && roleChecks.count > 0
                 spacing: 2
 
-                // TWO LINES, AT A HEIGHT NO WIDTH CAN REACH.
-                //
-                // Every row put a whole sentence and a numeric column on ONE
-                // line, and this panel is 304 px at any window 1380 or wider.
-                // Measured on real delegates at that width: the description
-                // column is 181-195 px here and 218 px in the report below,
-                // against a longest phrase of 45 characters — so nine rows
-                // read "The Spaces rail against the …", "Main text on the
-                // conversation …". The number survived and the pair it was
-                // about did not, which is this panel's entire job.
-                //
-                // The row stays a CONSTANT, for the reason the report row's
-                // own comment gives: a wrapping Label whose implicitHeight
-                // feeds its own row's height is the shape a Qt layout loop
-                // comes in, and a binding loop is a LOAD-TIME fact no source
-                // scan can see. FontMetrics is the way to have both — it is
-                // derived from the FONT and never from a width, so it adapts
-                // to the UI-font picker while the layout still cannot fold
-                // back on itself. `maximumLineCount` bounds the Label and
-                // `Layout.preferredHeight` pins the row; nothing here asks a
-                // width how tall it is.
+                // Two lines per row at a constant height from FontMetrics: one
+                // line truncated the pair description at this column width. A
+                // wrapping Label feeding its own row height is a layout loop
+                // waiting to happen; FontMetrics depends only on the font, so
+                // it adapts to the UI font without folding back.
                 FontMetrics {
                     id: checkMetrics
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.textMeta
                 }
-                // THE CEILING IS PER LINE, AND THAT IS NOT A DETAIL. Qt lays
-                // each line out at an integral height, so two 16.5 px lines
-                // occupy 34 px and not 33 — and a Label given 33 px with
-                // `elide` set shows ONE line and elides it. Measured exactly
-                // that way on the first cut of this fix: `h=33 contentH=17
-                // lines=1` on every row, i.e. a fix that changed the row
-                // height and nothing a reader could see. `lineSpacing`, not
-                // `height`, because it is the advance from one baseline to
-                // the next, which is what the second line actually costs.
+                // Ceiling per line: Qt lays out each line at an integral
+                // height, so two 16.5px lines need 34px, and 33 shows one line
+                // elided.
                 readonly property int checkRowHeight:
                     2 * Math.ceil(checkMetrics.lineSpacing)
 
@@ -1822,16 +1465,9 @@ Popup {
                 }
                 Repeater {
                     id: roleChecks
-                    // The throttled palette, for the reason recorded beside
-                    // `auditPalette`: this Repeater rebuilds a delegate per
-                    // check, and bound to the live palette it did so once per
-                    // mouse sample.
-                    //
-                    // THE UNGRADABLE PAIRS ARE IN THE SAME LIST, because
-                    // leaving them out is what made this readout claim eight
-                    // checks and show seven. A row that says "not checked" is
-                    // an answer; a row that is absent is indistinguishable
-                    // from a check that does not exist.
+                    // The throttled palette (see auditPalette). Ungradable
+                    // pairs are included as "not checked" rows so the count is
+                    // honest.
                     model: root.editingRole.length > 0
                            ? root.store.auditForRole(root.auditPalette,
                                                      root.editingRole)
@@ -1841,9 +1477,7 @@ Popup {
                     delegate: RowLayout {
                         id: checkRow
                         required property var modelData
-                        // `passes` is ABSENT on a skipped row, never false —
-                        // the store refuses to hand out a verdict it did not
-                        // reach.
+                        // `passes` is absent on a skipped row, never false.
                         readonly property bool graded:
                             modelData.passes !== undefined
                         Layout.fillWidth: true
@@ -1861,20 +1495,16 @@ Popup {
                         Label {
                             objectName: "themeRoleCheckLabel"
                             Layout.fillWidth: true
-                            // Pinned to the row's own constant rather than
-                            // grown from the text, and centred inside it, so
-                            // a one-line check and a two-line check make the
-                            // same row and the list still reads as a list.
+                            // Pinned to the row's constant height and centred,
+                            // so rows are uniform.
                             Layout.preferredHeight:
                                 roleReadability.checkRowHeight
                             verticalAlignment: Text.AlignVCenter
                             wrapMode: Text.WordWrap
                             maximumLineCount: 2
                             textFormat: Text.PlainText
-                            // The check's own written sentence. Composing it
-                            // from the two role names gave "Text on accent on
-                            // Accent" — see the phrase field in
-                            // CustomThemeStore.cpp.
+                            // The check's own sentence (see the phrase field in
+                            // CustomThemeStore.cpp).
                             text: checkRow.modelData.label
                             color: AppTheme.editorTextSecondary
                             font.family: AppTheme.uiFont
@@ -1884,9 +1514,8 @@ Popup {
                         Label {
                             objectName: "themeRoleCheckValue"
                             textFormat: Text.PlainText
-                            // A WCAG ratio reads as "4.6:1"; a lightness
-                            // separation is not a ratio and must not be
-                            // dressed as one.
+                            // A WCAG ratio reads "4.6:1"; a lightness
+                            // separation is not a ratio.
                             text: !checkRow.graded
                                   ? qsTr("see-through")
                                   : checkRow.modelData.kind === "ink"
@@ -1903,13 +1532,8 @@ Popup {
                             font.pixelSize: AppTheme.textMeta
                             font.weight: AppTheme.weightStrong
                         }
-                        // THE BAR THE NUMBER IS CLIMBING TOWARDS. Without it
-                        // this row told the user they had failed and not by
-                        // how much — and the whole argument for showing
-                        // passes here is that a number moving against a
-                        // TARGET is what teaches. The report's rows have said
-                        // "4.3:1 — needs 4.5:1" all along; this is the same
-                        // fact in the width a picker column has.
+                        // The target the number is climbing towards, as in the
+                        // report rows.
                         Label {
                             objectName: "themeRoleCheckTarget"
                             visible: checkRow.graded
@@ -1924,7 +1548,7 @@ Popup {
                 }
             }
 
-            // ── The report, when nothing is being edited ──────────────
+            // The report, when nothing is being edited
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -1948,10 +1572,8 @@ Popup {
                         font.weight: AppTheme.weightStrong
                         elide: Label.ElideRight
                     }
-                    // Only in compact, where the panel is an overlay the user
-                    // raised on purpose and has to be able to put down again.
-                    // In wide mode the column is permanent and a close button
-                    // on it would be a control that does nothing.
+                    // Only in compact mode, where the panel is a raised
+                    // overlay; in wide mode the column is permanent.
                     Rectangle {
                         objectName: "themeReportCloseButton"
                         visible: root.compact
@@ -2007,22 +1629,17 @@ Popup {
                     font.pixelSize: AppTheme.textMeta
                 }
 
-                // WHAT WAS NOT CHECKED, SAID OUT LOUD. The verdict above is
-                // about the pairs that could be graded, and until this line
-                // existed nothing distinguished "every pair passed" from
-                // "every pair we were able to look at passed".
+                // What was not checked, stated, so "all passed" is not confused
+                // with "all we could check passed".
                 Label {
                     objectName: "themeReadabilityUnchecked"
                     visible: root.readabilityTranslucent > 0
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
                     textFormat: Text.PlainText
-                    // WORDED TO SURVIVE n == 1. The English catalog has no
-                    // numerus forms filled in for this family (the sibling
-                    // "%n thing(s) hard to read" is still `unfinished`), so
-                    // the SOURCE string is what a reader sees at every n —
-                    // and "1 colour(s) … they are see-through" is worse than
-                    // the plural-agnostic sentence below.
+                    // Worded to read correctly at n == 1: the English catalog
+                    // has no numerus forms for this family, so the source
+                    // string is shown at every n.
                     text: qsTr("%n colour(s) could not be checked: a see-through colour reads differently depending on what is behind it.",
                                "custom theme readability",
                                root.readabilityTranslucent)
@@ -2031,12 +1648,10 @@ Popup {
                     font.pixelSize: AppTheme.textMeta
                 }
 
-                // A SEPARATE SENTENCE BECAUSE IT IS A SEPARATE ACCUSATION.
-                // Nothing the user did can produce this one — it means the
-                // readability table names a palette key this build no longer
-                // returns — and `everyReadabilityKeyIsAKeyPaletteForThemeReturns`
-                // is what should make it unreachable. If a reader ever sees
-                // it, the bug is ours and the wording says so.
+                // A separate sentence: this means the readability table names a
+                // palette key this build does not return, which is our bug.
+                // everyReadabilityKeyIsAKeyPaletteForThemeReturns should make
+                // it unreachable.
                 Label {
                     objectName: "themeReadabilityMissing"
                     visible: root.readabilityMissing > 0
@@ -2052,13 +1667,8 @@ Popup {
                 }
 
                 Flickable {
-                    // NAMED so a focused row can scroll itself into view.
-                    // The 26 role rows have done this all along; these rows
-                    // gained the keyboard and not the clamp, and this list
-                    // routinely overflows — the suite's own Ink fixture
-                    // produces TWENTY findings. Tabbing past the visible
-                    // ones moved focus, and the focus ring with it, off
-                    // screen: the reader this whole surface exists for.
+                    // Named so a focused row can scroll itself into view; this
+                    // list often overflows.
                     id: problemScroll
                     objectName: "themeReadabilityScroll"
                     Layout.fillWidth: true
@@ -2083,22 +1693,14 @@ Popup {
                         width: parent.width
                         spacing: 2
 
-                        // THREE LINES NOW, AND STILL A CONSTANT. See the
-                        // live readout above: at the reported 304 px column
-                        // this list gives its description 218 px, where
-                        // "Secondary text on the conversation background"
-                        // read "Secondary text on the conversation …".
-                        // FontMetrics is font-derived and width-independent,
-                        // so the row grew by exactly one line without any
-                        // height here deriving from a width.
+                        // Three lines per row, still a font-derived constant
+                        // (see the live readout).
                         FontMetrics {
                             id: reportMetrics
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
                         }
-                        // Ceiling PER LINE, for the reason recorded beside
-                        // `checkRowHeight` above: ceiling the product loses a
-                        // pixel and costs the second line outright.
+                        // Ceiling per line (see checkRowHeight).
                         readonly property int rowTextHeight:
                             2 * Math.ceil(reportMetrics.lineSpacing)
                         readonly property int rowHeight:
@@ -2111,44 +1713,19 @@ Popup {
                                 required property var modelData
                                 objectName: "themeReadabilityRow"
                                 Layout.fillWidth: true
-                                // STILL FIXED, and for the same reason: a
-                                // wrapping Label whose implicitHeight feeds
-                                // its own row's height is the shape a Qt
-                                // layout loop comes in, and a binding loop is
-                                // a LOAD-TIME fact no source scan can see
-                                // (§16). Uniform rows also read as a list
-                                // rather than as a ragged stack.
-                                //
-                                // What changed is the CONSTANT, not the
-                                // principle: 44 held one line of description
-                                // and one of ratio, and one line could not
-                                // hold the sentence. It is one line taller,
-                                // the description gets two of them, and the
-                                // height still comes from FontMetrics rather
-                                // than from any text's own layout. Cost:
-                                // about a quarter of the findings visible at
-                                // once — measured in the suite, which logs
-                                // the viewport and the row height.
+                                // Fixed height, for the same loop-avoidance
+                                // reason; uniform rows also read as a list.
                                 implicitHeight: problemColumn.rowHeight
                                 radius: AppTheme.radiusSm
                                 color: problemHover.containsMouse
                                        ? AppTheme.editorInset : "transparent"
 
-                                // Keyboard, exactly as the 26 role rows have
-                                // it. These rows ARE the report — the surface
-                                // this round exists for — and they were
-                                // pointer-only, which makes a readability
-                                // feature unreachable to the readers most
-                                // likely to need it.
+                                // Keyboard reachable.
                                 activeFocusOnTab: true
                                 Accessible.role: Accessible.Button
                                 Accessible.name: problemText.text
                                 // The role rows' clamp, mirrored: assigning
-                                // `contentY` does NOT clamp (StopAtBounds
-                                // governs dragging, not assignment), and
-                                // `problemColumn` has no y of its own, so its
-                                // space and the Flickable's content space
-                                // coincide.
+                                // contentY does not clamp.
                                 onActiveFocusChanged: {
                                     if (!activeFocus)
                                         return
@@ -2193,20 +1770,14 @@ Popup {
                                     anchors.rightMargin: AppTheme.spacing8
                                     spacing: AppTheme.spacing8
 
-                                    // The two colours that are failing, one on
-                                    // the other, at the size they fail at.
-                                    // Naming a pair is abstract; showing it is
-                                    // the argument.
+                                    // The two failing colours, one on the
+                                    // other, at the size they fail at.
                                     Rectangle {
                                         implicitWidth: 30
                                         implicitHeight: 30
                                         radius: AppTheme.radiusSm
-                                        // The THROTTLED palette, not the live
-                                        // one: these two colours are what the
-                                        // row's ratio was computed from, and a
-                                        // sample that had moved on from the
-                                        // number beside it would be showing a
-                                        // pair that does not have that ratio.
+                                        // The throttled palette, matching the
+                                        // ratio shown beside it.
                                         color: root.auditPalette[
                                             problemRow.modelData.bg]
                                         border.width: 1
@@ -2237,10 +1808,8 @@ Popup {
                                             id: problemText
                                             objectName: "themeReadabilityRowLabel"
                                             Layout.fillWidth: true
-                                            // Pinned to two lines whether it
-                                            // needs them or not, so the ratio
-                                            // beneath it sits at the same
-                                            // height in every row.
+                                            // Pinned to two lines so the ratio sits at
+                                            // the same height in every row.
                                             Layout.preferredHeight:
                                                 problemColumn.rowTextHeight
                                             verticalAlignment: Text.AlignVCenter
@@ -2292,21 +1861,11 @@ Popup {
         }
     }
 
-    } // contentItem
+    }
 
-    // The base theme's own colours, offered in the picker. Building a theme
-    // almost always means reusing a tone that is already in it — a hand-typed
-    // near-miss is how a palette loses its coherence.
-    //
-    // SORTED BY LIGHTNESS, not by semantic key order. The list used to be
-    // emitted in the order written below, which on any dark theme front-loads
-    // every near-black: a review counted NINE of the fifteen swatches as
-    // indistinguishable navies at 26px. The stated purpose of the strip is
-    // "reuse a tone that is already in here", and a strip whose entries the
-    // eye cannot separate cannot serve it — the user types a near-miss
-    // anyway. Sorting on CIE L* makes it read as a ladder, which is the same
-    // lesson §16 records for the rail's tint ladder: equal steps in the data
-    // are not equal steps to the eye.
+    // The base theme's own colours, offered in the picker for reuse. Sorted by
+    // CIE L* rather than key order, so the strip reads as a ladder instead of a
+    // run of indistinguishable near-blacks.
     readonly property var paletteSwatches: {
         var pal = root.basePalette
         var keys = ["background", "sidebar", "rail", "surface", "cardElevated",

@@ -2,21 +2,13 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// v0.7 design shell: classic four-pane layout (design option 1a).
-//   Column 1 — SpacesRail (68 px, always visible: home, Spaces, settings,
-//              account avatar with the switcher popover)
-//   Column 2 — RoomsPanel (300 px preferred)
-//   Column 3 — TimelinePane (fills; hosts the member/thread side panel)
-// E2EE / SAS / recovery / backend behaviour is unchanged.
+// The main shell: SpacesRail, RoomsPanel, and TimelinePane (which hosts the
+// member/thread side panel), in a SplitView.
 Item {
-    // Panel visibility. Ctrl+B for the room list and Ctrl+Shift+B for the
-    // spaces rail by default — the editor convention, and both are mirrored
-    // as switches in Settings -> Appearance so neither can be turned off and
-    // then be impossible to find again.
-    // Sequences come from ShortcutRegistry (Settings -> Keyboard shortcuts).
-    // bindingRevision is read INSIDE each binding on purpose: sequenceFor()
-    // is a function call and creates no dependency Qt can track, so without
-    // it a rebind would not apply until this component was next created.
+    // Panel visibility: Ctrl+B for the room list, Ctrl+Shift+B for the rail by
+    // default, both mirrored as switches in Settings -> Appearance. Sequences
+    // come from ShortcutRegistry; bindingRevision is read inside each binding
+    // because sequenceFor() creates no dependency.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -33,24 +25,12 @@ Item {
             app.settings.spacesRailVisible = !app.settings.spacesRailVisible
     }
 
-    // ── Settings, from the keyboard ────────────────────────────────────
-    //
-    // THE OTHER HALF OF `app.openSettings`. qml/SettingsScreen.qml declares
-    // the same action for the case where Settings is ALREADY open (it
-    // focuses the search field there); this one opens it.
-    //
-    // TWO ENABLED SHORTCUTS ON ONE SEQUENCE MAKE QT FIRE NEITHER, so the two
-    // gates must be exclusive, and they provably are: SettingsScreen's gate
-    // is its own `root.visible`, and that item is the child of
-    // settingsViewLoader in qml/Main.qml, whose `visible` binding IS
-    // `app.currentScreen === 2`. This gate is that condition's exact
-    // complement. Do not relax either one without re-deriving the pair.
-    //
-    // The gate cannot be left off on the grounds that MainScreen is hidden
-    // under Settings: `enabled: visible` on that Loader disables ITEMS, and
-    // a Shortcut is not an item — every Shortcut in this file stays live
-    // while Settings covers the window, which is precisely why
-    // SettingsScreen's own Escape carries a visibility gate too.
+    // Opens Settings. SettingsScreen declares the same action for when Settings
+    // is already open (it focuses the search field). Two enabled Shortcuts on
+    // one sequence make Qt fire neither, so the gates are exact complements:
+    // SettingsScreen's `root.visible` is app.currentScreen === 2 (see
+    // Main.qml's settingsViewLoader). The gate is needed because Shortcuts stay
+    // live while MainScreen is hidden under Settings.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -59,11 +39,8 @@ Item {
         enabled: app.currentScreen !== 2
         onActivated: app.showSettings()
     }
-    // Lightning's shortcut list IS the rebinding page, so this navigates
-    // there rather than opening a second cheat sheet that could disagree
-    // with the page that can actually change the keys. Ungated on purpose:
-    // showSettingsSection() works whether Settings is open or not, and there
-    // is only ONE declaration of this sequence in the window.
+    // The shortcut list is the rebinding page, so navigate there. Ungated:
+    // showSettingsSection() works whether Settings is open or not.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -72,20 +49,10 @@ Item {
         onActivated: app.showSettingsSection("shortcuts")
     }
 
-    // ── Call audio, from anywhere in the window ─────────────────────────
-    //
-    // The point of a mute key is that it works while you are doing something
-    // ELSE — reading another room, typing a note — which is precisely when
-    // you need to mute in a hurry and cannot go hunting for the call bar. So
-    // these are window-global rather than scoped to the call surface, and
-    // they follow the same LANE SELECTION the bar's own buttons use: the SFU
-    // lane while a group call is live, the legacy 1:1 lane otherwise. Wiring
-    // them to one lane would leave the key dead in half of all calls.
-    //
-    // No call running: nothing happens, deliberately and silently. The
-    // alternative — not declaring the Shortcut at all until a call starts —
-    // would take the sequence away from whatever else wanted it, at the one
-    // moment the user is least able to notice.
+    // Call audio keys, window-global so they work while doing something else.
+    // They follow the call bar's lane selection: the SFU lane while a group
+    // call is live, the legacy 1:1 lane otherwise. With no call they do
+    // nothing, while still holding their sequences.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -110,12 +77,7 @@ Item {
                 app.calls.toggleDeafened()
         }
     }
-    // Camera. The lane selection above collapses to ONE lane here and that is
-    // not an omission: a camera exists only on the MatrixRTC lane, because
-    // the legacy 1:1 lane is audio-only by design — CallHeaderBar draws its
-    // camera control behind `richMedia`, which is exactly `groupLive`. There
-    // is nothing on `app.calls` to fall through to, so the key is inert
-    // outside an SFU call for the same reason mute is inert outside any call.
+    // Camera: SFU lane only; the legacy 1:1 lane is audio-only.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -126,11 +88,8 @@ Item {
                 app.groupCall.toggleCamera()
         }
     }
-    // Back to the room the live call is in, from anywhere — including
-    // Settings, which is where a call is easiest to lose track of. Both
-    // lanes, because both can be live while the user is reading elsewhere;
-    // the Voice Connected strip's Return button does the same thing with a
-    // pointer (qml/RoomsPanel.qml).
+    // Back to the room the live call is in, from anywhere including Settings.
+    // Both lanes; the Voice Connected strip's Return button does the same.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -147,28 +106,12 @@ Item {
         }
     }
 
-    // Start a call in the open conversation. GATED, unlike mute/deafen/camera
-    // above: those are inert inside a call that does not offer them, whereas
-    // this one would START something.
-    //
-    // AND `canStartCall()` ALONE IS NOT THAT GATE — a first version of this
-    // key said it was, and it could have ENDED A LIVE CALL.
-    // `AppController::canStartCall` is one line over `preferredCallLane()`,
-    // which asks only "does this room have a lane"; it has no in-a-call
-    // clause and cannot have one, because a Q_INVOKABLE has no NOTIFY and a
-    // binding on it would never re-evaluate when a call starts. The three
-    // clauses below are what make this reactive, and
-    // `SfuCallController::join` opens with "One call at a time, globally:
-    // tear the previous one down" — so without them, Ctrl+Shift+C in any
-    // other RTC-capable room silently dropped the call you were in. (The
-    // legacy lane was never exposed: `CallController::placeCall` refuses
-    // with `call_in_progress`, which is exactly why a DM-only test could
-    // not have found this.)
-    //
-    // They are the timeline header call button's gate verbatim
-    // (qml/TimelinePane.qml) and `theStartCallKeyIsGatedLikeTheCallButton`
-    // asserts that they stay that way, because the drift between these two
-    // expressions IS the defect.
+    // Start a call in the open conversation. Gated, since this starts
+    // something. canStartCall() alone is not enough: it only asks whether the
+    // room has a lane, and SfuCallController::join tears down any current call,
+    // so without the in-call clauses this key could end a live call. These
+    // clauses are the header call button's gate verbatim (TimelinePane.qml);
+    // theStartCallKeyIsGatedLikeTheCallButton keeps them in step.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -176,20 +119,16 @@ Item {
         }
         enabled: app.loggedIn && app.currentRoomId !== ""
                  && app.canStartCall(app.currentRoomId)
-                 // The DEPENDENCY for the call above: `canStartCall` is a
-                 // Q_INVOKABLE, so Qt records nothing, and its answer rides
-                 // RTC state that lands asynchronously. Without this the
-                 // gate evaluates once at room-open and the button stays
-                 // ABSENT until the user navigates away and back.
+                 // canStartCall is a Q_INVOKABLE with no NOTIFY;
+                 // callGateRevision re-evaluates it when RTC state lands.
                  && app.callGateRevision >= 0
                  && !app.groupCall.active
                  && (app.calls.state === CallController.Idle
                      || app.calls.state === CallController.Ended)
         onActivated: app.startCall(app.currentRoomId, false)
     }
-    // Hang up, on whichever lane is live — the same selection the call bar's
-    // own leave button makes (qml/CallHeaderBar.qml). Inert with no call, for
-    // the reason the block above gives.
+    // Hang up on whichever lane is live, as the call bar's leave button does.
+    // Inert with no call.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -202,13 +141,8 @@ Item {
                 app.calls.hangup()
         }
     }
-    // Screen share. SFU lane only, exactly like the camera above: the legacy
-    // 1:1 lane is audio-only by design, so there is nothing to fall through
-    // to.
-    //
-    // requestScreenShare() OPENS THE PICKER — it does not begin sending. A
-    // key that silently started transmitting a picture of the user's desktop
-    // would be a privacy defect wearing a convenience's clothes.
+    // Screen share, SFU lane only. requestScreenShare() opens the picker; it
+    // never starts sending on a key press.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -224,7 +158,7 @@ Item {
         }
     }
 
-    // v0.6.1: Ctrl+K quick switcher over rooms / DMs / Spaces / invites.
+    // Ctrl+K quick switcher over rooms, DMs, Spaces and invites.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -232,9 +166,7 @@ Item {
         }
         onActivated: quickSwitcher.open()
     }
-    // v0.6.5 (SPEC 1k): Ctrl+Shift+K opens the switcher straight into command
-    // mode (the declarative action list) instead of requiring the user to
-    // type ">" first.
+    // Ctrl+Shift+K opens the switcher in command mode.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -248,7 +180,7 @@ Item {
         onGlobalSearchRequested: messageSearchDialog.openDialog()
     }
 
-    // v0.7.x: global server-side message search (Ctrl+Shift+F).
+    // Global server-side message search (Ctrl+Shift+F).
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -257,11 +189,7 @@ Item {
         enabled: app.loggedIn && app.messageSearch.supported
         onActivated: messageSearchDialog.openDialog()
     }
-    // NEW (registry: nav.newConversation). The dialog already exists and is
-    // reached from HomePane's Create room / Create Space buttons; nothing
-    // opened it from the keyboard. It opens on the Room tab because that is
-    // what the registry row describes ("Create a room or Space") - the DM and
-    // Space tabs are one click away inside the same dialog.
+    // nav.newConversation: opens the existing dialog on the Room tab.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -270,10 +198,8 @@ Item {
         enabled: app.loggedIn
         onActivated: roomsPanel.startConversation("room")
     }
-    // NEW (registry: room.markRead). markRoomRead is already the ONE path
-    // that sends both the public receipt and m.fully_read (it takes its
-    // target from Room::latest_event on the Rust backend), so this adds a
-    // key and no new semantics.
+    // room.markRead: markRoomRead already sends both the public receipt and
+    // m.fully_read; this only adds a key.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -283,17 +209,9 @@ Item {
         onActivated: app.roomList.markRoomRead(app.currentRoomId)
     }
 
-    // ── 2026-09-12 Discord audit: the keys Discord has and Lightning had a
-    //    capability for but no shortcut. Every one of these drives a method
-    //    that ALREADY has a pointer-driven caller; none of them is a new
-    //    behaviour, and that is deliberate — a registry row wired to
-    //    something invented in the same change has nothing to be compared
-    //    against.
-    //
-    //    All GLOBAL-context and declared here for the same reason the call
-    //    keys above are: MainScreen is the one item that is alive for the
-    //    whole session, and a Shortcut is matched by WINDOW rather than by
-    //    its item's visibility.
+    // Keys for capabilities that already have pointer-driven callers; no new
+    // behaviour. Global and declared here because MainScreen lives for the
+    // whole session and Shortcuts match by window.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -302,10 +220,8 @@ Item {
         enabled: app.loggedIn
         onActivated: roomsPanel.startConversation("dm")
     }
-    // The gate mirrors the bell that opens the same panel
-    // (qml/RoomsPanel.qml `activityCenterButton`): `app.activity` is null on
-    // a backend that has no activity model, and openPanel() would then throw
-    // rather than do nothing.
+    // Mirrors the bell's gate (RoomsPanel's activityCenterButton): app.activity
+    // is null on backends without an activity model.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -314,10 +230,8 @@ Item {
         enabled: app.loggedIn && !!app.activity
         onActivated: roomsPanel.openActivityCenter()
     }
-    // Every conversation, not the open one. Ungated beyond being logged in:
-    // markAllRoomsRead() walks whatever is unread and returns how many rooms
-    // it touched, so "nothing was unread" is already a no-op rather than an
-    // error.
+    // Every conversation. markAllRoomsRead() is already a no-op when nothing is
+    // unread.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -326,8 +240,7 @@ Item {
         enabled: app.loggedIn
         onActivated: app.roomList.markAllRoomsRead()
     }
-    // The come-back-to-this-later gesture, which until now existed only in
-    // the room row's context menu.
+    // Mark unread, previously only in the room row's context menu.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -341,18 +254,16 @@ Item {
         parent: Overlay.overlay
     }
 
-    // Which display to share, on the platforms with no xdg portal. Declared
-    // at the SHELL, not in the call bar: a share can be started from more
-    // than one surface and the picker is one dialog either way. It opens
-    // itself from the controller's signal, and stays closed on a Linux desktop
-    // that has the portal, because the portal shows its own.
+    // Display picker for platforms without an xdg portal, declared at the shell
+    // since a share can start from more than one surface. Opens itself from the
+    // controller's signal; on Linux with a portal the portal shows its own.
     ScreenSharePicker {
         id: screenSharePicker
         parent: Overlay.overlay
     }
 
-    // v0.7.x: a Matrix room link activated anywhere in the app resolves and
-    // opens through the Discover dialog (joined rooms auto-open from it).
+    // A Matrix room link activated anywhere resolves and opens through Discover
+    // (joined rooms open directly).
     Connections {
         target: app
         function onMatrixLinkRequested(link) {
@@ -360,11 +271,8 @@ Item {
         }
     }
 
-    // Development-only: locate a descendant by objectName. Popup content
-    // (QuickSwitcher's queryField) lives under `contentItem`, not directly
-    // in `children`/`data`, so this checks that first; a Menu/Popup child of
-    // a plain Item (not relevant here, but kept for a uniform helper) would
-    // only ever appear in `data`, never `children`.
+    // Development-only: find a descendant by objectName. Popup content lives
+    // under contentItem; a Menu/Popup child of an Item appears only in `data`.
     function findDemoDescendant(obj, name) {
         if (!obj) return null
         if (obj.objectName === name) return obj
@@ -385,18 +293,14 @@ Item {
         return null
     }
 
-    // Development-only: screenshot-demo popup hooks (see
-    // ScreenshotDemoController and SpacesRail.qml:accountSwitcherRequested
-    // for the pattern this mirrors). Null target / disabled in a non-demo
-    // build makes this an inert no-op.
+    // Screenshot-demo hooks; inert in a non-demo build.
     Connections {
         target: app.demo
         enabled: app.screenshotDemoActive
         function onDemoOpenQuickSwitcher(query) {
             if (query && query.length > 0 && query[0] === ">") {
-                // openCommandMode() sets commandMode = true from the very
-                // first frame (see QuickSwitcher.qml), unlike typing ">"
-                // into an already-open plain switcher.
+                // openCommandMode() starts in command mode from the first
+                // frame.
                 quickSwitcher.openCommandMode()
                 var rest = query.slice(1)
                 Qt.callLater(function() {
@@ -415,20 +319,15 @@ Item {
         }
     }
 
-    // Mention chips render inside sanitized rich text, so the models need
-    // the current theme ink (AppTheme is QML-only). Re-pushed on every
-    // theme change; the models re-announce FormattedBodyRole themselves.
+    // Mention chips render inside sanitized rich text, so the models need the
+    // theme inks (AppTheme is QML-only). Re-pushed on every theme change.
     function _pushMentionStyle() {
         var accent = "" + AppTheme.accent
         var soft = "" + AppTheme.accentSoft
         var code = "" + AppTheme.codeBlock
-        // The FOURTH argument is load-bearing. MessageHtml paints a mention
-        // of YOU in the accent and everything else — other people's mentions
-        // and external URLs — in the link ink, and it also needs a colour for
-        // <a href> because Qt's rich text otherwise falls back to its
-        // built-in #0000ff. Omitting it collapses both onto the accent, so
-        // under Storm every link rendered in bolt yellow and a mention of
-        // someone else became colour-identical to a mention of you.
+        // The fourth argument matters: MessageHtml paints a mention of you in
+        // the accent and everything else (other mentions, URLs) in the link
+        // ink, and <a href> needs a colour or Qt uses its built-in blue.
         var linkInk = "" + AppTheme.link
         if (app.timeline && app.timeline.setMentionStyle)
             app.timeline.setMentionStyle(accent, soft, code, linkInk)
@@ -441,9 +340,7 @@ Item {
         function onAccentChanged() { _pushMentionStyle() }
         function onAccentSoftChanged() { _pushMentionStyle() }
         function onCodeBlockChanged() { _pushMentionStyle() }
-        // Without this a theme change that moves ONLY the link ink (several
-        // do — Storm's link and accent are unrelated colours) would leave the
-        // models on the previous theme's link colour.
+        // Some themes change only the link ink.
         function onLinkChanged() { _pushMentionStyle() }
     }
 
@@ -451,49 +348,16 @@ Item {
         anchors.fill: parent
         orientation: Qt.Horizontal
 
-        // The divider between columns.
-        //
-        // FIVE ROUNDS LIVED IN A 5px BAND, AND EVERY ONE OF THEM WAS THE
-        // BAND. It began as the grab target — the divider used to BE the 1px
-        // line, so nothing under the pointer suggested the columns could be
-        // resized — and a 5px strip of SOMETHING then has to be painted, so
-        // each round picked a colour and each colour was wrong in a
-        // different place:
-        //
-        //   transparent  the SplitView's ground showed, three pixels of the
-        //                timeline's colour BEFORE the rule that marks the
-        //                boundary — a visible sliver
-        //   right colour the timeline column is not one colour: its 60px
-        //                room header is `sidebar`, so the band ran the dark
-        //                timeline tone straight through a continuous lighter
-        //                strip — measured #292632 | #1F1D26 | #292632
-        //   left colour  the band then reads as part of the room list, but
-        //                that column's horizontal rules fill the COLUMN and
-        //                stop at the band's edge, so every one of them ended
-        //                5px short of the divider — a hole in each line
-        //
-        // The band was the defect, not the colour. There is no band now: the
-        // handle is the 1px rule itself, so the two columns are genuinely
-        // adjacent, every rule in either one runs right up to the divider,
-        // and there is no strip that can disagree with a neighbour at any
-        // height. `containmentMask` keeps the grab area 9px wide without
-        // giving the handle any width to paint — the mask is consulted by
-        // hit-testing, which is what the original 5px was really for.
+        // The divider between columns is the 1px rule itself, so the columns
+        // are adjacent and every rule in either runs up to it; any wider
+        // painted band disagrees in colour with one neighbour somewhere along
+        // its height. containmentMask keeps a 9px grab area without painting
+        // width.
         handle: Item {
             id: splitHandle
             implicitWidth: 1
 
-            // EVERY handle here is live again.
-            //
-            // For a few hours this delegate carried an `inert` branch that
-            // stripped the hover and press tints and the grab mask from the
-            // FIRST handle, because the Spaces rail was pinned 68/68/68 and
-            // its divider could not move anything — it looked draggable and
-            // was not, which a user reported (as a macOS fault; it was not,
-            // the rail was fixed on every platform). Making the rail
-            // resizable removes the reason rather than the symptom, so the
-            // branch is gone. Do not reintroduce it without first checking
-            // that some column is fixed again.
+            // Every handle is live; the rail is resizable too.
             containmentMask: grabMask
             Item {
                 id: grabMask
@@ -511,49 +375,18 @@ Item {
             }
         }
 
-        // ── Spaces rail ───────────────────────────────────────────────────
-        // Hideable (Ctrl+Shift+B, or Settings -> Appearance): a tester on
-        // Windows asked for every panel to be hideable "screen real estate
-        // wise". A SplitView child collapses when it is not visible, and its
-        // handle goes with it.
-        // RESIZABLE SINCE 2026-09-17, and it buys DEPTH rather than labels.
-        //
-        // It was pinned 68/68/68 — a 40px tile with 14px either side, enough
-        // to centre an icon and nothing else. That 14px is also the entire
-        // indentation budget, which is why a nested Space tree stopped
-        // reading as nested after two levels: there was nowhere left to step
-        // in. A user bridging Discord hit exactly that (umbrella → server →
-        // category is three), and the options on the table were a hard depth
-        // limit of 1 or 2, the way some other clients do it.
-        //
-        // Widening is the third option and the only one that does not throw
-        // information away: the rail shows as much depth as it has room for,
-        // the person decides how much room that is, and at the default width
-        // nothing changes for anyone who never touches it. The depth itself
-        // stays bounded by the model (kMaxHierarchyDepth), so a malformed or
-        // looping graph cannot walk off the end however wide the rail gets.
+        // Spaces rail. Hideable (Ctrl+Shift+B or Settings -> Appearance); a
+        // hidden SplitView child collapses along with its handle. Resizable:
+        // width lets the tiles grow and the nesting regions breathe. Depth
+        // stays bounded by the model (kMaxHierarchyDepth).
         SpacesRail {
             id: spacesRail
             objectName: "spacesRail"
             visible: app.settings.spacesRailVisible
-            // ── NO MORE STOPS ──────────────────────────────────────────
-            //
-            // The width used to snap to discrete stops because each one
-            // afforded one more level of INDENT, and a width between two of
-            // them drew the deepest tier at the same indent as the tier above
-            // it. There is no indent any more — the hierarchy is drawn as
-            // tinted regions behind the rows — so there is nothing left for a
-            // stop to be about, and the width is a plain range again.
-            //
-            // What it buys instead is the TILE: past the minimum the tile
-            // grows with the rail up to a ceiling, and then the margins take
-            // the rest. That is what makes the drag worth having, and it is
-            // why the maximum is the rail's own (a tile at its ceiling plus
-            // generous margins) rather than the setter's much larger clamp.
-            //
-            // BOTH authorities, not either: the rail says what it can draw at
-            // the current interface scale, the setter's clamp says what is
-            // storable at ANY scale, and the drag must satisfy both.
+            // A plain range: past the minimum the tile grows up to a ceiling,
+            // then the margins take the rest. Both limits apply: the rail's
+            // (what it can draw at this scale) and the setter's clamp (what is
+            // storable at any scale).
             SplitView.preferredWidth: app.settings.spacesRailWidth
             SplitView.minimumWidth:
                 Math.max(app.settings.spacesRailMinWidth,
@@ -562,23 +395,9 @@ Item {
                 Math.min(app.settings.spacesRailMaxWidth,
                          spacesRail.maxRailWidth)
             onCreateSpaceRequested: roomsPanel.startConversation("space")
-            // Saved on the falling edge of `resizing`, not per pixel — see
-            // the long note on the rooms column, which learned this the hard
-            // way: a release produces no widthChanged, so without the
-            // Connections below the final width is never offered and nothing
-            // is ever persisted.
-            //
-            // AND ONLY AFTER A DRAG. `preferredWidth` is a binding on the
-            // rail's SCALED stops, so it re-evaluates on its own when the
-            // interface size changes — and every one of those re-evaluations
-            // used to reach this saver and REWRITE the stored width. A rail
-            // dragged to 112 at 100% came back 100 after a trip through 140%
-            // (112 snaps to 104 there, and 104 snaps to 100 back at 100%):
-            // the user's choice crept a stop narrower per round trip, which
-            // is the mirror image of the "narrowest choice quietly widened
-            // every restart" the stop range was written to stop. The setting
-            // records what the USER dragged to; the binding decides what is
-            // drawable at the current size.
+            // Saved after a drag only, on the falling edge of `resizing` (a
+            // release produces no widthChanged; see the rooms column). Changes
+            // caused by the binding itself are not written back.
             onWidthChanged: if (!SplitView.view.resizing && railWidthSaver.dragged)
                                 railWidthSaver.restart()
             Connections {
@@ -599,29 +418,13 @@ Item {
                     dragged = false
                     if (!spacesRail.visible || spacesRail.width <= 0)
                         return
-                    // Snap on release: the drag is continuous, the result is
-                    // not. Assigned back to preferredWidth explicitly rather
-                    // than left to the binding above — SplitView writes
-                    // preferredWidth itself while dragging, which breaks that
-                    // binding, so without this the divider would keep the
-                    // loose width it was dropped at while the SETTING held
-                    // the snapped one.
+                    // Store the dragged width, then restore the binding:
+                    // SplitView writes preferredWidth while dragging, which
+                    // breaks it.
                     var chosen = Math.round(spacesRail.width)
                     app.settings.spacesRailWidth = chosen
-                    // AS A BINDING, not as a number. A plain assignment here
-                    // fixed the visual width and left `preferredWidth`
-                    // unbound for the rest of the session — so the stops
-                    // stopped following the interface scale the first time
-                    // anyone dragged the rail. Measured 2026-09-18: a rail
-                    // dragged at 100% and then moved to 140% stayed 100px
-                    // wide, which is not a stop at that scale (95/104/120/…)
-                    // and draws one nesting level fewer than the grid
-                    // intends, until the next launch re-created the binding.
-                    //
-                    // `spacesRailWidth` was just set to `snapped`, so this
-                    // evaluates to the same number immediately — no jump —
-                    // and `snapWidth` reads the rail's scaled stops, which
-                    // is the dependency that was missing.
+                    // Re-bound rather than assigned, so preferredWidth keeps
+                    // following the setting.
                     spacesRail.SplitView.preferredWidth = Qt.binding(
                         function() {
                             return app.settings.spacesRailWidth
@@ -630,10 +433,8 @@ Item {
             }
         }
 
-        // ── Rooms column ──────────────────────────────────────────────────
-        // Hideable (Ctrl+B) and resizable, with the width persisted. The
-        // range used to be 240-360 and was thrown away on exit, so a person
-        // who wanted a wide list re-dragged it every launch.
+        // Rooms column: hideable (Ctrl+B) and resizable, with the width
+        // persisted.
         RoomsPanel {
             id: roomsPanel
             objectName: "roomsPanel"
@@ -641,22 +442,12 @@ Item {
             SplitView.preferredWidth: app.settings.roomListWidth
             SplitView.minimumWidth:   200
             SplitView.maximumWidth:   560
-            // The Channels layout's "Message Search" row asks for the same
-            // dialog Ctrl+Shift+F opens, by signal rather than by reaching
-            // across the shell.
+            // The Channels "Message Search" row opens the same dialog as
+            // Ctrl+Shift+F.
             onMessageSearchRequested: messageSearchDialog.openDialog()
-            // Written back only when the user let go: SplitView reports every
-            // intermediate pixel while dragging, and persisting each one would
-            // be one QSettings write per mouse move.
-            //
-            // Which is why the RELEASE needs its own trigger, and why the
-            // width was in fact never saved at all. `resizing` goes true on
-            // the first drag move and false on release — and release does not
-            // move anything, so it produces no widthChanged. Every
-            // intermediate pixel was correctly skipped, the final width was
-            // never offered, and the setting kept whatever the window's first
-            // layout happened to put there. The falling edge of `resizing` is
-            // the one moment that matters.
+            // Written back only after the drag ends: SplitView reports every
+            // pixel while dragging. The release produces no widthChanged, so
+            // the falling edge of `resizing` (below) is what saves.
             onWidthChanged: if (!SplitView.view.resizing) widthSaver.restart()
             Connections {
                 target: roomsPanel.SplitView.view
@@ -675,24 +466,20 @@ Item {
             }
         }
 
-        // ── Chat area ─────────────────────────────────────────────────────
-        // Settings is a FULL application view hosted by Main.qml: it hides
-        // this whole shell (rail, room list, timeline, composer) instead of
-        // swapping only the center region.
+        // Chat area. Settings is a full view hosted by Main.qml that hides this
+        // whole shell.
         TimelinePane {
             objectName: "timelinePane"
             SplitView.fillWidth:  true
             SplitView.minimumWidth: 320
-            // Home surface create actions reuse the room list's dialog.
+            // Home's create actions reuse the room list's dialog.
             onNewConversationRequested:
                 (mode, options) => roomsPanel.startConversation(mode, options)
         }
     }
 
-    // ── Account switching overlay ─────────────────────────────────────────
-    // While a switch is in flight the previous session is already detached;
-    // block interaction and say what is happening instead of showing a
-    // half-empty shell.
+    // Account switching overlay: the previous session is already detached, so
+    // block interaction and say what is happening.
     Rectangle {
         id: switchingOverlay
         anchors.fill: parent

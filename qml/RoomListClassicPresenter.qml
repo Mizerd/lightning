@@ -3,45 +3,28 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The Classic navigation layout's list body.
-//
-// A PRESENTER: it owns no workspace header, no search field and no dialogs.
-// RoomsPanel (the host) owns those and swaps this in place of the Channels
-// list, so the two layouts cannot fork the surrounding chrome — every user of
-// either layout gets the same header and the same Ctrl-K hint.
-//
-// This is the layout Lightning shipped through 0.7.6 and it is the DEFAULT
-// for a reason: it works in every account, including one with no Spaces at
-// all. One activity-ordered list, invites then favourites then DMs then
-// rooms, with previews and timestamps. Channels is the alternative answer for
-// a Space-shaped workspace, not an improvement on this one.
-//
-// Extracted verbatim from RoomsPanel.qml, which is why the section-label and
-// group-divider contract tests now scan THIS file: the invariants did not
-// change, only the file the code lives in.
+// The Classic layout's list body. A presenter: RoomsPanel (the host) owns the
+// header, search and dialogs and swaps this in place of the Channels list, so
+// both layouts share the same chrome. The default layout, since it works for
+// any account: one activity-ordered list (invites, favourites, then
+// conversations) with previews and timestamps. The section-label and
+// group-divider contract tests scan this file.
 Item {
     id: root
 
-    // The column is 300px and the pane next to it is not ours to draw on.
-    // The empty state's action buttons have a real minimum width and
-    // QtQuickLayouts does not shrink a button below it, so on a narrow
-    // column the row overflowed and the buttons were painted over the
-    // timeline — reported as "buttons get overlapped" and "the UI gets under
-    // the screen". The buttons wrap now (see the Flow below); this is the
-    // backstop that makes overflow impossible rather than merely unlikely.
+    // Backstop against overflow into the timeline; the empty-state buttons wrap
+    // (see below).
     clip: true
 
     /// The room the timeline is showing.
     property string currentRoomId: ""
 
-    // The host owns the dialogs, so the rows ask for them by signal rather
-    // than reaching up into a parent by id — which is what made the reader
-    // popover's click silently dead when it was a pane-root function.
+    // The host owns the dialogs, so rows ask by signal rather than reaching
+    // into a parent by id.
     signal roomActivated(string roomId)
 
-    // Mirrors RoomListModel's filter modes: 0 all, 1 People, 2 Rooms,
-    // 3 Unreads. Read once here so the section delegate stays a binding
-    // rather than repeating the mapping per header.
+    // Mirrors RoomListModel's filter modes: 0 all, 1 People, 2 Rooms, 3
+    // Unreads. Read once so the section delegate stays a binding.
     readonly property string conversationSectionLabel: {
         switch (app.roomList ? app.roomList.filterMode : 0) {
         case 1:  return qsTr("People")
@@ -53,9 +36,7 @@ Item {
     signal createRequested(string mode)
     signal discoverRequested
     signal roomLinkCopyRequested(string roomId)
-    /// The search field belongs to the HOST. `roomSearch` is not in this
-    /// file's scope, so calling it here threw a ReferenceError and the button
-    /// did nothing — the same class of dead click as the reader popover.
+    /// The search field belongs to the host; it is not in this file's scope.
     signal clearSearchRequested
     signal leaveRoomRequested(string roomId, string roomName)
     signal inviteRejectRequested(string roomId, string roomName)
@@ -67,41 +48,25 @@ Item {
         model: app.roomList
         currentIndex: -1
         spacing: 0
-        // Instantiate delegates a little past the viewport so their
-        // avatars start fetching before the row scrolls into view.
-        // Bounded prefetch: roughly one extra screen of rows.
+        // Instantiate a screen's worth of rows past the viewport so avatars
+        // start fetching early.
         cacheBuffer: 600
-        // Fast-scroll: recycle row delegates instead of re-creating
-        // them (RoomDelegate keeps no per-instance state that could
-        // leak across model rows).
+        // Recycle delegates; RoomDelegate keeps no per-instance state that
+        // could leak across rows.
         reuseItems: true
 
         ScrollBar.vertical: AppScrollBar {
             policy: ScrollBar.AsNeeded
         }
 
-        // Section grouping driven by the "category" role from
-        // RoomListModel. C++ sorts by RoomListModel::orderRankOf(), which
-        // is the same function the role reads, so the sort and the headers
-        // cannot disagree: invites, then one activity feed holding every
-        // joined conversation.
+        // Sections from the "category" role; C++ sorts by the same
+        // RoomListModel::orderRankOf(), so sort and headers cannot disagree.
         section.property: "category"
         section.criteria: ViewSection.FullString
-        // Element pins its group headers. The default (InlineLabels)
-        // scrolls the label away with its content, so halfway down a long
-        // ROOMS section nothing on screen says which group you are in.
-        // The delegate is opaque sidebar, so it occludes the rows it
-        // floats over correctly; ListView already raises the current
-        // section label above them.
-        //
-        // InlineLabels is OR-ed in, and leaving it out was a real defect
-        // rather than a preference: labelPositioning is a FLAG SET, so
-        // CurrentLabelAtStart alone means the pinned label for the current
-        // section is the ONLY one drawn — every later section header
-        // vanished. The list then showed "Favourites" at the top, the
-        // favourites-group rule under the last starred room, and no header
-        // over the DMs and rooms below it. Reported, accurately, as "a
-        // random line under a room under favourites".
+        // Pinned group headers, as Element does. labelPositioning is a flag
+        // set: CurrentLabelAtStart alone would draw only the current section's
+        // label and drop every other header, so InlineLabels is OR-ed in. The
+        // delegate is opaque sidebar so it covers the rows it floats over.
         section.labelPositioning: ViewSection.InlineLabels
                                   | ViewSection.CurrentLabelAtStart
         section.delegate: Rectangle {
@@ -116,26 +81,12 @@ Item {
                     verticalCenter: parent.verticalCenter
                     leftMargin: AppTheme.spacing12
                 }
-                // Sentence case on the UI face, not 11px ExtraBold caps
-                // at 1.2px tracking: uppercase-plus-tracking is
-                // decorative typography carrying wayfinding text, and it
-                // was re-typed inline in seven places across the app.
-                // These are the shared section-label tokens.
-                //
-                // categoryOf() yields three values — "invite", "favourite"
-                // and "conversation" — because the joined rows below the
-                // invites and the favourites are ONE activity feed with DMs
-                // and rooms interleaved. Splitting that by kind would repeat
-                // its header every time the two alternate, which in a list
-                // ordered by when people spoke is constantly.
-                //
-                // So the conversation section takes its name from the
-                // active filter chip, which is what the section actually
-                // contains. Under "All" it says Conversations, because
-                // calling a list that holds both People or Rooms would be
-                // a lie about half of it.
-                // "favourite" is back as a section since 2026-09-05, at the
-                // maintainer's request: Element's shape.
+                // Sentence case with the shared section-label tokens.
+                // categoryOf() yields "invite", "favourite" and "conversation":
+                // joined rows are one activity feed with DMs and rooms
+                // interleaved, so splitting by kind would repeat headers
+                // constantly. The conversation section is named after the
+                // active filter chip ("Conversations" under All).
                 text: section === "invite"
                       ? qsTr("Invites")
                       : (section === "favourite"
@@ -152,12 +103,8 @@ Item {
         delegate: RoomDelegate {
             width: ListView.view.width
             selected: model.roomId === app.currentRoomId
-            // The favourites rule is retired along with the favourites
-            // GROUP: favourites are now interleaved with everything else
-            // by recency, so the rows it separated are no longer adjacent
-            // and a line anywhere in the feed would divide nothing. The
-            // model reports an empty boundary permanently; the binding is
-            // kept so the property stays live for whatever divides next.
+            // Favourites are now interleaved by recency, so the model reports
+            // an empty boundary; the binding stays for whatever divides next.
             showGroupDivider: app.roomList.favouritesBoundaryRoomId.length > 0 && model.roomId === app.roomList.favouritesBoundaryRoomId
             onClicked: if (model.membership === "joined")
                 root.roomActivated(model.roomId)
@@ -167,21 +114,15 @@ Item {
             onMarkUnread: app.roomList.markRoomUnread(model.roomId)
             onSetFavourite: on => app.roomList.setRoomFavourite(model.roomId, on)
             onSetNotificationMode: mode => app.setRoomNotificationMode(model.roomId, mode)
-            // Asked for by SIGNAL rather than by reaching up into the host
-            // by id. The clipboard proxy and the confirm dialog belong to
-            // the host, and a delegate that walks its parent chain by name
-            // is how the reader popover's click ended up silently dead.
+            // By signal: the clipboard proxy and confirm dialog belong to the
+            // host.
             onCopyRoomLink: root.roomLinkCopyRequested(model.roomId)
             onLeaveRoomRequested: root.leaveRoomRequested(model.roomId, model.name)
         }
     }
 
-    // Empty / loading state — centred over the (empty) list area.
-    // 2026-08-21: was one grey sentence floating in a 300px void. An
-    // empty pane is a designed state, not a missing one: glyph, a
-    // heading that names the state, one honest line, and the actions
-    // that actually resolve it. The actions are the SAME dialogs the
-    // header buttons open, so there is one create path, not two.
+    // Empty/loading state: glyph, heading, one line and the actions that
+    // resolve it, using the same dialogs as the header buttons.
     ColumnLayout {
         id: roomListEmptyState
         objectName: "roomListEmptyState"
@@ -192,10 +133,8 @@ Item {
 
         readonly property bool searching: app.roomList && (app.roomList.searchQuery || "").length > 0
         readonly property bool inSpace: app.spaces && app.spaces.activeSpaceId && app.spaces.activeSpaceId !== "" && app.spaces.activeSpaceId !== "@orphans"
-        // "Signed out", "still syncing" and "genuinely empty" are three
-        // different facts and the pane says which one it is — offering
-        // "New message" while the initial sync is still running would
-        // invite the user to act on an answer we do not have yet.
+        // Signed out, still syncing and genuinely empty are different states;
+        // offering "New message" mid-sync would invite acting on missing data.
         readonly property int phase: !app.loggedIn ? 0 : !app.initialSyncDone ? 1 : searching ? 2 : 3
 
         Rectangle {
@@ -224,10 +163,7 @@ Item {
                     return qsTr("Loading rooms…");
                 case 2:
                     return qsTr("No matches");
-                // Keyed on the FILTER, not only on the Space. "This
-                // Space is empty" under the People chip was answering a
-                // question nobody asked — the Space's rooms are not what
-                // that list is showing.
+                // Keyed on the filter, not only on the Space.
                 default:
                     if (app.roomList.filterMode === 1)
                         return qsTr("No direct messages");
@@ -257,12 +193,9 @@ Item {
                 case 2:
                     return qsTr("Nothing in this list matches " + "\"%1\".").arg(app.roomList.searchQuery);
                 default:
-                    // 2026-08-28: People is SCOPED to the selected Space —
-                    // the DMs with people who are in it — so the old
-                    // "whichever Space is selected" is no longer true and
-                    // would send a user looking for a chat that is one click
-                    // away at Home. In a Space the line names the scope; at
-                    // Home it says what the list is.
+                    // People is scoped to the selected Space (DMs with its
+                    // members); say so in a Space, and say what the list is at
+                    // Home.
                     if (app.roomList.filterMode === 1)
                         return roomListEmptyState.inSpace ? qsTr("No direct messages with people in " + "this Space. All of them are under “All rooms”.") : qsTr("Direct messages appear here.");
                     if (app.roomList.filterMode === 3)
@@ -282,13 +215,8 @@ Item {
             onClicked: root.clearSearchRequested()
         }
 
-        // A GridLayout that drops to one column, not a RowLayout: two buttons
-        // side by side need about 300px and this column can be narrower than
-        // that. A RowLayout keeps them on one line at their minimum width and
-        // lets the line run past the pane — which is how they ended up painted
-        // over the timeline. Stacking is the honest answer to "there is not
-        // enough room", and the layout still sizes to its content so
-        // AlignHCenter keeps the block centred like everything above it.
+        // A GridLayout that drops to one column: a RowLayout would overflow a
+        // narrow pane at the buttons' minimum widths.
         GridLayout {
             Layout.alignment: Qt.AlignHCenter
             columns: roomListEmptyState.width >= 300 ? 2 : 1
@@ -310,8 +238,7 @@ Item {
             }
         }
     }
-    // Desktop autoscroll (2026-08-18 tester report). Sibling of the
-    // view, middle button only, so row clicks and hover are untouched.
+    // Middle-click autoscroll, a sibling of the view; middle button only.
     MiddleClickScroller {
         objectName: "roomListMiddleClickScroller"
         anchors.fill: parent

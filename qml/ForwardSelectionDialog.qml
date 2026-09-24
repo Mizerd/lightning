@@ -3,12 +3,9 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Forwarding a SELECTION: N messages to M destinations.
-//
-// The single-message picker (ForwardMessageDialog) sends one thing to one
-// room and closes. This one cannot: N×M sends can partially fail, so it
-// stays open through the send and reports what happened per pair — "sent"
-// because one of twelve worked is a lie the user would act on.
+// Forwarding a selection: N messages to M destinations. Unlike
+// ForwardMessageDialog it stays open through the send and reports each pair,
+// since N×M sends can partially fail.
 Dialog {
     id: root
     objectName: "forwardSelectionDialog"
@@ -23,7 +20,7 @@ Dialog {
     width: Math.min(520, parent ? parent.width - AppTheme.spacing24 * 2 : 520)
     padding: AppTheme.spacing16
 
-    // [{roomId, name, threadRootId}] — chosen destinations.
+    // [{roomId, name, threadRootId}]: chosen destinations.
     property var targets: []
     property string filter: ""
 
@@ -78,10 +75,10 @@ Dialog {
             font.weight: AppTheme.weightStrong
         }
 
-        // ── Mode ─────────────────────────────────────────────────────────
-        // Context is a CONSCIOUS choice and says what it discloses, because
-        // the sender and the source room's name go to whoever receives the
-        // copy — who may not be in that room.
+        // ── Mode ──
+        // Including context is an explicit choice that says what it discloses:
+        // the sender and source room name go to recipients who may not be in
+        // that room.
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing4
@@ -106,10 +103,8 @@ Dialog {
             Label {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
-                // Ours, not the server's — but the contract scan is
-                // deliberately conservative and does not try to tell the
-                // difference, because the day it guesses wrong is the day
-                // somebody's display name renders as markup.
+                // Our own text, but the contract scan conservatively requires
+                // plain text everywhere.
                 textFormat: Text.PlainText
                 text: app.forward.forwardMode === "context"
                       ? qsTr("Each copy will name the original sender, this "
@@ -130,7 +125,7 @@ Dialog {
             onTextChanged: root.filter = text
         }
 
-        // ── Destinations ─────────────────────────────────────────────────
+        // ── Destinations ──
         ListView {
             Layout.fillWidth: true
             Layout.preferredHeight: 240
@@ -146,7 +141,7 @@ Dialog {
                 required property bool isSpace
                 width: ListView.view.width
                 height: visible ? 38 : 0
-                // A Space is not a room and cannot receive a message.
+                // A Space is not a room and can't receive a message.
                 visible: !isSpace
                          && (root.filter === ""
                              || name.toLowerCase().indexOf(
@@ -171,7 +166,7 @@ Dialog {
             }
         }
 
-        // ── Progress and results ─────────────────────────────────────────
+        // ── Progress and results ──
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing4
@@ -192,8 +187,7 @@ Dialog {
                 color: AppTheme.textPrimary
                 wrapMode: Text.WordWrap
             }
-            // WHICH pair failed, not just how many — a count cannot be acted
-            // on, and "it didn't work" is not a report.
+            // Which pair failed, not just a count, so it can be acted on.
             Repeater {
                 model: app.forward.failures
                 delegate: Label {
@@ -232,10 +226,8 @@ Dialog {
                 kind: "primary"
                 enabled: root.targets.length > 0
                          && app.forward.selectedCount > 0
-                // NOT beginSelection() — that resets the very snapshots the
-                // user has been picking. They were captured at click time by
-                // toggleSelected(), which is the whole point of capturing
-                // them there.
+                // Not beginSelection(), which would reset the snapshots
+                // captured at click time by toggleSelected().
                 onClicked: app.forward.sendSelection(root.targets)
             }
         }

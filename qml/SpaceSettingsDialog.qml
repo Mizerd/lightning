@@ -4,65 +4,37 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
-// Space settings: one modal covering everything Lightning can actually change
-// about a Space, reached from the rail's right-click menu and from Space Home.
+// Space settings: one modal for everything Lightning can change about a Space,
+// from the rail's menu and Space Home.
 //
-// A SPACE IS A MATRIX ROOM. Every control here writes ordinary room state
-// through the same permission-gated backend a room's own settings use
-// (RoomInfoController), and every one of them is gated on the room's REAL
-// required power level for that state event — never on a role label, and never
-// optimistically: the write completes, the roster is re-read, so a rejection
-// cannot leave a value the Space does not have.
+// A Space is a Matrix room: every control writes ordinary room state through
+// RoomInfoController, gated on the real required power level for that event,
+// and never applied optimistically (the roster is re-read after each write).
 //
-// WHAT IS DELIBERATELY NOT HERE. The reference client this was modelled on
-// also offers Cosmetics, Abbreviations and a per-Space Appearance. A name
-// colour, a font and a per-Space "show room icons" flag are not Matrix state:
-// they would be private storage only Lightning could interpret, presented as
-// though it were part of the Space, and every other client — and every other
-// device — would see nothing. The local rail folders are the one place this
-// app keeps device-local organisation, and they are defensible precisely
-// because they touch NO Matrix state and say so. Four dead tabs are worse than
-// four missing ones.
-//
-// One correction to the record (2026-08-26): the earlier version of this
-// comment lumped "Emojis & Stickers" in with those. That was wrong about
-// Matrix — `im.ponies.room_emotes` (MSC2545) IS a state event that Element,
-// Cinny, FluffyChat, Nheko and the reference client all read. It is absent
-// here because nobody has built it yet, NOT because it would be private
-// storage. Do not repeat the old reasoning.
-//
-// The BANNER below is the same category and the opposite outcome: it is a real
-// state event (`page.codeberg.everypizza.room.banner`, rust/src/banner.rs)
-// chosen specifically so the reference client reads what Lightning writes.
+// Not offered: name colours, fonts and per-Space appearance, which are not
+// Matrix state and would be private storage no other client or device sees.
+// Sticker packs (im.ponies.room_emotes, MSC2545) are real state and simply not
+// built here yet. The banner is a real state event
+// (page.codeberg.everypizza.room.banner, rust/src/banner.rs) chosen so other
+// clients read it.
 AppDialog {
     id: root
     objectName: "spaceSettingsDialog"
 
-    /// The Space this is editing. Never a plain room: the rail only offers it
-    /// for a real Space, and Space Home only for the Space it is showing.
+    /// The Space being edited; never a plain room.
     property string spaceId: ""
-    /// Where app.roomInfo was pointing when this opened, so closing puts it
-    /// back. The controller is shared with the Room Information panel and with
-    /// Space Home; leaving it aimed at the Space after the dialog closed would
-    /// silently repoint whatever surface is underneath.
+    /// Where app.roomInfo pointed when this opened, restored on close: the
+    /// controller is shared with Room Information and Space Home.
     property string _restoreRoomId: ""
     property int section: 0
 
-    /// Bumped on every roster answer.
-    ///
-    /// Read it inside any binding that calls a Q_INVOKABLE on app.roomInfo —
-    /// `filterMembers`, `memberRoleGroups`, `powerLevelForKey`,
-    /// `roleLabelForLevel`. A method CALL creates no property dependency, so
-    /// those bindings never re-evaluate on their own: the member list here
-    /// used to be bound to the search field's text alone and would therefore
-    /// not refresh when the roster itself changed. Same shape as the
-    /// `resolveTick` counter the media-cache handlers use (2026-08-23) —
-    /// an unused local (`var _t = root.rosterTick`) is enough to create the
-    /// dependency, confirmed on Qt 6.11.
+    /// Bumped on every roster answer. Read it in any binding that calls a
+    /// Q_INVOKABLE on app.roomInfo (filterMembers, memberRoleGroups,
+    /// powerLevelForKey, roleLabelForLevel): a method call creates no
+    /// dependency, and an unused local read is enough to create one.
     property int rosterTick: 0
 
-    // No `title`: this dialog is its own header (avatar + name + section), the
-    // AppDialog escape hatch for exactly that.
+    // No title: this dialog draws its own header.
     title: ""
     modal: true
     parent: Overlay.overlay
@@ -71,27 +43,17 @@ AppDialog {
     width: Math.min(940, Overlay.overlay ? Overlay.overlay.width - 80 : 940)
     height: Math.min(660, Overlay.overlay ? Overlay.overlay.height - 80 : 660)
 
-    /// Bumped on every SpaceManager change. READ IT IN `info` BELOW.
-    ///
-    /// `info` CALLS `app.spaces.spaceInfo()`, and a method call creates no
-    /// property dependency — `app.spaces` is a CONSTANT property, so the
-    /// binding's only dependency was `spaceId`. A Space renamed, re-avatared
-    /// or re-topiced under the open dialog therefore never reached the header,
-    /// the General card's avatar, or the name and topic fields: the
-    /// `refreshName()` / `refreshTopic()` pair that `app.spaces.spacesChanged`
-    /// calls for exactly that case reads the SAME map, so the refresh this
-    /// file promises ("a remote change … lands without destroying an edit in
-    /// progress") was structurally a no-op. Same trap and same cure as
-    /// `rosterTick` below and as SpacesRail's `spacesRevision`.
+    /// Bumped on every SpaceManager change; read in `info`, which calls
+    /// app.spaces.spaceInfo() and would otherwise depend only on spaceId, so
+    /// remote renames and avatar/topic changes would never reach the dialog.
     property int spacesTick: 0
     readonly property var info: {
         var _dep = root.spacesTick
         return app.spaces && spaceId.length > 0
                ? app.spaces.spaceInfo(spaceId) : ({})
     }
-    // Only ever true when the roster on screen is THIS Space's. app.roomInfo
-    // is shared, and reading canEditName off another room's snapshot is how a
-    // permission gate ends up lying.
+    // True only when the roster on screen is this Space's; app.roomInfo is
+    // shared, and another room's permissions must not gate these controls.
     readonly property bool infoIsOurs:
         app.roomInfo && app.roomInfo.roomId === root.spaceId
 
@@ -106,23 +68,15 @@ AppDialog {
         memberFilter.text = ""
         membershipCombo.currentIndex = 0
         sortCombo.currentIndex = 0
-        // RE-SNAP EVERY MIRRORED FIELD, not only on a Space CHANGE.
-        // `onSpaceIdChanged` does not fire when the dialog is reopened on the
-        // Space it last showed, so a value typed and abandoned in a previous
-        // open came back looking like the Space's own — over a name that may
-        // have been changed by somebody else in between.
+        // Re-snap every mirrored field on each open: onSpaceIdChanged does not
+        // fire when reopening the same Space.
         nameField.resetForSpace()
         topicField.resetForSpace()
         aliasField.resetForSpace()
         joinRuleCombo.refreshRule()
-        // REFRESH, not request. The banner is a custom state event and
-        // sliding sync only delivers the types `required_state` names, so
-        // nothing tells this client that a Space's banner moved
-        // (rust/src/banner.rs says so explicitly). Opening this dialog is a
-        // deliberate action on ONE Space — the same discipline
-        // RoomInfoPanel's widget and bridge reads follow — so it takes the
-        // read every time rather than rendering whatever the first open of
-        // the session happened to see.
+        // Refresh, not request: the banner is a custom state event that sliding
+        // sync does not deliver, so read it on every open (a deliberate action
+        // on one Space).
         if (app.banners)
             app.banners.refreshRoom(targetSpaceId)
         open()
@@ -141,30 +95,17 @@ AppDialog {
         { key: "developer", label: qsTr("Developer tools"), icon: "code" }
     ]
 
-    /// The Permissions matrix, grouped as the reference client groups it.
-    ///
-    /// Every `key` here must also be in RoomInfoController::powerLevelKeys()
-    /// and in the allowlist in rooms::set_room_power_level_key — the Rust edge
-    /// refuses anything else, so a typo produces an inert control rather than
-    /// an unexpected state event.
-    ///
-    /// `m.call.member` ("Start & Join Calls" in the reference client) is
-    /// DELIBERATELY ABSENT. The identifier Lightning actually sends today is
-    /// the MSC3401 unstable one, ruma aliases the stable name onto it, and a
-    /// Space has no timeline to hold a call — a row that honestly governs
-    /// neither string is worse than a missing row.
-    ///
-    /// The reference client shows both "Change All Permission" and "Edit
-    /// Power Levels"; both are the level for `m.room.power_levels`. Two rows
-    /// for one key would be a lie, so there is one.
+    /// The Permissions matrix. Every key must also be in
+    /// RoomInfoController::powerLevelKeys() and the allowlist in
+    /// rooms::set_room_power_level_key; Rust refuses anything else.
+    /// m.call.member is deliberately absent: Lightning sends the MSC3401
+    /// unstable identifier and a Space has no timeline for calls.
+    /// m.room.power_levels has one row, not two.
     readonly property var permissionGroups: [
         {
             title: qsTr("Users"),
-            // Group-level, never per row: a Label whose text can be "" keeps
-            // ItemObservesViewport forever (QQuickText::setText early-returns
-            // before clearing the flag), which is the single most expensive
-            // QML mistake known in this tree. A note that is always present
-            // when its group renders cannot be that Label.
+            // Notes are group-level: a per-row Label whose text can be "" would
+            // keep ItemObservesViewport forever.
             note: qsTr("The level every member starts at. Raising it grants "
                        + "EVERYONE in the space everything at that level."),
             rows: [
@@ -181,8 +122,7 @@ AppDialog {
         },
         {
             title: qsTr("Moderation"),
-            // Matrix has no separate unban level — it is max(ban, kick) — so
-            // there is deliberately no unban row to offer.
+            // Matrix has no separate unban level (it is max(ban, kick)).
             note: "",
             rows: [
                 { key: "invite", label: qsTr("Invite") },
@@ -220,7 +160,7 @@ AppDialog {
     contentItem: ColumnLayout {
         spacing: 0
 
-        // ── Header: which Space, which section, and the way out ──────────
+        // Header: which Space, which section, and close
         RowLayout {
             Layout.fillWidth: true
             Layout.bottomMargin: AppTheme.spacing12
@@ -252,7 +192,7 @@ AppDialog {
                 color: AppTheme.stormBorder
             }
             Label {
-                // Remote or externally chosen text: never markup.
+                // Untrusted text: never markup.
                 textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: root.sections[root.section].label
@@ -280,7 +220,7 @@ AppDialog {
             Layout.fillHeight: true
             spacing: AppTheme.spacing16
 
-            // ── Section nav ──────────────────────────────────────────────
+            // Section nav
             ColumnLayout {
                 Layout.preferredWidth: 200
                 Layout.fillHeight: true
@@ -320,7 +260,7 @@ AppDialog {
                                                       : AppTheme.stormTextMuted
                             }
                             Label {
-                                // Remote or externally chosen text: never markup.
+                                // Untrusted text: never markup.
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: navRow.modelData.label
@@ -344,7 +284,7 @@ AppDialog {
                 color: AppTheme.stormBorder
             }
 
-            // ── Section body ─────────────────────────────────────────────
+            // Section body
             ScrollView {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -355,10 +295,9 @@ AppDialog {
                     width: parent ? parent.width : 0
                     spacing: AppTheme.spacing16
 
-                    // A single honest line whenever the roster this page reads
-                    // is not loaded yet: every gate below is derived from it,
-                    // and rendering them all disabled with no explanation
-                    // looks like a permission refusal.
+                    // Shown while the roster is not loaded: every gate below
+                    // depends on it, and unexplained disabled controls look
+                    // like a permission refusal.
                     Label {
                         Layout.fillWidth: true
                         Layout.topMargin: AppTheme.spacing12
@@ -373,7 +312,7 @@ AppDialog {
                                    + "arrive.")
                     }
 
-                    // ══ GENERAL ═════════════════════════════════════════
+                    // ══ GENERAL ══
                     ColumnLayout {
                         Layout.fillWidth: true
                         Layout.topMargin: AppTheme.spacing12
@@ -385,16 +324,14 @@ AppDialog {
                             title: qsTr("Choose space avatar")
                             fileMode: FileDialog.OpenFile
                             nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)")]
-                            // The picker CHOOSES; the crop dialog decides what
-                            // is uploaded, and is the gate that refuses a
-                            // non-raster file before anything renders it.
+                            // The crop dialog decides what is uploaded and
+                            // refuses non-raster files before rendering.
                             onAccepted: spaceAvatarCrop.openFor(selectedFile)
                         }
                         ImageCropDialog {
                             id: spaceAvatarCrop
                             role: "avatar"
-                            // m.room.avatar, exactly as a room's own avatar —
-                            // Lightning invents no Space-specific storage.
+                            // m.room.avatar, exactly as for a room.
                             onCropped: function (file) {
                                 app.roomInfo.setRoomAvatar(file)
                             }
@@ -409,9 +346,8 @@ AppDialog {
                         ImageCropDialog {
                             id: spaceBannerCrop
                             role: "banner"
-                            // The URL crosses as-is; the manager converts it.
-                            // Stripping "file://" here produced "/C:/…" on
-                            // Windows.
+                            // Pass the URL as-is; stripping "file://" breaks
+                            // Windows paths.
                             onCropped: function (file) {
                                 app.banners.setRoomBanner(root.spaceId,
                                                           file.toString())
@@ -486,10 +422,9 @@ AppDialog {
                                         objectName: "spaceSettingsNameField"
                                         storm: true
                                         Layout.fillWidth: true
-                                        // Explicit mirror, not a binding: the
-                                        // first keystroke breaks a binding
-                                        // permanently, and this dialog can be
-                                        // reopened on another Space.
+                                        // An explicit mirror: typing breaks a
+                                        // binding, and the dialog can be reopened
+                                        // on another Space.
                                         property string authoritative: ""
                                         function resetForSpace() {
                                             authoritative = root.info.name || ""
@@ -553,24 +488,11 @@ AppDialog {
                                         storm: true
                                         kind: "primary"
                                         text: qsTr("Save")
-                                        // SAME TEST AS `Rename` ABOVE, and
-                                        // it had none: Save rendered in the
-                                        // enabled primary accent on an
-                                        // untouched Space while its sibling
-                                        // two rows up rendered greyed, so
-                                        // two controls with one job
-                                        // disagreed about whether there was
-                                        // anything to do. Pressing it sent
-                                        // an `m.room.topic` identical to the
-                                        // current one — a redundant state
-                                        // event in every member's timeline.
-                                        //
-                                        // NO LENGTH TEST, and that asymmetry
-                                        // is deliberate rather than an
-                                        // oversight: a Space must keep a
-                                        // name, which is why `Rename` also
-                                        // requires one, and a topic may
-                                        // legitimately be cleared.
+                                        // Same test as Rename, so both agree on
+                                        // whether there is anything to save;
+                                        // otherwise it would send an identical
+                                        // m.room.topic. No length test: a topic
+                                        // may be cleared, a name may not.
                                         enabled: root.infoIsOurs
                                                  && app.roomInfo.canEditTopic
                                                  && !app.roomInfo.editPending
@@ -583,19 +505,10 @@ AppDialog {
                             }
                         }
 
-                        // ── Banner ──────────────────────────────────────
-                        //
-                        // A REAL state event, and the reason this page has one
-                        // at all: `page.codeberg.everypizza.room.banner` was
-                        // chosen in rust/src/banner.rs to match the reference
-                        // client's own type, so a banner set here is a banner
-                        // it renders. A client that does not know the type
-                        // simply shows none — nothing about the Space breaks.
-                        //
-                        // Permission comes from the BANNER manager, never from
-                        // app.roomInfo: this is a custom state type with its
-                        // own required level, and reusing canEditAvatar here
-                        // would be a guess dressed as a permission.
+                        // Banner: a real state event matching the reference
+                        // client's type (see rust/src/banner.rs). Permission
+                        // comes from the banner manager, since this custom type
+                        // has its own required level.
                         MenuSectionLabel {
                             text: qsTr("Banner")
                             visible: bannerCard.visible
@@ -613,9 +526,8 @@ AppDialog {
                             implicitHeight: bannerCol.implicitHeight
                                             + AppTheme.spacing16 * 2
 
-                            // `revision` is the manager's own change counter;
-                            // both answers are METHOD calls and would create no
-                            // dependency without it.
+                            // `revision` is the manager's change counter; both
+                            // answers are method calls.
                             readonly property string bannerMxc: {
                                 if (!app.banners || root.spaceId === "")
                                     return ""
@@ -625,8 +537,8 @@ AppDialog {
                             readonly property bool canEdit: {
                                 if (!app.banners || root.spaceId === "")
                                     return false
-                                // Until the room replies this is false, so the
-                                // control is never offered on a guess.
+                                // False until the room replies, so the control
+                                // is never offered on a guess.
                                 var _dep = app.banners.revision
                                 return app.banners.canSetRoomBanner(root.spaceId)
                             }
@@ -639,11 +551,8 @@ AppDialog {
 
                                 Rectangle {
                                     Layout.fillWidth: true
-                                    // 3:1 — the ratio ImageCropDialog crops a
-                                    // banner to. A flat height here re-cropped
-                                    // the image inside the region the user had
-                                    // already chosen, so the preview did not
-                                    // show what was saved.
+                                    // 3:1, the ratio ImageCropDialog crops to,
+                                    // so the preview matches what was saved.
                                     implicitHeight: Math.round(width / 3)
                                     radius: AppTheme.radiusMd
                                     clip: true
@@ -657,14 +566,9 @@ AppDialog {
                                         visible: status === Image.Ready
                                         readonly property string mxc:
                                             bannerCard.bannerMxc
-                                        // A counter the binding READS, never
-                                        // an assignment to `source`: assigning
-                                        // a bound property imperatively
-                                        // destroys the binding, which is what
-                                        // made Space banners sticky in
-                                        // 0.7.6 — the first image that
-                                        // finished loading became the only one
-                                        // this Image ever showed.
+                                        // A counter the binding reads, never an
+                                        // assignment to `source`, which would
+                                        // destroy the binding.
                                         property int resolveTick: 0
                                         source: {
                                             var _tick = resolveTick
@@ -681,20 +585,10 @@ AppDialog {
                                                     && bannerPreview.source.toString().length === 0)
                                                     bannerPreview.resolveTick++
                                             }
-                                            // An EXPIRED transient failure
-                                            // mark. wideImageSource() answers
-                                            // "" for as long as the mark
-                                            // stands, and nothing else this
-                                            // binding reads ever changes
-                                            // again — so one dropped
-                                            // connection left the Space's
-                                            // banner absent for the rest of
-                                            // the session. Avatar.qml has
-                                            // carried this handler for the
-                                            // same reason since v0.7; the
-                                            // bridge re-arms the mark on a
-                                            // failed attempt, so it cannot
-                                            // hammer the backend.
+                                            // An expired transient failure mark:
+                                            // re-ask, as Avatar.qml does. The bridge
+                                            // re-arms the mark on failure, so this
+                                            // cannot hammer the backend.
                                             function onMediaRetryable(key) {
                                                 if (key.endsWith(":" + bannerPreview.mxc)
                                                     && bannerPreview.source.toString().length === 0)
@@ -702,21 +596,10 @@ AppDialog {
                                             }
                                         }
                                     }
-                                    // "NO BANNER" IS A CLAIM, so it is made
-                                    // only when it is true. This was bound to
-                                    // `!bannerPreview.visible`, and that
-                                    // Image is invisible for three different
-                                    // reasons: the Space has no banner, the
-                                    // bytes have not arrived yet, and the
-                                    // fetch or decode failed. A Space WITH a
-                                    // banner the media repository could not
-                                    // serve therefore read as a Space without
-                                    // one, beside a button already saying
-                                    // "Change banner…" about the picture that
-                                    // was supposedly not there. The other two
-                                    // states render as the empty panel, which
-                                    // is what MemberProfilePopover's gradient
-                                    // does for exactly the same reasons.
+                                    // "No banner" only when true: the preview
+                                    // is also invisible while loading and after
+                                    // a failed fetch, and those render as the
+                                    // empty panel.
                                     Label {
                                         objectName: "spaceSettingsNoBanner"
                                         anchors.centerIn: parent
@@ -757,8 +640,8 @@ AppDialog {
                                     Item { Layout.fillWidth: true }
                                 }
 
-                                // A refusal is reported where it happened, and
-                                // nothing was applied optimistically to undo.
+                                // A refusal is reported in place; nothing was
+                                // applied optimistically.
                                 Label {
                                     Layout.fillWidth: true
                                     visible: !!app.banners
@@ -830,11 +713,8 @@ AppDialog {
                                     ]
                                     readonly property var ruleValues:
                                         ["invite", "public", "knock"]
-                                    // Explicit mirror rather than a two-way
-                                    // binding: a rejected write must snap back
-                                    // to what the Space actually holds, and a
-                                    // binding the user's own selection already
-                                    // broke cannot do that.
+                                    // An explicit mirror so a rejected write
+                                    // snaps back to what the Space holds.
                                     property int displayedIndex: 0
                                     function refreshRule() {
                                         var idx = ruleValues.indexOf(
@@ -848,11 +728,9 @@ AppDialog {
                                             joinRuleCombo.ruleValues[index])
                                     }
                                 }
-                                // Only `invite`/`public`/`knock` are settable.
-                                // A restricted rule carries an allow-rule list
-                                // this surface cannot build, and sending one
-                                // with an empty list would lock the space to
-                                // invite-only while claiming otherwise.
+                                // Only invite/public/knock are settable: a
+                                // restricted rule needs an allow-rule list this
+                                // surface cannot build.
                                 Label {
                                     Layout.fillWidth: true
                                     visible: accessCol.restricted
@@ -931,18 +809,8 @@ AppDialog {
                             }
                         }
 
-                        // ── Advanced ────────────────────────────────────
-                        //
-                        // The version is READ from the SDK (`Room::version()`),
-                        // never parsed out of m.room.create by hand.
-                        //
-                        // There is NO Upgrade button, on purpose. An upgrade is
-                        // irreversible, it tombstones the Space, and every
-                        // m.space.child edge the old room held is orphaned by
-                        // it — none of which can be undone by a client. It
-                        // needs a typed confirmation and a migration of the
-                        // children, and until both exist an honest disclosure
-                        // beats a one-click door.
+                        // Advanced. The version is read from the SDK
+                        // (Room::version()), never parsed from m.room.create.
                         MenuSectionLabel {
                             text: qsTr("Advanced")
                             visible: root.infoIsOurs
@@ -994,17 +862,13 @@ AppDialog {
                                                  + "m.room.tombstone can "
                                                  + "upgrade this space.")
                                 }
-                                // v0.9 (phase 8): the upgrade flow, gated on
-                                // the tombstone power. Opens a confirmation.
+                                // Upgrade, gated on the tombstone power; opens
+                                // a confirmation.
                                 AppButton {
                                     objectName: "spaceUpgradeButton"
-                                    // Deliberately NOT gated on
-                                    // app.roomUpgrade.upgraded: that property
-                                    // describes the ACTIVE room, and this
-                                    // dialog is a modal over it — reading it
-                                    // here hid this button when the room
-                                    // behind had been upgraded and showed it
-                                    // when the space already had been.
+                                    // Not gated on app.roomUpgrade.upgraded,
+                                    // which describes the active room, not this
+                                    // Space.
                                     visible: root.infoIsOurs
                                              && app.roomInfo.canUpgradeRoom
                                     kind: "secondary"
@@ -1032,7 +896,7 @@ AppDialog {
                         }
                     }
 
-                    // ══ MEMBERS ═════════════════════════════════════════
+                    // ══ MEMBERS ══
                     ColumnLayout {
                         id: membersSection
                         Layout.fillWidth: true
@@ -1040,10 +904,9 @@ AppDialog {
                         visible: root.section === 1
                         spacing: AppTheme.spacing12
 
-                        // Index order must match membershipValues. "" is ALL;
-                        // the C++ filter matches nothing for an unrecognised
-                        // facet rather than quietly meaning "all", so these
-                        // strings must stay exactly the snapshot's own.
+                        // Index order must match membershipValues. "" is all;
+                        // these strings must match the snapshot's own, since
+                        // the C++ filter matches nothing for an unknown facet.
                         readonly property var membershipValues:
                             ["", "joined", "invited", "banned"]
                         readonly property string membership:
@@ -1052,10 +915,9 @@ AppDialog {
                         readonly property bool alphabetical:
                             sortCombo.currentIndex === 1
 
-                        // The count Sable puts in its title. joinedCount is a
-                        // WHOLE-roster fact computed in Rust, so it stays
-                        // honest above the snapshot cap — which is exactly why
-                        // the truncation line below has to exist.
+                        // joinedCount is computed in Rust over the whole
+                        // roster, so it stays honest above the snapshot cap
+                        // (hence the truncation line below).
                         Label {
                             Layout.fillWidth: true
                             text: root.infoIsOurs
@@ -1077,11 +939,8 @@ AppDialog {
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
                         }
-                        // Without this line a 34,000-member space showed an
-                        // honest 34156 above 500 rows and said nothing about
-                        // the difference. A count that describes a population
-                        // the list does not contain is the failure this whole
-                        // file guards against everywhere else.
+                        // Says when the list holds fewer members than the
+                        // count.
                         Label {
                             objectName: "spaceSettingsMemberTruncationNotice"
                             Layout.fillWidth: true
@@ -1114,9 +973,8 @@ AppDialog {
                                 objectName: "spaceSettingsMembershipCombo"
                                 storm: true
                                 Layout.preferredWidth: 130
-                                // Pure VIEW state, so a plain currentIndex is
-                                // right here: nothing is written, so there is
-                                // nothing for a rejection to snap back to.
+                                // Pure view state, so a plain currentIndex is
+                                // fine.
                                 model: [
                                     qsTr("Everyone"),
                                     qsTr("Joined"),
@@ -1145,11 +1003,9 @@ AppDialog {
                             }
                         }
 
-                        // Grouped by role, exactly as Sable groups it. The
-                        // buckets come from C++ (memberRoleGroups), not from
-                        // QML: which roles a room HAS is a model fact, and a
-                        // room using 42 gets its own "Custom (42)" group
-                        // rather than being folded into Moderator.
+                        // Grouped by role; buckets come from C++
+                        // (memberRoleGroups), so a custom level gets its own
+                        // group.
                         Repeater {
                             model: {
                                 var _t = root.rosterTick
@@ -1188,10 +1044,8 @@ AppDialog {
 
                                         readonly property string uid:
                                             modelData.userId || ""
-                                        // Split on the FIRST colon only: a
-                                        // server name may carry a port
-                                        // (":8448"), and splitting on the last
-                                        // one would tear that off.
+                                        // Split on the first colon: a server name
+                                        // may carry a port.
                                         readonly property int _colon:
                                             uid.indexOf(":")
                                         readonly property string localpart:
@@ -1223,12 +1077,8 @@ AppDialog {
                                                 font.family: AppTheme.uiFont
                                                 font.pixelSize: AppTheme.textBody
                                             }
-                                            // Invited and banned rows are in
-                                            // the list on purpose (a banned
-                                            // member you cannot see is a ban
-                                            // you cannot lift) — so they have
-                                            // to be legible AS invited and
-                                            // banned.
+                                            // Invited and banned rows are listed (a
+                                            // hidden ban cannot be lifted) and marked.
                                             Label {
                                                 visible: memberRow.modelData.membership
                                                          === "invited"
@@ -1245,12 +1095,11 @@ AppDialog {
                                                 font.family: AppTheme.uiFont
                                                 font.pixelSize: AppTheme.textMicro
                                             }
-                                            // Localpart over server, stacked
-                                            // right, as Sable renders it.
+                                            // Localpart over server, stacked right.
                                             ColumnLayout {
                                                 spacing: 0
                                                 Label {
-                                                    // Remote or externally chosen text: never markup.
+                                                    // Untrusted text: never markup.
                                                     textFormat: Text.PlainText
                                                     Layout.alignment: Qt.AlignRight
                                                     text: memberRow.localpart
@@ -1259,7 +1108,7 @@ AppDialog {
                                                     font.pixelSize: AppTheme.textMicro
                                                 }
                                                 Label {
-                                                    // Remote or externally chosen text: never markup.
+                                                    // Untrusted text: never markup.
                                                     textFormat: Text.PlainText
                                                     Layout.alignment: Qt.AlignRight
                                                     visible: memberRow.server.length > 0
@@ -1276,7 +1125,7 @@ AppDialog {
                         }
                     }
 
-                    // ══ PERMISSIONS ═════════════════════════════════════
+                    // ══ PERMISSIONS ══
                     ColumnLayout {
                         Layout.fillWidth: true
                         Layout.topMargin: AppTheme.spacing12
@@ -1289,9 +1138,8 @@ AppDialog {
                             color: AppTheme.stormTextMuted
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
-                            // The offer policy, stated. The server applies the
-                            // same rules; saying so is what stops a disabled
-                            // control reading as a bug.
+                            // The offer policy, stated, so a disabled control
+                            // does not look like a bug.
                             text: qsTr("You can only require a level at or "
                                        + "below your own, and only set a "
                                        + "member's role below your own — never "
@@ -1311,10 +1159,8 @@ AppDialog {
                             text: qsTr("You don't have permission to change "
                                        + "roles or permissions in this space.")
                         }
-                        // A backend that sends no thresholds leaves the matrix
-                        // EMPTY, and an empty matrix means UNKNOWN — never
-                        // "everything is 0", which is a real and very
-                        // permissive configuration.
+                        // No thresholds from the backend means unknown, never
+                        // "everything is 0".
                         Label {
                             objectName: "spaceSettingsMatrixUnavailable"
                             Layout.fillWidth: true
@@ -1340,7 +1186,7 @@ AppDialog {
                                   ? app.roomInfo.powerMatrixError : ""
                         }
 
-                        // ── The power-level matrix ──────────────────────
+                        // The power-level matrix
                         Repeater {
                             model: root.permissionGroups
                             delegate: ColumnLayout {
@@ -1357,9 +1203,8 @@ AppDialog {
                                     text: permGroup.modelData.title
                                 }
 
-                                // Rendered only for the two groups that carry
-                                // a real warning; a Loader, so no Label is
-                                // ever created holding "".
+                                // Only for the two groups with a warning; a
+                                // Loader so no empty Label exists.
                                 Loader {
                                     Layout.fillWidth: true
                                     active: permGroup.modelData.note.length > 0
@@ -1383,10 +1228,8 @@ AppDialog {
 
                                         readonly property string permKey:
                                             modelData.key
-                                        // powerLevelKnown / powerLevelForKey
-                                        // are METHOD calls and create no
-                                        // dependency of their own — hence the
-                                        // tick.
+                                        // Method calls create no dependency; hence
+                                        // the tick.
                                         readonly property bool known: {
                                             var _t = root.rosterTick
                                             return root.infoIsOurs
@@ -1400,12 +1243,10 @@ AppDialog {
                                                          permRow.permKey)
                                                    : -1
                                         }
-                                        // The presets, plus the room's OWN
-                                        // current value when it is none of
-                                        // them — so the control can show the
-                                        // truth and re-select it. It cannot
-                                        // INVENT a new arbitrary number; the
-                                        // field beside it can.
+                                        // The presets plus the room's current
+                                        // value when it is none of them, so the
+                                        // control shows the truth. The field
+                                        // beside it sets arbitrary values.
                                         readonly property var levelOptions: {
                                             var d = root.infoIsOurs
                                                     ? app.roomInfo.usersDefaultPowerLevel
@@ -1433,7 +1274,7 @@ AppDialog {
                                         }
 
                                         Label {
-                                            // Remote or externally chosen text: never markup.
+                                            // Untrusted text: never markup.
                                             textFormat: Text.PlainText
                                             Layout.fillWidth: true
                                             elide: Label.ElideRight
@@ -1464,11 +1305,9 @@ AppDialog {
                                             enabled: root.infoIsOurs
                                                      && app.roomInfo.canChangePowerLevels
                                                      && !app.roomInfo.powerMatrixPending
-                                            // Explicit mirror. syncToValue,
-                                            // never `currentIndex: indexOfValue(…)`:
-                                            // indexOfValue() is -1 at creation
-                                            // time and clamping that to 0 makes
-                                            // the control lie about the room.
+                                            // Explicit mirror via syncToValue, never
+                                            // currentIndex: indexOfValue(), which is
+                                            // -1 at creation and would clamp to 0.
                                             function snapBack() {
                                                 if (permRow.known)
                                                     levelCombo.syncToValue(
@@ -1482,10 +1321,8 @@ AppDialog {
                                             }
                                         }
 
-                                        // An arbitrary number, because a room
-                                        // may legitimately use one and the
-                                        // presets can only ever re-select the
-                                        // value it already has.
+                                        // An arbitrary level, which a room may
+                                        // legitimately use.
                                         AppTextField {
                                             id: customLevel
                                             objectName: "spacePermCustom_"
@@ -1517,11 +1354,9 @@ AppDialog {
                                             iconName: "check"
                                             implicitWidth: 28
                                             implicitHeight: 28
-                                            // The controller re-checks this
-                                            // before dispatching; asking it
-                                            // here is what keeps the control
-                                            // from offering a write the server
-                                            // must refuse.
+                                            // The controller re-checks before
+                                            // dispatch; asking here avoids offering a
+                                            // write the server must refuse.
                                             enabled: root.infoIsOurs
                                                      && !isNaN(customLevel.parsedLevel)
                                                      && app.roomInfo.canSetPowerLevelKey(
@@ -1538,11 +1373,8 @@ AppDialog {
                                             }
                                         }
 
-                                        // Nothing is applied optimistically:
-                                        // a rejection re-reads the roster, the
-                                        // tick fires, and this snaps the combo
-                                        // back to what the space actually
-                                        // holds.
+                                        // A rejection re-reads the roster, the
+                                        // tick fires, and this snaps back.
                                         Connections {
                                             target: root
                                             function onRosterTickChanged() {
@@ -1554,7 +1386,7 @@ AppDialog {
                             }
                         }
 
-                        // ── Member roles ────────────────────────────────
+                        // Member roles
                         MenuSectionLabel {
                             Layout.fillWidth: true
                             Layout.topMargin: AppTheme.spacing12
@@ -1607,11 +1439,9 @@ AppDialog {
                                     storm: true
                                     size: "sm"
                                     text: qsTr("Admin")
-                                    // canSetPowerLevel FAILS CLOSED on an
-                                    // unknown target: levels may legitimately
-                                    // be negative, so absence of the roster
-                                    // row is the unknown state, never a
-                                    // sentinel.
+                                    // canSetPowerLevel fails closed on an
+                                    // unknown target (levels may be negative,
+                                    // so absence is the unknown state).
                                     enabled: app.roomInfo.canSetPowerLevel(
                                                  roleRow.uid, 100)
                                              && !app.roomInfo.powerLevelPending
@@ -1644,7 +1474,7 @@ AppDialog {
                         }
                     }
 
-                    // ══ DEVELOPER TOOLS ═════════════════════════════════
+                    // ══ DEVELOPER TOOLS ══
                     ColumnLayout {
                         Layout.fillWidth: true
                         Layout.topMargin: AppTheme.spacing12
@@ -1662,9 +1492,8 @@ AppDialog {
                                        + "the space.")
                         }
 
-                        // Hidden helper for clipboard copy without C++
-                        // additions — the same relay RoomInfoPanel, CodeBlock
-                        // and MessageDelegate use.
+                        // Hidden clipboard relay, as in RoomInfoPanel,
+                        // CodeBlock and MessageDelegate.
                         TextEdit {
                             id: devCopyHelper
                             visible: false
@@ -1745,13 +1574,10 @@ AppDialog {
                             }
                         }
 
-                        // The reference client also lists every state event
-                        // TYPE with its count and offers "Fetch Full State".
-                        // That needs a bounded Rust reader that emits
-                        // [{type, count}] and NOTHING else — 35,000 raw
-                        // m.room.member events must never cross the bridge —
-                        // and no such entry point exists yet. Saying so beats
-                        // an expandable row that expands to nothing.
+                        // Not yet: listing state event types and counts needs a
+                        // bounded Rust reader that returns only [{type,
+                        // count}]; raw member events must never cross the
+                        // bridge.
                         Label {
                             Layout.fillWidth: true
                             Layout.topMargin: AppTheme.spacing8
@@ -1770,23 +1596,18 @@ AppDialog {
         }
     }
 
-    /// The host owns the invite dialog, exactly as it owns the clipboard proxy
-    /// and the leave confirmation: a dialog that reached up into its host by id
-    /// is how the reader popover's click ended up silently dead.
+    /// The host owns the invite dialog, like the clipboard proxy and the leave
+    /// confirmation.
     signal inviteRequested(string spaceId)
 
-    // A Space change ALWAYS wins over a half-typed value: it belongs to the
-    // Space that is no longer on screen. A roster refresh only re-snaps a field
-    // the user has not edited, so a remote change (or a rejected write) lands
-    // without destroying an edit in progress.
+    // A Space change always wins over a half-typed value; a roster refresh only
+    // re-snaps untouched fields.
     onSpaceIdChanged: {
         nameField.resetForSpace()
         topicField.resetForSpace()
         aliasField.resetForSpace()
         joinRuleCombo.refreshRule()
-        // The banner read lives in openFor() alone: `spaceId` is written
-        // nowhere else, and asking here as well would cost two reads of the
-        // same state event on every open.
+        // The banner read happens in openFor() only.
     }
     Connections {
         target: app.roomInfo
@@ -1795,17 +1616,14 @@ AppDialog {
             topicField.refreshTopic()
             aliasField.refreshAlias()
             joinRuleCombo.refreshRule()
-            // Every binding that CALLS a controller method depends on this and
-            // on nothing else.
+            // Every binding that calls a controller method depends on this.
             root.rosterTick++
         }
     }
     Connections {
         target: app.spaces
         function onSpacesChanged() {
-            // The TICK FIRST: `info` is what both refreshes read, and until
-            // its binding has re-evaluated it still holds the value from
-            // before this change.
+            // The tick first: `info` holds the old value until it re-evaluates.
             root.spacesTick++
             nameField.refreshName()
             topicField.refreshTopic()

@@ -2,44 +2,30 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// One channel row in the Channels navigation layout.
+// One channel row in the Channels navigation layout: the room's avatar and
+// name, nothing else at rest. No preview or timestamp, so the list stays
+// scannable and still (Classic is where previews live). A small badge on the
+// avatar marks the two things a picture can't: an invite, or encryption.
 //
-// Sable-first, as directed: the room's AVATAR, its name, and nothing else at
-// rest. No message preview and no timestamp — the whole point of a channel
-// list is that it is scannable and stays put, and a preview line triples the
-// row height while changing on every message. Classic is where previews live;
-// the two layouts are different answers, not one with knobs.
+// Weight is the unread signal (`channelText` vs `channelTextUnread`); the only
+// count pill is for unread/mentions. Nothing moves when a message arrives.
 //
-// The avatar is not decoration and it is not optional: Sable's own column
-// shows one per room, and the first revision of this row drew a hash glyph
-// instead, which made every room in a Space look identical. The glyph still
-// appears — as a small badge over the avatar — for the two things it genuinely
-// says that a picture cannot: this room is a DM, or this room is encrypted.
-//
-// Weight is the unread signal. A read channel sits at `channelText`, an
-// unread one at `channelTextUnread` with a medium weight, and a mention adds
-// the only count pill in the layout. Nothing here moves when a message
-// arrives.
-//
-// Delegate discipline (this is instantiated per row): every Label whose text
-// can legitimately be empty lives behind a Loader. A never-laid-out empty
-// Text keeps ItemObservesViewport forever and makes Qt walk the whole
-// instantiated tree on every scroll frame.
+// Per-row delegate: every Label whose text can be empty lives behind a Loader.
+// An empty, never laid-out Text keeps ItemObservesViewport and makes Qt walk
+// the whole tree on every scroll frame.
 ItemDelegate {
     id: root
 
     property string roomId: ""
     property string channelName: ""
-    /// The room's own avatar (an mxc uri), empty until it resolves — the
-    /// shared Avatar element then renders palette initials, which is the same
-    /// fallback every other room surface uses.
+    /// The room's avatar (mxc uri); empty until it resolves, when Avatar shows
+    /// palette initials like every other room surface.
     property string avatarUrl: ""
     /// Colour key for that fallback, matching the room list's policy.
     property string identityColorKey: ""
     property bool isDirect: false
-    /// A room the account has been invited to but not joined. It gets its own
-    /// glyph and always reads as unread: an invite is an action waiting on the
-    /// user, and drawing it like a quiet read room is how one gets missed.
+    /// An invited, unjoined room. It gets its own glyph and always reads as
+    /// unread, since it's waiting on the user.
     property bool isInvite: false
     property bool encrypted: false
     property int unreadCount: 0
@@ -48,12 +34,11 @@ ItemDelegate {
     property bool active: false
     /// Indentation level: 0 at the top of the column, 1 inside a folder.
     property int depth: 0
-    /// Element-parity favourite flag, for the context menu's toggle. The row
-    /// draws nothing from it — a channel list has no star column.
+    /// Favourite flag, for the context menu toggle and the star.
     property bool isFavourite: false
 
-    // The same actions the Classic row offers. Signal-only: the presenter
-    // performs every mutation, exactly as RoomDelegate's host does.
+    // The same actions as the Classic row. Signal-only: the presenter performs
+    // every mutation, as with RoomDelegate.
     signal markRead()
     signal markUnread()
     signal setFavourite(bool on)
@@ -61,17 +46,14 @@ ItemDelegate {
     signal copyRoomLink()
     signal leaveRoomRequested()
 
-    // SettingsManager::roomNotificationMode is Q_INVOKABLE, not a property,
-    // so it cannot be bound. Re-queried on the two events that can change
-    // the answer for THIS row — the id changing under delegate reuse, and
-    // the settings manager announcing a write — exactly as RoomDelegate does.
+    // roomNotificationMode is Q_INVOKABLE, not bindable, so it's re-queried
+    // when the id changes (delegate reuse) and when settings announce a write,
+    // as in RoomDelegate.
     property int notificationMode: 0
     readonly property bool muted: notificationMode === 2
     function refreshNotificationMode() {
-        // Guarded like Avatar/PresenceDot's bridge lookups: a delegate created
-        // synchronously from inside a property-change handler can see `app`
-        // undefined on its first context lookup, and an unmuted-by-accident
-        // row is a lie about a setting the user changed on purpose.
+        // Guarded: a delegate created synchronously from a property-change
+        // handler can see `app` undefined on its first lookup.
         if (typeof app === "undefined" || !app || !app.settings)
             return;
         if (root.roomId.length === 0)
@@ -87,29 +69,18 @@ ItemDelegate {
         }
     }
 
-    // A muted channel keeps its unread WEIGHT but loses its pill: the user
-    // asked not to be counted at, not to be lied to about whether anything
-    // happened.
-    // A PILL FOR ORDINARY UNREAD TOO, not only for mentions.
-    //
-    // This was `highlightCount > 0`, so a plain unread conversation showed
-    // nothing but a 3px bar down its left edge — and a muted one showed
-    // nothing whatsoever. Reported as messages going unnoticed until the
-    // same account was opened in another client.
-    //
-    // The count may legitimately be 0 on a room that IS unread (Matrix only
-    // computes notification_count where push rules say to), so the pill
-    // falls back to a dot rather than rendering "0".
+    // A muted channel keeps its unread weight but loses its pill. Plain unread
+    // gets a pill too, not only mentions; the count can be 0 on an unread room
+    // (Matrix computes notification_count only where push rules say to), so
+    // the pill falls back to a dot.
     readonly property bool showsPill:
         (root.highlightCount > 0 || root.unreadCount > 0
          || root.hasUnread || root.isInvite) && !root.muted
     readonly property bool readsUnread: (root.isInvite || root.hasUnread || root.unreadCount > 0 || root.highlightCount > 0)
 
-    // A Loader-hosted row: the Channels presenter picks between five row
-    // kinds, so this is loaded rather than declared inline. The Loader takes
-    // its height from this value (measured, Qt 6.11: loader implicitHeight
-    // 32 for a Control declaring height 32), which is what makes the rows lay
-    // out one below another instead of stacking at y=0.
+    // Loaded by the Channels presenter (five row kinds). The Loader takes its
+    // height from this explicit value, so rows stack instead of all sitting at
+    // y=0.
     height: 32
     padding: 0
     hoverEnabled: true
@@ -130,9 +101,8 @@ ItemDelegate {
 
     background: Rectangle {
         radius: AppTheme.radiusSm
-        // 8px inset on each side so the pill does not touch the column edge,
-        // which is what makes a channel list read as a list rather than as
-        // full-width bands.
+        // Inset from the column edges so it reads as a list, not full-width
+        // bands.
         anchors.fill: parent
         anchors.leftMargin: 8 + root.depth * 10
         anchors.rightMargin: 8
@@ -151,14 +121,12 @@ ItemDelegate {
     contentItem: Item {
         anchors.fill: parent
 
-        // The unread rail: a short bar at the left edge, Sable's cue. Only
-        // for a channel that is NOT the active one — the active row already
-        // says where you are, and two markers on one row read as a bug.
+        // The unread bar at the left edge, except on the active row, which is
+        // already marked.
         Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             x: 2 + root.depth * 10
-            // Was 3x16. An unread conversation is the thing this column
-            // exists to surface and it was the faintest mark on the row.
+            // Wide enough to notice: surfacing unread is this column's job.
             width: 4
             height: 20
             radius: 2
@@ -166,9 +134,7 @@ ItemDelegate {
             visible: root.readsUnread && !root.active && !root.muted
         }
 
-        // The room's picture. A DM gets a circle and a room a rounded square,
-        // exactly as the Classic row does, so the same room does not change
-        // shape between layouts.
+        // A DM is a circle and a room a rounded square, as in the Classic row.
         Avatar {
             id: roomAvatar
             anchors.verticalCenter: parent.verticalCenter
@@ -184,10 +150,8 @@ ItemDelegate {
             mxc: root.avatarUrl
         }
 
-        // The two things a picture cannot say. Drawn as a small ringed badge
-        // on the avatar's corner rather than in place of it — an invite needs
-        // to be identifiable at a glance, and a lock is a CLAIM that has to be
-        // visible wherever the room appears.
+        // A small ringed badge on the avatar's corner: invite or lock. The lock
+        // is a claim that must be visible wherever the room appears.
         Loader {
             active: root.isInvite || root.encrypted
             visible: active
@@ -209,8 +173,7 @@ ItemDelegate {
             }
         }
 
-        // Behind a Loader: the name is empty for a room whose state has not
-        // resolved yet, which IS the state this delegate is created in.
+        // Behind a Loader: the name is empty until the room's state resolves.
         Loader {
             active: root.channelName.length > 0
             anchors.left: roomAvatar.right
@@ -230,25 +193,14 @@ ItemDelegate {
             }
         }
 
-        // The favourite star (2026-09-05 request): FILLED while the room is
-        // a favourite — favourites rise to the top of their group and nothing
-        // said why — an EMPTY outline while the row is hovered, inviting one,
-        // and a click toggles the same m.favourite tag the row's menu writes.
-        // Between the name and whichever state mark sits to its right, so the
-        // unread pill never moves; a row that is neither favourite nor hovered
-        // has no star and reserves no width. Drawn rather than a glyph: the
-        // bundled icon subset is instanced at FILL 0, so it has only the
-        // outline, and one path drawn twice keeps the two states the same
-        // shape.
+        // Favourite star: filled when favourited, an outline on hover, and a
+        // click toggles the same m.favourite tag as the menu. No width when
+        // neither, so the unread pill never moves. Drawn rather than a glyph
+        // (the icon subset has no filled star).
         //
-        // IT MUST FOLLOW THE MUTE GLYPH, NOT ONLY THE CALL GLYPH. The marks on
-        // this edge are a CHAIN, and anchoring to `callGlyph.left` alone read
-        // the chain as if the bell were not in it: the bell pins itself to
-        // `parent.right` with the same 14px margin the collapsed call glyph
-        // takes, so in a muted room with no pill and no call both landed on
-        // the same pixels and the star was drawn through the bell. Two things
-        // anchored to one edge from opposite ends need something arbitrating
-        // them — see the timeline row's right rail, same defect, same cause.
+        // It anchors to the mute glyph when that is shown, not only to the call
+        // glyph: both sit 14px from the right edge, so anchoring to one alone
+        // drew the star through the other.
         Loader {
             id: favouriteStar
             objectName: "channelFavouriteStar"
@@ -311,9 +263,8 @@ ItemDelegate {
             }
         }
 
-        // "There is a call in this room", between the name and the unread
-        // pill. It collapses to zero width when there is no call, so a row
-        // without one is pixel-identical to what it was.
+        // Call indicator, between the name and the unread pill; zero width when
+        // there's no call.
         RoomCallGlyph {
             id: callGlyph
             roomId: root.roomId
@@ -333,8 +284,8 @@ ItemDelegate {
             anchors.rightMargin: 14
             anchors.verticalCenter: parent.verticalCenter
             sourceComponent: UnreadBadge {
-                // Mentions win the colour and the number; an unread room with
-                // no count of its own shows the dot form.
+                // Mentions win the colour and number; an unread room with no
+                // count shows a dot.
                 count: root.highlightCount > 0 ? root.highlightCount
                                                : root.unreadCount
                 mention: root.highlightCount > 0
@@ -343,12 +294,9 @@ ItemDelegate {
             }
         }
 
-        // Only when muted, so it does not become permanent furniture. It owns
-        // the rightmost slot whenever it is shown — the pill and a live call
-        // both suppress it — and `favouriteStar` anchors to its left edge, so
-        // it carries an explicit zero width when inactive: a Loader with no
-        // item must contribute nothing to the chain, or the star inherits a
-        // stale offset on a row that was muted and no longer is.
+        // Mute bell, only when muted and nothing else holds the rightmost slot.
+        // Explicit zero width when inactive so the star doesn't inherit a stale
+        // offset.
         Loader {
             id: mutedGlyph
             objectName: "channelMutedGlyph"
@@ -367,18 +315,10 @@ ItemDelegate {
         }
     }
 
-    // Right-click and the Menu key, matching the Classic row. Without this
-    // the whole action set — favourite, mark read/unread, notification mode,
-    // copy link, leave — was unreachable in this layout.
-    //
-    // Behind a Loader, and that is a PERFORMANCE contract, not tidiness. The
-    // menu is a Popup with a submenu and ten items; declaring it inline built
-    // all of that for EVERY row, and a channel row is 32px so a screen holds
-    // three times as many rows as the Classic list plus a cache buffer. The
-    // first version of this shipped the menu inline and switching the filter
-    // — which resets the model and rebuilds every delegate — went from
-    // instant to visibly laggy. The menu is created by the first right-click
-    // on the row and kept after that.
+    // Right-click and the Menu key open the same actions as the Classic row.
+    // The menu is loaded on first use, not declared inline: building a Popup
+    // with a submenu per 32px row made filter switches (which rebuild every
+    // delegate) laggy.
     function openContextMenu() {
         if (root.roomId.length === 0)
             return;

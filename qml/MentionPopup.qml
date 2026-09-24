@@ -4,48 +4,33 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.7 outgoing @-mentions: the composer autocomplete popup. A flat Lightning
-// surface (like AppMenu) that floats ABOVE the composer input while the user
-// types an @-token. It deliberately does NOT take focus — the TextArea keeps
-// focus and forwards Up/Down/Tab/Return/Escape to the functions below — so the
-// caret never leaves the editor. It presents ONLY current-room members from
-// the shared MentionSuggestionModel; it never queries the server directory and
-// owns no Matrix protocol logic. No message text is ever logged.
-//
-// v0.6.5 (SPEC §1q): a mono "MENTION · MATCHING "…"" header, a matched-prefix
-// tint on the row name, a role chip (ADMIN/MOD, when the member snapshot
-// carries a recognized power-level role), a tinted "return" keycap on the
-// selected row, and row accessibility. The @room row and presence dots are
-// omitted — the model has no data to honestly back either.
-//
-// Storm skin (SPEC-storm-language §4/2h): stormPanel chrome, faint-mono
-// header, stormSelection selected row with a bolt matched prefix, bolt MOD
-// chip and active ↵ keycap. Colors/fonts only — behavior unchanged.
+// Composer @-mention autocomplete: a flat surface above the input while an
+// @-token is typed. It never takes focus: the TextArea keeps the caret and
+// forwards Up/Down/Tab/Return/Escape. Presents only current-room members from
+// the shared MentionSuggestionModel; no directory queries, no protocol logic,
+// no message text logged. Header, matched-prefix tint, ADMIN/MOD role chip when
+// the snapshot has a recognised role, a Return keycap on the selected row, and
+// row accessibility. Presence dots are omitted: the model has no data for them.
+// Storm skin.
 Popup {
     id: root
     objectName: "mentionPopup"
 
-    // The MentionSuggestionModel (set by the composer). Its `query`/`roomId`
-    // are driven by the composer; this popup only presents + selects.
+    // The MentionSuggestionModel; the composer drives its query and room.
     property var suggestions: null
-    // The composer's live mention-token query text, set by the host alongside
-    // suggestions.query. Kept as its own property (rather than read back off
-    // the shared model) because both the room and thread hosts bind the same
-    // MentionSuggestionModel instance and each owns its own popup's header.
+    // The composer's live query, kept here because the room and thread hosts
+    // share one model instance and each owns its popup's header.
     property string query: ""
-    // Top-left of the composer input in overlay coordinates; the popup is
-    // placed above it.
+    // Top-left of the composer input in overlay coordinates; the popup sits
+    // above it.
     property point anchorInputTop: Qt.point(0, 0)
     property real anchorWidth: 320
     property int currentIndex: 0
 
     signal chosen(string userId, string displayName)
 
-    // A member with no display name must read as their LOCALPART, never as
-    // the full MXID. The row already shows the MXID on its second line, so
-    // the MXID fallback printed the same string twice and made a nameless
-    // user look like the app was showing usernames on purpose — which is
-    // exactly how it was reported.
+    // A member without a display name reads as the localpart; the MXID is
+    // already on the second line.
     function localpartOf(userId) {
         var s = String(userId)
         if (s.charAt(0) === "@")
@@ -60,8 +45,8 @@ Popup {
 
     parent: Overlay.overlay
     focus: false
-    // The composer drives open/close; auto-close (focus/press-outside) would
-    // fight the editor keeping focus.
+    // The composer drives open/close; auto-close would fight the editor's
+    // focus.
     closePolicy: Popup.NoAutoClose
     padding: AppTheme.menuPadding
 
@@ -72,10 +57,8 @@ Popup {
 
     width: Math.max(240, Math.min(anchorWidth, 380))
     height: headerH + visibleRows * rowH + padding * 2
-    // Clamped inside the overlay (the sibling pickers' placeInsideWindow()
-    // convention): the 240px width floor can exceed a narrow thread
-    // composer, and a short window would otherwise push the popup's top
-    // above the window edge.
+    // Clamped inside the overlay (as placeInsideWindow() in the pickers): the
+    // 240px floor can exceed a narrow thread composer.
     x: parent ? Math.max(AppTheme.spacing4,
                          Math.min(anchorInputTop.x,
                                   parent.width - width - AppTheme.spacing4))
@@ -110,10 +93,8 @@ Popup {
         root.chosen(m.userId, root.nameFor(m))
     }
 
-    // administrator/creator -> ADMIN, moderator -> MOD, everything else
-    // (user/default/empty) -> no chip. `role` is the power-level-derived
-    // snapshot field (MentionSuggestionModel::RoleRole) — real SDK data on
-    // the Rust backend, always "default" (no chip) on the mock.
+    // administrator/creator -> ADMIN, moderator -> MOD, anything else -> no
+    // chip. `role` is MentionSuggestionModel::RoleRole ("default" on the mock).
     function roleChipLabel(role) {
         if (role === "administrator" || role === "creator")
             return qsTr("ADMIN")
@@ -122,24 +103,18 @@ Popup {
         return ""
     }
 
-    // Minimal HTML-escape for the matched-prefix rich-text highlight below —
-    // display names are untrusted user content and must never be interpreted
-    // as markup.
+    // Display names are untrusted; escape before the rich-text highlight.
     function escapeHtml(s) {
         return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
                         .replace(/>/g, "&gt;")
     }
 
-    // Highlights the query as a prefix of the display name only (the simple,
-    // common case matchScore ranks highest); a word-start-only or
-    // localpart/MXID-only match still shows the plain, unhighlighted name.
-    // `ink` is the highlight colour: bolt on THE selected row only (yellow
-    // discipline), a brightened stormText prefix on resting rows.
+    // Highlights the query as a display-name prefix only; other matches show
+    // the plain name. `ink`: bolt on the selected row only, brightened
+    // stormText on others.
     function highlightedName(name, q, ink) {
-        // A row can legitimately arrive without a display name (the model
-        // falls back to the localpart elsewhere); calling String methods on
-        // undefined threw a TypeError that killed the whole binding, so the
-        // row rendered nothing at all.
+        // A row can arrive without a display name; String methods on undefined
+        // would kill the binding.
         const safeName = name === undefined || name === null ? "" : String(name)
         const escaped = escapeHtml(safeName)
         if (!q || q.length === 0
@@ -152,14 +127,10 @@ Popup {
     }
 
     background: Item {
-        // Elevation. This popup floats over the composer CARD, which carries
-        // a shadow of its own, and the two were separated by nothing but a
-        // 1px border — with the emoji picker or a context menu also up, the
-        // stacking order was unreadable. The effect is a SIBLING behind the
-        // surface (z: -1), which is what keeps the popup's measured geometry
-        // untouched: the documented reason context menus stay border-only is
-        // that a shadow ON the background inflates the implicit size their
-        // anchor maths depend on. Same construction as the composer card.
+        // Elevation, as a sibling behind the surface (z: -1) so the popup's
+        // geometry is unchanged (a shadow on the background would inflate the
+        // implicit size the anchor maths use). Same construction as the
+        // composer card.
         MultiEffect {
             source: mentionSurface
             anchors.fill: mentionSurface
@@ -197,8 +168,7 @@ Popup {
             font.weight: Font.DemiBold
             font.letterSpacing: AppTheme.trackingStorm
             font.capitalization: Font.AllUppercase
-            // Storm §2: faint mono section-header ink (the storm header
-            // vocabulary — deliberately dim decorative mono).
+            // Faint mono section-header ink.
             color: AppTheme.stormTextFaint
         }
 
@@ -280,28 +250,23 @@ Popup {
                                          : AppTheme.weightStrong
                             elide: Label.ElideRight
                         }
-                        // Muted MXID under the name (always shown when there is a
-                        // display name, and required when the name is ambiguous).
+                        // The MXID under the name.
                         Label {
-                            // Remote or externally chosen text: never markup.
+                            // Untrusted text: never markup.
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             visible: (model.ambiguous === true)
                                      || (model.displayName
                                          && model.displayName.length > 0)
-                            // The whole-room row says what it DOES. "@room"
-                            // under "room" would just be the same word twice,
-                            // and this is the one entry whose consequence —
-                            // notifying everybody — is worth spelling out
-                            // before it is pressed.
+                            // The whole-room row says what it does: it notifies
+                            // everyone.
                             text: model.isRoom === true
                                   ? qsTr("Notify everyone in this room")
                                   : model.userId
                             font.family: model.isRoom === true
                                          ? AppTheme.uiFont : AppTheme.monoFont
                             font.pixelSize: AppTheme.scaled(AppTheme.fontMonoXS)
-                            // AA on the selection fill: the selected row's
-                            // MXID brightens one step.
+                            // AA on the selection fill.
                             color: rowDelegate.isSelected
                                    ? AppTheme.stormTextSecondary
                                    : AppTheme.stormTextMuted

@@ -3,34 +3,19 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The ONE update-available dialog (UPDATE-SPEC.md v1). Opens itself off
-// UpdateManager's own state — the ReportMessageDialog / VerificationDialog /
-// UiaPromptDialog idiom (see Main.qml): every place that can discover an
-// update (an automatic check, a manual check) surfaces through the same one
-// presentation, never a per-caller popup. It intentionally does very little:
-// "Update now" only STARTS the download and gets out of the way — the
-// persistent Settings -> Updates card (UpdatesSettingsSection.qml) is the
-// one place that shows Downloading/Verifying/ReadyToInstall/Installing/
-// RestartRequired/Failed, so progress is never duplicated or allowed to
-// drift between two surfaces.
-//
-// Release notes are UNTRUSTED remote text (fetched from the update
-// manifest's `release_notes` field, over a validated HTTPS channel, but
-// still content the release host controls). They are rendered in a
-// read-only TextArea with textFormat FORCED to TextEdit.PlainText — never
-// AutoText, StyledText, RichText, or MarkdownText — so nothing the release
-// server sends can ever be interpreted as HTML/markup or invoke an
-// application command. UpdateManager also exposes releaseNotesUrl (the
-// manifest's `release_notes_url`); it is shown as plain, NON-interactive,
-// explicitly-constructed text underneath the notes — inert, never clickable
-// and never wired to any link-activation handler — so nothing the manifest
-// supplies can trigger navigation or an application command by itself.
+// The one update-available dialog (UPDATE-SPEC.md v1). "Update now" only starts
+// the download; Settings -> Updates (UpdatesSettingsSection.qml) is the one
+// place that shows download, verify, install and restart states, so progress is
+// never duplicated. Release notes are untrusted remote text from the manifest:
+// rendered in a read-only TextArea forced to TextEdit.PlainText (never
+// AutoText, StyledText, RichText or MarkdownText). release_notes_url is shown
+// as plain, non-interactive text, never a link, so nothing in the manifest can
+// trigger navigation or a command.
 Dialog {
     id: root
     objectName: "updateAvailableDialog"
     modal: true
-    // The shared navy modal scrim (QuickSwitcher convention) —
-    // never the Basic style default dim (2026-08-19 audit).
+    // The shared modal scrim.
     Overlay.modal: Rectangle { color: AppTheme.modalScrim }
     focus: true
     standardButtons: Dialog.NoButton
@@ -47,17 +32,10 @@ Dialog {
         root.um ? (root.um.canInstallAutomatically === true) : false
     readonly property string installType: root.um ? root.um.installType : ""
 
-    // v0.7.3: this dialog no longer opens ITSELF. The automatic announcement
-    // is the corner card (UpdateAvailablePrompt), which does not block the
-    // application for something that is never urgent; this dialog is what the
-    // card's "Update" opens, and it remains the ONE place release notes and
-    // "Update now" live. Two self-opening surfaces for one event was exactly
-    // the duplication this file's header warns about.
-    //
-    // It still closes ITSELF, because the reasons to close are the manager's
-    // own: the download started, or the version was dismissed. Leaving a
-    // stale dialog open over a state it no longer describes would be worse
-    // than never having opened it.
+    // Not self-opening: the corner card (UpdateAvailablePrompt) announces an
+    // update without blocking, and its "Update" opens this dialog, which holds
+    // the release notes and "Update now". It still closes itself when the
+    // download starts or the version is dismissed.
     readonly property bool shouldBeOpen:
         root.um !== null && root.um !== undefined
         && root.um.state === UpdateManager.UpdateAvailable
@@ -68,10 +46,9 @@ Dialog {
     }
     onOpenedChanged: if (!opened) root.managedHelpRevealed = false
 
-    // Set from UpdateManager::managedUpdateHelpRequested(command, explanation)
-    // — the ONLY source of this text; nothing here constructs a command
-    // itself. Revealed inline rather than closing the dialog, so the user
-    // can actually read/copy it before "Later" dismisses this version.
+    // Set only from UpdateManager::managedUpdateHelpRequested; nothing here
+    // builds a command. Shown inline so it can be read and copied before
+    // "Later".
     property string managedHelpCommand: ""
     property string managedHelpExplanation: ""
     property bool managedHelpRevealed: false
@@ -166,9 +143,7 @@ Dialog {
                 objectName: "updateReleaseNotesText"
                 readOnly: true
                 wrapMode: TextArea.Wrap
-                // Forced plain text — see the file header. Never
-                // AutoText/StyledText/RichText/MarkdownText on this
-                // untrusted remote string.
+                // Forced plain text; see the file header.
                 textFormat: TextEdit.PlainText
                 text: root.um ? root.um.releaseNotes : ""
                 color: AppTheme.stormTextSecondary
@@ -181,10 +156,8 @@ Dialog {
                 Accessible.name: qsTr("Release notes")
             }
         }
-        // The manifest's release_notes_url, shown as a separate,
-        // explicitly-constructed, NON-interactive line of plain text —
-        // never a clickable link (see the file header). Selectable so a
-        // user who wants to open it can copy/paste it themselves.
+        // release_notes_url as plain, non-interactive text; selectable for
+        // copying.
         Label {
             objectName: "updateReleaseNotesUrlLabel"
             visible: root.um && root.um.releaseNotesUrl
@@ -199,8 +172,8 @@ Dialog {
                   ? root.um.releaseNotesUrl.toString() : ""
         }
 
-        // Package-managed installs (Flatpak/Snap): no self-download here
-        // either — same policy as Settings -> Updates.
+        // Package-managed installs (Flatpak/Snap): no self-download, as in
+        // Settings -> Updates.
         Label {
             objectName: "updateDialogManagedMessage"
             visible: root.packageManaged
@@ -215,9 +188,8 @@ Dialog {
                     ? qsTr("Updates for this installation are managed by Snap.")
                     : ""
         }
-        // Revealed after "Get update instructions" — the exact command and
-        // explanation UpdateManager itself emitted, nothing constructed
-        // here.
+        // The exact command and explanation from UpdateManager, revealed after
+        // "Get update instructions".
         ColumnLayout {
             objectName: "updateDialogManagedCommandBlock"
             visible: root.packageManaged && root.managedHelpRevealed
@@ -280,9 +252,7 @@ Dialog {
                 objectName: "updateDialogManagedHelpButton"
                 visible: root.packageManaged
                 text: qsTr("Get update instructions")
-                // Deliberately does NOT close the dialog: the command is
-                // revealed inline above so there is something to read/copy
-                // before the user dismisses with Later.
+                // Does not close: the command is shown inline to read or copy.
                 onClicked: if (root.um) root.um.openManagedUpdateHelp()
             }
             AppButton {
@@ -292,19 +262,11 @@ Dialog {
                 visible: !root.packageManaged && root.canInstallAutomatically
                 text: qsTr("Update now")
                 onClicked: {
-                    // AND TAKE THE USER WHERE THE UPDATE ACTUALLY HAPPENS.
-                    //
-                    // downloadUpdate() only STARTS a download. Every surface
-                    // that shows its progress, and the "Install" button that
-                    // finishes the job, live in the Updates settings section
-                    // — deliberately, because installUpdate() and
-                    // installAndRestart() are only valid from the ready
-                    // state and that section is the one place they are
-                    // called from. Closing the dialog here left a download
-                    // running with nothing on screen to show for it, so the
-                    // button read as doing nothing and the update could only
-                    // be completed by finding Settings unaided. Reported
-                    // from real use.
+                    // Then go to Settings -> Updates, where progress is shown
+                    // and the install buttons live
+                    // (installUpdate()/installAndRestart() are only called
+                    // there). Closing without navigating left a download
+                    // running with nothing on screen.
                     if (root.um) root.um.downloadUpdate()
                     root.close()
                     app.showSettingsSection("updates")

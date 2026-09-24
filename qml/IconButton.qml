@@ -11,25 +11,22 @@ import MatrixClient
 //                            reserved for primary actions (send buttons,
 //                            active rail modes).
 //
-// ── The size ladder ─────────────────────────────────────────────────────
-// The 2026-08-21 audit counted 66 instances spanning ELEVEN implicit sizes
-// and SEVEN corner radii — including the composer's 28px buttons at radius 6
-// sitting directly under the action bar's 28px buttons at radiusControl (7).
-// `size` is the fix: four named rungs, each pairing a box, a corner and an
-// optical glyph size so those three can never drift apart again.
+// ── The size ladder ──
+// Each rung pairs a box, a corner radius and an optical glyph size so the
+// three stay consistent:
 //
 //   "sm" 24 / radiusControl / 16   inline affordances, clear buttons
 //   "md" 28 / radiusMd      / 20   composer row, message action bar
-//   "lg" 34 / radiusTile    / 21   panel headers (the historical default)
+//   "lg" 34 / radiusTile    / 21   panel headers (the default)
 //   "xl" 40 / radiusOmnibox / 22   rail modes, media chrome
 //
-// A call site may still override implicitWidth/implicitHeight/radius/iconSize
-// individually — but it should pick a rung instead, and new code must.
+// implicitWidth/implicitHeight/radius/iconSize can still be overridden, but
+// new code should pick a rung.
 AbstractButton {
     id: root
 
     property string iconName: ""
-    // "sm" | "md" | "lg" | "xl". Default "lg" is the historical 34/21 default.
+    // "sm" | "md" | "lg" | "xl"; default "lg".
     property string size: "lg"
     property int iconSize: _metrics.glyph
     property int radius: _metrics.radius
@@ -37,21 +34,15 @@ AbstractButton {
     property bool active: false
     // Style C: primary accent fill.
     property bool fill: false
-    /// The RESTING background, for an icon button that has to read as a tile
-    /// rather than as a bare glyph. Transparent by default, so every existing
-    /// caller is unchanged; hover, press, active and disabled all still win
-    /// over it. Added 2026-09-18 for the Spaces rail's settings cog, which
-    /// sat as a 17x19 glyph in a 59px invisible box directly above a 59px
-    /// solid avatar — an optical weight ratio near 5:1, so the two could not
-    /// read as siblings in the same column.
+    /// Resting background, for an icon button that must read as a tile rather
+    /// than a bare glyph (e.g. the Spaces rail's settings cog beside avatars).
+    /// Transparent by default; hover, press, active and disabled override it.
     property color restingColor: "transparent"
-    // Storm surfaces (menus, pickers, dialogs, Settings): storm inks and
-    // fills; the themed hover tint would render a near-white block on the
-    // navy panels. Themed hosts (timeline, room list, media) keep default.
+    // Storm surfaces (menus, pickers, dialogs, Settings) use storm inks and
+    // fills; the themed hover tint would be a near-white block on navy panels.
     property bool storm: false
-    // Scrim contexts (video control bars, media viewers) need explicit
-    // constant ink — the themed icon colour can vanish over video. Empty
-    // keeps the standard three-style theming.
+    // Constant ink for scrim contexts (video bars, media viewers), where the
+    // themed colour can vanish over video. Empty keeps normal theming.
     property string iconColorOverride: ""
 
     readonly property var _metrics: {
@@ -64,8 +55,8 @@ AbstractButton {
         return { box: 34, radius: AppTheme.radiusTile, glyph: 21 }
     }
 
-    // A treatment whose resting state is a SOLID fill; its focus ring is
-    // inked against that fill rather than against the page.
+    // A treatment with a solid resting fill; its focus ring is inked against
+    // that fill.
     readonly property bool _filled: fill
 
     readonly property color _focusInk: {
@@ -88,9 +79,7 @@ AbstractButton {
                 return root.iconColorOverride
             if (root.storm) {
                 if (!root.enabled) return AppTheme.stormTextFaint
-                // Ink on the bolt fill, not the panel ink — boltInk stays
-                // readable once bolt routes to each legacy theme's own
-                // accent.
+                // Ink on the bolt fill, readable on every theme's accent.
                 if (root.fill) return AppTheme.boltInk
                 if (root.active) return AppTheme.bolt
                 return (root.hovered || root.down) ? AppTheme.stormText
@@ -99,11 +88,8 @@ AbstractButton {
             if (!root.enabled) return AppTheme.textDisabled
             if (root.fill) return AppTheme.accentText
             if (root.active) return AppTheme.accent
-            // The storm branch has always brightened the glyph on hover; the
-            // themed branch did not, and under every themed host the only
-            // remaining feedback was a background wash measured at ~3-10 per
-            // channel — invisible. The glyph is the thing the eye is already
-            // on, so that is what moves.
+            // The glyph brightens on hover; the background wash alone is too
+            // faint on themed hosts.
             return (root.hovered || root.down) ? AppTheme.textPrimary
                                                : AppTheme.icon
         }
@@ -119,20 +105,13 @@ AbstractButton {
                     if (root.hovered) return AppTheme.buttonPrimaryHover
                     return AppTheme.buttonPrimaryFill
                 }
-                // A disabled-but-active button used to keep the full selection
-                // chip while its glyph greyed out, reading as "selected and
-                // available". Both the active and the hover branches now
-                // answer to `enabled` the way the fill branch always did.
+                // Disabled active buttons drop the selection chip, so they
+                // don't read as selected and available.
                 if (root.active)
                     return root.enabled ? AppTheme.stormSelection
                                         : AppTheme.stormInset
-                // HOVER is not SELECTION. Both branches returned
-                // stormSelection, so a toggled-ON icon and one you were merely
-                // pointing at were the same colour, with no border or ink to
-                // tell them apart — six of these sit in the room header alone.
-                // `hover` is the translucent wash built for exactly this, and
-                // it reads over every ground it lands on (measured 1.25 /
-                // 1.31 / 1.27 against deep / canvas / panel).
+                // Hover uses the translucent `hover` wash, not stormSelection,
+                // so a toggled-on icon and a hovered one look different.
                 return (root.enabled && (root.down || root.hovered))
                        ? AppTheme.hover : "transparent"
             }
@@ -149,9 +128,8 @@ AbstractButton {
         }
     }
 
-    // Keyboard focus, drawn INSIDE the control — see the long note in
-    // AppButton.qml. Icon buttons are the worst case for an outset ring:
-    // they cluster at 2px spacing inside toolbars that clip.
+    // Keyboard focus ring drawn inside the control (see AppButton.qml):
+    // icon buttons sit close together in clipping toolbars.
     Rectangle {
         objectName: "focusRing"
         anchors.fill: parent

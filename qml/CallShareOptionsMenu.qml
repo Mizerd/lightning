@@ -2,36 +2,20 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// Screen-share options, on the chevron beside the share button.
-//
-// HERE BECAUSE THE SHARE PICKER IS NOT REACHABLE EVERYWHERE. On Wayland the
-// route is LinuxShareRoute::Portal: the desktop draws its own source dialog
-// and Lightning's picker never opens, so anything that lives only in that
-// picker is reachable from X11, Windows and macOS and invisible on KDE.
-// Reported twice — first for the audio switch, then for resolution and rate.
-// The call bar is the one surface every route shows.
-//
-// It also gets the audio toggle off the bar itself, which was a full-width
-// control for a setting most people touch once.
+// Screen-share options, on the chevron beside the share button. On Wayland
+// (LinuxShareRoute::Portal) the desktop draws its own source dialog and
+// Lightning's picker never opens, so options must also live on the call bar,
+// the one surface every route shows.
 AppMenu {
     id: root
 
-    // EXPLICIT WIDTH, like every other menu here that carries a real
-    // sentence. AppMenu's own comment says the design width is "a floor, not
-    // a clamp" and that rows outgrowing it widen to fit — but its content
-    // item is a ListView, which does not measure its delegates' widths, so
-    // `implicitContentWidth` never exceeds the floor and the row elides
-    // instead. That the four other menus needing more room all set this
-    // property by hand is the evidence. Reported as a sound toggle whose
-    // label read "Share this computer's ...".
+    // Explicit width, as in the other menus whose labels are full phrases, so
+    // labels don't elide.
     menuWidth: 260
 
-    // THE MENU STAYS OPEN while these are changed. A MenuItem closes its
-    // menu on trigger — correct for an action, wrong for a settings panel
-    // where someone reasonably wants to pick a resolution AND a rate. Qt
-    // offers no "do not close" on MenuItem, so the close is allowed to
-    // happen and the menu is reopened at the same place; `x`/`y` were set by
-    // popup() and are not touched, so it returns exactly where it was.
+    // Keeps the menu open while options change: a MenuItem always closes its
+    // menu, so it is reopened at the same place (popup() set x/y, which are
+    // left untouched).
     property bool keepOpen: false
     function actAndStayOpen(fn) {
         root.keepOpen = true;
@@ -48,20 +32,17 @@ AppMenu {
 
     AppMenuItem {
         objectName: "shareAudioMenuItem"
-        // ABSENT, not disabled, where nothing can capture what the computer
-        // plays: a disabled Qt Quick control gets no hover, so it cannot even
-        // explain why it is greyed.
+        // Absent rather than disabled where nothing can capture system audio: a
+        // disabled control gets no hover to explain itself.
         visible: app.groupCall && app.groupCall.shareAudioSupported
         height: visible ? implicitHeight : 0
         radio: true
         radioSelected: app.groupCall && app.groupCall.shareAudioEnabled
-        // The label stays short because the menu's label column is 200px and
-        // `theShareOptionsMenuShowsItsLabelsWithoutEliding` holds it to that.
-        // What this capture actually contains — the whole output mix, this
-        // call included, because a sink monitor is post-mix and cannot
-        // exclude our own playback — is explained on ScreenSharePicker's
-        // "Share audio" checkbox, which is where the option is first turned
-        // on, and in docs/voice-calls.md.
+        // Short label: the label column is 200px
+        // (theShareOptionsMenuShowsItsLabelsWithoutEliding). What the capture
+        // contains (the whole output mix, this call included) is explained on
+        // ScreenSharePicker's "Share audio" checkbox and in
+        // docs/voice-calls.md.
         text: qsTr("Share computer sound")
         onTriggered: root.actAndStayOpen(function () {
             if (app.groupCall) {
@@ -110,10 +91,8 @@ AppMenu {
         ]
         delegate: AppMenuItem {
             required property var modelData
-            // The marker rides the ROW it applies to, so there is no
-            // paragraph to read and nothing to run off the edge. Asked of
-            // SettingsManager rather than re-derived here, so the rule stays
-            // in one place.
+            // The marker sits on the row it applies to. The rule comes from
+            // SettingsManager, not re-derived here.
             readonly property bool slow:
                 app.settings.shareQualityDemandingAt(
                     app.settings.shareMaxHeight, modelData.value)

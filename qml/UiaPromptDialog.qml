@@ -3,25 +3,20 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.7.x: the one reusable User-Interactive Authentication prompt. Opens
-// itself off UiaController state (a real server challenge), renders the
-// password stage, and states unsupported stages honestly.
-//
-// CREDENTIAL RULES: the field is wiped immediately after every dispatch,
-// on cancel, and on close — the password exists in QML for exactly the
-// moment between typing and submitting. echoMode stays Password; there is
-// deliberately no reveal toggle on a re-auth prompt.
+// The one reusable User-Interactive Authentication prompt, opened by
+// UiaController's challenge state. Renders the password stage and states
+// unsupported stages honestly. The field is wiped after every dispatch, on
+// cancel and on close; echoMode stays Password with no reveal toggle.
 Dialog {
     id: root
     objectName: "uiaPromptDialog"
     modal: true
-    // The shared navy modal scrim (QuickSwitcher convention) —
-    // never the Basic style default dim (2026-08-19 audit).
+    // The shared modal scrim.
     Overlay.modal: Rectangle { color: AppTheme.modalScrim }
     focus: true
     standardButtons: Dialog.NoButton
-    // No click-outside dismissal: an auth prompt must end in an explicit
-    // answer or an explicit cancel.
+    // No click-outside dismissal: an auth prompt ends in an answer or an
+    // explicit cancel.
     closePolicy: Popup.CloseOnEscape
     width: Math.min(420, parent ? parent.width - AppTheme.spacing24 * 2 : 420)
     anchors.centerIn: parent
@@ -40,7 +35,7 @@ Dialog {
     }
     onClosed: {
         passwordField.text = ""
-        // Escape / programmatic close while a challenge is live = cancel.
+        // Escape or a programmatic close while a challenge is live cancels it.
         if (app.uia.challengeActive)
             app.uia.cancel()
     }
@@ -120,8 +115,7 @@ Dialog {
                 text: qsTr("Confirm")
                 onClicked: {
                     app.uia.submitPassword(passwordField.text)
-                    // Wipe immediately — never keep the password in the
-                    // field beyond the dispatch (import-passphrase rule).
+                    // Wipe immediately after dispatch.
                     passwordField.text = ""
                 }
             }

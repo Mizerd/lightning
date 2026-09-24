@@ -4,20 +4,18 @@ import QtQuick.Layouts
 import QtMultimedia
 import MatrixClient
 
-// v0.7: expanded in-application video view. Deliberately NOT an OS
-// fullscreen window: a modal overlay inside the application window (the
-// ImageViewerOverlay pattern), so account/room context and input focus
-// stay under the shell's control. It borrows the inline card's
-// MediaPlayer — playback continues seamlessly, audio never doubles, and
-// closing hands the video surface back to the card and restores focus.
-// Escape closes.
+// Expanded in-app video view: a modal overlay (like ImageViewerOverlay), not an
+// OS fullscreen window, so account/room context and focus stay with the shell.
+// It borrows the inline card's MediaPlayer, so playback continues without
+// doubling audio; closing hands the surface back and restores focus. Escape
+// closes.
 Popup {
     id: root
     objectName: "videoViewerOverlay"
 
     property var player: null
     property var cardOutput: null
-    // The card's AudioOutput, for the shared control bar's mute/volume.
+    // The card's AudioOutput, for the control bar's mute/volume.
     property var cardAudio: null
 
     function openFor(mediaPlayer, inlineOutput) {
@@ -37,8 +35,7 @@ Popup {
     closePolicy: Popup.CloseOnEscape
 
     onClosed: {
-        // Hand the frames back to the inline card; playback state is
-        // deliberately untouched (whatever played keeps playing inline).
+        // Hand the frames back to the card; playback state is untouched.
         if (player && cardOutput)
             player.videoOutput = cardOutput
         player = null
@@ -47,16 +44,16 @@ Popup {
     }
 
     background: Rectangle {
-        // Committed dark on every theme, matching ImageViewerOverlay — the
-        // shared scrim token rather than a second copy of the same alpha.
+        // Dark on every theme, like ImageViewerOverlay (the shared scrim
+        // token).
         color: AppTheme.scrimSurface
     }
 
     contentItem: FocusScope {
         focus: true
 
-        // Playback keyboard: Space toggles, arrows seek ±5s, M mutes,
-        // Up/Down adjust volume. Escape closes via the Popup policy.
+        // Space toggles, arrows seek ±5s, M mutes, Up/Down adjust volume.
+        // Escape closes via the Popup policy.
         Keys.onPressed: (event) => {
             if (!root.player) return
             switch (event.key) {
@@ -108,20 +105,11 @@ Popup {
         }
         TapHandler {
             id: overlayTap
-            // Instant toggle on every tap (exclusive signals delayed the
-            // single tap by the whole double-click interval — the same
-            // "laggy pause" the inline card had). A double-tap toggles
-            // twice — net no state change — then exits.
-            //
-            // BUT NOT OVER THE CONTROL BAR. This handler is a SIBLING of the
-            // bar, so it covers the bar's whole rectangle: its buttons and
-            // slider are Controls and accept the press, but its background,
-            // its time label and the gaps between controls are not. A click
-            // there toggled playback, and a DOUBLE click — a user reaching
-            // for play and missing by a few pixels — closed the overlay and
-            // lost the video. The image viewer has carried a band check on
-            // its own tap since the day the two gestures were split; this is
-            // the same check, on the one band that has competing controls.
+            // Taps toggle instantly (exclusive tap signals would delay the
+            // single tap); a double tap toggles twice and exits. Not over the
+            // control bar: this handler is its sibling and covers its gaps and
+            // label, where a near-miss double click would close the overlay
+            // (the same band check the image viewer uses).
             function onTheBar(y) {
                 return overlayBar.visible && y >= overlayBar.y
             }
@@ -140,8 +128,8 @@ Popup {
         }
         HoverHandler { id: overlayHover }
 
-        // Full shared control set — the expanded view is the escape hatch
-        // from the card's width-constrained bar.
+        // The full control set; the expanded view is the escape hatch from the
+        // card's narrow bar.
         VideoControlBar {
             id: overlayBar
             objectName: "videoOverlayControlBar"

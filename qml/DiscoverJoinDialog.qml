@@ -3,22 +3,21 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.7.x Discover / Join Room: one Lightning modal card for browsing the
-// public room directory and joining by address or link.
+// Discover / Join Room: browse the public room directory, or join by address
+// or link.
 //
-// Browse tab: debounced directory search (RoomDirectorySearchModel) with
-// server-token pagination and an optional remote directory server. Address
-// tab: resolves #alias / !roomid / matrix: URIs / matrix.to permalinks
-// through the SDK (never hand-parsed here) into a preview card, then joins
-// or knocks. All server operations run through RoomDiscoveryController;
-// duplicate submissions are blocked by its single-flight busy state, and a
-// successful join closes the dialog — AppController navigates.
+// Browse: debounced directory search (RoomDirectorySearchModel) with server
+// token pagination and an optional remote directory server. Address: resolves
+// #alias / !roomid / matrix: URIs / matrix.to permalinks through the SDK
+// (never hand-parsed here) into a preview card, then joins or knocks. Server
+// operations go through RoomDiscoveryController, whose single-flight busy
+// state blocks duplicates; a successful join closes the dialog and
+// AppController navigates.
 Dialog {
     id: root
     objectName: "discoverJoinDialog"
     modal: true
-    // The shared navy modal scrim (QuickSwitcher convention) —
-    // never the Basic style default dim (2026-08-19 audit).
+    // The shared modal scrim, not the Basic style's default dim.
     Overlay.modal: Rectangle { color: AppTheme.modalScrim }
     focus: true
     standardButtons: Dialog.NoButton
@@ -33,8 +32,8 @@ Dialog {
     property string mode: "browse"
     property string addressText: ""
     property string knockReasonText: ""
-    // Row currently asked to join from the Browse list ("" = none). Lets
-    // exactly that row show its in-flight state.
+    // The Browse row asked to join ("" = none), so only it shows in-flight
+    // state.
     property string pendingJoinRoomId: ""
 
     readonly property bool busy: app.discovery.busy
@@ -53,14 +52,12 @@ Dialog {
         && resolvedMembership !== "joined" && resolvedMembership !== "invited"
         && resolvedMembership !== "knocked" && resolvedMembership !== "banned"
 
-    // When opened from an activated Matrix link: a link to an already
-    // joined room should NOT park the user in a dialog — it auto-opens
-    // (and jumps to the linked event) as soon as resolution confirms the
-    // membership.
+    // Opened from an activated link: a link to an already-joined room opens it
+    // (and jumps to the linked event) as soon as resolution confirms
+    // membership, rather than parking the user in a dialog.
     property bool autoOpenJoined: false
-    // The raw activated link, kept so a non-room resolution can fall back
-    // to the browser (review L2) instead of stranding the user on an
-    // error for a link they merely clicked.
+    // The activated link, so a non-room resolution can fall back to the
+    // browser instead of showing an error.
     property string activatedLink: ""
 
     function openDialog(startMode) {
@@ -73,14 +70,10 @@ Dialog {
         Qt.callLater(focusCurrent)
     }
 
-    // 2026-08-18 tester report ("kai spaudi link atsidaro pop up langas
-    // milisekundei cant do anything with it"): a clicked room link opened
-    // this dialog immediately and then closed it again the moment the link
-    // resolved to a room the user is already in — a modal that flashed for a
-    // frame and could not be used. The resolve now runs FIRST and the dialog
-    // is only shown when it has something to ask the user: a room that needs
-    // joining or knocking, a failure, or a resolve slow enough
-    // (linkResolveGrace) that silence would look like a dead click.
+    // Resolve first, and show the dialog only when the user is needed: a room
+    // to join or knock, a failure, or a resolve slower than linkResolveGrace
+    // (so the click doesn't look dead). Otherwise the modal would flash open
+    // and closed for rooms the user is already in.
     function openForLink(link) {
         resetAll()
         mode = "address"
@@ -100,10 +93,9 @@ Dialog {
         }
     }
 
-    // A link flow that finished without needing the dialog: stop the grace
-    // timer so it cannot pop the modal open after the fact, and clear the
-    // link state by hand — onClosed does not run for a dialog that was
-    // never shown.
+    // A link flow that didn't need the dialog: stop the grace timer so it
+    // can't open the modal later, and clear link state by hand (onClosed
+    // doesn't run for a dialog never shown).
     function finishLinkFlow() {
         linkResolveGrace.stop()
         var wasVisible = root.visible
@@ -120,8 +112,8 @@ Dialog {
     }
 
     function resetAll() {
-        // Any pending link flow ends here: a grace timer left running could
-        // otherwise pop this dialog open over an unrelated later state.
+        // End any pending link flow, or its grace timer could open this dialog
+        // over a later, unrelated state.
         linkResolveGrace.stop()
         mode = "browse"
         addressText = ""
@@ -153,8 +145,8 @@ Dialog {
 
     Connections {
         target: app.discovery
-        // AppController navigates; this surface only needs to get out of
-        // the way. Knocks stay open so the pending state is visible.
+        // AppController navigates; just get out of the way. Knocks stay open so
+        // the pending state is visible.
         function onRoomJoined() { root.close() }
         function onSpaceJoined() { root.close() }
         function onKnockSent() { root.pendingJoinRoomId = "" }
@@ -167,9 +159,8 @@ Dialog {
             }
         }
         function onResolveChanged() {
-            // A clicked link that turns out not to be a room (e.g. an
-            // encoded user permalink the interceptor missed) belongs in
-            // the browser, exactly as before this round (review L2).
+            // A link that isn't a room (e.g. a user permalink the interceptor
+            // missed) goes to the browser.
             if (root.autoOpenJoined
                 && app.discovery.resolveState === "failed"
                 && root.resolved.category === "not_a_room"
@@ -180,8 +171,7 @@ Dialog {
             }
             if (!root.autoOpenJoined)
                 return
-            // Anything the user has to answer — a room to join or knock, or
-            // a resolve that failed — needs the dialog on screen.
+            // A room to join or knock, or a failed resolve, needs the dialog.
             if (!root.resolvedOk) {
                 if (app.discovery.resolveState === "failed")
                     root.revealForLink()
@@ -199,8 +189,8 @@ Dialog {
             var eventId = root.resolved.eventId || ""
             app.openRoom(roomId)
             if (eventId !== "") {
-                // Same shape as notification click routing (Main.qml): let
-                // the room switch settle one event-loop turn, then jump.
+                // As in notification click routing (Main.qml): let the room
+                // switch settle one event-loop turn, then jump.
                 Qt.callLater(function() {
                     app.pagination.jumpToEvent(eventId)
                 })
@@ -365,7 +355,8 @@ Dialog {
                                 Layout.fillWidth: true
                                 spacing: AppTheme.spacing6
                                 Label {
-                                    // Remote or externally chosen text: never markup.
+                                    // Remote or externally chosen text: never
+                                    // markup.
                                     textFormat: Text.PlainText
                                     text: directoryRow.visibleName
                                     color: AppTheme.stormText
@@ -375,12 +366,8 @@ Dialog {
                                     elide: Label.ElideRight
                                     Layout.maximumWidth: 240
                                 }
-                                // Both of these were 10px grey words floating
-                                // beside the room name with nothing to mark
-                                // them as metadata. They are exactly what
-                                // StatusChip is for, and the chip vocabulary
-                                // gives each one its own tone instead of one
-                                // undifferentiated grey.
+                                // Metadata as StatusChips, each with its own
+                                // tone.
                                 StatusChip {
                                     storm: true
                                     visible: directoryRow.isSpace
@@ -393,15 +380,16 @@ Dialog {
                                              && root.joinRuleLabel(
                                                  directoryRow.joinRule).length > 0
                                     // A knock is a request, not a refusal:
-                                    // warning, while plain "invite only"
-                                    // stays neutral.
+                                    // warning tone; "invite only" stays
+                                    // neutral.
                                     tone: directoryRow.rowKnocks ? "warning"
                                                                  : "neutral"
                                     label: root.joinRuleLabel(directoryRow.joinRule)
                                 }
                             }
                             Label {
-                                // Remote or externally chosen text: never markup.
+                                // Remote or externally chosen text: never
+                                // markup.
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: {
@@ -611,7 +599,8 @@ Dialog {
                                 Layout.fillWidth: true
                             }
                             Label {
-                                // Remote or externally chosen text: never markup.
+                                // Remote or externally chosen text: never
+                                // markup.
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: {
@@ -636,8 +625,8 @@ Dialog {
                         visible: root.resolvedPreview
                                  && (root.resolved.topic || "").length > 0
                         text: root.resolved.topic || ""
-                        // A directory topic comes from a STRANGER's server;
-                        // never AutoText (§6).
+                        // A directory topic comes from a stranger's server;
+                        // never AutoText.
                         textFormat: Text.PlainText
                         color: AppTheme.stormTextSecondary
                         font.pixelSize: AppTheme.textBody

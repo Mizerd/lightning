@@ -3,16 +3,10 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.7.x message forwarding: the ONE room picker (opens itself off
-// ForwardController's `active` state, exactly like ReportMessageDialog
-// opens off ModerationController's pending-report state — see
-//). Styled on DiscoverJoinDialog's Storm shape.
-//
-// Scope: rooms only, never a thread — Lightning has no
-// "forward into this thread" concept, and offering thread targets here
-// would need its own root-selection UI. Spaces are excluded: a Space is
-// not a chat target. Only ONE message forwards at a time; there is no
-// multi-select.
+// Forwarding one message: the room picker. Opens itself off
+// ForwardController's `active` state (as ReportMessageDialog does off
+// ModerationController). Rooms only: there's no "forward into a thread", and
+// a Space isn't a chat target. Selections go through ForwardSelectionDialog.
 Dialog {
     id: root
     objectName: "forwardMessageDialog"
@@ -65,10 +59,7 @@ Dialog {
                 Layout.fillWidth: true
             }
             IconButton {
-                // 28/18 is the dialog close-button size used by every other
-                // dialog in this family; IconButton's own 34/21 default made
-                // this one visibly larger than the identical control in the
-                // dialog opened right beside it.
+                // The close-button size shared by this dialog family.
                 storm: true
                 iconName: "close"
                 iconSize: 18
@@ -140,8 +131,7 @@ Dialog {
                 required property bool isSpace
                 required property string membership
 
-                // Rooms only (never a Space or a thread — see class
-                // comment) and only rooms already joined: an invite or a
+                // Joined rooms only (never a Space or thread): an invite or
                 // knock is not somewhere a message can land.
                 readonly property bool eligible:
                     !isSpace && membership === "joined"
@@ -188,10 +178,8 @@ Dialog {
                             elide: Label.ElideRight
                             Layout.fillWidth: true
                         }
-                        // Encryption is a positive state, and it was the only
-                        // thing on this row with nothing to say it: a bare
-                        // 10px grey word. A lock in the success ink reads at
-                        // a glance and matches the room header's own lock.
+                        // A lock in the success ink, matching the room
+                        // header's.
                         RowLayout {
                             visible: targetRow.encrypted
                             spacing: AppTheme.spacing4

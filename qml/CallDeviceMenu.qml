@@ -3,44 +3,27 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Device chooser for a call control — the chevron dropdown beside the mic and
-// camera buttons.
+// Device chooser for a call control: the chevron dropdown beside the mic,
+// speaker and camera buttons.
 //
-// 2026-09-12: it is also where a call's INPUT LEVEL lives. Before this the
-// only microphone volume in the application was in Settings, so changing it
-// mid-call meant leaving the conversation to find it. The slider below writes
-// the same `app.settings.microphoneGain` that Settings does — one stored
-// value, two surfaces — and SfuCallController connects
-// `microphoneGainChanged` to `applyAudioState()`, which hands it to the
-// engine's `volume` element, so a mid-call drag is applied to the live
-// pipeline rather than only to the next call.
+// The microphone menu also carries the input level. It writes the same
+// `app.settings.microphoneGain` as Settings, and SfuCallController applies
+// `microphoneGainChanged` to the live pipeline. There is no global output
+// level (only per-participant volumes and deafen), so no slider for that.
 //
-// Only the microphone menu carries it. There is no global OUTPUT level in
-// this client — the engine exposes per-participant volumes (the call stage's
-// own control) and a deafen switch, and a slider here that reached neither
-// would be a control that does nothing, which is worse than no control.
-//
-// Lists what the machine actually reports, marks the system default, and
-// offers "System default" as an explicit first choice rather than leaving the
-// user to guess which entry that is.
-//
-// Two states the list distinguishes honestly, because they are different
-// facts and conflating them is how a user concludes the setting is broken:
-//   * `chosen`  — what the user picked.
-//   * `active`  — what audio is actually flowing through right now.
-// They differ exactly when a chosen device is unplugged, and the menu then
-// shows the choice as still chosen while marking the fallback as active.
+// Lists what the machine reports, marks the system default, and offers
+// "System default" as an explicit first choice. `chosen` (what the user
+// picked) and `active` (what audio flows through) differ when a chosen device
+// is unplugged; the menu then shows both.
 AppMenu {
     id: root
 
     /// "microphone" | "speaker" | "camera"
     property string kind: "microphone"
 
-    // `kind` is set once by the chevron that owns this menu and never
-    // changes, but the rows below still bind rather than branch at
-    // construction: a visible-gated AppMenuItem / AppMenuSeparator collapses
-    // to implicitHeight 0 (both files say so explicitly), so an unused row
-    // costs no band of empty space the way a plain `visible: false` would.
+    // Rows bind on `kind` rather than branch at construction: a hidden
+    // AppMenuItem / AppMenuSeparator collapses to implicitHeight 0, so unused
+    // rows take no space.
     readonly property bool isMicrophone: kind === "microphone"
 
     readonly property var _entries: {
@@ -52,9 +35,8 @@ AppMenu {
         return app.callDevices.microphones
     }
 
-    // The lists are C++ properties, but the rows inside them are rebuilt on
-    // every read, so the menu is repopulated when the device list or the
-    // selection changes rather than on a timer.
+    // The rows are rebuilt on every read, so the menu refreshes when the device
+    // list or selection changes.
     property int refreshTick: 0
     Connections {
         target: app.callDevices
@@ -78,15 +60,11 @@ AppMenu {
     }
 
     AppMenuItem {
-        // Explicit, because "no selection" IS a choice — it means "follow the
-        // system default as it changes", which is different from pinning
-        // whichever device happens to be default today.
+        // Explicit: no selection means "follow the system default", which
+        // differs from pinning today's default device.
         text: qsTr("System default")
-        // AppMenuItem has its OWN selected-state idiom (radio +
-        // radioSelected, drawn as a StormNode in the indicator column).
-        // Qt's `checkable` makes the control draw its default indicator on
-        // top of that custom contentItem, which is why the tick landed over
-        // the label.
+        // AppMenuItem's own radio idiom; Qt's `checkable` would draw its
+        // default indicator over the custom content.
         radio: true
         radioSelected: {
             var _ = root.refreshTick
@@ -105,8 +83,7 @@ AppMenu {
         model: root._entries
         delegate: AppMenuItem {
             required property var modelData
-            // The device's own name. Never translated: it is hardware the
-            // system named, not our string.
+            // The device's own name; not ours to translate.
             text: modelData.description
                   + (modelData.isDefault ? " " + qsTr("(default)") : "")
             radio: true
@@ -115,8 +92,7 @@ AppMenu {
         }
     }
 
-    // Only shown when the user's choice is genuinely unavailable, so it does
-    // not become permanent furniture.
+    // Only when the chosen device is unavailable.
     Loader {
         active: root.isMicrophone
                 && app.callDevices.preferredMicrophoneMissing
@@ -127,15 +103,12 @@ AppMenu {
         }
     }
 
-    // ── Input level ──────────────────────────────────────────────────────
+    // ── Input level ──
     AppMenuSeparator { visible: root.isMicrophone }
 
-    // A PLAIN Item, not a Layout, as the menu row. QQuickMenu lays its rows
-    // out in a ListView and sizes each one whose width was not set
-    // explicitly to the content width — so the block is anchored to its own
-    // left and right edges and reports a height, which is the only geometry
-    // contract a menu row has. The implicitWidth is a floor for the menu's
-    // own width binding, not the width this ends up at.
+    // A plain Item, not a Layout: QQuickMenu sizes rows it didn't size
+    // explicitly to the content width, so this anchors to its own edges and
+    // reports a height. implicitWidth is a floor for the menu's width.
     Item {
         id: gainRow
         objectName: "callMenuMicGainRow"
@@ -150,8 +123,8 @@ AppMenu {
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.topMargin: AppTheme.spacing6
-            // The same inset AppMenuItem uses for its content, so the label
-            // lines up with the device names above it.
+            // AppMenuItem's content inset, so the label aligns with the
+            // devices.
             anchors.leftMargin: AppTheme.menuItemPadding + 6
             anchors.rightMargin: AppTheme.menuItemPadding + 6
             spacing: 2
@@ -161,18 +134,16 @@ AppMenu {
                 spacing: AppTheme.spacing6
 
                 Icon {
-                    // `graphic_eq` reads as LEVEL; `mic` is the device. Both
-                    // are mapped in Icon.qml — the bundled Material Symbols
-                    // font is a SUBSET and an unmapped name renders as tofu.
+                    // `graphic_eq` for level above 100, `mic` otherwise; both
+                    // mapped in Icon.qml (the bundled font is a subset).
                     name: micGain.value > 100 ? "graphic_eq" : "mic"
                     size: 15
                     color: micGain.value > 100 ? AppTheme.bolt
                                                : AppTheme.stormTextSecondary
                 }
                 Label {
-                    // fillWidth + elide, never a Layout.minimumWidth floor:
-                    // a floor does not create room, it makes the row overflow
-                    // its menu instead of shrinking.
+                    // fillWidth + elide, not a minimumWidth floor, which would
+                    // make the row overflow the menu.
                     Layout.fillWidth: true
                     text: qsTr("Input volume")
                     elide: Label.ElideRight
@@ -182,8 +153,7 @@ AppMenu {
                 }
                 Label {
                     objectName: "callMenuMicGainReadout"
-                    // Never empty, so it does not need the Loader treatment a
-                    // possibly-empty Label in a repeated row does.
+                    // Never empty, so no Loader needed.
                     text: Math.round(micGain.value) + "%"
                     color: AppTheme.stormText
                     font.pixelSize: AppTheme.textMeta
@@ -195,21 +165,19 @@ AppMenu {
                 id: micGain
                 objectName: "callMenuMicGainSlider"
                 Layout.fillWidth: true
-                // THE SAME RANGE AND THE SAME NEUTRAL POINT as the Settings
-                // control and the per-participant control. Two level sliders
-                // in one application that disagree about what 100 means is a
-                // worse outcome than either of them being wrong.
+                // Same range and neutral point as the Settings and
+                // per-participant controls.
                 from: 0
                 to: 200
                 stepSize: 1
                 snapMode: Slider.SnapAlways
-                // A plain binding: a change made in Settings, or by a reset,
-                // or by the next account's stored value, is reflected here.
+                // A plain binding, so changes from Settings, resets or another
+                // account's value show here.
                 value: app.settings.microphoneGain
                 Accessible.name: qsTr("Input volume")
-                // `onMoved`, never `onValueChanged` — the latter also fires
-                // when the binding above delivers a value that came FROM the
-                // store, which writes it straight back.
+                // `onMoved`, never `onValueChanged`, which also fires for
+                // values arriving from the store and would write them straight
+                // back.
                 onMoved: app.settings.microphoneGain = Math.round(value)
 
                 background: Rectangle {
@@ -244,8 +212,8 @@ AppMenu {
                     width: 14
                     height: 14
                     radius: 7
-                    // White: the thumb rides the fill boundary, so a dark
-                    // disc reads as disabled past half range.
+                    // White: a dark thumb on the fill boundary reads as
+                    // disabled.
                     color: "#FFFFFF"
                     border.width: micGain.visualFocus ? 2 : 0
                     border.color: AppTheme.bolt
@@ -255,14 +223,11 @@ AppMenu {
             Label {
                 Layout.fillWidth: true
                 // Preferred width 1 + fillWidth: a wrapping paragraph reports
-                // its whole unwrapped sentence as its preferred width, and a
-                // parent too narrow for that shrinks its children in
-                // proportion to it.
+                // its unwrapped width as preferred and would squeeze siblings.
                 Layout.preferredWidth: 1
-                // Hidden below the neutral point, and a ColumnLayout
-                // already excludes an invisible child from its layout — no
-                // preferredHeight override, which on a WRAPPING label is how
-                // a layout binding loop is usually written.
+                // Hidden below 100; a ColumnLayout skips invisible children, so
+                // no preferredHeight override (a common binding-loop source on
+                // wrapping labels).
                 visible: micGain.value > 100
                 wrapMode: Text.WordWrap
                 text: qsTr("Above 100% amplifies and can clip.")
@@ -272,26 +237,20 @@ AppMenu {
         }
     }
 
-    // Only while it is off its neutral point, so it is not permanent
-    // furniture — and as a real row rather than a hidden gesture on the
-    // slider, because a reset nobody can find is not a reset.
+    // Shown only off the neutral point, as a real row rather than a hidden
+    // slider gesture.
     AppMenuItem {
         objectName: "callMenuMicGainReset"
         visible: root.isMicrophone && app.settings.microphoneGain !== 100
         text: qsTr("Reset input volume")
-        // Written explicitly: assigning the slider's value is not a user
-        // gesture, so `onMoved` never fires and a reset that only moved the
-        // thumb would change nothing at all.
+        // Written explicitly: moving the slider's value programmatically
+        // doesn't fire onMoved.
         onTriggered: app.settings.microphoneGain = 100
     }
 
-    // ── Everything else ──────────────────────────────────────────────────
-    //
-    // The camera picker, the float-the-call switch and the media playback
-    // level are genuinely settings, not call controls, and duplicating them
-    // onto a menu that opens over a live call would give this application two
-    // places to change one value. One row that goes to the section that owns
-    // them instead.
+    // ── Everything else ──
+    // Camera picker, float-the-call and playback level are settings, not call
+    // controls; one row links to the section that owns them.
     AppMenuSeparator {}
 
     AppMenuItem {

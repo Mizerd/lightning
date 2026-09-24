@@ -3,103 +3,65 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.7.4: the renderer for one fenced code block.
+// Renderer for one fenced code block.
 //
-// Why this exists at all. Qt's rich-text engine treats <pre> as PREFORMATTED
-// and refuses to wrap it, so a single long terminal line laid a message
-// TextEdit out far past its own width. MessageDelegate's root is deliberately
-// `clip: false` (the hover action bar overhangs it), so that overflow escaped
-// the bubble and the timeline entirely. Styling the one rich-text item better
-// cannot fix that: the fix is to stop asking a rich-text item to hold content
-// it is documented not to wrap, and give the block its own bounded,
-// horizontally scrollable surface. MessageHtml::segments() is the split that
-// makes that possible; this is the other half.
+// Qt's rich-text engine never wraps <pre>, so a long line would lay a message
+// TextEdit out far past its width and escape the bubble (MessageDelegate's
+// root is `clip: false`). Instead the block gets its own bounded,
+// horizontally scrollable surface; MessageHtml::segments() does the split.
 //
-// Public surface is exactly:
-//     CodeBlock { code: "…"; language: "…" }
-// plus whatever width / Layout.* the caller sets. Everything else here is
-// readonly or internal.
+// Public surface: `CodeBlock { code: "…"; language: "…" }` plus whatever
+// width / Layout.* the caller sets.
 Rectangle {
     id: root
 
-    // Source code reads left to right in every language, so this block opts
-    // out of the app-wide RTL mirroring Main.qml turns on for Arabic. The
-    // gutter stays on the leading edge of the CODE, not of the sentence
-    // around it, and a horizontally scrolled line still starts at column 1.
+    // Code reads left to right in every language, so this opts out of the
+    // app-wide RTL mirroring: the gutter stays on the code's leading edge.
     LayoutMirroring.enabled: false
     LayoutMirroring.childrenInherit: true
 
-    // The program text. PLAIN text, already entity-decoded by
-    // MessageHtml::segments() — it is rendered with Text.PlainText, so
-    // "&lt;b&gt;" arrives as those six literal characters and can never
-    // become markup again.
+    // Plain text, already entity-decoded by MessageHtml::segments(); rendered
+    // with Text.PlainText so it can never become markup again.
     property string code: ""
-    // Optional language tag. MessageHtml already validated it against
-    // ^[A-Za-z0-9+#._-]{1,24}$, and it is re-validated here rather than
-    // trusted: a class attribute is sender-chosen text, this label is
-    // user-visible AND part of an accessible name, and the component must
-    // be safe for any caller, not only the one that exists today.
+    // Optional language tag. Re-validated here (MessageHtml already did) since
+    // it is sender-chosen and appears in the UI and the accessible name.
     property string language: ""
 
     readonly property string safeLanguage:
         /^[A-Za-z0-9+#._-]{1,24}$/.test(root.language) ? root.language : ""
 
-    // Line count of the program, which is also the number of gutter rows.
-    // wrapMode is NoWrap, so one source line is exactly one visual line and
-    // the gutter cannot drift out of step with the code.
+    // Line count, which is also the number of gutter rows (NoWrap keeps them in
+    // step).
     readonly property int lineCount: root.code.length === 0
                                      ? 1 : root.code.split("\n").length
 
-    // Bounded height: a 4000-line paste must not own the whole viewport.
-    // Past this the block scrolls internally (see the wheel note below for
-    // why that scrolling is deliberately NOT on the mouse wheel).
+    // Bounded height; taller code scrolls internally (not on the mouse wheel;
+    // see below).
     readonly property real maxBodyHeight: AppTheme.scaled(360)
     readonly property real framePadding: AppTheme.spacing8
     readonly property real gutterGap: AppTheme.spacing8
 
     readonly property bool horizontalOverflow:
         codeFlick.contentWidth > codeFlick.width + 1
-    // DELIBERATELY WIDTH-INDEPENDENT, and that is load-bearing rather than
-    // stylistic. This read `contentHeight + bottomMargin > height + 1`, which
-    // reaches codeFlick.height — which is bodyArea's, which carries
-    // horizontalBarSpace, which is decided by horizontalOverflow, which is
-    // decided by the width that `verticalBarSpace` below now consumes. That
-    // is a cycle, and this component already has a registered test against
-    // binding loops because this exact sizing chain has produced real ones.
-    //
-    // The two forms are algebraically identical: bottomMargin is
-    // horizontalBarSpace on BOTH sides of the old comparison and cancels,
-    // and the Math.min collapses to the same predicate either way.
+    // Width-independent on purpose: comparing against codeFlick.height would
+    // depend on horizontalOverflow, which depends on the width that
+    // verticalBarSpace consumes, forming a binding loop. Equivalent to the
+    // height comparison.
     readonly property bool verticalOverflow:
         codeArea.implicitHeight > root.maxBodyHeight + 1
-    // Room for the horizontal bar so it never paints over the last line. The
-    // bar is attached to the Flickable and anchors to ITS bottom edge, so the
-    // band has to be inside the Flickable (as bottomMargin), not below it.
+    // Room for the horizontal bar inside the Flickable (as bottomMargin), so it
+    // never covers the last line.
     readonly property real horizontalBarSpace: root.horizontalOverflow ? 8 : 0
-    // THE SAME BAND FOR THE VERTICAL BAR, AND ITS ABSENCE WAS THE DEFECT.
-    //
-    // An attached ScrollBar overlays the Flickable's right edge and takes no
-    // layout width, while MessageDelegate lays a code segment out at
-    // `min(segmentCap, implicitWidth)` — its own natural width. So a block
-    // that fits under the cap has a viewport exactly as wide as its widest
-    // line, ZERO horizontal scroll range, and a 6px bar painted over that
-    // line's last characters with nowhere to scroll them clear. Reported
-    // 2026-09-17 against an ASCII tree: tall enough to raise the bar, narrow
-    // enough not to clamp.
-    //
-    // The clamped case had it too, just disguised — at maximum contentX the
-    // content's right edge aligned with the viewport's, which is under the
-    // bar. One band fixes both.
-    //
-    // It rides contentWidth rather than a rightMargin because the overflow
-    // predicate, the Right key and the wheel router all clamp on contentWidth
-    // and none of them reads a margin.
+    // The same band for the vertical bar. An attached ScrollBar takes no layout
+    // width, and MessageDelegate sizes a code segment at
+    // `min(segmentCap, implicitWidth)`, so without it the bar covers the end of
+    // the widest line with no scroll range to clear it. Added to contentWidth
+    // rather than as a margin because the overflow check, the Right key and the
+    // wheel router all clamp on contentWidth.
     readonly property real verticalBarSpace: root.verticalOverflow ? 8 : 0
 
-    // The natural width of the widest line — used ONLY so a two-word snippet
-    // does not stretch the bubble. It is CLAMPED, because the widest line is
-    // precisely the unbounded number that escaped the timeline in the first
-    // place: past the clamp the overflow becomes contentX, never geometry.
+    // Natural width of the widest line, so a short snippet doesn't stretch the
+    // bubble. Clamped: past it, overflow becomes contentX, never geometry.
     readonly property real naturalContentWidth:
         gutterText.implicitWidth + root.gutterGap + codeArea.implicitWidth
         + root.verticalBarSpace + 2 * root.framePadding
@@ -112,9 +74,7 @@ Rectangle {
     color: AppTheme.codeBlock
     radius: AppTheme.radiusMd
     border.width: 1
-    // The focus ring is the border itself rather than a second rectangle:
-    // one 1px outline, in the shared focus ink, exactly like the app's other
-    // focusable surfaces.
+    // The border doubles as the focus ring.
     border.color: root.focusWithin ? AppTheme.focusRing : AppTheme.border
 
     readonly property bool focusWithin:
@@ -122,19 +82,15 @@ Rectangle {
 
     activeFocusOnTab: true
     Accessible.role: Accessible.Grouping
-    // Counts and the validated language token only — never the program text.
+    // Counts and the validated language only, never the program text.
     Accessible.name: root.safeLanguage.length > 0
         ? qsTr("Code block, %1, %2 lines").arg(root.safeLanguage)
                                           .arg(root.lineCount)
         : qsTr("Code block, %1 lines").arg(root.lineCount)
 
     function copyCode() {
-        // Copies root.code and nothing else — never the gutter, and never a
-        // selection made in the visible TextEdit. Copying THROUGH the visible
-        // editor (selectAll/copy/deselect) is the tempting shortcut and is
-        // wrong twice: it flashes a selection the user did not make, and it
-        // destroys the selection they DID make. The hidden-TextEdit idiom is
-        // the one already used for "copy room link" and "copy user id".
+        // Copies root.code only (never the gutter) via a hidden TextEdit, so
+        // the visible editor's selection is neither flashed nor destroyed.
         clipboardRelay.text = root.code
         clipboardRelay.selectAll()
         clipboardRelay.copy()
@@ -157,10 +113,9 @@ Rectangle {
         onTriggered: root.copied = false
     }
 
-    // Keyboard: the block owns horizontal motion (which nothing else in the
-    // timeline offers) and, only while it actually overflows, vertical motion
-    // inside itself. Anything it does not use is explicitly NOT accepted, so
-    // PageUp/PageDown/Home/End keep reaching the timeline's own handler.
+    // The block owns horizontal motion and, only while it overflows, vertical
+    // motion. Unused keys aren't accepted, so PageUp/PageDown/Home/End reach
+    // the timeline.
     Keys.onPressed: (event) => {
         var step = AppTheme.scaled(48)
         if (event.matches(StandardKey.Copy)) {
@@ -206,18 +161,11 @@ Rectangle {
             height: 24
             spacing: AppTheme.spacing8
 
-            // A Loader, NOT a `visible:` gate, and the distinction is the
-            // single most expensive QML mistake known in this codebase.
-            // Every QQuickText is BORN carrying ItemObservesViewport, and the
-            // only code that clears it is QQuickText::setText — which opens
-            // with `if (d->text == n) return;`, BEFORE the line that clears
-            // the flag. So a Label created holding "" never clears it, and
-            // QQuickItemPrivate::transformChanged can no longer prune this
-            // subtree on every contentY change. Visibility is irrelevant to
-            // the mechanism; being created empty is what matters, and a fence
-            // with no language tag is the common case. The 2026-08-19 scroll
-            // round removed exactly this hazard with seven Loaders and there
-            // is a test requiring ZERO observers across a timeline row tree.
+            // A Loader, not a `visible:` gate: a Text created empty never
+            // clears ItemObservesViewport (QQuickText::setText returns early
+            // for equal text), which defeats viewport pruning on every scroll.
+            // A fence without a language is the common case, and a test
+            // requires zero observers across a timeline row.
             Loader {
                 active: root.safeLanguage.length > 0
                 Layout.alignment: Qt.AlignVCenter
@@ -254,8 +202,8 @@ Rectangle {
             }
         }
 
-        // The scrolling body. Height is the content's, capped, plus room for
-        // the horizontal bar when there is one.
+        // The scrolling body: content height, capped, plus the horizontal bar's
+        // band.
         Item {
             id: bodyArea
             objectName: "codeBlockBody"
@@ -264,12 +212,9 @@ Rectangle {
                     + root.horizontalBarSpace
             clip: true
 
-            // The gutter lives OUTSIDE the Flickable and is translated by
-            // -contentY, so it scrolls vertically WITH the code but stays
-            // pinned horizontally — line numbers you cannot scroll away from.
-            // The tempting alternative (put the gutter inside the Flickable's
-            // content) makes the numbers slide off to the left the moment the
-            // reader scrolls right, which is exactly when they are needed.
+            // The gutter sits outside the Flickable, translated by -contentY,
+            // so it scrolls vertically with the code but stays put
+            // horizontally.
             Text {
                 id: gutterText
                 objectName: "codeBlockGutter"
@@ -278,26 +223,17 @@ Rectangle {
                 width: implicitWidth
                 horizontalAlignment: Text.AlignRight
                 textFormat: Text.PlainText
-                // Deliberately a Text, not a TextEdit: the gutter must never
-                // be selectable, or "select the whole block and copy" would
-                // carry line numbers into the paste.
+                // A Text, not a TextEdit: line numbers must never be selectable
+                // or copied.
                 text: {
                     var lines = []
                     for (var i = 1; i <= root.lineCount; ++i)
                         lines.push(String(i))
                     return lines.join("\n")
                 }
-                // `textMuted`, NOT `textDisabled`, and the difference is
-                // a light-theme-only defect measured 2026-09-19. The
-                // disabled ink is tuned against the app's SURFACE; the code
-                // block's fill is a tinted panel that in the light themes is
-                // LIGHTER than that surface, so the same token lands on it
-                // at 1.56:1 (Lightning Light), 1.72:1 (Warm) and 2.14:1
-                // (Moss Light) — line numbers that are not there. The dark
-                // themes never showed it: their `codeBlock` is much darker
-                // than the surface and the same token measures 4.0-6.5:1.
-                // `textMuted` is 4.5-9.2:1 over all eleven palettes and is
-                // still plainly subordinate to the code (8.9-18.5:1).
+                // textMuted, not textDisabled: the code-block fill is lighter
+                // than the surface on light themes, where textDisabled falls to
+                // 1.56-2.14:1. textMuted clears 4.5:1 on every palette.
                 color: AppTheme.textMuted
                 font.family: codeArea.font.family
                 font.pixelSize: codeArea.font.pixelSize
@@ -312,54 +248,34 @@ Rectangle {
                 height: parent.height
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
-                // The band is part of the SCROLLABLE EXTENT, not a margin:
-                // see root.verticalBarSpace. In the natural-width case this
-                // simply parks the bar past the last glyph; in the clamped
-                // case it means maximum contentX leaves the widest line's
-                // right edge inside the viewport instead of under the bar.
+                // The band is part of the scrollable extent (see
+                // root.verticalBarSpace), so max contentX keeps the widest line
+                // clear of the bar.
                 contentWidth: codeArea.implicitWidth + root.verticalBarSpace
                 contentHeight: codeArea.implicitHeight
                 bottomMargin: root.horizontalBarSpace
 
-                // ── The nested-scroll decision, and why it is this one ──────
-                // The room timeline is a Flickable rotated 180 degrees whose
-                // WheelHandler (TimelinePane.qml's timelineWheelHandler) is
-                // "the single pointer-wheel owner": it drives pagination,
-                // anchoring, follow-latest and the settle timer. Wheel events
-                // are delivered innermost-first, so a Flickable in a message
-                // row sees every notch BEFORE that owner does.
-                //
-                // QQuickFlickable::wheelEvent early-returns when
-                // `interactive` is false, leaving the event ignored so it
-                // propagates outward. That is the ONLY reliable way to stay
-                // out of the timeline's way, so this Flickable is a viewport,
-                // never an input surface. A vertical notch over a code block
-                // therefore scrolls the CONVERSATION, exactly as it does over
-                // any other row — a code block that swallowed the wheel would
-                // trap the reader mid-timeline.
-                //
-                // It costs nothing else: `selectByMouse` on the editor below
-                // already owns press-and-drag, so an interactive Flickable
-                // here would have fought text selection anyway. Scrolling
-                // inside the block is by the scrollbars, the keyboard
-                // (Keys.onPressed above) and Shift+wheel / horizontal wheel
-                // (wheelRouter below) — none of which the timeline wants.
+                // ── Nested scrolling ── Wheel events reach this before
+                // TimelinePane's timelineWheelHandler, which owns pagination,
+                // anchoring and follow-latest. A non-interactive Flickable
+                // ignores wheel events so they propagate, so vertical notches
+                // scroll the conversation. Inside the block, scrolling is by
+                // scrollbars, the keyboard and Shift/horizontal wheel
+                // (wheelRouter). selectByMouse owns press-and-drag anyway.
                 interactive: false
 
                 TextEdit {
                     id: codeArea
                     objectName: "codeBlockText"
                     text: root.code
-                    // PlainText is load-bearing, not a default: the segment
-                    // text is already entity-decoded, so RichText here would
-                    // re-interpret a program's own angle brackets as markup.
+                    // PlainText: the text is already entity-decoded, so
+                    // RichText would turn the program's angle brackets into
+                    // markup.
                     textFormat: Text.PlainText
                     readOnly: true
                     selectByMouse: true
                     selectByKeyboard: true
-                    // No wrapping: a code block's line breaks are the
-                    // program's. Wrapping is what the horizontal scroll
-                    // replaces.
+                    // No wrapping: line breaks are the program's.
                     wrapMode: Text.NoWrap
                     activeFocusOnTab: false
                     padding: 0
@@ -369,19 +285,14 @@ Rectangle {
                     selectedTextColor: AppTheme.accentText
                     font.family: AppTheme.monoFont
                     font.pixelSize: AppTheme.scaled(AppTheme.fontMono)
-                    // The screen reader reads the code from here; the frame
-                    // above carries the counts-only summary.
+                    // The screen reader reads the code here; the frame carries
+                    // the counts-only summary.
                     Accessible.role: Accessible.EditableText
                     Accessible.name: qsTr("Code")
                 }
 
-                // Before AppScrollBar existed this was the ONE
-                // hand-styled scrollbar in the repository (a flat
-                // borderStrong pill, no hover or press step). It now rides
-                // the shared control, so the code block and every other
-                // scrolling surface finally agree — and `thin` keeps it from
-                // widening on hover inside a message row, where the extra
-                // 4px would reflow the block's reserved bar band.
+                // `thin` so hover doesn't widen the bar and reflow the reserved
+                // band.
                 ScrollBar.vertical: AppScrollBar {
                     objectName: "codeBlockVerticalScrollBar"
                     thin: true
@@ -398,11 +309,9 @@ Rectangle {
                 }
             }
 
-            // Horizontal-intent wheel only. `acceptedButtons: Qt.NoButton`
-            // means presses fall straight through to the editor's selection
-            // handling; MouseArea's documented contract is that an UNaccepted
-            // wheel is passed on with QQuickItem::wheelEvent, which is what
-            // hands a plain vertical notch back to the timeline.
+            // Horizontal-intent wheel only. NoButton lets presses reach the
+            // editor; an unaccepted wheel is passed on, so vertical notches go
+            // to the timeline.
             MouseArea {
                 id: wheelRouter
                 objectName: "codeBlockWheelRouter"

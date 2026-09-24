@@ -3,12 +3,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.9 (phase 2): the global Activity Center. One list, across every room,
-// of what was addressed to the user — mentions, replies, replies in the
-// user's threads, reactions to the user's messages, invites and keyword
-// hits — with its OWN seen state (independent of read receipts) and a
-// click that lands on the exact event. Shared by both room-list layouts:
-// the button that opens it sits in the RoomsPanel header they both use.
+// The global Activity Center: one list, across every room, of what was
+// addressed to the user (mentions, replies, replies in their threads,
+// reactions to their messages, invites and keyword hits), with its own seen
+// state independent of read receipts, and a click that lands on the exact
+// event. Opened from the RoomsPanel header shared by both room-list layouts.
 Dialog {
     id: root
     objectName: "activityCenterDialog"
@@ -51,8 +50,7 @@ Dialog {
         case "reaction": return qsTr("Reacted %1 to your message").arg(reactionKey)
         case "invite": return qsTr("Invited you")
         case "keyword": return qsTr("Keyword")
-        // The server told us this was highlighted for this account and not
-        // which rule matched, so this says exactly that and no more.
+        // The server says it's highlighted, not which rule matched.
         case "highlight": return qsTr("Highlighted for you")
         }
         return ""
@@ -262,14 +260,10 @@ Dialog {
                             spacing: AppTheme.spacing6
                             Label {
                                 text: row.roomName
-                                // A room name is attacker-chosen text, and an
-                                // UNSOLICITED INVITE puts a stranger's into
-                                // this list with no acceptance. Label defaults
-                                // to Text.AutoText, so a name containing a
-                                // known tag would be rendered as rich text and
-                                // `<img src=...>` would beacon on open. The
-                                // body Label below always set this; these two
-                                // were the omission.
+                                // Room names are attacker-chosen, and an
+                                // unsolicited invite puts a stranger's here;
+                                // with AutoText, markup such as `<img src=...>`
+                                // would render and beacon.
                                 textFormat: Text.PlainText
                                 color: AppTheme.stormText
                                 font.pixelSize: AppTheme.textBody
@@ -279,8 +273,8 @@ Dialog {
                                 Layout.maximumWidth: 240
                             }
                             Label {
-                                // Carries the reaction key, which is an
-                                // arbitrary sender-chosen string.
+                                // Includes the reaction key, an arbitrary
+                                // sender-chosen string.
                                 text: root.kindLabel(row.kind, row.reactionKey)
                                 textFormat: Text.PlainText
                                 color: AppTheme.stormTextMuted

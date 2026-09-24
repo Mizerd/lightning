@@ -3,18 +3,13 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.9 room upgrade (phase 8): the confirmation flow. Opened from the room's
-// Access block and from Space settings. The version list is the homeserver's
-// own (requestRoomVersions on open), the default is the recommendation, and
-// the explanation is deliberately blunt: an upgrade is irreversible and
-// tombstones the old room.
-//
-// THE OPENER NAMES THE ROOM, and this dialog carries it to the controller.
-// It used to name none, and app.roomUpgrade upgraded whatever room was OPEN
-// behind it — so "Upgrade space…", reached from a modal that does not
-// navigate, tombstoned the room the user was reading while this dialog
-// displayed the space's name and version. Never reintroduce a default here:
-// openFor() without a room id is a programming error and is refused.
+// Room upgrade confirmation, opened from a room's Access block and from Space
+// settings. Versions come from the homeserver (requestRoomVersions), the
+// default is its recommendation, and the text is blunt: an upgrade is
+// irreversible and tombstones the old room. The opener names the room and this
+// dialog passes it to the controller; upgrading whatever room is open behind
+// the dialog would tombstone the wrong room. openFor() without a room id is
+// refused; never add a default.
 Dialog {
     id: root
     objectName: "roomUpgradeDialog"
@@ -32,7 +27,7 @@ Dialog {
     property string kind: "room"
     readonly property bool isSpace: kind === "space"
     property string chosenVersion: ""
-    // The room this dialog will upgrade. Set by openFor(); never defaulted.
+    // The room to upgrade. Set by openFor(); never defaulted.
     property string targetRoomId: ""
 
     function openFor(roomId) {
@@ -46,8 +41,8 @@ Dialog {
     }
     onOpened: Qt.callLater(function () { versionCombo.forceActiveFocus() })
 
-    // Navigate-on-success closes the dialog: the controller emits
-    // navigateRequested, and the room changes under us.
+    // The controller emits navigateRequested on success; close as the room
+    // changes.
     Connections {
         target: app.roomUpgrade
         function onUpgradeStateChanged() {

@@ -2,51 +2,37 @@ import QtQuick
 import QtQuick.Layouts
 import MatrixClient
 
-// The call grid, built over SURFACES rather than over people.
+// The call grid, built over surfaces rather than people: one cell per share,
+// then one per participant. A person sharing with their camera on occupies
+// two cells, and every sharer is reachable.
 //
-// One entry per SHARE and one entry per PARTICIPANT, in that order. A person
-// sharing with their camera on occupies two cells; two people sharing occupy
-// two cells. This is the fix for "make sure multiple users can screen share":
-// the previous grid was a GridView over the participant list alone, whose
-// delegate never set `mediaKind`, so a screen share was not merely
-// un-spotlighted — it was not rendered ANYWHERE, and only the first sharer was
-// reachable at all.
+// Shares come first, ordered here rather than in CallParticipantModel, where
+// reordering would churn beginMoveRows on every speaker change.
 //
-// Shares come FIRST because that is what everyone is looking at. The order is
-// applied HERE and not in `CallParticipantModel`: reordering the source model
-// would churn `beginMoveRows` on every speaker change, and the rows move for
-// reasons that have nothing to do with the view.
+// Two Repeaters over the two real models rather than a view over a merged JS
+// array: reassigning an array resets the model and rebuilds every tile (and
+// its VideoOutput) on each speaker update. A call is small enough not to need
+// virtualization.
 //
-// TWO REPEATERS, NOT A VIEW. A GridView takes one model, and building a merged
-// JS array out of two models is the exact defect CallParticipantModel exists to
-// remove: a JS array reassigned is a MODEL RESET, so every tile — and with it
-// every VideoOutput and its attach()/detach() pair — would be destroyed and
-// rebuilt on every speaker update. Two Repeaters bound to the two real models
-// give per-row `dataChanged`, which is what makes an amplitude-driven speaking
-// ring possible at all. A call has tens of participants, not thousands, so the
-// virtualization a view would have brought is worth nothing here.
-//
-// Positioning is computed rather than laid out, for one reason a Flow cannot
-// give: the LAST ROW IS CENTRED. Three tiles read as 2-over-1-centred, which
-// is what a call client looks like; a Flow would left-align the odd one.
+// Positions are computed rather than using a Flow so the last row is centred
+// (3 tiles read as 2-over-1).
 Item {
     id: root
 
-    /// `app.groupCall.shareModel` and `app.groupCall.participantModel`. Bound
-    /// as models directly — never copied into an array.
+    /// `app.groupCall.shareModel` and `app.groupCall.participantModel`, bound
+    /// as models directly, never copied into an array.
     property var shareModel: null
     property var participantModel: null
 
-    /// Nobody in this call is sending video: draw circular avatars on the
-    /// canvas instead of a grid of empty panels.
+    /// Nobody is sending video: circular avatars on the canvas instead of a
+    /// grid of empty panels.
     property bool voiceOnly: false
 
-    /// Compact tiles — smaller glyphs and type, for the strip beside a
-    /// spotlight.
+    /// Compact tiles for the strip beside a spotlight.
     property bool compact: false
 
-    /// Highlight state, for the strip form where one surface is on the
-    /// spotlight. Empty in the ordinary grid.
+    /// Highlight state for the surface on the spotlight; empty in the ordinary
+    /// grid.
     property string focusedShareId: ""
     property string focusedIdentity: ""
 
@@ -58,19 +44,12 @@ Item {
     readonly property int total: root.shareCount + root.peopleCount
 
     readonly property int gap: AppTheme.spacing8
-    /// Cell width divided by cell height. 16:9 for video tiles — the shape a
-    /// camera frame and a screen both fit into. A voice-only cell is square:
-    /// it holds a circle and a name, and a 16:9 box around a circle is mostly
-    /// empty canvas.
+    /// Cell width / height: 16:9 for video tiles, square when voice-only (a
+    /// circle and a name).
     readonly property real cellAspect: root.voiceOnly ? 1.0 : (16 / 9)
 
-    /// Column count that maximises the area of one cell.
-    ///
-    /// No Discord documentation states the reflow rule for N participants and
-    /// none of the numbers here are measurements of Discord — this is the
-    /// standard "try every column count, keep the best" search, which
-    /// reproduces the arrangements everyone recognises: 2 side by side, 3 as
-    /// 2-over-1, 4 as 2x2.
+    /// Column count that maximises one cell's area: try every count, keep the
+    /// best (2 side by side, 3 as 2-over-1, 4 as 2x2).
     readonly property int columns: {
         var n = Math.max(1, root.total);
         if (root.width <= 0 || root.height <= 0)
@@ -85,8 +64,7 @@ Item {
                 continue;
             var usableW = Math.min(w, h * root.cellAspect);
             var area = usableW * (usableW / root.cellAspect);
-            // Strictly greater, so a tie keeps the SMALLER column count and
-            // therefore the smaller row count — a 2x2 rather than a 4x1.
+            // Strictly greater, so a tie keeps fewer columns (2x2, not 4x1).
             if (area > bestArea) {
                 bestArea = area;
                 best = c;
@@ -109,9 +87,8 @@ Item {
     readonly property real _topOffset:
         Math.max(0, (root.height - root._blockHeight) / 2)
 
-    /// x of cell `i` (0-based over shares then participants). Reads only
-    /// declared properties, so a binding calling it re-evaluates when any of
-    /// them changes — QML captures property reads THROUGH a function call.
+    /// x of cell `i` (0-based over shares then participants). Bindings calling
+    /// it re-evaluate when the properties it reads change.
     function cellX(i) {
         if (root.columns <= 0 || root.cellWidth <= 0)
             return 0;
@@ -128,13 +105,9 @@ Item {
                 + Math.floor(i / root.columns) * (root.cellHeight + root.gap);
     }
 
-    // ── Shares first ─────────────────────────────────────────────────────
-    //
-    // The delegate root is a plain Item that RECEIVES the roles as required
-    // properties and the tile reads them from it. Marking the tile's own
-    // same-named properties required would be shorter, but that syntax is
-    // used nowhere else in this tree and this round cannot build to find out
-    // — the wrapper is the pattern the old stage already used.
+    // ── Shares first ──
+    // The delegate root receives the roles as required properties and the
+    // tile reads them from it.
     Repeater {
         id: shareTiles
         model: root.shareModel
@@ -166,7 +139,7 @@ Item {
         }
     }
 
-    // ── Then the people ──────────────────────────────────────────────────
+    // ── Then the people ──
     Repeater {
         id: personTiles
         model: root.participantModel
@@ -188,8 +161,7 @@ Item {
             required property real speakingLevel
             required property bool handRaised
             // element-call's transient reaction, empty while none is
-            // playing. Required like every other role this delegate reads,
-            // so a model that stops supplying it fails loudly at load.
+            // playing. Required, so a model lacking it fails at load.
             required property string reactionEmoji
             required property string connectionQuality
 
@@ -211,10 +183,9 @@ Item {
                 cameraKnown: personCell.cameraKnown
                 cameraOn: personCell.cameraOn
                 cameraTrackKey: personCell.cameraTrackKey
-                // The screen-share BADGE only. This tile never renders the
-                // person's screen: the share has its own tile above, and two
-                // surfaces asking the router for one participant's screen
-                // would blank each other.
+                // The screen-share badge only; the share has its own tile, and
+                // two surfaces asking for one participant's screen would blank
+                // each other.
                 screenSharing: personCell.screenSharing
                 mediaKind: "camera"
                 speaking: personCell.speaking

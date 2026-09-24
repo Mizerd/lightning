@@ -3,46 +3,32 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// B011: THE ONE SURFACE FOR "THIS SESSION CAN NEVER DECRYPT ANYTHING".
+// The one surface for "this session can never decrypt anything": the device
+// published a curve25519 identity key its local Olm account doesn't hold.
+// Peers encrypt to the published key, so every room key and call media key
+// addressed to this device is unreadable for good (messages stay on "Waiting
+// for keys…", calls are silent one way), while sending still works.
 //
-// THE DEFECT, diagnosed on a real account 2026-09-07. A device had published
-// a curve25519 identity key that its own local Olm account did not hold.
-// Peers encrypt to the key the SERVER publishes, so every room key and every
-// call media key addressed to this device was unreadable, permanently:
-// encrypted messages sit on "Waiting for keys…" forever, and an encrypted
-// call is silent one way while the other side hears you perfectly, because
-// SENDING is unaffected. Only matrix-sdk's own tracing could see it, and a
-// fresh sign-in repaired it instantly.
+// The repair is signing out and in again, and its cost is stated: it's a new
+// device, and history not in key backup won't come back. Deliberately not
+// automated (CLAUDE.md §6: no crypto-store reset as a normal repair).
+// app.auth.logout() is the ordinary sign-out; nothing here touches the crypto
+// store.
 //
-// Detection shipped and then stopped at a log line the user never reads.
-// This card is the missing half: it says what is wrong in plain language and
-// offers the one repair that works.
-//
-// THE REPAIR IS SIGNING OUT AND SIGNING IN AGAIN, and its real cost is
-// stated rather than glossed: it is a NEW device, and message history that
-// is not in key backup will not come back to it. Deliberately NOT automated:
-// CLAUDE.md §6 forbids treating a crypto-store reset as a normal repair, so
-// this stays an explicit, account-scoped, last-resort action the user takes
-// knowingly. Nothing here touches the crypto store; app.auth.logout() is the
-// same ordinary sign-out the account menu offers.
-//
-// Same corner-card shape as VerifySessionPrompt on purpose — an app the user
-// can still send in must not be blocked by a modal — but a stronger tone,
-// because this one is not a nudge: nothing they receive will open.
+// A corner card like VerifySessionPrompt so sending isn't blocked by a modal,
+// but in a stronger tone.
 Rectangle {
     id: root
 
-    // Session-only suppression. There is no persisted dismissal: a permanent
-    // fault that a user silenced once would then be silent on every later
-    // launch, and this is the state in which every incoming message is
-    // unreadable. Re-armed on any login change, like VerifySessionPrompt.
+    // Session-only suppression, re-armed on any login change: a persisted
+    // dismissal would silence a permanent fault on every later launch.
     property bool suppressed: false
 
     readonly property bool shouldShow:
         app.encryptionIdentityBroken
         && !suppressed
-        // The chat shell only (currentScreen 1), never over login or boot:
-        // there is no account to act on there, and the repair is a sign-out.
+        // Chat shell only (currentScreen 1): the repair is a sign-out, and
+        // there's no account to act on at login or boot.
         && app.currentScreen === 1
 
     Connections {
@@ -95,8 +81,8 @@ Rectangle {
             }
         }
 
-        // PLAIN LANGUAGE, AND THE HONEST SHAPE OF IT: sending still works,
-        // which is exactly why this is so confusing to notice or report.
+        // Plain language, including that sending still works, which is why this
+        // is hard to notice.
         Label {
             objectName: "encryptionBrokenPromptBody"
             Layout.fillWidth: true
@@ -135,8 +121,8 @@ Rectangle {
         }
     }
 
-    // The cost is stated HERE, on the confirmation, not only in the card:
-    // this is the moment the user commits to it.
+    // The cost is stated on the confirmation too: this is where the user
+    // commits.
     Dialog {
         id: signOutConfirm
         objectName: "encryptionBrokenSignOutDialog"
@@ -172,13 +158,9 @@ Rectangle {
             Label {
                 objectName: "encryptionBrokenSignOutConsequences"
                 Layout.fillWidth: true
-                // THE APP KNOWS WHETHER BACKUP EXISTS, SO IT SAYS SO.
-                // "only if they are in your key backup" is true either way
-                // and useless when the answer is already no: §6 asks for
-                // honest consequences on a destructive account-scoped action,
-                // and this is the sentence the user decides on. Raised in
-                // review. `keyBackupUsable` is false when the state is
-                // unknown too, which is the safe direction: it warns.
+                // State whether backup exists rather than a generic "only if in
+                // backup". `keyBackupUsable` is false when unknown too, so it
+                // errs towards warning.
                 readonly property bool backupUsable:
                     app.cryptoHealth && app.cryptoHealth.keyBackupUsable
                 text: qsTr("Signing in again creates a NEW session with new "

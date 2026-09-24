@@ -3,32 +3,14 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.6.5 (SPEC 1r): the verification/trust surface.
-//
-// 2026-08-26: this card USED to be brand-fixed — navy + yellow in every
-// theme, through ten AppTheme.trust* tokens pinned to the raw Storm
-// literals. That was deliberate ("the trust moment is the brand moment")
-// and it became wrong when its neighbourhood moved: the card sits between
-// SettingsCards painted stormPanel/stormBorder (stormCanvas/stormBorder
-// until 2026-09-20 — see below), above a sessions list
-// painted stormTextFaint/stormLink, so on any theme but Storm it was the
-// one surface on the page that ignored the user's choice. Reported as "the
-// blue lightning session status should match the rest of the theme".
-//
-// It now reaches for the routed storm* namespace BY ROLE, like every other
-// surface, and owns no colour tokens of its own; AppTheme.qml records the
-// old-token -> role mapping where the pin used to live. The brand face
-// (Space Grotesk) on the display name STAYS — the complaint was colour, and
-// the face carries the remaining brand identity at no cost to legibility.
-//
-// Purely presentational: every real value (steps, status text,
-// whether Verify applies) is supplied by the caller through properties, so
-// this file never reaches into the application context property directly,
-// never invents trust for anyone, and never promotes local UI state to SDK
-// trust. The embedding surface (see the implementer's embed spec) is
-// responsible for deriving `steps` from real CryptoHealthModel /
-// sessionDevices state and for wiring `verifyRequested` to the existing
-// own-verification start path.
+// Verification/trust surface. Uses the routed storm* roles like every other
+// surface and owns no colour tokens (AppTheme.qml records the old mapping);
+// Space Grotesk on the display name keeps the brand identity. Purely
+// presentational: every value (steps, status, whether Verify applies) comes
+// from the caller. It never reads the app context, never invents trust and
+// never promotes local UI state to SDK trust. The embedding surface derives
+// `steps` from CryptoHealthModel/sessionDevices and wires verifyRequested to
+// own-verification.
 Item {
     id: root
     objectName: "trustCard"
@@ -39,8 +21,7 @@ Item {
     // [{label: string, iconName: string, complete: bool}, ...]
     property var steps: []
     property string statusText: ""
-    // Verify is the ONLY action this card ever offers (no self-Message
-    // action, no QR — SAS verification is the only real flow).
+    // Verify is the only action (SAS is the only real flow).
     property bool showVerify: false
 
     signal verifyRequested()
@@ -57,28 +38,16 @@ Item {
         objectName: "trustCardSurface"
         anchors.fill: parent
         radius: AppTheme.radiusLg
-        // Deliberately the SettingsCard pair (SettingsScreen.qml's
-        // SettingsCard paints exactly these two), so the card reads as one
-        // of the page's cards rather than as something pasted onto it.
-        //
-        // 2026-09-20: that pair is stormPanel/stormBorder now, and this line
-        // has to follow it or the Sessions page has one card that is still
-        // the colour of the page. stormCanvas routes to the palette's
-        // `background` on every theme but Storm, exactly as stormDeep (the
-        // page) does, so every settings card was invisible on ten of eleven
-        // themes; the measurements are in SettingsScreen.qml's SettingsCard
-        // comment. Under Storm this moves _stoCanvas #121655 -> _stoPanel
-        // #202473 in lockstep with the cards around it.
+        // The SettingsCard pair (stormPanel/stormBorder), so this reads as one
+        // of the page's cards.
         color: AppTheme.stormPanel
         border.width: 1
         border.color: AppTheme.stormBorder
     }
 
-    // Oversized outline bolt watermark, top-right, cropped to the card.
-    // stormWatermark is the app's hero-card watermark treatment (the same
-    // token IdentityCard and MemberProfilePopover use) — a 12%-alpha bolt.
-    // Purely decorative: it carries no information, so it is exempt from
-    // the 3:1 non-text bar that the raw accent misses on Indigo Night.
+    // Decorative bolt watermark, cropped to the card (stormWatermark, as in
+    // IdentityCard and MemberProfilePopover); exempt from the non-text contrast
+    // bar.
     Icon {
         name: "bolt"
         size: 120
@@ -97,7 +66,7 @@ Item {
         anchors.margins: AppTheme.spacing16
         spacing: AppTheme.spacing16
 
-        // ── Header: avatar with double ring + identity ──────────────────
+        // Header: avatar with double ring + identity
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing12
@@ -116,12 +85,9 @@ Item {
                                                        : root.userId
                     colorKey: root.userId
                 }
-                // Double ring: a 2px gap of the card ground showing through
-                // + a 2px stroke — same outline idiom as SpacesRail's
-                // active-space ring. wordmarkBolt, not bolt: this ring is a
-                // brand mark around a face, not a state, and the raw accent
-                // beside plain header text reads as a status light (the same
-                // reasoning AppTheme.qml records for the wordmark's bolt).
+                // Double ring: a 2px gap of card ground plus a 2px stroke, like
+                // the rail's active ring. wordmarkBolt: a brand mark around a
+                // face, not a state light.
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: -4
@@ -147,7 +113,7 @@ Item {
                     elide: Label.ElideRight
                 }
                 Label {
-                    // Remote or externally chosen text: never markup.
+                    // Untrusted text: never markup.
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
                     text: root.userId
@@ -159,7 +125,7 @@ Item {
             }
         }
 
-        // ── Trust chain module ──────────────────────────────────────────
+        // Trust chain module
         Rectangle {
             objectName: "trustChainPanel"
             Layout.fillWidth: true
@@ -179,8 +145,7 @@ Item {
 
                 RowLayout {
                     spacing: AppTheme.spacing6
-                    // The glyph labels the module the caption names, so its
-                    // meaning is carried by the adjacent text either way.
+                    // The adjacent caption carries the meaning.
                     Icon { name: "bolt"; size: 13; color: AppTheme.bolt }
                     Label {
                         text: qsTr("TRUST CHAIN")
@@ -207,9 +172,8 @@ Item {
                         delegate: RowLayout {
                             id: stepItem
                             spacing: 0
-                            // Only non-last steps stretch, so the connector
-                            // bar fills the real gap between two nodes
-                            // evenly regardless of the module's width.
+                            // Only non-last steps stretch, so connectors fill
+                            // the gaps evenly.
                             Layout.fillWidth: index < root.steps.length - 1
 
                             readonly property bool stepComplete:
@@ -232,20 +196,14 @@ Item {
                                         visible: stepItem.stepComplete
                                         anchors.fill: parent
                                         radius: 12
-                                        // State, not decoration: bolt is
-                                        // "active/selected/complete/primary
-                                        // ONLY" and complete is exactly this.
+                                        // Bolt means complete here: a state, not
+                                        // decoration.
                                         color: AppTheme.bolt
                                     }
-                                    // Pending nodes get a dashed ring. Drawn
-                                    // as eight tangential dash Rectangles —
-                                    // QtQuick.Shapes is not linked here, and
-                                    // Canvas proved to paint NOTHING under
-                                    // the offscreen platform regardless of
-                                    // render strategy (verified by pixel
-                                    // assertion), so the ring is plain
-                                    // declarative geometry that always
-                                    // renders.
+                                    // Pending nodes get a dashed ring of eight
+                                    // Rectangles: QtQuick.Shapes is not linked,
+                                    // and Canvas paints nothing under the
+                                    // offscreen platform.
                                     Item {
                                         objectName: "trustNodeDashRing"
                                         visible: !stepItem.stepComplete
@@ -280,19 +238,10 @@ Item {
                                                && modelData.iconName.length > 0)
                                               ? modelData.iconName : "check"
                                         size: stepItem.stepComplete ? 13 : 12
-                                        // COMPLETE: this glyph sits ON the
-                                        // bolt disc, so it is boltInk — never
-                                        // the card surface. It only ever
-                                        // looked right as trustNavy because
-                                        // the pinned card fill happened to be
-                                        // navy; routed, that would have put
-                                        // the page ground on a yellow disc.
-                                        // PENDING: was trustPending
-                                        // (borderStrong), which measures
-                                        // 1.76-3.50:1 on inputBackground
-                                        // across the themes — an illegible
-                                        // 12px glyph. stormTextMuted is
-                                        // AA-covered on that fill everywhere.
+                                        // Complete: the glyph sits on the bolt
+                                        // disc, so boltInk. Pending:
+                                        // stormTextMuted, which meets AA on the
+                                        // input fill everywhere.
                                         color: stepItem.stepComplete
                                                ? AppTheme.boltInk
                                                : AppTheme.stormTextMuted
@@ -316,15 +265,14 @@ Item {
                                 objectName: "trustChainConnector"
                                 visible: index < root.steps.length - 1
                                 Layout.fillWidth: true
-                                // Run through the NODE centres (24px nodes →
-                                // centre 12, bar 2px → top offset 11), not
-                                // the centre of the node+caption column —
-                                // the chain must read as one path.
+                                // Through the node centres (24px nodes, 2px
+                                // bar: top offset 11), so the chain reads as
+                                // one path.
                                 Layout.alignment: Qt.AlignTop
                                 Layout.topMargin: 11
                                 implicitHeight: 2
-                                // A segment is only fully trusted when BOTH
-                                // ends of it are complete.
+                                // A segment is complete only when both ends
+                                // are.
                                 color: (stepItem.stepComplete && stepItem.nextComplete)
                                        ? AppTheme.bolt : AppTheme.stormBorderStrong
                             }
@@ -332,8 +280,8 @@ Item {
                     }
                 }
 
-                // Status copy lives INSIDE the chain module (SPEC 1r) so
-                // the module reads as one object.
+                // Status copy inside the chain module, so it reads as one
+                // object.
                 Label {
                     Layout.fillWidth: true
                     visible: root.statusText.length > 0
@@ -346,7 +294,7 @@ Item {
             }
         }
 
-        // ── Actions: Verify only — no Message, no QR. ───────────────────
+        // Actions: Verify only
         RowLayout {
             Layout.fillWidth: true
             visible: root.showVerify
@@ -379,21 +327,15 @@ Item {
                 }
                 background: Rectangle {
                     radius: AppTheme.radiusTile
-                    // A straight re-point of the old treatment, deliberately
-                    // NOT accentSoft: the button is a quiet outlined control
-                    // here, and an accent-tinted hover would make it compete
-                    // with the bolt discs it sits under.
+                    // A quiet outlined control; an accent hover would compete
+                    // with the bolt discs.
                     color: (verifyButton.hovered || verifyButton.down)
                            ? Qt.alpha(AppTheme.stormBorderStrong, 0.25)
                            : "transparent"
                     border.width: 1
                     border.color: AppTheme.stormBorderStrong
                 }
-                // Keyboard focus indicator. It was hand-rolled brand yellow
-                // ("so it reads on navy") back when the card was always navy;
-                // with the card themed, the app-wide focusRing is both
-                // correct and the reason this control stops being the one
-                // button in Lightning with its own focus colour.
+                // Keyboard focus indicator: the app-wide focusRing.
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: -3

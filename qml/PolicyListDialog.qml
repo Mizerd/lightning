@@ -3,20 +3,10 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// POLICY LISTS — Mjolnir-style ban lists published as room state.
-//
-// # What this dialog is careful about
-//
-// A policy list is somebody else's judgement about who should be banned.
-// Following one does NOT make Lightning act on it: the app can tell you that
-// a list you follow covers someone, and you decide. That is stated on screen
-// rather than left for the user to discover, because the opposite behaviour
-// is what people reasonably expect from the word "subscribe" and being wrong
-// about it means silently not seeing messages.
-//
-// Publishing a rule is a different act with a different gate: it needs the
-// room's power level, and the room this dialog opened on is the one it
-// writes to.
+// Policy lists: Mjolnir-style ban lists published as room state. Following one
+// does not make Lightning act on it; the app tells you a followed list covers
+// someone and you decide, and the dialog says so. Publishing a rule needs the
+// room's power level and writes to the room this dialog opened on.
 Dialog {
     id: root
     objectName: "policyListDialog"
@@ -69,7 +59,7 @@ Dialog {
             elide: Label.ElideRight
         }
 
-        // ── Following ────────────────────────────────────────────────────
+        // Following
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing4
@@ -79,19 +69,14 @@ Dialog {
                 CheckBox {
                     objectName: "policyFollowCheck"
                     text: qsTr("Follow this list")
-                    // THE NOTIFYING LIST, NOT `isSubscribed()`. The invokable
-                    // returns exactly `m_subscriptions.contains(roomId)` and
-                    // registers no binding dependency, so the box showed
-                    // whatever was true when the dialog opened.
+                    // The notifying list, not isSubscribed(), which is a
+                    // Q_INVOKABLE with no binding dependency.
                     checked: root.policy
                              && root.policy.subscriptions.indexOf(root.roomId)
                                 >= 0
-                    // AND THE BINDING HAS TO BE PUT BACK. A user toggle
-                    // ASSIGNS `checked`, which destroys the binding above —
-                    // so from the first click on, the box stops following the
-                    // store entirely. `setSubscribed` is asynchronous and can
-                    // fail (`writeFinished`), and without this the box would
-                    // keep claiming a subscription the server refused.
+                    // Restore the binding: a user toggle assigns `checked` and
+                    // destroys it, and setSubscribed is asynchronous and can
+                    // fail.
                     onToggled: {
                         root.policy.setSubscribed(root.roomId, checked)
                         checked = Qt.binding(function() {
@@ -107,7 +92,7 @@ Dialog {
                 wrapMode: Text.WordWrap
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.textMeta
-                // The load-bearing sentence in this dialog.
+                // The key sentence in this dialog.
                 text: qsTr("Following a list does not block anyone by itself. "
                            + "Lightning will tell you when someone is covered "
                            + "by a list you follow, and you decide what to do "
@@ -116,7 +101,7 @@ Dialog {
             }
         }
 
-        // ── The rules ────────────────────────────────────────────────────
+        // The rules
         Label {
             objectName: "policyCoverageLine"
             Layout.fillWidth: true
@@ -130,12 +115,11 @@ Dialog {
                     return qsTr("Reading the room's rules…")
                 if (root.policy.lastError.length > 0)
                     return root.policy.lastError
-                // Coerced with `|| 0`: a plural argument that is not a
-                // number is a QML error, and a null model during teardown is
-                // a real state rather than a hypothetical one.
+                // `|| 0`: a non-number plural argument is an error, and a null
+                // model during teardown is a real state.
                 var n = (root.policy.rules ? root.policy.rules.count : 0) || 0
                 if (root.policy.truncated) {
-                    // A bounded read must SAY it was bounded.
+                    // A bounded read says it was bounded.
                     return qsTr("%n rule(s) — this list is long and only the "
                                 + "first were read.", "", n)
                 }
@@ -158,21 +142,14 @@ Dialog {
                 required property string entity
                 required property bool isBan
                 required property string reason
-                // The rule's OWN state key, which is what removal writes to.
+                // The rule's own state key, which removal writes to.
                 required property string stateKey
 
                 width: ListView.view.width
                 height: 52
-                // NOT `enabled: false`. QQuickItem::enabled PROPAGATES to
-                // children, so disabling the row disables the Remove button
-                // inside it — which made rule removal unreachable from the
-                // UI while every controller-level test still passed, because
-                // they call removeRule() directly (§16: a policy test that
-                // invokes the policy function proves nothing about whether
-                // production reaches it).
-                //
-                // The row simply has no `onClicked`, and its hover highlight
-                // is suppressed instead.
+                // Not `enabled: false`: enabled propagates and would disable
+                // the Remove button inside. The row has no onClicked and
+                // suppresses its hover highlight.
                 hoverEnabled: false
                 background: null
 
@@ -184,8 +161,8 @@ Dialog {
                         spacing: 0
                         Label {
                             Layout.fillWidth: true
-                            // A rule's entity is written by whoever controls
-                            // the policy room: never markup.
+                            // Written by whoever controls the policy room:
+                            // never markup.
                             textFormat: Text.PlainText
                             text: ruleRow.entity
                             color: AppTheme.textPrimary
@@ -199,10 +176,8 @@ Dialog {
                                     ? qsTr("everyone on this server")
                                     : (ruleRow.kind === "room"
                                        ? qsTr("this room") : qsTr("this user"))
-                                // A rule that is not a ban is shown, not
-                                // hidden — the room published it — but it is
-                                // marked, because Lightning acts on none of it
-                                // and a reader should not assume otherwise.
+                                // A non-ban rule is shown but marked: Lightning
+                                // acts on none of it.
                                 var rec = ruleRow.isBan
                                     ? qsTr("ban") : qsTr("other recommendation")
                                 return ruleRow.reason.length > 0
@@ -228,7 +203,7 @@ Dialog {
             }
         }
 
-        // ── Publishing ───────────────────────────────────────────────────
+        // Publishing
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing4

@@ -3,45 +3,32 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// An INLINE colour picker.
+// An inline colour picker. The platform ColorDialog is modal and would cover
+// the theme editor's live preview, which is the point of the editor.
 //
-// It exists because the platform ColorDialog is a modal window: it opens over
-// whatever is behind it, and in the theme editor that is the live preview the
-// user is picking a colour FOR. Watching the result is the entire point of the
-// editor, so a picker that hides it is not a smaller problem than a picker
-// that is hard to use — it defeats the feature.
+// A saturation/value field, a hue slider, a hex field, a before/after pair and
+// the base theme's colours as swatches. No alpha: translucent shell surfaces
+// make contrast unknowable, and every contrast rule assumes opaque values
+// (CustomThemeStore refuses 8-digit hex too).
 //
-// A saturation/value field, a hue slider, a hex field, a before/after pair,
-// and the base theme's own colours as one-click swatches. No alpha channel,
-// because a translucent shell surface composites over whatever is behind it
-// and that makes the resulting contrast unknowable, while every contrast rule
-// in this app is written against opaque values (CustomThemeStore refuses
-// 8-digit hex for the same reason).
-//
-// Its chrome uses AppTheme's INVARIANT editor tokens and its own text field,
-// for the reason given in ThemeEditorDialog's header: a picker painted in the
-// theme it is editing can be made invisible by the thing it is editing.
-//
-// The hex literals below are deliberate and are NOT theme colours: the hue
-// strip is the sRGB spectrum and the crosshair is a white ring over a dark
-// halo so it stays visible on any colour underneath it. A themed crosshair
-// would disappear exactly when the user dragged onto the theme's own colour.
+// Its chrome uses AppTheme's editor tokens and its own text field, since a
+// picker painted in the theme being edited could be made invisible (see
+// ThemeEditorDialog). The hex literals below aren't theme colours: the hue
+// strip is the sRGB spectrum, and the crosshair is a white ring on a dark halo
+// so it stays visible on any colour.
 Item {
     id: root
 
-    // The colour being edited. Assign to load the picker; it does NOT write
-    // back here — the host listens to `picked` so the caller decides what a
-    // change means.
+    // The colour being edited. Assigning loads the picker; it isn't written
+    // back here: the host listens to `picked`.
     property color selectedColor: "#000000"
-    // What the role looked like before this editing session, for the
-    // before/after swatch.
+    // The role's colour before this session, for the before/after swatch.
     property color originalColor: "#000000"
     property string title: ""
     property string subtitle: ""
     property bool canReset: false
-    // "#RRGGBB" strings offered as one-click choices — the base theme's own
-    // palette. Building a theme almost always means reusing a tone that is
-    // already in it; a hand-typed near-miss is how a palette loses coherence.
+    // "#RRGGBB" one-click choices from the base theme's palette, since themes
+    // mostly reuse existing tones.
     property var suggestions: []
 
     signal picked(color value)
@@ -51,10 +38,8 @@ Item {
     implicitWidth: 288
     implicitHeight: layout.implicitHeight
 
-    // HSV state is the SOURCE of truth while the panel is open, not the
-    // colour. Round-tripping through RGB on every drag loses the hue of a
-    // fully desaturated or fully dark colour — drag the field to black and
-    // the hue strip would jump to red.
+    // HSV is the source of truth while open: round-tripping through RGB loses
+    // the hue of fully desaturated or dark colours.
     property real hue: 0
     property real sat: 0
     property real val: 0
@@ -166,9 +151,8 @@ Item {
                 clip: true
                 color: Qt.hsva(root.hue, 1, 1, 1)
 
-                // White on the left, then black toward the bottom. Two
-                // gradients rather than a shader: this is a small static
-                // surface, not something worth a GPU program.
+                // White to the left, black toward the bottom: two gradients
+                // rather than a shader for this small static surface.
                 Rectangle {
                     anchors.fill: parent
                     gradient: Gradient {
@@ -207,9 +191,8 @@ Item {
             }
 
             MouseArea {
-                // A drag on the field or the hue strip must not become a Flickable
-                // scroll: hosted inline in Settings (the name-colour picker), the page
-                // used to steal the press once the pointer moved a few pixels.
+                // Don't let a drag become a Flickable scroll when hosted inline
+                // in a scrolling page (Settings' name-colour picker).
                 preventStealing: true
                 anchors.fill: parent
                 onPositionChanged: (m) => field.pick(m)
@@ -246,8 +229,7 @@ Item {
                     GradientStop { position: 1.000; color: "#FF0000" }
                 }
             }
-            // A round handle rather than a bar: it reads as something you can
-            // grab, and it shows the hue it is sitting on.
+            // A round handle that shows the hue it's on.
             Rectangle {
                 x: root.hue * hueStrip.width - width / 2
                 anchors.verticalCenter: parent.verticalCenter
@@ -266,9 +248,8 @@ Item {
                 }
             }
             MouseArea {
-                // A drag on the field or the hue strip must not become a Flickable
-                // scroll: hosted inline in Settings (the name-colour picker), the page
-                // used to steal the press once the pointer moved a few pixels.
+                // Don't let a drag become a Flickable scroll when hosted inline
+                // in a scrolling page (Settings' name-colour picker).
                 preventStealing: true
                 anchors.fill: parent
                 onPositionChanged: (m) => hueStrip.pick(m)
@@ -285,8 +266,7 @@ Item {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
 
-            // Before | after, sharing one outline so the pair reads as one
-            // control rather than two swatches.
+            // Before | after, sharing one outline so they read as one control.
             Rectangle {
                 implicitWidth: 62
                 implicitHeight: 34
@@ -334,9 +314,8 @@ Item {
                     maximumLength: 7
                     Accessible.role: Accessible.EditableText
                     Accessible.name: qsTr("Colour, as a hex value")
-                    // Typed hex is applied only when it is COMPLETE and valid,
-                    // so the preview does not flicker through the partial
-                    // values a user types on the way to a full one.
+                    // Apply typed hex only when complete and valid, so the
+                    // preview doesn't flicker through partial values.
                     onTextEdited: {
                         var t = text.trim()
                         if (!/^#[0-9A-Fa-f]{6}$/.test(t))

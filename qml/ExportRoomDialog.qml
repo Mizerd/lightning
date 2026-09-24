@@ -6,27 +6,16 @@ import MatrixClient
 
 // Export a room's loaded messages to a file.
 //
-// # The encrypted-room decision, in the open
+// Encrypted rooms: CLAUDE.md §6 keeps encrypted plaintext memory-only, and
+// this is the one place that offers to break that. It is a decision, not a
+// format option: the checkbox is off by default, its words say what the file
+// will contain, and declining still exports the conversation's shape with
+// every body replaced by a withheld marker. An unknown encryption state counts
+// as encrypted (AppController::exportOptions).
 //
-// CLAUDE.md §6 keeps encrypted-room plaintext memory-only. This dialog is the
-// one place in Lightning that offers to break that, and it is offered as a
-// DECISION rather than a format option: the checkbox is off by default, its
-// words say what the file will be rather than what the feature is called, and
-// declining still produces a usable export — every body replaced by a
-// withheld marker, so the shape of the conversation survives and none of its
-// text does.
-//
-// An UNKNOWN encryption state counts as encrypted (AppController::
-// exportOptions), so a room whose state has not loaded yet gets the careful
-// treatment rather than the convenient one.
-//
-// # What the file is
-//
-// The messages Lightning has LOADED, and no attachments. Both limits are on
-// screen before the user picks a file, and both are repeated inside the file
-// itself — a partial export mistaken for a whole history is the failure this
-// surface has to design against, and the person who reads the file later may
-// not be the person who made it.
+// The file holds only the messages Lightning has loaded and no attachments.
+// Both limits are shown before a file is picked and repeated in the file,
+// since a partial export can be mistaken for the whole history.
 Dialog {
     id: root
     objectName: "exportRoomDialog"
@@ -49,15 +38,13 @@ Dialog {
 
     function openDialog() {
         format = "text"
-        // Re-armed on every open. A decision this specific must not be
-        // inherited from a previous export of a different room.
+        // Re-armed on every open; never inherited from a previous export.
         includeEncryptedText = false
         failure = ""
         messageCount = app.exportableMessageCount()
         var info = app.roomList.findRoom(app.currentRoomId)
         roomName = info && info.name ? info.name : app.currentRoomId
-        // Unknown counts as encrypted, matching the C++ side: the careful
-        // treatment for a state we have not learned.
+        // Unknown counts as encrypted, matching the C++ side.
         encrypted = !!info
                     && (info.encryptionKnown === false || info.encrypted === true)
         open()
@@ -97,20 +84,12 @@ Dialog {
             objectName: "exportRoomScope"
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            // The room NAME is remote, attacker-chosen text. Label defaults
-            // to Text.AutoText, so a name containing a known tag would be
-            // rendered as rich text and `<img src=...>` would beacon the
-            // moment this dialog opened.
+            // The room name is attacker-chosen: with AutoText, markup such as
+            // `<img src=...>` would render and beacon.
             textFormat: Text.PlainText
-            // The count first, because it is the honest answer to "will this
-            // be the whole conversation" and the answer is usually no.
-            //
-            // BRANCHED, not `%n message(s)`. A source string written that way
-            // renders its "(s)" LITERALLY whenever no catalog is loaded, and
-            // English only escapes that because its catalog carries numerus
-            // entries a fresh `lupdate` leaves unfinished — so the first run
-            // after any refresh would say "1 message(s)". §16 records this;
-            // "Seen by N people" is branched for the same reason.
+            // The count first: it answers "is this the whole conversation?",
+            // usually no. Branched rather than `%n message(s)`, which renders
+            // "(s)" literally without a loaded catalog.
             text: root.messageCount === 1
                   ? qsTr("Exports the 1 message Lightning has loaded for %1. "
                          + "Scroll further back first to include more. "
@@ -134,7 +113,7 @@ Dialog {
             onActivated: (value) => root.format = value
         }
 
-        // ── The encrypted-room exception ────────────────────────────────
+        // ── The encrypted-room exception ──
         Rectangle {
             objectName: "exportRoomEncryptedNotice"
             visible: root.encrypted
@@ -162,9 +141,8 @@ Dialog {
                 CheckBox {
                     objectName: "exportRoomIncludeEncrypted"
                     palette.windowText: AppTheme.stormText
-                    // Says what the FILE will be, not what the option is
-                    // called. "Include message text" would be a setting; this
-                    // is a consequence.
+                    // Says what the file will contain, not what the option is
+                    // called.
                     text: qsTr("Write the message text into this file in the "
                                + "clear")
                     checked: root.includeEncryptedText

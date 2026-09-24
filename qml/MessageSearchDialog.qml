@@ -3,13 +3,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.7.x global message search: one modal card over the server's /search
-// endpoint (MessageSearchController with an empty roomId scope).
-//
-// HONESTY: the homeserver cannot search ciphertext, so results cover
-// unencrypted rooms only — disclosed inline, always visible. Result rows
-// label their room; activating one opens the room and jumps to the event
-// through the existing navigation path.
+// Global message search: a modal over the server's /search
+// (MessageSearchController with an empty roomId). The homeserver cannot search
+// ciphertext, so results cover unencrypted rooms only, disclosed inline. Rows
+// name their room; activating one opens the room and jumps to the event through
+// the existing navigation path.
 Dialog {
     id: root
     objectName: "messageSearchDialog"
@@ -39,8 +37,8 @@ Dialog {
         var r = app.messageSearch.rowAt(row)
         if (!r.roomId || !r.eventId)
             return
-        // Same shape as notification click routing: switch room first, let
-        // it settle one event-loop turn, then jump on the shared path.
+        // As with notification clicks: switch room, let it settle a turn, then
+        // jump.
         app.openRoom(r.roomId)
         var eventId = r.eventId
         Qt.callLater(function() { app.pagination.jumpToEvent(eventId) })
@@ -165,11 +163,7 @@ Dialog {
                                 text: resultRow.senderDisplayName.length > 0
                                       ? resultRow.senderDisplayName
                                       : resultRow.sender
-                                // The identity ink, as in the timeline: a
-                                // result row named the sender in the same
-                                // grey as everything else, so the app's one
-                                // real source of colour stopped at the
-                                // timeline's edge.
+                                // Identity ink, as in the timeline.
                                 color: AppTheme.userColor(resultRow.sender)
                                 font.family: AppTheme.menuFont
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
@@ -182,9 +176,7 @@ Dialog {
                                 textFormat: Text.PlainText
                                 color: AppTheme.stormTextMuted
                                 font.family: AppTheme.menuFont
-                                // Was an unscaled 11 beside a scaled sender
-                                // name: at 140% the row sheared, one label
-                                // pinned while its neighbour grew.
+                                // Scaled like the sender name beside it.
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 elide: Label.ElideRight
                                 Layout.fillWidth: true

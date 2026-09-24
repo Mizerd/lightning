@@ -2,76 +2,41 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// The Channels navigation layout's list body.
-//
-// A PRESENTER: it owns no header, no search field and no dialogs — RoomsPanel
-// (the host) owns those and swaps this in place of the Classic list. The split
-// exists so the two layouts cannot fork the surrounding chrome; every user of
-// either layout gets the same workspace header and the same ⌘K hint.
-//
-// Sable's model, as directed. The rail chooses one of THREE views and this
-// column renders it: Home (its command rows and the rooms in no Space),
-// Direct Messages (Create Chat and the DMs), or one Space (Lobby, Message
-// Search, its own rooms and its subspaces as sibling folders). No Discord,
-// Sable or Cinny code, asset, sound, trademark or wording is used; every
-// colour comes from AppTheme.
-//
-// Two earlier designs and why neither survived. The FIRST scoped the whole
-// layout to the active Space and rendered its child Spaces as nested
-// categories, so at Home there was no hierarchy and the host silently fell
-// back to Classic — a navigation layout that becomes the other layout
-// depending on where you are is not a navigation layout. The SECOND made
-// every view the same global list narrowed by a scope, which meant Home
-// repeated every Space the rail was already showing, and a scoped Space had
-// to keep a Direct messages group anyway or the People filter chip produced
-// nothing at all.
-//
-// A tab for DMs settles both: the rail says which view, each view contains
-// only what belongs to it, and no view has to carry another view's rows to
-// keep them reachable.
+// The Channels layout's list body. A presenter: RoomsPanel owns the header,
+// search and dialogs and swaps this in place of the Classic list. The rail
+// chooses one of three views and this column renders it: Home (command rows and
+// rooms in no Space), Direct Messages (Create Chat and the DMs), or one Space
+// (Lobby, Message Search, its rooms and subspace folders). Each view contains
+// only what belongs to it. Every colour comes from AppTheme.
 Item {
     id: root
 
-    /// The room the timeline is showing, so the open room's row can be marked.
+    /// The room the timeline is showing, so its row can be marked.
     property string currentRoomId: ""
-    /// True while the shell is showing the overview Lobby opens, rather than a
-    /// timeline. That is Space Home when a Space is scoped and the account's
-    /// Home when none is — both are "no room open", which is the one condition
-    /// TimelinePane also uses to choose an overview over a timeline, so the
-    /// two cannot disagree about where the user is. It deliberately no longer
-    /// excludes the scoped case: Lobby now OPENS that page, so refusing to
-    /// mark the row would leave the column with nothing current on it.
-    ///
-    /// Computed here rather than passed in because it is a fact about the
-    /// shell, not about this column, and the host would only be forwarding it.
+    /// True while the shell shows an overview (Space Home or Home) rather than a
+    /// timeline: "no room open", the same condition TimelinePane uses.
     readonly property bool lobbyActive: app.currentRoomId === ""
 
     signal roomActivated(string roomId)
-    /// Lobby: the selected Space's own overview. Navigation only — there is no
-    /// Matrix room behind it and nothing is persisted for it.
+    /// Lobby: the selected Space's overview. Navigation only; nothing persisted.
     signal lobbyActivated()
-    // The four command rows. The MODEL owns which of them exist in which view
-    // and the host owns what they do; this presenter only dispatches on the
-    // model's own id, so a row it cannot name is a visible dead control.
-    // `everyChannelActionIsDispatched` asserts all four ids appear here.
+    // Command rows. The model decides which exist in which view and the host
+    // what they do; this presenter dispatches on the model's id
+    // (everyChannelActionIsDispatched checks all four).
     signal createRoomRequested()
     signal joinAddressRequested()
     signal exploreSpacesRequested()
     signal createChatRequested()
-    /// Message Search: the existing global server-side search dialog, which
-    /// the host owns. Never a filter over this list — Sable's row opens a
-    /// search experience, and so does this one.
+    /// Message Search: opens the host's global search dialog, never a filter
+    /// over this list.
     signal messageSearchRequested()
-    // The host owns the clipboard proxy and the leave-confirm dialog, exactly
-    // as it does for the Classic list — a presenter that reached up into the
-    // host by id is how the reader popover's click ended up silently dead.
+    // The host owns the clipboard proxy and leave confirmation, as for the
+    // Classic list.
     signal roomLinkCopyRequested(string roomId)
     signal leaveRoomRequested(string roomId, string roomName)
 
-    // Empty state. Only when the ACCOUNT has nothing — a filter or a search
-    // that matched nothing is a fact about the filter, and saying the first
-    // when the second is true sends the user looking for a problem that is not
-    // there.
+    // Empty state, only when the account has nothing; a filter or search that
+    // matched nothing is a different message (below).
     Loader {
         anchors.centerIn: parent
         width: parent.width - AppTheme.spacing24 * 2
@@ -85,25 +50,13 @@ Item {
             color: AppTheme.textMuted
             font.pixelSize: AppTheme.textBody
             text: qsTr("No conversations yet. Rooms you join, and the spaces " + "they belong to, will show up here.")
-            // `empty` is a fact about the ACCOUNT, so this wording never
-            // varies by view: a Space with nothing in it is the case below.
+            // Account-wide, so the wording does not vary by view.
         }
     }
 
-    // Filter-miss state: the account HAS conversations and this view has no
-    // rooms in it. The other half of the distinction the state above refuses
-    // to make, and it has to be a separate message rather than a broader
-    // `empty` — reporting a fact about the filter as a fact about the account
-    // is the thing SpaceChannelModel::empty exists to prevent.
-    //
-    // Until this existed the column simply rendered Lobby and Message Search
-    // over blank space whenever a chip matched nothing, with no wording at
-    // all. That silence is what made the People chip read as a dead control:
-    // the chip was reaching the model and rebuilding correctly, the scope had
-    // deleted every DM before it got there, and the column had no way to say
-    // "this matched nothing" as opposed to "this did nothing". A message that
-    // does not NAME what matched nothing would be the same silence with words
-    // on it, so each case says which one it is.
+    // Filter-miss state: the account has conversations but this view shows
+    // none. Says which filter or search matched nothing, so a chip does not
+    // look dead.
     Loader {
         anchors.centerIn: parent
         width: parent.width - AppTheme.spacing24 * 2
@@ -117,16 +70,13 @@ Item {
             color: AppTheme.textMuted
             font.pixelSize: AppTheme.textBody
             text: {
-                // The search box wins: it is the most recent thing the user
-                // typed, and a chip's wording under an active search would
-                // blame the chip for the search's result.
+                // The search box wins: it is the most recent input.
                 if (app.spaceChannels.searchQuery.trim().length > 0)
                     return qsTr("Nothing in this list matches \"%1\".").arg(app.spaceChannels.searchQuery);
                 if (app.spaceChannels.filterMode === 3)
                     return qsTr("Nothing unread. Everything in this view has been read.");
-                // No filter and no search, so this view is genuinely empty.
-                // It must say WHICH view, and it must not claim the account is
-                // empty — `empty` above is the only thing allowed to say that.
+                // No filter or search: the view is genuinely empty; name the
+                // view, never claim the account is empty.
                 if (app.spaceChannels.viewKind === "people")
                     return qsTr("No direct messages yet. Start one with Create Chat.");
                 if (app.spaceChannels.viewKind === "space")
@@ -144,21 +94,17 @@ Item {
         model: app.spaceChannels
         currentIndex: -1
         spacing: 0
-        // Rows are 32px, so one extra screen is a much smaller number of
-        // delegates than the Classic list needs.
+        // 32px rows: one extra screen is few delegates.
         cacheBuffer: 400
-        // Recycling is safe: ChannelDelegate keeps no per-instance state that
-        // outlives its roomId, and it re-queries the mute mode on every id
-        // change precisely so a recycled row cannot inherit one.
+        // Safe to recycle: ChannelDelegate re-queries its mute mode on every id
+        // change.
         reuseItems: true
 
         ScrollBar.vertical: AppScrollBar {
             policy: ScrollBar.AsNeeded
         }
 
-        // No section.property. The MODEL is already ordered and grouped, and a
-        // ListView section header on top of the folder rows would draw the
-        // same grouping twice.
+        // No section.property: the model is already grouped.
         header: Item {
             width: channelList.width
             height: AppTheme.spacing8
@@ -174,16 +120,9 @@ Item {
             required property var model
             required property int index
 
-            // One Loader choosing between components, rather than one delegate
-            // with everything in it behind visibility flags: the row kinds
-            // share no geometry and no controls, and a combined delegate would
-            // instantiate all of them for every row.
-            //
-            // The chooser must name EVERY kind the model can produce. It once
-            // named two of three, so a group label fell through to the
-            // channel-row component and rendered as a room row with an empty
-            // room id — clickable-looking, opening nothing, and carrying a
-            // room's context menu over a heading.
+            // One Loader choosing a component per row kind (the kinds share
+            // nothing). The chooser must name every kind the model produces, or
+            // a row falls through to the channel-row component.
             sourceComponent: rowLoader.model.kind === "lobby" ? lobbyComponent : (rowLoader.model.kind === "search" ? searchComponent : (rowLoader.model.kind === "action" ? actionComponent : (rowLoader.model.kind === "space" ? spaceComponent : (rowLoader.model.kind === "group" ? groupComponent : channelComponent))))
 
             Component {
@@ -191,10 +130,8 @@ Item {
                 ChannelNavRow {
                     width: channelList.width
                     label: rowLoader.model.name
-                    // The MODEL names the glyph. A chooser here would have to
-                    // repeat the row set, and the bundled Material Symbols
-                    // font is a SUBSET — a name it does not carry renders as
-                    // tofu, so there is exactly one place to pin.
+                    // The model names the glyph; the icon font is a subset, so
+                    // there is one place to pin names.
                     iconName: rowLoader.model.iconName
                     current: root.lobbyActive
                     onClicked: root.lobbyActivated()
@@ -217,9 +154,7 @@ Item {
                     width: channelList.width
                     label: rowLoader.model.name
                     iconName: rowLoader.model.iconName
-                    // Dispatch on the model's own id. Every id the model can
-                    // produce is named here; an unnamed one would render as a
-                    // row that looks clickable and does nothing.
+                    // Dispatch on the model's id; every id is named here.
                     onClicked: {
                         var id = rowLoader.model.roomId
                         if (id === "@new-room")
@@ -252,8 +187,7 @@ Item {
                     depth: rowLoader.model.depth
                     active: rowLoader.model.roomId === root.currentRoomId
                     onClicked: root.roomActivated(rowLoader.model.roomId)
-                    // The same mutations the Classic host performs, so the
-                    // two layouts cannot disagree about what a menu row does.
+                    // The same mutations as the Classic host.
                     onMarkRead: app.roomList.markRoomRead(rowLoader.model.roomId)
                     onMarkUnread: app.roomList.markRoomUnread(rowLoader.model.roomId)
                     onSetFavourite: on => app.roomList.setRoomFavourite(rowLoader.model.roomId, on)
@@ -289,12 +223,11 @@ Item {
                     collapsed: rowLoader.model.collapsed
                     hiddenUnread: rowLoader.model.hiddenUnread
                     hiddenHighlight: rowLoader.model.hiddenHighlight
-                    // The primary action is COLLAPSE, not "open this space".
-                    // A folder header that navigated on click would make every
-                    // attempt to tidy the column also change rooms.
+                    // The primary action collapses, so tidying the column never
+                    // changes rooms.
                     onClicked: app.spaceChannels.toggleCollapsed(rowLoader.model.roomId)
-                    // Opening the Space itself is the secondary action, on its
-                    // own gesture.
+                    // Opening the Space is the secondary action, on its own
+                    // gesture.
                     TapHandler {
                         acceptedButtons: Qt.RightButton
                         onTapped: app.openSpaceHome(rowLoader.model.roomId)

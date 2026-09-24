@@ -4,63 +4,46 @@ import QtQuick.Layouts
 import QtQuick.Shapes
 import MatrixClient
 
-// THE crop/adjust dialog for every display image Lightning uploads.
+// The crop/adjust dialog for every display image Lightning uploads: room and
+// Space avatars, banners, the own profile banner, and the picture chosen when
+// creating a room.
 //
-// One component, used by every site: room avatar (Room Information and the
-// Space Home card), Space avatar (Space settings), room/Space banner, own
-// profile banner, and the picture chosen while creating a room. Before this
-// existed, each of those uploaded the chosen file verbatim, so a 4000px
-// landscape photograph became a room's avatar and Matrix clients cropped it
-// to a centred square nobody had approved.
+// Presentation only: it decides where the crop rectangle sits and hands the
+// coordinates to C++. `ImageCropper` reads the file, accepts only the five
+// raster formats by magic bytes (so SVG never reaches a renderer), decodes,
+// crops, caps, encodes and writes a temp file.
 //
-// WHAT IT IS AND IS NOT. It is PRESENTATION ONLY (CLAUDE.md §5): it decides
-// where the crop rectangle sits and hands those coordinates to C++.
-// `ImageCropper` reads the file, refuses anything that is not one of the five
-// raster formats by MAGIC BYTES (so an .svg cannot reach a renderer), decodes,
-// crops, caps and encodes, and writes a temp file. This dialog does no image
-// maths beyond a rectangle and never sees bytes.
+// The preview uses `image://lightning-staged/<token>`, bytes the cropper has
+// already sniffed. Pointing an Image at the user's file:// URL would let Qt's
+// loader render SVG as active content.
 //
-// WHY THE PREVIEW IS NOT THE CHOSEN FILE. `image://lightning-staged/<token>`
-// serves bytes the cropper has already sniffed. Pointing an `Image` at the
-// user's own file:// URL would hand an arbitrary path to Qt's image loader,
-// which renders SVG as active content — forbidden by §6.
-//
-// THE INTERACTION MODEL, and it is the one thing to understand before
-// changing anything here:
-//
-//   * The crop rectangle lives in VIEWPORT coordinates and is always fully
-//     inside the viewport. It can be moved (drag inside it) and resized
-//     (drag a corner) with its aspect ratio LOCKED.
-//   * The image is panned (drag outside the crop) and zoomed (wheel, slider)
+// Interaction model:
+//   * The crop rectangle is in viewport coordinates and always fully inside
+//     the viewport. It moves (drag inside) and resizes (drag a corner) with
+//     its aspect ratio locked.
+//   * The image pans (drag outside the crop) and zooms (wheel, slider)
 //     behind it.
-//   * The single invariant tying the two together: THE IMAGE MUST COVER THE
-//     CROP RECTANGLE. Every gesture clamps against that, which is why the
-//     result can never contain a strip of nothing, and why zooming out stops
-//     rather than pulling the picture off the frame.
+//   * Invariant: the image always covers the crop rectangle. Every gesture
+//     clamps against it, so the result never contains empty space.
 //
-// A circular avatar still produces a SQUARE image. Matrix avatars are square
-// and clients draw the circle; punching transparent corners in would make the
-// picture wrong in every client that draws a square.
+// A circular avatar still produces a square image: Matrix avatars are square
+// and clients draw the circle.
 AppDialog {
     id: root
 
-    // ── API ──────────────────────────────────────────────────────────────
-    /// "avatar" (1:1, shown as a circle) or "banner" (3:1 strip). One knob:
-    /// the shape, the mask and the output cap all follow from it, so a call
-    /// site cannot pick a square crop with a banner's ceiling by mistake.
+    // ── API ──
+    /// "avatar" (1:1, shown as a circle) or "banner" (3:1 strip). Shape, mask
+    /// and output cap all follow from it.
     property string role: "avatar"
     readonly property real aspect: role === "banner" ? 3.0 : 1.0
     readonly property bool circular: role !== "banner"
 
-    /// Emitted with a file:// URL for the CROPPED image. The call site hands
-    /// this to whatever sink it already used — every one of them takes a
-    /// local path, which is the whole reason this can be a pure pre-step.
+    /// Emitted with a file:// URL for the cropped image; every call site's sink
+    /// already takes a local path.
     signal cropped(url file)
 
-    /// Open the picker's result. Refusals (SVG, an unreadable file, a format
-    /// this build has no codec for) surface INSIDE the dialog rather than
-    /// silently doing nothing, because "I chose a picture and nothing
-    /// happened" is the worst possible answer.
+    /// Open the picker's result. Refusals (SVG, unreadable file, missing codec)
+    /// are shown inside the dialog rather than silently ignored.
     function openFor(fileUrl) {
         root.errorText = ""
         root.srcW = 0
@@ -75,12 +58,11 @@ AppDialog {
             root.srcH = info.height
         }
         root.open()
-        // The viewport has no geometry until the popup is laid out, and the
-        // initial frame is computed FROM that geometry.
+        // The viewport has no geometry until the popup is laid out.
         Qt.callLater(root._reset)
     }
 
-    // ── State (viewport coordinates unless named otherwise) ──────────────
+    // ── State (viewport coordinates unless named otherwise) ──
     property string previewUrl: ""
     property int srcW: 0                 // decoded source width, in pixels
     property int srcH: 0
@@ -98,37 +80,32 @@ AppDialog {
     readonly property bool ready: srcW > 0 && srcH > 0 && cropW > 0
     readonly property real drawnW: srcW * imgScale
     readonly property real drawnH: srcH * imgScale
-    /// The smallest scale at which the image still covers the crop frame.
-    /// Zooming below this is refused rather than clamped afterwards, so the
-    /// picture never jumps out from under the frame mid-gesture.
+    /// The smallest scale at which the image still covers the frame. Zooming
+    /// below it is refused, so the picture never jumps mid-gesture.
     readonly property real minScale: (srcW > 0 && srcH > 0 && cropW > 0)
                                      ? Math.max(cropW / srcW, cropH / srcH)
                                      : 1.0
     readonly property real maxScale: Math.max(minScale * 8, 1.0)
 
-    /// The smallest the frame may get, in viewport pixels. Small enough to
-    /// pick a face out of a group photograph, large enough to still have
-    /// grabbable corners.
+    /// Minimum frame edge in viewport pixels: small enough to pick out a face,
+    /// large enough to keep grabbable corners.
     readonly property real minCropEdge: 56
 
     title: qsTr("Adjust picture")
     modal: true
     focus: true
-    // Overlay.overlay, not the declaring item: two of the call sites are
-    // themselves inside a Dialog (Space settings), and a popup parented to a
-    // popup renders underneath it.
+    // Overlay.overlay: some call sites are inside a Dialog, and a popup
+    // parented to a popup renders underneath it.
     parent: Overlay.overlay
     anchors.centerIn: parent
     standardButtons: Dialog.NoButton
     closePolicy: Popup.CloseOnEscape
     width: Math.min(720, parent ? parent.width - 64 : 720)
 
-    // Whichever way it closed — Escape, the scrim, Cancel, Use picture — the
-    // staged bytes and the decoded source go with it. Nothing survives a
-    // closed dialog.
+    // However it closes, the staged bytes and decoded source are discarded.
     onClosed: app.imageCrop.discard()
 
-    // ── Geometry helpers ────────────────────────────────────────────────
+    // ── Geometry helpers ──
     function _describe(category) {
         if (category === "unsupported_image")
             return qsTr("That file isn't a picture Lightning can use. "
@@ -161,14 +138,14 @@ AppDialog {
 
     function _clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
 
-    /// Keep the image covering the frame. Called after every gesture; it is
-    /// the one place the invariant is enforced.
+    /// Keep the image covering the frame; the one place the invariant is
+    /// enforced, called after every gesture.
     function _clampPan() {
         panX = _clamp(panX, cropX + cropW - drawnW, cropX)
         panY = _clamp(panY, cropY + cropH - drawnH, cropY)
     }
 
-    /// Keep the frame inside BOTH the viewport and the drawn image.
+    /// Keep the frame inside both the viewport and the drawn image.
     function _clampCrop() {
         var loX = Math.max(0, panX)
         var loY = Math.max(0, panY)
@@ -190,8 +167,7 @@ AppDialog {
         _clampCrop()
     }
 
-    /// Zoom about the frame's centre, so the thing being framed stays framed
-    /// instead of drifting toward a corner.
+    /// Zoom about the frame's centre, so the framed subject stays framed.
     function _zoomTo(next) {
         if (!ready)
             return
@@ -200,8 +176,8 @@ AppDialog {
             return
         var cx = cropX + cropW / 2
         var cy = cropY + cropH / 2
-        // The source pixel currently under the frame's centre must stay under
-        // it: pan' = c - (c - pan) * next/old.
+        // Keep the source pixel under the frame's centre fixed:
+        // pan' = c - (c - pan) * next/old.
         var k = next / imgScale
         panX = cx - (cx - panX) * k
         panY = cy - (cy - panY) * k
@@ -218,13 +194,12 @@ AppDialog {
             return
         var fixedX = (corner === 0 || corner === 3) ? cropX + cropW : cropX
         var fixedY = (corner === 0 || corner === 1) ? cropY + cropH : cropY
-        // Width leads and height follows, so the ratio is exact rather than
-        // the nearer of two candidates.
+        // Width leads and height follows, so the ratio is exact.
         var w = Math.abs(px - fixedX)
         var h = Math.abs(py - fixedY)
         w = Math.max(w, h * aspect)
-        // The room available in the direction this corner is travelling,
-        // bounded by the viewport AND by the drawn image.
+        // Room available in the corner's direction, bounded by the viewport and
+        // the drawn image.
         var leftBound = Math.max(0, panX)
         var topBound = Math.max(0, panY)
         var rightBound = Math.min(viewport.width, panX + drawnW)
@@ -242,9 +217,8 @@ AppDialog {
         cropY = (corner === 0 || corner === 1) ? fixedY - newH : fixedY
         cropW = w
         cropH = newH
-        // Shrinking the frame lowers minScale, so nothing needs re-zooming;
-        // growing it can only be refused above, never allowed to strand the
-        // image. The pan clamp keeps the cover invariant either way.
+        // Growing is refused above rather than allowed to strand the image; the
+        // pan clamp keeps the cover invariant.
         _clampPan()
         _clampCrop()
     }
@@ -269,7 +243,7 @@ AppDialog {
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
 
-        // ── The stage ────────────────────────────────────────────────────
+        // ── The stage ──
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: Math.max(
@@ -288,8 +262,7 @@ AppDialog {
                 clip: true
                 visible: root.errorText.length === 0
 
-                // Re-fit when the dialog is resized under a frame that was
-                // measured against the old geometry.
+                // Re-fit when the dialog is resized.
                 onWidthChanged: Qt.callLater(root._reset)
                 onHeightChanged: Qt.callLater(root._reset)
 
@@ -297,9 +270,9 @@ AppDialog {
                     id: preview
                     objectName: "cropPreviewImage"
                     source: root.previewUrl
-                    // A CONSTANT source size, so zooming never re-decodes.
-                    // The provider caps at 4096 already; 2048 is more detail
-                    // than a 400px stage can show at any usable zoom.
+                    // A constant source size so zooming never re-decodes; 2048
+                    // exceeds what the stage can show (the provider caps at
+                    // 4096).
                     sourceSize.width: Math.min(root.srcW, 2048)
                     asynchronous: true
                     smooth: true
@@ -311,12 +284,9 @@ AppDialog {
                     height: root.drawnH
                 }
 
-                // ── The mask: everything outside the frame, dimmed ───────
-                //
-                // ONE path with OddEvenFill punches the frame out of a
-                // full-viewport rectangle, which is what makes the circular
-                // case honest — a ring outline alone leaves the corners
-                // looking like part of the result.
+                // ── The mask: everything outside the frame, dimmed ── One
+                // OddEvenFill path punches the frame out of the viewport, so
+                // the circular case dims the corners too.
                 Shape {
                     anchors.fill: parent
                     visible: root.ready && !root.circular
@@ -362,8 +332,8 @@ AppDialog {
                     }
                 }
 
-                // ── Panning and moving. Declared BEFORE the handles so a
-                // corner grab wins the press. ─────────────────────────────
+                // ── Panning and moving; declared before the handles so a
+                // corner grab wins the press. ──
                 MouseArea {
                     id: stageArea
                     objectName: "cropStageArea"
@@ -411,9 +381,8 @@ AppDialog {
                     onWheel: function (wheel) {
                         if (!root.ready)
                             return
-                        // A notch is a notch; the pixelDelta of a touchpad is
-                        // read the same way so a two-finger pinch-less scroll
-                        // still zooms rather than doing nothing.
+                        // Touchpad pixelDelta is read like a wheel notch, so
+                        // scrolling zooms.
                         var up = wheel.angleDelta.y !== 0
                                  ? wheel.angleDelta.y > 0
                                  : wheel.pixelDelta.y > 0
@@ -421,7 +390,7 @@ AppDialog {
                     }
                 }
 
-                // ── The frame outline and its corner grips ───────────────
+                // ── The frame outline and its corner grips ──
                 Rectangle {
                     objectName: "cropFrame"
                     visible: root.ready
@@ -477,8 +446,7 @@ AppDialog {
                 }
             }
 
-            // The refusal, in the space the picture would have occupied. A
-            // dialog that opens empty says nothing; this names the cause.
+            // The refusal, shown where the picture would be.
             Label {
                 objectName: "cropErrorLabel"
                 anchors.centerIn: parent
@@ -492,7 +460,7 @@ AppDialog {
             }
         }
 
-        // ── Zoom ─────────────────────────────────────────────────────────
+        // ── Zoom ──
         RowLayout {
             Layout.fillWidth: true
             visible: root.ready
@@ -537,9 +505,8 @@ AppDialog {
                     width: 16
                     height: 16
                     radius: 8
-                    // Same reasoning as the microphone slider: the thumb
-                    // rides the fill boundary, so a dark disc reads as
-                    // disabled past half range.
+                    // White: a dark thumb on the fill boundary reads as
+                    // disabled.
                     color: "#FFFFFF"
                     border.width: zoomSlider.visualFocus ? 2 : 0
                     border.color: AppTheme.bolt
@@ -568,8 +535,8 @@ AppDialog {
                          + "the crop, and drag a corner to resize it.")
         }
 
-        // ── Footer. Its own row rather than standardButtons, so the accept
-        // button can say what it does. ───────────────────────────────────
+        // ── Footer: its own row rather than standardButtons, so the accept
+        // button can say what it does. ──
         RowLayout {
             Layout.fillWidth: true
             Layout.topMargin: AppTheme.spacing4

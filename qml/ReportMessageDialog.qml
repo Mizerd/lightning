@@ -3,19 +3,14 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.7.x: report a message to the homeserver administrator. ONE instance
-// (hosted by Main.qml) that opens itself off ModerationController's
-// pending-report state, so every message menu shares the same surface.
-//
-// Only the event reference and the typed reason are submitted — the report
-// API receives no surrounding messages and no decrypted context beyond what
-// the server already holds for that event.
+// Report a message to the homeserver admin. One instance (in Main.qml), opened
+// by ModerationController's pending-report state. Only the event reference and
+// typed reason are sent; no surrounding or decrypted context.
 Dialog {
     id: root
     objectName: "reportMessageDialog"
     modal: true
-    // The shared navy modal scrim (QuickSwitcher convention) —
-    // never the Basic style default dim (2026-08-19 audit).
+    // The shared modal scrim.
     Overlay.modal: Rectangle { color: AppTheme.modalScrim }
     focus: true
     standardButtons: Dialog.NoButton
@@ -64,9 +59,7 @@ Dialog {
                        + "one message. It is not sent to the message's "
                        + "author.")
             color: AppTheme.stormTextSecondary
-            // Dialog body copy is textBody with the shared leading, not the
-            // 12px meta size: a wrapping paragraph set at chip size with the
-            // font's own default leading is the densest text in the app.
+            // Body size with the shared leading for dialog paragraphs.
             font.pixelSize: AppTheme.textBody
             lineHeight: AppTheme.lineHeightBody
             lineHeightMode: Text.ProportionalHeight

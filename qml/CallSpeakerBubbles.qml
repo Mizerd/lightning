@@ -2,36 +2,23 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// The row of participant bubbles for a COLLAPSED call.
+// Participant bubbles for a collapsed call (and beside a spotlight): one
+// circular avatar per person with a ring that lights while they speak. Not
+// shown above the expanded stage, which already draws everyone.
 //
-// One circular avatar per person, side by side, with a ring that lights while
-// they are speaking. It is the fastest read there is of "who is here and who
-// is talking", which is the only question a one-line strip has room to answer.
+// The ring is driven by the SFU's speaker updates (LiveKit's server-side
+// SpeakersChanged), not local measurement, so it works for unsubscribed
+// remote audio and inspects no audio here. It stays binary: at 34 px an
+// amplitude ring is a sub-pixel wobble.
 //
-// WHERE IT IS NOT: above the expanded stage. It used to render there
-// permanently, as a second, smaller copy of the same faces the stage was
-// already drawing underneath — a whole line of the message column spent
-// repeating the tiles below it. Expanded, the stage IS the participant view.
-//
-// The ring is driven by the SFU's own speaker updates (LiveKit computes audio
-// levels server-side and pushes `SpeakersChanged`), NOT by anything measured
-// locally. That matters twice: it works for remote participants whose audio we
-// may not even be subscribed to, and it means no audio data is inspected here.
-// The bubble ring stays BINARY on purpose — at 34 px an amplitude ring is a
-// sub-pixel wobble, and the stage's own tiles are where the level is visible.
-//
-// Delegate discipline: this is instantiated per participant, so a Label whose
-// text can legitimately be empty lives behind a Loader — a never-laid-out
-// empty Text keeps ItemObservesViewport forever.
+// Per-participant delegate: a Label whose text can be empty lives behind a
+// Loader (an empty Text keeps ItemObservesViewport).
 Item {
     id: root
 
-    /// The REAL participant model, bound directly.
-    ///
-    /// It used to be a JS array copied out of `participants()` behind a
-    /// hand-bumped tick, which is a MODEL RESET on every speaker update: every
-    /// bubble destroyed and rebuilt on every syllable. Overridable so a test
-    /// can hand it a fixture model.
+    /// The participant model, bound directly (a copied array would reset the
+    /// model and rebuild every bubble on each speaker update). Overridable for
+    /// test fixtures.
     property var model: app.groupCall.participantModel
 
     /// The identity a click should spotlight, reported back to the owner.
@@ -40,55 +27,26 @@ Item {
     readonly property int bubbleSize: 34
     readonly property int _count: root.model ? root.model.count : 0
 
-    // Zero IMPLICIT height when there is nobody yet, so the strip reserves no
-    // band of empty space while a call is still connecting.
-    //
-    // The emptiness lives in `implicitHeight` rather than in an explicit
-    // `height:` binding on purpose: this is hosted inside a RowLayout, and a
-    // layout WRITES width and height onto its children — which destroys any
-    // binding they had on those properties. An implicit size is what a layout
-    // reads instead of overwrites. Outside a layout, an Item with no explicit
-    // height still takes its implicit one, so the standalone form is
-    // unchanged.
+    // Zero implicit height with nobody present, so a connecting call reserves
+    // no band. Implicit rather than an explicit `height:` because the host
+    // RowLayout writes width/height onto children, destroying such bindings.
     implicitHeight: root._count > 0 ? root.bubbleSize + 10 : 0
-    // An implicit WIDTH too, for the same reason as the height above.
-    //
-    // This component only ever had a height, because its one host filled it
-    // (`Layout.fillWidth: true` on the collapsed strip) and a filling child
-    // never needs an implicit width. Placed in the stage header beside a
-    // spotlight it does NOT fill — so it took width 0 and drew nothing at
-    // all, which is the "call bubbles should be here" report: the host was
-    // active and the component was invisible.
-    //
-    /// One bubble's CELL, which is wider than the avatar: the speaking ring
-    /// is `bubbleSize + 8` and centred, so the cell has to carry it or the
-    /// ListView's clip cuts the ring off. Declared ONCE because the delegate
-    /// and the implicit width below both need it, and having it written out
-    /// twice is exactly how they came to disagree — see implicitWidth.
+    // An implicit width too, for hosts that don't fill (beside a spotlight),
+    // or the strip would get width 0.
+    /// One bubble's cell, wider than the avatar so the centred speaking ring
+    /// (`bubbleSize + 8`) isn't clipped. Shared by the delegate and
+    /// implicitWidth so the two can't disagree.
     readonly property int cellWidth: root.bubbleSize + 8
 
-    // Content width, capped: a large call must not push the title and the
-    // controls out of the header. Past the cap the strip scrolls, which it
-    // already supports — it is a ListView, and truncating instead would put
-    // a second, disagreeing count next to the header's.
-    //
-    // THIS UNDER-REPORTED BY 8 px PER BUBBLE AND THAT IS THE SLICED AVATAR.
-    // The delegate's cell was widened from `bubbleSize + 4` to
-    // `bubbleSize + 8` to stop the speaking ring being clipped; this formula
-    // still said `bubbleSize + spacing6`. With two people it asked for 80 px
-    // and needed 90, so the ListView's own `clip: true` cut ~10 px off the
-    // last avatar — visible in a real two-person call on Windows and on
-    // Linux, and reported as a sliced facepile. The real content is N cells
-    // plus the N-1 gaps BETWEEN them; the last bubble has no trailing gap,
-    // and including one would leave a dead strip the pill could sit in.
+    // Content width, capped so a large call doesn't push the title and controls
+    // out of the header; past the cap the strip scrolls. N cells plus N-1 gaps
+    // (no trailing gap).
     implicitWidth: root._count > 0
         ? Math.min(root._count * root.cellWidth
                    + (root._count - 1) * AppTheme.spacing6,
                    root.maxImplicitWidth)
         : 0
-    /// How wide this strip may get before it starts scrolling. A host that
-    /// fills (the collapsed strip) overrides the width anyway and never
-    /// consults this.
+    /// Width at which the strip starts scrolling. Filling hosts ignore it.
     property int maxImplicitWidth: 220
     visible: root._count > 0
 
@@ -99,9 +57,8 @@ Item {
         orientation: ListView.Horizontal
         spacing: AppTheme.spacing6
         clip: true
-        // More people than fit is a scroll, never a silent truncation: an
-        // "+N" badge here would be a second count next to the header's, and
-        // the two would disagree the moment one of them was capped.
+        // More people than fit scroll; an "+N" badge would be a second count
+        // that could disagree with the header's.
         model: root.model
         boundsBehavior: Flickable.StopAtBounds
 
@@ -117,16 +74,8 @@ Item {
             required property bool micMuted
             required property bool screenSharing
 
-            // Wide enough for the SPEAKING RING, not just the avatar. The
-            // ring is `bubbleSize + 8` and centred, so a cell of
-            // `bubbleSize + 4` left it 2 px wider than its own cell — which
-            // the ListView's clip then cut off the first and last bubble,
-            // and only while someone was talking.
-            //
-            // `root.cellWidth`, not the arithmetic again: this value and the
-            // strip's implicitWidth MUST agree, and the last time they were
-            // written out separately one of them was updated and the other
-            // was not.
+            // Wide enough for the speaking ring; `root.cellWidth` so it matches
+            // the strip's implicitWidth.
             width: root.cellWidth
             height: strip.height
 
@@ -148,9 +97,8 @@ Item {
                 return parts.join(", ");
             }
 
-            // The speaking ring. A ring rather than a growing avatar: the row
-            // must not change size on every syllable, or a call with four
-            // people talking reflows continuously.
+            // A ring rather than a growing avatar, so the row never reflows
+            // while people talk.
             Rectangle {
                 anchors.centerIn: avatarHolder
                 width: root.bubbleSize + 8
@@ -177,17 +125,14 @@ Item {
                 Avatar {
                     anchors.fill: parent
                     mxc: bubble.avatarMxc
-                    // The REAL name, never the "You" label: initials of
-                    // "You" render a Y for the local user and nothing
-                    // recognisable.
+                    // The real name, not "You" (which would render a Y).
                     name: bubble.displayName || bubble.userId || ""
                     colorKey: bubble.userId
                     size: root.bubbleSize
                 }
 
-                // Muted badge, bottom-right, only when the SFU actually said
-                // so: unknown renders nothing rather than a confident and
-                // possibly wrong "not muted".
+                // Muted badge, bottom-right, only when the SFU said so; unknown
+                // renders nothing.
                 Loader {
                     active: bubble.muted
                     visible: active
@@ -209,9 +154,8 @@ Item {
                     }
                 }
 
-                // Screen-share badge, top-right. Same honesty rule. In a
-                // collapsed call this is the only sign a share is running,
-                // which is why it is not hover-gated.
+                // Screen-share badge, top-right. Not hover-gated: in a
+                // collapsed call it's the only sign a share is running.
                 Loader {
                     active: bubble.screenSharing
                     visible: active

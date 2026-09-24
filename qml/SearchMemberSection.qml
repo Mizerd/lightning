@@ -3,9 +3,9 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Reusable bounded/virtualized room-member multi-select used by the From
-// and Mentions filters. The parent owns draft state so opening one section
-// never mutates an applied query.
+// Reusable bounded, virtualized member multi-select for the From and Mentions
+// filters. The parent owns draft state, so opening a section never changes an
+// applied query.
 ColumnLayout {
     id: root
 
@@ -55,13 +55,9 @@ ColumnLayout {
         id: memberList
         visible: root.expanded
         Layout.fillWidth: true
-        // Derived from the MODEL, never from contentHeight. Binding the
-        // height to contentHeight is circular — contentHeight is the sum of
-        // the delegates the view decided to create, and how many it creates
-        // depends on its height — so the view settles at whatever partial
-        // height it happened to reach first and the last row is left clipped
-        // mid-text (reported with two members: the second row cut through
-        // its MXID).
+        // Height from the model, never contentHeight: contentHeight depends on
+        // how many delegates the view creates, which depends on its height, so
+        // it settles early and clips the last row.
         readonly property int rowHeight: 42
         Layout.preferredHeight: {
             if (!visible)
@@ -107,8 +103,7 @@ ColumnLayout {
                         text: memberRow.modelData.displayName
                               || memberRow.modelData.userId
                         textFormat: Text.PlainText
-                        // Identity ink: the whole point of this list is
-                        // picking one person out of it.
+                        // Identity ink: the list exists to pick out a person.
                         color: AppTheme.userColor(
                                    memberRow.modelData.userId || "")
                         font.pixelSize: AppTheme.textBody

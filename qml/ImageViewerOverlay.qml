@@ -4,34 +4,20 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
-// In-app image viewer. Full-window scrim, click-to-zoom at the pointer,
-// wheel zoom while fitted and wheel PAN once zoomed, drag panning with grab
-// cursors, previous/next across the images currently loaded in the room
-// timeline (no history is fetched, and the list WRAPS at both ends), a
-// thumbnail strip, Save As through the media bridge, animated GIF playback,
-// and floating chrome that gets out of the way while zoomed. Escape or a
-// click on the scrim closes. The SDK timeline is untouched — this is a pure
-// overlay.
+// In-app image viewer: full-window scrim, click-to-zoom at the pointer,
+// wheel zoom while fitted and wheel pan once zoomed, drag panning, wrapping
+// previous/next across the images loaded in the timeline (no history is
+// fetched), a thumbnail strip, Save As through the media bridge, animated
+// GIF playback, and chrome that hides while zoomed. Escape or a click on the
+// scrim closes. A pure overlay: the SDK timeline is untouched.
 //
-// The gesture model follows the one most people arrive here with (asked for
-// in those words): click the picture to zoom at the point you clicked, wheel
-// to pan once there is somewhere to pan to. Where that model is POORER than
-// what this viewer already had it was NOT adopted — zoom stays continuous
-// over 0.1x-10x rather than a single fixed step, and the +/-/0/F keys stay,
-// because a viewer with no keyboard zoom is worse for the same reason a
-// viewer with no keyboard navigation would be.
-//
-// The header comment used to claim "double-click fit/actual toggling" and
-// "a toolbar that fades while idle". Neither was true: the double-click
-// handler had already been removed and nothing replaced the claim, and the
-// idle fade is now a zoom-driven hide. A stale header is worse than none —
-// it is read as an inventory.
+// Zoom is continuous over 0.1x-10x and the +/-/0/F keys are kept alongside
+// the click/wheel gestures.
 Popup {
     id: viewer
 
-    // Sender-chosen filename -> hardened leaf, percent-encoded. See
-    // TimelinePane.suggestedSaveUrl for why the raw concatenation was a
-    // one-click write to a sender-chosen directory.
+    // Sender-chosen filename -> hardened, percent-encoded leaf (see
+    // TimelinePane.suggestedSaveUrl).
     function suggestedSaveUrl() {
         var raw = viewer.current ? (viewer.current.filename || "") : ""
         var leaf = app.mediaBridge.suggestedSaveName(raw)
@@ -46,17 +32,8 @@ Popup {
     height: parent ? parent.height : 600
     modal: true
     padding: 0
-    // A POPUP DOES NOT TAKE FOCUS UNLESS IT ASKS FOR IT, and this one did
-    // not — so every key the viewer declares was dead: Left/Right,
-    // Up/Down/Space, +/-/0/F, and Escape through the close policy below.
-    // `contentItem: FocusScope { focus: true }` cannot rescue it; a focus
-    // scope inside a popup that never becomes the active focus item never
-    // becomes one either. VideoViewerOverlay, written to the same pattern,
-    // has always set this.
-    //
-    // Escape is the half that matters most: taking click-to-close off the
-    // picture was justified by "closing is still instant everywhere else —
-    // the scrim, Escape, the close button", and Escape was not one of them.
+    // A Popup doesn't take focus unless asked; without this every key binding,
+    // including Escape via the close policy, is dead.
     focus: true
     closePolicy: Popup.CloseOnEscape
 
@@ -68,10 +45,9 @@ Popup {
         (currentIndex >= 0 && currentIndex < entries.length)
         ? entries[currentIndex] : null
 
-    // Zoom model: `zoom` is relative to the fit-to-window base size, so
-    // 1.0 always means "fits the viewport". `naturalWidth/Height` are the
-    // decoded dimensions; actualSizeZoom shows one image pixel per logical
-    // pixel.
+    // `zoom` is relative to the fit-to-window size (1.0 = fits the viewport).
+    // naturalWidth/Height are the decoded dimensions; actualSizeZoom shows one
+    // image pixel per logical pixel.
     property real zoom: 1.0
     readonly property real minZoom: 0.1
     readonly property real maxZoom: 10.0
@@ -86,7 +62,7 @@ Popup {
         ? Math.round(zoom * baseWidth / naturalWidth * 100)
         : Math.round(zoom * 100)
 
-    // Bridge source plumbing (mirrors MessageDelegate's pattern).
+    // Bridge source plumbing (as in MessageDelegate).
     readonly property bool usesBridge:
         current !== null && current.mediaKey.length > 0 && app.mediaBridge.supported
     readonly property string bridgeCacheKey:
@@ -96,27 +72,18 @@ Popup {
     property bool bridgeFailed: false
     readonly property string currentMime:
         current !== null ? (current.mime || "").toLowerCase() : ""
-    // NOT a mimetype test any more, and the difference is the whole point.
-    // An `m.sticker`'s `info.mimetype` is optional under MSC2545, so a GIF
-    // sticker routinely arrives with no declared type at all and used to
-    // open here as a frozen frame. The BYTES decide: this only says "worth
-    // asking about", and MediaBridge.animatedExtensionFor answers from the
-    // container magic. A payload that says it is a PNG or a JPEG is taken at
-    // its word for the sole purpose of not asking.
+    // Not a mimetype test: MSC2545 stickers often omit the mimetype. This only
+    // says "worth asking"; MediaBridge.animatedExtensionFor decides from the
+    // container magic. A declared PNG or JPEG is not asked about.
     readonly property bool maybeAnimated:
         current !== null && (currentMime === "" || currentMime === "image/gif"
                              || currentMime === "image/webp")
-    // The viewer is explicit user intent: animations play unless autoplay is
-    // globally Never (2). Matches the timeline's tri-state policy instead
-    // of the legacy boolean.
+    // The viewer is explicit intent: animations play unless autoplay is Never
+    // (2).
     readonly property bool animateGifs: app.settings.gifAutoplay !== 2
 
-    /// Open on an EXPLICIT list and index — for a caller that already knows
-    /// both, which is what the room's Media tab is.
-    ///
-    /// The viewer pages through the list it is GIVEN. It used to build the
-    /// list itself, always from `app.timeline.imageEntries()`, which is only
-    /// the right list for a click in the timeline.
+    /// Open on an explicit list and index (e.g. the room's Media tab). The
+    /// viewer pages through the list it is given.
     function openAt(list, index) {
         if (!list || index < 0 || index >= list.length)
             return
@@ -127,8 +94,8 @@ Popup {
         loadCurrent()
     }
 
-    /// Open on the images the TIMELINE has loaded, located by media key (or
-    /// by URL on the HTTP backend). This is the timeline's own entry point.
+    /// Open on the images the timeline has loaded, located by media key (or by
+    /// URL on the HTTP backend).
     function openFor(mediaKey, httpUrl) {
         var list = app.timeline.imageEntries()
         var found = -1
@@ -141,11 +108,8 @@ Popup {
             }
         }
         if (found === -1) {
-            // A MISS OPENS WHAT WAS ASKED FOR, ALONE. This used to be
-            // `currentIndex = entries.length - 1`, which turned "I could not
-            // find that" into "here is something else" — the user clicked one
-            // picture and got another. There is nothing to page through when
-            // the row is not in the loaded list, and that is a truthful state.
+            // A miss opens the requested image alone rather than a different
+            // one.
             if (mediaKey.length === 0 && !httpUrl)
                 return
             list = [{
@@ -182,25 +146,18 @@ Popup {
         if (!usesBridge || current === null)
             return
         bridgeFailed = false
-        // BOTH, always. They share one cache key ("full:"), so this is one
-        // fetch; the still frame is what is drawn until — and unless — the
-        // animation is validated and decodable. Asking for the animation is
-        // SPECULATIVE (see MediaBridge::animatedSource): a payload that is
-        // not one answers with silence rather than marking the key failed,
-        // which would put an error card over a perfectly good picture.
+        // Always request both; they share the "full:" cache key, so it is one
+        // fetch. The still is drawn until the animation validates. The animated
+        // request is speculative (see MediaBridge::animatedSource): a
+        // non-animated payload answers with silence rather than marking the key
+        // failed.
         if (maybeAnimated && animateGifs)
             animatedSource = app.mediaBridge.animatedSource(current.mediaKey, true)
         bridgeSource = app.mediaBridge.mediaSource(current.mediaKey, "full")
     }
 
-    // WRAPS at both ends: next on the last image is the first, previous on
-    // the first is the last. This used to return early at the bounds, so the
-    // one gesture a person repeats — tap next, tap next, tap next — simply
-    // stopped, with an arrow that vanished rather than a list that came
-    // round. Wrapping makes the set feel like a set.
-    //
-    // The modulo is written twice on purpose: JavaScript's `%` keeps the
-    // sign of the dividend, so `-1 % 5` is `-1`, not `4`.
+    // Wraps at both ends. The double modulo handles JavaScript's `%` keeping
+    // the dividend's sign (`-1 % 5` is `-1`).
     function showAt(index) {
         if (entries.length === 0)
             return
@@ -223,13 +180,13 @@ Popup {
         baseWidth = w * scale
         baseHeight = h * scale
     }
-    // Window resizes keep the image sensibly placed: the fit base follows
-    // the new viewport while the relative zoom is preserved.
+    // On window resize the fit base follows the viewport; relative zoom is
+    // kept.
     onWidthChanged: if (opened && naturalWidth > 0) fitImage(naturalWidth, naturalHeight)
     onHeightChanged: if (opened && naturalWidth > 0) fitImage(naturalWidth, naturalHeight)
 
-    // Pointer-centered zoom: the image point under `viewportPoint` (in
-    // flick viewport coordinates) stays put across the scale change.
+    // Pointer-centred zoom: the image point under `viewportPoint` (flick
+    // viewport coordinates) stays put.
     function zoomAt(viewportPoint, newZoom) {
         newZoom = Math.min(maxZoom, Math.max(minZoom, newZoom))
         if (baseWidth <= 0 || newZoom === zoom) {
@@ -265,13 +222,10 @@ Popup {
                actualSizeZoom)
     }
 
-    // What a click on the picture jumps to. A fixed step rather than actual
-    // size, because actual size on a 6000px photo is a jump to one corner of
-    // it, and the gesture people expect here is "closer", not "1:1" — which
-    // the 0 key still gives.
+    // Click-to-zoom target: a fixed step rather than 1:1, which on a large
+    // photo jumps to a corner. The 0 key gives actual size.
     readonly property real clickZoom: 2.5
-    // True once there is somewhere to pan to, which is also the condition
-    // under which the wheel stops zooming and starts panning.
+    // Also the condition under which the wheel pans instead of zooming.
     readonly property bool zoomedIn: zoom > 1.0 + 0.001
 
     /// Toggle between fit and `clickZoom`, anchored at `viewportPoint` (flick
@@ -308,8 +262,7 @@ Popup {
         }
     }
 
-    // Popped into the overlay, not into the viewer, so it is never clipped
-    // by the image's own Flickable.
+    // Parented to the overlay so the image's Flickable never clips it.
     AppMenu {
         id: viewerMenu
         objectName: "imageViewerContextMenu"
@@ -353,11 +306,7 @@ Popup {
     }
 
     background: Rectangle {
-        // The viewer chrome is deliberately dark on EVERY theme — it sits
-        // over arbitrary user media, so it cannot follow the palette. That
-        // is what the scrim* tokens are for; this file used to hardcode
-        // nine different values for the role, including two of Lightning
-        // Dark's own text inks copied out of AppTheme by value.
+        // Dark on every theme: the viewer sits over arbitrary media.
         color: AppTheme.scrimSurface
     }
 
@@ -366,10 +315,7 @@ Popup {
         Keys.onLeftPressed: viewer.showAt(viewer.currentIndex - 1)
         Keys.onRightPressed: viewer.showAt(viewer.currentIndex + 1)
         Keys.onPressed: (event) => {
-            // Down and Space join Right as "next", Up joins Left as
-            // "previous". One axis is not enough: a person who has just
-            // scrolled a list reaches for Down, and Space is the oldest
-            // "advance" key there is.
+            // Down and Space also mean "next", Up means "previous".
             if (event.key === Qt.Key_Down || event.key === Qt.Key_Space) {
                 viewer.showAt(viewer.currentIndex + 1)
                 event.accepted = true
@@ -396,28 +342,11 @@ Popup {
             onTapped: viewer.close()
         }
 
-        // CHROME GETS OUT OF THE WAY WHILE ZOOMED, NOT ON A TIMER.
-        //
-        // This was a 2.6s idle fade, and an idle timer is the wrong question:
-        // it hides the controls from someone who is reading a picture and
-        // has simply stopped moving the mouse, and it keeps them over the
-        // picture during the one activity they actually obstruct — zooming
-        // in to look at detail underneath them. Tying it to zoom answers the
-        // real question, "is the user inspecting the image right now", and
-        // it needs no timer, no wake calls and no pointer tracking.
-        //
-        // Three carve-outs, each load-bearing:
-        //   * reduced motion keeps chrome permanently on, as it did before —
-        //     an interface that appears and disappears IS motion;
-        //   * hovering the toolbar keeps it up, so a control cannot vanish
-        //     from under the pointer on its way to being clicked;
-        //   * a load failure keeps it up, because the Retry button lives
-        //     there and a viewer that hid it would be a dead end.
-        //
-        // The close button is deliberately NOT part of this — it is anchored
-        // separately and never fades; see its own note. A way out must never
-        // be conditional, and this gate is not recoverable by pointer the way
-        // the idle fade it replaced was.
+        // Chrome hides while zoomed in (when it would cover the detail being
+        // inspected), not on an idle timer. It stays up with reduced motion,
+        // while the toolbar is hovered (so controls don't vanish under the
+        // pointer), and after a load failure (Retry lives there). The close
+        // button is separate and never hides.
         QtObject {
             id: chrome
             readonly property bool shown:
@@ -427,7 +356,7 @@ Popup {
                 || viewer.bridgeFailed
         }
 
-        // ── Image area (fills the window; chrome floats above) ───────────
+        // ── Image area (fills the window; chrome floats above) ──
         Item {
             anchors.fill: parent
 
@@ -439,25 +368,14 @@ Popup {
                 contentHeight: imageHolder.height
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
-                // THE IMAGE TRACKS THE POINTER AND STOPS DEAD. No glide.
-                //
-                // A Flickable flicks by default — Qt's own deceleration is
-                // ~1500 px/s², so letting go mid-drag sent the picture
-                // coasting. That is right for a list, where the content is
-                // long and the gesture is "throw me further", and wrong for
-                // inspecting an image, where the gesture is "put this part
-                // under my eyes" and any coast overshoots the thing you were
-                // aiming at. The model this viewer follows pans 1:1 with no
-                // inertia at all, which is the behaviour asked for.
-                //
-                // Both properties, because they close different doors:
-                // `maximumFlickVelocity: 0` refuses to start a flick, and the
-                // deceleration makes any flick that does start decay inside a
-                // single frame. Dragging is untouched — only the release.
+                // Pan 1:1 with no inertia: a coast overshoots the detail being
+                // aimed at. maximumFlickVelocity: 0 prevents flicks; the
+                // deceleration kills any that start within a frame. Dragging is
+                // unaffected.
                 maximumFlickVelocity: 0
                 flickDeceleration: 100000
-                // Panning only when zoomed beyond the viewport — otherwise
-                // drags cannot accidentally nudge a fitted image.
+                // Pannable only when larger than the viewport, so a fitted
+                // image can't be nudged.
                 interactive: imageHolder.width > width + 0.5
                              || imageHolder.height > height + 0.5
 
@@ -466,44 +384,19 @@ Popup {
                     width: Math.max(flick.width, viewer.baseWidth * viewer.zoom)
                     height: Math.max(flick.height, viewer.baseHeight * viewer.zoom)
 
-                    // A click on the PICTURE zooms at the point clicked; a
-                    // click anywhere else — the scrim around it — still
-                    // closes, instantly.
-                    //
-                    // THIS REPLACED AN INSTANT CLOSE ON THE PICTURE ITSELF,
-                    // and that was a deliberate decision made on live
-                    // feedback: closing must never require the X button, and
-                    // must never wait out the platform's ~400ms double-click
-                    // interval, which is why the double-click zoom that used
-                    // to live here was dropped rather than kept alongside.
-                    // Neither constraint is broken by this. A single tap is
-                    // not a double tap, so nothing waits for an interval, and
-                    // the scrim is most of the window — plus Escape, plus a
-                    // pinned close button. What IS given up is closing by
-                    // clicking the picture, which is the trade that was
-                    // asked for. If it reads worse in the hand, this handler
-                    // is the one line to put back.
-                    //
-                    // While zoomed the Flickable steals drags for panning
-                    // before they can count as taps, so a pan never zooms.
+                    // A click on the picture zooms at that point; a click on
+                    // the scrim around it closes. A single tap, so nothing
+                    // waits out a double-click interval; Escape and the pinned
+                    // close button also close. While zoomed the Flickable takes
+                    // drags for panning, so a pan never zooms.
                     TapHandler {
                         id: imageTap
                         gesturePolicy: TapHandler.WithinBounds
-                        // ONE handler with an explicit band check — NOT a
-                        // second TapHandler on an image-sized child. Tap
-                        // handlers are non-exclusive across subtrees (§16,
-                        // four rounds of exactly this), so a nested pair
-                        // fires BOTH on one click: the inner zoom and the
-                        // outer close.
-                        //
-                        // The band is needed because `imageHolder` is
-                        // `Math.max(flick.width, baseWidth * zoom)` — it
-                        // always fills the viewport, so a fitted image leaves
-                        // a wide margin of holder that is not picture. That
-                        // margin reads as scrim and must close. It used to,
-                        // back when both regions closed and the distinction
-                        // cost nothing; splitting the two gestures is what
-                        // turned the holder's size into a defect.
+                        // One handler with a band check, not a nested
+                        // TapHandler: tap handlers are non-exclusive across
+                        // subtrees, so a nested pair would both zoom and close.
+                        // imageHolder always fills the viewport, so the margin
+                        // around a fitted image must be treated as scrim.
                         onTapped: (eventPoint) => {
                             var iw = viewer.baseWidth * viewer.zoom
                             var ih = viewer.baseHeight * viewer.zoom
@@ -521,10 +414,8 @@ Popup {
                             viewer.toggleZoomAt(Qt.point(p.x, p.y))
                         }
                     }
-                    // Right-click the picture itself for the actions a person
-                    // expects there — asked for in those words, "same as in
-                    // Discord". LeftButton is imageTap's default, so the two
-                    // handlers cannot both fire on one press.
+                    // Right-click on the picture opens the context menu. Left
+                    // is imageTap's, so the two never both fire.
                     TapHandler {
                         acceptedButtons: Qt.RightButton
                         gesturePolicy: TapHandler.WithinBounds
@@ -546,17 +437,15 @@ Popup {
                     // Static image path.
                     Image {
                         id: staticImage
-                        // The still frame is the default AND the fallback: it
-                        // yields only once the AnimatedImage actually reports
-                        // Ready, so a build whose plugins cannot decode the
-                        // animation shows the picture instead of nothing.
+                        // The still is the default and the fallback: it yields
+                        // only once the AnimatedImage reports Ready, so
+                        // undecodable animations still show a picture.
                         visible: !animatedImage.visible
                         anchors.centerIn: parent
                         width: viewer.baseWidth * viewer.zoom
                         height: viewer.baseHeight * viewer.zoom
                         fillMode: Image.PreserveAspectFit
-                        // High-quality scaling at any zoom without a
-                        // permanent re-rasterization of the source.
+                        // High-quality scaling at any zoom.
                         smooth: true
                         mipmap: true
                         asynchronous: true
@@ -584,9 +473,8 @@ Popup {
                         smooth: true
                         cache: false
                         playing: visible && viewer.opened
-                        // NOT gated on `visible`: `visible` waits for Ready,
-                        // and a source that only appears once the image is
-                        // ready can never become ready.
+                        // Not gated on `visible`, which waits for Ready: that
+                        // would never load.
                         source: viewer.animateGifs ? viewer.animatedSource : ""
                         onStatusChanged: {
                             if (status === Image.Ready && viewer.baseWidth === 0)
@@ -597,20 +485,9 @@ Popup {
 
                 WheelHandler {
                     target: null
-                    // THE WHEEL PANS A ZOOMED IMAGE AND ZOOMS A FITTED ONE.
-                    // Once the picture is bigger than the window the wheel
-                    // is the gesture for moving around it, which is what a
-                    // scroll wheel means everywhere else; while it fits
-                    // there is nowhere to pan to, so the wheel keeps its
-                    // pointer-centred zoom and nothing is lost.
-                    //
-                    // Ctrl+wheel always zooms, at either size. Without it,
-                    // zooming back OUT by wheel would be unreachable the
-                    // moment zooming in made the image pannable — the
-                    // gesture would work in one direction only. (The model
-                    // this follows drops ctrl+wheel on the floor and accepts
-                    // exactly that; the keys and the toolbar are its way
-                    // back. Keeping it costs nothing and removes a trap.)
+                    // The wheel pans a zoomed image and zooms a fitted one.
+                    // Ctrl+wheel always zooms, so zooming back out by wheel
+                    // stays possible once the image is pannable.
                     onWheel: (event) => {
                         var wantsZoom = !flick.interactive
                                 || (event.modifiers & Qt.ControlModifier)
@@ -620,9 +497,8 @@ Popup {
                                           viewer.zoom * factor)
                             return
                         }
-                        // pixelDelta is populated by trackpads and is zero
-                        // for a notched mouse wheel, where angleDelta is the
-                        // only signal: 120 units is one notch by convention.
+                        // pixelDelta comes from trackpads; a notched wheel only
+                        // has angleDelta (120 units per notch).
                         var dx = event.pixelDelta.x !== 0
                                  ? event.pixelDelta.x
                                  : event.angleDelta.x / 120 * 60
@@ -639,10 +515,8 @@ Popup {
                 }
             }
 
-            // Basic's BusyIndicator inks palette.dark — the theme's
-            // secondary TEXT colour — which on an 85%-black scrim is
-            // barely perceptible. A ring with a travelling head, in the
-            // scrim ink, so loading actually reads as loading.
+            // Custom spinner: Basic's BusyIndicator uses palette.dark, which is
+            // barely visible on the scrim.
             Item {
                 id: viewerSpinner
                 anchors.centerIn: parent
@@ -694,9 +568,8 @@ Popup {
                 }
                 AppButton {
                     Layout.alignment: Qt.AlignHCenter
-                    // Primary, not secondary: a secondary button's ink is
-                    // the theme's textPrimary, which on a light theme is
-                    // near-black — invisible on this scrim.
+                    // Primary: a secondary button's ink is textPrimary, which
+                    // is near-black on light themes and invisible on the scrim.
                     kind: "primary"
                     text: qsTr("Retry")
                     onClicked: viewer.loadCurrent()
@@ -709,10 +582,7 @@ Popup {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: AppTheme.spacing12
-                // Shown for any SET, not for any position. The list wraps, so
-                // there is no first and no last to disable against — an arrow
-                // that vanished at the ends would be telling the user the set
-                // had run out when it has not.
+                // Shown for any set: the list wraps, so there are no ends.
                 visible: viewer.entries.length > 1 && chrome.shown
                 iconName: "chevron_left"
                 iconSize: 26
@@ -744,16 +614,14 @@ Popup {
             }
         }
 
-        // ── Header: filename + sender/time (floats over the image) ───────
+        // ── Header: filename + sender/time (floats over the image) ──
         RowLayout {
             id: headerRow
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.margins: AppTheme.spacing12
-            // Clear of the pinned close button, which is no longer part of
-            // this row: 36px of button plus its own margin. Without this the
-            // filename would run underneath it.
+            // Clear of the pinned close button (36 px plus margin).
             anchors.rightMargin: AppTheme.spacing12 + 36 + AppTheme.spacing8
             spacing: AppTheme.spacing8
             visible: opacity > 0
@@ -779,10 +647,8 @@ Popup {
                     // Remote or externally chosen text: never markup.
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
-                    // Guarded on the sender rather than on `current`: a
-                    // viewer opened on a row the timeline does not hold
-                    // (openFor's miss branch) knows the media key and
-                    // nothing else, and "· 1 Jan 1970" is worse than blank.
+                    // Guarded on the sender: openFor()'s miss branch knows only
+                    // the media key, and "· 1 Jan 1970" is worse than blank.
                     text: viewer.current !== null
                           && (viewer.current.sender || "").length > 0
                           ? qsTr("%1 · %2")
@@ -797,20 +663,9 @@ Popup {
             }
         }
 
-        // PINNED. Not part of `chrome.shown`, and this is the one control
-        // that must not be.
-        //
-        // It used to live inside headerRow, which fades with the rest of the
-        // chrome — and once the chrome started hiding on ZOOM rather than on
-        // an idle timer, that became a trap. The old idle fade was
-        // recoverable by any pointer movement; the zoom gate is not. At
-        // opacity 0 the toolbar is `visible: false` and cannot be hovered
-        // back into existence, and a zoomed picture fills the viewport so
-        // every click takes the zoom branch of the band check. A pointer-only
-        // user was left with Escape, or un-zooming first, as the only ways
-        // out of a full-screen overlay.
-        //
-        // A way out must never be conditional, so this one never fades.
+        // Pinned: not part of `chrome.shown`. Once zoomed, the hidden chrome
+        // can't be hovered back and every click on the picture zooms, so a
+        // hiding close button would leave pointer users without a way out.
         IconButton {
             objectName: "viewerCloseButton"
             anchors.top: parent.top
@@ -824,12 +679,9 @@ Popup {
             onClicked: viewer.close()
         }
 
-        // ── Thumbnail strip ──────────────────────────────────────────────
-        //
-        // Only for a real SET: one image has nothing to strip. It asks the
-        // bridge for `list_thumb`, the smallest cached kind, so opening a
-        // room's worth of pictures does not pull full payloads for every
-        // one of them just to draw 48px squares.
+        // ── Thumbnail strip ──
+        // Only for a real set. Uses `list_thumb`, the smallest cached kind, so
+        // opening doesn't pull full payloads for 48 px squares.
         ListView {
             id: thumbStrip
             objectName: "viewerThumbnailStrip"
@@ -842,34 +694,18 @@ Popup {
             anchors.bottom: toolbar.top
             anchors.bottomMargin: AppTheme.spacing12
 
-            // THE WIDTH IS A WHOLE NUMBER OF THUMBNAILS, NEVER THE RAW
-            // AVAILABLE SPACE.
-            //
-            // `Math.min(available, contentWidth)` cut the strip wherever the
-            // window happened to end, so the first and last tiles were sliced
-            // down the middle — a row of pictures with two ragged stumps on
-            // it. `clip: true` is what makes that visible, and it cannot be
-            // dropped: without it the strip paints over the image instead.
-            //
-            // So the strip is sized to fit N COMPLETE cells and no fraction
-            // of one. `snapMode` keeps that true after a flick, and because
-            // every cell is the same width, a `Contain` scroll from an
-            // aligned position stays aligned.
+            // Sized to a whole number of cells so the end tiles aren't sliced
+            // by the clip (which is needed so the strip doesn't paint over the
+            // image). SnapToItem keeps that true after a flick.
             readonly property int cell: 48 + spacing
             width: {
                 var avail = parent.width - AppTheme.spacing16 * 2
                 var fit = Math.max(1, Math.floor((avail + spacing) / cell))
-                // Sized from the MODEL, never from `contentWidth`.
-                //
-                // `contentWidth` is an output of the ListView, derived from
-                // the delegates it has created — and how many it creates is
-                // derived from `width`. Reading it here is a binding loop:
-                // Qt either logs one or quietly settles on whatever estimate
-                // the view had while items were still being built. Every cell
-                // is a fixed 48px, so the real content width is known from
-                // the entry count without asking the view anything.
+                // From the entry count, not contentWidth: contentWidth depends
+                // on width, which would be a binding loop. Cells are a fixed 48
+                // px.
                 var all = viewer.entries.length * cell - spacing
-                // The trailing item carries no spacing after it.
+                // The last item carries no trailing spacing.
                 return Math.min(all, fit * cell - spacing)
             }
             snapMode: ListView.SnapToItem
@@ -879,24 +715,16 @@ Popup {
                 enabled: !AppTheme.reducedMotion
                 NumberAnimation { duration: 180 }
             }
-            // Keep the current thumbnail reachable as the selection moves —
-            // `Contain` scrolls only when it has fallen off an edge, so the
-            // strip does not lurch on every step.
+            // Keep the current thumbnail visible; `Contain` scrolls only when
+            // it falls off an edge.
             onCurrentIndexChanged: positionViewAtIndex(currentIndex,
                                                        ListView.Contain)
             currentIndex: viewer.currentIndex
 
-            // The strip sits over the scrim, whose tap closes the viewer.
-            // Without this, a click on the gap BETWEEN two thumbnails would
-            // close rather than do nothing — the one place a miss is most
-            // likely, since the targets are 48px.
-            //
-            // AND IT SWALLOWED NOTHING WITHOUT `gesturePolicy`. On the
-            // default `DragThreshold` a TapHandler takes only a PASSIVE
-            // grab, so the scrim's close handler fired on the same press and
-            // a near miss closed the viewer — precisely what this was
-            // written to prevent. `WithinBounds` takes the exclusive grab,
-            // which is the same thing `imageTap` has always relied on.
+            // Swallows taps in the gaps between thumbnails, which would
+            // otherwise reach the scrim and close. WithinBounds takes the
+            // exclusive grab; the default DragThreshold only grabs passively,
+            // so the scrim still fired.
             TapHandler {
                 gesturePolicy: TapHandler.WithinBounds
                 onTapped: {}
@@ -913,15 +741,10 @@ Popup {
                 Image {
                     id: thumbImage
                     anchors.fill: parent
-                    // `mediaSource()` answers a MISS with an empty string and
-                    // dispatches a fetch; the bytes arrive later as
-                    // `mediaCached`. A binding that touches nothing bumped
-                    // from that signal never asks again, so every picture the
-                    // strip had not already cached stayed an empty 48px tile
-                    // for as long as the viewer was open — and the strip is
-                    // the one surface whose whole job is showing what else is
-                    // there. Same `resolveTick` pairing as EmojiPicker and
-                    // EmojiCompletionPopup.
+                    // mediaSource() answers a miss with "" and fetches; the
+                    // bytes arrive later via mediaCached. resolveTick
+                    // re-evaluates the binding then (as in EmojiPicker and
+                    // EmojiCompletionPopup).
                     property int resolveTick: 0
                     source: {
                         var _tick = resolveTick
@@ -934,10 +757,8 @@ Popup {
                     Connections {
                         target: app.mediaBridge
                         function onMediaCached(cacheKey) {
-                            // ANY class, not just `listthumb:`: mediaSource
-                            // reads through to a larger cached class rather
-                            // than creating a second fetch, so a `full:`
-                            // arrival is a perfectly good answer here.
+                            // Any class: mediaSource reads through to a larger
+                            // cached class, so a `full:` arrival also answers.
                             if ((thumbItem.modelData.mediaKey || "").length > 0
                                 && cacheKey.endsWith(
                                        ":" + thumbItem.modelData.mediaKey))
@@ -949,9 +770,8 @@ Popup {
                     smooth: true
                     mipmap: true
                 }
-                // Everything that is not the current item recedes; hovering
-                // brings it most of the way back so the strip answers the
-                // pointer before it is clicked.
+                // Non-current items recede; hover brings them most of the way
+                // back.
                 Rectangle {
                     anchors.fill: parent
                     color: AppTheme.scrimBackdrop
@@ -968,24 +788,8 @@ Popup {
                     border.width: thumbItem.isCurrent ? 2 : 0
                     border.color: AppTheme.scrimInk
                 }
-                // `gesturePolicy` IS THE FIX, and its absence was the bug.
-                //
-                // On the default `DragThreshold` policy this took only a
-                // PASSIVE grab, so the scrim's close handler fired on the
-                // same press: the picture was selected and the viewer shut
-                // underneath it. `WithinBounds` takes the exclusive grab and
-                // the ancestor never sees the tap — which is why `imageTap`,
-                // which has asked for it since it was written, zooms the
-                // picture without closing.
-                //
-                // A first attempt at this concluded the policy did NOT help
-                // and reached for an AbstractButton instead. That was
-                // measured through a broken fixture: the strip carries
-                // `visible: opacity > 0` behind a 180ms fade, so the
-                // synthesized click was landing on the scrim and closing the
-                // viewer for a reason that had nothing to do with the
-                // policy. The case waits for the fade now, and with it the
-                // policy is provably the whole fix.
+                // WithinBounds takes the exclusive grab so the scrim's close
+                // handler doesn't also fire (as with imageTap).
                 HoverHandler {
                     id: thumbHover
                     cursorShape: Qt.PointingHandCursor
@@ -1005,7 +809,7 @@ Popup {
             }
         }
 
-        // ── Floating toolbar: zoom cluster + actions ─────────────────────
+        // ── Floating toolbar: zoom cluster + actions ──
         Rectangle {
             id: toolbar
             objectName: "viewerToolbar"
@@ -1127,7 +931,7 @@ Popup {
             }
         }
 
-        // ── Footer: save feedback + position ─────────────────────────────
+        // ── Footer: save feedback + position ──
         RowLayout {
             anchors.left: parent.left
             anchors.right: parent.right

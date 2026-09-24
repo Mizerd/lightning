@@ -4,29 +4,17 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.7.x: the first-run "verify this session" prompt — a small corner card,
-// not a modal. A brand-new session is usable before it is verified, so this
-// must not block the app the way a dialog would; it asks once, offers the
-// two honest answers, and gets out of the way.
-//
-// Shown when the session genuinely needs verifying AND the reminder has not
-// been dismissed for this account (app.sessionVerificationWarning). It also
-// stands down while a verification flow is already running — the focused
-// dialog owns the screen at that point, and a prompt telling the user to
-// start what they have already started is noise.
-//
-// "Verify" starts the SAME flow the Settings page starts; the shared
-// VerificationDialog opens itself off AppController's state, so there is
-// exactly one verification presentation in the app.
-// "Not now" is a real dismissal: it persists per account and is cleared
-// automatically once the session verifies, so it can never hide a later
-// unverified session.
+// First-run "verify this session" corner card, not a modal: an unverified
+// session still works. Shown when verification is needed and the reminder is
+// not dismissed for this account (app.sessionVerificationWarning), and hidden
+// while a flow is running. "Verify" starts the same flow as Settings (the
+// shared VerificationDialog opens from AppController's state). "Not now"
+// persists per account and clears once the session verifies.
 Rectangle {
     id: root
 
-    // The one-shot suppression for THIS run of the shell: hides the card
-    // without persisting anything, used after Verify is pressed so the card
-    // does not flash back between the press and the flow's first state.
+    // One-shot suppression for this run, used after Verify so the card does not
+    // flash back before the flow's first state.
     property bool suppressed: false
 
     readonly property bool shouldShow:
@@ -34,17 +22,11 @@ Rectangle {
         && !app.verificationActive
         && app.verificationState === ""
         && !suppressed
-        // The chat shell only (currentScreen 1). Deliberately NOT Settings
-        // (2): the Sessions page already carries the TrustCard's Verify —
-        // the single start affordance that page is documented to keep — and
-        // a floating prompt offering the same action a few hundred pixels
-        // away is exactly the duplication that decision avoided. Never over
-        // login/boot either, where there is no account to act on.
+        // Chat shell only: not Settings, where the TrustCard's Verify is the
+        // single start affordance, and not login/boot.
         && app.currentScreen === 1
 
-    // Re-arm on a genuinely new situation (account switch, a fresh sign-in
-    // that lands unverified again) rather than staying suppressed for the
-    // lifetime of the window.
+    // Re-arm on a new situation (account switch, fresh unverified sign-in).
     Connections {
         target: app
         function onLoggedInChanged() { root.suppressed = false }
@@ -60,17 +42,12 @@ Rectangle {
     height: implicitHeight
     radius: AppTheme.radiusLg
     color: AppTheme.stormPanel
-    // Danger-toned border, not a danger FILL: this is a nudge, not an
-    // error, and a solid red card in the corner of a working app reads as
-    // something having gone wrong.
+    // A danger-toned border, not a fill: this is a nudge, not an error.
     border.color: AppTheme.stormDanger
     border.width: 1
 
-    // No MultiEffect shadow here: the sanctioned pattern needs the effect
-    // and its source to be SIBLINGS (see MemberProfilePopover), and this
-    // card IS its own surface. The danger border already separates it from
-    // the shell, and a floating card that also casts a shadow onto the
-    // timeline would read heavier than a nudge should.
+    // No shadow: the sanctioned pattern needs effect and source as siblings
+    // (see MemberProfilePopover), and the border already separates the card.
 
     Accessible.role: Accessible.AlertMessage
     Accessible.name: qsTr("This session is not verified")

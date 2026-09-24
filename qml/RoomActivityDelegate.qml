@@ -3,9 +3,9 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Compact room-state annotation shared by the real timeline delegate and
-// QML-facing tests. Entries are typed maps produced by TimelineModel; this
-// component never reconstructs events from the summary label.
+// Compact room-state annotation shared by the timeline delegate and tests.
+// Entries are typed maps from TimelineModel; nothing is reconstructed from the
+// summary label.
 Item {
     id: root
     property string groupId: ""
@@ -13,17 +13,9 @@ Item {
     property bool expanded: false
     signal toggleRequested()
 
-    // A CALL is not a room update, and it must never come back through here.
-    //
-    // It used to: the bridge phrased a call as a state event (state_kind
-    // "m.call", body the literal words "call event"), so one call rendered as
-    // "1 room update" expanding to "call event" — the reported bleak row.
-    // TimelineModel now breaks the group at a call row and CallEventDelegate
-    // draws it, so this filter normally removes nothing. It is here because
-    // this component is also fed by fixtures and by backends that phrase
-    // their own state rows, and because a silent second home for calls is
-    // exactly how the first one survived: "1 room update" is a wrong
-    // sentence, not a small one.
+    // A call is not a room update. TimelineModel breaks groups at call rows and
+    // CallEventDelegate draws them, so this normally removes nothing; it guards
+    // fixtures and backends that phrase their own state rows.
     function entryIsCall(entry) {
         if (!entry)
             return false;
@@ -43,26 +35,18 @@ Item {
     readonly property int entryCount: entriesWithoutCalls.length
     readonly property bool canExpand: entryCount > 0
 
-    // A collapsed group draws ONE summary line. Since 2026-09-01 the model
-    // breaks a state run at every date divider, so on the Rust backend a
-    // group can no longer span calendar days and this range label is a
-    // SAFETY NET: it only renders on a backend that delivers a multi-day run
-    // without dividers between the days (mock/HTTP fixtures can). Same-day
-    // groups keep the plain count: a date on every group is noise, not
-    // information.
-    //
-    // Entries carry their own timestamp (TimelineModel::stateGroupEntriesFrom)
-    // and arrive in timeline order, so the range is the first and the last —
-    // never a scan, and never a guess when a timestamp is missing.
+    // A collapsed group draws one summary line. The model breaks state runs at
+    // date dividers, so a multi-day range only appears for backends without
+    // dividers (mock/HTTP fixtures); same-day groups keep the plain count.
+    // Entries carry timestamps in timeline order, so the range is first and
+    // last.
     function sameCalendarDay(a, b) {
         return a.getFullYear() === b.getFullYear()
                && a.getMonth() === b.getMonth()
                && a.getDate() === b.getDate()
     }
-    // Duck-typed rather than `instanceof Date`: the entries come from a
-    // QVariantMap, and a value that arrives wrapped instead of converted
-    // would silently fail an identity check and drop the range for every
-    // group.
+    // Duck-typed rather than instanceof Date: a value from a QVariantMap may
+    // arrive wrapped.
     function validDate(value) {
         if (!value || typeof value.getTime !== "function")
             return false
@@ -113,10 +97,7 @@ Item {
             contentItem: RowLayout {
                 id: summaryContent
                 spacing: AppTheme.spacingXS
-                // Was a geometric-shapes Unicode triangle at 10px — the
-                // only chevron in the app not drawn from the icon font, so
-                // it sat at a different weight and baseline from every
-                // other disclosure control.
+                // From the icon font, like every other disclosure control.
                 Icon {
                     objectName: "stateActivityChevron"
                     visible: root.canExpand
@@ -127,9 +108,8 @@ Item {
                 Label {
                     id: summaryLabel
                     Layout.fillWidth: true
-                    // Same reason as the entry label below: the summary can
-                    // carry a member-chosen display name, and AutoText would
-                    // let it become markup.
+                    // The summary can carry a member-chosen display name: never
+                    // markup.
                     textFormat: Text.PlainText
                     text: {
                         if (root.entryCount === 0)
@@ -186,20 +166,10 @@ Item {
                     width: expandedColumn.width
                     spacing: 6
 
-                    // A GLYPH PER ACTION, as Sable draws them. Joining, being
-                    // removed and being banned are not the same event, and a
-                    // column of identical grey sentences says they are.
-                    //
-                    // Derived from the CLOSED SET the bridge sends beside the
-                    // sentence, never from the sentence: that is translated,
-                    // so a glyph parsed out of it would be right in exactly
-                    // one language. An unknown action gets the neutral mark
-                    // rather than a guess — a wrong glyph is a wrong claim
-                    // about what somebody did.
-                    //
-                    // Every name here is in the bundled Material Symbols
-                    // SUBSET (IconChromeTest owns that rule); an unmapped one
-                    // renders as tofu.
+                    // A glyph per action, derived from the closed set the
+                    // bridge sends (never from the translated sentence).
+                    // Unknown actions get a neutral mark. Every name must be in
+                    // the bundled Material Symbols subset (IconChromeTest).
                     readonly property string entryGlyph: {
                         var kind = entryRow.modelData.eventKind || ""
                         if (kind === "membership") {
@@ -241,9 +211,7 @@ Item {
                         color: AppTheme.textMuted
                         Layout.alignment: Qt.AlignTop
                         Layout.topMargin: 2
-                        // Decorative: the sentence beside it carries the
-                        // whole meaning, and a screen reader announcing an
-                        // unnamed glyph before every line is noise.
+                        // Decorative: the sentence carries the meaning.
                         Accessible.ignored: true
                     }
 
@@ -251,18 +219,10 @@ Item {
                     Layout.fillWidth: true
                     height: Math.max(16, implicitHeight)
                     text: entryRow.modelData.description || ""
-                    // MANDATORY, and it is a security control, not styling.
-                    // This sentence embeds THREE strings a remote member
-                    // chose: the actor's resolved display name (at offset 0)
-                    // and the old and new display names. Qt's AutoText
-                    // default runs mightBeRichText() over the result, so a
-                    // display name beginning with markup promotes the whole
-                    // row to StyledText — and a name carrying
-                    // <img src="https://…"> would then make every viewer's
-                    // client fetch that URL. That is an unconsented remote
-                    // beacon (IP, timing) fired inside a room where link
-                    // previews are deliberately off by default. Plain text
-                    // renders the characters and fetches nothing.
+                    // Mandatory, a security control: the sentence embeds remote
+                    // display names, and AutoText would promote markup to
+                    // StyledText, so an <img> in a name would make every viewer
+                    // fetch its URL. Plain text fetches nothing.
                     textFormat: Text.PlainText
                     color: AppTheme.textMuted
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)

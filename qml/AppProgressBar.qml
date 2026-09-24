@@ -4,17 +4,13 @@ import MatrixClient
 
 // Lightning progress bar. `value` is 0..1; `indeterminate` runs the sweep.
 //
-// The stock Basic bar fills in `palette.dark` on a `palette.midlight` track,
-// which Main.qml maps to textSecondary on border: a BODY-TEXT grey on a
-// hairline grey. Five of them shipped that way, including the update
-// download bar — the single most-watched progress affordance in the app —
-// sitting directly beneath a text-size slider that fills in bolt yellow on
-// stormInset. Same treatment as that slider now, plus pill ends, so a
-// progress bar and a slider read as the same family.
+// Styled like the app's sliders (bolt fill on stormInset, pill ends) instead
+// of Basic's body-text grey on a hairline grey, so bars and sliders read as
+// one family.
 ProgressBar {
     id: root
 
-    // Contexts painting over media/scrim ink rather than a theme surface.
+    // For hosts painting over media/scrim rather than a theme surface.
     property bool scrim: false
 
     from: 0
@@ -47,11 +43,8 @@ ProgressBar {
             }
         }
 
-        // Indeterminate: a short pill sweeping the track. Deliberately a
-        // plain moving Rectangle rather than the Basic style's animator
-        // stack — QtQuick.Shapes is not linked in this application and
-        // Canvas paints nothing here (see StormNode.qml), so every animated
-        // primitive in this codebase is built from Items.
+        // Indeterminate: a short pill sweeping the track, a plain moving
+        // Rectangle (Canvas paints nothing here; see StormNode.qml).
         Rectangle {
             id: sweep
             visible: root.indeterminate
@@ -59,8 +52,8 @@ ProgressBar {
             height: parent.height
             radius: AppTheme.radiusPill
             color: root.scrim ? AppTheme.scrimInkStrong : AppTheme.bolt
-            // Reduced motion parks it as a static half-filled bar rather
-            // than pulsing: "busy" must still be legible without animation.
+            // With reduced motion, a static half-filled bar that still reads as
+            // busy.
             x: AppTheme.reducedMotion ? 0 : -width
             XAnimator on x {
                 running: root.indeterminate && root.visible

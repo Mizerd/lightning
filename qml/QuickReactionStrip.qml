@@ -1,35 +1,25 @@
 import QtQuick
 import MatrixClient
 
-// v0.6.5 (SPEC 1a): the quick-react row at the top of the message context
-// menu — a 6-column grid of 32px emoji cells (the first 5 recently used
-// emoji, plus a trailing "more" cell that opens the full shared picker).
-//
-// This is a plain Item, not an AppMenuItem: it is added directly as a child
-// of an AppMenu, and QQuickMenu resizes every content row (MenuItem,
-// MenuSeparator, or a plain Item like this one) to the menu's own content
-// width, so this component only lays out its own cells across whatever
-// width it is given — it never sets its own `width`.
-//
-// Emoji literals are banned in MessageDelegate.qml/RoomDelegate.qml by
-// contract tests (IconChromeTest's chrome scan, EmojiUiContractTest); this
-// component is exactly the emoji-specific exception those tests carve out.
+// Quick-react row at the top of the message context menu: 32px cells with the
+// five most recent emoji and a "more" cell that opens the shared picker. A
+// plain Item child of an AppMenu; QQuickMenu sizes every content row to its
+// width, so this only lays out its cells and never sets its own `width`. Emoji
+// literals are banned in MessageDelegate.qml/RoomDelegate.qml by IconChromeTest
+// and EmojiUiContractTest; this component is their carved-out exception.
 Item {
     id: root
 
-    // Recent-emoji source in MRU order (callers pass
-    // app.emojiCatalog.recentEmoji, which may be absent or empty — this
-    // component supplies its own default set in that case). Only the first
-    // 5 are shown; the trailing cell always opens the full picker.
+    // Recent emoji in MRU order (app.emojiCatalog.recentEmoji, possibly empty,
+    // in which case a default set is used). The first five are shown.
     property var emojis: []
     property int columns: 6
     signal picked(string emoji)
     signal morePressed()
 
-    // Keyboard contract: the strip replaced the arrow-reachable "React"
-    // MenuItem, so the ROOT must be a focus stop the menu's own Tab/arrow
-    // machinery can land on. Focus on the root forwards to the current
-    // cell; Left/Right move it; Return/Space/Enter activate it.
+    // The root is a focus stop the menu's Tab/arrow navigation can reach; it
+    // forwards to the current cell. Left/Right move; Return/Space/Enter
+    // activate.
     property int focusIndex: 0
     activeFocusOnTab: true
     onActiveFocusChanged: {
@@ -95,9 +85,8 @@ Item {
                     else if (emojiValue.length > 0) root.picked(emojiValue)
                 }
 
-                // Storm §4 2a: the emphasized cell fills stormSelection with
-                // a stormBorderStrong border — the same selected-cell
-                // treatment as the mock's 🔥 cell.
+                // The emphasized cell: stormSelection fill with a
+                // stormBorderStrong border.
                 Rectangle {
                     anchors.fill: parent
                     radius: AppTheme.menuItemRadius
@@ -145,7 +134,7 @@ Item {
         }
     }
 
-    // 1px hairline under the row, 6px gap before the next menu row.
+    // 1px hairline under the row, 6px before the next menu row.
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right

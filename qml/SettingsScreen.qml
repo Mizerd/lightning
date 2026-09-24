@@ -4,40 +4,21 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
-// The in-shell Settings pane (correction spec §3): it replaces ONLY the
-// timeline region — MainScreen keeps the spaces rail and room list visible.
-// A 60px header ("Settings — <section>" with the section icon in accent and
-// a bare close X) sits above the 260px navigation column (Account,
-// Appearance, Notifications, Privacy & security, Sessions, Labs; About
-// pinned at the bottom) and the per-category panes. Appearance carries the
-// three featured design theme cards with their fixed preview palettes, the
-// match-system switch, the functional message-layout selector, and the text
-// size slider. Every security control (SAS verification, recovery key,
-// encrypted room-key import, local reset) is preserved under Privacy &
-// security / Sessions, with the destructive reset in a separated Danger
-// Zone. Sign out lives ONLY in the account menu.
+// In-shell Settings pane: replaces only the timeline region; the spaces rail
+// and room list stay visible. A 60px header, a 260px navigation column and the
+// per-category panes. Destructive reset lives in a separate Danger Zone; sign
+// out lives only in the account menu.
 //
-// Category panes are toggled by visibility (never Loader), so in-flight
+// Category panes toggle by visibility (never a Loader) so in-flight
 // verification/import state survives switching categories.
 Item {
     id: root
-    // The whole screen, so a suite can reach its searchIndex and its
-    // reveal helpers rather than re-deriving them.
+    // Named so a suite can reach searchIndex and the reveal helpers.
     objectName: "settingsScreenRoot"
-    // A minted recovery key is shown until the user leaves; it must not
-    // sit in memory behind a closed Settings screen.
-    //
-    // AND IT MUST NOT SURVIVE A SECTION CHANGE EITHER. The card tells the
-    // user "it will not be shown again once you leave this card" -- that was
-    // false: this screen is a warm Loader kept alive across opens, so
-    // switching to Appearance and back left the key in `m_recoveryKey` and
-    // rendered it again. Either the promise goes or the key does, and the key
-    // going is the one §6 wants. Found in the 2026-09-13 pre-release audit.
-    //
-    // `pendingConfirm` goes with it, for a second reason from the same audit:
-    // an ARMED destructive confirmation ("Delete backup", "New recovery key")
-    // also outlived the screen, so arming it and coming back an hour later
-    // turned a two-press contract into a one-press one.
+    // A minted recovery key must not stay in memory once the user leaves the
+    // card, including on a section change: this screen is a warm Loader kept
+    // alive across opens. An armed destructive confirmation is cleared too, or
+    // coming back later would turn a two-press action into one.
     function forgetTransientBackupState() {
         if (app.backup)
             app.backup.dismissRecoveryKey()
@@ -47,49 +28,31 @@ Item {
     onVisibleChanged: {
         if (!visible) {
             root.forgetTransientBackupState()
-            // AND THE SEARCH QUERY GOES WITH IT. The screen is a warm
-            // Loader kept alive across opens, so the text in the search
-            // field outlived the screen — and the nav is NARROWED to the
-            // sections that match it, so a query matching nothing reopened
-            // Settings with an empty nav column: no Account, no Appearance,
-            // not even About. Measured on a real desktop 2026-09-19: type
-            // "zzqqxx", press Escape, press Ctrl+, — the only way out is
-            // the small clear button in the field. A filter is transient
-            // state, like the recovery key and the armed confirmation above.
-            //
-            // On HIDE and not on show: `Ctrl+,` while Settings is already
-            // open focuses this field (see the Shortcut below) and must not
-            // wipe what the user is typing, and the screenshot-demo
-            // controller sets a query after showing the screen.
+            // Clear the search query as well. Otherwise the nav reopens
+            // narrowed to the previous query's matches, possibly empty. Done on
+            // hide, not show: Ctrl+, while open focuses the field, and the
+            // screenshot demo sets a query after showing.
             if (settingsSearchField)
                 settingsSearchField.text = ""
         }
     }
     onSectionChanged: root.forgetTransientBackupState()
 
-    // v0.7.2: whether the sanitized E2EE recovery diagnostics are expanded.
+    // Whether the sanitized E2EE recovery diagnostics are expanded.
     property bool showRecoveryDiagnostics: false
 
-    // FontManager, or null when this shell is loaded without it.
-    //
-    // `fonts` is a CONTEXT property installed by main.cpp, and ten QML suites
-    // load this file with an engine that has only `app`. Referencing an
-    // unresolved name in QML throws a ReferenceError, and `visible: false` on
-    // the card does NOT prevent its bindings being created — so every
-    // reference goes through this one guarded alias rather than through
-    // `fonts` directly.
+    // FontManager, or null. `fonts` is a context property from main.cpp that
+    // several suites do not install, and `visible: false` does not stop
+    // bindings being created, so every reference goes through this guarded
+    // alias.
     readonly property var fontManager:
         (typeof fonts !== "undefined") ? fonts : null
 
-    // ── SPEC 1v: client-side settings search (no new C++ index) ───────────
-    // Declarative {title, keywords, section, breadcrumb, control?} entries.
-    // Indexed by SECTION KEY, not layout position — Privacy & security is
-    // three non-contiguous ColumnLayout blocks in this file (search must
-    // still resolve to the one "privacy" section). `control` names one of
-    // the 5 settings picked for an inline live control in the results
-    // panel below — each binds directly to the SAME SettingsManager
-    // property its real control in the section pane uses, two-way, exactly
-    // like that control.
+    // Client-side settings search. Entries are {title, keywords, section,
+    // breadcrumb, control?, anchor}, indexed by section key (Privacy & security
+    // spans several blocks in this file). `control` names one of the settings
+    // with an inline live control in the results, bound two-way to the same
+    // SettingsManager property as its real control.
     property string settingsSearchQuery: ""
     readonly property var searchIndex: [
         { title: qsTr("Account"), keywords: qsTr("account profile"),
@@ -115,9 +78,7 @@ Item {
           section: "appearance", breadcrumb: qsTr("Appearance"),
           control: "messageLayout",
           anchor: "messageLayoutControl" },
-        // Indexed under the words someone would actually type after
-        // deciding the rail looks wrong — "space bar" included, because that
-        // is what the maintainer calls it and it is what a report says.
+        // Indexed under words people use for the rail, including "space bar".
         { title: qsTr("Spaces rail depth"),
           keywords: qsTr("spaces rail depth space bar sidebar nesting regions "
                          + "classic old style flat tint indent"),
@@ -463,37 +424,11 @@ Item {
              + safe.slice(idx + lowerQ.length)
     }
 
-    // ── A SEARCH RESULT HAS TO GO SOMEWHERE ─────────────────────────────
-    //
-    // A result row is `Accessible.role: Accessible.Button` and highlights on
-    // hover, and all its tap did was `root.section = entry.section`. When
-    // that IS the current section Qt emits no change and NOTHING happened —
-    // no scroll, no flash, no feedback of any kind. Measured on a real
-    // window 2026-09-19: searched "rail depth" from Appearance, clicked the
-    // result, and the 1440x1280 content region came back BYTE-IDENTICAL, 0
-    // differing pixels. That is the common case rather than the corner one:
-    // Appearance is the landing section and supplies 26 of the 70 index
-    // entries.
-    //
-    // The other half is the same defect wearing the opposite symptom. When
-    // the section DID change, `onSectionChanged` put the reader at contentY
-    // 0, so a breadcrumb naming a sub-group ("Appearance · Panels", "Privacy
-    // & security · Recovery") dropped them at the top of a very long page.
-    // "Spaces rail depth" sits about nine wheel notches — ~4,800 px — below
-    // the top of Appearance.
-    //
-    // So every entry now carries an `anchor`, the objectName of the control
-    // it names, and a click SCROLLS TO IT and flashes a halo round it. Both
-    // halves fall out of that: the scroll does not care whether the section
-    // changed, and the flash means the click is answered even when the
-    // control was already under the reader's eye.
-    //
-    // The anchors are explicit rather than derived from the title or the
-    // breadcrumb, because a derived one fails SILENTLY and in the reader's
-    // language — matching a Label's text would break on the first
-    // translation and leave the row doing nothing again, which is the defect
-    // this is fixing. `everySearchIndexEntryResolvesItsAnchor` walks the live
-    // pane for all 70 so a typo cannot ship as a dead row.
+    // Each entry's `anchor` is the objectName of the control it names. A click
+    // scrolls to it and flashes a halo, which answers the click even when the
+    // section does not change and lands on sub-groups deep in a long page.
+    // Anchors are explicit, not derived from translated text;
+    // everySearchIndexEntryResolvesItsAnchor checks every entry.
     property string searchRevealAnchor: ""
 
     function findInPane(node, name) {
@@ -516,27 +451,17 @@ Item {
         root.section = entry.section
         root.searchRevealAnchor = entry.anchor || ""
         root.applySearchReveal(true)
-        // AND THEN AGAIN UNTIL THE PANE HOLDS STILL. A section change
-        // relayouts the pane that was hidden a moment ago, and Qt Quick
-        // Layouts do that in the POLISH pass before the next frame — so the
-        // y read above can be a stale one, and a zero-interval timer is no
-        // help because it fires as often as the event loop spins WITHOUT a
-        // frame in between. Measured on a real window: the scroll landed on
-        // the privacy pane's old geometry and the halo sat 105 px above the
-        // card it was naming.
-        //
-        // One frame apart, re-reading the target's position each time and
-        // stopping as soon as two passes agree — so the same-section case
-        // (the common one) costs two ticks and a cross-section one costs
-        // however many frames the relayout takes, bounded at twelve.
+        // Repeat until the pane holds still: a section change relayouts the
+        // pane in the polish pass before the next frame, so the first y read
+        // can be stale. One frame apart, stopping when two passes agree,
+        // bounded at twelve.
         searchRevealSettle.ticks = 0
         searchRevealSettle.lastTop = -1
         searchRevealSettle.restart()
     }
 
     // Returns the target's y in content coordinates, or -1 when there is
-    // nothing to reveal — the settle timer uses that to know it has stopped
-    // moving.
+    // nothing to reveal.
     function applySearchReveal(flash) {
         if (root.searchRevealAnchor.length === 0)
             return -1
@@ -545,8 +470,7 @@ Item {
             return -1
         var top = target.mapToItem(contentFlick.contentItem, 0, 0).y
         var maxY = Math.max(0, contentFlick.contentHeight - contentFlick.height)
-        // Land the control a little below the viewport's top edge so its own
-        // heading stays on screen with it.
+        // Land the control slightly below the top so its heading stays visible.
         settingsWheelArea.stopGlide()
         contentFlick.contentY =
             Math.max(0, Math.min(top - AppTheme.spacing24 * 2, maxY))
@@ -576,12 +500,8 @@ Item {
         }
     }
 
-    // Indeterminate spinner.
-    //
-    // Basic's BusyIndicator inks palette.dark, which Main.qml maps to
-    // AppTheme.textSecondary — so every loading state in the app was drawn
-    // in the theme's secondary TEXT colour and never read as an active
-    // state. This is a ring in the accent with a travelling head.
+    // Indeterminate spinner in the accent. Basic's BusyIndicator inks
+    // palette.dark (textSecondary), which never reads as active.
     component StormSpinner: Item {
         id: spinner
         property color ink: AppTheme.bolt
@@ -601,15 +521,14 @@ Item {
             anchors.fill: parent
             transformOrigin: Item.Center
             Rectangle {
-                // Centred ON the 2px ring stroke, not inside it.
+                // Centred on the 2px ring stroke.
                 width: 6; height: 6; radius: 3
                 color: spinner.ink
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: -2
             }
             RotationAnimator on rotation {
-                // Reduced motion keeps the ring and its head, static: the
-                // state is still legible, it just does not travel.
+                // Reduced motion keeps the ring and its head, static.
                 running: spinner.running && spinner.visible
                          && !AppTheme.reducedMotion
                 from: 0
@@ -620,17 +539,9 @@ Item {
         }
     }
 
-    // Group label above a cluster of controls ("Theme", "Text size", …).
-    //
-    // These were JetBrains Mono, 10px, DemiBold, ALL CAPS at 1.6px tracking
-    // — decorative HUD typography carrying wayfinding text, re-typed inline
-    // six times in this file. Mono earns its place on code, keycaps and
-    // Matrix identifiers; it does not earn it on "Text size". The
-    // menuSection* tokens are the replacement recipe (UI face, 12px, 600,
-    // no tracking, sentence case), so restyling it now happens in AppTheme
-    // rather than in six places here. Ink is the muted role, not the faint
-    // one: faint is the DISABLED ink and sits below AA on several presets,
-    // and these labels are load-bearing.
+    // Group label above a cluster of controls. Uses the menuSection* tokens (UI
+    // face, 12px, 600, sentence case) and the muted ink; faint is the disabled
+    // ink and falls below AA on several themes.
     component SettingsGroupLabel: Label {
         Layout.topMargin: AppTheme.spacing8
         color: AppTheme.stormTextMuted
@@ -640,35 +551,19 @@ Item {
         font.letterSpacing: AppTheme.menuSectionTracking
     }
 
-    // Reusable confirmation dialog.
-    //
-    // main.cpp sets QQuickStyle "Basic", whose Dialog is a square-cornered
-    // Rectangle in palette.window outlined in palette.dark (a BODY-TEXT
-    // ink), footed by DialogButtonBox's stock 100x40 square buttons. Under
-    // Storm palette.window resolves to stormDeep — the exact colour this
-    // screen already paints itself — so a confirm dialog used to be a
-    // square outline floating on an identical background, next to an app
-    // whose every other surface is rounded. Worse, Basic's Button draws its
-    // keyboard-focus border in palette.highlight, which Main.qml maps to
-    // the same token as palette.button, so focus on those buttons was
-    // literally invisible.
-    //
-    // So the chrome is declared once, here, and the footer is real
-    // AppButtons: matched 32px height, one radius, hover/press/focus.
-    // `confirmText`/`confirmKind` keep the destructive wording and the
-    // danger skin at the call site.
+    // Reusable confirmation dialog with themed chrome and AppButton footer. The
+    // Basic style's Dialog is square, matches this screen's background under
+    // Storm, and its buttons draw an invisible focus border.
     component ConfirmDialog: Dialog {
         id: confirmDialog
         property string confirmText: qsTr("Confirm")
-        // "primary" for a benign commit, "dangerPrimary" for a destructive
-        // one — a confirm button is the committed step, so the QUIET
-        // "danger" outline kind is deliberately not what these use.
+        // "primary" for a benign commit, "dangerPrimary" for a destructive one;
+        // the quiet "danger" outline is not a confirm button.
         property string confirmKind: "primary"
         anchors.centerIn: parent
         modal: true
-        // Explicit width everywhere: sizing a Dialog from fixed-width
-        // content feeds implicitWidth back into itself (a latent loop the
-        // runtime font re-polish exposed on the reset dialog).
+        // Explicit width: sizing a Dialog from fixed-width content feeds
+        // implicitWidth back into itself.
         width: 340
         padding: AppTheme.spacing20
         background: Rectangle {
@@ -713,36 +608,11 @@ Item {
         }
     }
 
-    // Reusable settings card (grouped-controls surface).
-    //
-    // ── THE CARD HAS TO BE A DIFFERENT COLOUR FROM THE PAGE, AND ON TEN
-    // THEMES IT WAS NOT ────────────────────────────────────────────────
-    //
-    // This painted stormCanvas over a page painted stormDeep. Under Storm
-    // those are two different literals (_stoCanvas #121655 on _stoDeep
-    // #02051D); under EVERY other theme both route to the palette's
-    // `background`, so the card was the page and the only thing left of it
-    // was its 1px border. Measured on a real screen, card-vs-page, all
-    // eleven themes: Storm 1.22:1 and the other ten 1.00:1 exactly. On Moss
-    // Light the border is #D2E2D6 on #D2E5D6 (1.02:1) too, so the whole
-    // Privacy page rendered as one flat green slab with text floating on
-    // it. Card grouping IS the information architecture of these pages.
-    //
-    // stormPanel is the raised plane every palette already defines
-    // (`surface` — the tone every other card in the app uses), and it sits
-    // 1.24-1.55 above `background`. It is NOT a regression for Storm, which
-    // was the reason this went unfixed: _stoPanel #202473 on _stoDeep
-    // #02051D is 1.50:1 / 17.4 dL* against the 1.22:1 / 9.8 dL* it had, so
-    // the flagship's cards get MORE separation, not less, and Storm gains
-    // the three-plane ladder it was always designed around — deep page,
-    // canvas nav column, panel cards — which until now only the nav column
-    // half of had survived the routing.
-    //
-    // Consequence worth knowing rather than discovering: anything nested in
-    // a card that used to paint stormPanel would now be invisible against
-    // it, and both such places (the empty name-colour swatch and the
-    // verification status strip) moved to stormInset in the same change.
-    // theSettingsCardIsVisibleAgainstThePageOnEveryTheme holds the floor.
+    // Settings card. stormPanel (the palette's `surface`), not stormCanvas: on
+    // every theme but Storm the canvas routes to `background`, so the card was
+    // the same colour as the page. Anything nested that painted stormPanel now
+    // uses stormInset. theSettingsCardIsVisibleAgainstThePageOnEveryTheme holds
+    // the floor.
     component SettingsCard: Pane {
         Layout.fillWidth: true
         background: Rectangle {
@@ -753,13 +623,9 @@ Item {
         }
     }
 
-    // The Storm-skinned slider, extracted so a new one cannot arrive wearing
-    // the Basic style's default groove next to three that do not. The
-    // geometry and the white thumb are lifted verbatim from textScaleSlider
-    // (including the 2026-08-15 note about why the thumb never takes boltInk:
-    // it rides the fill BOUNDARY, so a dark disc reads as disabled past half
-    // range). Existing sliders are deliberately NOT converted in this round —
-    // that is a diff across four controls in another agent's reading path.
+    // Storm-skinned slider, so new sliders do not arrive with the Basic groove.
+    // Geometry and white thumb match textScaleSlider (the thumb rides the fill
+    // boundary, so a dark disc would read as disabled).
     component SettingsSlider: Slider {
         id: styledSlider
         snapMode: Slider.SnapAlways
@@ -798,59 +664,32 @@ Item {
         }
     }
 
-    // Storm §4 2f nav row: 32px, radiusTile; the active row fills
-    // selectedHover (see the background below — it was stormSelection, which
-    // is invisible outside Storm), brightens icon (bolt) and label (stormText), and
-    // carries the signature edge-bolt caret overhanging its left edge.
+    // Nav row: 32px, radiusTile; the active row fills selectedHover, brightens
+    // icon and label, and carries the bolt caret.
     component SettingsNavRow: ItemDelegate {
         id: navRow
         property string sectionKey: ""
         property string iconName: ""
         property string navLabel: ""
-        // v0.7.x: a small attention dot on the row that leads to the thing
-        // needing attention. Dismissible (see sessionVerificationWarning),
-        // so an account the user has consciously left unverified stops
-        // being nagged about it.
+        // Attention dot on the row leading to something that needs attention.
+        // Dismissible (see sessionVerificationWarning).
         property bool alert: false
         objectName: "settingsNavRow_" + sectionKey
         Layout.fillWidth: true
         implicitHeight: 32
-        // Constant content inset clearing the caret gutter (§3.2 — never
-        // active-only, so rows don't shift as the selection moves).
-        //
-        // WIDENED 2026-09-13, with the caret moved INSIDE the row. The caret
-        // used to be anchored at `leftMargin: -2`, deliberately overhanging
-        // the row's left edge — and against a `radiusTile` background that put
-        // an 11px glyph straddling the pill's rounded corner, so half of it
-        // sat on the selection fill and half on the panel behind it. Reported
-        // from a real desktop as the bolt looking broken, and it is: an
-        // overhang only reads as a deliberate caret when it clears the curve,
-        // which at this radius and this glyph size it never does.
-        //
-        // The gutter is now real and INSIDE the pill: 4px of edge, the 11px
-        // caret, then the content. Everything moves together, so an
-        // unselected row still lines up with a selected one — which is what
-        // the "never active-only" note above is protecting.
+        // Constant content inset for the caret gutter, so rows do not shift as
+        // the selection moves. The caret sits inside the pill (4px edge, 11px
+        // caret, then content); overhanging the rounded corner made it look
+        // broken.
         readonly property int caretGutter: 4 + 11 + AppTheme.spacing4
         leftPadding: padding + caretGutter
-        // v0.6.5 live-feedback: the Basic-style ItemDelegate default
-        // (padding: 12) survives even though implicitHeight is forced to
-        // 32, leaving contentItem only 8px of availableHeight — nowhere
-        // near enough for the icon/label content, so cross-axis centering
-        // (even with Layout.alignment set, above) clamps against that
-        // undersized box instead of the row's real bounds. Same fix as
-        // AppMenuItem.qml's topPadding/bottomPadding: 0 for the identical
-        // forced-implicitHeight shape — give contentItem the full row.
+        // The Basic ItemDelegate's 12px padding survives the forced 32px height
+        // and leaves contentItem too little room to centre; same fix as
+        // AppMenuItem.
         topPadding: 0
         bottomPadding: 0
-        // SPEC 1v: typing in the search field narrows the nav to sections
-        // with at least one matching result.
-        //
-        // A SEARCH NARROWS THE NAV; IT MUST NEVER EMPTY IT. With zero
-        // matches every row's condition is false at once, so the column
-        // went completely blank — About included — which is the one moment
-        // a reader most needs the list back. "No matching settings" still
-        // says the search found nothing; the rows below it are the way on.
+        // Typing narrows the nav to sections with a match, but never empties
+        // it: with zero matches every row stays so the reader has a way on.
         visible: root.settingsSearchQuery.trim().length === 0
                  || root.matchedSearchResults.length === 0
                  || root.matchedSearchSections[sectionKey] === true
@@ -860,28 +699,16 @@ Item {
         onClicked: root.section = sectionKey
         contentItem: RowLayout {
             spacing: AppTheme.spacing8
-            // v0.6.5 live-feedback: on a real desktop the icon and label
-            // read as vertically offset from each other (DPR-dependent —
-            // worse at fractional scale factors). Root cause: Icon is a
-            // bare Text glyph with no explicit height, so its
-            // implicitHeight comes from the ICON FONT's own ascent/
-            // descent metrics; navLabel's implicitHeight comes from the UI
-            // text font's own, very differently-proportioned metrics.
-            // RowLayout centers each child's bounding box independently,
-            // so two boxes of different height and different internal
-            // ink-to-box-center offset land their VISIBLE glyphs at
-            // slightly different y — a sub-pixel gap that rounds/hints
-            // differently (and becomes visible) at different DPRs. Pinning
-            // the icon's Layout.preferredHeight to the label's own
-            // implicitHeight makes both boxes IDENTICAL, so there is
-            // nothing left for cross-axis centering to disagree about.
+            // Pin the icon's height to the label's implicitHeight: the icon
+            // font and UI font have different metrics, so RowLayout would
+            // centre their ink at slightly different y (visible at fractional
+            // DPRs).
             Icon {
                 name: navRow.iconName
                 size: 16
                 Layout.alignment: Qt.AlignVCenter
-                // (id navRowText, NOT navLabel — that name is the row's
-                // string property, and an id here would shadow it, feeding
-                // the Label OBJECT into Accessible.name above.)
+                // navRowText, not navLabel: that name is the row's string
+                // property.
                 Layout.preferredHeight: navRowText.implicitHeight
                 color: navRow.highlighted ? AppTheme.bolt
                                           : AppTheme.stormTextMuted
@@ -914,38 +741,11 @@ Item {
         background: Rectangle {
             objectName: "settingsNavRowFill_" + navRow.sectionKey
             radius: AppTheme.radiusTile
-            // ── THE SELECTED ROW HAD NO FILL IN THE THREE LIGHT PALETTES ──
-            //
-            // stormSelection is _stoSelection under Storm and the palette's
-            // `hover` under every other theme, and `hover` is a tint designed
-            // to sit on `surface`, not on the page. Measured on screen
-            // against this column: Lightning Light 1.01:1 (0.4 dL*), Moss
-            // Light 1.01:1 (0.4), Warm 1.03:1 (1.0) — the pill was simply not
-            // drawn, and the only signal left was the bolt caret and the bold
-            // label. The dark themes sat at 1.69-2.24 and hid it.
-            //
-            // `selectedHover` is the same token e2d25293 landed for the text
-            // selection this morning, for the identical trap and after the
-            // identical check: `selected` is the obvious answer and does NOT
-            // fix it, because on Moss Light `selected` IS `accentSoft`
-            // (#D1F1E5 both) and lands at 1.09:1 / 3.4 dL* here. A selected
-            // nav row is a firmer affordance than a hovered one, so the
-            // stronger tone is also the semantically right one, and there is
-            // no hovered-while-selected state on this row to collide with.
-            //
-            // Under Storm this is _stoSelectedHover #3037AD in place of
-            // _stoSelection #283097 — still a Storm literal, and 1.79:1
-            // against the column where the old one was 1.54:1.
-            //
-            // This is the one place on this surface that names a SEMANTIC
-            // token instead of a storm* one, and deliberately: the storm
-            // namespace has exactly one selection role and it is the broken
-            // one. Routing stormSelection itself would move every menu,
-            // popover and segmented control in the app, which is a far wider
-            // change than this defect justifies — a `stormSelectionStrong`
-            // role in AppTheme.qml is the tidy version and is left as a
-            // follow-up. AppTextField already paints selectedHover inside
-            // this very screen (e2d25293), so the tone is not new here.
+            // selectedHover, not stormSelection: outside Storm stormSelection
+            // routes to `hover`, which is nearly invisible on this column in
+            // the light palettes, and `selected` equals accentSoft on Moss
+            // Light. The storm namespace has no strong selection role; adding
+            // stormSelectionStrong to AppTheme is the tidier follow-up.
             color: navRow.highlighted ? AppTheme.selectedHover
                  : navRow.hovered ? Qt.alpha(AppTheme.selectedHover, 0.55)
                  : "transparent"
@@ -957,18 +757,15 @@ Item {
                 color: AppTheme.bolt
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.left: parent.left
-                // INSIDE the pill, clear of its rounded corner — see the
-                // caretGutter note on the row. A negative margin here puts
-                // the glyph back across the curve.
+                // Inside the pill, clear of its rounded corner (see
+                // caretGutter).
                 anchors.leftMargin: 4
             }
         }
     }
 
-    // Design-1d sections: "account" | "appearance" | "shortcuts"
-    // | "notifications" | "sound" | "privacy" | "sessions" | "labs"
-    // | "about". The design opens on Appearance; deep links still land on
-    // their own section.
+    // "account" | "appearance" | "shortcuts" | "notifications" | "sound" |
+    // "privacy" | "sessions" | "labs" | "about". Opens on Appearance.
     property string section: "appearance"
 
     function sectionTitle(key) {
@@ -987,31 +784,23 @@ Item {
     function sectionIcon(key) {
         if (key === "account") return "account_circle"
         if (key === "appearance") return "palette"
-        // The bundled Material Symbols font is a SUBSET and there is no
-        // plain "keyboard" glyph in it — an unmapped name renders as tofu
-        // and IconChromeTest fails on it. keyboard_return is the closest
-        // mapped key-shaped glyph.
+        // The icon font is a subset with no plain "keyboard" glyph; an unmapped
+        // name renders as tofu and fails IconChromeTest.
         if (key === "shortcuts") return "keyboard_return"
         if (key === "notifications") return "notifications"
-        // The bundled Material Symbols font is a SUBSET — an unmapped name
-        // renders as tofu and IconChromeTest fails on it. volume_up is
-        // mapped (Icon.qml) and is already this application's level glyph.
+        // volume_up is mapped (Icon.qml); an unmapped name fails
+        // IconChromeTest.
         if (key === "sound") return "volume_up"
         if (key === "privacy") return "verified_user"
         if (key === "sessions") return "devices"
         if (key === "labs") return "science"
-        // Reuses the existing verified "download" glyph (Icon.qml) rather
-        // than inventing an unverified codepoint — see the round's
-        // completion report.
+        // Reuses the verified "download" glyph.
         if (key === "updates") return "download"
         if (key === "about") return "info"
         return "settings"
     }
 
-    // v0.6.6: human-readable byte size for the Starred GIFs summary row.
-    // Mirrors GifPicker.qml's own formatBytes() (kept local/duplicated
-    // rather than shared: both are tiny, presentation-only, and each file
-    // already owns the rest of its own formatting conventions).
+    // Mirrors GifPicker.qml's formatBytes(); kept local deliberately.
     function formatBytes(n) {
         if (!n || n <= 0) return "0 B"
         if (n < 1024) return n + " B"
@@ -1019,8 +808,7 @@ Item {
         return (n / (1024 * 1024)).toFixed(1) + " MB"
     }
 
-    // Deep links from older code paths (message rows jump to "security",
-    // etc.) keep working through this mapping.
+    // Deep links from older call sites (e.g. "security") keep working.
     function mapLegacySection(key) {
         if (key === "general") return "appearance"
         if (key === "security") return "privacy"
@@ -1033,18 +821,16 @@ Item {
         if (requested.length > 0)
             section = mapLegacySection(requested)
     }
-    // The screen is built once and kept (qml/Main.qml), so "Open security"
-    // from a banner while it is already alive arrives here rather than in
-    // Component.onCompleted. On a cold build both fire with the same value.
+    // The screen is built once and kept (Main.qml), so a section request while
+    // alive arrives here; on a cold build both paths fire with the same value.
     Connections {
         target: app
         function onSettingsSectionRequested(requested) {
             if (requested.length > 0)
                 section = mapLegacySection(requested)
-            // Consume the pending request too, so a later rebuild does not
-            // replay it. If this screen is still incubating (the idle
-            // pre-build), the signal is missed and Component.onCompleted
-            // takes it instead — which is why C++ must not clear it.
+            // Consume the request so a rebuild does not replay it. If still
+            // incubating, Component.onCompleted takes it instead, which is why
+            // C++ must not clear it.
             app.takeRequestedSettingsSection()
         }
     }
@@ -1053,10 +839,8 @@ Item {
         app.loggedIn ? app.showMain() : app.showLogin()
     }
 
-    // Clipboard access with no new C++ surface: an off-screen TextEdit is
-    // the same mechanism qml/MessageDelegate.qml uses for Copy, kept
-    // deliberately identical rather than reinvented. It is cleared straight
-    // after the copy so nothing lingers in a live item's text.
+    // Off-screen TextEdit, the same mechanism MessageDelegate uses for Copy.
+    // Cleared straight after so nothing lingers.
     function copyToClipboard(value) {
         if (!value || value.length === 0) return
         settingsClipboardHelper.text = value
@@ -1073,48 +857,20 @@ Item {
     }
     Shortcut {
         sequence: "Escape"
-        // Qt dispatches QEvent::Shortcut BEFORE the key ever reaches the
-        // focused item, so an unconditional window-scoped Escape here makes
-        // every in-place editor's own Keys.onEscapePressed dead code — and
-        // worse, pressing Escape to abandon an edit would leave Settings
-        // entirely. Disabling it while an inline editor is open hands the key
-        // back to that editor, which is the same guard TimelinePane already
-        // applies for its pinned toolbar and picker. This codebase has been
-        // bitten once before by a window-level Shortcut swallowing a key the
-        // focused item needed (a "Space pauses media" Shortcut silently broke
-        // timeline paging and the emoji grids).
-        //
-        // `root.visible` IS LOAD-BEARING: the screen is built once and KEPT
-        // (qml/Main.qml), so this window-level Shortcut now outlives every
-        // open. A QML Shortcut is matched by window, never by its item's
-        // visibility, so without the gate a hidden Settings would still
-        // answer Escape on the main screen — and two enabled Shortcuts on
-        // one sequence make Qt fire NEITHER (qml/TimelinePane.qml), which is
-        // how Escape would have stopped closing the info panel. Found in
-        // review.
+        // Shortcuts are dispatched before the focused item sees the key, so
+        // disable this while an inline editor is open or its own Escape handler
+        // is dead. `root.visible` is required: the screen is kept alive when
+        // hidden, and a second enabled Escape in the window would make Qt fire
+        // neither.
         enabled: root.visible && !accountIdentityCard.editingDisplayName
         onActivated: root.goBack()
     }
-    // SPEC 1v: focuses the settings search field. Enabled only while the
-    // screen is on screen: the Loader that hosts it keeps it alive between
-    // opens now (see settingsViewLoader), so existence no longer scopes it.
-    //
-    // ONE HALF of `app.openSettings`. qml/MainScreen.qml declares the SAME
-    // action for the case where Settings is closed, and opens it; this one
-    // handles the already-open case. Two enabled Shortcuts on one sequence
-    // make Qt fire NEITHER, so the two gates have to be exclusive: this one
-    // is `root.visible`, which for this item IS `app.currentScreen === 2`
-    // (settingsViewLoader in qml/Main.qml binds its visibility to exactly
-    // that), and MainScreen's is that condition's complement. Changing
-    // either gate means re-deriving the pair.
-    //
-    // The sequence comes from ShortcutRegistry now (default still Ctrl+,).
-    // `bindingRevision` is read INSIDE the binding ON PURPOSE: sequenceFor()
-    // is a plain function call and therefore creates no dependency Qt can
-    // track, so without that read a rebind would not take effect until this
-    // component was next created — the same trap the media-cache handlers
-    // hit when an imperative assignment destroyed a binding, solved the same
-    // way, with a counter the binding reads.
+    // Focuses the settings search field when Settings is already open.
+    // MainScreen declares the same action for when it is closed; the gates must
+    // be exclusive (root.visible here is app.currentScreen === 2) or Qt fires
+    // neither. The sequence comes from ShortcutRegistry. `bindingRevision` is
+    // read inside the binding because sequenceFor() is a plain call with no
+    // dependency.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -1124,14 +880,9 @@ Item {
         onActivated: settingsSearchField.forceActiveFocus()
     }
 
-    // Development-only: screenshot-demo popup hooks (see
-    // ScreenshotDemoController and SpacesRail.qml:accountSwitcherRequested
-    // for the pattern this mirrors). Null target / disabled in a non-demo
-    // build makes this an inert no-op. demoOpenTrustCard needs no handler
-    // here — sessionsTrustCard (SPEC 1r) already renders whenever section
-    // is "sessions", which activateScenario's page navigation sets up on
-    // its own; see docs/screenshot-demo.md for the mock-backend crypto-
-    // gating caveat.
+    // Screenshot-demo hooks; inert in a non-demo build. The trust card needs no
+    // handler (it renders whenever the section is "sessions"). See
+    // docs/screenshot-demo.md.
     Connections {
         target: app.demo
         enabled: app.screenshotDemoActive
@@ -1142,13 +893,8 @@ Item {
     }
 
     // Confirmation before clearing local GIF collections. `kind` keeps the
-    // store-accurate token ("favorites" is app.gif.favorites, the provider
-    // bookmarks); only the prose speaks the v0.6.7 "saved" vocabulary. The two
-    // halves of the picker's Saved tab clear separately here because only one
-    // of them holds real bytes — see the starred-GIF block further down.
-    // 0.8.5: clearing the local message index. Declared beside the other
-    // confirmations rather than inside the page, like every ConfirmDialog
-    // here.
+    // store token ("favorites" is app.gif.favorites); only the prose says
+    // "saved". Also used for clearing the local message index.
     ConfirmDialog {
         id: clearIndexConfirm
         title: qsTr("Clear the search index?")
@@ -1162,9 +908,7 @@ Item {
             font.pixelSize: AppTheme.textBody
             lineHeight: AppTheme.lineHeightBody
             lineHeightMode: Text.ProportionalHeight
-            // Says what is lost and what is NOT. The index is a derived
-            // copy, so clearing it deletes no message — without that line
-            // "clear" reads as "delete my history".
+            // Says what is and is not lost: the index is a derived copy.
             text: qsTr("Searching your history stops working until Lightning "
                 + "has indexed it again, which it does on its own. No "
                 + "messages are deleted — the index is only a copy Lightning "
@@ -1198,11 +942,8 @@ Item {
         }
     }
 
-    // v0.6.6: confirmation before clearing the client-local starred-GIF
-    // store (see GifStarredStore) — unlike Favorites/Recents this one holds
-    // actual decrypted file bytes on disk, so the same confirmed-danger
-    // pattern applies with its own dedicated dialog rather than reusing
-    // gifClearConfirm's two-kind switch.
+    // Clearing the starred-GIF store deletes real decrypted files on disk, so
+    // it has its own confirmation.
     ConfirmDialog {
         id: starredGifsClearConfirm
         objectName: "starredGifsClearConfirm"
@@ -1223,10 +964,8 @@ Item {
         onAccepted: app.gif.starredStore.clearAll()
     }
 
-    // v0.7.4: clearing the own display name is deliberate, never a silent
-    // whitespace write — an emptied editor is REFUSED by AppController, and
-    // removing the name is only reachable through this confirmation. Same
-    // confirmed-consequence pattern as the two clears above.
+    // Clearing the display name only happens through this confirmation;
+    // AppController refuses an emptied editor.
     ConfirmDialog {
         id: displayNameClearConfirm
         objectName: "displayNameClearConfirm"
@@ -1256,16 +995,9 @@ Item {
         anchors.fill: parent
         spacing: 0
 
-        // ── Settings header — section icon in accent, "Settings —
-        // <section>", bare close X ───────────────────────────────────────
-        //
-        // THE SAME HEIGHT AS THE MAIN SCREEN'S HEADER BAND. SPEC 1v drew this
-        // at 44px while the room-list and timeline headers are
-        // AppTheme.headerBandHeight (60), so opening Settings made the top of
-        // the window visibly jump. Reported: "the top part is thicker than
-        // the one in settings — make the settings one wider so opening
-        // settings feels more smooth and less changy". One token, so the two
-        // cannot drift apart again.
+        // Settings header: section icon, "Settings — <section>", close X. Same
+        // height as the main screen's header band (AppTheme.headerBandHeight),
+        // so opening Settings does not shift the top edge.
         Rectangle {
             objectName: "settingsHeaderBar"
             Layout.fillWidth: true
@@ -1311,17 +1043,15 @@ Item {
             Layout.fillHeight: true
             spacing: 0
 
-            // ── Left navigation (design 1d: 260 px, Settings title, icon
-            // rows, About pinned at the bottom) ──────────────────────────
+            // Left navigation: 260px, icon rows, About pinned at the bottom.
             Rectangle {
                 objectName: "settingsNavColumn"
                 Layout.fillHeight: true
                 Layout.preferredWidth: 260
                 Layout.minimumWidth: 200
                 color: AppTheme.stormCanvas
-                // Structural containment: nothing hosted in this column
-                // (search results, inline controls) may ever paint across
-                // the divider into the content pane, whatever its width.
+                // Nothing in this column may paint across the divider into the
+                // content pane.
                 clip: true
 
                 ColumnLayout {
@@ -1329,17 +1059,8 @@ Item {
                     anchors.margins: AppTheme.spacing12
                     spacing: 2
 
-                    // Storm §4 2f pane title: filled-look bolt + Space
-                    // Grotesk 16-17/700, tight gap to the search field.
-                    //
-                    // TIGHTENED 2026-09-13 on a real desktop: the run from the
-                    // title down to the first nav row was carrying four
-                    // separate insets that all pointed the same way -- this
-                    // row's bottom margin, the column's own 2px spacing, and
-                    // the search row's bottom margin -- and they read as one
-                    // slack gap rather than as structure. The title now sits
-                    // against the field it labels; see the search row below
-                    // for the other half.
+                    // Pane title, sitting tight against the search field it
+                    // labels.
                     RowLayout {
                         spacing: AppTheme.spacing8
                         Layout.leftMargin: AppTheme.spacing8
@@ -1359,12 +1080,9 @@ Item {
                         }
                     }
 
-                    // SPEC 1v: search field directly under the title, with a
-                    // trailing Ctrl+, keycap. The margin below it is the ONE
-                    // deliberate gap in this run -- it separates the search
-                    // affordance from the section list, which is a real
-                    // boundary -- so it is the one that survived the 2026-09-13
-                    // tightening rather than being removed with the others.
+                    // Search field with a trailing keycap. The margin below it
+                    // is the one deliberate gap in this column: it separates
+                    // search from the section list.
                     RowLayout {
                         Layout.fillWidth: true
                         Layout.bottomMargin: AppTheme.spacing4
@@ -1379,21 +1097,17 @@ Item {
                             placeholderText: qsTr("Search settings…")
                             Accessible.name: qsTr("Search settings")
                             onTextChanged: root.settingsSearchQuery = text
-                            // Enter takes the first match, and takes it
-                            // the same way a click does — to the control,
-                            // not merely to the section.
+                            // Enter takes the first match, landing on the
+                            // control like a click.
                             onAccepted: {
                                 if (root.matchedSearchResults.length > 0)
                                     root.revealSearchResult(
                                         root.matchedSearchResults[0])
                             }
                         }
-                        // FROM THE REGISTRY, not a literal. The row is
-                        // rebindable, and a keycap that keeps saying Ctrl+,
-                        // after someone has changed it is a label that lies.
-                        // bindingRevision is read INSIDE the binding on
-                        // purpose: sequenceFor() is a function call and
-                        // creates no dependency Qt can track.
+                        // From the registry, since the shortcut is rebindable.
+                        // bindingRevision is read inside the binding because
+                        // sequenceFor() creates no dependency.
                         MenuKeycap {
                             keys: {
                                 var _rev = app.shortcuts.bindingRevision
@@ -1403,8 +1117,8 @@ Item {
                         }
                     }
 
-                    // ── Search results panel (replaces the nav list while
-                    // searching; SPEC 1v — no "Browse all" affordance). ────
+                    // Search results panel: replaces the nav list while
+                    // searching.
                     ColumnLayout {
                         objectName: "settingsSearchResults"
                         visible: root.settingsSearchQuery.trim().length > 0
@@ -1429,51 +1143,15 @@ Item {
                                 objectName: "settingsSearchResult_" + index
                                 Layout.fillWidth: true
                                 radius: AppTheme.radiusLg
-                                // ── THE SAME DEFECT fea70c63 FIXED, ONE
-                                // SCREEN AWAY ──────────────────────────────
-                                //
-                                // A search result sits in the SAME nav
-                                // column the selected section row does, over
-                                // the same stormDeep ground, and it painted
-                                // its hover in the same stormSelection —
-                                // which is _stoSelection under Storm and the
-                                // palette's `hover` under every other theme,
-                                // a tint designed to sit on `surface` rather
-                                // than on a page. Measured on screen:
-                                // Lightning Light 0.4 dL*, Moss Light 0.4,
-                                // Warm 1.0. There is no bolt caret and no
-                                // bold label to carry the state here, so on
-                                // the three light themes a search result had
-                                // NO hover feedback at all.
-                                //
-                                // `selectedHover` at FULL strength, which is
-                                // the same one-token swap fea70c63 made and
-                                // keeps the tone relationship this row
-                                // already had: it painted the nav pill's own
-                                // tone undiluted, because hover is a search
-                                // result's ONLY state — there is no selected
-                                // result to out-rank it, and no caret or bold
-                                // label to carry the affordance if the fill
-                                // does not. Measured against this column on
-                                // all eleven, dL*: Moss Light 0.45 -> 5.49,
-                                // Lightning Light 0.40 -> 10.52, Warm 0.99 ->
-                                // 10.57, worst of the eight dark themes 18.7
-                                // (Storm). The nav row's 0.55 dilution, which
-                                // is right for a hover that must stay under a
-                                // selection, would leave Moss Light at 3.02.
-                                //
-                                // The obvious token is still the broken one:
-                                // on Moss Light `AppTheme.selected` IS
-                                // `accentSoft` (#D1F1E5 both), which is why
-                                // fea70c63 rejected it for the nav pill and
-                                // why it is rejected here.
-                                //
-                                // The quick-filter chips below keep
-                                // stormSelection deliberately: they hover
-                                // against stormInset, not against the page,
-                                // and `hover` is a tint designed for exactly
-                                // that ground — measured worst 4.34 dL*
-                                // (Warm), so they do not have this defect.
+                                // selectedHover at full strength, as for the
+                                // nav row: stormSelection routes to `hover`
+                                // outside Storm and is nearly invisible on this
+                                // column in the light themes, and hover is a
+                                // result's only state. `selected` is not usable
+                                // either (it equals accentSoft on Moss Light).
+                                // The quick-filter chips keep stormSelection
+                                // because they hover on stormInset, where
+                                // `hover` works.
                                 color: resultHover.hovered
                                        ? AppTheme.selectedHover : "transparent"
                                 implicitHeight: resultContent.implicitHeight
@@ -1510,21 +1188,16 @@ Item {
                                             font.pixelSize: AppTheme.textMeta
                                             elide: Label.ElideRight
                                         }
-                                        // A click anywhere in this text
-                                        // column navigates — scoped away
-                                        // from the inline controls below so
-                                        // the two never fight for the tap.
+                                        // A click anywhere in the text column
+                                        // navigates; scoped away from the inline
+                                        // controls below.
                                         TapHandler {
                                             onTapped: root.revealSearchResult(
                                                 resultRow.modelData)
                                         }
 
-                                        // The three-segment layout control is
-                                        // wider than the 220px the nav column
-                                        // leaves beside the text — inline it
-                                        // BELOW the title as a dense row
-                                        // instead of letting it paint across
-                                        // the nav divider into the pane.
+                                        // Too wide for the space beside the title,
+                                        // so it sits below it.
                                         SegmentedControl {
                                             storm: true
                                             objectName: "settingsSearchInlineMessageLayout_" + resultRow.index
@@ -1541,13 +1214,8 @@ Item {
                                                 app.settings.messageLayout = value
                                         }
 
-                                        // Two segments, so it fits the nav
-                                        // column's width where the layout
-                                        // control above does not — but it
-                                        // sits here rather than beside the
-                                        // title for the same reason, which
-                                        // is that a search result's row is
-                                        // one shape and not two.
+                                        // Below the title too, so every result row
+                                        // has one shape.
                                         SegmentedControl {
                                             storm: true
                                             objectName: "settingsSearchInlineRailDepth_" + resultRow.index
@@ -1566,10 +1234,9 @@ Item {
                                         }
                                     }
 
-                                    // ── Inline live controls (SPEC 1v):
-                                    // exactly 5 entries, each bound two-way
-                                    // to the SAME SettingsManager property
-                                    // its real section control uses. ──────
+                                    // Inline live controls, each bound two-way
+                                    // to the same SettingsManager property as
+                                    // its real control.
                                     AppSwitch {
                                         objectName: "settingsSearchInlineMatchSystem_" + resultRow.index
                                         visible: resultRow.modelData.control === "matchSystem"
@@ -1604,18 +1271,14 @@ Item {
                                         onToggled: app.settings.notificationsEnabled =
                                             !app.settings.notificationsEnabled
                                     }
-                                    // A search entry naming a `control` that
-                                    // no switch here answers renders as a
-                                    // plain row — the entry would advertise
-                                    // an inline control it does not have. So
-                                    // every named control gets one.
+                                    // Every entry that names a `control` gets
+                                    // one here, or it would advertise an inline
+                                    // control it lacks.
                                     AppSwitch {
                                         objectName: "settingsSearchInlineShowMembership_" + resultRow.index
                                         visible: resultRow.modelData.control === "showMembershipEvents"
-                                        // Follows the master switch, exactly
-                                        // like the real control in the pane:
-                                        // with room activity off this cannot
-                                        // change what is shown.
+                                        // Follows the master switch, like the real
+                                        // control.
                                         enabled: app.settings.showRoomActivity
                                         checked: app.settings.showMembershipEvents
                                         Accessible.name: qsTr("Joins, leaves and invites")
@@ -1712,10 +1375,8 @@ Item {
                                         id: quickChipLabel
                                         anchors.centerIn: parent
                                         text: quickChip.modelData
-                                        // A suggestion chip is ordinary UI
-                                        // text ("theme", "notifications"),
-                                        // not an identifier — mono belongs
-                                        // on code, keycaps and Matrix IDs.
+                                        // Ordinary UI text; mono is for code,
+                                        // keycaps and Matrix IDs.
                                         font.pixelSize: AppTheme.textMeta
                                         font.weight: AppTheme.weightMedium
                                         color: AppTheme.stormTextSecondary
@@ -1769,8 +1430,8 @@ Item {
                         sectionKey: "sessions"
                         iconName: "devices"
                         navLabel: qsTr("Sessions")
-                        // Verification lives under Sessions, so this is the
-                        // row the cog's badge is pointing at.
+                        // Verification lives under Sessions, which the cog's
+                        // badge points at.
                         alert: app.sessionVerificationWarning
                     }
                     SettingsNavRow {
@@ -1785,8 +1446,7 @@ Item {
                     }
                     Item { Layout.fillHeight: true }
 
-                    // Storm §4 2f: mono match counter pinned at the nav
-                    // bottom while a search narrows the rows.
+                    // Match counter pinned at the nav bottom while searching.
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 0
@@ -1808,13 +1468,10 @@ Item {
                                     if (root.matchedSearchSections[k] === true)
                                         sections++
                                 }
-                                // Mock-style always-plural mono counter.
                                 return qsTr("Matches · %1 sections · %2 settings")
                                        .arg(sections)
                                        .arg(root.matchedSearchResults.length)
                             }
-                            // Was mono/uppercase/tracked micro text: a
-                            // terminal readout for a plain result count.
                             font.pixelSize: AppTheme.textMeta
                             font.weight: AppTheme.weightMedium
                             color: AppTheme.stormTextMuted
@@ -1831,12 +1488,9 @@ Item {
             }
             Rectangle { Layout.fillHeight: true; implicitWidth: 1; color: AppTheme.stormBorder }
 
-            // ── Right content pane ───────────────────────────────────────
-            // Wrapped in a plain Item so the About page's Storm Band can
-            // overlay the pane's BOTTOM edge (the reference mounts the band
-            // absolutely against the host pane) while the Flickable keeps
-            // its exact geometry. QML ignores indentation — the Flickable
-            // body below is unchanged.
+            // Right content pane, wrapped in an Item so the About page's Storm
+            // Band can overlay the pane's bottom edge without changing the
+            // Flickable's geometry.
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -1847,14 +1501,11 @@ Item {
                 contentHeight: contentColumn.implicitHeight + AppTheme.spacing24 * 2
                 clip: true
                 ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
-                // Same wheel/touchpad feel as the room timeline (see
-                // qml/SmoothWheelArea.qml) — the maintainer report this
-                // round was specifically that Settings scrolled "slower
-                // and different" than the chat box.
+                // Same wheel/touchpad feel as the timeline (see
+                // SmoothWheelArea.qml).
                 SmoothWheelArea { id: settingsWheelArea }
-                // Jump to the top when switching categories. Stop any
-                // in-flight glide first so a residual wheel motion from
-                // the previous section cannot immediately fight this jump.
+                // Jump to the top when switching categories, stopping any glide
+                // first.
                 Connections {
                     target: root
                     function onSectionChanged() {
@@ -1863,13 +1514,10 @@ Item {
                     }
                 }
 
-                // The answer to "I clicked a search result and nothing
-                // happened". It rings whatever the result named, for about a
-                // second, in the accent — so the click is acknowledged even
-                // when the control was already on screen and the scroll had
-                // nothing to do. ONE item for all seventy anchors, drawn on
-                // top and `enabled: false`, so it can never take a press
-                // from the control it is pointing at.
+                // Search-reveal halo: rings the named control for about a
+                // second so the click is acknowledged even when nothing needs
+                // scrolling. One item for all anchors, drawn on top with
+                // `enabled: false` so it never takes a press.
                 Rectangle {
                     id: searchRevealHalo
                     objectName: "settingsSearchRevealHalo"
@@ -1916,7 +1564,7 @@ Item {
                     width: Math.min(860, contentFlick.width - AppTheme.spacing24 * 2)
                     spacing: AppTheme.spacing16
 
-                    // ════════════ Appearance (design 1d) ════════════
+                    // ════════════ Appearance ════════════
                     ColumnLayout {
                         visible: root.section === "appearance"
                         Layout.fillWidth: true
@@ -1940,31 +1588,19 @@ Item {
                         }
 
                         SettingsGroupLabel { text: qsTr("Theme") }
-                        // Four featured design themes. Every swatch is read
-                        // LIVE from AppTheme.paletteForTheme(id) — the card
-                        // holds no colour of its own.
-                        //
-                        // It used to: Storm read the palette while the other
-                        // three carried hand-copied literals, and by the time
-                        // anyone looked they had drifted so far that Indigo
-                        // Night and Deep Teal previewed a room list LIGHTER
-                        // than their canvas when both actually ship it
-                        // darker. A theme picker that misrepresents its
-                        // themes is worse than one with no preview, and the
-                        // only fix that cannot rot is to stop duplicating
-                        // the palette. One mapping, applied to all four:
-                        // frame = background, rail = sidebar (the room list,
-                        // which is the strip the preview draws), bar1 =
-                        // border, bar2 = surface, accent = accent.
+                        // Four featured themes. Every swatch is read live from
+                        // AppTheme.paletteForTheme(id), so the previews cannot
+                        // drift from the real palettes: frame = background,
+                        // rail = sidebar, bar1 = border, bar2 = surface, accent
+                        // = accent.
                         Flow {
                             id: featuredThemeFlow
                             objectName: "featuredThemeFlow"
                             Layout.fillWidth: true
                             spacing: 14
-                            // paletteForTheme() returns the RAW per-theme
-                            // literals regardless of which theme is active,
-                            // so a card previews its own theme, never the
-                            // current one.
+                            // paletteForTheme() returns each theme's own
+                            // literals, so a card previews its own theme, not
+                            // the active one.
                             function previewFor(id, name) {
                                 var p = AppTheme.paletteForTheme(id)
                                 return { id: id, name: name,
@@ -1973,11 +1609,8 @@ Item {
                                          accent: p.accent }
                             }
                             Repeater {
-                                // Indigo Night leads: it is the flagship, on
-                                // the maintainer's call. Storm is still
-                                // featured — it is the brand theme and the
-                                // shell's own chrome is built on it — but it
-                                // is no longer the first thing offered.
+                                // Indigo Night leads as the flagship; Storm
+                                // stays featured as the brand theme.
                                 model: [
                                     featuredThemeFlow.previewFor(9,  qsTr("Indigo Night")),
                                     featuredThemeFlow.previewFor(8,  qsTr("Moss Light")),
@@ -1988,110 +1621,51 @@ Item {
                                     id: themeCard
                                     required property var modelData
                                     objectName: "featuredThemeCard_" + modelData.id
-                                    // DELIBERATELY UNGUARDED. A typeof guard
-                                    // was added here on 2026-09-10 and taken
-                                    // straight back out in review, because it
-                                    // does not dominate the bug it was aimed
-                                    // at: if `app` really were undefined at
-                                    // first evaluation, the false branch
-                                    // registers NO dependency on
-                                    // app.settings.theme, so the binding never
-                                    // re-evaluates and the ring is wrong
-                                    // FOREVER rather than transiently — a
-                                    // quieter failure, not a smaller one.
-                                    //
-                                    // This Repeater's model is a literal and
-                                    // its delegates are built during ordinary
-                                    // creation, so it is NOT in the exposed
-                                    // class 30ee39b describes (a delegate
-                                    // instantiated from inside a
-                                    // property-change handler). The guard
-                                    // there works because it pairs with
-                                    // resolveBridge(), an explicit recovery
-                                    // that re-triggers the binding; there is
-                                    // no such recovery here, and adding one
-                                    // for a failure never observed on this
-                                    // path is machinery without evidence.
+                                    // Deliberately unguarded: with a typeof
+                                    // guard, an undefined `app` at first
+                                    // evaluation would register no dependency
+                                    // on app.settings.theme and the ring would
+                                    // stay wrong forever. The model is a
+                                    // literal and delegates are built during
+                                    // ordinary creation, so the failed-lookup
+                                    // case does not apply.
                                     readonly property bool selectedTheme:
                                         app.settings.theme === modelData.id
-                                    // ── A THEME IN EFFECT THAT NOBODY CHOSE
-                                    // STILL HAS TO BE FINDABLE ─────────────
-                                    //
-                                    // "Match system light/dark" is theme 0,
-                                    // and 0 is not any card's id — so with the
-                                    // FRESH-PROFILE DEFAULT on, `selectedTheme`
-                                    // is false for all four and the picker said
-                                    // nothing at all about the theme the user
-                                    // was looking at. It resolves to Moss Light
-                                    // or Indigo Night (AppTheme.effectiveTheme),
-                                    // BOTH of which are featured cards, so the
-                                    // answer was always on screen and merely
-                                    // unmarked.
-                                    //
-                                    // It is a THIRD state, not a second name
-                                    // for selection: the user did not pick this
-                                    // theme, the system did, and a filled radio
-                                    // would say they had. In effect -> bolt edge
-                                    // + bolt RING; chosen -> bolt edge + FILLED
-                                    // radio; neither -> the quiet edge.
+                                    // "Match system" is theme 0, which is no
+                                    // card's id, yet it resolves to Moss Light
+                                    // or Indigo Night
+                                    // (AppTheme.effectiveTheme). Mark that card
+                                    // as a third state: in effect -> bolt edge
+                                    // + bolt ring; chosen -> bolt edge + filled
+                                    // radio; neither -> quiet edge.
                                     readonly property bool inEffect:
                                         app.settings.theme === 0
                                         && AppTheme.effectiveTheme === modelData.id
                                     readonly property bool cardIsLive:
                                         selectedTheme || inEffect
-                                    // SPEC 1v: three 150px preview cards.
+                                    // Three 150px preview cards.
                                     implicitWidth: 150
                                     // Integral height keeps the card edge on
-                                    // device pixels (fractional text metrics
-                                    // otherwise bleed one-device-pixel ring
-                                    // slivers under fractional scaling).
+                                    // device pixels.
                                     implicitHeight: previewTop.height
                                                     + Math.ceil(cardFoot.height)
                                     radius: AppTheme.radiusLg
-                                    // NO clip here: the selection glow and
-                                    // focus ring are drawn OUTSIDE the card
-                                    // (negative margins below). Item.clip is a
-                                    // rectangular scissor, so it cannot round
-                                    // the preview's corners anyway — all it
-                                    // did was shave the rings to corner
-                                    // crescents and a protruding edge sliver.
-                                    //
-                                    // ── A CARD PAINTED IN THE PAGE'S OWN
-                                    // COLOUR IS NOT A CARD ──────────────────
-                                    //
-                                    // This was stormCanvas over a page painted
-                                    // stormDeep, and on every theme but Storm
-                                    // BOTH route to the palette's `background`
-                                    // — measured card-vs-page on all eleven,
-                                    // 1.0000:1 on ten and 1.2204:1 on Storm.
-                                    // The card whose theme is IN EFFECT
-                                    // previews that same background too, so on
-                                    // a fresh Moss Light profile the Moss Light
-                                    // card was the page from edge to edge and
-                                    // the only thing left of it was a 1.02:1
-                                    // hairline. Deep Teal beside it read 12.56.
-                                    //
-                                    // This is the identical defect, and the
-                                    // identical fix, that SettingsCard above
-                                    // carries — stormPanel is the raised plane
-                                    // every palette defines, 1.24-1.55 above
-                                    // `background`, and MORE separation for
-                                    // Storm (1.50) than it had (1.22). The
-                                    // theme card was missed by that round only
-                                    // because it is a bespoke Rectangle in a
-                                    // Flow rather than a SettingsCard.
+                                    // No clip: the selection glow and focus
+                                    // ring are drawn outside the card, and a
+                                    // rectangular scissor cannot round corners
+                                    // anyway. stormPanel, not stormCanvas, for
+                                    // the same reason as SettingsCard: outside
+                                    // Storm the canvas equals the page
+                                    // background.
                                     color: AppTheme.stormPanel
-                                    // The outline is drawn as an overlay
-                                    // sibling BELOW (z above the children):
-                                    // previewTop/cardFoot fill to the edges
-                                    // and would occlude a border painted on
-                                    // this base rectangle.
+                                    // The outline is an overlay sibling below,
+                                    // since the edge-filling children would
+                                    // cover a border on this rectangle.
                                     border.width: 0
                                     Accessible.role: Accessible.RadioButton
-                                    // The bolt ring is the only thing marking an
-                                    // in-effect-but-unchosen card, and a ring is
-                                    // not readable: `checked` is false for it,
-                                    // correctly, so the state has to be in the NAME.
+                                    // An in-effect but unchosen card is marked
+                                    // only by a ring, so the state goes in the
+                                    // accessible name.
                                     Accessible.name: themeCard.inEffect
                                         ? qsTr("%1 (in effect)").arg(modelData.name)
                                         : modelData.name
@@ -2101,9 +1675,7 @@ Item {
                                     Keys.onReturnPressed: app.settings.theme = modelData.id
                                     Keys.onSpacePressed: app.settings.theme = modelData.id
 
-                                    // Selected affordance (R9): 3px glow of
-                                    // the accent at 18% alpha — theme-derived,
-                                    // not the accentSoft surface token.
+                                    // Selected: a 3px accent glow at 18% alpha.
                                     Rectangle {
                                         anchors.fill: parent
                                         anchors.margins: -3
@@ -2115,7 +1687,7 @@ Item {
                                         border.color: Qt.alpha(AppTheme.bolt,
                                                                0.18)
                                     }
-                                    // Keyboard focus ring (shared treatment).
+                                    // Keyboard focus ring.
                                     Rectangle {
                                         anchors.fill: parent
                                         anchors.margins: -6
@@ -2127,8 +1699,8 @@ Item {
                                         border.color: AppTheme.bolt
                                     }
 
-                                    // Preview top: 96px painted in the
-                                    // previewed theme's exact colors.
+                                    // Preview top: 96px in the previewed
+                                    // theme's colours.
                                     Rectangle {
                                         id: previewTop
                                         objectName: "themeCardPreview_" + themeCard.modelData.id
@@ -2137,15 +1709,12 @@ Item {
                                         anchors.right: parent.right
                                         height: 96
                                         color: themeCard.modelData.frame
-                                        // Follow the card's rounded top; the
-                                        // old rectangular clip never did this
-                                        // — the preview overdrew the corner
-                                        // arcs squarely.
+                                        // Follow the card's rounded top corners.
                                         topLeftRadius: AppTheme.radiusLg - 1
                                         topRightRadius: AppTheme.radiusLg - 1
                                         // 10px padding, 26px mini rail, three
-                                        // rounded bars at 70/50/60% width —
-                                        // the last in the theme's accent.
+                                        // rounded bars at 70/50/60% width, the
+                                        // last in the theme's accent.
                                         Rectangle {
                                             x: 10; y: 10
                                             width: 26
@@ -2192,11 +1761,10 @@ Item {
                                         anchors.left: parent.left
                                         anchors.right: parent.right
                                         height: footRow.implicitHeight + 20
-                                        // Same plane as the card it closes —
-                                        // see themeCard.color above.
+                                        // Same plane as the card.
                                         color: AppTheme.stormPanel
-                                        // Follow the card's rounded bottom,
-                                        // mirroring previewTop's top arcs.
+                                        // Follow the card's rounded bottom
+                                        // corners.
                                         bottomLeftRadius: AppTheme.radiusLg - 1
                                         bottomRightRadius: AppTheme.radiusLg - 1
                                         RowLayout {
@@ -2205,40 +1773,20 @@ Item {
                                             anchors.leftMargin: 12
                                             anchors.rightMargin: 12
                                             spacing: 8
-                                            // A RADIO'S RESTING RING IS A
-                                            // CONTROL BOUNDARY, NOT METADATA.
-                                            // It was stormTextFaint, which
-                                            // routes to the palette's
-                                            // DISABLED ink — a tone chosen to
-                                            // recede. Measured on screen
-                                            // against cardFoot (stormCanvas)
-                                            // in all eleven themes: 1.60:1 in
-                                            // Lightning Light, 1.76 in Warm,
-                                            // 2.27 in Moss Light, against the
-                                            // 3:1 WCAG 1.4.11 asks of a
-                                            // component boundary — and fine
-                                            // in Storm (4.41), which is why
-                                            // it was never noticed. The three
-                                            // that fail are exactly the three
-                                            // LIGHT palettes, where a
-                                            // disabled ink is a pale tint.
-                                            // stormTextMuted is the same ink
-                                            // `AppTheme.icon` already uses for
-                                            // resting interface glyphs and
-                                            // clears 3:1 everywhere (worst
-                                            // 4.59, Warm).
+                                            // A radio's resting ring is a control
+                                            // boundary and needs 3:1 (WCAG 1.4.11).
+                                            // stormTextFaint is the disabled ink and
+                                            // fails on the light themes;
+                                            // stormTextMuted clears 3:1 on every
+                                            // theme.
                                             Rectangle {
                                                 objectName: "themeCardRadio_"
                                                             + themeCard.modelData.id
                                                 implicitWidth: 14
                                                 implicitHeight: 14
                                                 radius: 7
-                                                // FILLED only for a theme the
-                                                // user chose. A theme that is
-                                                // merely in effect gets the bolt
-                                                // RING: present and unmistakable,
-                                                // without claiming a choice
-                                                // nobody made.
+                                                // Filled only for a theme the user chose;
+                                                // in effect gets the ring.
                                                 color: themeCard.selectedTheme
                                                        ? AppTheme.bolt : "transparent"
                                                 border.width: 2
@@ -2264,14 +1812,9 @@ Item {
                                         }
                                     }
 
-                                    // The card outline, above the edge-
-                                    // filling children so it always renders
-                                    // (SPEC 1v: an accent edge when
-                                    // selected — at an INTEGER weight; 1.5px
-                                    // antialiases into two half-covered rows
-                                    // at DPR 1.0 and resolves unpredictably
-                                    // at the 1.25/1.5 ratios common on
-                                    // Windows and KDE).
+                                    // Card outline, above the edge-filling
+                                    // children. Integer weights only: 1.5px
+                                    // antialiases into two half-covered rows.
                                     Rectangle {
                                         objectName: "themeCardOutline_"
                                                     + themeCard.modelData.id
@@ -2279,32 +1822,11 @@ Item {
                                         z: 5
                                         radius: AppTheme.radiusLg
                                         color: "transparent"
-                                        // ── THE RESTING EDGE WAS 1.02:1 ──
-                                        //
-                                        // With the card body now a real plane
-                                        // this edge is what draws the card's
-                                        // silhouette across the preview half,
-                                        // which paints an ARBITRARY theme's
-                                        // background — so it has to clear
-                                        // WCAG 1.4.11's 3:1 for a component
-                                        // boundary on every palette. It did
-                                        // not clear it on ANY: stormBorder
-                                        // routes to `border`, measured against
-                                        // the page 1.02 Moss Light, 1.13 Warm,
-                                        // 1.15 Lightning Light, 1.52 Nordic,
-                                        // 1.61 Indigo Night, 1.81 Deep Teal,
-                                        // 1.89 Graphite, 1.90 Midnight, 2.00
-                                        // Storm, 2.57 Purple Dusk, 2.66
-                                        // Lightning Dark. stormBorderStrong
-                                        // clears on two of eleven.
-                                        //
-                                        // stormTextMuted is the same ink the
-                                        // radio ring in this card's own foot
-                                        // already carries, for the same reason
-                                        // and against the same ground — and it
-                                        // clears on all eleven, worst 4.59
-                                        // (Warm), which is the identical number
-                                        // that round recorded.
+                                        // The resting edge must clear 3:1 against
+                                        // arbitrary theme backgrounds. stormBorder
+                                        // fails on every theme; stormTextMuted,
+                                        // the same ink as the radio ring, clears
+                                        // on all eleven.
                                         border.width: themeCard.cardIsLive ? 2 : 1
                                         border.color: themeCard.cardIsLive
                                                       ? AppTheme.bolt
@@ -2320,18 +1842,14 @@ Item {
                             }
                         }
 
-                        // Secondary access to the remaining presets — a
-                        // compact row that never disturbs the featured
-                        // composition above.
+                        // Compact row for the remaining presets.
                         SettingsGroupLabel { text: qsTr("More themes") }
                         Flow {
                             Layout.fillWidth: true
                             spacing: AppTheme.spacing8
                             Repeater {
-                                // 8-11 are the featured cards above; 12 has
-                                // its own row below with the editor attached,
-                                // so a mini card for it would be a second
-                                // control for the same thing.
+                                // 8-11 are the featured cards; 12 has its own
+                                // row with the editor.
                                 model: AppTheme.themeList.filter(
                                     (t) => t.id !== 8 && t.id !== 9 && t.id !== 10
                                            && t.id !== 11 && t.id !== 12)
@@ -2341,44 +1859,20 @@ Item {
                                     objectName: "miniThemeCard_" + modelData.id
                                     readonly property var pal:
                                         AppTheme.paletteForTheme(modelData.id)
-                                    // DELIBERATELY UNGUARDED. A typeof guard
-                                    // was added here on 2026-09-10 and taken
-                                    // straight back out in review, because it
-                                    // does not dominate the bug it was aimed
-                                    // at: if `app` really were undefined at
-                                    // first evaluation, the false branch
-                                    // registers NO dependency on
-                                    // app.settings.theme, so the binding never
-                                    // re-evaluates and the ring is wrong
-                                    // FOREVER rather than transiently — a
-                                    // quieter failure, not a smaller one.
-                                    //
-                                    // This Repeater's model is a literal and
-                                    // its delegates are built during ordinary
-                                    // creation, so it is NOT in the exposed
-                                    // class 30ee39b describes (a delegate
-                                    // instantiated from inside a
-                                    // property-change handler). The guard
-                                    // there works because it pairs with
-                                    // resolveBridge(), an explicit recovery
-                                    // that re-triggers the binding; there is
-                                    // no such recovery here, and adding one
-                                    // for a failure never observed on this
-                                    // path is machinery without evidence.
+                                    // Deliberately unguarded; see the featured
+                                    // cards' selectedTheme.
                                     readonly property bool selectedTheme:
                                         app.settings.theme === modelData.id
                                     implicitWidth: miniRow.implicitWidth + 24
                                     implicitHeight: 34
                                     radius: AppTheme.radiusTile
-                                    // Hover was the same token as selected
-                                    // here too — see the font rows below.
+                                    // Hover and selected must differ.
                                     color: selectedTheme ? AppTheme.stormSelection
                                            : miniHover.hovered
                                              ? Qt.alpha(AppTheme.stormSelection, 0.55)
                                              : AppTheme.stormInset
-                                    // Integer border: 1.5px cannot land on a
-                                    // pixel boundary at DPR 1.0 and renders
-                                    // as two half-covered rows.
+                                    // Integer border: 1.5px renders as two
+                                    // half-covered rows.
                                     border.width: selectedTheme ? 2 : 0
                                     border.color: AppTheme.bolt
                                     Accessible.role: Accessible.RadioButton
@@ -2434,12 +1928,8 @@ Item {
                             }
                         }
 
-                        // ── Custom theme ────────────────────────────────
-                        // Offered as its own row rather than as a twelfth
-                        // card: it has no fixed palette to preview until the
-                        // user has made one, so a card would show either a
-                        // blank swatch or a copy of whatever it was forked
-                        // from.
+                        // Custom theme: its own row rather than a card, since
+                        // there is no palette to preview until one is made.
                         SettingsGroupLabel { text: qsTr("Custom theme") }
                         Rectangle {
                             id: customThemeRow
@@ -2461,9 +1951,8 @@ Item {
                                 anchors.margins: AppTheme.spacing12
                                 spacing: AppTheme.spacing12
 
-                                // Live swatch strip: the shell regions in
-                                // window order, so the row reads as a theme
-                                // rather than as a settings toggle.
+                                // Live swatch strip of the shell regions in
+                                // window order.
                                 Row {
                                     spacing: 2
                                     Repeater {
@@ -2494,10 +1983,8 @@ Item {
                                     Layout.fillWidth: true
                                     spacing: 2
                                     Label {
-                                        // The ACTIVE theme's own name once it
-                                        // has one: a person with four themes
-                                        // needs the card to say which one is
-                                        // in the window.
+                                        // The active custom theme's name once it
+                                        // has one.
                                         text: !app.customTheme.exists
                                               ? qsTr("Build your own theme")
                                               : app.customTheme.name.length > 0
@@ -2535,24 +2022,17 @@ Item {
                                     storm: true
                                     text: app.customTheme.exists ? qsTr("Edit")
                                                                  : qsTr("Create")
-                                    // Opening the editor no longer SELECTS
-                                    // the theme. The preview inside it paints
-                                    // the custom palette resolved by id, not
-                                    // the live one, so a theme can be built
-                                    // and looked at before it takes over the
-                                    // window — and the editor carries its own
-                                    // "Use this theme" button for when it
-                                    // should. Forcing the switch here meant
-                                    // opening the editor to LOOK at a theme
-                                    // repainted the whole application.
+                                    // Opening the editor does not select the
+                                    // theme: its preview paints the custom
+                                    // palette by id, and the editor has its own
+                                    // "Use this theme" button.
                                     onClicked: themeEditorLoader.active = true
                                 }
                             }
                         }
 
                         // Loaded on demand: the editor carries a full preview
-                        // shell and a colour dialog, and Appearance is opened
-                        // far more often than a theme is authored.
+                        // shell and a colour dialog.
                         Loader {
                             id: themeEditorLoader
                             objectName: "themeEditorLoader"
@@ -2567,8 +2047,8 @@ Item {
                             }
                         }
 
-                        // Match-system row (spec: 36×20 switch, 16px white
-                        // thumb, 150ms travel; the WHOLE row is clickable).
+                        // Match-system row: 36×20 switch, 16px white thumb,
+                        // 150ms travel; the whole row is clickable.
                         AbstractButton {
                             id: matchSystemSwitch
                             objectName: "matchSystemSwitch"
@@ -2586,20 +2066,11 @@ Item {
                             contentItem: RowLayout {
                                 id: matchRow
                                 spacing: 10
-                                // Visually AppSwitch, because it IS the same
-                                // control. It cannot BE an AppSwitch: the
-                                // whole row is the click target (spec), and
-                                // AppSwitch brings its own TapHandler and tab
-                                // stop — TapHandlers are non-exclusive across
-                                // subtrees, so nesting one inside this
-                                // AbstractButton would toggle twice per click
-                                // and cancel itself out. What it must never
-                                // do again is drift: the off track used to be
-                                // stormTextFaint here and stormBorderStrong
-                                // in AppSwitch, so this one switch rendered a
-                                // visibly lighter off state than the switches
-                                // directly above and below it on the same
-                                // page.
+                                // Drawn like AppSwitch but cannot be one:
+                                // AppSwitch has its own TapHandler, and nested
+                                // inside this AbstractButton it would toggle
+                                // twice per click. Its colours must match
+                                // AppSwitch's.
                                 Rectangle {
                                     objectName: "matchSystemTrack"
                                     readonly property bool hot:
@@ -2610,17 +2081,10 @@ Item {
                                     radius: AppTheme.radiusPill
                                     color: {
                                         if (app.settings.theme === 0)
-                                            // accentHover, not a storm*-named
-                                            // token: `bolt` IS the routed
-                                            // accent, and the storm palette
-                                            // maps accentHover to
-                                            // _stoAccentHover, so this is the
-                                            // hovered bolt on Storm and each
-                                            // legacy theme's own hover
-                                            // elsewhere. The name this used
-                                            // to carry does not exist on the
-                                            // singleton, so it was silently
-                                            // assigning undefined to a QColor.
+                                            // accentHover: `bolt` is the routed
+                                            // accent, so this is the hovered bolt on
+                                            // Storm and each theme's own hover
+                                            // elsewhere.
                                             return hot ? AppTheme.accentHover
                                                        : AppTheme.bolt
                                         return hot ? Qt.lighter(
@@ -2638,21 +2102,9 @@ Item {
                                             enabled: !AppTheme.reducedMotion
                                             NumberAnimation { duration: 90 }
                                         }
-                                        // v0.6.5 live-feedback: the checked
-                                        // track fills AppTheme.bolt — under
-                                        // Storm that's the literal bolt
-                                        // yellow, and a white thumb on it is
-                                        // illegible. boltInk is the ink
-                                        // that's DESIGNED to sit on a bolt
-                                        // fill (navy under Storm, accentText
-                                        // under legacy — which is white for
-                                        // every legacy theme except Deep
-                                        // Teal, so this is a no-op change
-                                        // for legacy themes other than that
-                                        // one, where it's a latent-bug fix
-                                        // too). The unchecked track never
-                                        // carries bolt, so its thumb keeps
-                                        // the plain white literal.
+                                        // The checked track is bolt, so the thumb
+                                        // uses boltInk (designed to sit on bolt);
+                                        // the unchecked track keeps a white thumb.
                                         color: app.settings.theme === 0
                                                ? AppTheme.boltInk : "#FFFFFF"
                                         y: 2
@@ -2726,11 +2178,7 @@ Item {
                             lineHeightMode: Text.ProportionalHeight
                             color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.textMeta
-                            // Says what the layout IS rather than what it
-                            // cannot do. It used to warn that Channels fell
-                            // back to Classic at Home; it no longer falls back
-                            // anywhere, so the warning would be untrue and the
-                            // shape is the thing worth stating instead.
+                            // Describes what the layout is.
                             text: qsTr("Channels lists every space you are in as "
                                        + "a folder, with the rooms it contains "
                                        + "underneath. Rooms in no space, and your "
@@ -2766,9 +2214,8 @@ Item {
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: AppTheme.spacing12
-                            // The A/A end caps are a deliberate size PAIR
-                            // illustrating the slider's range; they are not
-                            // scale sizes and must not be tokenised onto it.
+                            // The small/large A caps illustrate the range; they
+                            // are not scale sizes and must not be tokenised.
                             Label {
                                 text: "A"
                                 color: AppTheme.stormTextMuted
@@ -2810,21 +2257,14 @@ Item {
                                        + textScaleSlider.availableHeight / 2
                                        - height / 2
                                     width: 16; height: 16; radius: 8
-                                    // 2026-08-15 report: the thumb is
-                                    // ALWAYS white. The earlier
-                                    // switch-thumb analogy flipped it to
-                                    // boltInk past visualPosition 0.5, but
-                                    // a slider thumb rides the fill's
-                                    // BOUNDARY — it never sits fully on
-                                    // the bolt fill — so past half range
-                                    // the dark boltInk disc just read as a
-                                    // disabled/grey handle on the navy
-                                    // panel. White reads on the stormInset
-                                    // groove, on the bolt fill edge, and
-                                    // on every legacy palette.
+                                    // Always white: a slider thumb rides the
+                                    // fill boundary, so a dark boltInk disc
+                                    // would read as disabled. White reads on
+                                    // the groove, the fill edge and every
+                                    // palette.
                                     color: "#FFFFFF"
-                                    // The slider thumb's shadow is one of the
-                                    // four the design budget allows.
+                                    // One of the four shadows the design
+                                    // allows.
                                     Rectangle {
                                         anchors.fill: parent
                                         anchors.topMargin: 1
@@ -2851,12 +2291,6 @@ Item {
                             lineHeightMode: Text.ProportionalHeight
                             color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.textMeta
-                            // ACCURATE SINCE 2026-09-18. This used to read
-                            // "interface chrome and icons keep their size",
-                            // which stopped being true when the Spaces rail
-                            // gained scaled width stops (143abb07) and scaled
-                            // tiles: the rail is the most visible chrome in
-                            // the window and it moves with this slider.
                             text: qsTr("Scales message and list text, and the "
                                        + "Spaces rail with it, so its nesting "
                                        + "levels stay readable at any size. "
@@ -2865,9 +2299,9 @@ Item {
                                        + "whole window.")
                         }
 
-                        // ── Interface zoom (whole-UI scale via
-                        // QT_SCALE_FACTOR; startup-applied, hence the
-                        // restart caption — Qt reads the factor once) ───
+                        // Interface zoom: whole-UI scale via QT_SCALE_FACTOR,
+                        // which Qt reads once at startup, hence the restart
+                        // caption.
                         SettingsGroupLabel { text: qsTr("Interface zoom") }
                         RowLayout {
                             Layout.fillWidth: true
@@ -2911,12 +2345,7 @@ Item {
                                        + interfaceZoomSlider.availableHeight / 2
                                        - height / 2
                                     width: 16; height: 16; radius: 8
-                                    // Always white — same 2026-08-15
-                                    // correction as the text-size thumb
-                                    // above: the boundary-riding thumb
-                                    // never sits on the fill, and the
-                                    // boltInk flip past 110% read as a
-                                    // disabled handle.
+                                    // Always white, like the text-size thumb.
                                     color: "#FFFFFF"
                                     Rectangle {
                                         anchors.fill: parent
@@ -2934,8 +2363,8 @@ Item {
                             Label {
                                 text: app.settings.interfaceZoom + "%"
                                 color: AppTheme.stormTextMuted
-                                // Mono earns its place here: a live numeric
-                                // readout that must not reflow as it counts.
+                                // Mono for a live numeric readout that must not
+                                // reflow.
                                 font.pixelSize: AppTheme.textMeta
                                 font.family: AppTheme.monoFont
                             }
@@ -2954,7 +2383,7 @@ Item {
                                        + "next time Lightning starts.")
                         }
 
-                        // ── v0.7: UI font (bundled OFL families) ────────
+                        // UI font (bundled OFL families).
                         SettingsGroupLabel { text: qsTr("Font") }
                         ColumnLayout {
                             objectName: "uiFontSelector"
@@ -2970,11 +2399,8 @@ Item {
                                     Layout.fillWidth: true
                                     Layout.maximumWidth: 420
                                     implicitHeight: 56
-                                    // Same forced-implicitHeight squeeze as
-                                    // SettingsNavRow above (Basic-style
-                                    // ItemDelegate padding: 12 survives a
-                                    // taller forced row too) — AppMenuItem's
-                                    // topPadding/bottomPadding: 0 pattern.
+                                    // Same forced-height padding fix as
+                                    // SettingsNavRow.
                                     topPadding: 0
                                     bottomPadding: 0
                                     Accessible.name:
@@ -2983,25 +2409,17 @@ Item {
                                         app.settings.uiFont = modelData
                                     background: Rectangle {
                                         radius: AppTheme.radiusMd
-                                        // Hover and selected used to return
-                                        // the SAME token, so sweeping the
-                                        // pointer down the list made the
-                                        // selection appear to follow the
-                                        // cursor — exactly the confusion a
-                                        // selected state exists to prevent.
-                                        // Same ladder AppComboBox uses:
-                                        // selection at full strength, hover
-                                        // at 55% of it.
+                                        // Selection at full strength, hover at 55%
+                                        // of it (as AppComboBox), so the selection
+                                        // does not appear to follow the pointer.
                                         color: fontRow.selected
                                                ? AppTheme.stormSelection
                                                : (fontRow.hovered || fontRow.down)
                                                  ? Qt.alpha(AppTheme.stormSelection, 0.55)
                                                  : AppTheme.stormInset
                                         border.width: 1
-                                        // Selection also carries a bolt edge,
-                                        // not just a slightly stronger grey:
-                                        // a 1px border-tone step was the only
-                                        // thing separating the two states.
+                                        // Selection also carries a bolt edge, not
+                                        // just a darker grey.
                                         border.color: fontRow.visualFocus
                                                       ? AppTheme.bolt
                                                       : fontRow.selected
@@ -3020,8 +2438,7 @@ Item {
                                                 font.weight: AppTheme.weightStrong
                                                 color: AppTheme.stormText
                                             }
-                                            // The sample previews the actual
-                                            // family being offered.
+                                            // The sample previews the actual family.
                                             Label {
                                                 text: qsTr("Messages, rooms and settings")
                                                 font.family: fontRow.modelData
@@ -3051,22 +2468,11 @@ Item {
                                        + "IDs, icons, and emoji keep their own fonts.")
                         }
 
-                        // ── Any font the machine has, plus imported files ──
-                        //
-                        // The cards above preview the five bundled faces,
-                        // which is what most people want and the only set
-                        // guaranteed present. This card is the rest: every
-                        // family QFontDatabase reports, the fixed-pitch subset
-                        // for code, and the small store of fonts imported by
-                        // hand.
-                        //
-                        // Both combos read `fonts.stored…Family` — the value
-                        // the user CHOSE — and not the resolved one. A font
-                        // that is uninstalled must keep showing as the
-                        // selection with a line saying it is missing; showing
-                        // the fallback instead would look exactly like the
-                        // setting having reset itself, and re-installing the
-                        // font would then be a mystery.
+                        // Any installed family, the fixed-pitch subset for
+                        // code, and hand-imported fonts. The combos show the
+                        // stored choice, not the resolved font: an uninstalled
+                        // font keeps showing as selected with a "missing" line,
+                        // rather than looking like the setting reset itself.
                         SettingsCard {
                             objectName: "systemFontCard"
                             visible: root.fontManager !== null
@@ -3087,11 +2493,9 @@ Item {
                                     Layout.fillWidth: true
                                     model: root.fontManager ? root.fontManager.uiFamilies : []
                                     Accessible.name: qsTr("Interface font family")
-                                    // A combo NEVER binds currentIndex — see
-                                    // AppComboBox: indexOfValue() is -1 at
-                                    // creation time and clamping that to 0
-                                    // makes the control lie about the stored
-                                    // value.
+                                    // Never bind currentIndex (see
+                                    // AppComboBox): indexOfValue() is -1 at
+                                    // creation.
                                     Component.onCompleted:
                                         syncToValue(root.fontManager ? root.fontManager.storedUiFamily : "")
                                     onModelChanged:
@@ -3114,7 +2518,7 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.textMeta
-                                    // Deliberately says the choice is KEPT.
+                                    // Says the choice is kept.
                                     text: root.fontManager
                                         ? (root.fontManager.uiFamilyUnavailableReason === "unusable"
                                            ? qsTr("\u201C%1\u201D has no letters to draw text "
@@ -3213,9 +2617,7 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
-                                    // Says plainly what happens to the file,
-                                    // because "Lightning copied my font" is
-                                    // surprising if nobody mentions it.
+                                    // Says plainly that the file is copied.
                                     text: qsTr("Load a TrueType or OpenType file that is "
                                                + "not installed system-wide. Lightning "
                                                + "keeps its own copy, so moving or "
@@ -3237,9 +2639,8 @@ Item {
                                                    ? AppTheme.stormText
                                                    : AppTheme.stormTextMuted
                                             font.pixelSize: AppTheme.textBody
-                                            // The FAMILIES, never the file
-                                            // name: the name is a hash and
-                                            // means nothing to a reader.
+                                            // Show family names; the stored file name
+                                            // is a hash.
                                             text: importedRow.modelData.available
                                                   ? importedRow.modelData.families.join(", ")
                                                   : qsTr("Unavailable — the file is gone")
@@ -3262,11 +2663,9 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormDanger
                                     font.pixelSize: AppTheme.textMeta
-                                    // One sentence per machine category, so a
-                                    // refusal says which rule it broke. The
-                                    // category is a constant from C++; the
-                                    // rejected file name is deliberately not
-                                    // shown back.
+                                    // One sentence per refusal category (a C++
+                                    // constant). The rejected file name is not
+                                    // echoed back.
                                     text: {
                                         if (!root.fontManager) return ""
                                         switch (root.fontManager.lastImportError) {
@@ -3325,9 +2724,8 @@ Item {
                             }
                         }
 
-                        // Panel visibility. Mirrors Ctrl+B / Ctrl+Shift+B, so
-                        // a panel someone hides by shortcut can always be
-                        // found again without knowing the shortcut.
+                        // Panel visibility, mirroring Ctrl+B / Ctrl+Shift+B so
+                        // a panel hidden by shortcut can be found again here.
                         SettingsGroupLabel { text: qsTr("Panels") }
                         SettingsCard {
                             ColumnLayout {
@@ -3363,19 +2761,9 @@ Item {
                                                + "resize them. Widths are remembered.")
                                 }
 
-                                // HOW THE SPACES RAIL SHOWS NESTING. Its own
-                                // control rather than a line in the theme
-                                // page, because it belongs with the panel
-                                // that it is about — someone who has just
-                                // decided the rail is too loud is looking at
-                                // the rail's own settings, not at a colour
-                                // page two screens away.
-                                //
-                                // Enabled only while the rail is SHOWN: a
-                                // choice about how a hidden panel draws
-                                // itself is a control that does nothing, and
-                                // this one sits directly under the checkbox
-                                // that hides it.
+                                // How the Spaces rail shows nesting, next to
+                                // the rail's own settings. Enabled only while
+                                // the rail is shown.
                                 Label {
                                     objectName: "spacesRailDepthLabel"
                                     Layout.topMargin: AppTheme.spacing4
@@ -3389,30 +2777,12 @@ Item {
                                 SegmentedControl {
                                     storm: true
                                     objectName: "spacesRailDepthControl"
-                                    // PLACE THE INK, NOT THE BOX. Every
-                                    // other row in this card starts its ink
-                                    // at spacing4 from the card's content
-                                    // edge; a SegmentedControl's segment is
-                                    // `segText.implicitWidth + 24`, so its
-                                    // first glyph sits 12 px inside its own
-                                    // left edge and a box flush at spacing4
-                                    // puts the ink 12 px further right than
-                                    // the label above it. Measured on screen
-                                    // in Lightning Dark: label x=300, help
-                                    // paragraph x=301, the checkbox above
-                                    // x=303, this control x=309.
-                                    //
-                                    // Pulling the BOX back by that padding
-                                    // lines the ink up; the selected chip's
-                                    // rounded fill then hangs the same 8 px
-                                    // left of the text column, which is how
-                                    // a chip row is normally set. The 12 is
-                                    // SegmentedControl's literal and is
-                                    // pinned by
-                                    // theRailDepthControlLinesUpWithItsOwnLabel,
-                                    // which compares real ink positions on
-                                    // live delegates rather than trusting
-                                    // this arithmetic.
+                                    // Align the ink, not the box: a segment's
+                                    // first glyph sits 12px inside its edge
+                                    // (SegmentedControl pads its text by 12),
+                                    // so pull the box back by that.
+                                    // theRailDepthControlLinesUpWithItsOwnLabel
+                                    // checks real ink positions.
                                     Layout.leftMargin: AppTheme.spacing4 - 12
                                     enabled: app.settings.spacesRailVisible
                                     opacity: enabled ? 1.0 : 0.5
@@ -3444,9 +2814,8 @@ Item {
                             }
                         }
 
-                        // System tray. The whole card is hidden where the
-                        // platform has no tray: offering "close to tray" on a
-                        // session without one would close the window into
+                        // System tray. Hidden where the platform has none,
+                        // since "close to tray" would close the window into
                         // nothing.
                         SettingsGroupLabel {
                             visible: app.trayAvailable
@@ -3517,11 +2886,8 @@ Item {
                                                + "and room setting updates. Messages and "
                                                + "decryption warnings remain visible.")
                                 }
-                                // The two halves of "room activity".
-                                // Indented under the master and disabled
-                                // with it, because a sub-choice that stays
-                                // live under a switch that overrules it is
-                                // a control that lies about its own effect.
+                                // The two halves of "room activity", indented
+                                // and disabled with the master.
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "showMembershipEventsCheck"
@@ -3544,12 +2910,9 @@ Item {
                                     Accessible.description: qsTr(
                                         "Show profile changes in timelines")
                                 }
-                                // 2026-09-19, maintainer request. It sits in
-                                // the Timeline card and not under Privacy's
-                                // "Link previews & media" because it changes
-                                // nothing about what is FETCHED or SENT —
-                                // it is a density choice about the timeline,
-                                // next to the other three.
+                                // In the Timeline card rather than Privacy: it
+                                // changes nothing fetched or sent, only
+                                // density.
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "collapseEmbedsCheck"
@@ -3570,11 +2933,8 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
-                                    // Names what it covers AND what it does
-                                    // not, because "all embeds" is what was
-                                    // asked for and a reader who finds their
-                                    // reply quotes untouched should not have
-                                    // to guess whether that is a bug.
+                                    // Names what it covers and what it does not
+                                    // (reply quotes stay).
                                     text: qsTr("Pictures, GIFs, stickers, video, audio, "
                                                + "voice messages, files and loaded link "
                                                + "previews each become one line naming what "
@@ -3598,16 +2958,16 @@ Item {
                                     Layout.fillWidth: true
                                     textRole: "label"
                                     valueRole: "value"
-                                    // Values map to TimelineScrollController::WheelSpeed.
+                                    // Values map to
+                                    // TimelineScrollController::WheelSpeed.
                                     model: [
                                         { label: qsTr("Standard"),  value: 0 },
                                         { label: qsTr("Fast"),      value: 1 },
                                         { label: qsTr("Very fast"), value: 2 }
                                     ]
                                     // indexOfValue() only resolves once the
-                                    // model is ready, so set it on completion
-                                    // and whenever the persisted value changes
-                                    // rather than in a one-shot binding.
+                                    // model is ready; sync on completion and on
+                                    // change.
                                     function syncFromSetting() {
                                         syncToValue(app.settings.timelineWheelSpeed)
                                     }
@@ -3637,10 +2997,9 @@ Item {
                             }
                         }
 
-                        // Custom application icon: validated raster input,
-                        // normalized to the circular presentation, applied to
-                        // the running window immediately and restored at
-                        // startup. Device-global (not per-account).
+                        // Custom application icon: validated raster, normalized
+                        // to a circle, applied immediately and restored at
+                        // startup. Device-global.
                         SettingsCard {
                             ColumnLayout {
                                 width: parent.width
@@ -3725,7 +3084,8 @@ Item {
                         }
                     }
 
-                    // ════════════ Appearance (continued: language) ════════════
+                    // ════════════ Appearance (continued: language)
+                    // ════════════
                     ColumnLayout {
                         visible: root.section === "appearance"
                         Layout.fillWidth: true
@@ -3746,19 +3106,15 @@ Item {
                                     storm: true
                                     Layout.fillWidth: true
                                     model: app.localization.languages
-                                    // The language's OWN name, never its
-                                    // English one: a user who cannot read the
-                                    // current UI language cannot find
-                                    // "Russian" in a list either.
+                                    // The language's own name, so someone who
+                                    // cannot read the current UI language can
+                                    // still find theirs.
                                     textRole: "endonym"
                                     valueRole: "code"
                                     enabled: app.localization.translationsAvailable
 
-                                    // indexOfValue() returns -1 at creation
-                                    // time - the model and valueRole have not
-                                    // settled - so the index is synced
-                                    // explicitly here and again whenever
-                                    // either side changes.
+                                    // indexOfValue() is -1 at creation; sync
+                                    // explicitly here and on change.
                                     function syncIndex() {
                                         syncToValue(app.localization.language)
                                     }
@@ -3778,10 +3134,9 @@ Item {
                                     wrapMode: Text.WordWrap
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
-                                    // Three different truths, never conflated:
-                                    // a build with no catalogs at all, a
-                                    // "System default" that resolved to
-                                    // something, and an explicit choice.
+                                    // Three distinct cases: no catalogs in this
+                                    // build, "System default" resolved to
+                                    // something, or an explicit choice.
                                     text: {
                                         if (!app.localization.translationsAvailable)
                                             return qsTr("This build was compiled without translations, so the interface stays in English.")
@@ -3799,8 +3154,8 @@ Item {
 
                     }
 
-                    // ════════════ Appearance (continued: motion, time,
-                    //              panels, composer) ════════════
+                    // ════════════ Appearance (continued: motion, time, panels,
+                    // composer) ════════════
                     ColumnLayout {
                         visible: root.section === "appearance"
                         Layout.fillWidth: true
@@ -3825,12 +3180,8 @@ Item {
                                     Accessible.description: qsTr(
                                         "Shorten or remove interface animations")
                                 }
-                                // SEPARATE from Reduce motion on purpose:
-                                // that one is an accessibility setting over
-                                // every animation in the shell, and someone
-                                // who just wants the wheel to land where the
-                                // OS says should not have to switch the whole
-                                // design's motion off to get it.
+                                // Separate from Reduce motion, which is an
+                                // accessibility setting over every animation.
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "smoothScrollingCheck"
@@ -3848,12 +3199,8 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
-                                    // Deliberately does NOT claim "no
-                                    // animation anywhere": the setting
-                                    // reaches every site that reads
-                                    // AppTheme.reducedMotion, and a video
-                                    // playing in the timeline is content,
-                                    // not an interface animation.
+                                    // Does not claim "no animation anywhere":
+                                    // video in the timeline is content.
                                     text: qsTr("Shortens or removes interface "
                                                + "animations — panel slides, "
                                                + "fades and list reorders. "
@@ -3879,11 +3226,8 @@ Item {
                                         { label: qsTr("12-hour (1:05 PM)"),  value: 1 },
                                         { label: qsTr("24-hour (13:05)"),    value: 2 }
                                     ]
-                                    // indexOfValue() is -1 at creation time
-                                    // (the model and valueRole have not
-                                    // settled), so the index is synced
-                                    // explicitly — never in a one-shot
-                                    // binding.
+                                    // indexOfValue() is -1 at creation; sync
+                                    // explicitly.
                                     function syncFromSetting() {
                                         syncToValue(app.settings.clockFormat)
                                     }
@@ -3910,13 +3254,8 @@ Item {
                                     font.pixelSize: AppTheme.textBody
                                     font.weight: AppTheme.weightStrong
                                 }
-                                // Both of these already existed as stored
-                                // settings and could only be changed FROM
-                                // THE BANNER ITSELF — so someone who hid a
-                                // Space banner had to find a small restore
-                                // control in the Space header to get it
-                                // back. The properties are unchanged; this
-                                // is only the place they can be reached.
+                                // These settings could otherwise only be
+                                // changed from the banners themselves.
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "spaceBannersVisibleCheck"
@@ -3943,14 +3282,10 @@ Item {
                                 SettingsSlider {
                                     objectName: "roomListWidthSlider"
                                     Layout.fillWidth: true
-                                    // Bounds come FROM SettingsManager, never
-                                    // retyped here. A slider whose range is
-                                    // narrower than the setter's clamp does
-                                    // not snap back visibly — it silently
-                                    // forbids widths the app supports, and a
-                                    // stored value outside the range renders
-                                    // the handle at a position that is not
-                                    // the stored value.
+                                    // Bounds come from SettingsManager: a
+                                    // narrower range would silently forbid
+                                    // supported widths and misplace the handle
+                                    // for a stored value.
                                     from: app.settings.roomListMinWidth
                                     to: app.settings.roomListMaxWidth
                                     stepSize: 10
@@ -4003,20 +3338,14 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
-                                    // States BOTH keys in both states, so
-                                    // the setting can be read without
-                                    // toggling it to find out.
+                                    // States both keys in both states.
                                     text: app.settings.enterInsertsNewline
                                         ? qsTr("Enter starts a new line; Ctrl+Enter sends.")
                                         : qsTr("Enter sends; Shift+Enter starts a new line.")
                                 }
-                                // v0.9 spell checking: an application
-                                // preference, independent of the UI language
-                                // (a user reading Lightning in English still
-                                // types Lithuanian). The engine is the
-                                // operating system's own; when it has no
-                                // dictionary the row says so instead of
-                                // pretending.
+                                // Spell checking: an app preference independent
+                                // of the UI language. Uses the OS engine; says
+                                // so when it has no dictionary.
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "spellCheckEnabledCheck"
@@ -4045,8 +3374,8 @@ Item {
                                         valueRole: "tag"
                                         model: app.spell ? app.spell.languageOptions : []
                                         Accessible.name: qsTr("Spelling language")
-                                        // A combo NEVER binds currentIndex —
-                                        // see AppComboBox.
+                                        // Never bind currentIndex; see
+                                        // AppComboBox.
                                         Component.onCompleted:
                                             syncToValue(app.settings.spellCheckLanguage)
                                         onModelChanged:
@@ -4122,38 +3451,28 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
-                                    // Honest about the interop cost: a
-                                    // caption is a field on the attachment
-                                    // event, and a client that ignores it
-                                    // shows the file with no text at all.
+                                    // Honest about interop: clients that ignore
+                                    // the caption field show the file without
+                                    // text.
                                     text: qsTr("One event instead of two. Clients "
                                                + "that do not understand captions "
                                                + "show the attachment without the "
                                                + "text.")
                                 }
 
-                                // ── Message box buttons ──────────────────
-                                //
-                                // Requested by a tester who wanted a plainer
-                                // send bar. Presented as "show", stored as
-                                // "hidden" (SettingsManager::
-                                // hiddenComposerButtons) so a button added in
-                                // a later release appears for everyone rather
-                                // than being hidden from every existing user.
-                                //
-                                // Attach is deliberately absent: it carries
-                                // files and polls, and in a narrow window the
-                                // emoji and media actions are displaced INTO
-                                // its menu, so hiding it could stand between
-                                // the user and an action they had not hidden.
+                                // Message box buttons. Presented as "show",
+                                // stored as "hidden"
+                                // (SettingsManager::hiddenComposerButtons) so
+                                // buttons added later appear for everyone.
+                                // Attach is not hideable: in a narrow window
+                                // other actions move into its menu.
                                 Label {
                                     objectName: "composerButtonsHeading"
                                     Layout.topMargin: AppTheme.spacing16
                                     Layout.leftMargin: AppTheme.spacing4
                                     text: qsTr("Message box buttons")
-                                    // stormTextSecondary, matching the card's
-                                    // own "Message box" heading above — a
-                                    // sub-heading here must not out-rank it.
+                                    // Must not out-rank the card's "Message
+                                    // box" heading.
                                     color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.textBody
                                     font.weight: AppTheme.weightStrong
@@ -4190,17 +3509,10 @@ Item {
                                                     + modelData.key
                                         Layout.leftMargin: AppTheme.spacing4
                                         text: modelData.label
-                                        // Guarded, not because this Repeater
-                                        // is one of the exposed ones — its
-                                        // model is a literal and it is built
-                                        // during ordinary creation, not from
-                                        // a property-change handler — but
-                                        // because a binding that THROWS
-                                        // sticks at its last value, and the
-                                        // one that decides whether a control
-                                        // exists is a bad place to find that
-                                        // out. See Avatar.qml's `bridge` for
-                                        // the case that taught it.
+                                        // Guarded because a binding that throws
+                                        // sticks at its last value, and this one
+                                        // decides whether a control exists (see
+                                        // Avatar.qml's `bridge`).
                                         checked: {
                                             if (typeof app === "undefined"
                                                     || !app || !app.settings)
@@ -4220,13 +3532,10 @@ Item {
                         }
                     }
 
-                    // ════════════ Keyboard shortcuts ════════════
-                    // Every rebindable action, grouped by category, sourced
-                    // from ShortcutRegistry. The rows are a Repeater over
-                    // the model rather than a hand-written list, so an
-                    // action added in C++ appears here without a QML change
-                    // — the failure mode this replaces is a settings page
-                    // that silently stops listing half the shortcuts.
+                    // ════════════ Keyboard shortcuts ════════════ Every
+                    // rebindable action from ShortcutRegistry, grouped by
+                    // category. A Repeater over the model, so actions added in
+                    // C++ appear without QML changes.
                     ColumnLayout {
                         visible: root.section === "shortcuts"
                         Layout.fillWidth: true
@@ -4251,12 +3560,9 @@ Item {
                             font.pixelSize: AppTheme.textMeta
                         }
 
-                        // Only rendered when something is actually wrong.
-                        // setBinding refuses to CREATE a conflict, so a
-                        // non-zero count here means a settings file written
-                        // by hand or by a newer build — worth saying out
-                        // loud, because the symptom (two shortcuts both
-                        // doing nothing) points nowhere near the cause.
+                        // Only when something is wrong. setBinding refuses to
+                        // create a conflict, so a non-zero count means a
+                        // hand-edited or newer settings file.
                         Loader {
                             Layout.fillWidth: true
                             active: app.shortcuts.conflictCount > 0
@@ -4266,12 +3572,9 @@ Item {
                                 implicitHeight: conflictBannerLabel.implicitHeight
                                                 + AppTheme.spacing12 * 2
                                 radius: AppTheme.radiusMd
-                                // stormDangerSoft / stormDangerBorder, not a
-                                // hand-mixed alpha: SettingsScreen speaks only
-                                // the storm vocabulary (ThemeTokensTest bans
-                                // AppTheme.danger and Qt.rgba in this file),
-                                // and those two tokens ARE the pre-mixed
-                                // 10%/30% danger tint the Danger Zone uses.
+                                // Storm danger tokens: this file uses only the
+                                // storm vocabulary (enforced by
+                                // ThemeTokensTest).
                                 color: AppTheme.stormDangerSoft
                                 border.width: 1
                                 border.color: AppTheme.stormDangerBorder
@@ -4310,12 +3613,9 @@ Item {
                                     Repeater {
                                         model: app.shortcuts
                                         delegate: ShortcutRow {
-                                            // Role names are prefixed in
-                                            // ShortcutRegistry::roleNames
-                                            // precisely so they can be
-                                            // assigned onto this component's
-                                            // own like-named properties
-                                            // without colliding with them.
+                                            // ShortcutRegistry::roleNames prefixes its
+                                            // roles so they can be assigned to this
+                                            // component's like-named properties.
                                             actionId: model.shortcutId
                                             description: model.shortcutDescription
                                             currentSequence: model.shortcutCurrent
@@ -4323,32 +3623,18 @@ Item {
                                             isDefault: model.shortcutIsDefault
                                             conflictsWith: model.shortcutConflict
                                             shadowNote: model.shortcutShadow
-                                            // Each category card renders the
-                                            // WHOLE model and hides the rows
-                                            // that are not its own. A filter
-                                            // proxy per category would be
-                                            // five more QObjects for a list
-                                            // of eighteen rows, and Qt Quick
-                                            // Layouts skip an invisible item
-                                            // entirely, so the card does not
-                                            // grow around the hidden ones.
+                                            // Each category card renders the whole
+                                            // model and hides other categories' rows;
+                                            // invisible items take no space in the
+                                            // layout.
                                             visible: model.shortcutCategory
                                                      === shortcutCategoryCard.modelData
                                             Layout.fillWidth: true
-                                            // Stack the name above its
-                                            // keycap once the pane is too
-                                            // narrow to hold both without
-                                            // shortening the name. The
-                                            // threshold is the pane's, not
-                                            // the row's — see ShortcutRow's
-                                            // header for why the row must
-                                            // not read its own width. 560
-                                            // is where the name column stops
-                                            // fitting the longest
-                                            // description ("Show or hide the
-                                            // people in this conversation")
-                                            // beside a 132 px keycap and two
-                                            // buttons.
+                                            // Stack the name above the keycap when the
+                                            // pane is too narrow. Uses the pane's
+                                            // width, not the row's (see ShortcutRow).
+                                            // 560 fits the longest description beside
+                                            // a 132px keycap and two buttons.
                                             compact: contentColumn.width < 560
                                         }
                                     }
@@ -4367,10 +3653,8 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
-                                    // The two things a user will otherwise
-                                    // discover by being confused: why a
-                                    // bare letter is refused, and why
-                                    // Ctrl+B does two different things.
+                                    // Explains why a bare letter is refused and
+                                    // why Ctrl+B does two things.
                                     text: qsTr("A shortcut needs Ctrl, Alt or Super: "
                                                + "Lightning takes the key before any "
                                                + "text box sees it, so a plain letter "
@@ -4396,7 +3680,7 @@ Item {
                         }
                     }
 
-                    // ════════════ Privacy & security (design 1d) ════════════
+                    // ════════════ Privacy & security ════════════
                     ColumnLayout {
                         visible: root.section === "privacy"
                         Layout.fillWidth: true
@@ -4418,12 +3702,8 @@ Item {
                             lineHeightMode: Text.ProportionalHeight
                         }
 
-                        // v0.9.0 MSC4153. Placed under Privacy & security
-                        // rather than beside the E2EE health cards because
-                        // it is a CHOICE about who you talk to, not a
-                        // diagnostic — and because turning it on can make
-                        // messages unreadable, which is a privacy trade the
-                        // user makes rather than a repair they run.
+                        // MSC4153. Under Privacy because it is a choice about
+                        // who you talk to, and can make messages unreadable.
                         Label {
                             text: qsTr("Device trust")
                             color: AppTheme.stormText
@@ -4472,20 +3752,15 @@ Item {
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
                                     font.weight: AppTheme.weightStrong
-                                    // Honest, and specific about WHY: the SDK
-                                    // reads this when it builds a client and
-                                    // offers no way to change it afterwards.
+                                    // The SDK reads this when building a client
+                                    // and cannot change it afterwards.
                                     text: qsTr("Takes effect the next time "
                                                + "Lightning starts.")
                                 }
                             }
                         }
 
-                        // v0.9.0: what this device tells the room while the
-                        // user is only READING and TYPING. Both of these are
-                        // continuous disclosures nobody consciously sends,
-                        // which is why they belong here rather than under
-                        // the timeline's display options.
+                        // What this device discloses while reading and typing.
                         Label {
                             text: qsTr("Reading and typing")
                             color: AppTheme.stormText
@@ -4524,11 +3799,9 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
-                                    // "keeps your place only on this device"
-                                    // was too strong: the fully-read marker
-                                    // is account data and still syncs. What
-                                    // stops is the RECEIPT, so unread badges
-                                    // on your other devices stop clearing.
+                                    // The fully-read marker is account data and
+                                    // still syncs; only the receipt stops, so
+                                    // badges on other devices stop clearing.
                                     text: qsTr("Private receipts still clear the "
                                                + "unread badge on your own other "
                                                + "devices; nobody else sees them. "
@@ -4565,16 +3838,10 @@ Item {
                             }
                         }
 
-                        // v0.7.x Matrix presence: own-state publication.
-                        // Offered only on a backend that owns presence
-                        // (the server push-rules precedent); viewing
-                        // others' presence is passive reads against the
-                        // user's own homeserver and needs no toggle.
-                        // Gated on backend CAPABILITY (supported), not on
-                        // the read-refusal latch (active): publication
-                        // keeps running when the server refuses reads, so
-                        // the only control that stops it must never
-                        // disappear (review M1).
+                        // Own presence publication, offered when the backend
+                        // supports presence. Gated on capability, not on the
+                        // read-refusal latch: publication continues when reads
+                        // are refused, so its off switch must never disappear.
                         Label {
                             visible: app.presence && app.presence.supported
                             text: qsTr("Presence")
@@ -4614,8 +3881,8 @@ Item {
                             }
                         }
 
-                        // v0.7.x: ignored users (m.ignored_user_list —
-                        // Matrix account data, shared with every client).
+                        // Ignored users (m.ignored_user_list, shared with every
+                        // client).
                         Label {
                             visible: app.moderation.supported
                             text: qsTr("Ignored users")
@@ -4628,21 +3895,13 @@ Item {
                             id: ignoredUsersCard
                             objectName: "ignoredUsersCard"
                             visible: app.moderation.supported
-                            // A REFUSED "Stop ignoring" SAID NOTHING AT ALL.
-                            // ModerationController reports every outcome on
-                            // ignoreActionFinished, and its ONLY consumer is
-                            // MemberProfilePopover — which filters on its own
-                            // userId and is not even open when this button is
-                            // pressed. So a server refusal, a rate limit or a
-                            // dead connection left the row sitting there with
-                            // no explanation, which reads as a dead button.
-                            // The list only changes on success, so it was
-                            // never dishonest; it was silent, and silence for
-                            // a write the user asked for is its own defect.
+                            // ModerationController reports outcomes on
+                            // ignoreActionFinished, whose only other consumer
+                            // (MemberProfilePopover) filters by its own user,
+                            // so show refusals here.
                             property string unignoreError: ""
-                            // The user this card asked about, so a failure
-                            // raised by the profile popover's own ignore
-                            // button does not surface here as well.
+                            // The user this card asked about, so failures from
+                            // the profile popover do not surface here too.
                             property string unignoreUserId: ""
                             ColumnLayout {
                                 width: parent.width
@@ -4737,13 +3996,9 @@ Item {
                             }
                         }
 
-                        // 0.8.5: the local message index. It persists
-                        // DECRYPTED message text — the one sanctioned
-                        // exception to CLAUDE.md §6 — so the person whose
-                        // messages they are has to be able to see that it
-                        // exists and get rid of it. Until this landed,
-                        // MessageSearchController::clearIndex() was
-                        // Q_INVOKABLE and no QML called it.
+                        // The local message index stores decrypted message text
+                        // (the sanctioned exception in CLAUDE.md §6), so the
+                        // user must be able to see it and clear it.
                         Label {
                             text: qsTr("Message search index")
                             color: AppTheme.stormText
@@ -4761,16 +4016,8 @@ Item {
                                     objectName: "searchIndexHelpText"
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    // Twelve lines of body copy at Qt's
-                                    // default leading read as a solid block
-                                    // beside every other paragraph on this
-                                    // page: measured baseline-to-baseline on
-                                    // a real window, 17 px here against
-                                    // 25-26 px everywhere else. 86 of the
-                                    // file's 112 wrapping Labels already set
-                                    // this pair; this is the one that
-                                    // visibly differed from its immediate
-                                    // neighbours.
+                                    // Body leading, matching the other
+                                    // paragraphs on this page.
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     textFormat: Text.PlainText
@@ -4816,7 +4063,7 @@ Item {
                                 }
                             }
                         }
-                        // v0.5.11: link-preview and GIF policy.
+                        // Link-preview and GIF policy.
                         Label {
                             text: qsTr("Link previews & media")
                             color: AppTheme.stormText
@@ -4844,10 +4091,8 @@ Item {
                                     checked: app.settings.loadPreviewsInEncryptedRooms
                                     onToggled: app.settings.loadPreviewsInEncryptedRooms = checked
                                 }
-                                // Privacy caution: a danger-ruled callout —
-                                // the RULE carries the caution semantics so
-                                // the copy itself stays readable body ink
-                                // (§1 keeps red text for live danger states).
+                                // Privacy caution: the danger rule carries the
+                                // caution so the copy stays readable body ink.
                                 RowLayout {
                                     Layout.fillWidth: true
                                     Layout.leftMargin: AppTheme.spacing4
@@ -4865,24 +4110,14 @@ Item {
                                         lineHeightMode: Text.ProportionalHeight
                                         color: AppTheme.stormTextSecondary
                                         font.pixelSize: AppTheme.textMeta
-                                        // Names the control that actually
-                                        // exists. The old copy pointed at a
-                                        // per-message “Load link preview”
-                                        // action that was never built — the
-                                        // real gesture is the “Show” button
-                                        // on the message's own link card.
-                                        // WAS "directly — not through your
-                                        // homeserver", which stopped being
-                                        // true: previews now go through the
-                                        // homeserver first and fall back to
-                                        // a direct fetch only when it cannot
-                                        // supply one. The fallback is why
-                                        // this still describes the direct
-                                        // case at all, and why the switches
-                                        // stay off by default — a server
-                                        // with previews disabled (Synapse's
-                                        // own default) gives you exactly the
-                                        // old behaviour.
+                                        // Previews go through the homeserver first
+                                        // and fall back to a direct fetch only
+                                        // when it cannot supply one (Synapse
+                                        // disables previews by default), so the
+                                        // text still describes the direct case and
+                                        // the switches stay off by default. Names
+                                        // the real control, the link card's Show
+                                        // button.
                                         text: qsTr("Your homeserver loads the preview, so the "
                                                    + "linked site sees your server rather than "
                                                    + "you. If your server cannot — many have "
@@ -4927,17 +4162,11 @@ Item {
                                         { label: qsTr("On hover"), value: 1 },
                                         { label: qsTr("Never"),    value: 2 },
                                     ]
-                                    // NOT a currentIndex binding, and NOT
-                                    // `Math.max(0, indexOfValue(...))` either:
-                                    // that idiom shipped in 2026-08-18 and did
-                                    // not fix the report it was written for.
-                                    // indexOfValue() is -1 at creation, and
-                                    // max(0, -1) is row 0 -- so the combo went
-                                    // on displaying "Always" whatever was
-                                    // stored, which is what "GIF settings
-                                    // reset every launch" looks like from the
-                                    // outside. syncToValue retries the -1
-                                    // instead of clamping it.
+                                    // Not a currentIndex binding and not
+                                    // Math.max(0, indexOfValue(...)): at
+                                    // creation indexOfValue() is -1, which
+                                    // clamps to row 0 and displays the wrong
+                                    // value. syncToValue retries instead.
                                     function syncFromSettings() {
                                         syncToValue(app.settings.gifAutoplay)
                                     }
@@ -5012,7 +4241,7 @@ Item {
                                     }
                                     onActivated: app.settings.gifPreferredProvider = currentValue
                                 }
-                                // Honest per-provider availability.
+                                // Per-provider availability.
                                 Label {
                                     Layout.fillWidth: true
                                     Layout.leftMargin: AppTheme.spacing4
@@ -5075,13 +4304,10 @@ Item {
                                     color: AppTheme.stormBorder
                                 }
 
-                                // v0.6.6: client-local GIF starring. Unlike
-                                // Favorites/Recents (small provider-CDN
-                                // metadata rows) this store holds actual
-                                // decrypted file bytes on this device — see
-                                // GifStarredStore's header — so it gets its
-                                // own visible count/size and confirmed
-                                // Clear All, not folded into the row above.
+                                // Client-local GIF starring stores actual
+                                // decrypted file bytes (see GifStarredStore),
+                                // so it gets its own count, size and confirmed
+                                // Clear All.
                                 Label {
                                     text: qsTr("Images saved from chats")
                                     color: AppTheme.stormText
@@ -5114,16 +4340,9 @@ Item {
                                     onClicked: starredGifsClearConfirm.open()
                                 }
 
-                                // ── Hidden images ──────────────────────────
-                                //
-                                // THIS SURFACE IS WHAT MAKES PERSISTING THEM
-                                // DEFENSIBLE. Hiding used to be session-only
-                                // partly because a hidden image the user has
-                                // forgotten about is content they cannot
-                                // find: there was no list and no discoverable
-                                // way to undo it in bulk. Now that the flag
-                                // outlives the session, the count and a
-                                // single Show-all have to exist.
+                                // Hidden images persist across sessions, so the
+                                // count and a Show-all must be discoverable
+                                // here.
                                 Label {
                                     text: qsTr("Hidden images")
                                     color: AppTheme.stormText
@@ -5139,10 +4358,9 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.textMeta
-                                    // Branched rather than a %n plural: a
-                                    // "(s)" source string renders its
-                                    // parenthesis literally without a loaded
-                                    // translation.
+                                    // Branched rather than a %n plural: without
+                                    // a loaded translation "(s)" renders
+                                    // literally.
                                     text: app.mediaVisibility.hiddenCount === 0
                                         ? qsTr("You have not hidden any images. Hiding one affects only what you see, and nothing is sent.")
                                         : (app.mediaVisibility.hiddenCount === 1
@@ -5184,7 +4402,7 @@ Item {
                                     checked: app.settings.notificationsEnabled
                                     onToggled: app.settings.notificationsEnabled = checked
                                 }
-                                // v0.6.0 checkpoint 11: notification privacy.
+                                // Notification privacy.
                                 Label {
                                     text: qsTr("Notification preview")
                                     color: AppTheme.stormTextSecondary
@@ -5213,32 +4431,10 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
-                                    // ── THIS NAMED THE WRONG DEFAULT, AND
-                                    // THE WRONG ONE WAS THE PRIVATE ONE ──
-                                    //
-                                    // It read "Sender only (the default)
-                                    // never shows message text", while
+                                    // States what each mode does and which is
+                                    // the default:
                                     // SettingsManager::notificationPreview()
-                                    // has returned 0 = Sender and message
-                                    // since 8e4977d1 (2026-08-22). So the
-                                    // page told a reader that their desktop
-                                    // was not showing message bodies at a
-                                    // moment when it was — a promise about
-                                    // disclosure that the app did not keep.
-                                    //
-                                    // THE LABEL IS THE STALE HALF, NOT THE
-                                    // DEFAULT. The default was moved 1 -> 0
-                                    // deliberately, on a tester report, with
-                                    // the reasoning written at the getter;
-                                    // this sentence was written on
-                                    // 2026-07-17 when 1 was true and was
-                                    // simply never revisited. Changing the
-                                    // DEFAULT back would silently reverse a
-                                    // product decision to make a sentence
-                                    // true, which is the wrong way round.
-                                    // So the sentence now states what each
-                                    // mode does and which one is in force
-                                    // out of the box.
+                                    // defaults to 0 (Sender and message).
                                     text: qsTr("Sender and message is the default: "
                                                + "a notification carries the message "
                                                + "text. Sender only shows who wrote "
@@ -5251,14 +4447,10 @@ Item {
                                                + "suppressed while the room is open, "
                                                + "focused, and at the latest message.")
                                 }
-                                // v0.9.0: a separate level for ENCRYPTED
-                                // rooms. A notification body is written to
-                                // the desktop's daemon and its log in
-                                // plaintext — outside everything the room's
-                                // encryption guarantees — so wanting full
-                                // previews from a project room and none from
-                                // an encrypted one is an ordinary wish, and
-                                // one setting could not express it.
+                                // A separate level for encrypted rooms: a
+                                // notification body is written to the desktop
+                                // daemon and its log in plaintext, outside the
+                                // room's encryption.
                                 Label {
                                     text: qsTr("In encrypted rooms")
                                     color: AppTheme.stormTextSecondary
@@ -5270,9 +4462,8 @@ Item {
                                     objectName: "notificationPreviewEncryptedCombo"
                                     Layout.fillWidth: true
                                     enabled: app.settings.notificationsEnabled
-                                    // Index 3 is "same as above" and is the
-                                    // default, so nobody's behaviour changes
-                                    // on upgrade.
+                                    // Index 3, "same as above", is the default,
+                                    // so upgrades change nothing.
                                     model: [
                                         qsTr("Sender and message"),
                                         qsTr("Sender only"),
@@ -5284,7 +4475,7 @@ Item {
                                     onActivated: (index) =>
                                         app.settings.notificationPreviewEncrypted = index
                                 }
-                                // v0.6.1: notification sound.
+                                // Notification sound.
                                 Label {
                                     text: qsTr("Notification sound")
                                     color: AppTheme.stormTextSecondary
@@ -5317,12 +4508,9 @@ Item {
                                                + "active rooms stay silent. Bursts are "
                                                + "coalesced into a single alert.")
                                 }
-                                // MOVED OUT on 2026-09-12: the call devices
-                                // and their levels are now the "Sound &
-                                // video" section of their own. The ring
-                                // toggle below deliberately STAYED — it is
-                                // gated on the desktop-notification switch
-                                // and belongs beside the notification sound.
+                                // Call devices live under "Sound & video"; the
+                                // ring toggle stays here, gated on desktop
+                                // notifications.
                                 CheckBox {
                                     objectName: "ringForCallsCheck"
                                     palette.windowText: AppTheme.stormText
@@ -5345,12 +4533,9 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
-                                    // Backend-honest: the Rust backend saves
-                                    // per-room modes to the account's server
-                                    // push rules; other backends keep them
-                                    // device-local. The push-registration
-                                    // sentence stays unconditional — that
-                                    // remains true on every backend.
+                                    // The Rust backend saves per-room modes to
+                                    // the server's push rules; other backends
+                                    // keep them device-local.
                                     text: (app.serverRoomNotificationModes
                                            ? qsTr("Per-room notification modes (set "
                                                   + "from Room information) are saved "
@@ -5368,24 +4553,10 @@ Item {
                         }
                     }
 
-                    // ════════════ Sound & video ════════════
-                    //
-                    // 2026-09-12: these controls used to be a sub-heading at
-                    // the BOTTOM of Notifications, which is not where anyone
-                    // looks for a microphone. They are one coherent unit —
-                    // what this computer captures, what it plays back, and
-                    // how loud each is — so they get a section.
-                    //
-                    // MOVED, NOT COPIED. There is exactly one
-                    // `callDeviceSettings` in this file; Notifications keeps
-                    // only "Ring for incoming voice calls", which is gated on
-                    // the desktop-notification switch and sits with the
-                    // notification sound because that is its real home.
-                    //
-                    // Named "Sound & video" rather than "Sound": the same
-                    // component owns the camera picker, and a section that
-                    // says Sound while offering a webcam is lying about its
-                    // own contents.
+                    // ════════════ Sound & video ════════════ Capture, playback
+                    // and levels. There is exactly one callDeviceSettings in
+                    // this file. Named "Sound & video" because the same
+                    // component owns the camera picker.
                     ColumnLayout {
                         visible: root.section === "sound"
                         Layout.fillWidth: true
@@ -5406,9 +4577,8 @@ Item {
                                     objectName: "callDeviceSettings"
                                     Layout.fillWidth: true
                                     // Enumeration initialises Qt Multimedia,
-                                    // which costs real time on a PipeWire
-                                    // desktop, so it waits until this section
-                                    // is actually on screen.
+                                    // which is slow on PipeWire, so wait until
+                                    // this section is on screen.
                                     activated: visible
                                 }
                             }
@@ -5425,15 +4595,9 @@ Item {
                                 width: parent.width
                                 spacing: 4
 
-                                // The level voice messages, audio files and
-                                // videos START at. It has existed as a stored
-                                // setting since v0.6 and has never had a home
-                                // in Settings — the only way to change it was
-                                // to find a media card and drag its popup,
-                                // which is not a place anyone looks for a
-                                // preference. Same two-way binding to a
-                                // SettingsManager Q_PROPERTY as every other
-                                // control here; no QSettings from QML.
+                                // The starting level for voice messages, audio
+                                // and video; the same two-way SettingsManager
+                                // binding as the other controls here.
                                 RowLayout {
                                     Layout.fillWidth: true
                                     spacing: AppTheme.spacing8
@@ -5468,16 +4632,14 @@ Item {
                                     to: 1
                                     stepSize: 0.05
                                     // A plain binding, so a level chosen on a
-                                    // media card is reflected here. Qt breaks
-                                    // it on the first drag, which is what the
-                                    // microphone and text-scale sliders do.
+                                    // media card shows here. Qt breaks it on
+                                    // the first drag, as with the other
+                                    // sliders.
                                     value: app.settings.mediaVolume
                                     Accessible.name: qsTr("Media playback volume")
-                                    // `onMoved`, never `onValueChanged`: the
-                                    // latter also fires when the binding
-                                    // above delivers a value that came FROM
-                                    // the store, which writes it straight
-                                    // back.
+                                    // onMoved, not onValueChanged, which would
+                                    // also fire for values coming from the
+                                    // store and write them back.
                                     onMoved: app.settings.mediaVolume = value
                                 }
                                 Label {
@@ -5492,11 +4654,8 @@ Item {
                             }
                         }
 
-                        // 2026-09-23: Lightning's own call sounds. The policy
-                        // (which event, when, and what deafen silences) is
-                        // C++ — CallSoundPolicy; this is only the switches
-                        // and the two volumes, bound two-way to
-                        // SettingsManager like every control on this page.
+                        // Call sounds. The policy is CallSoundPolicy in C++;
+                        // this is only the switches and two volumes.
                         Label {
                             text: qsTr("Call sounds")
                             color: AppTheme.stormText
@@ -5661,19 +4820,16 @@ Item {
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightStrong
                         }
-                        // v0.6.5 polish: the account header carries the
-                        // identity-card idiom (real Avatar, bold display
-                        // name, mono MXID, status chip) in the ACTIVE theme
-                        // — the brand navy/yellow stays exclusive to the
-                        // trust card.
+                        // Account header in the identity-card idiom (avatar,
+                        // display name, mono MXID, status chip) in the active
+                        // theme.
                         SettingsCard {
                             id: accountIdentityCard
                             objectName: "accountIdentityCard"
-                            // Invokable results do not re-evaluate on
-                            // signals; refresh the record whenever the
-                            // registry or selection changes (the SpacesRail
-                            // idiom) — a profile landing after this screen
-                            // opened must not leave a stale MXID-as-name.
+                            // Invokable results do not re-evaluate on signals;
+                            // refresh the record when the registry or selection
+                            // changes, so a late profile does not leave the
+                            // MXID as the name.
                             property var accountRecord: ({})
                             function refreshAccountRecord() {
                                 accountRecord =
@@ -5695,7 +4851,7 @@ Item {
                                 accountRecord && accountRecord.displayName
                                 ? accountRecord.displayName : ""
 
-                            // ── v0.7.4 own display name ────────────────
+                            // Own display name
                             property bool editingDisplayName: false
                             function beginDisplayNameEdit() {
                                 displayNameField.text =
@@ -5715,35 +4871,27 @@ Item {
                             function commitDisplayName() {
                                 if (app.ownDisplayNameBusy) return
                                 var wanted = displayNameField.text.trim()
-                                // Unchanged is not a save. Close the editor
-                                // rather than sending a request whose only
-                                // possible answer is the value the account
-                                // already has — and note the server would
-                                // answer it SUCCESSFULLY, so the registry
-                                // would emit nothing and a UI that waited
-                                // for accountsChanged would hang here.
+                                // Unchanged is not a save: the server would
+                                // answer successfully, the registry would emit
+                                // nothing, and a UI waiting for accountsChanged
+                                // would hang.
                                 if (wanted === accountIdentityCard.accountDisplayName) {
                                     editingDisplayName = false
                                     app.dismissOwnDisplayNameError()
                                     return
                                 }
-                                // A refusal (empty, over the ceiling, no
-                                // session) leaves the editor open with the
+                                // A refusal leaves the editor open with the
                                 // reason in app.ownDisplayNameError.
                                 app.submitOwnDisplayName(wanted)
                             }
                             Connections {
                                 target: app
-                                // Server-CONFIRMED only. Both Save and
-                                // Clear land here; nothing else closes the
-                                // editor, so a failure can never look like
-                                // a success.
+                                // Server-confirmed only; nothing else closes
+                                // the editor.
                                 function onOwnDisplayNameSaved() {
                                     accountIdentityCard.editingDisplayName = false
                                 }
-                                // A session teardown retires the write; the
-                                // editor must not stay open over the next
-                                // account's identity.
+                                // Session teardown closes the editor.
                                 function onLoggedInChanged() {
                                     accountIdentityCard.editingDisplayName = false
                                 }
@@ -5790,9 +4938,8 @@ Item {
                                                 label: app.sessionTrustState
                                                 iconName: app.sessionTrustState === "Verified"
                                                           ? "verified_user" : ""
-                                                // Same mapping as the Sessions
-                                                // "Current session" chip — one
-                                                // trust state, one ink.
+                                                // Same mapping as the Sessions "Current
+                                                // session" chip.
                                                 tone: app.sessionTrustState === "Verified"
                                                       ? "success"
                                                       : app.sessionTrustState === "Not verified"
@@ -5800,13 +4947,8 @@ Item {
                                             }
                                             Item { Layout.fillWidth: true }
                                         }
-                                        // The Matrix ID was displayed and
-                                        // could not be COPIED — it is
-                                        // elided, so on a long localpart it
-                                        // could not even be read in full,
-                                        // and it is the one string a person
-                                        // has to hand to someone else to be
-                                        // found at all.
+                                        // Copyable: the MXID is elided and is the
+                                        // string people share to be found.
                                         RowLayout {
                                             Layout.fillWidth: true
                                             spacing: AppTheme.spacing4
@@ -5838,12 +4980,8 @@ Item {
                                                         ? app.accounts.activeUserId : "")
                                                     matrixIdCopied.restart()
                                                 }
-                                                // Feedback lives in the
-                                                // tooltip rather than in a
-                                                // swapped glyph: the icon
-                                                // font is a SUBSET and has
-                                                // no "check" that reads as a
-                                                // copy confirmation at 14px.
+                                                // Feedback in the tooltip: the icon font
+                                                // subset has no suitable check glyph.
                                                 Timer {
                                                     id: matrixIdCopied
                                                     interval: 1500
@@ -5859,12 +4997,8 @@ Item {
                                         }
                                     }
                                 }
-                                // ── v0.7.4 own display name, edited in
-                                // place. Hidden entirely on a backend that
-                                // cannot write a profile: the command
-                                // returns void, so offering it there would
-                                // leave the editor spinning with nothing
-                                // left to answer it.
+                                // Own display name, edited in place. Hidden on
+                                // backends that cannot write a profile.
                                 ColumnLayout {
                                     objectName: "ownDisplayNameSection"
                                     Layout.fillWidth: true
@@ -5884,10 +5018,8 @@ Item {
                                             objectName: "ownDisplayNameValue"
                                             Layout.fillWidth: true
                                             elide: Label.ElideRight
-                                            // "Not set" is the honest empty
-                                            // state — never the localpart,
-                                            // which would make a cleared
-                                            // name look like a set one.
+                                            // "Not set" rather than the localpart, so
+                                            // a cleared name does not look set.
                                             text: accountIdentityCard.accountDisplayName.length > 0
                                                   ? accountIdentityCard.accountDisplayName
                                                   : qsTr("Not set")
@@ -5916,14 +5048,10 @@ Item {
                                             enabled: !app.ownDisplayNameBusy
                                             placeholderText: qsTr("Your display name")
                                             Accessible.name: qsTr("Display name")
-                                            // No maximumLength: it counts
-                                            // UTF-16 code units, so a 255
-                                            // cap there would cut an emoji
-                                            // in half between its
-                                            // surrogates. The ceiling is
-                                            // enforced by code point in
-                                            // AppController instead, and
-                                            // shown by the counter below.
+                                            // No maximumLength: it counts UTF-16 units
+                                            // and could split an emoji. The ceiling is
+                                            // enforced by code point in AppController
+                                            // and shown by the counter.
                                             onAccepted: accountIdentityCard.commitDisplayName()
                                             Keys.onEscapePressed: accountIdentityCard.cancelDisplayNameEdit()
                                         }
@@ -5933,9 +5061,7 @@ Item {
                                             font.pixelSize: AppTheme.textMeta
                                             readonly property int used:
                                                 app.displayNameLength(displayNameField.text.trim())
-                                            // Only near the ceiling: a
-                                            // permanent counter on a field
-                                            // nobody fills is noise.
+                                            // Only near the ceiling.
                                             visible: used > app.ownDisplayNameMaxLength() - 40
                                             color: used > app.ownDisplayNameMaxLength()
                                                    ? AppTheme.stormDanger
@@ -5965,10 +5091,7 @@ Item {
                                                 kind: "primary"
                                                 text: app.ownDisplayNameBusy
                                                       ? qsTr("Saving…") : qsTr("Save")
-                                                // Duplicate submissions are
-                                                // refused by AppController
-                                                // too; this only keeps the
-                                                // pointer honest.
+                                                // AppController also refuses duplicates.
                                                 enabled: !app.ownDisplayNameBusy
                                                          && displayNameField.text.trim().length > 0
                                                          && displayNameField.text.trim()
@@ -5998,20 +5121,12 @@ Item {
                                         }
                                     }
                                 }
-                                // ── The colour your name shows in.
-                                //
-                                // Carried in the Matrix profile
-                                // (org.lightning.name_color, MSC4133), so
-                                // other Lightning clients see it — which is
-                                // the whole point and the reason it is not
-                                // account data. Absent, every name keeps the
-                                // colour derived from the reader's theme.
-                                //
-                                // The swatches are the reader's OWN derived
-                                // ladder: offering a free colour picker here
-                                // would mostly produce names that fight
-                                // whatever theme the reader is using, and
-                                // these nine are known to work in all of them.
+                                // Name colour, carried in the Matrix profile
+                                // (org.lightning.name_color, MSC4133) so other
+                                // Lightning clients see it. Absent, names use
+                                // the reader's theme colour. The swatches are
+                                // the theme's own ladder, which works in every
+                                // theme.
                                 ColumnLayout {
                                     Layout.fillWidth: true
                                     Layout.topMargin: AppTheme.spacing16
@@ -6038,53 +5153,13 @@ Item {
                                         color: AppTheme.stormTextSecondary
                                         font.pixelSize: AppTheme.textMeta
                                     }
-                                    // ── A ROW THAT CANNOT SHRINK MAKES THE
-                                    // WHOLE PAGE WIDER THAN THE WINDOW ────
-                                    //
-                                    // This was a RowLayout of nine swatches,
-                                    // the custom slot, a fillWidth spacer and
-                                    // the "Use theme colour" button. A
-                                    // RowLayout's minimum width is the sum of
-                                    // its children's minimums, and none of
-                                    // these can shrink: 10x30 + 11 gaps + the
-                                    // button is ~470 px that the layout
-                                    // refuses to go below. That minimum
-                                    // propagates up through the enclosing
-                                    // ColumnLayout, so the COLUMN — and with
-                                    // it the wrapping help paragraph above,
-                                    // which sizes itself to the column — grew
-                                    // wider than the card.
-                                    //
-                                    // Measured at the app's own declared
-                                    // minimum window (Main.qml: 640x420):
-                                    // the help text was cut mid-word at the
-                                    // window edge (card border at x=615, ink
-                                    // running to x=639), the "+" slot, "Use
-                                    // theme colour" and the display-name
-                                    // "Edit" button were entirely off-screen,
-                                    // and `contentFlick` sets no
-                                    // `contentWidth` and clips, so there was
-                                    // no horizontal scrollbar and no way to
-                                    // reach any of it. The page needed ~860 px
-                                    // against a declared minimum of 640.
-                                    //
-                                    // A Flow's minimum is its WIDEST CHILD,
-                                    // so the column can now follow the card
-                                    // down to any width the window allows and
-                                    // the swatches wrap onto a second line
-                                    // instead. Raising Main.qml's minimum to
-                                    // 860 was the alternative and is the
-                                    // worse trade: it is a global constraint
-                                    // on every screen, imposed because of one
-                                    // card, and 860 is a lot to ask of a
-                                    // tiled window manager or a small laptop.
-                                    //
-                                    // The button joins the flow rather than
-                                    // sitting in a right-aligned cell of its
-                                    // own: it is a reset for this swatch
-                                    // group, it reads as the group's last
-                                    // item, and a Flow has no fillWidth
-                                    // spacer to push it anywhere.
+                                    // A Flow, not a RowLayout: a RowLayout's
+                                    // minimum is the sum of its children, which
+                                    // forced the column wider than the card and
+                                    // pushed controls off-screen at the minimum
+                                    // window width. A Flow's minimum is its
+                                    // widest child. The reset button is the
+                                    // group's last item.
                                     Flow {
                                         objectName: "nameColorSwatchFlow"
                                         Layout.fillWidth: true
@@ -6098,13 +5173,8 @@ Item {
                                                 implicitHeight: 30
                                                 radius: 15
                                                 readonly property string hex:
-                                                    // String() because this is
-                                                    // a QML `color`, and
-                                                    // comparing a color to a
-                                                    // hex STRING with === is
-                                                    // never true — which is
-                                                    // why the selected swatch
-                                                    // showed no ring at all.
+                                                    // String(): comparing a color to a hex
+                                                    // string with === is never true.
                                                     String(AppTheme.nameInkForSlot(index)).toLowerCase()
                                                 color: AppTheme.nameInkForSlot(index)
                                                 border.width: app.nameColors.ownColor.toLowerCase()
@@ -6117,10 +5187,9 @@ Item {
                                                 }
                                             }
                                         }
-                                        // A tenth swatch for ANY colour: the nine slots are the theme's own
-                                        // inks, and a colour that is none of them shows here with the ring.
-                                        // Tapping it opens the picker below; nothing is sent until Apply, since
-                                        // the picker reports every drag step and each set is a server write.
+                                        // A tenth swatch for any colour. It opens
+                                        // the picker below; nothing is sent until
+                                        // Apply, since each set is a server write.
                                         Rectangle {
                                             id: nameColorCustomSwatch
                                             objectName: "nameColorCustomSwatch"
@@ -6135,13 +5204,8 @@ Item {
                                                         return false
                                                 return true
                                             }
-                                            // stormInset, not stormPanel: the
-                                            // empty "+" slot sits ON a
-                                            // SettingsCard, and the card IS
-                                            // stormPanel now — a raised disc on
-                                            // a raised card is no disc at all.
-                                            // A recessed well is also the right
-                                            // reading for an unfilled slot.
+                                            // stormInset: the card is stormPanel, so
+                                            // an empty slot is a recessed well.
                                             color: ownIsCustom ? app.nameColors.ownColor : AppTheme.stormInset
                                             border.width: ownIsCustom ? 3 : 1
                                             border.color: ownIsCustom ? AppTheme.stormText : AppTheme.stormBorderStrong
@@ -6168,12 +5232,9 @@ Item {
                                                 }
                                             }
                                         }
-                                        // A Flow top-aligns what shares a
-                                        // line, and this button is 32 px
-                                        // against the discs' 30. One
-                                        // wrapper of the discs' own height
-                                        // centres it on them instead of
-                                        // leaving a 2 px step in the row.
+                                        // A Flow top-aligns a line; wrap the 32px
+                                        // button at the discs' 30px height to
+                                        // centre it.
                                         Item {
                                             implicitWidth: clearNameColorButton.implicitWidth
                                             implicitHeight: 30
@@ -6190,9 +5251,9 @@ Item {
                                             }
                                         }
                                     }
-                                    // The custom picker, inline like the theme editor's, hidden until the
-                                    // tenth swatch opens it. `draft` is what the picker currently shows;
-                                    // Apply is the one write.
+                                    // Inline custom picker, hidden until the
+                                    // tenth swatch opens it. `draft` is what it
+                                    // shows; Apply is the one write.
                                     ColorPickerPanel {
                                         id: nameColorPicker
                                         objectName: "nameColorPicker"
@@ -6270,14 +5331,8 @@ Item {
                                     }
                                 }
 
-                                // ── Your own profile picture.
-                                //
-                                // The account had a banner editor and NO way
-                                // to change its avatar at all — the whole
-                                // own-avatar path (FFI, client, controller)
-                                // did not exist. Every other display image in
-                                // the app goes through the crop dialog, and
-                                // so does this one.
+                                // Own profile picture, through the crop dialog
+                                // like every display image.
                                 ColumnLayout {
                                     objectName: "ownAvatarSection"
                                     Layout.fillWidth: true
@@ -6296,13 +5351,9 @@ Item {
                                         Avatar {
                                             objectName: "ownAvatarPreview"
                                             size: AppTheme.scaled(64)
-                                            // Read from the SAME account
-                                            // record the identity card above
-                                            // reads, not a second derivation:
-                                            // the write path re-fetches the
-                                            // profile on success, so the
-                                            // server stays the authority and
-                                            // both surfaces update together.
+                                            // From the same account record as the
+                                            // identity card; the write path re-fetches
+                                            // the profile, so both update together.
                                             mxc: accountIdentityCard.accountRecord
                                                  && accountIdentityCard.accountRecord.avatarUrl
                                                  ? accountIdentityCard.accountRecord.avatarUrl : ""
@@ -6329,12 +5380,8 @@ Item {
                                                     objectName: "removeOwnAvatarButton"
                                                     storm: true
                                                     text: qsTr("Remove")
-                                                    // !! rather than a bare
-                                                    // `a && b` chain: that
-                                                    // yields null when `a` is
-                                                    // null, and assigning
-                                                    // null to a bool is a QML
-                                                    // warning.
+                                                    // !! so the result is a bool; `a && b`
+                                                    // yields null when a is null.
                                                     visible: !!(accountIdentityCard.accountRecord
                                                              && accountIdentityCard.accountRecord.avatarUrl
                                                              && accountIdentityCard.accountRecord.avatarUrl.length > 0)
@@ -6373,29 +5420,17 @@ Item {
                                     ImageCropDialog {
                                         id: ownAvatarCrop
                                         role: "avatar"
-                                        // The URL crosses as-is; the
-                                        // controller converts it. Stripping
-                                        // "file://" here produced "/C:/..."
-                                        // on Windows, per the banner path.
+                                        // Pass the URL as-is; stripping "file://"
+                                        // breaks Windows paths.
                                         onCropped: function (file) {
                                             app.submitOwnAvatar(file)
                                         }
                                     }
                                 }
 
-                                // ── Your own bio (MSC4133 extended profile).
-                                // You could READ everyone's bio and write
-                                // nobody's, including your own, because the
-                                // manager shipped with no editor anywhere.
-                                //
-                                // Hidden when the BACKEND cannot write the
-                                // field at all, disclosed-but-disabled when
-                                // the HOMESERVER is the one that cannot —
-                                // the same split the profile banner above
-                                // already makes, for the same reason: a
-                                // control that cannot work is worse than no
-                                // control, but a server limitation is the
-                                // user's to know about.
+                                // Own bio (MSC4133 extended profile). Hidden
+                                // when the backend cannot write it, disclosed
+                                // but disabled when the homeserver cannot.
                                 ColumnLayout {
                                     objectName: "ownBioSection"
                                     Layout.fillWidth: true
@@ -6424,12 +5459,10 @@ Item {
                                         TextArea {
                                             id: ownBioField
                                             objectName: "ownBioField"
-                                            // The stored value is the source
-                                            // of truth; the field follows it
-                                            // unless the user is editing.
-                                            // Assigning `text` imperatively
-                                            // would destroy that binding, so
-                                            // the sync goes the other way.
+                                            // The stored value is the source of truth;
+                                            // the field follows it unless being
+                                            // edited. Assigning `text` imperatively
+                                            // would destroy that binding.
                                             property bool dirty: false
                                             text: app.bio ? app.bio.ownBio : ""
                                             onTextChanged: if (activeFocus) dirty = true
@@ -6455,9 +5488,8 @@ Item {
                                         spacing: AppTheme.spacing8
                                         Label {
                                             objectName: "ownBioCounter"
-                                            // Counted in CHARACTERS, matching
-                                            // the Rust bound, which takes
-                                            // chars() and never a byte slice.
+                                            // Counted in characters, matching the Rust
+                                            // bound.
                                             text: qsTr("%1 / %2")
                                                 .arg(ownBioField.text.length)
                                                 .arg(app.bio ? app.bio.maxLength : 0)
@@ -6499,10 +5531,8 @@ Item {
                                         wrapMode: Text.WordWrap
                                         lineHeight: AppTheme.lineHeightBody
                                         lineHeightMode: Text.ProportionalHeight
-                                        // DISCLOSED rather than hidden: the
-                                        // field is a server capability, and
-                                        // silently disabling the box would
-                                        // read as the app being broken.
+                                        // Disclosed rather than hidden: a server
+                                        // capability.
                                         visible: !!(app.bio && !app.bio.supported)
                                         text: qsTr("Your homeserver does not support profile bios yet.")
                                         color: AppTheme.stormTextMuted
@@ -6537,20 +5567,11 @@ Item {
                                 }
                             }
                         }
-                        // Profile banner (MSC4427 over MSC4133 extended
-                        // profile fields). Hidden outright when the BACKEND
-                        // cannot read them: a control that cannot work is
-                        // worse than no control.
-                        //
-                        // A homeserver that does not implement extended
-                        // profiles is a different case and is DISCLOSED
-                        // rather than hidden. Hiding it there answered the
-                        // wrong question — the user has already seen the
-                        // feature, tried it and been refused, and a surface
-                        // that silently disappears at that moment tells them
-                        // nothing about why. The account is asked once on
-                        // open so the answer is known BEFORE a file is
-                        // picked, instead of after an upload fails.
+                        // Profile banner (MSC4427 over MSC4133 extended profile
+                        // fields). Hidden when the backend cannot read them;
+                        // disclosed when the homeserver lacks extended
+                        // profiles. The account is asked on open so the answer
+                        // is known before a file is picked.
                         SettingsCard {
                             id: profileBannerCard
                             visible: app.banners && app.banners.available
@@ -6558,9 +5579,8 @@ Item {
                                 app.banners && app.banners.supported
                             readonly property string ownUserId:
                                 app.accounts ? app.accounts.activeUserId : ""
-                            // On every OPEN, not once at creation: the
-                            // screen is built ahead of time and kept, so
-                            // "when created" is "at launch, once".
+                            // On every open: the screen is built ahead of time
+                            // and kept.
                             readonly property bool shown: root.visible
                             onShownChanged: if (shown) profileBannerCard.ask()
                             Component.onCompleted: if (root.visible) profileBannerCard.ask()
@@ -6602,11 +5622,8 @@ Item {
                                             return app.banners.ownBanner
                                         }
                                         // A counter, never an assignment to
-                                        // `source`: assigning a bound
-                                        // property imperatively destroys the
-                                        // binding, and this card would then
-                                        // keep showing a banner the account
-                                        // has since replaced or removed.
+                                        // `source`, which would destroy the
+                                        // binding.
                                         property int resolveTick: 0
                                         source: {
                                             var _tick = resolveTick
@@ -6663,12 +5680,9 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormDanger
                                     font.pixelSize: AppTheme.textMeta
-                                    // Named causes get a sentence a person
-                                    // can act on. A raw category told the
-                                    // user "(unsupported)" for a homeserver
-                                    // limitation they would reasonably read
-                                    // as a rejected image — and they read it
-                                    // exactly that way.
+                                    // Named causes get an actionable sentence;
+                                    // a raw category read like a rejected
+                                    // image.
                                     text: {
                                         if (!profileBannerCard.serverSupports)
                                             return ""
@@ -6685,8 +5699,8 @@ Item {
                                         return qsTr("The banner could not be saved (%1).").arg(e)
                                     }
                                 }
-                                // The homeserver's own answer, stated once,
-                                // where the control used to be.
+                                // The homeserver's answer, stated where the
+                                // control would be.
                                 Label {
                                     objectName: "profileBannerUnsupported"
                                     Layout.fillWidth: true
@@ -6708,10 +5722,7 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
-                                    // Said plainly, because a banner is
-                                    // PUBLIC profile data — anyone who can see
-                                    // the account can see it — and because it
-                                    // is written under two names on purpose.
+                                    // A banner is public profile data.
                                     text: qsTr("A wide image shown behind your profile card, "
                                                + "about 3:1. It is part of your public profile, "
                                                + "so anyone who can see your account can see it. "
@@ -6723,20 +5734,17 @@ Item {
                                     id: bannerFileDialog
                                     title: qsTr("Choose a banner image")
                                     nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)")]
-                                    // The picker CHOOSES; the crop dialog
-                                    // decides what is published, and refuses
-                                    // anything that is not one of the five
-                                    // raster formats before it is rendered.
+                                    // The crop dialog decides what is published
+                                    // and refuses anything but the five raster
+                                    // formats before rendering.
                                     onAccepted: ownBannerCrop.openFor(
                                         selectedFile)
                                 }
                                 ImageCropDialog {
                                     id: ownBannerCrop
                                     role: "banner"
-                                    // The URL goes across as-is;
-                                    // ProfileBannerManager converts it.
-                                    // Stripping "file://" here produced
-                                    // "/C:/..." on Windows.
+                                    // Pass the URL as-is; stripping "file://"
+                                    // breaks Windows paths.
                                     onCropped: function (file) {
                                         app.banners.setOwnBanner(
                                             file.toString())
@@ -6802,7 +5810,7 @@ Item {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
-                        // Storage / crypto backend facts (all backends).
+                        // Storage / crypto backend facts.
                         SettingsCard {
                             ColumnLayout {
                                 width: parent.width
@@ -6852,10 +5860,9 @@ Item {
                             }
                         }
 
-                        // v0.6.0 checkpoint 7: read-only E2EE health from
-                        // the Rust SDK (app.cryptoHealth). Unsupported
-                        // capabilities show as informative state, never as
-                        // errors.
+                        // Read-only E2EE health from the Rust SDK
+                        // (app.cryptoHealth). Unsupported capabilities are
+                        // informative state, not errors.
                         SettingsCard {
                             visible: app.backendName === "rust"
                             ColumnLayout {
@@ -6892,12 +5899,10 @@ Item {
                                     color: AppTheme.stormText
                                     text: app.cryptoHealth.statusSummary
                                 }
-                                // v0.7: live verified-session bootstrap
-                                // status — the SDK-owned secret request /
-                                // backup restore progress after verifying
-                                // this session from a trusted one. Manual
-                                // recovery-key entry below stays the
-                                // fallback, never the first step.
+                                // Live bootstrap status: the SDK's secret
+                                // request / backup restore after this session
+                                // is verified. Manual recovery-key entry below
+                                // is the fallback.
                                 RowLayout {
                                     objectName: "cryptoBootstrapStatus"
                                     visible: app.cryptoBootstrap.active
@@ -6932,15 +5937,11 @@ Item {
                                         Accessible.name: text
                                     }
                                 }
-                                // v0.7.2: standards-based key re-request.
-                                // The Rust recovery coordinator issues a
-                                // FRESH m.secret.request round through the
-                                // SDK's gossip machinery (new request IDs,
-                                // full trust validation on the answers) and
-                                // keeps re-trying on a bounded ladder. Shown
-                                // only when a new request is genuinely
-                                // useful (session verified, identity
-                                // trusted, secrets still missing).
+                                // Key re-request: a fresh m.secret.request
+                                // round through the SDK's gossip machinery,
+                                // retried on a bounded ladder. Shown only when
+                                // useful (session verified, identity trusted,
+                                // secrets missing).
                                 AppButton {
                                     storm: true
                                     objectName: "requestKeysAgain"
@@ -6950,12 +5951,10 @@ Item {
                                     Accessible.name: text
                                     onClicked: app.requestEncryptionKeys()
                                 }
-                                // When this session does not itself trust
-                                // the account identity, a gossiped answer
-                                // could not be accepted — only a repeated
-                                // interactive verification (or the recovery
-                                // key below) can complete the trust chain.
-                                // No new crypto: this is the existing
+                                // If this session does not trust the account
+                                // identity, a gossiped answer cannot be
+                                // accepted; only verification or the recovery
+                                // key completes the chain. Uses the existing
                                 // startOwnVerification path.
                                 AppButton {
                                     storm: true
@@ -6975,9 +5974,8 @@ Item {
                                           : qsTr("Verify another session to request keys")
                                     Accessible.name: text
                                     onClicked: {
-                                        // The live flow card renders in the
-                                        // Sessions section — bring it into
-                                        // view alongside starting the flow.
+                                        // The flow card renders in Sessions; bring
+                                        // it into view.
                                         root.section = "sessions"
                                         app.startOwnVerification()
                                     }
@@ -7015,11 +6013,9 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
-                                    // "Not yet known" is its own answer. A
-                                    // network failure while probing used to
-                                    // render as "none found", which is the
-                                    // one wrong answer that makes someone
-                                    // abandon a real recovery key.
+                                    // "Not yet known" is distinct from "none
+                                    // found", which could make someone abandon
+                                    // a real recovery key.
                                     text: app.cryptoHealth.keyBackupUsable
                                           ? qsTr("Key backup: active on this session")
                                           : app.cryptoHealth.keyBackupAvailable === CryptoHealthModel.Yes
@@ -7052,22 +6048,10 @@ Item {
                                             ? qsTr("Encryption sync: ready")
                                             : qsTr("Encryption sync: waiting")
                                 }
-                                // v0.7.2 sanitized recovery diagnostics —
-                                // fixed tokens and counts only, expandable
-                                // so the primary status stays concise.
-                                // v0.6.5 (C8): a real disclosure row instead
-                                // of a bare underlined Label — the plain-text
-                                // link read as inert body copy, so clicking
-                                // it could be mistaken for an unrelated
-                                // geometry defect rather than the intentional
-                                // expander it is. Row chrome plus a rotating
-                                // chevron (the same treatment AppComboBox's
-                                // indicator already uses) make the
-                                // expand/collapse affordance visible; the
-                                // toggled property, its target block, and the
-                                // click behavior are unchanged. implicitHeight
-                                // is a hard constant — hover/press only paint
-                                // the background, they never resize the row.
+                                // Sanitized recovery diagnostics (fixed tokens
+                                // and counts only), expandable. A real
+                                // disclosure row with a rotating chevron;
+                                // implicitHeight is constant.
                                 AbstractButton {
                                     id: recoveryDiagnosticsToggle
                                     objectName: "recoveryDiagnosticsToggle"
@@ -7110,18 +6094,9 @@ Item {
                                                ? Qt.alpha(AppTheme.stormSelection, 0.55)
                                                : "transparent"
                                     }
-                                    // Keyboard focus ring — the same
-                                    // absolute-overlay idiom every other
-                                    // AbstractButton-based control in this
-                                    // file uses (matchSystemSwitch above;
-                                    // IconButton/AppButton/AppTextField
-                                    // shell-wide): anchors.fill + negative
-                                    // margins, so it paints outside the
-                                    // row's own bounds and never feeds back
-                                    // into implicitHeight. visualFocus (not
-                                    // activeFocus) because this IS an
-                                    // AbstractButton — it only lights on
-                                    // keyboard focus, not a plain click.
+                                    // Focus ring overlay drawn outside the row
+                                    // (anchors.fill with negative margins).
+                                    // visualFocus: keyboard focus only.
                                     Rectangle {
                                         anchors.fill: parent
                                         anchors.margins: -4
@@ -7215,14 +6190,13 @@ Item {
 
                     }
 
-                    // ════════════ Sessions (design 1d) ════════════
+                    // ════════════ Sessions ════════════
                     ColumnLayout {
                         visible: root.section === "sessions"
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
-                        // The trust chain's DEVICES step reads the session
-                        // list — populate it when the section opens (same
-                        // data the manual Refresh below fetches).
+                        // The trust chain's devices step reads the session
+                        // list; load it when the section opens.
                         onVisibleChanged: {
                             if (visible && app.backendName === "rust")
                                 app.refreshSessionDevices()
@@ -7246,11 +6220,9 @@ Item {
                             lineHeightMode: Text.ProportionalHeight
                         }
 
-                        // v0.9.0 MSC4108: sign another device in from this
-                        // one. It lives under Sessions because that is what
-                        // it produces — a new session, already verified —
-                        // and because someone looking for "how do I get
-                        // Lightning onto my phone" looks here.
+                        // MSC4108: sign another device in from this one. Under
+                        // Sessions because it produces a new, already verified
+                        // session.
                         SettingsCard {
                             visible: app.qrLogin && app.qrLogin.available
                             ColumnLayout {
@@ -7281,17 +6253,13 @@ Item {
                             }
                         }
 
-                        // v0.6.5 (SPEC 1r): the own-account trust chain,
-                        // driven by REAL crypto state only — never another
-                        // user's, never optimistic. Brand-fixed by design
-                        // (the card deliberately ignores the theme). Verify
-                        // routes to the existing SAS flow; its visibility
-                        // mirrors the start-row complement further below so
-                        // the two controls never coexist.
-                        // v0.9 (phase 9): cross-signing detail. Three keys
-                        // individually, whether THIS session is verified,
-                        // and whether the secrets are recoverable — booleans
-                        // from the SDK's identity state, never key material.
+                        // Own-account trust chain, from real crypto state only.
+                        // Brand-fixed colours by design. Verify routes to the
+                        // SAS flow; its visibility mirrors the start row below
+                        // so both never show. Cross-signing detail: the three
+                        // keys, whether this session is verified, and whether
+                        // secrets are recoverable (booleans only, never key
+                        // material).
                         Rectangle {
                             objectName: "crossSigningDetailCard"
                             Layout.fillWidth: true
@@ -7345,11 +6313,10 @@ Item {
                             }
                         }
 
-                        // v0.9 (phase 9): key-backup management. Health is
-                        // NOT inferred from "a backup version exists": the
-                        // usable/state line is the SDK's, and every action
-                        // is the SDK's own flow with an explicit warning
-                        // where it is destructive.
+                        // Key-backup management. Health comes from the SDK's
+                        // usable/state line, not from a version existing; every
+                        // action is the SDK's own flow, with a warning where
+                        // destructive.
                         Rectangle {
                             id: backupCard
                             objectName: "backupManagementCard"
@@ -7364,9 +6331,8 @@ Item {
                             implicitHeight: backupCol.implicitHeight
                                             + AppTheme.spacing16 * 2
                             property string pendingConfirm: ""
-                            // Re-asked on every open (the screen is kept
-                            // alive), or the "backed up N of M" figures would
-                            // freeze at their launch-time values.
+                            // Re-asked on every open, since the screen is kept
+                            // alive.
                             readonly property bool shown: root.visible
                             onShownChanged: if (shown && app.backup) app.backup.requestProgress()
                             Component.onCompleted: if (root.visible && app.backup) app.backup.requestProgress()
@@ -7470,9 +6436,9 @@ Item {
                                         }
                                     }
                                 }
-                                // Destructive actions ask twice: the first
-                                // click arms, the second confirms, and the
-                                // copy says what is lost.
+                                // Destructive actions arm on the first click
+                                // and confirm on the second; the copy says what
+                                // is lost.
                                 Label {
                                     Layout.fillWidth: true
                                     visible: backupCard.pendingConfirm.length > 0
@@ -7492,19 +6458,12 @@ Item {
                                     spacing: AppTheme.spacing8
                                     AppButton {
                                         objectName: "backupEnableButton"
-                                        // A DEFINITE No, never merely "not
-                                        // known". runAction("enable") reaches
-                                        // Recovery::enable(), which on a
-                                        // session whose store already holds a
-                                        // backup key falls through to
-                                        // create_secret_store() and mints a
-                                        // NEW 4S key — silently invalidating
-                                        // the recovery key the user already
-                                        // has, with none of the double
-                                        // confirmation the reset action has.
-                                        // Offering that off an unanswered
-                                        // probe is how someone loses a
-                                        // recovery key to a network blip.
+                                        // A definite No, never "not known": enable
+                                        // reaches Recovery::enable(), which on a
+                                        // store that already holds a backup key
+                                        // mints a new 4S key and silently
+                                        // invalidates the user's existing recovery
+                                        // key.
                                         visible: app.cryptoHealth.keyBackupAvailable === CryptoHealthModel.No
                                                  && !app.cryptoHealth.secretStorageAvailable
                                         storm: true
@@ -7529,30 +6488,17 @@ Item {
                                     }
                                     AppButton {
                                         objectName: "backupResetKeyButton"
-                                        // NOT `secretStorageAvailable` ALONE.
-                                        // That flag is SERVER truth -- the SDK
-                                        // reports whether the account has 4S at
-                                        // all -- and it is true on a session
-                                        // that holds none of the secrets.
-                                        //
-                                        // `Reset` calls `create_secret_store()`
-                                        // and nothing else, and the store is
-                                        // filled from what the LOCAL olm
-                                        // machine can export. So on a freshly
-                                        // signed-in, unverified session this
-                                        // button repointed
-                                        // `m.secret_storage.default_key` at a
-                                        // key whose store is EMPTY: the old
-                                        // recovery key stops opening anything
-                                        // and the new one opens nothing, and
-                                        // the account's cross-signing identity
-                                        // is no longer recoverable from 4S by
-                                        // anyone. matrix-sdk's own source
-                                        // carries the matching TODO.
-                                        //
-                                        // Gated on this session actually
-                                        // holding what it would upload. Found
-                                        // in the 2026-09-13 pre-release audit.
+                                        // Not secretStorageAvailable alone, which
+                                        // is server truth and is true on a session
+                                        // holding none of the secrets. Reset calls
+                                        // create_secret_store(), filled from what
+                                        // this session can export, so on an
+                                        // unverified session it would repoint
+                                        // m.secret_storage.default_key at an empty
+                                        // store: the old recovery key opens
+                                        // nothing and the identity is no longer
+                                        // recoverable. Gated on this session
+                                        // holding the secrets.
                                         visible: app.cryptoHealth.secretStorageAvailable
                                                  && app.cryptoHealth.crossSigningReady
                                                  && app.cryptoHealth.currentDeviceVerified
@@ -7607,8 +6553,7 @@ Item {
                             visible: app.cryptoHealth
                                      && app.cryptoHealth.cryptoSupported
                             // Same invokable-staleness guard as the Account
-                            // header above: refresh on registry/selection
-                            // changes instead of binding a Q_INVOKABLE.
+                            // header.
                             property var accountRecord: ({})
                             function refreshAccountRecord() {
                                 accountRecord =
@@ -7626,31 +6571,19 @@ Item {
                                     sessionsTrustCard.refreshAccountRecord()
                                 }
                             }
-                            // AN EMPTY LIST IS NOT AN ANSWER. It is empty
-                            // before the fetch returns AND when the fetch
-                            // FAILS, and the old fallback read "this device is
-                            // verified" in both cases -- so a /devices request
-                            // that never came back rendered a complete green
-                            // "0 DEVICES" step and "3 of 3 checks complete",
-                            // claiming every session is verified while hiding
-                            // a genuinely unverified one. §9 is explicit that
-                            // trust labels come from SDK state, and "the list
-                            // did not load" is not the SDK saying verified.
-                            // `sessionDevicesFailed` already exists and is
-                            // rendered as a banner elsewhere in this pane;
-                            // this binding simply never consulted it. Found in
-                            // the 2026-09-13 pre-release audit.
+                            // An empty list is not an answer: it is empty
+                            // before the fetch returns and when it fails.
+                            // Consult sessionDevicesFailed; trust labels come
+                            // from SDK state, not from a missing list.
                             readonly property bool devicesVerified:
                                 app.sessionDevicesFailed
                                 || app.sessionDevicesLoading
                                 ? false
                                 : app.sessionDevices.length > 0
-                                  // NOT `d.verified`: is_verified() is a constant
-                                  // true for our OWN device (matrix-sdk marks it
-                                  // locally trusted at creation), so an `every`
-                                  // over it would pass on the one device that can
-                                  // never fail it and report a wholly unverified
-                                  // account as trusted.
+                                  // Not d.verified: is_verified() is always
+                                  // true for our own device (the SDK marks it
+                                  // locally trusted), so it would report an
+                                  // unverified account as trusted.
                                   ? app.sessionDevices.every(
                                         d => d.crossSigned === true)
                                   : app.cryptoHealth.currentDeviceVerified
@@ -7691,13 +6624,10 @@ Item {
                             onVerifyRequested: app.startOwnVerification()
                         }
 
-                        // v0.6.0 checkpoint 9: the account's Matrix
-                        // devices/sessions — server metadata merged with SDK
-                        // crypto trust. v0.7.x: other sessions can be signed
-                        // out through the reusable UIA flow (password
-                        // accounts) or the account console (OAuth/MAS
-                        // accounts, which have no password stage). A tile
-                        // disappears only when the authoritative refetch
+                        // The account's devices: server metadata merged with
+                        // SDK trust. Other sessions can be signed out via UIA
+                        // (password accounts) or the account console
+                        // (OAuth/MAS). A tile disappears only when the refetch
                         // confirms the deletion.
                         SettingsCard {
                             visible: app.backendName === "rust"
@@ -7706,10 +6636,9 @@ Item {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
 
-                                // Sign-out outcome notice + OAuth console
-                                // routing. The card is visibility-toggled
-                                // (never unloaded), so a result arriving
-                                // while another section is shown still
+                                // Sign-out notice and OAuth console routing.
+                                // The card is visibility-toggled, so a result
+                                // arriving while another section is shown still
                                 // lands here.
                                 property string actionNotice: ""
                                 property bool actionNoticeError: false
@@ -7749,9 +6678,8 @@ Item {
                                         sessionsListCard.actionNoticeError = !ok
                                     }
                                     function onManagementUrlReady(url) {
-                                        // The account console owns OAuth
-                                        // session management; open it and
-                                        // let Refresh pick up the result.
+                                        // The account console owns OAuth session
+                                        // management; Refresh picks up the result.
                                         app.media.openWebUrl(url)
                                         sessionsListCard.actionNotice = qsTr(
                                             "Manage this in the account "
@@ -7762,9 +6690,8 @@ Item {
                                 }
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    // Mono-caption module header — the trust
-                                    // card's "TRUST CHAIN" idiom, in theme
-                                    // ink.
+                                    // Mono-caption module header, as on the
+                                    // trust card.
                                     RowLayout {
                                         spacing: AppTheme.spacing6
                                         Icon {
@@ -7812,18 +6739,10 @@ Item {
                                     font.pixelSize: AppTheme.textBody
                                     text: qsTr("Press Refresh to load this account's sessions.")
                                 }
-                                // v0.6.5 polish: each session is a small
-                                // elevated tile (device icon, name, status
-                                // chips, mono metadata) — the premium card
-                                // language of the trust surface, in theme
-                                // ink. Trust values still come straight from
-                                // SDK state; nothing here invents trust.
-                                // v0.9 (phase 9): filter the list. A
-                                // QML-side filter over the same snapshot —
-                                // nothing is refetched, and "Unverified"
-                                // means a session WITH a crypto identity
-                                // that is not cross-signed (a session with
-                                // no encryption at all is neither).
+                                // Filter over the same snapshot, no refetch.
+                                // "Unverified" means a session with a crypto
+                                // identity that is not cross-signed; one with
+                                // no encryption is neither.
                                 SegmentedControl {
                                     id: sessionFilter
                                     objectName: "sessionFilter"
@@ -7859,8 +6778,8 @@ Item {
                                             var d = all[i]
                                             if (f === "current" && d.isCurrent === true)
                                                 out.push(d)
-                                            // Same fact as the chip above, or the
-                                            // filter disagrees with the badge it filters.
+                                            // Same fact as the chip, so the filter
+                                            // matches the badge.
                                             else if (f === "verified" && d.crossSigned === true)
                                                 out.push(d)
                                             else if (f === "unverified"
@@ -7933,25 +6852,14 @@ Item {
                                                     }
                                                     StatusChip {
                                                         storm: true
-                                                        // `crossSigned`, NOT `verified`, AND THE
-                                                        // ROUND THAT SWAPPED THEM WAS WRONG.
-                                                        // `verified` is Device::is_verified(), and
-                                                        // matrix-sdk marks OUR OWN device locally
-                                                        // trusted the moment it creates it
-                                                        // (machine/mod.rs:350), so for the row
-                                                        // badged "This session" it is a constant
-                                                        // true — measured live on 2026-09-20, a
-                                                        // fresh unverified login was badged green
-                                                        // "Verified" with every cross-signing key
-                                                        // Missing. `crossSigned` says our identity
-                                                        // vouched for the device, which is what the
-                                                        // word has to mean here.
-                                                        // Follow-up, deliberately not done: for the
-                                                        // rows that are NOT this session,
-                                                        // is_verified() is the better flag because
-                                                        // it also catches a device verified by SAS
-                                                        // without cross-signing. That needs
-                                                        // `isCurrent ? crossSigned : verified`.
+                                                        // crossSigned, not verified: matrix-sdk
+                                                        // marks our own device locally trusted at
+                                                        // creation, so is_verified() is always
+                                                        // true for "This session". Follow-up: for
+                                                        // other rows is_verified() is better (it
+                                                        // also covers SAS without cross-signing),
+                                                        // i.e. `isCurrent ? crossSigned :
+                                                        // verified`.
                                                         label: modelData.crossSigned === true
                                                               ? qsTr("Verified")
                                                               : modelData.hasCryptoIdentity === true
@@ -7984,17 +6892,12 @@ Item {
                                                 }
                                             }
 
-                                            // v0.7.x: sign out THIS OTHER
-                                            // session. Never offered for the
-                                            // current one — that is the
-                                            // normal Sign out flow with its
-                                            // store cleanup.
-                                            // v0.9 (phase 9): rename. A
-                                            // small inline field replaces
-                                            // the button while editing; the
-                                            // write goes through the standard
-                                            // device endpoint and the list
-                                            // refetches on success.
+                                            // Sign out another session; never offered
+                                            // for the current one (that is the normal
+                                            // Sign out with its store cleanup). Rename
+                                            // uses an inline field and the standard
+                                            // device endpoint; the list refetches on
+                                            // success.
                                             AppButton {
                                                 objectName: "sessionRenameButton_"
                                                             + modelData.deviceId
@@ -8158,14 +7061,10 @@ Item {
                                     Layout.fillWidth: true
                                     spacing: AppTheme.spacing8
                                     // Mirror of the active-flow card's
-                                    // condition, so the start row and the flow
-                                    // card are never both shown. When the
-                                    // trust card renders (crypto-supported
-                                    // backends), ITS Verify button is the one
-                                    // start affordance — this legacy row only
-                                    // covers backends without the card, so
-                                    // Sessions never shows two identical
-                                    // Verify triggers at once (v0.6.5).
+                                    // condition. Where the trust card renders,
+                                    // its Verify button is the only start
+                                    // affordance; this row covers backends
+                                    // without it.
                                     visible: !app.verificationActive
                                             && app.verificationState === ""
                                             && !(app.cryptoHealth
@@ -8193,23 +7092,11 @@ Item {
                                     }
                                 }
 
-                                // v0.7.x: the SAS/QR flow itself moved
-                                // OUT of this page and into the focused
-                                // centred modal declared once in Main.qml
-                                // (VerificationDialog). Burying a
-                                // two-device emoji comparison at the bottom
-                                // of a scrolled settings page meant the
-                                // emojis could be off-screen at the exact
-                                // moment the user needed to read them.
-                                //
-                                // The dialog follows AppController's
-                                // verification state, so this page starts a
-                                // flow by asking the controller and nothing
-                                // more — there is no second "is the dialog
-                                // showing" opinion that could disagree.
-                                // What stays here is the resting FACT about
-                                // this session, which the page should state
-                                // whether or not a flow is running.
+                                // The SAS/QR flow runs in the centred
+                                // VerificationDialog (Main.qml), which follows
+                                // AppController's verification state; this page
+                                // only starts a flow and states this session's
+                                // resting status.
                                 Pane {
                                     objectName: "verificationStatusCard"
                                     Layout.fillWidth: true
@@ -8217,13 +7104,8 @@ Item {
                                              && app.cryptoHealth.cryptoSupported
                                              && !app.verificationActive
                                              && app.verificationState === ""
-                                    // stormInset for the same reason as the
-                                    // name-colour "+" slot: this strip is
-                                    // nested INSIDE a SettingsCard, which now
-                                    // paints stormPanel, so a stormPanel strip
-                                    // would be flat against its own card. The
-                                    // other status strips on this page are
-                                    // already stormInset.
+                                    // stormInset: nested inside a SettingsCard
+                                    // (stormPanel).
                                     background: Rectangle {
                                         color: AppTheme.stormInset
                                         border.color:
@@ -8270,24 +7152,11 @@ Item {
                                                     : qsTr("Checking this session's verification "
                                                            + "state\u2026")
                                         }
-                                        // NO Verify button here on purpose:
-                                        // the TrustCard above already owns
-                                        // the single start affordance on
-                                        // crypto-capable backends (v0.6.5),
-                                        // and this card is only ever shown
-                                        // on those. A second identical
-                                        // trigger a few hundred pixels
-                                        // below it is exactly what that
-                                        // decision avoided.
-                                        //
-                                        // Dismiss silences the BADGES (the
-                                        // rail cog and the Sessions nav
-                                        // dot) — never this card, which
-                                        // keeps stating the fact. It is
-                                        // cleared automatically once the
-                                        // session verifies, so it can
-                                        // never hide a later unverified
-                                        // session.
+                                        // No Verify button: the TrustCard owns the
+                                        // single start affordance. Dismiss
+                                        // silences the badges (rail cog, Sessions
+                                        // dot), never this card, and is cleared
+                                        // automatically once the session verifies.
                                         AppButton {
                                             storm: true
                                             objectName: "verificationDismissButton"
@@ -8308,17 +7177,13 @@ Item {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
-                        // Rust-only: recovery key/passphrase + room-key
+                        // Rust-only: recovery key/passphrase and room-key
                         // import. Restoring recovery also restores
-                        // cross-signing secrets where they are stored in 4S
-                        // (the SDK imports them and can sign this session).
-                        // Honest limitations: SETTING UP new cross-signing or
-                        // a new key backup requires interactive
-                        // re-authentication / full 4S bootstrap, which
-                        // Lightning does not implement in 0.6.0; secrets from
-                        // other sessions arrive via the SDK's automatic
-                        // secret gossip after verification (no manual
-                        // request button is faked).
+                        // cross-signing secrets stored in 4S. Setting up new
+                        // cross-signing or a new backup needs a full 4S
+                        // bootstrap, which is not implemented; secrets from
+                        // other sessions arrive via SDK gossip after
+                        // verification.
                         SettingsCard {
                             visible: app.backendName === "rust"
                             ColumnLayout {
@@ -8356,8 +7221,8 @@ Item {
                                         Layout.minimumWidth: 160
                                         objectName: "recoveryInputField"
                                         echoMode: TextInput.Password
-                                        // The SDK's recover() accepts both a
-                                        // recovery key and a passphrase.
+                                        // recover() accepts a recovery key or a
+                                        // passphrase.
                                         placeholderText: qsTr("Recovery key or passphrase")
                                         enabled: !recoveryPanel.running
                                     }
@@ -8373,9 +7238,8 @@ Item {
                                             recoveryPanel.statusText = qsTr("Recovery started")
                                             recoveryPanel.statusColor = AppTheme.stormTextMuted
                                             app.requestRecoverFromBackup(recoveryField.text)
-                                            // Wipe local copy immediately — the recovery
-                                            // key never sits in a QML property beyond
-                                            // this call.
+                                            // Wipe the field immediately; the key
+                                            // never stays in a QML property.
                                             recoveryField.text = ""
                                         }
                                     }
@@ -8410,9 +7274,8 @@ Item {
                                                 "decrypt as keys arrive. Some old messages may " +
                                                 "still require another verified device to share " +
                                                 "keys.")
-                                            // v0.6.0 checkpoint 10: recovered
-                                            // secrets change trust/backup
-                                            // state — re-read it from the SDK.
+                                            // Recovered secrets change trust/backup
+                                            // state; re-read it.
                                             app.refreshCryptoHealth()
                                             app.refreshSessionTrustState()
                                             recoveryPanel.statusColor = AppTheme.stormSuccess
@@ -8493,9 +7356,7 @@ Item {
                                             app.importRoomKeys(
                                                 importPanel.selectedFileUrl,
                                                 importPassphraseField.text)
-                                            // Wipe the passphrase from the QML field
-                                            // immediately — never keep it beyond the
-                                            // dispatch.
+                                            // Wipe the passphrase field immediately.
                                             importPassphraseField.text = ""
                                         }
                                     }
@@ -8510,10 +7371,8 @@ Item {
                                         }
                                     }
                                 }
-                                // Same treatment as the text-size slider
-                                // right above it in Appearance: 4px, pill
-                                // ends, bolt on stormInset. Left at Basic's
-                                // default this filled in body-text grey.
+                                // Same treatment as the text-size slider: 4px,
+                                // pill ends, bolt on stormInset.
                                 ProgressBar {
                                     id: keyImportProgress
                                     Layout.fillWidth: true
@@ -8576,8 +7435,8 @@ Item {
                                     id: importFileDialog
                                     title: qsTr("Select encrypted Matrix room-key export")
                                     fileMode: FileDialog.OpenFile
-                                    // Deliberately no nameFilters — Element writes
-                                    // .txt exports; users may rename.
+                                    // No nameFilters: Element writes .txt
+                                    // exports and users may rename them.
                                     onAccepted: {
                                         importPanel.selectedFileUrl = selectedFile
                                         importPanel.selectedFileName =
@@ -8635,14 +7494,11 @@ Item {
                             }
                         }
 
-                        // Danger Zone — collapsed by default, clearly apart.
+                        // Danger Zone, collapsed by default.
                         SettingsCard {
                             visible: app.backendName === "rust"
-                            // Overrides the background only to swap the BORDER
-                            // for the expanded danger edge; the fill must stay
-                            // the SettingsCard plane (stormPanel), or the one
-                            // card on the page that matters most is the one
-                            // that disappears into it.
+                            // Only the border changes; the fill stays the
+                            // SettingsCard plane.
                             background: Rectangle {
                                 color: AppTheme.stormPanel
                                 border.color: dangerZone.expanded ? AppTheme.stormDanger
@@ -8723,10 +7579,8 @@ Item {
                                     title: qsTr("Reset local Lightning session?")
                                     confirmText: qsTr("Reset")
                                     confirmKind: "dangerPrimary"
-                                    // Wider than the shared 340 default:
-                                    // this one carries five lines of
-                                    // consequence copy the user has to
-                                    // read before agreeing.
+                                    // Wider than the default 340 for five lines
+                                    // of consequence copy.
                                     width: 440
                                     Label {
                                         width: 380
@@ -8748,7 +7602,7 @@ Item {
                         }
                     }
 
-                    // ════════════ Labs (design 1d) ════════════
+                    // ════════════ Labs ════════════
                     ColumnLayout {
                         visible: root.section === "labs"
                         Layout.fillWidth: true
@@ -8823,14 +7677,9 @@ Item {
                         }
                     }
 
-                    // ════════════ Updates ════════════
-                    // Own file (UpdatesSettingsSection.qml) rather than an
-                    // inline block: it is a substantial, independently
-                    // ownable surface. Visibility-toggled like every other
-                    // pane here (never a Loader — see the file header
-                    // comment), so its own local state (the failure-banner
-                    // dismissal) survives switching to another category and
-                    // back.
+                    // ════════════ Updates ════════════ Visibility-toggled like
+                    // the other panes, so its local state survives category
+                    // switches.
                     UpdatesSettingsSection {
                         objectName: "updatesSection"
                         visible: root.section === "updates"
@@ -8855,9 +7704,8 @@ Item {
                                 spacing: AppTheme.spacing8
                                 RowLayout {
                                     spacing: AppTheme.spacing12
-                                    // The application logo (the custom icon
-                                    // when one is set — About is an in-app
-                                    // branding surface).
+                                    // The application logo, or the custom icon
+                                    // when set.
                                     Image {
                                         objectName: "aboutAppLogo"
                                         source: app.appIconSource
@@ -8912,10 +7760,8 @@ Item {
                             }
                         }
 
-                        // review L5: reserve the Storm Band's height at the
-                        // end of the About column so the content can always
-                        // scroll clear of the overlay's opaque lower part
-                        // on short windows.
+                        // Reserve the Storm Band's height so content can scroll
+                        // clear of its opaque lower part.
                         Item {
                             Layout.fillWidth: true
                             Layout.preferredHeight: 190
@@ -8924,13 +7770,10 @@ Item {
                 }
             }
 
-            // Storm Band — pinned to the very BOTTOM of the content pane,
-            // exactly as the reference mounts it (absolute against the host
-            // pane, dissolving upward through its alpha mask into whatever
-            // is behind it). Input-transparent; About page only.
-            // backdropColor MUST stay stormDeep (the page color this file
-            // paints at its root): ThemeTokensTest bans the raw themed
-            // background token in this file.
+            // Storm Band pinned to the bottom of the content pane, dissolving
+            // upward. Input-transparent; About only. backdropColor must stay
+            // stormDeep (ThemeTokensTest bans the raw background token in this
+            // file).
             StormBand {
                 objectName: "aboutStormBand"
                 visible: root.section === "about"

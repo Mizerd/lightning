@@ -2,10 +2,9 @@ import QtQuick
 import QtQuick.Layouts
 import MatrixClient
 
-// Storm compact trust meter (SPEC-storm-language §3.4): mono TRUST label,
-// 3px progress track, and a mono N/M counter — stormSuccess with a check at
-// full, muted otherwise. Purely presentational; the caller supplies real
-// completed/total from SDK-derived state and must never invent trust.
+// Compact trust meter: mono TRUST label, 3px track and an N/M counter
+// (stormSuccess with a check when full). Presentational; the caller supplies
+// real SDK-derived counts and must never invent trust.
 RowLayout {
     id: root
 

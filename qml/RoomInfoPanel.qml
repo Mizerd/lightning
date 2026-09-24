@@ -4,75 +4,24 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.5.9: right-side Room Information panel (Phase 6 surface for the
-// Phase 10 invite entry point). Overview: identity, encryption state,
-// permission-gated name/topic editing, Leave room with confirmation.
-// People: member search, joined/invited state, roles, Invite button when
-// the SDK says the user may invite. Member data is a bounded in-memory
-// snapshot from RoomInfoController; nothing here is persisted.
+// Right-side Room Information panel. Overview: identity, encryption state,
+// permission-gated name/topic editing, leave with confirmation. People: member
+// search, membership state, roles, Invite when the SDK allows. Member data is a
+// bounded in-memory snapshot from RoomInfoController; nothing is persisted.
 Rectangle {
     id: root
 
-    // ── Section tabs: one coherent segmented row ─────────────────────
-    //
-    // ...that becomes TWO rows when it has to. `fitWidth` compacts the
-    // strip and `dense` trims its padding, and with five tabs that is
-    // still ~370px, against a panel whose floor is 260 (TimelinePane's
-    // clamp). Reported with a screenshot: "Widgets" cut off at the panel
-    // edge. Compaction exhausted, the honest options were a wider floor
-    // — which fights the user's own resize — or wrapping. This wraps.
-    //
-    // How: the full strip stays in the layout as the MEASURE (its
-    // `overflowing` is exactly "the natural width exceeds what I was
-    // given"), but collapses to zero height when it overflows, and a
-    // two-row pair takes its place. It must not be hidden with
-    // `visible`: a Layout ignores invisible items, its width would drop
-    // to 0, `overflowing` would flip back, and the two states would
-    // chase each other every frame.
-    // DEFERRED, not a direct binding on roomInfoTabs.overflowing.
-    //
-    // 2026-09-06: opening this panel killed the client, twice, with two core
-    // dumps a minute apart. The GUI thread's stack in both is one clean
-    // chain, and it is the whole story:
-    //
-    //     polishItems -> QQuickLayout::updatePolish
-    //       -> QQuickGridLayoutBase::rearrange -> setGeometries
-    //         -> geometryChange -> ensureLayoutItemsUpdated
-    //           -> applySizeHints -> setImplicitSize
-    //             -> [a QML binding runs here]
-    //               -> QQuickRepeater::setModel -> requestItems
-    //                 -> a delegate, and a Repeater inside it, are BUILT
-    //
-    // `overflowing` compares the strip's width against its own implicit
-    // width, and BOTH are settled by the very layout pass that is running —
-    // the panel's width is a Layout.preferredWidth the pane's RowLayout
-    // assigns during its own pass. So the wrapped-rows Repeater's model was
-    // being rewritten, and whole delegate trees created and destroyed, from
-    // inside the layout engine's own iteration, every frame the value sat
-    // near its threshold. The reader's account of it is the proof: the
-    // window "freezes, turns grey", goes Not Responding and has to be
-    // terminated — the GUI thread never gets back to the event loop, and
-    // the SIGABRT in the dumps came from outside the process, killing a
-    // window that had stopped answering. It is a hang, not a crash.
-    //
-    // Taking the decision one event-loop turn later puts the model change
-    // outside the pass, and Qt.callLater coalesces a burst of flips into a
-    // single application, so a value jittering at the threshold can no
-    // longer rebuild the tab strip once per frame.
-    //
-    // NOT reproduced in the offscreen harness: it drives no continuous
-    // frames, so the layout settles after one polish instead of being
-    // re-run every frame, and it has no accessibility bridge (the crashing
-    // allocation is inside QAccessible, which only builds interfaces when
-    // an assistive client is attached — it is on this desktop). The
-    // wrap-behaviour tests below pin the FEATURE; the crash itself is
-    // confirmed by the stack above, not by a test.
+    // The section tabs wrap to two rows when they cannot fit the panel (whose
+    // floor is 260). The decision comes from tabsProbe, an off-layout copy
+    // whose width the result cannot move, so the layout never chases itself.
+    // Applied deferred rather than as a direct binding: changing the wrapped
+    // Repeater's model from inside the layout pass (overflowing depends on
+    // widths that pass is settling) rebuilt delegate trees every frame and hung
+    // the GUI thread. Qt.callLater moves the change outside the pass and
+    // coalesces bursts. The offscreen harness cannot reproduce the hang.
     property bool tabsWrap: false
-    // HYSTERESIS, and it is the second half of the fix. Deferring alone
-    // still allows a width parked exactly at the threshold to wrap and
-    // unwrap on alternate turns forever. So wrap the moment the strip does
-    // not fit, but come BACK only once there is real room for it — a gap no
-    // sub-pixel layout jitter can cross.
+    // Hysteresis: wrap as soon as the strip does not fit, unwrap only with real
+    // room to spare, so a width at the threshold cannot flip every turn.
     readonly property real tabsUnwrapSlack: 12
     function applyTabsWrap() {
         if (!tabsWrap) {
@@ -95,21 +44,15 @@ Rectangle {
     }
     color: AppTheme.sidebar
     visible: width > 0
-    // A LAST LINE OF DEFENCE, not a layout fix. Everything in here is meant
-    // to fit the panel's width and wrap or elide when it cannot; clip is what
-    // stops a control that gets that wrong from painting over the timeline —
-    // or, when the panel is at the window edge, off the window entirely.
+    // A last line of defence: stops a control that fails to wrap or elide from
+    // painting over the timeline or off the window.
     clip: true
 
     property var roomData: ({})
     signal closeRequested()
-    // v0.5.9: Media & Files entries delegate viewing/saving to the pane
-    // that owns the viewer and the save dialog (TimelinePane).
-    //
-    // 2026-09-06: the list AND the index, never a key alone — MediaBrowser's own
-    // signal carries the reasoning. A key alone made the viewer search the
-    // loaded timeline for a picture the media history had reached and the
-    // timeline never had, and open something else when it missed.
+    // Media & Files hands viewing/saving to TimelinePane. Pass the list and the
+    // index, never a key alone: the picture may be absent from the loaded
+    // timeline (see MediaBrowser's signal).
     signal openImagesRequested(var entries, int index)
     signal saveMediaRequested(string mediaKey, string filename)
 
@@ -117,87 +60,58 @@ Rectangle {
     property string section: "overview"
     property string memberFilter: ""
 
-    // v0.7.x pinned messages. PinnedMessagesController follows the ACTIVE
-    // room, while this panel can be opened for another room entirely (a
-    // Space home). Rendering its list under a different room's header would
-    // be a lie, so the tab only exists when the two agree.
+    // PinnedMessagesController follows the active room, while this panel can
+    // show another room (a Space home); the tab exists only when the two agree.
     readonly property bool pinnedAvailable:
         app.pinned && app.pinned.supported
         && app.roomInfo.roomId !== ""
         && app.roomInfo.roomId === app.pinned.roomId
-    // A tab that disappears must not leave the panel on a blank section.
+    // A disappearing tab must not leave a blank section.
     onPinnedAvailableChanged: {
         if (!pinnedAvailable && section === "pinned")
             section = "overview"
     }
-    // Widgets get their own TAB rather than a block in Overview. Overview
-    // already carries notifications, the avatar and topic, the member count,
-    // export, room id, the whole Edit room group and every Access control —
-    // it is the fullest section in the panel, and a widget list with
-    // multi-line refusal text pushed all of that further down.
-    //
-    // The tab is ABSENT only when the backend cannot read widgets at all —
-    // that is an honest "this build cannot answer", and it hides a control
-    // that could never work. It is PRESENT for a room with no widgets, which
-    // it briefly was not: gating on `count > 0` meant the tab existed only in
-    // rooms that happened to have one, so in every other room the feature
-    // looked missing rather than empty, and it was reported as exactly that.
-    // Pinned is the precedent in the other direction and People and Media in
-    // this one — a section that can be empty says so on its own pane.
+    // Widgets get their own tab because Overview is already the fullest
+    // section. Absent only when the backend cannot read widgets; present (and
+    // saying so) for a room with none.
     readonly property bool widgetsAvailable:
         app.widgets && app.widgets.supported
     onWidgetsAvailableChanged: {
         if (!widgetsAvailable && section === "widgets")
             section = "overview"
     }
-    // Jump to a pinned event in the timeline. The panel does not own
-    // navigation; TimelinePane does, exactly as it does for search results
-    // and permalinks, so out-of-window pins hydrate through the ONE
-    // existing path rather than a second one built here.
+    // Jump to a pinned event. TimelinePane owns navigation, so out-of-window
+    // pins use the single existing path.
     signal jumpToEventRequested(string eventId)
-    /// Export this room's loaded messages. The host owns the dialog, exactly
-    /// like every other action here: this panel is signal-only, so a refused
-    /// write cannot leave the panel and the account disagreeing.
+    /// Export this room's loaded messages; the host owns the dialog. This panel
+    /// is signal-only.
     signal exportRoomRequested()
 
-    // Looks up avatar/name/topic itself (rather than taking a caller-passed
-    // snapshot) so it stays live: an avatar that arrives asynchronously
-    // after resolveMissingDirectAvatars() completes — or any other room
-    // change — refreshes here exactly like the timeline header does,
-    // instead of freezing on whatever was known at the moment the panel
-    // opened.
+    // Looks up avatar/name/topic itself so late updates (e.g. an avatar
+    // resolved after opening) refresh here, as in the timeline header.
     function openForRoom(roomId) {
         app.roomInfo.roomId = roomId
-        // Widgets are read ON DEMAND, not on every room change: the read is a
-        // /state fallback for a type sliding sync does not carry, and doing it
-        // for every room the user passes through would be one request per
-        // room for a panel most of them never open.
+        // Widgets are read on demand: a /state read for a type sliding sync
+        // does not carry, so not for every room the user passes through.
         if (app.widgets.supported) {
             app.widgets.roomId = roomId
             app.widgets.refresh()
         }
-        // MSC2346 bridge state, on the same discipline and for the same
-        // reason: the answer needs a /state read (sliding sync does not
-        // carry the type), so the room LIST must never trigger one. Opening
-        // this panel is the explicit action on ONE room, so it always takes
-        // the network read — the room-open path bounds itself by member
-        // count instead (AppController::requestRoomBridgeInfo). Once per
-        // room per session; a room already answered costs nothing.
+        // MSC2346 bridge state, also a /state read. Opening this panel is an
+        // explicit action on one room, so it always reads (once per room per
+        // session); the room list never triggers one (see
+        // AppController::requestRoomBridgeInfo).
         app.requestRoomBridgeInfo(roomId, true)
         section = "overview"
         memberFilter = ""
         memberSearch.text = ""
-        // The membership filter and the sort are part of "what am I looking
-        // at", so they reset with the room: opening a new room under the
-        // previous room's Banned filter shows an empty roster with nothing
-        // saying why.
+        // The membership filter and sort reset with the room, so a new room is
+        // not shown under the previous room's filter.
         memberSection.membership = "joined"
         memberSection.alphabetical = false
         refreshRoomData()
-        // Poll-on-open: re-query the room's server push-rule mode so a
-        // change made in another client lands in the local cache (and the
-        // notifications combo below). A guarded no-op on backends without
-        // server push-rule support.
+        // Re-query the room's server push-rule mode on open, so changes from
+        // other clients land. A no-op on backends without server push rules.
         app.requestRoomNotificationMode(roomId)
     }
     function refreshRoomData() {
@@ -221,14 +135,12 @@ Rectangle {
         anchors.centerIn: parent
     }
 
-    // Development-only: locate a descendant by objectName across both the
-    // visual children (Item-derived) and the default-property data list.
+    // Development-only: find a descendant by objectName through children and
+    // the default data list.
     function findDemoDescendant(obj, name) {
         if (!obj) return null
         if (obj.objectName === name) return obj
-        // Dialogs/Popups are not Items: their subtree hangs off contentItem,
-        // never children/data — without this branch a Dialog descendant is
-        // silently unreachable.
+        // Dialogs/Popups are not Items; their subtree hangs off contentItem.
         if (obj.contentItem) {
             var viaContent = findDemoDescendant(obj.contentItem, name)
             if (viaContent) return viaContent
@@ -246,17 +158,13 @@ Rectangle {
         return null
     }
 
-    // Development-only: screenshot-demo popup hooks (see
-    // ScreenshotDemoController and SpacesRail.qml:accountSwitcherRequested
-    // for the pattern this mirrors). Null target / disabled in a non-demo
-    // build makes this an inert no-op.
+    // Screenshot-demo hooks; inert in a non-demo build.
     Connections {
         target: app.demo
         enabled: app.screenshotDemoActive
         function onDemoOpenInvitePeople() {
             inviteDialog.openFor(app.currentRoomId)
-            // Seed the token field so real search results (matching Maya
-            // Chen) render instead of an empty starting state.
+            // Seed the search so real results render.
             Qt.callLater(function() {
                 var picker = root.findDemoDescendant(inviteDialog, "invitePeoplePicker")
                 if (picker)
@@ -270,9 +178,8 @@ Rectangle {
         title: qsTr("Choose room avatar")
         fileMode: FileDialog.OpenFile
         nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
-        // The picker CHOOSES; it never uploads. Every display image in this
-        // app goes through the one crop dialog first, which is also the gate
-        // that refuses an SVG before anything renders it (CLAUDE.md §6).
+        // The picker only chooses; the crop dialog is the gate that refuses SVG
+        // before anything renders it (CLAUDE.md §6).
         onAccepted: avatarCrop.openFor(selectedFile)
     }
 
@@ -281,8 +188,7 @@ Rectangle {
         title: qsTr("Choose your avatar for this room")
         fileMode: FileDialog.OpenFile
         nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
-        // Same rule as every other display image: the crop dialog is the one
-        // gate that refuses an SVG before anything renders it (CLAUDE.md §6).
+        // The crop dialog is the gate that refuses SVG (CLAUDE.md §6).
         onAccepted: myAvatarCrop.openFor(selectedFile)
     }
     ImageCropDialog {
@@ -294,19 +200,13 @@ Rectangle {
     ImageCropDialog {
         id: avatarCrop
         role: "avatar"
-        // The cropped temp file is a local path, exactly what this sink
-        // already took — so the sink is unchanged.
+        // The cropped temp file is a local path, which this sink already takes.
         onCropped: function (file) { app.roomInfo.setRoomAvatar(file) }
     }
 
-    // ── The measuring probe ──────────────────────────────────────────────
-    // `overflowing` must be read from a control whose width CANNOT depend on
-    // the answer, or the decision feeds its own input and the layout chases
-    // itself. This one is not in the ColumnLayout at all: it is given the
-    // same content, the same compaction and the same width the real strip
-    // gets, explicitly, so it measures the identical question and nothing it
-    // reports can move it. Same trick as AccountMenu's off-layout height
-    // probes. It never draws and never takes focus.
+    // Measuring probe: reads `overflowing` from a control whose width cannot
+    // depend on the answer. Not in the layout; given the same content,
+    // compaction and width as the real strip. Never draws or takes focus.
     SegmentedControl {
         id: tabsProbe
         objectName: "roomInfoTabsProbe"
@@ -326,12 +226,8 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // ── Header ────────────────────────────────────────────────────────
-        // Floored at the shared top-strip height, like the room list's header
-        // and the room header: this panel sized itself from its content
-        // alone, came out ~7px shorter than the room header beside it, and
-        // its 1px rule therefore crossed the divider at a different height.
-        // The Math.max keeps a taller text scale from clipping the row.
+        // Header, floored at the shared top-strip height so its rule lines up
+        // with the room header beside it.
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: Math.max(AppTheme.headerBandHeight,
@@ -344,13 +240,9 @@ Rectangle {
                 spacing: AppTheme.spacing8
                 Label {
                     Layout.fillWidth: true
-                    // The People section names its own subject and its size,
-                    // as Sable's member column does. A panel titled "Room
-                    // information" over a roster is a header describing the
-                    // tab strip rather than the thing under it.
-                    // Branched explicitly rather than %n: without a loaded
-                    // translation a %n source string renders its "(s)"
-                    // literally (the same reason RoomCallBanner branches).
+                    // The People section names its subject and size. Branched
+                    // rather than %n, which renders "(s)" literally without a
+                    // translation.
                     text: {
                         if (root.section !== "people")
                             return qsTr("Room information");
@@ -362,10 +254,7 @@ Rectangle {
                     }
                     color: AppTheme.textPrimary
                     elide: Label.ElideRight
-                    // The pane-header role: 16, matching the room-list
-                    // header on the same shell row. It was 15 here and 16
-                    // there, which is exactly the kind of one-pixel
-                    // difference that reads as "nobody chose".
+                    // Pane-header size, matching the room-list header.
                     font.pixelSize: AppTheme.textTitle
                     font.weight: AppTheme.weightDisplay
                 }
@@ -385,71 +274,37 @@ Rectangle {
             id: roomInfoTabs
             objectName: "roomInfoTabs"
             storm: true
-            // The HORIZONTAL margins never follow tabsWrap: `overflowing`
-            // is "implicitWidth > width", so a margin that changed with it
-            // would change the very width it is measured against and the
-            // two states would chase each other through the layout.
+            // Horizontal margins never follow tabsWrap, or they would change
+            // the width `overflowing` is measured against.
             Layout.leftMargin: AppTheme.spacing6
             Layout.rightMargin: AppTheme.spacing6
             Layout.topMargin: AppTheme.spacing6
             Layout.bottomMargin: AppTheme.spacing6
-            // Plain `visible`, and NOT a collapsed-but-present row. The
-            // previous shape kept this control in the layout at zero height
-            // with `Layout.maximumHeight: implicitHeight` — a RowLayout child
-            // whose maximum is bound to its own implicit height, which made
-            // the panel's ColumnLayout re-polish without end ("ColumnLayout
-            // called polish() inside updatePolish()", reported 2026-09-06)
-            // until Qt gave up and left every section painted on top of the
-            // others. Leaving the layout is safe now only because the wrap is
-            // decided by `tabsProbe` above, whose width this cannot move.
+            // Plain `visible`: keeping it in the layout at zero height bound to
+            // its own implicit height made the ColumnLayout re-polish
+            // endlessly. Safe because the wrap is decided by tabsProbe.
             visible: !root.tabsWrap
-            // THE LOAD-BEARING LINE. Segments are not fillWidth, so a Layout
-            // holds each at its implicit width, and this RowLayout reports
-            // their SUM as its minimum. The panel's ColumnLayout inherits
-            // that minimum, TimelinePane's RowLayout honours it, and the
-            // whole panel is pushed off the window's right edge rather than
-            // narrowed — measured live: at the 260 px floor the close button,
-            // the Save buttons and the last tab were outside the frame.
-            // `overflowing` is "implicitWidth > width", and with the natural
-            // width as the floor it could never come true. A zero minimum
-            // lets the panel keep its width and hands the overflow to the
-            // strip, where the wrap can see it.
+            // Zero minimum: otherwise the RowLayout's minimum is the sum of its
+            // segments, which propagates up and pushes the panel off the window
+            // instead of letting the strip overflow and wrap.
             Layout.minimumWidth: 0
             clip: true
-            // fitWidth compacts the row into the width its HOST gives it, so
-            // it needs to be given one. Without fillWidth this RowLayout takes
-            // its own implicit width and simply overflows the panel — which
-            // is what cut "Media" off the end in every section but People.
+            // fitWidth needs a width from its host.
             Layout.fillWidth: true
-            // ONE SIZE IN EVERY SECTION. These two used to be conditional on
-            // `section === "people"`, so the tab strip visibly shrank the
-            // moment People was selected and grew back on the way out —
-            // reported as "when clicking people tab everything gets small".
-            // A control that changes size depending on which of its own tabs
-            // is active looks broken, and the compactness People wanted
-            // belongs to the ROSTER, never to the chrome above every section.
-            //
-            // Dense and fitWidth together are also what makes four translated
-            // labels fit a user-resizable panel at all: non-dense, the fourth
-            // tab ran off the panel edge in every section but People.
+            // One size in every section, so the tab strip does not change size
+            // with the selected tab. Dense plus fitWidth is what lets
+            // translated labels fit a resizable panel.
             dense: true
             fitWidth: true
-            // The Pinned tab appears only when the backend supports pinned
-            // messages AND the panel is showing the room the pin controller
-            // is tracking (the panel can be opened for a Space home, which
-            // is not the active room).
-            // Built up rather than spelled out per combination: two
-            // conditional tabs would otherwise need four hard-coded arrays,
-            // and the next one eight.
+            // Pinned appears only when supported and the panel shows the room
+            // the pin controller tracks. Built up rather than one array per
+            // combination.
             model: root.tabModel
             current: root.section
             onActivated: (value) => root.section = value
         }
-        // The wrapped form: the same tabs, split across two rows at the
-        // midpoint. Both rows share `current`, so selection reads as one
-        // control. Kept in the layout only while wrapping, and never
-        // `fitWidth`: each half fits its row, and compacting a half would
-        // make the two rows read at different sizes.
+        // Wrapped form: the same tabs split across two rows, sharing `current`.
+        // Not fitWidth, so both rows read at the same size.
         Repeater {
             model: root.tabsWrap ? 2 : 0
             SegmentedControl {
@@ -473,13 +328,8 @@ Rectangle {
             }
         }
 
-        // ── Overview ─────────────────────────────────────────────────────
-        // v0.7.x: an explicit Flickable (was ScrollView) so this pane can
-        // carry a SmoothWheelArea the same way every other converted
-        // pane does — ScrollView auto-wraps non-Flickable content in an
-        // internal, unreachable Flickable, which a WheelHandler cannot be
-        // attached to from here. Same wheel/touchpad feel as the room
-        // timeline; see qml/SmoothWheelArea.qml.
+        // Overview. A Flickable rather than ScrollView so it can carry a
+        // SmoothWheelArea (see SmoothWheelArea.qml).
         Flickable {
             id: overviewFlick
             visible: root.section === "overview"
@@ -497,10 +347,9 @@ Rectangle {
                 width: parent.width
                 spacing: AppTheme.spacing12
 
-                // v0.6.0 checkpoint 11: per-room notification mode. On the
-                // Rust backend the choice is written to the account's server
-                // push rules through the SDK (the local value is the
-                // device cache); other backends stay this-device-only.
+                // Per-room notification mode. On the Rust backend written to
+                // the account's server push rules; other backends keep it on
+                // this device.
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.leftMargin: AppTheme.spacing12
@@ -519,19 +368,15 @@ Rectangle {
                         id: notificationModeCombo
                         objectName: "roomNotificationModeCombo"
                         Layout.fillWidth: true
-                        // Index === mode, so "Follow account default" (3)
-                        // stays last. It is offered ONLY on a backend that
-                        // owns server push rules: with a device-local
-                        // backend there is no account rule to defer to, so
-                        // the option would be a label with nothing behind
-                        // it — locally mode 3 simply notifies, which would
-                        // silently disagree with what it claims to do.
+                        // Index === mode, so "Follow account default" (3) stays
+                        // last. Offered only where the backend owns server push
+                        // rules; locally mode 3 would simply notify for
+                        // everything.
                         model: app.serverRoomNotificationModes
                             ? [
                                 qsTr("All messages"),
-                                // "& keywords" is what the rule actually
-                                // does: the SDK's MentionsAndKeywordsOnly
-                                // mode keeps keyword rules firing.
+                                // The SDK's MentionsAndKeywordsOnly mode keeps
+                                // keyword rules firing.
                                 qsTr("Mentions & keywords"),
                                 qsTr("Mute"),
                                 qsTr("Follow account default")
@@ -541,11 +386,9 @@ Rectangle {
                                 qsTr("Mentions & keywords"),
                                 qsTr("Mute")
                               ]
-                        // Explicit mirrors of the cached mode and the
-                        // room's sync-failure state: both getters are
-                        // Q_INVOKABLEs, so bindings cannot observe their
-                        // changes — refreshMode() is re-run from the
-                        // change signals and on room switches instead.
+                        // Explicit mirrors: both getters are Q_INVOKABLEs, so
+                        // refreshMode() re-runs from change signals and on room
+                        // switches.
                         property int displayedMode: 0
                         property bool syncFailed: false
                         function refreshMode() {
@@ -558,13 +401,9 @@ Rectangle {
                                        app.roomInfo.roomId)
                         }
                         Component.onCompleted: refreshMode()
-                        // A mode-3 value persisted under a server-capable
-                        // backend must not select a non-existent row on a
-                        // device-local one. Clamp to 0 ("All messages"),
-                        // NOT to count-1: the last row is "Mute", and mode
-                        // 3 locally notifies for everything, so clamping to
-                        // the end would show the exact opposite of what the
-                        // device does.
+                        // A server-backend mode 3 on a device-local backend
+                        // clamps to 0 ("All messages"), which matches what the
+                        // device does; the last row is Mute.
                         currentIndex: (displayedMode >= 0
                                        && displayedMode < count)
                                       ? displayedMode : 0
@@ -601,24 +440,18 @@ Rectangle {
                         wrapMode: Text.WordWrap
                         color: AppTheme.textMuted
                         font.pixelSize: AppTheme.textMeta
-                        // Backend-honest, phrased exactly like the room
-                        // context-menu flyout disclaimer ("saved", not
-                        // continuously synced; a failed write is admitted).
+                        // Backend-honest, phrased like the room context-menu
+                        // disclaimer.
                         text: app.serverRoomNotificationModes
                               ? (notificationModeCombo.syncFailed
                                  ? qsTr("Couldn't save to the server — "
                                         + "kept on this device. "
                                         + "Retried when you reconnect.")
                                  : (notificationModeCombo.displayedMode === 3
-                                    // Honest about the split: the SERVER
-                                    // applies the account default to
-                                    // pushes, but Lightning does not know
-                                    // what that default resolves to, so
-                                    // this device notifies for everything.
-                                    // Claiming "the account default
-                                    // applies" without that caveat would
-                                    // mislead anyone whose default is
-                                    // mentions-only.
+                                    // The server applies the account default to
+                                    // pushes, but this device does not know
+                                    // what it resolves to and notifies for
+                                    // everything.
                                     ? qsTr("This room has no override — your "
                                            + "account's settings apply on the "
                                            + "server. This device notifies "
@@ -687,7 +520,7 @@ Rectangle {
                         Layout.fillWidth: true
                         visible: (root.roomData.topic || "").length > 0
                         text: root.roomData.topic || ""
-                        // Unsanitized server text; never AutoText (§6).
+                        // Unsanitized server text; never AutoText.
                         textFormat: Text.PlainText
                         color: AppTheme.textSecondary
                         lineHeight: AppTheme.lineHeightBody
@@ -704,27 +537,12 @@ Rectangle {
                         font.pixelSize: AppTheme.textBody
                     }
 
-                    // Which network this conversation is bridged to. The
-                    // room list shows the same answer as a chip; this says
-                    // it in words, because a badge beside a room name is
-                    // easy to miss and this is the panel that explains what
-                    // a room IS.
-                    //
-                    // The label is OUR curated name for a network we
-                    // recognise (MSC2346 protocol id -> table), and only for
-                    // a protocol we do NOT recognise is it the bridge's own
-                    // text — attacker-writable room state, so it arrives
-                    // sanitised and bounded from Rust and renders as plain
-                    // text and nothing else. No user id is ever shown here:
-                    // the MSC's `bridgebot` and `creator` are mxids a room
-                    // admin chose and never cross the bridge.
-                    //
-                    // A plain `visible:` rather than a Loader: §16's
-                    // empty-Label rule is about PER-ROW delegates in the
-                    // timeline's instantiated Column, where thousands of
-                    // them accumulate into a viewport-observer walk. This
-                    // panel holds exactly one, beside a topic Label written
-                    // the same way.
+                    // Which network this room is bridged to. The label is our
+                    // curated name for a known MSC2346 protocol; otherwise the
+                    // bridge's own text, sanitized and bounded in Rust and
+                    // rendered as plain text. No bridge user ids are shown. A
+                    // plain `visible` is fine here: the empty-Label concern is
+                    // for per-row timeline delegates.
                     RowLayout {
                         objectName: "roomInfoBridgeRow"
                         visible: (root.roomData.bridgeLabel || "").length > 0
@@ -739,8 +557,8 @@ Rectangle {
                             Layout.fillWidth: true
                             text: qsTr("Bridged via %1")
                                   .arg(root.roomData.bridgeLabel || "")
-                            // Remote, bridge-chosen text in the fallback
-                            // case; never AutoText (§6).
+                            // Bridge-chosen text in the fallback case; never
+                            // AutoText.
                             textFormat: Text.PlainText
                             color: AppTheme.textMuted
                             font.pixelSize: AppTheme.textBody
@@ -749,16 +567,10 @@ Rectangle {
                     }
 
 
-                    // An export is a fact ABOUT the room, so it sits with
-                    // the room's own details rather than in the timeline
-                    // header — which already carries five icon buttons and is
-                    // the first row to crowd at 125% scaling.
-                    // MODERATION RULES. Offered for every room, not only
-                    // rooms that already have some: a policy room's whole
-                    // purpose is to hold rules, and a button that appears
-                    // only once one exists cannot be used to make the first.
-                    // Whether this account may PUBLISH is decided inside, by
-                    // the room's power levels.
+                    // Export sits with the room's details. Moderation rules are
+                    // offered for every room, since a policy room exists to
+                    // hold rules; publishing is gated by the room's power
+                    // levels.
                     AppButton {
                         objectName: "roomInfoPolicyButton"
                         visible: app.policy && app.policy.available
@@ -789,7 +601,7 @@ Rectangle {
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                     }
-                    // Hidden helper for clipboard copy without C++ additions.
+                    // Hidden helper for clipboard copy.
                     TextEdit {
                         id: copyHelper
                         visible: false
@@ -813,11 +625,8 @@ Rectangle {
                         font.pixelSize: AppTheme.textBody
                         font.weight: AppTheme.weightStrong
                     }
-                    // A Flow, not a RowLayout: two buttons with minimum
-                    // widths do not fit this panel at every width the user
-                    // may drag it to, and a RowLayout answers that by running
-                    // off the edge. A Flow puts the second one on the next
-                    // line instead.
+                    // A Flow so the second button wraps instead of overflowing
+                    // a narrow panel.
                     Flow {
                         visible: app.roomInfo.canEditAvatar
                         Layout.fillWidth: true
@@ -840,16 +649,13 @@ Rectangle {
                         spacing: AppTheme.spacing8
                         AppTextField {
                             id: editName
-                            // Yields, so the Save button beside it keeps its
-                            // size instead of the layout distributing the
-                            // shortfall across both and overflowing the panel.
+                            // Yields so the Save button keeps its size.
                             Layout.minimumWidth: 60
                             Layout.fillWidth: true
                             placeholderText: qsTr("Room name")
-                            // Show the START of a long value. A TextField parks its cursor at
-                            // the end when its text is set, so a topic wider than the field
-                            // showed its tail ("…ative Matrix desktop client.") — reported.
-                            // Only while the reader is not typing here.
+                            // Show the start of a long value; a TextField parks
+                            // the cursor at the end when its text is set. Only
+                            // while not typing.
                             onTextChanged: if (!activeFocus) cursorPosition = 0
                             Component.onCompleted: cursorPosition = 0
                             text: root.roomData.name || ""
@@ -872,10 +678,9 @@ Rectangle {
                             Layout.minimumWidth: 60
                             Layout.fillWidth: true
                             placeholderText: qsTr("Topic")
-                            // Show the START of a long value. A TextField parks its cursor at
-                            // the end when its text is set, so a topic wider than the field
-                            // showed its tail ("…ative Matrix desktop client.") — reported.
-                            // Only while the reader is not typing here.
+                            // Show the start of a long value; a TextField parks
+                            // the cursor at the end when its text is set. Only
+                            // while not typing.
                             onTextChanged: if (!activeFocus) cursorPosition = 0
                             Component.onCompleted: cursorPosition = 0
                             text: root.roomData.topic || ""
@@ -912,10 +717,9 @@ Rectangle {
                     visible: roomAdminBlock.visible
                 }
 
-                // v0.7.x room administration: who may join, and the room's
-                // published address. Both are ordinary Matrix room state and
-                // both are gated on the SDK's own power-level check for that
-                // state event — never on a role label.
+                // Room administration: join rule and published address. Both
+                // are room state, gated on the SDK's power-level check for that
+                // event.
                 ColumnLayout {
                     id: roomAdminBlock
                     objectName: "roomAdminBlock"
@@ -927,7 +731,7 @@ Rectangle {
                              || app.roomInfo.canChangeHistoryVisibility
                              || app.roomInfo.canChangeGuestAccess
                     // Directory visibility is not room state: ask the server
-                    // when this block is on screen for a room.
+                    // while shown.
                     onVisibleChanged: if (visible) app.roomInfo.requestDirectoryVisibility()
                     Connections {
                         target: app.roomInfo
@@ -937,18 +741,10 @@ Rectangle {
                         }
                     }
 
-                // ── Your profile in this room ────────────────────────
-                //
-                // A standard Matrix per-room member profile: the name and
-                // avatar THIS ACCOUNT shows here, overriding the global one.
-                // Empty restores the global profile rather than clearing the
-                // name, which is what "reset" means and why the button says so.
-                //
-                // Built exactly like the "Edit room" group above — a
-                // ColumnLayout with Layout.margins, not a hand-rolled card:
-                // the first version used a Rectangle with an anchored inner
-                // column and its content rendered outside its own background
-                // in a narrow panel.
+                // Your profile in this room: the per-room member name and
+                // avatar overriding the global ones. Empty restores the global
+                // profile. Built like the "Edit room" group (ColumnLayout with
+                // margins), which stays inside its background at narrow widths.
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 1
@@ -984,16 +780,14 @@ Rectangle {
                             id: myRoomNameField
                             objectName: "roomProfileNameField"
                             Layout.fillWidth: true
-                            // Without this the field's implicit width is a
-                            // FLOOR and the Save button beside it is squeezed
-                            // to a single letter in a narrow side panel.
+                            // Otherwise the field's implicit width is a floor
+                            // and squeezes Save.
                             Layout.minimumWidth: 0
                             enabled: !app.roomInfo.roomProfilePending
                             placeholderText: qsTr("Your name in this room")
-                            // Show the START of a long value. A TextField parks its cursor at
-                            // the end when its text is set, so a topic wider than the field
-                            // showed its tail ("…ative Matrix desktop client.") — reported.
-                            // Only while the reader is not typing here.
+                            // Show the start of a long value; a TextField parks
+                            // the cursor at the end when its text is set. Only
+                            // while not typing.
                             onTextChanged: if (!activeFocus) cursorPosition = 0
                             Component.onCompleted: cursorPosition = 0
                         }
@@ -1005,9 +799,7 @@ Rectangle {
                                 myRoomNameField.text)
                         }
                     }
-                    // A Flow, not a Row: two buttons of this length do not fit
-                    // side by side in a panel the user can drag narrow, and a
-                    // Row would push the second one off the edge.
+                    // A Flow so the second button wraps instead of overflowing.
                     Flow {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing8
@@ -1049,11 +841,9 @@ Rectangle {
                         font.weight: AppTheme.weightStrong
                     }
 
-                    // Join rule. The three settable rules are the ones that
-                    // carry no extra configuration; a room already using a
-                    // space-restricted rule is shown honestly and left
-                    // alone, because changing it needs an allow-rule list
-                    // this panel has no way to build.
+                    // Join rule. The settable rules are those needing no extra
+                    // configuration; a space-restricted rule is shown as-is
+                    // (see below).
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 4
@@ -1079,11 +869,9 @@ Rectangle {
                             ]
                             readonly property var ruleValues:
                                 ["invite", "public", "knock"]
-                            // Explicit mirror rather than a two-way binding:
-                            // a rejected write must snap back to what the
-                            // room actually holds, and a binding that the
-                            // user's own selection has already broken
-                            // cannot do that.
+                            // An explicit mirror, so a rejected write snaps
+                            // back to what the room holds; a binding broken by
+                            // the user's selection could not.
                             property int displayedIndex: 0
                             function refreshRule() {
                                 var idx = ruleValues.indexOf(
@@ -1104,16 +892,11 @@ Rectangle {
                                     joinRuleCombo.ruleValues[index])
                             }
                         }
-                        // v0.9 (phase 4): space-restricted access is
-                        // editable. The kind (restricted vs. knock +
-                        // restricted) and the allowed spaces are ONE write,
-                        // and a configuration another client wrote renders
-                        // as-is: allow rules of a kind this client cannot
-                        // show are preserved on save and disclosed below.
-                        // AppSwitch is a bare toggle whose owner binds
-                        // `checked` and flips it from toggled(); the label
-                        // sits beside it, and `checked` inside a handler is
-                        // the value BEFORE the flip.
+                        // Space-restricted access. The kind (restricted or
+                        // knock + restricted) and the allowed spaces are one
+                        // write; allow rules this client cannot show are
+                        // preserved on save and disclosed. `checked` inside the
+                        // toggled handler is the value before the flip.
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: AppTheme.spacing8
@@ -1133,9 +916,8 @@ Rectangle {
                                     if (!checked) {
                                         var ids = restrictedPicker.selectedIds()
                                         if (ids.length === 0) {
-                                            // Nothing chosen yet: open the
-                                            // picker so a choice can be
-                                            // made first.
+                                            // Nothing chosen yet: open the picker
+                                            // first.
                                             restrictedPicker.expanded = true
                                             return
                                         }
@@ -1181,10 +963,9 @@ Rectangle {
                                     id: spaceRow
                                     required property var modelData
                                     readonly property string spaceId: modelData.roomId
-                                    // Local selection: the server's list
-                                    // seeds it and re-seeds it after every
-                                    // roster refresh; a flip before saving
-                                    // is what the picker reads.
+                                    // Local selection, seeded from the server's
+                                    // list and re-seeded after every roster
+                                    // refresh.
                                     property bool checked:
                                         app.roomInfo.restrictedAllowedRooms
                                             .indexOf(modelData.roomId) >= 0
@@ -1353,11 +1134,9 @@ Rectangle {
                         }
                     }
 
-                    // v0.9 (phase 8): room version + upgrade. The version
-                    // is disclosed to anyone who can see this block; the
-                    // Upgrade control only to someone allowed to send
-                    // m.room.tombstone (own_can_upgrade), and it opens a
-                    // confirmation, never acts on the click itself.
+                    // Room version and upgrade. The Upgrade control appears
+                    // only for someone allowed to send m.room.tombstone, and
+                    // opens a confirmation.
                     RowLayout {
                         Layout.fillWidth: true
                         visible: app.roomInfo.roomVersion.length > 0
@@ -1377,17 +1156,16 @@ Rectangle {
                             text: qsTr("Upgrade room…")
                             onClicked: {
                                 roomUpgradeDialog.kind = "room"
-                                // The inspected room, which is not always the
-                                // open one — Room Information can be showing a
-                                // Space home.
+                                // The inspected room, which may not be the open
+                                // one (a Space home).
                                 roomUpgradeDialog.openFor(app.roomInfo.roomId)
                             }
                         }
                     }
                     RoomUpgradeDialog { id: roomUpgradeDialog }
 
-                    // Canonical alias. A bare localpart is completed with
-                    // the account's own server by the controller.
+                    // Canonical alias; the controller completes a bare
+                    // localpart with the account's server.
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 4
@@ -1406,27 +1184,20 @@ Rectangle {
                                 objectName: "roomAliasField"
                                 Layout.fillWidth: true
                                 placeholderText: qsTr("#room-name")
-                                // Explicit mirror, NOT `text: app.roomInfo
-                                // .canonicalAlias` — the first keystroke
-                                // breaks that binding permanently, and this
-                                // panel outlives a room change. Typed text
-                                // from room A then sat in the field with
-                                // Save enabled against room B's alias, one
-                                // click from publishing A's address onto B.
-                                // Same discipline as joinRuleCombo above.
+                                // An explicit mirror, not a binding to the
+                                // controller: the first keystroke would break
+                                // the binding, and this panel outlives a room
+                                // change, so text typed for one room could be
+                                // saved to another.
                                 property string authoritative: ""
-                                // A room change ALWAYS wins, even mid-edit:
-                                // the half-typed value belongs to the room
-                                // that is no longer on screen.
+                                // A room change always wins, even mid-edit.
                                 function resetForRoom() {
                                     authoritative =
                                         app.roomInfo.canonicalAlias
                                     text = authoritative
                                 }
-                                // A roster refresh only resnaps when the
-                                // user has not edited, so a remote change
-                                // (or a rejected write) lands without
-                                // destroying an edit in progress.
+                                // A roster refresh resnaps only when the user
+                                // has not edited.
                                 function refreshAlias() {
                                     var next = app.roomInfo.canonicalAlias
                                     if (text === authoritative)
@@ -1455,10 +1226,9 @@ Rectangle {
                                         editAlias.text)
                             }
                         }
-                        // v0.9 (phase 4): alternative addresses. The whole
-                        // list is one write; removing one demotes it from
-                        // the room's state and deliberately keeps its
-                        // directory mapping (see set_room_alt_aliases).
+                        // Alternative addresses, written as one list. Removing
+                        // one drops it from room state but keeps its directory
+                        // mapping (see set_room_alt_aliases).
                         Label {
                             Layout.topMargin: AppTheme.spacing4
                             text: qsTr("Alternative addresses")
@@ -1472,7 +1242,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 spacing: AppTheme.spacing8
                                 Label {
-                                    // Remote or externally chosen text: never markup.
+                                    // Untrusted text: never markup.
                                     textFormat: Text.PlainText
                                     Layout.fillWidth: true
                                     text: modelData
@@ -1564,11 +1334,8 @@ Rectangle {
             }
         }
 
-        // ── Pinned ───────────────────────────────────────────────────────
-        // v0.7.x. The list IS `m.room.pinned_events`: nothing is stored
-        // locally, remote changes arrive through the controller's re-read,
-        // and an entry the server could not resolve renders as an honest
-        // unavailable row rather than being hidden or linked anywhere.
+        // Pinned. The list is m.room.pinned_events: nothing stored locally, and
+        // an unresolvable entry renders as an unavailable row.
         ColumnLayout {
             visible: root.section === "pinned" && root.pinnedAvailable
             Layout.fillWidth: true
@@ -1629,11 +1396,10 @@ Rectangle {
                 Layout.fillHeight: true
                 clip: true
                 spacing: 2
-                // Same wheel/touchpad feel as the room timeline; see
-                // qml/SmoothWheelArea.qml.
+                // Same wheel/touchpad feel as the timeline.
                 SmoothWheelArea {}
-                // Newest pin first: Matrix appends, so the bridge's list is
-                // oldest-first and the useful end is the tail.
+                // Newest pin first: Matrix appends, so the tail is the useful
+                // end.
                 model: {
                     var out = []
                     var src = app.pinned.entries
@@ -1662,10 +1428,7 @@ Rectangle {
                         color: AppTheme.hover
                         visible: pinHover.hovered && pinDelegate.resolved
                     }
-                    // Only a resolved pin is clickable. An unavailable one
-                    // must never navigate: there is nothing to navigate to,
-                    // and jumping "near" it would land on an unrelated
-                    // message.
+                    // Only a resolved pin navigates.
                     TapHandler {
                         enabled: pinDelegate.resolved
                         onTapped: root.jumpToEventRequested(
@@ -1709,11 +1472,8 @@ Rectangle {
                                           ? pinDelegate.senderName
                                           : qsTr("Message unavailable")
                                     textFormat: Text.PlainText
-                                    // Identity ink, as in the timeline. An
-                                    // UNRESOLVED pin has no sender to hash,
-                                    // so it keeps the neutral ink — colouring
-                                    // "Message unavailable" would imply a
-                                    // person who is not there.
+                                    // Identity ink; an unresolved pin has no
+                                    // sender and keeps the neutral ink.
                                     color: pinDelegate.resolved
                                            ? AppTheme.userColor(
                                                  pinDelegate.modelData.sender || "")
@@ -1734,7 +1494,7 @@ Rectangle {
                                 }
                             }
                             Label {
-                                // Remote or externally chosen text: never markup.
+                                // Untrusted text: never markup.
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 elide: Label.ElideRight
@@ -1744,10 +1504,8 @@ Rectangle {
                                 wrapMode: Text.WordWrap
                                 color: AppTheme.textSecondary
                                 font.pixelSize: AppTheme.textBody
-                                // Media and non-text pins get a typed label
-                                // instead of a body that would read as
-                                // nothing; a deleted or still-encrypted pin
-                                // says exactly that.
+                                // Typed labels for media and non-text pins;
+                                // deleted or still-encrypted pins say so.
                                 text: {
                                     if (!pinDelegate.resolved) {
                                         return qsTr("It may have been deleted, "
@@ -1785,10 +1543,8 @@ Rectangle {
                             }
                         }
 
-                        // Unpin stays available for an UNAVAILABLE pin too:
-                        // a dangling id is exactly the entry a moderator
-                        // most wants to remove, and unpinning it needs only
-                        // the id, never the event.
+                        // Unpin stays available for an unavailable pin: it
+                        // needs only the id.
                         IconButton {
                             iconName: "close"
                             iconSize: 18
@@ -1810,54 +1566,34 @@ Rectangle {
             }
         }
 
-        // ── People ───────────────────────────────────────────────────────
-        // Sable's / Discord's shape: a count, a membership filter and an
-        // A-to-Z toggle, a name search, then the roster GROUPED BY POWER
-        // LEVEL with a heading per group.
-        //
-        // The buckets come from C++ (`memberRoleRows`), not from QML. Which
-        // roles a room HAS is a model fact — a room using 42 gets its own
-        // "Custom (42)" heading rather than being folded into Moderator,
-        // which would misdescribe the room's own configuration in the one
-        // place a person consults to understand it — and the flattening has
-        // to be there too, or a nested Repeater instantiates every row of
-        // every group at once in a room that may have thousands of members.
+        // People: a count, membership filter, A-to-Z toggle and search, then
+        // the roster grouped by power level. Groups come from C++
+        // (memberRoleRows): which roles a room has is a model fact (a custom
+        // level gets its own heading), and the flat list lets the view
+        // virtualise large rosters.
         ColumnLayout {
             id: memberSection
             visible: root.section === "people"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            // Tight: this column is a list of people and every point of
-            // spacing above it is one fewer person on screen.
+            // Tight: every point of spacing is one fewer person on screen.
             spacing: AppTheme.spacing4
 
-            // A method CALL creates no property dependency, so a binding that
-            // calls memberRoleRows() never re-evaluates on its own. Reading
-            // this counter inside it is what makes an arriving roster reach
-            // the list — the same idiom SpaceSettingsDialog's rosterTick uses
-            // and the media-cache handlers' resolveTick before it.
+            // Calling memberRoleRows() creates no dependency; reading this
+            // counter makes a new roster reach the list.
             property int rosterTick: 0
             Connections {
                 target: app.roomInfo
                 function onMembersChanged() { memberSection.rosterTick++ }
             }
 
-            /// "" (everyone) | "joined" | "invited" | "banned". A closed set:
-            /// the controller matches nothing for anything else rather than
-            /// quietly meaning "all".
+            /// "" (everyone) | "joined" | "invited" | "banned". Anything else
+            /// matches nothing.
             property string membership: "joined"
             property bool alphabetical: false
 
-            // ONE ROW OF CHROME, not two. The search field, the membership
-            // filter, the sort and Invite used to take a row each above the
-            // roster; with the panel header and the tab strip on top of them
-            // that was ~190 px of chrome before the first member, in a panel
-            // whose whole job is to list people. Reported as "the people tab
-            // takes up way too much space".
-            //
-            // The two toggles are ICONS with tooltips rather than words: in a
-            // column this narrow a labelled control is most of the row, and
-            // both are states with an obvious mark (a funnel, an A-to-Z sort).
+            // One row of chrome: search, filter, sort and Invite, with the
+            // toggles as icons so the roster starts near the top.
             RowLayout {
                 Layout.fillWidth: true
                 Layout.leftMargin: AppTheme.spacing8
@@ -1868,23 +1604,17 @@ Rectangle {
                 AppTextField {
                     id: memberSearch
                     Layout.fillWidth: true
-                    // The field YIELDS; the three icon buttons keep their
-                    // size. Without a minimum the layout distributes the
-                    // shortfall across every child instead, so dragging the
-                    // panel narrow pushed the buttons off its edge rather
-                    // than shrinking the box they sit next to.
+                    // The field yields; the icon buttons keep their size.
                     Layout.minimumWidth: 40
-                    // Follows the slider with everything else in the section.
+                    // Follows the text-size setting.
                     implicitHeight: Math.max(30, AppTheme.scaled(AppTheme.textBody) + 16)
                     searchIcon: true
                     clearButton: true
                     placeholderText: qsTr("Type name…")
                     onTextChanged: root.memberFilter = text
                 }
-                // The membership filter, as a cycling toggle rather than a
-                // combo: four values, and this row has no space for a
-                // dropdown. `active` carries "this is not the default", so a
-                // roster narrowed to Banned cannot look like the whole room.
+                // Membership filter as a cycling toggle (no room for a
+                // dropdown). `active` marks a non-default filter.
                 IconButton {
                     size: "sm"
                     iconName: "person_search"
@@ -1907,11 +1637,9 @@ Rectangle {
                             : "joined"
                     }
                 }
-                // A-to-Z, off by default. The snapshot arrives sorted by
-                // power level DESCENDING and is only THEN capped, so an
-                // alphabetical re-sort of a truncated roster is missing
-                // names from the MIDDLE of the alphabet rather than its tail
-                // — `truncated` below is what says so.
+                // A-to-Z, off by default. The snapshot is sorted by power level
+                // and then capped, so an alphabetical view of a truncated
+                // roster is missing names from the middle; `truncated` says so.
                 IconButton {
                     size: "sm"
                     iconName: "unfold_more"
@@ -1936,9 +1664,8 @@ Rectangle {
                 }
             }
 
-            // Both behind Loaders: a never-laid-out empty Text keeps
-            // ItemObservesViewport forever, and these two are empty in the
-            // state this panel is normally in.
+            // Loaders: an empty Text that is never laid out keeps
+            // ItemObservesViewport, and these are usually empty.
             Loader {
                 active: app.roomInfo.loading
                 visible: active
@@ -1974,20 +1701,17 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
-                // Air between names. A directory is scanned by NAME, and rows
-                // that touch make two of them read as one block of text.
+                // Air between names so rows do not merge.
                 spacing: 3
-                // ONE flat list of headers and members, so it virtualises.
-                // The role groups are the model's, not this view's.
+                // One flat list of headers and members, so it virtualises.
                 model: {
-                    var _t = memberSection.rosterTick   // dependency only
+                    var _t = memberSection.rosterTick
                     return app.roomInfo.memberRoleRows(root.memberFilter,
                                                        memberSection.membership,
                                                        memberSection.alphabetical)
                 }
                 ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
-                // Same wheel/touchpad feel as the room timeline; see
-                // qml/SmoothWheelArea.qml.
+                // Same wheel/touchpad feel as the timeline.
                 SmoothWheelArea {}
 
                 delegate: Loader {
@@ -2001,9 +1725,7 @@ Rectangle {
                         id: roleHeaderComponent
                         Item {
                             width: memberList.width
-                            // Wayfinding between runs of people: legible, and
-                            // costing as little of the column as it can.
-                            // Sized to its own text for the slider's sake.
+                            // Group heading, sized to its text.
                             height: Math.max(24, AppTheme.scaled(AppTheme.textSubtitle) + 10)
                             MenuSectionLabel {
                                 anchors.left: parent.left
@@ -2012,11 +1734,8 @@ Rectangle {
                                 anchors.rightMargin: AppTheme.spacing12
                                 anchors.bottom: parent.bottom
                                 anchors.bottomMargin: 2
-                                // MenuSectionLabel pins 12px for popovers.
-                                // This is a list heading in a resizable panel
-                                // and has to follow the slider like the names
-                                // under it — and stay a step UNDER them, or
-                                // the wayfinding competes with the content.
+                                // Follows the text size, one step under the
+                                // names.
                                 font.pixelSize: AppTheme.scaled(AppTheme.textSubtitle)
                                 text: qsTr("%1 — %2")
                                           .arg(memberLoader.modelData.label)
@@ -2029,11 +1748,8 @@ Rectangle {
                         id: memberRowComponent
                         ItemDelegate {
                             width: memberList.width
-                            // Sized to the TEXT, so the row follows the
-                            // text-size slider instead of clipping its own
-                            // contents at 140%. The floor is the old fixed
-                            // height; the avatar and the padding are what the
-                            // rest of it is.
+                            // Sized to the text so the row follows the
+                            // text-size setting.
                             height: Math.max(34, AppTheme.scaled(AppTheme.textTitle) + 16)
                             padding: 0
                             hoverEnabled: true
@@ -2059,8 +1775,7 @@ Rectangle {
                                 anchors.rightMargin: AppTheme.spacing12
                                 spacing: AppTheme.spacing8
                                 Avatar {
-                                    // Follows the text, so the row keeps its
-                                    // proportions at every slider position.
+                                    // Follows the text size.
                                     readonly property int px:
                                         Math.max(24, AppTheme.scaled(AppTheme.textTitle) + 8)
                                     width: px; height: px
@@ -2070,14 +1785,11 @@ Rectangle {
                                     mxc: member.avatarUrl || ""
                                     colorKey: member.userId || ""
 
-                                    // Banned members are not IN the room —
-                                    // polling them would be noise, so they
-                                    // get no dot. The userId is additionally
-                                    // gated on the panel actually showing
-                                    // People: this panel is never behind a
-                                    // Loader and the ListView keeps cached
-                                    // delegates alive, so without the gate a
-                                    // closed panel kept watching members.
+                                    // Banned members get no dot. The userId is
+                                    // gated on the People section being shown:
+                                    // this panel is not behind a Loader and
+                                    // cached delegates would keep watching
+                                    // presence.
                                     PresenceDot {
                                         anchors.right: parent.right
                                         anchors.bottom: parent.bottom
@@ -2095,39 +1807,18 @@ Rectangle {
                                     text: member.displayName.length > 0
                                           ? member.displayName : member.userId
                                     textFormat: Text.PlainText
-                                    // Identity ink — the member list is the
-                                    // one place a reader scans for a specific
-                                    // person, and it was a column of
-                                    // identical grey.
+                                    // Identity ink.
                                     color: AppTheme.userColor(member.userId || "")
-                                    // THROUGH scaled(), which this whole
-                                    // panel was not doing at all: it used
-                                    // AppTheme.scaled zero times while the
-                                    // room list uses it six, so the text-size
-                                    // slider grew every other surface and
-                                    // left this one behind. That is why the
-                                    // roster read small however its literal
-                                    // size was tuned.
-                                    //
-                                    // textTitle, one real step up the type
-                                    // ladder from the body size — a name is
-                                    // what a person scans this list for.
-                                    //
-                                    // It was briefly textDisplay (22), which
-                                    // is the ladder's HERO size ("login hero,
-                                    // empty-state hero, verification panel
-                                    // headline") and too big for a directory
-                                    // row. The ladder is five sizes on
-                                    // purpose; this is the one above body.
+                                    // Scaled like every other size in this
+                                    // panel; textTitle is one step above body,
+                                    // since a name is what this list is scanned
+                                    // for.
                                     font.pixelSize: AppTheme.scaled(AppTheme.textTitle)
                                     elide: Label.ElideRight
                                 }
-                                // Invited and banned rows are in the list on
-                                // purpose (a banned member you cannot see is
-                                // a ban you cannot lift), so they have to be
-                                // legible AS invited and banned. The ROLE is
-                                // the group heading and is deliberately not
-                                // repeated per row.
+                                // Invited and banned rows are listed (a hidden
+                                // ban cannot be lifted) and marked. The role is
+                                // the group heading, not repeated per row.
                                 StatusChip {
                                     visible: member.membership === "invited"
                                     tone: "warning"
@@ -2148,15 +1839,8 @@ Rectangle {
             }
         }
 
-        // ── Widgets ──────────────────────────────────────────────────────
-        //
-        // Its own tab since 0.8.5, at Rokas's request: Overview already
-        // carries notifications, avatar, topic, member count, export, room
-        // id, the Edit room group and every Access control, and a widget
-        // list whose refusal rows wrap to three lines pushed all of that
-        // further down. The tab only exists when there is something in it
-        // (root.widgetsAvailable), so it never invites a click that shows
-        // nothing.
+        // ── Widgets ──────────────────────────────────────────────
+        // In their own tab (Overview is already full).
         Flickable {
             visible: root.section === "widgets"
             Layout.fillWidth: true
@@ -2166,9 +1850,7 @@ Rectangle {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: AppScrollBar {}
-            // No anchors: SmoothWheelArea is a non-visual handler that
-            // attaches to its parent Flickable, exactly as the Overview and
-            // Pinned panes use it.
+            // No anchors: SmoothWheelArea attaches to its parent Flickable.
             SmoothWheelArea {}
             ColumnLayout {
                 id: widgetCol
@@ -2177,22 +1859,9 @@ Rectangle {
                 width: parent.width - AppTheme.spacing12 * 2
                 spacing: AppTheme.spacing8
 
-                // ── Widgets ──────────────────────────────────────
-                //
-                // Lightning LISTS widgets and opens them in the user's
-                // browser; it does not embed them. docs/widgets.md carries
-                // the measurements — Windows cannot build Qt WebEngine at
-                // all, Flatpak could only ship Chromium unsandboxed beside
-                // Megolm keys, and initialising it would force the whole
-                // application's scenegraph to OpenGL.
-                //
-                // No "Widgets" heading here: the TAB is the heading now, and
-                // repeating it would be the only text on the pane saying what
-                // the tab already says.
-                //
-                // The empty state is what lets the tab exist in a room with
-                // no widgets: "none here" is an answer, and it is a different
-                // one from a missing tab, which reads as a missing feature.
+                // Lightning lists widgets and opens them in the browser; it
+                // does not embed them (see docs/widgets.md). The empty state is
+                // an answer, distinct from a missing tab.
                 Label {
                     visible: app.widgets.supported && app.widgets.count === 0
                     Layout.fillWidth: true
@@ -2201,15 +1870,10 @@ Rectangle {
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     wrapMode: Text.Wrap
                 }
-                // ADDING ONE. Offered only when the room's power levels say
-                // this account may write widget state — the absence of that
-                // claim is not permission — and never while a write is in
-                // flight. The dialog is a picker of the kinds every client
-                // lists (a page, a pad, a Jitsi call, ...); Lightning still
-                // opens the result in the browser like any other widget.
-                // Reported as "there isn't an add button with a browser".
-                // A refused or failed write says so here; it used to be silent
-                // outside the add dialog (found in review).
+                // Adding a widget: offered only when the room's power levels
+                // allow writing widget state, and not while a write is in
+                // flight. Opened in the browser like any other. Failures are
+                // reported here.
                 Label {
                     objectName: "roomInfoWidgetWriteError"
                     Layout.fillWidth: true
@@ -2255,9 +1919,7 @@ Rectangle {
                             spacing: 0
                             Label {
                                 Layout.fillWidth: true
-                                // A widget name is chosen by whoever added
-                                // it — remote text in a Label that would
-                                // otherwise auto-detect rich text.
+                                // A widget name is remote text.
                                 textFormat: Text.PlainText
                                 text: widgetRow.name
                                 color: AppTheme.text
@@ -2267,27 +1929,19 @@ Rectangle {
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
                                 textFormat: Text.PlainText
-                                // A REFUSED widget still shows, with the
-                                // reason. Dropping it would make a widget
-                                // Lightning will not open indistinguishable
-                                // from a widget the room never had.
+                                // A refused widget still shows, with the
+                                // reason.
                                 text: widgetRow.openable
                                       ? widgetRow.kind
                                       : app.widgets.refusalText(widgetRow.refusal)
                                 color: widgetRow.openable
                                        ? AppTheme.textMuted
                                        : AppTheme.danger
-                                // SCALED, like every other size in this panel.
-                                // It was unscaled while the block lived in
-                                // Overview and nothing noticed; moving it into
-                                // the range CallUiContractTest scans is what
-                                // surfaced a size that ignored the text-size
-                                // slider.
+                                // Scaled like every other size in this panel.
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             }
                         }
-                        // Remove BY ROW: the controller resolves the id
-                        // itself, so QML can never name a widget id.
+                        // Removed by row; QML never names a widget id.
                         AppButton {
                             objectName: "roomInfoRemoveWidgetButton"
                             visible: app.widgets.canManage && widgetRow.removable
@@ -2296,10 +1950,8 @@ Rectangle {
                             size: "sm"
                             text: qsTr("Remove")
                             Layout.alignment: Qt.AlignTop
-                            // REMOVING A WIDGET IS A STATE WRITE EVERYONE IN
-                            // THE ROOM SEES, and it writes a tombstone rather
-                            // than deleting anything, so it cannot be taken
-                            // back by undo. One question first. B022.
+                            // Removal writes a tombstone everyone sees and
+                            // cannot be undone; confirm first.
                             onClicked: removeWidgetConfirm.openFor(
                                            widgetRow.index,
                                            widgetRow.name || "")
@@ -2318,13 +1970,8 @@ Rectangle {
             }
         }
 
-        // ── Media, files and links ───────────────────────────────────────
-        //
-        // A REAL history browser since 0.9: it walks /messages on its own
-        // cursor rather than reading whatever the timeline had loaded, so a
-        // file from months ago is findable without scrolling the room back
-        // to it. MediaBrowser.qml carries the reasoning; MediaHistoryModel
-        // owns the walk and its completeness state.
+        // Media, files and links: a history browser that walks /messages on its
+        // own cursor. See MediaBrowser.qml and MediaHistoryModel.
         MediaBrowser {
             objectName: "mediaBrowser"
             visible: root.section === "media"
@@ -2334,16 +1981,14 @@ Rectangle {
             roomId: app.roomInfo.roomId
             onOpenImagesRequested: (entries, index) =>
                 root.openImagesRequested(entries, index)
-            // Navigation belongs to the host, exactly as it does for pins and
-            // search results — this panel is signal-only.
+            // Navigation belongs to the host.
             onJumpToEventRequested: (eventId) =>
                 root.jumpToEventRequested(eventId)
         }
     }
 
-    // Leave confirmation — Cancel is the default safe action.
-    // Widget removal writes a tombstone every member of the room sees
-    // and cannot be undone, so it asks first. B022.
+    // Leave confirmation; Cancel is the default. Widget removal confirmation
+    // below.
     Dialog {
         id: removeWidgetConfirm
         objectName: "roomInfoRemoveWidgetConfirmDialog"
@@ -2401,8 +2046,8 @@ Rectangle {
         id: leaveConfirm
         parent: Overlay.overlay
         anchors.centerIn: parent
-        // An explicit viewport-bounded width keeps Dialog implicit sizing
-        // independent from the wrapping label/layout inside it.
+        // An explicit bounded width keeps the Dialog's sizing independent of
+        // the wrapping content.
         width: Math.max(240, Math.min(400, parent ? parent.width - 32 : 400))
         modal: true
         title: qsTr("Leave room?")

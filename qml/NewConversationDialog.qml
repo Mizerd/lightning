@@ -5,24 +5,17 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// Creation UX: one Lightning modal card for starting a Direct Message,
-// creating a room, or creating a Space.
-//
-// DM flow: search → select user → existing joined DMs (from the SDK's
-// m.direct projection) are offered for reuse FIRST; starting a new encrypted
-// DM is an explicit, clearly-secondary action when one already exists.
-// Room flow: name/topic, Private/Public visibility, encryption (default ON
-// for private, forced off and disabled for public), optional alias for
-// public rooms, invites, optional placement into the active Space, and an
-// OPTIONAL picture applied after creation (a failed picture upload is a
-// warning, never a failed create). Space flow: name/topic/visibility only —
-// no encryption control is instantiated at all.
-//
-// Tabs are Loaders: only the active tab's controls exist, form state lives
-// on the dialog root so switching tabs never loses input, and the shared
-// UserSearchModel is cleared on every switch (one visible picker at a time).
-// All server operations run through ConversationController; duplicate
-// submissions are blocked by its single-flight `busy` state.
+// One modal for starting a DM, creating a room or creating a Space. DM: search,
+// select a user; existing joined DMs (the SDK's m.direct projection) are
+// offered for reuse first, with a new encrypted DM as the secondary action.
+// Room: name/topic, Private/Public, encryption (on by default for private,
+// forced off for public), alias for public rooms, invites, optional placement
+// in the active Space, and an optional picture applied after creation (a failed
+// upload is a warning, not a failed create). Space: name/topic/visibility only;
+// no encryption control. Tabs are Loaders: only the active tab's controls
+// exist, form state lives on the root so switching tabs keeps input, and the
+// shared UserSearchModel is cleared on every switch. ConversationController's
+// single-flight `busy` blocks duplicate submissions.
 Dialog {
     id: root
     objectName: "newConversationDialog"
@@ -44,7 +37,7 @@ Dialog {
     property string selectedDisplayName: ""
     property string selectedAvatarUrl: ""
 
-    // Room form state (root-owned so the tab Loaders can unload freely).
+    // Room form state (on the root so tab Loaders can unload).
     property string roomNameText: ""
     property bool roomNameEdited: false
     property string roomTopicText: ""
@@ -53,7 +46,7 @@ Dialog {
     property bool roomEncrypted: true
     property bool addToSpaceChecked: false
     property var roomInvites: []
-    // Local file URL chosen for the optional room picture ("" = none).
+    // Local file URL for the optional room picture ("" = none).
     property string roomAvatarPath: ""
 
     // Space form state.
@@ -69,10 +62,8 @@ Dialog {
         app.spaces && app.spaces.activeSpaceId
         && app.spaces.activeSpaceId.startsWith("!")
 
-    // startMode ("dm" | "room" | "space") lets callers (e.g. the Home
-    // surface, the rail's Add Space tile) open straight into a tab;
-    // defaults to a DM search. options.addToSpace preselects placement
-    // into the active Space (Space Home's "Create room here").
+    // startMode ("dm" | "room" | "space") opens straight into a tab (default DM
+    // search). options.addToSpace preselects placement in the active Space.
     function openDialog(startMode, options) {
         resetAll()
         if (startMode === "room" || startMode === "dm" || startMode === "space")
@@ -104,8 +95,8 @@ Dialog {
         app.conversations.userSearch.clear()
     }
 
-    // Every tab switch clears the SHARED search model state and hands focus
-    // to the new tab's first field (via the Loader reload below).
+    // Every tab switch clears the shared search model and focuses the new tab's
+    // first field.
     function switchMode(newMode) {
         if (newMode !== "dm" && newMode !== "room" && newMode !== "space")
             return
@@ -158,16 +149,13 @@ Dialog {
     onClosed: resetAll()
     onOpened: Qt.callLater(focusCurrentTab)
 
-    // v0.6.5 (SPEC 1u): footer shortcut chip — pill, cardElevated. Replaces
-    // the old SegmentedControl tab strip visually; pre-seeds a fresh flow
-    // through the EXACT same switchMode() the tabs used, so the Loader
-    // instantiation contract (CreationDialogQmlTest) is unchanged.
+    // Footer shortcut chip, switching flows through the same switchMode() as
+    // the tabs (the Loader contract CreationDialogQmlTest checks).
     component ConversationChip: AbstractButton {
         id: chip
         property string iconName: ""
-        // Real padding, not a widened implicitWidth: an AbstractButton
-        // stretches its contentItem to the full control width, so extra
-        // width without padding pins the icon+label to the pill's left edge.
+        // Real padding: an AbstractButton stretches its contentItem, so extra
+        // width without padding pins the content left.
         leftPadding: AppTheme.spacing12
         rightPadding: AppTheme.spacing12
         implicitHeight: 28
@@ -175,7 +163,7 @@ Dialog {
         focusPolicy: Qt.TabFocus
         Accessible.role: Accessible.Button
         Accessible.name: chip.text
-        // Storm §4 2i: footer chips are outline mono pills.
+        // Footer chips are outline pills.
         contentItem: RowLayout {
             id: chipRow
             spacing: AppTheme.spacing4
@@ -187,11 +175,7 @@ Dialog {
             Label {
                 text: chip.text
                 color: AppTheme.stormTextMuted
-                // Was 10px mono UPPERCASE. These are the dialog's primary
-                // mode switch — the labels the eye lands on first — set as
-                // a terminal HUD caption in a face the font picker cannot
-                // even select. The chip vocabulary is the UI face at meta
-                // size.
+                // The UI face at meta size, like other chips.
                 font.family: AppTheme.menuFont
                 font.pixelSize: AppTheme.textMeta
                 font.weight: AppTheme.weightStrong
@@ -220,9 +204,8 @@ Dialog {
             if (root.opened)
                 root.close()
         }
-        // Space routing is controller-owned (spaceReady) — selecting the
-        // rail happens in AppController even if this dialog was closed
-        // mid-create; here the dialog only dismisses itself.
+        // Space routing is controller-owned (spaceReady), even if the dialog
+        // closed mid-create; the dialog only dismisses itself.
         function onSpaceReady(spaceId) {
             if (root.opened)
                 root.close()
@@ -240,20 +223,16 @@ Dialog {
     ImageCropDialog {
         id: avatarCrop
         role: "avatar"
-        // `roomAvatarPath` is applied by ConversationController AFTER the
-        // room exists, so what is stored here has to survive until then —
-        // ImageCropper keeps the last few written crops for exactly that.
-        //
-        // Second effect, and it is a security one: the preview below binds an
-        // Image straight to this path. It used to be the user's RAW chosen
-        // file, so a file named .png that was really an SVG reached Qt's
-        // loader; now it can only ever be bytes the cropper sniffed, decoded
-        // and re-encoded itself (CLAUDE.md §6).
+        // ConversationController applies roomAvatarPath after the room exists,
+        // so it must survive until then (ImageCropper keeps recent crops). The
+        // preview binds this path, which is only ever bytes the cropper
+        // re-encoded, never the raw chosen file (an SVG disguised as .png
+        // cannot reach Qt's loader, §6).
         onCropped: function (file) { root.roomAvatarPath = file.toString() }
     }
 
     background: Rectangle {
-        // Storm chrome (SPEC-storm-language §3.1 / mock 2i).
+        // Storm chrome.
         color: AppTheme.stormPanel
         border.color: AppTheme.stormBorder
         border.width: 1
@@ -263,7 +242,7 @@ Dialog {
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
 
-        // ── Header: bolt mark, mode title + bare close ────────────────────
+        // Header: bolt mark, mode title, close
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -275,10 +254,9 @@ Dialog {
             Label {
                 objectName: "creationTitle"
                 Layout.fillWidth: true
-                // v0.6.5 (SPEC 1u): the omnibox screen reads "Start
-                // something"; Room/Space keep their existing titles, and a
-                // DM already in progress (a user picked) keeps the prior
-                // "New conversation" wording.
+                // The omnibox screen reads "Start something"; Room/Space keep
+                // their titles; a DM with a user picked reads "New
+                // conversation".
                 text: root.mode === "room" ? qsTr("Create a room")
                     : root.mode === "space" ? qsTr("Create a Space")
                     : root.selectedUserId === "" ? qsTr("Start something")
@@ -301,9 +279,7 @@ Dialog {
             }
         }
 
-        // v0.6.5 (SPEC 1u): the omnibox screen's helper line — shown only
-        // while picking (mode dm, nothing selected yet). Room/Space keep
-        // their own explanatory copy inside their tabs.
+        // Helper line shown only while picking a DM target.
         Label {
             objectName: "creationHelperLine"
             visible: root.mode === "dm" && root.selectedUserId === ""
@@ -318,7 +294,7 @@ Dialog {
             wrapMode: Text.WordWrap
         }
 
-        // ── Single error banner ───────────────────────────────────────────
+        // Single error banner
         Rectangle {
             objectName: "creationErrorBanner"
             visible: app.conversations.errorMessage.length > 0
@@ -342,7 +318,7 @@ Dialog {
             }
         }
 
-        // ── Active tab (scrolls when height-constrained) ──────────────────
+        // Active tab (scrolls when height-constrained)
         Flickable {
             id: tabFlick
             Layout.fillWidth: true
@@ -353,8 +329,7 @@ Dialog {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
-            // Same wheel/touchpad feel as the room timeline; see
-            // qml/SmoothWheelArea.qml.
+            // Same wheel/touchpad feel as the timeline.
             SmoothWheelArea {}
 
             ColumnLayout {
@@ -395,7 +370,7 @@ Dialog {
             }
         }
 
-        // ── Footer: shortcut chips + busy state + Cancel (always enabled) ──
+        // Footer: shortcut chips, busy state, Cancel (always enabled)
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -443,7 +418,7 @@ Dialog {
         }
     }
 
-    // ── Direct Message tab ────────────────────────────────────────────────
+    // Direct Message tab
     Component {
         id: dmTabComponent
         ColumnLayout {
@@ -469,11 +444,9 @@ Dialog {
                 }
             }
 
-            // v0.6.5 (SPEC 1u): "#name" or plain text also offers creating a
-            // new room with that name (the "#" prefix is stripped from the
-            // seeded name); "@" stays a plain people search with no
-            // create-room row. No directory/join backend exists, so this is
-            // the only routing this omnibox honestly offers.
+            // "#name" or plain text also offers creating a room with that name
+            // ("#" stripped); "@" stays a plain people search. There is no
+            // directory/join backend here.
             Rectangle {
                 id: createRoomSuggestion
                 objectName: "dmCreateRoomSuggestion"
@@ -530,21 +503,14 @@ Dialog {
                         }
                         Label {
                             Layout.fillWidth: true
-                            // Mirrors the Room tab's own real defaults — this
-                            // reads root.roomIsPublic/roomEncrypted rather
-                            // than asserting a fixed claim, so it stays
-                            // honest if those carry over from an earlier
-                            // visit to the Room tab in this same dialog.
+                            // Reads the Room tab's actual defaults, which may
+                            // carry over from an earlier visit in this dialog.
                             text: root.roomIsPublic
                                 ? qsTr("Public · not encrypted")
                                 : (root.roomEncrypted
                                     ? qsTr("Private · encrypted · invite-only by default")
                                     : qsTr("Private · not encrypted · invite-only by default"))
-                            // Was 9px mono UPPERCASE with 0.5 tracking:
-                            // "PRIVATE · ENCRYPTED · INVITE-ONLY BY
-                            // DEFAULT" is a sentence, and shouting it in a
-                            // 9px terminal face made the row's actual
-                            // meaning the hardest thing on it to read.
+                            // Sentence case at a readable size.
                             color: AppTheme.stormTextMuted
                             font.family: AppTheme.menuFont
                             font.pixelSize: AppTheme.textMeta
@@ -592,7 +558,7 @@ Dialog {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing2
                         Label {
-                            // Remote or externally chosen text: never markup.
+                            // Untrusted text: never markup.
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             text: root.selectedDisplayName.length > 0
@@ -603,7 +569,7 @@ Dialog {
                             elide: Label.ElideRight
                         }
                         Label {
-                            // Remote or externally chosen text: never markup.
+                            // Untrusted text: never markup.
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             visible: root.selectedDisplayName.length > 0
@@ -635,7 +601,7 @@ Dialog {
                 }
             }
 
-            // Existing-DM reuse comes FIRST.
+            // Existing-DM reuse comes first.
             Label {
                 visible: root.selectedUserId !== ""
                          && app.conversations.existingDms.length > 0
@@ -670,13 +636,12 @@ Dialog {
                             size: 32
                             circle: true
                             name: existingRow.dmName
-                            // The dialog already knows WHO this DM is with;
-                            // key by the person, matching every other
-                            // surface that shows them.
+                            // Keyed by the person, like every other surface
+                            // showing them.
                             colorKey: root.selectedUserId
                         }
                         Label {
-                            // Remote or externally chosen text: never markup.
+                            // Untrusted text: never markup.
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             text: existingRow.dmName
@@ -712,7 +677,7 @@ Dialog {
                 Accessible.name: text
                 onClicked: app.conversations.startDirectMessage(root.selectedUserId)
             }
-            // …clearly-secondary escape hatch when there is.
+            // …secondary when there is.
             AppButton {
                 storm: true
                 objectName: "dmStartAnywayButton"
@@ -736,7 +701,7 @@ Dialog {
         }
     }
 
-    // ── Room tab ──────────────────────────────────────────────────────────
+    // Room tab
     Component {
         id: roomTabComponent
         ColumnLayout {
@@ -828,7 +793,7 @@ Dialog {
                 wrapMode: Text.WordWrap
             }
 
-            // Encryption switch-row (labels toggle it too).
+            // Encryption switch row (labels toggle it too).
             RowLayout {
                 objectName: "roomEncryptRow"
                 Layout.fillWidth: true
@@ -953,9 +918,8 @@ Dialog {
                                 text: modelData
                                 color: AppTheme.stormText
                                 font.pixelSize: AppTheme.textBody
-                                // A Flow wraps BETWEEN chips, never inside
-                                // one — cap a single long MXID so one chip
-                                // can never outgrow the dialog card.
+                                // A Flow wraps between chips, never inside one;
+                                // cap a long MXID.
                                 Layout.maximumWidth: 320
                                 elide: Label.ElideMiddle
                             }
@@ -991,8 +955,8 @@ Dialog {
                 }
             }
 
-            // Optional room picture (applied AFTER creation; a failed upload
-            // is a warning toast, never a failed create).
+            // Optional room picture, applied after creation; a failed upload is
+            // a warning, never a failed create.
             Label {
                 Layout.topMargin: AppTheme.spacing4
                 text: qsTr("Room picture (optional)")
@@ -1075,7 +1039,7 @@ Dialog {
         }
     }
 
-    // ── Space tab (no encryption control instantiated at all) ─────────────
+    // Space tab (no encryption control)
     Component {
         id: spaceTabComponent
         ColumnLayout {

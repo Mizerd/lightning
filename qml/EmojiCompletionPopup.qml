@@ -3,15 +3,13 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import MatrixClient
 
-// MSC2545 shortcode completion: type `:blob` and the installed packs offer
-// their matches. Same construction as SlashCommandPopup and MentionPopup — a
-// surface floating above the composer that deliberately never takes focus,
-// so the editor keeps the caret and forwards Up/Down/Tab/Return/Escape.
+// MSC2545 shortcode completion: typing `:blob` offers matches from installed
+// packs. Like SlashCommandPopup and MentionPopup it floats above the composer
+// and never takes focus, so the editor keeps the caret and forwards
+// Up/Down/Tab/Return/Escape.
 //
-// The model is MessageComposer.emojiCompletionsAt(cursor), which is
-// cursor-driven rather than a NOTIFY property: a slash command is always at
-// position 0, while a shortcode can be anywhere, so the answer depends on
-// where the caret is and only QML knows that.
+// The model is MessageComposer.emojiCompletionsAt(cursor): a shortcode can be
+// anywhere, so the answer depends on the caret, which only QML knows.
 Popup {
     id: root
     objectName: "emojiCompletionPopup"
@@ -77,8 +75,8 @@ Popup {
             onClicked: root.chosen(modelData.shortcode)
             contentItem: RowLayout {
                 spacing: AppTheme.spacing8
-                // The image itself, resolved through the authenticated media
-                // path exactly as the timeline resolves one.
+                // The image, resolved through the authenticated media path as
+                // in the timeline.
                 Image {
                     id: completionImage
                     Layout.preferredWidth: 20
@@ -86,15 +84,10 @@ Popup {
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     sourceSize.width: 40
-                    // RE-ASKED WHEN THE BYTES LAND. `mxcImageSource` returns
-                    // an empty string on a cache miss and dispatches a fetch;
-                    // the answer arrives as `mediaCached`, and a binding that
-                    // does not touch a counter bumped from it never asks
-                    // again. So a custom emoji shown here for the first time
-                    // stayed a blank 20px gap for the session. Every other
-                    // call site in the tree pairs the two — EmojiPicker's
-                    // `resolveTick`, MediaListThumbnail's `refresh()` — and
-                    // these two were the exceptions.
+                    // mxcImageSource() returns "" on a cache miss and fetches;
+                    // the bytes arrive via mediaCached, which bumps resolveTick
+                    // to re-evaluate (as EmojiPicker and MediaListThumbnail
+                    // do).
                     property int resolveTick: 0
                     source: {
                         var _tick = resolveTick

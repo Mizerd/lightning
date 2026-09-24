@@ -3,31 +3,25 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// MSC3381 poll creation (v0.7). Pure presentation: the dialog collects the
-// question, 2..20 answers, the disclosure kind, and whether voters may pick
-// several answers, then hands everything to app.composer.createPoll — the
-// Rust bridge builds the actual Matrix content through ruma constructors.
-// The composer routes to the open thread when it is in thread-reply mode.
+// MSC3381 poll creation. Presentation only: collects the question, 2..20
+// answers, the disclosure kind and whether multiple answers are allowed, then
+// hands them to app.composer.createPoll; the Rust bridge builds the Matrix
+// content with ruma constructors. In thread-reply mode the composer routes to
+// the open thread.
 //
-// v0.6.5 (SPEC 1s): two-column presentation — the form (unchanged validation,
-// dirty-guard, dynamic closePolicy, room-change auto-close) on the left, a
-// live "PREVIEW · AS SENT" panel mirroring the form's local state on the
-// right. Deviation: the add-answer row uses a solid subtle border rather
-// than a dashed one — a Canvas-drawn dash was judged disproportionate effort
-// for this affordance (reported to the lead).
+// Two columns: the form on the left and a live "as sent" preview on the
+// right. The add-answer row uses a solid subtle border rather than a dashed
+// one.
 Dialog {
     id: root
     objectName: "createPollDialog"
 
     readonly property int maxAnswers: 20
-    // Answer texts, index-addressed; the ListModel keeps TextField focus
-    // stable while rows are added/removed.
+    // Answer texts, index-addressed; the ListModel keeps TextField focus stable
+    // as rows are added and removed.
     property var answerModel: ListModel {}
-    // Bumped on every per-row text edit so the live preview (which reads
-    // answerTexts() through previewAnswers below) stays reactive — ListModel
-    // row values change via setProperty() without a tracked QML dependency
-    // of their own; row insert/remove already retint through the model's
-    // real countChanged.
+    // Bumped on every per-row edit: ListModel setProperty() changes carry no
+    // QML-tracked dependency, so bindings reading answerTexts() read this too.
     property int answerRevision: 0
     function bumpAnswerRevision() { answerRevision = answerRevision + 1 }
 
@@ -53,12 +47,9 @@ Dialog {
         }
         return texts
     }
-    // Live "as sent" preview data — depends on answerRevision explicitly so
-    // per-row text edits (not just row count changes) refresh it.
+    // Live preview data; depends on answerRevision so per-row edits refresh it.
     readonly property var previewAnswers: { answerRevision; return answerTexts() }
-    // Same explicit answerRevision dependency as previewAnswers: ListModel
-    // setProperty() edits carry no QML-tracked dependency of their own, so
-    // without it the Create button would not react to per-row text edits.
+    // Depends on answerRevision too, so Create reacts to per-row edits.
     readonly property bool formValid: {
         answerRevision
         return questionField.text.trim().length > 0
@@ -75,19 +66,10 @@ Dialog {
         close()
     }
 
-    // Anything typed makes the poll "dirty": click-outside no longer
-    // discards silently, and Cancel/X ask before dropping the draft.
-    // Escape stays a deliberate close for keyboard users.
-    //
-    // THE SAME EXPLICIT `answerRevision` ITS TWO SIBLINGS CARRY, and it was
-    // the only one of the three without it. `answerTexts()` reads
-    // `answerModel.get(i).answerText`, and a ListModel `setProperty()` edit
-    // carries no QML-tracked dependency — so a draft typed ONLY into answer
-    // rows, with the question still empty, left `dirty` false. That kept
-    // `Popup.CloseOnPressOutside` in the closePolicy below and sent
-    // `maybeClose()` down the branch that does not ask: a click anywhere
-    // outside destroyed the draft silently, and so did Cancel and the X.
-    // The mitigation was three lines above the defect.
+    // Anything typed makes the poll dirty: outside clicks no longer discard it,
+    // and Cancel/X ask first. Escape stays a deliberate close. Reads
+    // answerRevision like its siblings, or a draft typed only into answer rows
+    // would stay clean and be discarded silently.
     readonly property bool dirty: {
         answerRevision
         return questionField.text.trim().length > 0
@@ -107,8 +89,8 @@ Dialog {
     closePolicy: dirty ? Popup.CloseOnEscape
                        : (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
     width: Math.min(680, (parent ? parent.width : 680) - AppTheme.spacing24 * 2)
-    // Clamp to the window so the body Flickable actually engages — without
-    // this the dialog grows with its implicit height and never scrolls.
+    // Clamp to the window so the body Flickable scrolls instead of the dialog
+    // growing.
     height: Math.min(implicitHeight,
                      parent ? parent.height - AppTheme.spacing24 * 2 : implicitHeight)
     padding: AppTheme.spacing20
@@ -166,8 +148,8 @@ Dialog {
 
     onClosed: resetAll()
 
-    // Notification routing or the quick switcher can change the room while
-    // the dialog is open; a draft must never post into the wrong room.
+    // Notifications or the quick switcher can change the room while open; a
+    // draft must never post into the wrong room.
     Connections {
         target: app
         function onCurrentRoomIdChanged() {
@@ -185,9 +167,7 @@ Dialog {
                 text: qsTr("Create a poll")
                 color: AppTheme.stormText
                 font.family: AppTheme.menuFont
-                // Was fontSizeL/DemiBold — the same 16px as the other nine
-                // dialogs but a weight lighter, so this header alone read
-                // faint next to every dialog opened from the same composer.
+                // Bold, matching the other dialogs opened from the composer.
                 font.pixelSize: AppTheme.textTitle
                 font.weight: AppTheme.weightBold
                 Layout.fillWidth: true
@@ -203,9 +183,8 @@ Dialog {
             }
         }
 
-        // ── Form + preview body (scrolls when height-constrained; the
-        // answer list grows to 20 rows, which must never push the title or
-        // the Send/Cancel row outside the window) ────────────────────────
+        // ── Form + preview body (scrolls when height-constrained, so up to 20
+        // answers never push the title or buttons off screen) ──
         Flickable {
             id: pollBodyFlick
             Layout.fillWidth: true
@@ -225,7 +204,7 @@ Dialog {
                 width: pollBodyFlick.width
                 spacing: AppTheme.spacing16
 
-                // ── Left: form ──────────────────────────────────────────────
+                // ── Left: form ──
                 ColumnLayout {
                     Layout.preferredWidth: 320
                     Layout.alignment: Qt.AlignTop
@@ -301,8 +280,8 @@ Dialog {
                         }
                     }
 
-                    // Add-option row. Deviation (reported): solid subtle border
-                    // rather than a dashed one — see the file header comment.
+                    // Add-option row (solid subtle border; see the file
+                    // header).
                     Rectangle {
                         id: addAnswerRow
                         objectName: "pollAddAnswerButton"
@@ -324,8 +303,8 @@ Dialog {
                         }
                         Keys.onReturnPressed: activateAdd()
                         Keys.onSpacePressed: activateAdd()
-                        // stormLink, not bolt: Send poll is this surface's
-                        // one yellow primary (§1 yellow discipline).
+                        // stormLink, not bolt: Send poll is this surface's one
+                        // bolt primary.
                         RowLayout {
                             id: addAnswerContent
                             anchors.centerIn: parent
@@ -358,9 +337,8 @@ Dialog {
                         }
                     }
 
-                    // Options — the switch rows follow the Settings pattern: the
-                    // whole row is clickable, AppSwitch itself stays a bare
-                    // bound control.
+                    // Options: the whole row is clickable, as in Settings;
+                    // AppSwitch stays a bare bound control.
                     ColumnLayout {
                         Layout.fillWidth: true
                         Layout.topMargin: AppTheme.spacing8
@@ -421,7 +399,7 @@ Dialog {
                     }
                 }
 
-                // ── Right: live "as sent" preview ────────────────────────────
+                // ── Right: live "as sent" preview ──
                 ColumnLayout {
                     Layout.preferredWidth: 260
                     Layout.fillHeight: true
@@ -430,11 +408,9 @@ Dialog {
 
                     MenuSectionLabel { text: qsTr("Preview · as sent") }
 
-                    // Storm: the preview module is a stormInset panel like
-                    // every other nested module. "AS SENT" promises CONTENT
-                    // fidelity (question/options/votes), not the viewer's
-                    // timeline palette — a themed fill inside the storm
-                    // dialog read as a foreign white card on light themes.
+                    // A stormInset panel like other nested modules. "As sent"
+                    // means content fidelity, not the viewer's timeline
+                    // palette.
                     Rectangle {
                         objectName: "pollPreviewPanel"
                         Layout.fillWidth: true
@@ -481,10 +457,8 @@ Dialog {
                                         border.width: 1
                                         border.color: first ? AppTheme.stormBorderStrong
                                                             : AppTheme.stormBorder
-                                        // The label consumes spacing8 margins on
-                                        // BOTH edges — a single-spacing budget
-                                        // left the row 8px short, running the
-                                        // glyph descenders into the pill border.
+                                        // The label has spacing8 margins on
+                                        // both edges, so budget for both.
                                         implicitHeight: previewOptionLabel.implicitHeight
                                                         + AppTheme.spacing8 * 2
                                         Label {

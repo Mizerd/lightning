@@ -3,36 +3,31 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.7: one menu row of the Lightning popover menu — Material Symbols
-// icon slot, text label, legible disabled state, and a visually distinct
-// danger variant for destructive actions. Rows stay keyboard-operable
-// (arrow keys + Return through the Menu's own focus handling); the
-// highlighted state renders for both pointer hover and keyboard focus.
+// One row of the Lightning popover menu: a Material Symbols icon slot, a
+// label, a legible disabled state and a distinct danger variant. Keyboard
+// operable through the Menu's own focus handling; the highlight shows for
+// both hover and keyboard focus.
 //
-// Storm skin (SPEC-storm-language §3.2): 32px rows, radius 8, constant 6px
-// content inset, 17px muted icon, and the shared interactive-label recipe
-// (the UI face at textBody/600 — menuFont resolves to uiFont since the
-// 2026-08-21 type pass, so a menu no longer runs a second sans face). The
-// highlighted row fills stormSelection, brightens icon (bolt) and label
-// (stormText), flips its keycap to bolt/panel, and grows the signature
-// edge-bolt caret overhanging the row's left edge. Danger rows ink
-// stormDanger throughout with a 10% fill on hover. Radio rows (flyout
-// submenus) use the shared StormNode states: bolt check circle = current,
-// dashed ring = other.
+// 32px rows, radius 8, a constant content inset, a 17px muted icon and the
+// shared interactive-label style. The highlighted row fills stormSelection,
+// brightens icon (bolt) and label, flips its keycap and shows the edge bolt
+// caret. Danger rows use stormDanger throughout with a 10% hover fill. Radio
+// rows (flyout submenus) use StormNode: bolt check circle = current, dashed
+// ring = other.
 MenuItem {
     id: root
 
-    // Material Symbols name shown in the leading slot ("" keeps the slot
-    // for alignment so labels line up across rows).
+    // Material Symbols name for the leading slot ("" keeps the slot so labels
+    // align).
     property string iconName: ""
-    // Destructive actions read in the danger ink and hover-tint 10% danger.
+    // Destructive actions use the danger ink and a 10% danger hover tint.
     property bool danger: false
-    // Accelerator keycap: text part and/or icon part (MenuKeycap).
+    // Accelerator keycap: text and/or icon (MenuKeycap).
     property string accel: ""
     property string accelIconName: ""
-    // Radio-row treatment for flyout submenus (SPEC 1d). radioSelected is
-    // a plain property — never AbstractButton.checked — so the owner's
-    // state binding cannot be destroyed by an internal toggle.
+    // Radio-row treatment for flyout submenus. radioSelected is a plain
+    // property, not AbstractButton.checked, so an internal toggle can't break
+    // the owner's binding.
     property bool radio: false
     property bool radioSelected: false
 
@@ -44,8 +39,8 @@ MenuItem {
 
     implicitHeight: visible ? AppTheme.menuItemHeight : 0
     padding: AppTheme.menuItemPadding
-    // §3.2: constant content inset clearing the edge-bolt caret gutter —
-    // never active-only, so rows don't shift under the cursor.
+    // Constant content inset clearing the caret gutter, so rows don't shift
+    // under the cursor.
     leftPadding: AppTheme.menuItemPadding + 6
     topPadding: 0
     bottomPadding: 0
@@ -74,15 +69,11 @@ MenuItem {
         Label {
             Layout.fillWidth: true
             text: root.text
-            // Menu rows carry room names, member names and file names --
-            // remote text -- and a MenuItem exposes no textFormat of its
-            // own, so the one label every AppMenuItem renders through pins
-            // plain text for all of them.
+            // Menu rows carry remote text (room, member, file names) and
+            // MenuItem has no textFormat, so this label pins plain text.
             textFormat: Text.PlainText
             elide: Label.ElideRight
-            // Exactly AppButton's label recipe. A menu row and a button can
-            // sit in the same popover; they used to render the same face at
-            // the same size in two different weights (DemiBold vs Bold).
+            // Exactly AppButton's label style; they can share a popover.
             font.family: AppTheme.menuFont
             font.pixelSize: AppTheme.textBody
             font.weight: AppTheme.weightStrong
@@ -93,8 +84,8 @@ MenuItem {
             visible: root.accel.length > 0 || root.accelIconName.length > 0
             keys: root.accel
             iconName: root.accelIconName
-            // §3.2 danger group: icon+label+keycap ALL stormDanger — the
-            // bolt flip never applies to destructive rows.
+            // Danger rows: icon, label and keycap all stormDanger; never the
+            // bolt flip.
             active: root._active && root.enabled && !root.danger
             danger: root.danger
         }
@@ -115,10 +106,8 @@ MenuItem {
                : root.radio && root.radioSelected ? AppTheme.stormSelection
                : "transparent"
 
-        // §3.2 signature cursor: the bolt caret on the highlighted row.
-        // Flush with the row edge, not overhanging: QQuickMenu clips its
-        // content ListView, so anything left of x=0 would be scissored
-        // (the unclipped Settings nav keeps the true overhang).
+        // The bolt caret on the highlighted row, flush with the edge:
+        // QQuickMenu clips its ListView, so an overhang would be cut off.
         Icon {
             visible: root._active && root.enabled && !root.danger
             name: "bolt"

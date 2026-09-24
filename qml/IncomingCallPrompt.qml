@@ -3,45 +3,29 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// 2026-08-18 rounds 2-3: the voice-call corner card — Lightning's whole
-// call surface. STATE, not policy: it shows whenever a call is live
-// (ringing, dialing, connecting or active), independent of the ring-sound
-// gates — a muted room silences the sound, it does not hide the fact of
-// the call (matching Element). Dismissing hides a RINGING card only; the
-// caller keeps ringing on their side and our other devices keep ringing
-// too. Decline is the real action: it sends the wire event that stops the
-// ring everywhere.
+// The voice-call corner card. It reflects call state, not ring policy: it
+// shows whenever a call is live (ringing, dialing, connecting or active) even
+// in a muted room. Dismiss hides a ringing card only (the caller and our other
+// devices keep ringing); Decline sends the event that stops the ring
+// everywhere.
 //
-// TWO LANES RING HERE, AND THEY ARE ANSWERED BY DIFFERENT CODE.
-//
-// * The legacy 1:1 `m.call.*` lane is answered by `app.calls.answer()`,
-//   which needs a registered media engine (app.calls.mediaBackendAvailable
-//   — the GStreamer webrtcbin engine).
-// * A MatrixRTC ring announces a SESSION. It is answered by JOINING that
-//   session — `app.groupCall.join()`, gated on `app.rtc.joinBlockReason()`
-//   — which is the SAME gate and the SAME action RoomCallBanner and the
-//   timeline's call row already offer. Not a second join path.
-//
-// THE DEFECT THIS SHAPE FIXES. The card had ONE button, "Accept", gated on
-// `app.calls.mediaBackendAvailable` — a property of the LEGACY engine that
-// says nothing about which lane rang. So an Element call (which rings over
-// MatrixRTC) showed an Accept that `CallController::answer()` refuses at its
-// third guard, returning false into a call site that discarded it. Nothing
-// happened, nothing was said, and the maintainer reported exactly that:
-// "this accept does nothing".
-//
-// The lane now decides which affordance exists, and a legacy refusal is
-// SHOWN rather than swallowed.
+// Two lanes ring here and are answered differently:
+// * the legacy 1:1 `m.call.*` lane by `app.calls.answer()`, which needs the
+//   GStreamer engine (app.calls.mediaBackendAvailable);
+// * a MatrixRTC ring by joining the session: `app.groupCall.join()` gated on
+//   `app.rtc.joinBlockReason()`, the same gate and action as RoomCallBanner
+//   and the timeline's call row.
+// The lane decides which button exists, and a legacy refusal is shown rather
+// than swallowed.
 Rectangle {
     id: root
 
-    // One-shot per call: dismissing hides THIS call's card; the next call
-    // shows again.
+    // Dismissal is per call; the next call shows again.
     property string dismissedCallId: ""
 
     readonly property bool ringing:
         app.calls.state === CallController.Ringing
-    /// Which lane rang. See the header comment.
+    /// Which lane rang (see the header).
     readonly property bool rtcRing: app.calls.rtcRing
     readonly property string callRoomId: app.calls.activeRoomId
     readonly property bool inCall:
@@ -49,44 +33,30 @@ Rectangle {
         || app.calls.state === CallController.Connecting
         || app.calls.state === CallController.Active
 
-    /// True when the top-of-conversation bar is on screen for this call.
-    ///
-    /// That bar lives in the room's own column, so it is only reachable
-    /// while the user is looking at the call's room in the chat shell.
+    /// True when the top-of-conversation call bar is on screen for this call,
+    /// i.e. the user is viewing the call's room in the chat shell.
     readonly property bool barCovers:
         app.currentScreen === 1
         && app.calls.activeRoomId === app.currentRoomId
 
     readonly property bool shouldShow:
-        // EXACTLY ONE in-call surface at a time. The card appears only where
-        // CallHeaderBar cannot: another room, or another screen (Settings
-        // mid-call). Gating on the call's STATE instead was wrong — during
-        // Inviting/Connecting both were visible at once, which is what the
-        // maintainer reported.
-        //
-        // The card still carries Hang Up, so leaving a call stays reachable
-        // from anywhere; it simply stops duplicating the bar.
+        // One in-call surface at a time: the card appears only where
+        // CallHeaderBar can't (another room or screen). It keeps Hang Up, so
+        // leaving is reachable from anywhere.
         (inCall && !barCovers)
         || (ringing && app.calls.activeCallId !== dismissedCallId
             && app.currentScreen === 1)
 
-    // ── The MatrixRTC join gate ──────────────────────────────────────────
-    //
-    // ONE gate, one action, three surfaces (this card, RoomCallBanner, and
-    // CallEventDelegate's call row). If this changes, those change with it —
-    // a second opinion about whether a call is joinable is exactly the drift
-    // those two already guard against.
-    //
-    // Every binding that calls into RtcController must read `refreshTick`:
-    // Qt cannot track a C++ function call as a dependency, so a binding
-    // without it evaluates once and never again.
+    // ── The MatrixRTC join gate ──
+    // One gate and action shared with RoomCallBanner and CallEventDelegate;
+    // change them together. Bindings calling into RtcController read
+    // `refreshTick`, since Qt can't track a C++ call as a dependency.
     property int refreshTick: 0
     function refresh() {
         refreshTick = refreshTick + 1;
     }
-    // Guarded the way CallEventDelegate guards: fixtures exist that supply no
-    // call controllers, and "cannot ask" must degrade to "cannot join", never
-    // to a reference error that takes the whole card down.
+    // Guarded like CallEventDelegate: without controllers (fixtures) "can't
+    // ask" degrades to "can't join", never a reference error.
     readonly property bool rtcReachable:
         typeof app !== "undefined" && app && app.rtc
         && root.callRoomId.length > 0
@@ -97,8 +67,7 @@ Rectangle {
         return root.rtcReachable ? app.rtc.joinBlockReason(root.callRoomId)
                                  : "unsupported";
     }
-    /// This device is already in that call — the controls are up elsewhere
-    /// and joining again is meaningless.
+    /// This device is already in that call.
     readonly property bool alreadyInThisCall: {
         var _ = root.refreshTick;
         return root.groupCallReachable && app.groupCall.active
@@ -107,23 +76,17 @@ Rectangle {
     readonly property bool canJoinRtc:
         root.ringing && root.rtcRing && root.groupCallReachable
         && root.joinBlockReason.length === 0 && !root.alreadyInThisCall
-    /// The LEGACY lane's Accept. Named rather than inlined into the button so
-    /// a test can read the decision without depending on scene visibility —
-    /// an item's `visible` is EFFECTIVE visibility, so a card that is merely
-    /// off screen would make both lanes read the same and a regression test
-    /// vacuous.
+    /// The legacy lane's Accept, named so a test can read the decision without
+    /// depending on effective visibility (an off-screen card would make both
+    /// lanes read the same).
     readonly property bool legacyAcceptOffered:
         root.ringing && !root.rtcRing && app.calls.mediaBackendAvailable
 
-    // ── Silence (2026-09-23) ─────────────────────────────────────────────
-    //
-    // Stops Lightning's ringer for THIS call only; the card stays and can
-    // still answer or decline, and the next call rings normally. Offered
-    // only while OUR ringer is sounding for the ringing call —
-    // `ringingCallId` goes empty once silenced, and is empty from the start
-    // when the desktop's themed sound is the ringer (the notification card
-    // carries Silence for that case). Named, not inlined, for the same
-    // reason as legacyAcceptOffered above.
+    // ── Silence ──
+    // Stops Lightning's ringer for this call only; the card stays and the next
+    // call rings normally. Offered only while our ringer sounds for the ringing
+    // call: `ringingCallId` is empty once silenced, or when the desktop's sound
+    // is the ringer (the notification then offers Silence).
     readonly property bool callSoundsReachable:
         typeof app !== "undefined" && app && app.callSounds ? true : false
     readonly property bool silenceOffered:
@@ -131,15 +94,10 @@ Rectangle {
         && app.callSounds.ringingCallId.length > 0
         && app.callSounds.ringingCallId === app.calls.activeCallId
 
-    /// Human wording for `joinBlockReason`. Closed set from
-    /// RtcController::joinBlockReason — a raw server string is never shown.
-    /// Kept in step with RoomCallBanner.blockText and
-    /// CallEventDelegate.blockText, which map the same set — and that claim
-    /// is now CHECKED rather than asserted in a comment:
-    /// `everyJoinBlockTokenHasWordingOnEverySurface` derives the token list
-    /// from joinBlockReason's own body and requires a case on all three.
-    /// It had been untrue for `media_encryption_unavailable` since that
-    /// token existed.
+    /// Human wording for `joinBlockReason`: the closed set from
+    /// RtcController::joinBlockReason, never a raw server string. Must match
+    /// RoomCallBanner.blockText and CallEventDelegate.blockText;
+    /// `everyJoinBlockTokenHasWordingOnEverySurface` enforces it.
     readonly property string joinBlockText: {
         switch (root.joinBlockReason) {
         case "":
@@ -160,11 +118,8 @@ Rectangle {
             return qsTr("You can't join calls in this room. A room admin "
                         + "can raise your power level in it.");
         case "media_encryption_unavailable":
-            // The room is encrypted and call media E2EE is not active, so
-            // joining would carry audio and video the SFU could read. It had
-            // no case here at all and fell into the default, so the one
-            // refusal that is about ENCRYPTION read as a generic shrug — in
-            // a file whose own comment claims this set is kept in step.
+            // Encrypted room without call media E2EE: joining would expose
+            // media to the SFU.
             return qsTr("This room is encrypted, and encrypted calls aren't "
                         + "available in this build.");
         default:
@@ -172,10 +127,8 @@ Rectangle {
         }
     }
 
-    /// Why the legacy Accept refused, when it did. `answer()` returns a bool
-    /// and this card USES it: swallowing that return is what made the button
-    /// look dead. Cleared whenever the ring changes so one call's failure
-    /// cannot describe the next.
+    /// Why the legacy Accept refused, from answer()'s return value. Cleared
+    /// when the ring changes so one call's failure can't describe the next.
     property string answerRefusal: ""
     readonly property string answerRefusalText: {
         switch (root.answerRefusal) {
@@ -194,9 +147,8 @@ Rectangle {
     }
     onRingingChanged: {
         root.answerRefusal = "";
-        // An RTC ring can name a room the user is not looking at, so nothing
-        // else has necessarily asked RtcController about it. RoomCallBanner
-        // only refreshes the OPEN room.
+        // An RTC ring may name a room nobody has asked RtcController about
+        // (RoomCallBanner only refreshes the open room).
         if (root.ringing && root.rtcRing && root.rtcReachable)
             app.rtc.refresh(root.callRoomId);
     }
@@ -215,9 +167,8 @@ Rectangle {
     Connections {
         enabled: root.groupCallReachable
         target: (typeof app !== "undefined" && app) ? app.groupCall : null
-        // Joining from this very card must make the button stand down.
-        // `active` notifies through stateChanged — there is no
-        // activeChanged, and a handler named for one would simply never run.
+        // Joining from this card must stand the button down. `active`
+        // notifies through stateChanged; there is no activeChanged.
         function onStateChanged() {
             root.refresh();
         }
@@ -228,33 +179,20 @@ Rectangle {
     opacity: shouldShow ? 1 : 0
     Behavior on opacity { NumberAnimation { duration: 140 } }
 
-    // 316 is the card's SHAPE, not a promise that three buttons fit in it.
-    //
-    // Every button in the action row is `Layout.fillWidth`, so on a card too
-    // narrow for them the RowLayout shrinks each one below its own label —
-    // and an AppButton draws its label from the centre of whatever width it
-    // is given, so three squeezed buttons write across each other. Ringing
-    // shows three at once (Accept/Join, Decline, Dismiss), which is the
-    // worst case and also the most urgent surface in the app to get wrong.
-    //
-    // Whether they fit is a question about TEXT: it depends on the label,
-    // the font and the platform's own metrics for it, and it changed under
-    // the maintainer without a line of QML changing. So the card asks the
-    // row how much it needs and is never narrower than that. Reading
-    // `actionRow.implicitWidth` is safe — a button's implicit width comes
-    // from its label, never from the width the row hands back.
+    // Never narrower than the action row needs: the buttons fill width, and a
+    // squeezed AppButton draws its label over its neighbours. Ringing shows
+    // three at once. Reading the row's implicit width is safe; it comes from
+    // the labels, not the width handed back.
     width: Math.max(316, actionRow.implicitWidth + AppTheme.spacing16 * 2)
     implicitHeight: promptColumn.implicitHeight + AppTheme.spacing16 * 2
     height: implicitHeight
     radius: AppTheme.radiusLg
     color: AppTheme.stormPanel
-    // Bolt-accent border: a call is an invitation, not a warning
-    // (stormDanger is the verify prompt's tone; bolt is the brand accent).
+    // Bolt border: a call is an invitation, not a warning.
     border.color: AppTheme.bolt
     border.width: 1
 
-    // One title for the visible header AND the accessible name, so a
-    // screen reader follows the state the way sighted users do.
+    // One title for the header and the accessible name.
     readonly property string titleText: {
         if (app.calls.state === CallController.Inviting)
             return qsTr("Calling…")
@@ -294,9 +232,8 @@ Rectangle {
                 font.weight: AppTheme.weightBold
                 elide: Label.ElideRight
             }
-            // In the title row, not the action row: it is not a decision
-            // about the call, and the action row is already three buttons
-            // wide while ringing.
+            // In the title row: it's not a decision about the call, and the
+            // action row is already full while ringing.
             IconButton {
                 objectName: "incomingCallPromptSilence"
                 visible: root.silenceOffered
@@ -308,8 +245,8 @@ Rectangle {
                 ToolTip.text: qsTr("Silence the ringer for this call")
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
-                // The id is read at the press, so it can only name the call
-                // this card is showing; silenceRing refuses any other.
+                // Read at the press, so it names this card's call; silenceRing
+                // refuses any other.
                 onClicked: app.callSounds.silenceRing(app.calls.activeCallId)
             }
         }
@@ -324,16 +261,14 @@ Rectangle {
             wrapMode: Text.WordWrap
             color: AppTheme.stormTextMuted
             font.pixelSize: AppTheme.textMeta
-            // Localpart only — the timeline's own no-bare-MXID restraint.
+            // Localpart only, as in the timeline.
             text: {
                 var caller = app.calls.callerUserId
                 if (caller.length > 1 && caller.charAt(0) === "@")
                     caller = caller.substring(1).split(":")[0]
 
-                // A MatrixRTC ring is an invitation to a SESSION, so the
-                // wording is "started a call" and the obstacle, when there is
-                // one, is the join gate — never the legacy engine, which has
-                // nothing to do with this lane.
+                // A MatrixRTC ring invites to a session: "started a call", and
+                // any obstacle is the join gate, never the legacy engine.
                 if (root.rtcRing) {
                     var opened = caller.length > 0
                         ? qsTr("%1 started a call.").arg(caller)
@@ -364,12 +299,9 @@ Rectangle {
             id: actionRow
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
-            // ── The MatrixRTC ring: JOIN ──
-            //
-            // Absent, not disabled, when the gate refuses — a disabled Qt
-            // Quick control receives no hover and so cannot explain itself;
-            // the reason goes in the card's body line instead. Same rule
-            // RoomCallBanner follows.
+            // ── The MatrixRTC ring: Join ── Absent rather than disabled when
+            // the gate refuses (a disabled control gets no hover, so can't
+            // explain itself); the reason goes in the body line.
             AppButton {
                 objectName: "incomingCallPromptJoin"
                 visible: root.canJoinRtc
@@ -377,27 +309,22 @@ Rectangle {
                 kind: "primary"
                 Layout.fillWidth: true
                 text: qsTr("Join")
-                // The SAME call RoomCallBanner's and the call row's Join
-                // make. The ring clears itself once the join goes active
-                // (AppController wires SfuCallController::stateChanged to
-                // CallController::noteAnsweredByOtherLane), which puts
-                // NOTHING on the wire — emphatically not a decline, which
-                // would tell the caller "no" about a call just walked into.
+                // Same action as the other Join buttons. The ring clears once
+                // the join goes active
+                // (CallController::noteAnsweredByOtherLane), with nothing sent
+                // on the wire: a decline would tell the caller "no".
                 onClicked: app.groupCall.join(root.callRoomId, false)
             }
-            // ── The legacy 1:1 ring: ANSWER ──
+            // ── The legacy 1:1 ring: Answer ──
             AppButton {
                 objectName: "incomingCallPromptAccept"
-                // The engine gate applies to THIS lane only. Gating the RTC
-                // ring on it was the defect: a legacy-engine property was
-                // deciding whether to offer a button `answer()` refuses.
+                // The engine gate applies to this lane only.
                 visible: root.legacyAcceptOffered
                 storm: true
                 kind: "primary"
                 Layout.fillWidth: true
                 text: qsTr("Accept")
-                // The bool return is READ. Discarding it is what made a
-                // refusal indistinguishable from a dead button.
+                // Read the bool return so a refusal is shown.
                 onClicked: {
                     if (!app.calls.answer())
                         root.answerRefusal = app.calls.lastRefusal()

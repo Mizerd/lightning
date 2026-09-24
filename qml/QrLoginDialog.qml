@@ -3,26 +3,13 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// MSC4108 — signing ANOTHER device in from this one.
-//
-// # What the two flows are, in the user's terms
-//
-// SHOW: this device puts a code on screen, the new device's camera reads it,
-// the new device then shows two digits and the user types them here.
-// ENTER: the new device shows the code, its text is pasted here, and THIS
-// device shows two digits for the user to type over there.
-//
-// Both finish at a page the user opens to confirm — and then the new device
-// is not only signed in but CROSS-SIGNED, because the SDK moves the private
-// cross-signing keys and the backup key across the channel. That is worth
-// saying on screen: it is the difference between this and typing a password,
-// and it is why the digits matter.
-//
-// # There is no camera
-//
-// Lightning bundles no camera-frame decoder, so the ENTER flow takes the
-// code's TEXT — which every client that displays one also offers. The dialog
-// says that rather than showing a viewfinder that will never fill.
+// MSC4108: signing another device in from this one. SHOW: this device displays
+// a code, the new device scans it and shows two digits, typed here. ENTER: the
+// new device shows the code, its text is pasted here, and this device shows two
+// digits to type there. Both finish at a confirmation page, and the new device
+// is also cross-signed: the SDK moves the private cross-signing and backup keys
+// across the channel. There is no camera decoder, so ENTER takes the code's
+// text, which every client that displays one also offers.
 Dialog {
     id: root
     objectName: "qrLoginDialog"
@@ -34,8 +21,8 @@ Dialog {
     Overlay.modal: Rectangle { color: AppTheme.modalScrim }
     focus: true
     standardButtons: Dialog.NoButton
-    // Escape cancels the FLOW, not just the dialog: a channel left open is a
-    // channel something else can still complete.
+    // Escape cancels the flow, not just the dialog: an open channel could still
+    // be completed by something else.
     closePolicy: Popup.CloseOnEscape
     parent: Overlay.overlay
     anchors.centerIn: parent
@@ -69,7 +56,7 @@ Dialog {
             font.weight: AppTheme.weightStrong
         }
 
-        // ── Idle: choose a direction ─────────────────────────────────────
+        // Idle: choose a direction
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -107,8 +94,8 @@ Dialog {
                 AppTextField {
                     id: pasteField
                     Layout.fillWidth: true
-                    // A field a layout can squeeze to nothing takes its
-                    // neighbour's width with it.
+                    // Without a zero minimum the field would take its
+                    // neighbour's width.
                     Layout.minimumWidth: 0
                     placeholderText: qsTr("Paste the sign-in code")
                     onAccepted: root.qr.enterCode(text)
@@ -131,7 +118,7 @@ Dialog {
             }
         }
 
-        // ── Showing our code ─────────────────────────────────────────────
+        // Showing our code
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -142,10 +129,8 @@ Dialog {
                 Layout.preferredWidth: 220
                 Layout.preferredHeight: 220
                 visible: source != ""
-                // Nearest-neighbour, black on white, quiet zone included —
-                // the provider owns all of that, because a QR code has to be
-                // readable by a camera and that is a physical constraint
-                // rather than a styling choice.
+                // Nearest-neighbour, black on white, quiet zone included (the
+                // provider owns all of that; a camera must read it).
                 smooth: false
                 fillMode: Image.PreserveAspectFit
                 source: root.qr ? root.qr.qrSource : ""
@@ -174,7 +159,7 @@ Dialog {
                     text: qsTr("Copy")
                     size: "sm"
                     // QML has no clipboard API; a hidden TextEdit's copy() is
-                    // the route every other surface here uses.
+                    // the route used everywhere.
                     onClicked: {
                         clipboardHelper.text = root.qr.qrText
                         clipboardHelper.selectAll()
@@ -185,7 +170,7 @@ Dialog {
             }
         }
 
-        // ── They scanned: we need their digits ───────────────────────────
+        // They scanned: we need their digits
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -203,9 +188,8 @@ Dialog {
                 wrapMode: Text.WordWrap
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.textMeta
-                // Why it exists, not just what to do. Someone who knows this
-                // is the check against a code intercepted in transit will not
-                // guess at it.
+                // Says why: this check guards against a code intercepted in
+                // transit.
                 text: qsTr("This proves the two devices are talking to each "
                            + "other and not to something in between. If the "
                            + "digits do not match, stop.")
@@ -231,7 +215,7 @@ Dialog {
             }
         }
 
-        // ── We scanned: they need OUR digits ─────────────────────────────
+        // We scanned: they need our digits
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -257,7 +241,7 @@ Dialog {
             }
         }
 
-        // ── Consent ──────────────────────────────────────────────────────
+        // Consent
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -275,16 +259,12 @@ Dialog {
                 text: qsTr("Open the confirmation page")
                 kind: "primary"
                 enabled: root.qr && root.qr.verificationUri.length > 0
-                // Through the app's own launcher, whose allowlist accepts
-                // http/https and nothing else.
-                // app.media.openWebUrl, which routes through UrlLauncher —
-                // its allowlist accepts http/https and refuses everything
-                // else at the one exit to xdg-open.
+                // Through UrlLauncher, whose allowlist accepts only http/https.
                 onClicked: app.media.openWebUrl(root.qr.verificationUri)
             }
         }
 
-        // ── Working / finished ───────────────────────────────────────────
+        // Working / finished
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8

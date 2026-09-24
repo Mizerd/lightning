@@ -2,45 +2,33 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// Lightning text button. Five kinds on ONE geometry ladder:
+// Lightning text button. Five kinds on one geometry ladder:
 //   "secondary" (default) — flat surface with a subtle 1px border.
 //   "primary"             — accent fill with on-accent text (main actions).
 //   "danger"              — destructive, quiet: danger ink on a transparent
 //                           field with a danger-tinted border.
 //   "dangerPrimary"       — destructive, committed: solid danger fill with
-//                           dangerText on it. For the confirm button of a
-//                           destructive dialog, where "quiet" is wrong.
+//                           dangerText. For a destructive dialog's confirm.
 //   "ghost"               — label only; no border, no resting fill. For
-//                           tertiary actions sitting inside another surface.
+//                           tertiary actions inside another surface.
 //
 // Geometry comes from the AppTheme button ladder (`size`: sm 26 / md 32 /
-// lg 40, buttonRadius, buttonPaddingH), never from per-site literals — the
-// 2026-08-21 audit found identical buttons 30px and 40px tall side by side
-// because every host picked its own numbers.
+// lg 40, buttonRadius, buttonPaddingH), never per-site literals.
 //
-// Storm skin: `storm: true` on storm surfaces. Note what this no longer
-// branches on. bolt/boltInk/accentHover/accentPressed are all THEME-ROUTED
-// now (Storm's accent IS bolt, its accentText IS boltInk), so the primary
-// and destructive fills resolve identically on both paths and are written
-// once. The earlier storm branch open-coded `Qt.darker(bolt, 1.05/1.12)`
-// for hover/pressed and therefore disagreed with the themed path's
-// hand-tuned accentHover/accentPressed for no reason anyone wanted. Only
-// the SECONDARY ink genuinely differs (storm quiets it one step), so that
-// is the only branch left.
+// `storm: true` on storm surfaces. Accent and fill tokens are theme-routed
+// (Storm's accent is bolt), so only the secondary ink differs by skin.
 AbstractButton {
     id: root
 
     property string kind: "secondary"
     property bool storm: false
-    // "sm" | "md" | "lg" — see the ladder note above.
+    // "sm" | "md" | "lg"; see the ladder above.
     property string size: "md"
-    // Optional leading Material Symbols glyph. Buttons that carry one still
-    // centre the icon+label pair as a unit, so a row of mixed buttons keeps
-    // one optical centre line.
+    // Optional leading Material Symbols glyph; icon and label are centred as a
+    // unit.
     property string iconName: ""
-    // Width floor so a row of short labels ("OK", "Save") does not render as
-    // a row of differently sized boxes. Overridable: a call site with an
-    // explicit width or Layout.preferredWidth wins over implicitWidth anyway.
+    // Width floor so short labels ("OK", "Save") don't make differently sized
+    // boxes. An explicit width or Layout.preferredWidth still wins.
     property int minWidth: AppTheme.buttonMinWidth
 
     readonly property bool primary: kind === "primary"
@@ -48,8 +36,7 @@ AbstractButton {
     readonly property bool dangerPrimary: kind === "dangerPrimary"
     readonly property bool ghost: kind === "ghost"
 
-    // A kind whose resting state is a SOLID fill. Those need their focus ring
-    // inked against the fill, not against the page.
+    // Kinds with a solid resting fill; their focus ring is inked against it.
     readonly property bool _filled: primary || dangerPrimary
 
     readonly property int _height: size === "sm" ? AppTheme.buttonHeightSm
@@ -70,8 +57,8 @@ AbstractButton {
         return storm ? AppTheme.stormTextSecondary : AppTheme.buttonNeutralInk
     }
 
-    // Ring ink chosen against what the ring is drawn ON — see the focus-ring
-    // note at the bottom of the file.
+    // Ring ink chosen against what the ring is drawn on (see the focus ring
+    // below).
     readonly property color _focusInk: {
         if (primary) return AppTheme.buttonPrimaryInk
         if (dangerPrimary) return AppTheme.buttonDangerInk
@@ -100,8 +87,8 @@ AbstractButton {
                 objectName: "buttonIcon"
                 visible: root.iconName.length > 0
                 name: root.iconName
-                // One optical step below the label's cap height reads as part
-                // of the word rather than as a separate badge.
+                // One optical step below the label's cap height, so it reads as
+                // part of the word.
                 size: root.size === "sm" ? 15 : 17
                 color: root._ink
                 anchors.verticalCenter: parent.verticalCenter
@@ -112,9 +99,8 @@ AbstractButton {
                 visible: root.text.length > 0
                 text: root.text
                 color: root._ink
-                // One face, one weight for the interactive-label role. The
-                // menu row (AppMenuItem) matches it exactly; they used to sit
-                // in the same popover at Bold and DemiBold.
+                // One face and weight for interactive labels, matching
+                // AppMenuItem.
                 font.family: root.storm ? AppTheme.menuFont : AppTheme.uiFont
                 font.pixelSize: root.size === "sm" ? AppTheme.textMeta
                                                    : AppTheme.textBody
@@ -144,10 +130,9 @@ AbstractButton {
                 return root.down ? AppTheme.stormDangerBorder
                      : root.hovered ? AppTheme.stormDangerSoft
                      : "transparent"
-            // secondary / ghost: a real two-step ladder. Rest is the host
-            // surface, hover lifts one rung, press lifts a second — the
-            // single-step version was measured indistinguishable under Storm,
-            // where `hover` is a 22%-alpha wash.
+            // Secondary / ghost: rest, hover and press are distinct steps (a
+            // single step was indistinguishable under Storm's translucent
+            // hover).
             if (root.storm)
                 return root.down ? AppTheme.stormSelection
                      : root.hovered ? Qt.alpha(AppTheme.stormSelection, 0.55)
@@ -167,18 +152,10 @@ AbstractButton {
         }
     }
 
-    // Keyboard focus, drawn INSIDE the control's own bounds.
-    //
-    // It used to be a 2px stroke at margins -4, i.e. 4px of ring outside a
-    // button whose host often gives it 2px of padding: on the message action
-    // bar the ring crossed the bar's own border and rounded corner, and in
-    // any of the 37 clipping containers it was scissored into an L. Drawing
-    // it inside cannot collide with a neighbour and cannot be clipped.
-    //
-    // The cost of drawing inside is that on a filled kind the accent ring
-    // would land on the accent fill and vanish, so `_focusInk` switches to
-    // the ink that is already contrast-guaranteed against that fill
-    // (accentText / dangerText) instead. Transparent kinds keep the accent.
+    // Keyboard focus, drawn inside the control's bounds, so it can't collide
+    // with neighbours or be clipped by a container. On filled kinds the ring
+    // uses the fill's contrast-guaranteed ink (accentText / dangerText)
+    // instead of the accent.
     Rectangle {
         objectName: "focusRing"
         anchors.fill: parent

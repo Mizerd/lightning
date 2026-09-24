@@ -1,61 +1,21 @@
 import QtQuick
 
-// SmoothWheelArea — gives any plain Flickable/ListView/GridView the SAME
-// mouse-wheel and touchpad feel as the room timeline
-// (qml/TimelinePane.qml's `timelineWheelHandler`, backed by
-// src/models/TimelineScrollController.*), so scrolling in Settings, dialogs
-// and side panels no longer feels "slower and different" than the chat
-// timeline (2026-08-16 maintainer report).
+// SmoothWheelArea gives a plain Flickable/ListView/GridView the same wheel and
+// touchpad feel as the room timeline (TimelinePane's timelineWheelHandler,
+// backed by TimelineScrollController).
 //
-// ── Why this does NOT reuse TimelineScrollController's motion engine ──────
-// `app.timelineScroll` is exposed to QML as ONE shared instance
-// (QML_UNCREATABLE — "TimelineScrollController is exposed via
-// app.timelineScroll"). Reading its header/implementation:
-//   * wheelNotch(), animateTo(), pixelTargetY(), cancel(), and — this is
-//     the easy-to-miss part — wheelTargetY() itself all MUTATE that one
-//     instance's private motion state (m_targetY, m_direction,
-//     m_motionActive, the ticker) and/or emit its single
-//     wheelPositionChanged()/motionActiveChanged() signals. wheelTargetY()
-//     looks like a pure "compute the target" helper but calls
-//     setMotionActive(true) and writes m_targetY/m_direction as a side
-//     effect, and pixelTargetY() calls cancel() as a side effect. Calling
-//     either from a second, simultaneously visible surface (Room
-//     Information open beside a live timeline; a dialog over the room
-//     list) would flip the TIMELINE's own `wheelAnimating`/motionActive
-//     state, corrupt its in-flight coalesced target, or silently kill a
-//     glide already in flight without emitting wheelMotionSettled — none
-//     of which this component's caller can see or account for.
-//   * Only notchDistance()/notchDistanceForSpeed() are genuine `const`
-//     reads with no side effects, and the `wheelSpeed` property/enum are
-//     plain reads too.
-// So this component (deliberately option "b" from the task) reads ONLY
-// notchDistance() — the one real source of truth for "how far is one
-// notch at the user's configured speed" (Settings → wheel speed governs
-// this pane exactly like it governs the timeline) — and drives its own,
-// fully independent local glide, ticked by its own Timer. It never
-// calls wheelNotch/animateTo/pixelTargetY/wheelTargetY/cancel on the
-// shared controller, and never touches TimelinePane.qml or the timeline's
-// own motion state. Multiple SmoothWheelArea instances (and the timeline)
-// can be visible and scrolling at the same time without fighting each
-// other, because each owns nothing but its own local `glide`.
+// It does not reuse app.timelineScroll's motion engine: that is one shared
+// instance, and wheelNotch(), animateTo(), pixelTargetY(), cancel() and even
+// wheelTargetY() mutate its motion state, so calling them from a second visible
+// surface would disturb the timeline's own glide. Only
+// notchDistance()/notchDistanceForSpeed() and motionStep() are pure const
+// reads. This component uses those and drives its own local glide on its own
+// Timer, so any number of instances and the timeline can scroll at once.
 //
-// ── Feel matching ───────────────────────────────────────────────────────
-// The curve is NOT approximated. motionStep() is the controller's own
-// per-frame integration (exponential approach at tau, the minimum-settle
-// speed floor, the per-frame viewport ceiling) exposed as a pure const
-// function, and this component calls it once per tick. So the distance per
-// notch and the deceleration are both the timeline's, from the timeline's
-// own code — there is no second copy of the maths to drift.
+// The curve is the controller's own per-frame integration (motionStep), not an
+// approximation; easing-curve animations felt wrong ("in blocks").
 //
-// Two earlier attempts approximated instead, and both were reported as
-// feeling wrong: a SmoothedAnimation eased IN as well as out, and an
-// OutExpo NumberAnimation restarted its deceleration on every notch, which
-// reads as scrolling "in blocks... like rowing".
-//
-// ── Usage ───────────────────────────────────────────────────────────────
-// Declare as a direct child of the Flickable/ListView/GridView it should
-// drive (exactly like `timelineWheelHandler` is declared directly inside
-// "timeline") so `parent` resolves to that view automatically:
+// Usage: declare as a direct child of the view it drives:
 //
 //     Flickable {
 //         id: myFlick
@@ -63,27 +23,14 @@ import QtQuick
 //         SmoothWheelArea {}
 //     }
 //
-// Pass `scrollTarget` explicitly only when this cannot be a direct child
-// of the view (e.g. a WheelHandler nested one level deeper for z-order
-// reasons).
+// Pass `scrollTarget` only when it cannot be a direct child.
 WheelHandler {
     id: root
 
-    // The Flickable/ListView/GridView this instance scrolls. Defaults to
-    // the enclosing item — PointerHandler's own `parent` ("ParentProperty"
-    // in the C++ metadata) already resolves to it when this is declared as
-    // a direct child, so the common case needs no explicit wiring. Typed
-    // as Flickable (not the generic Item `parent` itself is) so contentY/
-    // contentHeight resolve statically; ListView/GridView are Flickable
-    // subtypes, so both still assign here without a cast.
-    // WALKS UP rather than casting `parent` directly. A handler declared
-    // inside a Flickable is routed through flickableData and attaches to the
-    // Flickable's CONTENT ITEM, not to the Flickable — so `parent as
-    // Flickable` yields null, onWheel takes its early return, and because it
-    // still sets `event.accepted = true` the pane becomes COMPLETELY
-    // unscrollable. That shipped in 5429ab0 and broke Settings, Room
-    // Information, Home and six dialogs at once; the contract test could not
-    // see it because it only scans source for the component's name.
+    // The view this scrolls. Walks up from `parent`: a handler declared inside
+    // a Flickable attaches to its content item, so casting `parent` would yield
+    // null, and the early return still accepts the event, making the pane
+    // unscrollable.
     property Flickable scrollTarget: {
         var p = parent
         while (p) {
@@ -95,23 +42,11 @@ WheelHandler {
         return null
     }
 
-    // ── Axis ────────────────────────────────────────────────────────────
-    //
-    // This component was vertical-only until the 2026-08-28 sticker round,
-    // and putting it on a HORIZONTAL view was strictly WORSE than leaving it
-    // off: every bound below is derived from contentHeight/height, which on a
-    // horizontal ListView are equal, so `maxContentY` is 0 — and because
-    // onWheel still ends in `event.accepted = true`, the view would swallow
-    // every wheel event and never move. That is the same failure shape as the
-    // `parent as Flickable` bug recorded above, reached from a different
-    // direction, so it is worth naming rather than discovering twice.
-    //
-    // "auto" is the default and cannot change any existing caller: it only
-    // reads horizontal when the vertical axis has NO overflow at all (where
-    // the old behaviour was to accept the event and do nothing) AND the
-    // horizontal axis has some. Set it explicitly on a view whose orientation
-    // is known — clearer at the call site, and immune to a transient layout
-    // pass where the content has not been measured yet.
+    // "auto" (default), "vertical" or "horizontal". Bounds on a horizontal view
+    // must come from widths: height-derived bounds are zero there and every
+    // wheel event would be accepted and ignored. "auto" reads horizontal only
+    // when the vertical axis has no overflow and the horizontal one does; set
+    // it explicitly on a view of known orientation:
     //
     //     ListView { orientation: ListView.Horizontal
     //                SmoothWheelArea { axis: "horizontal" } }
@@ -122,8 +57,7 @@ WheelHandler {
             && scrollTarget.contentHeight <= scrollTarget.height + 0.5
             && scrollTarget.contentWidth > scrollTarget.width + 0.5)
 
-    // The scrolled axis's extent, so the notch distance and the per-frame
-    // ceiling are measured against the axis actually moving.
+    // The scrolled axis's extent, for the notch distance and per-frame ceiling.
     readonly property real viewportExtent: scrollTarget
         ? (horizontal ? scrollTarget.width : scrollTarget.height) : 0
     function scrollPosition() {
@@ -142,10 +76,8 @@ WheelHandler {
             t.contentY = value
     }
 
-    // Far bound of the scroll range: the content minus the viewport, floored
-    // at zero (content shorter than the viewport). The names keep their `Y`
-    // for every existing caller and for the contract test that pins them;
-    // they mean "along the scrolled axis", which is Y unless `horizontal`.
+    // Scroll range along the scrolled axis (floored at zero). The names keep
+    // `Y` for existing callers and the contract test.
     readonly property real minContentY: 0
     readonly property real maxContentY: horizontal
         ? Math.max(0, (scrollTarget ? scrollTarget.contentWidth : 0)
@@ -153,17 +85,12 @@ WheelHandler {
         : Math.max(0, (scrollTarget ? scrollTarget.contentHeight : 0)
                        - (scrollTarget ? scrollTarget.height : 0))
 
-    // Local, fully independent glide state — see the header note above.
-    // Never read or written by anything outside this instance.
-    // Read defensively: several suites load this component with no `app`
-    // context property at all, and an undefined read there would make the
-    // whole area inert rather than merely un-animated.
+    // Local glide state, never touched from outside. Read defensively: several
+    // suites load this without `app`.
     readonly property bool smoothScrollingEnabled: {
-        // Explicitly coerced, never handed through raw. A stub `app.settings`
-        // that does not carry this property yields UNDEFINED, and assigning
-        // undefined to a bool is a QML warning — which the GIF picker suites
-        // correctly treat as a failure. Defaulting to TRUE also keeps the
-        // shipped feel for any surface whose settings object is incomplete.
+        // Coerce explicitly: a stub settings object yields undefined, and
+        // assigning undefined to a bool warns (the GIF picker suites fail on
+        // that). Defaults to true.
         if (typeof app === "undefined" || !app || !app.settings)
             return true
         var v = app.settings.smoothScrolling
@@ -179,11 +106,9 @@ WheelHandler {
         return y < lo ? lo : (y > hi ? hi : y)
     }
 
-    // Cancel any in-flight glide without moving the target. Exposed so an
-    // embedding pane can stop it before a programmatic contentY jump of
-    // its own (e.g. resetting scroll position on a tab switch), the same
-    // way TimelinePane.qml's cancelWheelMotion() guards its own
-    // programmatic navigation.
+    // Cancel any in-flight glide without moving the target, so an embedding
+    // pane can make a programmatic jump (like TimelinePane's
+    // cancelWheelMotion()).
     function stopGlide() {
         root.ticker.stop()
         root.glideDirection = 0
@@ -201,11 +126,9 @@ WheelHandler {
         var lo = root.minContentY
         var hi = root.maxContentY
 
-        // A mouse has ONE wheel and reports it on the Y axis, so a HORIZONTAL
-        // view has to answer a vertical wheel or it cannot be scrolled with a
-        // mouse at all. An x delta — a tilt wheel, or shift+wheel, which Qt
-        // reports on x — is taken only when y carries nothing, and only on a
-        // horizontal view: a vertical pane must not start scrolling sideways.
+        // A mouse wheel reports on Y, so a horizontal view must answer vertical
+        // wheels. An x delta (tilt wheel, shift+wheel) is used only when y is
+        // empty and only on a horizontal view.
         var pixels = event.pixelDelta.y !== 0
             ? event.pixelDelta.y
             : (root.horizontal ? event.pixelDelta.x : 0)
@@ -213,51 +136,37 @@ WheelHandler {
             ? event.angleDelta.y
             : (root.horizontal ? event.angleDelta.x : 0)
 
-        // A phased frame is a TOUCHPAD frame even at 0 whole pixels (Qt
-        // Wayland rounds per frame, carries the remainder, and still sends
-        // angleDelta). Sending those px=0 frames down the notch glide below
-        // made a slow swipe travel ~20x the finger (measured 2026-09-23; see
-        // TimelinePane.qml and docs/timeline-scrolling.md). A wheel never has
-        // a phase on any platform, so it keeps the notch path.
+        // A phased frame is a touchpad frame even at 0 whole pixels (Qt Wayland
+        // carries the remainder); treating it as a notch made slow swipes
+        // travel far too far. See TimelinePane.qml. Wheels never have a phase.
         var continuousSource = event.phase !== Qt.NoScrollPhase
         if (pixels !== 0 || (continuousSource && angle !== 0)) {
-            // High-resolution touchpad / precision wheel: apply the
-            // platform's own delta directly, exactly like
-            // TimelineScrollController::pixelTargetY — no coalesced glide
-            // fights native momentum. Cancel any in-flight notch glide
-            // first, same reason pixelTargetY() calls cancel().
+            // High-resolution touchpad / precision wheel: apply the platform
+            // delta directly, as TimelineScrollController::pixelTargetY does,
+            // cancelling any notch glide first.
             root.stopGlide()
             root.setScrollPosition(
                 root.clampY(root.scrollPosition() - pixels, lo, hi))
         } else if (angle !== 0) {
-            // Discrete mouse-wheel notch. Reuse the SAME per-notch
-            // distance the timeline uses (TimelineScrollController::
-            // notchDistance — a pure read, honours the user's configured
-            // wheel speed) and the same proportional-delta conversion
-            // Qt's own angleDelta convention implies (120 units == one
-            // notch), then coalesce same-direction notches into one
-            // continuous local glide instead of restarting per notch.
+            // Discrete wheel notch: the timeline's notchDistance() (honouring
+            // the wheel speed setting), 120 angle units per notch, with
+            // same-direction notches coalesced into one glide.
             var controller = (typeof app !== "undefined" && app)
                               ? app.timelineScroll : null
             var per = controller
                       ? controller.notchDistance(root.viewportExtent) : 120.0
             var deltaPixels = -(angle / 120.0) * per
             var dir = deltaPixels > 0 ? 1 : (deltaPixels < 0 ? -1 : 0)
-            // Smooth scrolling OFF: land the whole notch immediately. The
-            // DISTANCE is unchanged — this is not a different scroll speed,
-            // it is the same movement without the glide, so a reader who
-            // turns it off still travels exactly as far per notch. The
-            // pixel-delta branch above is already instantaneous, so a
-            // touchpad is unaffected either way.
+            // Smooth scrolling off: land the whole notch immediately, same
+            // distance.
             if (dir !== 0 && !root.smoothScrollingEnabled) {
                 root.stopGlide()
                 root.setScrollPosition(
                     root.clampY(root.scrollPosition() + deltaPixels, lo, hi))
             } else if (dir !== 0) {
-                // Same-direction extension while a glide is already
-                // running continues from its (still in-flight) target;
-                // a reversal or a fresh gesture redirects from the live
-                // position — identical policy to wheelTargetY().
+                // Same direction while gliding extends from the in-flight
+                // target; a reversal or fresh gesture starts from the live
+                // position (as wheelTargetY()).
                 var base = (root.ticker.running && dir === root.glideDirection)
                            ? root.glideTargetY : root.scrollPosition()
                 var newTarget = root.clampY(base + deltaPixels, lo, hi)
@@ -270,14 +179,8 @@ WheelHandler {
         event.accepted = true
     }
 
-    // Drives the glide with the CONTROLLER'S OWN per-frame integration
-    // (motionStep) rather than a QML easing curve, so the feel is identical
-    // to the room timeline instead of merely similar. A SmoothedAnimation
-    // eased in as well as out; an OutExpo NumberAnimation restarted its
-    // deceleration on every notch, which reads as scrolling "in blocks".
-    // Coalescing is trivial here: a same-direction notch only moves
-    // glideTargetY and the running ticker keeps going on one continuous
-    // curve, exactly as the timeline's own does.
+    // Ticks the glide with the controller's motionStep, so the feel matches the
+    // timeline. A same-direction notch only moves glideTargetY.
     property Timer ticker: Timer {
         interval: 16
         repeat: true

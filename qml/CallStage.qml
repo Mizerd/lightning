@@ -4,64 +4,38 @@ import QtQuick.Layouts
 import QtQuick.Window
 import MatrixClient
 
-// The call surface — Discord's DM arrangement, Lightning's tokens.
+// The call surface: a panel at the top of the conversation column, with the
+// timeline still visible and scrolling beneath it. The host (TimelinePane)
+// owns the split and the divider; this component only requests collapse.
 //
-// WHERE IT LIVES. This is a PANEL AT THE TOP of the conversation column, with
-// the message list still visible and scrolling independently beneath it. It
-// used to REPLACE the timeline entirely; the maintainer asked for the other
-// thing ("calls get put at the top of the screen"), which is also what Discord
-// does in a DM. The host (TimelinePane) owns the split and the divider; this
-// component only asks to be collapsed.
+// Voice-only calls draw circular avatars with an amplitude-driven speaking
+// ring. Once anyone has a camera or share on, every participant becomes a
+// tile. A share is a tile, not a mode: one person sharing with their camera
+// on is two cells.
 //
-// WHAT IT DRAWS.
-//   * Voice only — circular avatars on the canvas, name centred beneath, a
-//     speaking ring driven by AMPLITUDE.
-//   * The moment anyone turns on a camera or starts a share, every
-//     participant becomes a rounded-rect tile, including the people with
-//     neither.
-//   * A SHARE IS A TILE, NOT A MODE. Every live share is a cell in the grid
-//     alongside the people. One person sharing with their camera on is two
-//     cells; two sharers are two cells.
-//
-// THE LATCH THIS REPLACES. The old stage had `layoutMode`, and
-// `effectiveLayout` returned it verbatim whenever it was not "auto". The only
-// writer of anything else was "Back to grid" writing "grid" — and NOTHING ever
-// wrote back, so one press made the share unreachable for the rest of the
-// call. That is exactly "now if share is closed no way to get it back". There
-// is no `layoutMode` here and no local layout state at all: what the stage
-// shows is derived from `app.groupCall.stageState`, dismissal applies to the
-// SPOTLIGHT and never to the share's existence, and the grid remains a
-// complete index of everything on offer.
-//
-// THE INVARIANT, pinned by CallUiContractTest: while any share is live there
-// is always at least one on-screen control that puts it back on the spotlight
-// — the share's own tile in the grid, and the explicit "Show screen share"
-// button in the header.
+// There is no local layout state. What the stage shows is derived from
+// `app.groupCall.stageState`; dismissal affects the spotlight, never the
+// share's existence. Invariant (CallUiContractTest): while any share is live
+// there is always an on-screen control that puts it back on the spotlight —
+// its grid tile and the header's "Show screen share" button.
 Rectangle {
     id: root
 
     objectName: "callStage"
     color: AppTheme.stormCanvas
 
-    /// The participant list was asked for from the dock. The host (the
-    /// timeline pane) decides where it opens — the stage has no side panel of
-    /// its own to put it in.
+    /// The participant list was requested from the dock; the host decides where
+    /// it opens.
     signal participantsRequested()
 
-    /// The host owns the panel's HEIGHT, so collapsing is a request, not a
-    /// local write: the stage cannot resize itself out of a SplitView it does
-    /// not own.
+    /// The host owns the panel's height, so collapsing is a request.
     property bool collapsed: false
     signal collapseToggled()
 
-    // ── The data layer. Models, bound directly. ──────────────────────────
-    //
-    // Never copied into a JS array: an array reassigned is a MODEL RESET, and
-    // the speaker feed updates continuously while anybody talks, so the old
-    // `participants()` + `refreshTick` shape destroyed every tile — and with
-    // it every VideoOutput and its attach()/detach() pair — on every syllable.
-    // An amplitude-driven ring is impossible on top of that, because the item
-    // that would animate does not survive the update that drives it.
+    // ── Data layer ──
+    // Models are bound directly, never copied into a JS array: reassigning an
+    // array is a model reset, which would rebuild every tile (and its
+    // VideoOutput) on every speaker-level update.
     readonly property var participantModel: app.groupCall.participantModel
     readonly property var shareModel: app.groupCall.shareModel
     readonly property var stageState: app.groupCall.stageState
@@ -71,17 +45,9 @@ Rectangle {
     readonly property int shareCount:
         root.shareModel ? root.shareModel.count : 0
 
-    // How many cameras are live. There is no aggregate property for this on
-    // the model and a plain JS scan is NOT a binding — it cannot re-run when a
-    // row changes. So the model's own change signals drive an explicit
-    // recount, which reads the model authoritatively rather than trying to
-    // track a delta.
-    //
-    // Cost, honestly: `dataChanged` also fires for speaker levels, so this
-    // walks the participant list roughly as often as anyone speaks. A call has
-    // tens of participants, and the walk is cheaper than one video frame. An
-    // aggregate property on CallParticipantModel would remove it entirely and
-    // is noted as a follow-up.
+    // Number of live cameras. A JS scan isn't a binding, so the model's change
+    // signals drive an explicit recount. dataChanged also fires for speaker
+    // levels; the walk is cheap for call-sized lists.
     property int camerasOn: 0
     function recountCameras() {
         var n = 0;
@@ -92,7 +58,7 @@ Rectangle {
                     ++n;
             }
         }
-        // Assigning the same value emits nothing, so a steady call stays quiet.
+        // Assigning the same value emits nothing.
         root.camerasOn = n;
     }
     Connections {
@@ -102,29 +68,20 @@ Rectangle {
     }
     Component.onCompleted: {
         root.recountCameras();
-        // The stage is destroyed and rebuilt by its host's Loader on every
-        // room change, while the call — and `CallStageState` with it —
-        // outlives that. So the flag can already be true when this component
-        // is created, and a sync driven only by the CHANGE signal would leave
-        // the stage drawing "Playing full screen" with no window anywhere.
+        // The host's Loader rebuilds the stage on every room change while the
+        // call outlives it, so full screen may already be on at creation.
         root.syncFullScreenWindow();
     }
 
-    /// True when nothing in this call is sending video at all — the ordinary
-    /// voice call, drawn as circular avatars on the canvas rather than a grid
-    /// of empty panels.
+    /// True when nothing in the call sends video: drawn as avatars on the
+    /// canvas rather than a grid of empty panels.
     readonly property bool voiceOnly:
         root.shareCount === 0 && root.camerasOn === 0
 
-    // ── What the spotlight is showing ────────────────────────────────────
-    //
-    // `indexOfShare`/`indexOfIdentity` are plain calls Qt cannot observe, so
-    // each binding also READS the model's count: a row can only appear or
-    // disappear with a membership change, and `spotlightShareId` /
-    // `pinnedIdentity` notify on their own. These two answer "is there
-    // anything to show?" — the actual RENDERING goes through a Repeater whose
-    // delegate matches by id, so a track key that fills in late still reaches
-    // the surface.
+    // ── What the spotlight shows ── indexOfShare/indexOfIdentity are plain
+    // calls Qt can't observe, so each binding also reads the model's count.
+    // These only answer "is there anything to show?"; rendering goes through a
+    // Repeater matching by id so a late track key still reaches the surface.
     readonly property int spotlightShareRow: {
         var _ = root.shareCount;
         if (!root.shareModel || !root.stageState
@@ -143,9 +100,8 @@ Rectangle {
     readonly property bool spotlightHasSurface:
         root.spotlightShareRow >= 0 || root.pinnedRow >= 0
 
-    /// Grid or spotlight. Derived — there is deliberately NO local override
-    /// property here, because a local override with no writer back is exactly
-    /// the latch this surface is replacing.
+    /// Grid or spotlight. Derived only; a local override with no writer back
+    /// would become a one-way latch.
     readonly property string effectiveLayout: {
         if (!root.stageState)
             return "grid";
@@ -153,76 +109,40 @@ Rectangle {
             return "grid";
         if (root.stageState.layoutPreference === "spotlight")
             return "spotlight";
-        // A screen share is the reason everyone is looking, so it takes the
-        // stage automatically; likewise a manual pin.
+        // A share or a manual pin takes the stage automatically.
         return (root.stageState.spotlightShareId.length > 0
                 || root.stageState.pinnedIdentity.length > 0)
                 ? "spotlight" : "grid";
     }
 
-    /// The smallest tile strip worth drawing, and the row of bubbles that
-    /// replaces it when even that will not fit.
-    ///
-    /// A tile carries an avatar AND a nameplate: below an 80 px band (a
-    /// 72 px tile) the 28 px avatar and the plate start to touch, so a
-    /// smaller tile strip is not a smaller version of this — it is a broken
-    /// one. The bubble row is the same information at 44 px, and it is the
-    /// component the COLLAPSED call strip already uses.
+    /// Smallest tile strip worth drawing, and the bubble row that replaces it.
+    /// Below an 80 px band the tile's avatar and nameplate collide; the bubble
+    /// row carries the same information at 44 px (as in the collapsed strip).
     readonly property int minimumTileStrip: 80
     readonly property int bubbleStripHeight: 44
 
-    /// The overlay controls the spotlight draws over its own top-right
-    /// corner: Full screen, and Back to grid.
-    ///
-    /// A 30 px button plus its two margins. Below this the row does not
-    /// shrink — it OVERFLOWS a clipped rectangle, which is what the
-    /// maintainer photographed: a share tile squeezed to a few pixels with
-    /// the two controls crushed and half-drawn across its top edge.
+    /// Height of the spotlight's top-right overlay controls (Full screen, Back
+    /// to grid): a 30 px button plus margins. Below this the row overflows.
     readonly property int spotlightOverlayHeight: 30 + 2 * AppTheme.spacing8
 
-    /// The shortest this stage can be and still be worth drawing.
-    ///
-    /// Read by the HOST, which owns the panel's height and cannot otherwise
-    /// know what this surface spends before the picture starts: the header
-    /// row, the dock, the column's own margins and spacings. Kept here
-    /// because this is the file those bands are declared in — a copy in the
-    /// host is a copy that drifts the first time one of them changes.
-    ///
-    /// `minimumPicture` is what makes it a POLICY rather than an accounting
-    /// identity: a stage that fits its chrome and nothing else is exactly the
-    /// state being fixed.
+    /// The shortest this stage can be and still be useful. Read by the host,
+    /// which owns the height but not the chrome sizes declared here.
+    /// `minimumPictureHeight` makes it a policy: fitting only the chrome is not
+    /// enough.
     readonly property int minimumPictureHeight: 132
     readonly property int minimumUsefulHeight:
         2 * AppTheme.spacing12          // the column's own margins
-        // The header row, which now CARRIES the controls. This value is the
-        // EXPANDED case, which is the only one it is asked about: the full
-        // (non-compact) dock's 48 px buttons plus its pill padding, per
-        // CallHeaderBar's own controlDiameter. It replaced a 28 px
-        // title-only row.
+        // The header row, which carries the controls: the full dock's 48 px
+        // buttons plus pill padding (see CallHeaderBar's controlDiameter).
         + 48 + 2 * AppTheme.spacing8 + AppTheme.spacing8
         + root.minimumPictureHeight
-        // No dock term. There is no bottom dock any more, and the 48 px band
-        // plus margin it used to reserve was height taken from the picture
-        // for something that is no longer drawn.
+        // No dock term: there is no bottom dock.
 
-    /// What the strip beneath the spotlight is, for a stage of `available`
-    /// px: "tiles" or "bubbles".
-    ///
-    /// THE STRIP MUST NEVER BE THE BIGGER HALF OF THE STAGE. It used to ask
-    /// for a flat 96 px whatever the panel had and the spotlight took what
-    /// was left, so on the maintainer's Windows capture a 335 px call panel
-    /// spent 96 on the strip and left the shared screen 61 — a 16:9 desktop
-    /// arriving as a 112x61 stamp in a full-width letterbox. Display scale
-    /// is what makes this bite: at 150% every number here is unchanged and
-    /// two thirds as many of them fit.
-    ///
-    /// So the strip may have at most 40% of the stage, and when 40% cannot
-    /// pay for a usable tile it becomes the bubble row rather than a squeeze
-    /// of a shape that no longer works. Nothing is lost that has no other
-    /// route: the bubbles carry the same faces, the same speaking ring and
-    /// the same mute/sharing badges, they pin on click exactly as a strip
-    /// tile does, and a dismissed share is still reachable from the header's
-    /// "Show screen share" and from the grid.
+    /// What the strip beneath the spotlight is for a stage of `available` px:
+    /// "tiles" or "bubbles". The strip may take at most 40% of the stage so the
+    /// share keeps most of the height (display scaling makes this matter); when
+    /// 40% can't fit a usable tile it becomes the bubble row, which carries the
+    /// same faces, badges and pin-on-click.
     function stripModeForStage(available) {
         if (!available || available <= 0)
             return "tiles";
@@ -230,28 +150,15 @@ Rectangle {
                 >= root.minimumTileStrip ? "tiles" : "bubbles";
     }
 
-    /// Are the participant faces drawn in the HEADER rather than in a strip
-    /// under the spotlight?
-    ///
-    /// During a screen share the strip cost up to 96 px of picture for a row
-    /// of faces, on the surface where height is worth the most. In the header
-    /// they sit opposite the controls and cost the share nothing. Collapsed
-    /// is unchanged — there is no spotlight to protect and the one-line strip
-    /// IS the header.
-    ///
-    /// Exactly one of the two hosts may be active: this property is what both
-    /// read, so they cannot disagree and draw the same faces twice.
+    /// Whether participant faces are drawn in the header instead of a strip
+    /// under the spotlight, so a share keeps that height. Both hosts read this,
+    /// so they can't both draw the faces.
     readonly property bool bubblesInHeader:
         !root.collapsed && !root.fullScreenActive
         && root.effectiveLayout === "spotlight"
 
-    /// How tall that strip is. 96 is the band this surface has always drawn
-    /// and stays the cap, so a roomy stage is untouched.
-    ///
-    /// A FUNCTION on the stage root rather than an expression buried in the
-    /// spotlight's Loader so it can be exercised directly — but a policy
-    /// test that calls this proves nothing about whether production reaches
-    /// it, so `CallUiContractTest` also pins the call site.
+    /// Strip height, capped at 96. A function so tests can call it;
+    /// CallUiContractTest also pins the call site.
     function stripHeightForStage(available) {
         if (!available || available <= 0)
             return 96;
@@ -261,10 +168,9 @@ Rectangle {
                         Math.floor((available - AppTheme.spacing8) * 0.4));
     }
 
-    /// THE way back. "Back to grid" DISMISSES the spotlighted share and drops
-    /// the pin; it must never write a layout preference, which is what made
-    /// the old exit one-way. Dismissal falls through to the next live share on
-    /// its own, and the dismissed one is still a tile in the grid.
+    /// "Back to grid": dismisses the spotlighted share and drops the pin. It
+    /// must never write a layout preference, or the exit becomes one-way. The
+    /// next live share takes over and the dismissed one stays in the grid.
     function leaveSpotlight() {
         if (!root.stageState)
             return;
@@ -273,49 +179,28 @@ Rectangle {
         root.stageState.clearPin();
     }
 
-    // ── Chrome that gets out of the way ──────────────────────────────────
-    //
-    // IDLE MEANS THE POINTER HAS NOT MOVED. Not that it left the window —
-    // that reading is right on two monitors, where tabbing away moves the
-    // pointer out, and leaves the controls on screen forever for anyone with
-    // one monitor, because the pointer simply rests inside the share.
-    //
-    // There are TWO surfaces that draw over a picture and both must obey it:
-    // the spotlight's own overlay in the application window, and the
-    // full-screen window's chrome. Fixing only the second is why this was
-    // reported still broken — the reporter was watching a spotlight, not a
-    // full-screen share.
+    // ── Chrome that gets out of the way ──
+    // Idle means the pointer hasn't moved, not that it left the window (on a
+    // single monitor it rests inside the share). Both the spotlight overlay and
+    // the full-screen window's chrome follow this.
     readonly property int idleTickMs: 500
     readonly property int idleTicksToHide: 6   // 6 x 500 ms = 3 s
 
-    /// Ticks since the pointer last moved over the stage's own spotlight.
-    /// The full-screen window keeps its own count: a HoverHandler sees only
-    /// the window it is in, and the two are never live at once anyway.
+    /// Ticks since the pointer last moved over the spotlight. The full-screen
+    /// window keeps its own count; HoverHandler only sees its own window.
     property int stageIdleTicks: 0
     readonly property bool stageChromeIdle:
         root.spotlightHasSurface && !root.fullScreenActive
         && root.stageIdleTicks >= root.idleTicksToHide
 
-    // ── Full screen ──────────────────────────────────────────────────────
+    // ── Full screen ── The focused surface on a whole monitor, in its own
+    // Window (an overlay can only fill the app window). Declared inside this
+    // Item so it is transient for the main window and dies with the stage. Not
+    // gated on `collapsed`.
     //
-    // The focused surface on a whole screen, in its own window — Discord's
-    // "Full Screen" on the focused stream, and the maintainer's "add an
-    // option to full screen screen share so it takes full minotir".
-    //
-    // A SEPARATE Window, not an overlay inside the main one, because "full
-    // monitor" is what was asked for: an overlay can only ever fill the
-    // application window. It is declared inside this Item, so Qt makes it
-    // transient for the main window and it dies with the stage.
-    //
-    // NOT gated on `collapsed`: watching a share full screen on one monitor
-    // while the in-room panel is collapsed to read messages is a reason to
-    // have this at all.
-    //
-    // THE ONE STATE THAT MUST NOT EXIST is full screen with nothing in it —
-    // a black monitor with no obvious way out. `CallStageState` refuses to
-    // enter without a focused surface and drops the flag the moment the
-    // spotlight empties; this binding is the second half of the same rule,
-    // reading the resolved model rows rather than the ids.
+    // Full screen must never be empty: CallStageState refuses to enter without
+    // a focused surface and drops the flag when the spotlight empties; this
+    // binding checks the resolved rows as well.
     readonly property bool fullScreenActive:
         root.stageState ? (root.stageState.fullScreen
                            && root.spotlightHasSurface)
@@ -330,10 +215,8 @@ Rectangle {
             root.stageState.setFullScreen(false);
     }
 
-    /// One level back, whatever level you are on. Tapping the big picture
-    /// leaves full screen; tapping the stage's spotlight leaves the
-    /// spotlight. Entering full screen is a BUTTON, so this is only ever a
-    /// forgiving way out, never the way in.
+    /// One level back: leaves full screen, otherwise leaves the spotlight.
+    /// Entering full screen is only ever a button.
     function focusedSurfaceActivated() {
         if (root.fullScreenActive)
             root.exitFullScreen();
@@ -341,20 +224,12 @@ Rectangle {
             root.leaveSpotlight();
     }
 
-    // Driven IMPERATIVELY, and that is deliberate. Binding `Window.visibility`
-    // would put a binding on the exact property a window manager writes when
-    // the user closes the window — and a QML binding that the platform
-    // overwrites is how this repo has shipped one-way latches before. There is
-    // no binding here to break: the flag is the single source of truth, and
-    // `onClosing` ACCEPTS the close (refusing it would veto Ctrl+Q, §16) and
-    // writes the flag back, so the two can never disagree for longer than one
-    // call.
+    // Driven imperatively rather than binding Window.visibility, which the
+    // window manager writes on close and would break the binding. `onClosing`
+    // accepts the close (refusing would veto Ctrl+Q) and writes the flag back.
     function syncFullScreenWindow() {
-        // The flag can change while this component is still being built —
-        // `stageState` resolves partway through — and an id whose object has
-        // not been created yet reads as null rather than throwing. Guard, or
-        // the first evaluation logs a reference error nobody will connect to
-        // a window that then never opens.
+        // The flag can change while this component is still being built, when
+        // the window id still reads null.
         if (!fullScreenWindow)
             return;
         if (root.fullScreenActive) {
@@ -362,9 +237,7 @@ Rectangle {
             fullScreenWindow.showFullScreen();
             fullScreenSurface.forceActiveFocus();
             if (root.stageState && root.stageState.traceEnabled) {
-                // The second half of the measurement: where it ACTUALLY
-                // landed. Equal to the line above means the request was
-                // honoured; different means the compositor chose.
+                // Where it actually landed, to compare with the request.
                 console.info("call-fullscreen landed on="
                              + (fullScreenWindow.screen
                                 ? fullScreenWindow.screen.name : "?"));
@@ -374,9 +247,8 @@ Rectangle {
         }
     }
 
-    // Never stopped and never restarted: what resets is the COUNT. A timer
-    // re-phased while its count sits at the budget retires the chrome again
-    // on the very next tick.
+    // Never restarted: only the count resets. Re-phasing the timer while the
+    // count is at the budget would hide the chrome again on the next tick.
     Timer {
         id: stageIdleTimer
         objectName: "stageIdleTimer"
@@ -386,20 +258,10 @@ Rectangle {
         onTriggered: root.stageIdleTicks += 1
     }
 
-    /// Movement anywhere over the stage wakes its chrome. Reaching for a
-    /// control IS movement, so nothing has to be aimed at blind.
-    ///
-    /// MOVEMENT MEANS THE POSITION CHANGED. `pointChanged` does not: Qt
-    /// re-delivers a hover event at the SAME place whenever what sits under
-    /// the pointer changes, and retiring the chrome is exactly that — the
-    /// overlay goes disabled and the blank-cursor handler comes live. So the
-    /// naive version fed itself: ticks climbed to the budget, the chrome
-    /// hid, the hide re-delivered a hover, the hover reset the count, and the
-    /// chrome came straight back. Measured as
-    ///   TICKS 0:0 1:1 2:2 3:3 4:4 5:5 6:0 7:1 ... idle=0
-    /// with a pointer that had not moved once — the reported "it only goes
-    /// away if I click on another screen", which is simply the case where the
-    /// re-deliveries stop.
+    /// Pointer movement over the stage wakes its chrome. Compare positions
+    /// rather than trusting `pointChanged`: Qt re-delivers hover at the same
+    /// position when the item under the pointer changes (as hiding the chrome
+    /// does), which would otherwise reset the count in a loop.
     property real lastPointerX: -1
     property real lastPointerY: -1
     HoverHandler {
@@ -415,57 +277,29 @@ Rectangle {
         }
     }
 
-    /// Put the full-screen window on the monitor the APPLICATION is on.
+    /// Put the full-screen window on the monitor the application is on. A QML
+    /// Window doesn't inherit its transient parent's screen and
+    /// showFullScreen() picks none, so it would default to the primary screen.
+    /// Setting `screen` alone isn't enough: QWindowPrivate::create() re-derives
+    /// the screen from geometry, so the geometry must be set in virtual-desktop
+    /// coordinates too. `Screen` is attached to this item so it follows the app
+    /// across monitors.
     ///
-    /// "the full screen feature always starts in the same monitor and not the
-    /// one the client is in, it should full screen in same monitor as the app
-    /// is." It did that by construction: a top-level QWindow with no target
-    /// screen is connected to `QGuiApplication::primaryScreen()` in
-    /// `QWindowPrivate::init()`, a QML Window does NOT inherit its transient
-    /// parent's screen, and `showFullScreen()` selects no screen of its own —
-    /// it is only setWindowStates + setVisible + requestActivate.
-    ///
-    /// TWO things are needed, and the second is the one that decides.
-    ///
-    /// 1. `screen`, for the window's own bookkeeping and DPI. On its own it
-    ///    is NOT enough: `QWindowPrivate::create()` re-derives the screen from
-    ///    the window's GEOMETRY (`screenForGeometry()`) just before the
-    ///    platform window is made, so a default-positioned rectangle lands
-    ///    back on the primary monitor. And assigning `screen` LATER does not
-    ///    move an existing window: when the two screens are virtual siblings
-    ///    — the ordinary single-desktop case — `windowRecreationRequired()`
-    ///    is false and the setter is bookkeeping plus a signal.
-    /// 2. The GEOMETRY, in virtual-desktop coordinates. That is what
-    ///    `screenForGeometry()` reads, and what the window manager then
-    ///    fullscreens onto.
-    ///
-    /// `Screen` attached to THIS item, not `Window.window.screen`: the
-    /// attached object tracks the item's window and follows the app when the
-    /// user drags it to another monitor, which is precisely the question
-    /// being asked. Re-applied on every entry for the same reason.
-    ///
-    /// HONESTY: this is derived from the Qt sources and is expected to hold
-    /// on X11. On Wayland there is no client-side global positioning, and Qt
-    /// passes no `wl_output` to `xdg_toplevel.set_fullscreen` (QTBUG-54883,
-    /// closed as out of scope), so the compositor chooses. Live-validated:
-    /// NOT TESTED on either. `LIGHTNING_CALL_TRACE=1` prints the one line
-    /// that tells the two cases apart.
+    /// On Wayland the compositor chooses (QTBUG-54883). NOT TESTED on X11 or
+    /// Wayland; LIGHTNING_CALL_TRACE=1 logs the requested and actual screens.
     function placeOnThisApplicationsScreen() {
         var target = root.Screen;
         if (!target)
             return;
-        // Assigned before the FIRST show, because create() reads the
-        // geometry — see (1) above.
+        // Before the first show, since create() reads the geometry.
         fullScreenWindow.screen = target;
         fullScreenWindow.x = target.virtualX;
         fullScreenWindow.y = target.virtualY;
         fullScreenWindow.width = target.width;
         fullScreenWindow.height = target.height;
         if (root.stageState && root.stageState.traceEnabled) {
-            // The measurement this lane's own rule asks for: it distinguishes
-            // "we asked for the wrong monitor" from "the compositor overrode
-            // us", which no amount of source reading can settle. Names and
-            // numbers only — never a room, a user or a track.
+            // Distinguishes "asked for the wrong monitor" from "the compositor
+            // chose". Names and numbers only.
             console.info("call-fullscreen"
                          + " platform=" + Qt.platform.pluginName
                          + " appScreen=" + target.name
@@ -476,30 +310,18 @@ Rectangle {
     }
     onFullScreenActiveChanged: root.syncFullScreenWindow()
 
-    // ── The focused surface, defined ONCE ────────────────────────────────
-    //
-    // Hosted by the stage's spotlight and by the full-screen window, and
-    // NEVER by both: `fullScreenActive` stands the stage's grid and spotlight
-    // Loaders down. That matters for one reason beyond tidiness — the router
-    // holds ONE sink per key, so two live surfaces asking for one
-    // participant's screen would take turns owning it, and whichever lost the
-    // race would be blank.
-    //
-    // Going full screen therefore does REBUILD the video item; a QQuickItem
-    // cannot move between scene graphs, so no arrangement of Loaders could
-    // avoid that. What makes the rebuild safe is the router's ownership rule
-    // (SfuVideoRouter): the surface being built CLAIMS the key, and the one
-    // being torn down releases by SINK, so by the time its deferred
-    // destruction runs it owns nothing and takes nothing with it. Without
-    // that rule this transition would blank the video exactly as the
-    // grid→spotlight one did.
+    // ── The focused surface, defined once ──
+    // Hosted by the spotlight or the full-screen window, never both: the router
+    // holds one sink per key, so two surfaces would fight over it. Going full
+    // screen rebuilds the video item (items can't move between scene graphs);
+    // SfuVideoRouter's ownership rule (new surface claims the key, old one
+    // releases by sink) keeps that rebuild from blanking the video.
     Component {
         id: focusedSurface
 
         Item {
-            // The spotlighted SHARE. A Repeater over the real model rather
-            // than a `get(row)` snapshot: the track key fills in late, and a
-            // snapshot taken before it arrives never attaches a sink.
+            // A Repeater over the model rather than a get(row) snapshot: the
+            // track key fills in late.
             Repeater {
                 model: root.shareModel
                 delegate: Loader {
@@ -527,7 +349,7 @@ Rectangle {
                 }
             }
 
-            // The pinned PERSON, when no share is spotlighted.
+            // The pinned person, when no share is spotlighted.
             Repeater {
                 model: root.participantModel
                 delegate: Loader {
@@ -546,8 +368,7 @@ Rectangle {
                     required property bool speaking
                     required property real speakingLevel
                     required property bool handRaised
-                    // Transient, and "" for almost the whole call. The tile
-                    // draws it behind a Loader for exactly that reason.
+                    // Transient and usually "", hence the tile's Loader.
                     required property string reactionEmoji
                     required property string connectionQuality
 
@@ -581,8 +402,8 @@ Rectangle {
                 }
             }
 
-            // Only when there is genuinely nobody to spotlight — a pinned
-            // participant who has left, for instance.
+            // Only when nobody can be spotlighted, e.g. a pinned participant
+            // who left.
             Loader {
                 anchors.centerIn: parent
                 active: !root.spotlightHasSurface
@@ -601,12 +422,10 @@ Rectangle {
         anchors.margins: root.collapsed ? AppTheme.spacing8 : AppTheme.spacing12
         spacing: AppTheme.spacing8
 
-        // ── Header: who, where, and the layout affordances ───────────────
+        // ── Header: who, where, and the controls ──
         RowLayout {
-            // NAMED because the dock's compaction latch has to ask it a
-            // question no cell can answer about itself: how much room would
-            // there be for the dock if the dock asked for more? See
-            // `reassessControlRoom()` below.
+            // Named: the dock's compaction latch asks how much room the row
+            // could give it (see reassessControlRoom()).
             id: callHeaderRow
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -618,18 +437,11 @@ Rectangle {
             }
             Text {
                 Layout.fillWidth: !root.collapsed
-                // A LABEL MUST NOT DECIDE HOW MUCH ROOM THE CONTROLS GET.
-                //
-                // A RowLayout that cannot fit every child shrinks them all in
-                // proportion to their PREFERRED widths, and an item's default
-                // preferred width is its implicit one — so a long title would
-                // take its share of the squeeze out of the collapse button
-                // and the "Show screen share" button beside it, and a
-                // squeezed AppButton draws its label straight across its
-                // neighbour (its content Row is centred and unconstrained).
-                // Asking for 1 px while filling means this text still takes
-                // every spare pixel and yields all of them back first. It
-                // elides, so nothing is lost; a control cannot elide.
+                // Ask for 1 px while filling: a RowLayout squeezes children in
+                // proportion to preferred width, and a long title would
+                // otherwise squeeze the controls (a squeezed AppButton draws
+                // its label over its neighbour). The title elides; controls
+                // can't.
                 Layout.preferredWidth: root.collapsed ? implicitWidth : 1
                 text: {
                     var n = root.peopleCount;
@@ -643,9 +455,8 @@ Rectangle {
                 font.weight: Font.Medium
                 elide: Text.ElideRight
             }
-            // Reconnecting and degraded states are SHOWN, never left as a
-            // frozen picture — a call that looks fine while it is not is
-            // the failure users report as "it just stopped".
+            // Reconnecting and degraded states are shown, never left as a
+            // frozen picture.
             Loader {
                 active: app.groupCall.state === SfuCallController.Reconnecting
                 visible: active
@@ -655,25 +466,15 @@ Rectangle {
                     font.pixelSize: 12
                 }
             }
-            // THE PADLOCK MUST NOT SAY "FINE" WHEN SOMEONE CANNOT BE HEARD.
-            //
-            // This drew a green lock whenever the call was encrypted, which
-            // is true and is not the whole answer: the engine has always
-            // detected a remote stream whose frames arrive and are thrown
-            // away for want of a usable key, and only wrote it to the log.
-            // So the participant you could not hear sat under a badge saying
-            // everything was in order. B026.
-            //
-            // Encrypted stays encrypted; what changes is that the badge stops
-            // being reassuring while media is being dropped, and says which
-            // it is on hover.
+            // The padlock turns into a warning while remote media is being
+            // dropped for lack of a usable key, rather than reassuring over a
+            // participant you can't hear.
             Loader {
                 active: app.groupCall.mediaEncrypted
                 visible: active
                 sourceComponent: Icon {
-                    // "warning", not a lock variant: the icon map has no
-                    // lock-with-alert and an unknown name renders nothing at
-                    // all, which would have quietly removed the badge.
+                    // "warning": the icon map has no lock-with-alert, and an
+                    // unknown name renders nothing.
                     name: app.groupCall.remoteMediaBlocked
                           ? "warning" : "lock"
                     size: 14
@@ -691,16 +492,9 @@ Rectangle {
                 }
             }
 
-            // THE PERSON WHO CANNOT BE HEARD IS THE ONLY ONE WHO CANNOT TELL.
-            //
-            // Sibling of the badge above and the opposite direction: that one
-            // says media from someone else is being dropped, this one says
-            // our own capture has published nothing audible. It exists
-            // because a call whose microphone is dead is indistinguishable,
-            // from every other indicator this UI has, from a call that is
-            // working — the transport connects, the padlock is green and the
-            // frame counters climb, because silence encodes and encrypts
-            // exactly like speech.
+            // Our own capture is publishing nothing audible. Nothing else in
+            // the UI shows this: silence encodes and encrypts like speech, so
+            // transport, padlock and frame counters all look healthy.
             Loader {
                 objectName: "callHeaderMicSilentBadge"
                 active: app.groupCall.microphoneSilent
@@ -719,15 +513,12 @@ Rectangle {
                 }
             }
 
-            // Collapsed, the panel is a one-line strip: who is here, who is
-            // talking, and the controls. The bubble row lives ONLY here —
-            // expanded, the stage itself already draws every participant, and
-            // a second row of the same faces above it was a redundant strip
-            // that cost a whole line of the message list.
+            // The bubble row: the whole strip when collapsed, or beside a
+            // spotlight. Otherwise the stage already draws every participant.
             Loader {
                 objectName: "callHeaderBubblesHost"
-                // Collapsed the strip fills; beside a spotlight it takes only
-                // what the faces need, so the title keeps the rest.
+                // Collapsed it fills; beside a spotlight it takes only what the
+                // faces need.
                 Layout.fillWidth: root.collapsed
                 Layout.preferredHeight: active ? implicitHeight : 0
                 Layout.alignment: Qt.AlignVCenter
@@ -743,134 +534,45 @@ Rectangle {
                 }
             }
 
-            // THE control surface, collapsed AND expanded.
-            //
-            // It used to be here only while collapsed, with a full-width dock
-            // across the BOTTOM of the expanded stage. That cost a whole strip
-            // of picture on every screen share, and it moved the controls to a
-            // different place depending on a state the user did not choose —
-            // so muting meant finding the button first. The maintainer asked
-            // for the collapsed arrangement to become the permanent one.
-            //
-            // Same component, same definition, one placement now. The header
-            // instance still stands down while the stage is on screen
+            // The call controls, in the header both collapsed and expanded. The
+            // header bar instance stands down while the stage is on screen
             // (CallHeaderBar.stageOwnsControls), so they are never drawn twice.
             Loader {
                 id: controlsHost
                 active: true
                 visible: true
                 Layout.preferredHeight: implicitHeight
-                // THE FLOOR USED TO BE `implicitWidth`, AND IT PUT LEAVE CALL
-                // OFF THE EDGE OF THE WINDOW. The reasoning behind it was
-                // sound as far as it went — this cell's contents cannot
-                // elide, so the squeeze has to land on the title and the
-                // bubbles, which can — but a floor does not create room. Once
-                // the row's minimums exceeded the panel width the RowLayout
-                // handed every child its minimum and overflowed to the RIGHT,
-                // and what fell off the right is the end of the control row:
-                // the mic and headset chevrons, the collapse button, and the
-                // red hang-up. MEASURED 2026-09-12 on a live three-party call
-                // at 1280 maximised (everything present), ~1098 (hang-up and
-                // collapse gone) and 640 (three controls of about twelve).
-                // A user in a call in a non-maximised window could not see or
-                // click the button that leaves it.
+                // The cell must be squeezable, or on a narrow window the
+                // RowLayout overflows to the right and pushes the end of the
+                // control row (chevrons, collapse, hang-up) out of the panel.
+                // The bar answers a squeeze by going compact.
                 //
-                // So the cell may now be squeezed, and the bar answers a
-                // squeeze by going compact — which is what `compact` is FOR
-                // (smaller controls, and the share, raise-hand and device
-                // chevrons stood down), and what `root.collapsed` was until
-                // now the only thing allowed to ask for.
-                //
-                // AND `Layout.minimumWidth: 0` ALONE DOES NOT SQUEEZE
-                // ANYTHING. That is the half this was missing, and without it
-                // every line above describes a mechanism that never ran. In
-                // QtQuick.Layouts an item WITHOUT `Layout.fillWidth` has a
-                // FIXED horizontal policy: minimum = preferred = maximum, so
-                // the declared minimum is ignored and the layout overflows
-                // its own geometry instead of shrinking the cell. Measured on
-                // a four-variant isolation scene (row 536 wide, item implicit
-                // 651): `minimumWidth: 0` alone -> 651; `minimumWidth: 0` +
-                // `Layout.alignment` -> 651; adding `fillWidth` -> 501.
-                // `Layout.alignment` is NOT the cause — with and without it
-                // are identical.
-                //
-                // So the cell never shrank, `width` stayed equal to
-                // `implicitWidth` at every stage width, and the
-                // `width + 0.5 < implicitWidth` test in reassessControlRoom()
-                // below COULD NEVER BE TRUE. Measured on the real stage
-                // before this line existed: from 1100 px down to 480 px the
-                // header row stayed pinned at 723 px with its right edge at
-                // scene x=735, `cramped` false and `compact` false the whole
-                // way — so any stage narrower than 735 px drew the end of the
-                // control row, hang-up included, OUTSIDE the panel, and the
-                // tile grid with it. Exactly the 2026-09-12 report again.
-                //
-                // The maximum is the other half and is not optional: with
-                // `fillWidth` and no cap the bar GROWS into the spare width
-                // (measured 1040 px in a 1076 px row) and the dock stops
-                // being a pill at its natural size. Capping at
-                // `implicitWidth` keeps every wide window pixel-identical to
-                // before while letting a narrow one squeeze.
+                // `Layout.minimumWidth: 0` alone does nothing: without
+                // fillWidth an item's horizontal size policy is fixed (min =
+                // preferred = max). The maximum caps growth at the natural size
+                // so wide windows are unchanged.
                 Layout.minimumWidth: 0
                 Layout.fillWidth: true
                 Layout.maximumWidth: implicitWidth
                 Layout.alignment: Qt.AlignVCenter
 
-                // WHY THIS IS A LATCH AND NOT A BINDING.
-                //
-                // `compact` CHANGES implicitWidth — 32 px controls instead of
-                // 48, and five fewer of them — so the obvious
-                // `compact: width < implicitWidth` is a loop: it fires, the
-                // bar shrinks, the condition is false again, it expands, and
-                // it no longer fits. A fixed ratio between the two widths
-                // would be a guess that oscillates for some participant
-                // counts and not others.
-                //
-                // Instead, LEARN the expanded requirement while expanded —
-                // when it is exactly what implicitWidth reports — and freeze
-                // that value on the way into compact. Coming back out then
-                // asks a question whose answer cannot change underneath it:
-                // is there now room for the bar we actually measured? No
-                // constants, and nothing to drift.
+                // A latch, not a binding: `compact` changes implicitWidth, so
+                // `compact: width < implicitWidth` would oscillate. The
+                // expanded requirement is learned while expanded and frozen on
+                // the way into compact; coming back out asks whether that
+                // measured width now fits.
                 property bool cramped: false
                 property real expandedNeed: 0
 
-                // HOW MUCH ROOM THIS CELL COULD HAVE, which is NOT its own
-                // width — and asking its own width is what made the latch a
-                // ONE-WAY DOOR.
+                // Room this cell could have, which is not its own width: the
+                // maximumWidth cap pins our width to the compact size, so the
+                // latch would never release. What the other cells need (row
+                // implicit minus ours) is the same in both shapes.
                 //
-                // `Layout.maximumWidth: implicitWidth` caps the cell at what
-                // the bar currently asks for. Compact, that is 219 px. So
-                // `width >= expandedNeed` (651) could never be true again,
-                // and MEASURED on a live resize — 1400 down to 320 and back
-                // up — the dock went compact at 740 and was STILL compact at
-                // 1400 px, with camera, share, raise-hand, react,
-                // participants, PiP and all three device chevrons gone for
-                // the rest of the call. One narrow moment cost them
-                // permanently. A cap and the test that must see past it are
-                // two numbers that have to move together.
-                //
-                // The row knows what the cell cannot: everything the OTHER
-                // cells need is `row.implicitWidth - our own implicitWidth`,
-                // and that difference does NOT depend on which shape we are
-                // in — measured 73 px both compact and expanded — which is
-                // what makes this safe to ask in both directions.
-                //
-                // A FUNCTION AND NOT A PROPERTY, and that is not a style
-                // choice. As a declarative binding it read the row's
-                // implicitWidth, which is computed FROM ours — so it drove
-                // `cramped`, `compact`, our implicitWidth and the row's
-                // implicitWidth straight back into itself:
-                // `QML Loader: Binding loop detected for property
-                // "roomAvailable"` on every load, and Qt abandons a looping
-                // evaluation, so the latch simply stopped firing (measured:
-                // a 600 px panel no longer compacted at all). A function
-                // reads the same values and records no dependency.
-                //
-                // Which is why the row's own width has to be listened for
-                // below: while cramped our width is pinned at 219 by the
-                // cap, so widening the panel changes the ROW's width and
-                // never ours, and nothing else would ever ask again.
+                // A function, not a property: as a binding it depends on the
+                // row's implicitWidth, which depends on ours, causing a binding
+                // loop that stops the latch. Because our width is pinned while
+                // cramped, the row's width changes are listened for below.
                 function roomAvailable() {
                     return callHeaderRow.width
                            - (callHeaderRow.implicitWidth - implicitWidth);
@@ -890,33 +592,16 @@ Rectangle {
                     if (!item)
                         return;
                     if (!cramped) {
-                        // Live measurement is trustworthy only when the bar is
-                        // in the shape we want to come back TO — not cramped,
-                        // and not collapsed. The collapsed strip has its own,
-                        // much smaller, implicit width, and recording that as
-                        // "the expanded requirement" would let the bar expand
-                        // into a box it does not fit. It self-heals on the way
-                        // out of collapsed, but a property should mean what its
-                        // name says at every moment, not eventually.
+                        // Only record the requirement in the shape we want to
+                        // return to (not cramped, not collapsed; the collapsed
+                        // strip is much narrower).
                         if (!root.collapsed)
                             expandedNeed = implicitWidth;
-                        // BOTH DIRECTIONS ASK THE SAME QUESTION, and that is
-                        // the whole of why this does not oscillate. The first
-                        // attempt at the release above kept the old
-                        // `width + 0.5 < implicitWidth` entry test, and the
-                        // two measured different things: releasing raised
-                        // implicitWidth to 651 in the same pass, while `width`
-                        // was still the 219 the layout had given us, so the
-                        // entry test fired again immediately. Measured, it
-                        // settled with `cramped` false and the bar still
-                        // compact — worse than the one-way door, because now
-                        // the two disagreed. `roomAvailable` is stale-proof in
-                        // the way `width` is not: if the row's implicitWidth
-                        // has not caught up with ours yet the answer errs
-                        // towards "stay as you are" in BOTH branches.
-                        //
-                        // Sub-pixel slack: a fractional layout width must not
-                        // read as a shortfall.
+                        // Both directions ask the same question via
+                        // roomAvailable(), which errs towards "stay as you are"
+                        // when the row hasn't caught up; comparing `width` on
+                        // entry would re-trigger immediately after a release.
+                        // The 0.5 is sub-pixel slack.
                         if (roomAvailable() + 0.5 < implicitWidth)
                             cramped = true;
                     } else if (expandedNeed > 0
@@ -930,31 +615,17 @@ Rectangle {
                 sourceComponent: CallHeaderBar {
                     objectName: "callStageControls"
                     placement: "dock"
-                    // Compact ONLY while collapsed. `compact` is not just a
-                    // size: CallHeaderBar hides the screen-share button, the
-                    // raise-hand button and all three device chevrons behind
-                    // it, because a one-line strip has no room for them. The
-                    // ask was to move the controls to the top, NOT to reduce
-                    // the set — an expanded call that had lost Share and
-                    // Raise hand would be a worse bug than the one being
-                    // fixed. Expanded gets the full bar, in the same place.
-                    //
-                    // ...WHEREVER IT FITS. A window too narrow for the full
-                    // set used to keep asking for it and lose the end of the
-                    // row off the edge, hang-up included, which is strictly
-                    // worse than standing Share and Raise hand down: those
-                    // two have other routes, and leaving a call does not.
+                    // Compact while collapsed, or when the window can't fit the
+                    // full bar. `compact` also hides Share, Raise hand and the
+                    // device chevrons; those have other routes, whereas hang-up
+                    // must always stay visible.
                     compact: root.collapsed || controlsHost.cramped
                     onParticipantsRequested: root.participantsRequested()
                 }
             }
 
-            // ── The way back to a dismissed share ────────────────────────
-            //
-            // Bound to `restorableShareAvailable`, which is true exactly when
-            // a LIVE share is dismissed. This is the explicit half of the
-            // invariant; the implicit half is that the share is still a tile
-            // in the grid and clicking it restores it too.
+            // ── The way back to a dismissed share ── The explicit half of the
+            // invariant; the grid tile is the implicit one.
             Loader {
                 active: !root.collapsed && root.stageState
                         && root.stageState.restorableShareAvailable
@@ -972,8 +643,7 @@ Rectangle {
                 }
             }
 
-            // Collapse / expand. Not a layout mode: it is the panel's own
-            // size, and the HOST owns that.
+            // Collapse/expand: the panel's size, owned by the host.
             CallControlButton {
                 objectName: "callCollapseButton"
                 iconName: root.collapsed ? "open_in_full" : "close_fullscreen"
@@ -985,27 +655,15 @@ Rectangle {
             }
         }
 
-        // ── WHY THERE IS NO PICTURE ──────────────────────────────────────
-        //
-        // ONE LINE, ONCE, rather than the same sentence on every tile.
-        //
-        // When Qt Quick falls back to its CPU rasteriser there is no node
-        // type for video at all, so a call carries audio perfectly and draws
-        // no frames — and until this strip existed the user got an empty
-        // rectangle and no way to tell that from a broken call. The tiles
-        // stay in their placeholder state (see
-        // `softwareRendererHidesVideo`) and this says why.
-        //
-        // Not an error: the call is working. The wording says which half is
-        // missing and what would fix it, and it collapses to zero height on
-        // every machine that has a usable GPU, which is nearly all of them.
+        // ── Why there is no picture ── With Qt Quick's software renderer there
+        // is no video node, so calls carry audio but draw no frames. The tiles
+        // stay in their placeholder state (see `softwareRendererHidesVideo`)
+        // and this one line explains why. Zero height on machines with a usable
+        // GPU.
         Rectangle {
             objectName: "callSoftwareRendererNotice"
-            // NOT WHILE COLLAPSED. The collapsed call panel is a FIXED
-            // height (TimelinePane's callPanelCollapsedHeight, 64), so this
-            // strip would be squeezed under its own margins and — with no
-            // clip — paint its text outside the rectangle. Every other
-            // optional strip in this column is gated the same way.
+            // Not while collapsed: the collapsed panel has a fixed height and
+            // this would overflow it.
             visible: !root.collapsed
                      && typeof app !== "undefined" && app
                      && app.softwareRenderer === true
@@ -1032,9 +690,8 @@ Rectangle {
                     wrapMode: Text.WordWrap
                     color: AppTheme.stormText
                     font.pixelSize: 12
-                    // ONE STRING LITERAL. `qsTr("a" + "b")` is a runtime
-                    // expression, not a literal, so lupdate cannot extract it
-                    // and the string ships untranslated on every locale.
+                    // One string literal: lupdate cannot extract qsTr("a" +
+                    // "b").
                     text: qsTr("Video can't be shown on this computer — there is no working graphics acceleration, so cameras and shared screens won't appear. Audio is unaffected.")
                 }
             }
@@ -1046,10 +703,8 @@ Rectangle {
             Layout.fillHeight: true
             visible: !root.collapsed
 
-            // GRID — every surface the same size. Shares first, then people.
-            //
-            // Stood down while full screen is up: one surface per routing key
-            // at a time, or two live tiles fight over it.
+            // Grid: every surface the same size, shares first. Stood down in
+            // full screen so two tiles never compete for one routing key.
             Loader {
                 anchors.fill: parent
                 active: !root.collapsed && !root.fullScreenActive
@@ -1060,9 +715,7 @@ Rectangle {
                     shareModel: root.shareModel
                     participantModel: root.participantModel
                     voiceOnly: root.voiceOnly
-                    // Clicking a share tile RESTORES it — that is the second,
-                    // implicit way back, and it is why a dismissed share can
-                    // never become unreachable.
+                    // Clicking a share tile restores it.
                     onShareActivated: shareId => {
                         if (root.stageState)
                             root.stageState.restoreShare(shareId);
@@ -1074,9 +727,8 @@ Rectangle {
                 }
             }
 
-            // SPOTLIGHT — one large surface with everyone else in a strip
-            // beneath, which is the arrangement that makes shared content
-            // readable.
+            // Spotlight: one large surface with everyone else in a strip
+            // beneath.
             Loader {
                 anchors.fill: parent
                 active: !root.collapsed && !root.fullScreenActive
@@ -1086,22 +738,18 @@ Rectangle {
                     id: spotlightColumn
                     spacing: AppTheme.spacing8
 
-                    // THE STRIP YIELDS TO THE PICTURE — see the policy and
-                    // the measurement on `stripModeForStage`.
-                    //
-                    // `spotlightColumn.height` comes from ABOVE: the Loader
-                    // that hosts this fills the stage, so this reads a height
-                    // the column does not compute, and the strip only ever
-                    // redistributes what the column was already given.
+                    // The strip yields to the picture (see
+                    // stripModeForStage()). The column's height comes from the
+                    // Loader filling the stage, so the strip only redistributes
+                    // what the column was given.
                     readonly property string stripMode:
                         root.stripModeForStage(spotlightColumn.height)
                     readonly property int stripHeight:
                         root.stripHeightForStage(spotlightColumn.height)
                     readonly property int stripTileHeight:
                         spotlightColumn.stripHeight - AppTheme.spacing8
-                    // 16:9-ish, and derived rather than a second literal, so
-                    // a strip that shrinks cannot leave its tiles the shape
-                    // they had at full size.
+                    // Derived from the height so a shrinking strip keeps the
+                    // tile shape.
                     readonly property int stripTileWidth:
                         Math.round(spotlightColumn.stripTileHeight * 140 / 88)
 
@@ -1121,17 +769,11 @@ Rectangle {
                             sourceComponent: focusedSurface
                         }
 
-                        // The pointer goes too. Scoped to the picture rather
-                        // than the whole stage: a blank cursor over the strip
-                        // or the header would just look broken.
-                        // The pointer goes with the chrome. It must be the
-                        // TOP-MOST item under the cursor to win: a
-                        // HoverHandler here lost to a pointing hand set by
-                        // something stacked above it, measured as window
-                        // cursor 13 (PointingHand) while the handler itself
-                        // said Blank. Present only while blanking, or it
-                        // would flatten every control's own cursor; and
-                        // NoButton so it takes no click on its way past.
+                        // Blanks the cursor over the picture only. It must be
+                        // the top-most item to beat cursors set by controls
+                        // above it; present only while idle so it doesn't
+                        // override their cursors, and NoButton so it takes no
+                        // clicks.
                         MouseArea {
                             objectName: "callSpotlightCursor"
                             anchors.fill: parent
@@ -1146,24 +788,16 @@ Rectangle {
                             anchors.right: parent.right
                             anchors.margins: AppTheme.spacing8
                             spacing: AppTheme.spacing8
-                            // ABSENT, NOT SQUEEZED — the same rule the strip
-                            // below already follows. This row has a fixed
-                            // height and is anchored inside a CLIPPED
-                            // rectangle, so on a spotlight shorter than it
-                            // needs it does not compact: it draws across the
-                            // tile's top edge and is cut in half. Hiding it
-                            // costs no route — the header's "Show screen
-                            // share" and the share's own grid tile both lead
-                            // back, which is the invariant recorded at the
-                            // top of this file.
+                            // Hidden rather than squeezed when the spotlight is
+                            // too short, since the row sits in a clipped
+                            // rectangle. The header button and the grid tile
+                            // still lead back.
                             visible: parent.height
                                      >= root.spotlightOverlayHeight
                                         + AppTheme.spacing8
-                            // Retires with the rest of the chrome. Inert as
-                            // well as invisible: the pointer may be resting
-                            // on it when it goes, and an invisible control
-                            // that answers a click is worse than a visible
-                            // one that does.
+                            // Retires with the rest of the chrome, and is
+                            // disabled too so an invisible control can't take a
+                            // click.
                             opacity: root.stageChromeIdle ? 0 : 1
                             enabled: !root.stageChromeIdle
                             Behavior on opacity {
@@ -1180,10 +814,8 @@ Rectangle {
                                 onClicked: root.enterFullScreen()
                             }
 
-                            // DISMISS, never a layout write. The dismissed
-                            // share stays live, stays a row in the model and
-                            // stays a tile in the grid — so this exit is not a
-                            // door that locks behind you.
+                            // Dismisses, never writes a layout: the share stays
+                            // live and in the grid.
                             AppButton {
                                 objectName: "callBackToGridButton"
                                 storm: true
@@ -1194,19 +826,16 @@ Rectangle {
                         }
                     }
 
-                    // Strip of every OTHER surface, compact. Excluded BY
-                    // shareId (never by identity alone): the router holds one
-                    // screen sink per participant, so the spotlighted share
-                    // must not also be drawn here — but a sharer's CAMERA is a
-                    // different track and legitimately stays in the strip,
-                    // which the old identity-based exclusion got wrong.
+                    // Every other surface, compact. Excluded by shareId, not
+                    // identity: the spotlighted share must not be drawn twice
+                    // (one screen sink per participant), but the sharer's
+                    // camera is a different track and stays.
                     Flickable {
                         objectName: "callStrip"
                         Layout.fillWidth: true
-                        // Absent, not squeezed, once the stage is too short
-                        // for a legible tile: an invisible child takes no
-                        // height AND no spacing from a layout, so the
-                        // picture gets the whole band back.
+                        // Hidden rather than squeezed below a legible tile
+                        // height; an invisible child takes no height or
+                        // spacing, so the picture gets the band back.
                         visible: spotlightColumn.stripMode === "tiles"
                                  && !root.bubblesInHeader
                         Layout.preferredHeight: visible
@@ -1220,11 +849,7 @@ Rectangle {
 
                         Row {
                             id: stripRow
-                            // The TILE's height, centred, rather than the
-                            // strip's: the tiles were 88 in a 96 band and
-                            // top-aligned, so the band carried 8 px of dead
-                            // space along its bottom edge. Centring is also
-                            // what keeps them centred once the strip shrinks.
+                            // The tile's height, centred in the band.
                             height: spotlightColumn.stripTileHeight
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: AppTheme.spacing8
@@ -1242,11 +867,9 @@ Rectangle {
                                     height: spotlightColumn.stripTileHeight
                                     width: active
                                            ? spotlightColumn.stripTileWidth : 0
-                                    // The MODE is part of being wanted: a
-                                    // hidden strip whose delegates still
-                                    // existed would go on holding a video
-                                    // sink per surface for a band nobody can
-                                    // see.
+                                    // Inactive when the strip is hidden, so no
+                                    // video sinks are held for an invisible
+                                    // band.
                                     active: spotlightColumn.stripMode === "tiles"
                                             && (!root.stageState
                                                 || stripShare.shareId
@@ -1292,8 +915,8 @@ Rectangle {
                                     height: spotlightColumn.stripTileHeight
                                     width: active
                                            ? spotlightColumn.stripTileWidth : 0
-                                    // Only the person whose CAMERA is on the
-                                    // spotlight is removed from the strip.
+                                    // Only the person whose camera is
+                                    // spotlighted leaves the strip.
                                     active: spotlightColumn.stripMode === "tiles"
                                             && (root.spotlightShareRow >= 0
                                                 || !root.stageState
@@ -1330,30 +953,19 @@ Rectangle {
                         }
                     }
 
-                    // ── The same strip, at 44 px ─────────────────────────
-                    //
-                    // What a stage too short for tiles gets instead: the
-                    // bubble row the collapsed call strip already uses, with
-                    // the same faces, the same speaking ring driven by the
-                    // SFU's own levels, and the same mute / sharing badges.
-                    // Clicking one pins that person, exactly as clicking a
-                    // strip tile does.
-                    //
-                    // It is a strip of PEOPLE only, so a second share has no
-                    // tile here — it is still reachable from the header's
-                    // "Show screen share" and from the grid, which is the
-                    // invariant this surface actually holds.
+                    // ── The same strip at 44 px ── For a stage too short for
+                    // tiles: the collapsed strip's bubble row, with the same
+                    // faces, speaking ring and badges; clicking pins. People
+                    // only; a second share stays reachable from the header and
+                    // the grid.
                     Loader {
                         objectName: "callStripBubblesHost"
                         Layout.fillWidth: true
                         active: spotlightColumn.stripMode !== "tiles"
                                 && !root.bubblesInHeader
                         visible: active
-                        // The COMPONENT's own height, which is 0 while
-                        // nobody has arrived yet — so a connecting call
-                        // reserves no empty band. `bubbleStripHeight` is the
-                        // same number, and it is what the mode decision is
-                        // made against.
+                        // The component's own height, 0 until anyone has
+                        // arrived, so a connecting call reserves no empty band.
                         Layout.preferredHeight: active ? implicitHeight : 0
                         sourceComponent: CallSpeakerBubbles {
                             objectName: "callStripBubbles"
@@ -1367,11 +979,8 @@ Rectangle {
                 }
             }
 
-            // WHERE THE PICTURE WENT. The stage's own surfaces are stood down
-            // while full screen is up, so without this the panel is an empty
-            // rectangle and the only way back is a window that may be on
-            // another monitor. This is the second exit, and it is on the
-            // screen the user was already looking at.
+            // Shown in the panel while full screen is up, as a second exit on
+            // the screen the user was already looking at.
             Loader {
                 anchors.fill: parent
                 active: !root.collapsed && root.fullScreenActive
@@ -1405,44 +1014,26 @@ Rectangle {
                 }
             }
         }
-
-        // NO BOTTOM DOCK. The control set lives in the stage's top row in
-        // both states — see the Loader up there. A full-width strip along the
-        // bottom took a band of the picture away from every screen share and
-        // put the controls somewhere different depending on whether the panel
-        // happened to be collapsed. One surface, one position.
     }
 
-    // ── The full-screen window ───────────────────────────────────────────
-    //
-    // Its own top-level window, so "full screen" means the MONITOR and not
-    // the application window. Declared inside this Item, which is what makes
-    // Qt treat it as transient for the main window and destroy it with the
-    // stage.
-    //
-    // Black, not a theme surface: every pixel around a fitted picture should
-    // be the absence of a picture, and that is black on every theme.
+    // ── The full-screen window ──
+    // A top-level window so full screen covers the monitor. Black around the
+    // fitted picture on every theme.
     Window {
         id: fullScreenWindow
 
         objectName: "callFullScreenWindow"
         title: qsTr("Lightning — full screen")
         color: "#000000"
-        // A FALLBACK size only. placeOnThisApplicationsScreen() overwrites
-        // both, plus x/y, before every show — and it is the GEOMETRY, not the
-        // `screen` assignment, that decides which monitor the window is born
-        // on (QWindowPrivate::create() → screenForGeometry()). These literals
-        // are what remains if the Screen attached object is unavailable.
-        // They are constants, not bindings, so the imperative write destroys
-        // nothing.
+        // Fallback size only: placeOnThisApplicationsScreen() sets geometry
+        // before every show. Constants, so the imperative writes break no
+        // binding.
         width: 1280
         height: 720
 
-        // NO `visible` and NO `visibility` binding: see syncFullScreenWindow().
-        // ACCEPTED, never refused. A window that refuses its close event
-        // vetoes application quit — §16 records close-to-tray eating Ctrl+Q
-        // for exactly that reason — so this lets the close happen and writes
-        // the flag back so the state cannot disagree with the screen.
+        // No `visible`/`visibility` binding: see syncFullScreenWindow(). The
+        // close is accepted (refusing would veto application quit) and the flag
+        // is written back.
         onClosing: root.exitFullScreen()
 
         Item {
@@ -1450,31 +1041,14 @@ Rectangle {
             objectName: "fullScreenSurface"
             anchors.fill: parent
 
-            // ── Full-screen overlays retire when the pointer is still ──────
-            //
-            // Reported: the controls "just sit there for good" in full screen.
-            // Every video surface hides its chrome once the pointer stops, and
-            // this one is showing somebody else's screen — the whole reason to
-            // be full screen is to see it unobstructed.
-            //
-            // The pointer, not a keystroke: a HoverHandler reports movement
-            // without consuming anything, so the overlays it wakes are still
-            // clickable and nothing below them loses an event.
+            // ── Overlays retire when the pointer is still ──
+            // A HoverHandler observes movement without consuming events, so the
+            // overlays it wakes stay clickable.
             property bool overlaysIdle: false
-            // IDLE MEANS THE POINTER HAS NOT MOVED, wherever it is.
-            //
-            // Not "the pointer is off the window", and not "the pointer is
-            // off the dock". Both of those looked right on two monitors —
-            // tabbing away moved the pointer out and the chrome went — and
-            // both leave it on screen forever for anyone with ONE monitor,
-            // because the pointer simply rests inside the share. What was
-            // asked for is the plain version: still for a few seconds and it
-            // goes.
-            //
-            // A ticking counter rather than a restartable one-shot. The timer
-            // is never stopped and never restarted, so there is no path where
-            // an interruption leaves it disarmed — which is exactly how the
-            // previous attempt got stuck on screen permanently.
+            // Idle means the pointer hasn't moved, wherever it is (on one
+            // monitor it rests inside the share). A ticking counter that is
+            // never stopped or restarted, so no interruption can leave it
+            // disarmed.
             property int idleTicks: 0
             readonly property int idleTicksToHide: 6   // 6 x 500 ms = 3 s
             Timer {
@@ -1498,12 +1072,9 @@ Rectangle {
                 acceptedButtons: Qt.NoButton
                 cursorShape: Qt.BlankCursor
             }
-            // Movement — anywhere over the share — brings it back at once and
-            // restarts the count. That is also the "move toward the edge and
-            // it reappears" behaviour, since reaching for the controls IS
-            // movement.
-            // Same rule, same reason: a re-delivery at the same place is not
-            // movement, and retiring this chrome causes one.
+            // Movement anywhere brings the chrome back and restarts the count.
+            // Same position check as the stage: retiring the chrome re-delivers
+            // hover.
             property real lastPointerX: -1
             property real lastPointerY: -1
             HoverHandler {
@@ -1520,26 +1091,21 @@ Rectangle {
                     fullScreenSurface.overlaysIdle = false;
                 }
             }
-            // Leaving full screen must not strand the overlays hidden: the
-            // flag is state, and the state it belongs to has ended.
+            // Leaving full screen must not strand the overlays hidden.
             Connections {
                 target: root
                 function onFullScreenActiveChanged() {
-                    // Both halves, or a count left over from the last
-                    // full-screen session retires the chrome the instant the
-                    // next one opens.
+                    // Reset both, or a stale count hides the chrome as soon as
+                    // the next session opens.
                     fullScreenSurface.overlaysIdle = false
                     fullScreenSurface.idleTicks = 0
                 }
             }
             focus: true
 
-            // A Keys handler, NOT a Shortcut. Escape is in ShortcutRegistry's
-            // RESERVED list (it closes the find bar, room information, a
-            // thread and Settings), and two enabled Shortcuts on one sequence
-            // fire NEITHER — a window-level Shortcut here would break closing
-            // a dialog while a call is up. A handler on the focused item of a
-            // DIFFERENT window cannot collide with any of that.
+            // A Keys handler, not a Shortcut: Escape is reserved in
+            // ShortcutRegistry and two enabled Shortcuts on one sequence fire
+            // neither. A handler in a different window can't collide.
             Keys.onPressed: function (event) {
                 if (event.key === Qt.Key_Escape) {
                     root.exitFullScreen();
@@ -1549,30 +1115,23 @@ Rectangle {
 
             Loader {
                 anchors.fill: parent
-                // Only while shown. A hidden Window still instantiates its
-                // children, and a VideoOutput nobody can see would hold a
-                // decoded frame and a router key for the whole call.
+                // Only while shown: a hidden Window still instantiates
+                // children, and an unseen VideoOutput would hold a frame and a
+                // router key.
                 active: root.fullScreenActive
                 visible: active
                 sourceComponent: focusedSurface
             }
 
-            // Floating controls. Deliberately always visible rather than
-            // fading on idle: a control that has to be summoned cannot
-            // explain how to leave, and leaving is the thing a full-screen
-            // surface most needs to make obvious.
+            // Floating exit control.
             RowLayout {
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.margins: AppTheme.spacing12
                 spacing: AppTheme.spacing8
-                // Fades rather than disappearing, so a control the user is
-                // reaching for does not vanish from under the pointer -- but
-                // retired chrome must not ANSWER a click. It is invisible and
-                // the pointer may be resting on it, and the dock is stacked
-                // over the reveal arrow, so a live one both swallowed the tap
-                // meant for the arrow and let a still click hit a button
-                // nobody could see.
+                // Fades rather than vanishing under the pointer, but is
+                // disabled while idle so invisible chrome can't take a click
+                // (the dock also overlaps the reveal arrow).
                 opacity: fullScreenSurface.overlaysIdle ? 0 : 1
                 enabled: !fullScreenSurface.overlaysIdle
                 Behavior on opacity {
@@ -1590,9 +1149,7 @@ Rectangle {
                 }
             }
 
-            // The same control set as everywhere else, in its dock
-            // placement. One definition; this is a placement of it, not
-            // another bar.
+            // The shared control bar in its dock placement.
             Loader {
                 anchors.bottom: parent.bottom
                 anchors.horizontalCenter: parent.horizontalCenter

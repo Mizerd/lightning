@@ -4,13 +4,12 @@ import QtQuick.Layouts
 import QtMultimedia
 import MatrixClient
 
-// v0.7: inline audio / voice-message player. A stable compact card:
-// pressing Play fetches the decrypted payload through MediaBridge's
-// validated playable materialization, then plays the session-scoped temp
-// file in-process. Voice messages render their real MSC3245 waveform when
-// the event carried one — never a fabricated decoration — and fall back
-// to the plain progress slider otherwise. One audible card at a time via
-// app.playback; room/account switches force a stop.
+// Inline audio / voice-message player. Play fetches the decrypted payload
+// through MediaBridge's validated playable materialization and plays the
+// session-scoped temp file in-process. Voice messages show their real MSC3245
+// waveform when the event has one (never a fabricated one), else a progress
+// slider. One audible card at a time via app.playback; room/account switches
+// force a stop.
 Rectangle {
     id: root
     objectName: "audioPlayerCard"
@@ -22,22 +21,22 @@ Rectangle {
     property real fileSize: 0
     property real durationMs: 0
     property bool isVoice: false
-    // Normalized MSC3245 amplitudes (0..1) — empty when the event had none.
+    // Normalized MSC3245 amplitudes; empty when the event had none.
     property var waveform: []
     property bool rowOnScreen: true
-    // Speculative prefetch gate, separate from rowOnScreen: a row that
-    // merely swept past during a gesture must not pull a payload. Defaults
-    // permissive so standalone hosts (fixtures) behave as before.
+    // Speculative prefetch gate, separate from rowOnScreen: a row that only
+    // swept past during a gesture must not pull a payload. Permissive default
+    // for standalone hosts.
     property bool prefetchAllowed: true
     property bool canSave: false
 
     signal saveRequested()
-    // Non-bridge backends (plain HTTP media) keep their external-open path;
-    // the delegate wires this to app.media.openExternal.
+    // Non-bridge backends (plain HTTP media) open externally
+    // (app.media.openExternal).
     signal openExternalRequested()
 
-    // The player backend loads ON DEMAND (first Play press) — an audio- or
-    // voice-heavy room must not hold one QMediaPlayer per visible row.
+    // The player loads on the first Play press, so a busy room doesn't hold one
+    // QMediaPlayer per visible row.
     property bool engaged: false
     readonly property var player: engine.item
     readonly property bool playing:
@@ -47,18 +46,15 @@ Rectangle {
     property string fetchState: "idle" // idle / fetching / failed
     // Stable failure identity: MediaBridge marks/signals by this cache key.
     readonly property string fetchCacheKey: "full:" + mediaKey
-    // The media key whose materialized file this card has PINNED against
-    // LRU eviction (a live player holds the file open). Recorded at pin
-    // time so delegate reuse — which changes mediaKey before resetPlayback
-    // runs — still unpins the right key.
+    // The media key pinned against LRU eviction while the player holds the file
+    // open. Recorded at pin time, since delegate reuse changes mediaKey before
+    // resetPlayback runs.
     property string pinnedKey: ""
-    // Playback position preserved across an offscreen engine unload; the
-    // next Play resumes here instead of restarting the track.
+    // Position kept across an offscreen engine unload, so Play resumes.
     property real resumePositionMs: 0
-    // Qt Multimedia exposes embedded cover/thumbnail metadata after the
-    // backend has opened the session-scoped playable file. MediaBridge keeps
-    // the decoded pixels in a small RAM-only LRU and gives Image a provider
-    // URL; no decrypted artwork is written to CacheStore or another file.
+    // Embedded cover art, available once the backend has opened the file.
+    // MediaBridge keeps the decoded pixels in a small RAM-only LRU; no
+    // decrypted artwork is written to disk.
     property string artworkSource: ""
 
     function refreshArtwork() {
@@ -73,31 +69,9 @@ Rectangle {
                                                                 artwork)
     }
 
-    // ── A POSITION FLOORS, A TOTAL ROUNDS, AND THEY ARE NOT ONE CLOCK ──
-    //
-    // Two different quantities shared one formatter in every player here,
-    // which is why they could never be made consistent. They pull opposite
-    // ways:
-    //
-    //   * a POSITION is elapsed time. At 25.7 s you have not reached 0:26,
-    //     and a clock that says you have is claiming time that has not
-    //     passed. It would also hit the total a half-second before the
-    //     audio ends and sit there.
-    //   * a TOTAL is a length. 25.7 s of audio IS 26 seconds to the nearest
-    //     second, which is what `embedDurationText` on the collapsed
-    //     summary line has always said, and a total that floors reads a
-    //     second short of the clip.
-    //
-    // Rounding BOTH (which this file briefly did) fixed the summary-line
-    // disagreement and broke the position clock. Flooring both, the state
-    // before that, made the card disagree with the one-line summary that
-    // opens it. Naming them apart is the only thing that makes every
-    // surface agree, and the reason the old comment here was wrong on both
-    // counts: the video card does NOT round, and the recording counter
-    // floors on purpose.
-    //
-    // The two RECORDING counters stay floored and are not this rule's
-    // business: a counter running while you speak is a position.
+    // Position floors, total rounds. At 25.7 s you haven't reached 0:26, but a
+    // 25.7 s clip is 26 s long (matching `embedDurationText`). Recording
+    // counters are positions and floor too.
     function formatPosition(ms) {
         if (!ms || ms < 0) ms = 0
         return root.clockText(Math.floor(ms / 1000))
@@ -122,9 +96,8 @@ Rectangle {
             return
         }
         if (fetchState === "failed") {
-            // Explicit user retry: clear the (possibly permanent) failure
-            // mark first — playableSource is otherwise blocked by it and
-            // the card would wait forever for a dispatch that never ran.
+            // Explicit retry: clear the failure mark first, or playableSource
+            // stays blocked by it.
             app.mediaBridge.retry(fetchCacheKey)
             fetchState = "idle"
         }
@@ -146,9 +119,8 @@ Rectangle {
             fetchingKey = root.mediaKey
         }
     }
-    // The media key with a bridge fetch outstanding on this card's behalf;
-    // reset/destruction cancels it so an abandoned download stops consuming
-    // bandwidth and pipeline slots.
+    // The key with an outstanding fetch for this card; reset/destruction
+    // cancels it so abandoned downloads stop.
     property string fetchingKey: ""
     function cancelFetch() {
         if (fetchingKey.length === 0)
@@ -157,8 +129,8 @@ Rectangle {
         fetchingKey = ""
     }
     function pinFile() {
-        // The player now holds the materialized temp file open; the LRU
-        // must not delete it underneath (seek/replay would fail).
+        // The player holds the materialized file open; the LRU must not delete
+        // it (seek/replay would fail).
         if (pinnedKey === mediaKey)
             return
         unpinFile()
@@ -183,12 +155,10 @@ Rectangle {
         artworkSource = ""
         app.playback.release(root.ownerKey)
     }
-    // Bounded speculative prefetch (size-capped, lowest priority, deduped
-    // by MediaBridge) so Play starts from the materialized file instead of
-    // a download wait. Voice messages and short tracks fit the cap.
+    // Bounded speculative prefetch (size-capped, lowest priority, deduplicated
+    // by MediaBridge) so Play starts without a download wait.
     function maybePrefetch() {
-        // Same user preference as GIF autoplay: "never" means no passive
-        // downloads of any media class.
+        // GIF autoplay "never" also means no passive media downloads.
         if (rowOnScreen && prefetchAllowed && mediaKey.length > 0
             && app.mediaBridge.supported
             && app.settings.gifAutoplay !== 2)
@@ -214,11 +184,8 @@ Rectangle {
         cancelFetch()
         app.playback.release(root.ownerKey)
     }
-    // Offscreen resource release: a paused, scrolled-away card frees its
-    // decoder and audio backend after a grace period instead of holding a
-    // QMediaPlayer (and an open PulseAudio/PipeWire stream) for the rest of
-    // the room session. The position survives; the next Play resumes it
-    // from the still-materialized (reused) temp file.
+    // A paused, scrolled-away card frees its decoder and audio stream after a
+    // grace period. The position is kept and resumed from the reused temp file.
     Timer {
         interval: 45000
         running: root.engaged && !root.rowOnScreen && !root.playing
@@ -227,15 +194,14 @@ Rectangle {
             root.resetPlayback()
         }
     }
-    // A forced stop (room/account switch, sign-out) drops the source and
-    // unloads the engine — the decrypted temp file is about to be wiped.
+    // A forced stop (room/account switch, sign-out) unloads the engine: the
+    // decrypted temp file is about to be wiped.
     readonly property int stopGen: app.playback.stopGeneration
     onStopGenChanged: resetPlayback()
 
     Connections {
         target: app.mediaBridge
-        // Both handlers filter on THIS card's cache key — an unrelated
-        // avatar/thumbnail failure elsewhere must not flip this fetch.
+        // Filter on this card's cache key only.
         function onPlayableMediaReady(cacheKey) {
             if (cacheKey !== root.fetchCacheKey
                 || root.fetchState !== "fetching")
@@ -263,10 +229,8 @@ Rectangle {
             if (!app.playback.owns(root.ownerKey) && root.playing)
                 player.pause()
         }
-        // Space toggles whatever is currently audible (2026-08-18 tester
-        // report "tarpas neveikia pause ir unpause"). The owner key is
-        // re-checked here: a card that lost audibility between the key press
-        // and this delivery must not react.
+        // Space toggles whatever is audible. Re-check the owner: audibility
+        // may have moved since the key press.
         function onTogglePlayPauseRequested(ownerKey) {
             if (ownerKey !== root.ownerKey || !root.engaged)
                 return
@@ -282,22 +246,17 @@ Rectangle {
                 id: audioOut
                 property bool userUnmuted: false
                 muted: false
-                // 2026-08-18 tester report ("neatsimena audio preferencu
-                // uzdeda default visada"): the remembered level, not a fixed
-                // 0.8 every time. This is a live binding, so changing the
-                // volume on one card moves every other card with it; the
-                // slider's own direct write breaks the binding on THAT card
-                // only, to the same value it just stored.
+                // The remembered level. A live binding, so every card follows a
+                // change; the slider's own write breaks it only on that card,
+                // to the same value.
                 volume: app.settings.mediaVolume
             }
-            // The remembered speed applies to every card, including one
-            // opened long after the choice was made.
+            // The remembered speed applies to every card.
             playbackRate: app.settings.mediaPlaybackRate
             onErrorOccurred: root.fetchState = "failed"
             onMetaDataChanged: root.refreshArtwork()
-            // Resume after an offscreen engine unload: seek once the media
-            // is actually loaded — a seek issued straight after setting the
-            // source would be dropped.
+            // Resume after an offscreen unload once the media has loaded; an
+            // earlier seek would be dropped.
             onMediaStatusChanged: {
                 if (mediaStatus === MediaPlayer.LoadedMedia
                     && root.resumePositionMs > 0) {
@@ -319,27 +278,16 @@ Rectangle {
     radius: AppTheme.radiusSm
     border.color: AppTheme.border
     border.width: 1
-    // The delegate provides `bubble`; standalone use (tests) tolerates null.
-    // DEPRECATED as a width source — a Bubbles bubble insets its children by
-    // 10px on each side, so its OUTER width is 20px more than this card may
-    // occupy and the card was drawn 10px past the bubble's right edge
-    // (measured 2026-09-19). The delegate now passes `availableWidth`, which
-    // is the content column's INNER width; `bubble` remains only for the
-    // standalone/legacy path.
+    // Legacy width source for standalone use (tests may leave it null). Its
+    // outer width includes the bubble's padding, so the delegate passes
+    // `hostContentWidth` (the content column's inner width) instead.
     property var bubble: null
-    /// What the host says this card may occupy. Negative means "not set".
-    /// Named `hostContentWidth` rather than `availableWidth` because the
-    /// cover-art box below already owns that name for its own inner width.
+    /// The width the host allows; negative means unset. Not named
+    /// `availableWidth`, which coverArtBox already uses.
     property real hostContentWidth: -1
 
-    // Embedded cover art, rendered as its own box ATTACHED BELOW the player
-    // controls rather than as a thumbnail beside them — the shape a chat
-    // client uses for an embed under a message. Square-ish, corner-matched
-    // to the card, and clipped so a non-square image cannot spill.
-    //
-    // Still RAM-only: MediaBridge::audioArtworkSource hands back a
-    // provider URL backed by a bounded decoded-image cache, and nothing
-    // about moving it in the layout writes artwork to disk.
+    // Embedded cover art, as a box attached below the controls, corner-matched
+    // and clipped. RAM-only (see artworkSource).
     Rectangle {
         id: coverArtBox
         objectName: "audioCoverArtBox"
@@ -348,21 +296,13 @@ Rectangle {
         anchors.top: cardRow.bottom
         anchors.leftMargin: 6
         anchors.topMargin: 6
-        // The box takes the ARTWORK'S OWN aspect, so a square album cover
-        // renders square. A fixed ratio cropped the top and bottom off every
-        // square cover, which is most of them.
-        //
-        // BOTH axes are bounded, and that is the point: capping only the
-        // height (the first version of this) silently broke the aspect match
-        // the box exists to provide. Any cover wider than the cap got a box
-        // that was still full width but only `maxEdge` tall, and
-        // PreserveAspectFit then painted the artwork small and centred with
-        // dead card surface down either side. Deriving the width from the
-        // capped height keeps box and artwork the same shape at every size.
+        // The box takes the artwork's own aspect. Both axes are bounded, with
+        // the width derived from the capped height, so box and artwork keep the
+        // same shape at every size.
         readonly property real maxEdge: 420
         readonly property real availableWidth: Math.max(1, root.width - 12)
-        // Height per unit width. Falls back to a sane ratio until the image
-        // reports its size; asynchronous loading means that is transient.
+        // Height per unit width; a fallback ratio until the image reports its
+        // size.
         readonly property real artRatio: {
             var iw = coverArtImage.implicitWidth
             var ih = coverArtImage.implicitHeight
@@ -384,11 +324,9 @@ Rectangle {
             objectName: "audioCoverArtwork"
             anchors.fill: parent
             source: coverArtBox.visible ? root.artworkSource : ""
-            // Width only: constraining both axes would letterbox the source
-            // before the box has a chance to take its shape.
+            // Width only; constraining both would letterbox the source.
             sourceSize.width: 640
-            // The box already matches the artwork's aspect, so Fit shows the
-            // whole cover instead of cropping it.
+            // The box matches the aspect, so Fit shows the whole cover.
             fillMode: Image.PreserveAspectFit
             asynchronous: true
             cache: true
@@ -407,15 +345,11 @@ Rectangle {
         IconButton {
             objectName: "audioPlayPauseButton"
             fill: true
-            // Click focus (IconButton defaults to Tab-only): pressing Play
-            // then pressing Space toggles the clip, which is what a desktop
-            // player does, and it needs no global key grab to work.
+            // Click focus, so Space after Play toggles the clip.
             focusPolicy: Qt.StrongFocus
             implicitWidth: 30; implicitHeight: 30
-            // Always a play glyph when idle — the accent-filled button with
-            // a mic read as "record", not "play" (maintainer feedback
-            // 2026-08-12); the voice identity is already carried by the
-            // "Voice message" label and the waveform.
+            // Always a play glyph when idle (a mic read as "record"); the voice
+            // label and waveform identify voice messages.
             iconName: root.fetchState === "fetching"
                       ? "schedule"
                       : (root.playing ? "pause" : "play_arrow")
@@ -473,20 +407,10 @@ Rectangle {
                         model: waveRow.visible ? waveRow.barCount : 0
                         delegate: Rectangle {
                             required property int index
-                            // THE BUCKETS ARE 0..=100, NOT 0..1, AND
-                            // CLAMPING THEM DREW A SOLID BLOCK. `Math.min(1,
-                            // wf[at])` took every bucket of amplitude 1 or
-                            // more to full height, so every received voice
-                            // message rendered as a filled rectangle and only
-                            // a literal zero showed the 0.12 floor — the one
-                            // thing a "real MSC3245 waveform" is for was the
-                            // one thing it could not show. The range is set
-                            // in rust/src/timeline.rs by downsample_waveform,
-                            // which normalises the wire's 0..1024 into at
-                            // most 96 buckets of 0..=100, and
-                            // RustTimelineIngest.cpp keeps that range by
-                            // dropping anything outside it. Divide; the
-                            // min() still guards a malformed bucket.
+                            // Buckets are 0..=100 (rust/src/timeline.rs
+                            // downsample_waveform; RustTimelineIngest.cpp drops
+                            // anything outside), so divide; min() guards a
+                            // malformed bucket.
                             readonly property real amp: {
                                 var wf = root.waveform
                                 var at = Math.floor(
@@ -528,11 +452,8 @@ Rectangle {
                                    : (root.player ? root.player.position : 0)
                     Accessible.name: qsTr("Seek position")
                     onMoved: if (root.player) root.player.position = value
-                    // 2026-08-18 tester report ("audio slider klipinasi
-                    // biski"): the default Basic-style handle is 28px tall
-                    // inside an 18px seek row, so its top and bottom were cut
-                    // off. A slim track with a 12px handle fits the row it
-                    // actually lives in.
+                    // A slim track and 12px handle; Basic's 28px handle was
+                    // clipped by the 18px row.
                     padding: 0
                     background: Rectangle {
                         x: seekSlider.leftPadding
@@ -580,9 +501,7 @@ Rectangle {
                     }
                     return line
                 }
-                // Elides inside the card. Without this the position/duration
-                // (plus the file size on a music file) simply ran past the
-                // card's right edge and was cut mid-character.
+                // Elides inside the card.
                 Layout.fillWidth: true
                 elide: Label.ElideRight
                 color: AppTheme.textMuted
@@ -590,12 +509,8 @@ Rectangle {
             }
         }
 
-        // Playback speed. 2026-08-18 tester report ("kai keiti audio garso
-        // greiti nera kaip grizti ... turi visa rata prasukti"): the button
-        // used to CYCLE one way only, so overshooting 1x meant walking the
-        // whole list around again. It now opens the list and the choice is
-        // remembered (app.settings.mediaPlaybackRate), so it also survives
-        // the next card, room and restart.
+        // Playback speed: opens a list, and the choice is remembered
+        // (app.settings.mediaPlaybackRate) across cards, rooms and restarts.
         AbstractButton {
             id: audioSpeedButton
             objectName: "audioSpeedButton"
@@ -621,10 +536,9 @@ Rectangle {
                         text: modelData + "\u00d7"
                         iconName: Math.abs(modelData - audioSpeedButton.rate)
                                   < 0.001 ? "check" : ""
-                        // Writing the SETTING is enough: playbackRate is
-                        // bound to it above, so this card and every other one
-                        // follow. Assigning the player directly as well would
-                        // break that binding for this card.
+                        // Write the setting only: playbackRate is bound to it,
+                        // and assigning the player too would break that
+                        // binding.
                         onTriggered: app.settings.mediaPlaybackRate = modelData
                     }
                 }

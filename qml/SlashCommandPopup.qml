@@ -3,14 +3,11 @@ import QtQuick.Controls.Basic
 import QtQuick.Effects
 import MatrixClient
 
-// v0.9 slash commands: the composer's command autocomplete popup. Same
-// construction as MentionPopup — a flat Lightning surface floating above the
-// composer input that deliberately never takes focus; the TextArea keeps the
-// caret and forwards Up/Down/Tab/Return/Escape. The model is
+// Slash-command autocomplete, built like MentionPopup: never takes focus; the
+// TextArea forwards Up/Down/Tab/Return/Escape. Model:
 // MessageComposer.commandCompletions ([{name, argsHint, description,
-// enabled}]); a disabled row is a permission COURTESY hint (the server is
-// the enforcer) and is skipped by selection but still listed, so the user
-// learns the command exists.
+// enabled}]). A disabled row is a permission hint (the server enforces),
+// skipped by selection but still listed.
 Popup {
     id: root
     objectName: "slashCommandPopup"
@@ -24,18 +21,14 @@ Popup {
 
     parent: Overlay.overlay
     focus: false
-    // The composer drives open/close; auto-close (focus/press-outside)
-    // would fight the editor keeping focus.
+    // The composer drives open/close; auto-close would fight the editor's
+    // focus.
     closePolicy: Popup.NoAutoClose
     padding: AppTheme.menuPadding
 
     readonly property int count: completions ? completions.length : 0
-    // A row is two lines — the command with its argument hint, then the
-    // description — so 40px was never enough: the Column drew every one of
-    // the ~15 commands at its natural height and the popup's own height
-    // stopped at eight, so the tail spilled out BELOW the panel, unclipped
-    // and unreachable. The list is a real ListView now: clipped, scrollable,
-    // and the height follows what fits.
+    // Rows are two lines (command with argument hint, then description). The
+    // list is a clipped, scrollable ListView whose height follows what fits.
     readonly property int rowH: AppTheme.scaled(52)
     readonly property int headerH: AppTheme.scaled(24)
     readonly property int visibleRows: Math.max(1, Math.min(count, 6))
@@ -124,13 +117,12 @@ Popup {
             objectName: "slashCommandPopupList"
             width: parent.width
             height: root.height - root.headerH - root.padding * 2
-            // The whole point: nothing may be drawn outside the panel.
+            // Nothing may be drawn outside the panel.
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             model: root.completions
             currentIndex: root.currentIndex
-            // The list follows the keyboard, and the keyboard follows the
-            // editor — the popup itself never takes focus.
+            // The list follows the keyboard; the popup never takes focus.
             interactive: contentHeight > height
 
             ScrollBar.vertical: AppScrollBar {
@@ -151,23 +143,11 @@ Popup {
                 radius: AppTheme.radiusSm
                 color: selected ? AppTheme.stormSelection : "transparent"
 
-                // ── A ROW IS TWO SURFACES, AND ONLY ONE WAS EVER MEASURED ──
-                //
-                // The pixels under this row's text are the selection chip
-                // OVER the panel when the row is selected and the panel
-                // itself when it is not, so an ink graded on `stormPanel`
-                // answers for one of the two. Measured 2026-09-20 across all
-                // eleven palettes, the description inked `textMuted` clears
-                // 4.5:1 AA on every RESTING row (floor 4.59, Deep Teal) and
-                // fails on EIGHT selected ones — Graphite 3.09, Indigo Night
-                // 3.44, Deep Teal 3.45, Nordic 3.46, Midnight 3.58,
-                // Lightning Dark 3.61, Purple Dusk 3.72, Storm 4.38 — which
-                // is exactly why measuring the resting state found nothing.
-                //
-                // This is `flatten`'s reason for existing: `stormSelection`
-                // is TRANSLUCENT in some palettes (Storm's row fills are
-                // alpha'd), so the ground is the composite, never the chip's
-                // own colour property.
+                // The ground under a row's text is the selection chip over the
+                // panel when selected, and the panel otherwise; grade inks
+                // against the composite (stormSelection is translucent in some
+                // palettes). textMuted passes on resting rows but fails on
+                // selected ones in most palettes.
                 readonly property color rowFill:
                     AppTheme.flatten(commandRow.color, AppTheme.stormPanel)
 
@@ -194,40 +174,13 @@ Popup {
                         font.family: AppTheme.monoFont
                         font.pixelSize: AppTheme.scaled(13)
                         font.weight: Font.DemiBold
-                        // ── THE SELECTED COMMAND'S NAME IS NOT BOLT ───────
-                        //
-                        // It was, and `bolt` is the one token that cannot
-                        // carry it: on the ten non-Storm palettes `bolt`
-                        // routes to `accent` while `stormSelection` routes to
-                        // `hover`, which is a lighter tint of the SAME hue
-                        // family — two mid tones, one on the other. Measured
-                        // 2026-09-20 on the fill this row paints, the name of
-                        // the command you are about to run failed AA on ten
-                        // of eleven: Indigo Night 1.61, Lightning Dark 1.65,
-                        // Midnight 1.69, Nordic 1.83, Graphite 1.87, Purple
-                        // Dusk 2.21, Deep Teal 4.00, Lightning Light 4.14,
-                        // Moss Light 4.27, Warm 4.46. Only Storm passed
-                        // (7.53), because Storm is the one palette where
-                        // `bolt` is the actual bolt — which is precisely why
-                        // it looked right to whoever wrote it.
-                        //
-                        // `stormText` is what MentionPopup — "same
-                        // construction", per this file's own header — already
-                        // does: it inks the selected row's NAME with
-                        // stormText and spends bolt only on the matched
-                        // SUBSTRING, the yellow discipline. Here the whole
-                        // string is the match, so bolt-on-everything was the
-                        // defect. 6.40-13.17:1 on all eleven, and the row is
-                        // still marked by its fill and its Return keycap.
-                        //
-                        // DERIVING bolt was measured and REJECTED: it reaches
-                        // AA but lands the name at 4.52-4.92 beside a
-                        // description derived to 4.55-4.88, a hierarchy ratio
-                        // of 0.91-1.05 — on four palettes the description
-                        // would be BRIGHTER than the command name. That is
-                        // the collapse recorded as refuted beside
-                        // `legibleInkOn` in AppTheme.qml. stormText gives
-                        // 1.38-2.70.
+                        // Not bolt: outside Storm bolt is the accent and
+                        // stormSelection is a tint of the same hue, so the
+                        // selected name failed AA on ten of eleven palettes.
+                        // stormText, as in MentionPopup, clears AA everywhere.
+                        // Deriving bolt was rejected: it made the description
+                        // as bright as the name (see legibleInkOn in
+                        // AppTheme.qml).
                         color: rowEnabled
                                ? AppTheme.stormText
                                : AppTheme.legibleInkOn(AppTheme.textMuted,
@@ -243,13 +196,9 @@ Popup {
                                     .arg(modelData.description || "")
                         objectName: "slashCommandDescription"
                         font.pixelSize: AppTheme.fontChip
-                        // Derived against the fill THIS ROW paints, never
-                        // against the panel and never against the worst of
-                        // the two: where the token already clears its own
-                        // fill — every resting row, on every palette —
-                        // `legibleInkOn` hands it straight back, so the
-                        // resting state is bit-identical to before and the
-                        // name/description hierarchy is untouched there.
+                        // Derived against the fill this row paints; where the
+                        // token already clears it (every resting row) it is
+                        // returned unchanged.
                         color: AppTheme.legibleInkOn(AppTheme.textMuted,
                                                      commandRow.rowFill)
                     }

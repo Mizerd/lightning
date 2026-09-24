@@ -2,14 +2,12 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// Lightning single-line text field: flat themed surface, subtle 1px border
-// that turns accent on focus, themed selection and placeholder — never a
-// native recessed frame. Optional leading search glyph and a clear button
-// that appears with text.
+// Lightning single-line text field: flat themed surface, a 1px border that
+// turns accent on focus, themed selection and placeholder. Optional leading
+// search glyph and a clear button that appears with text.
 //
-// Storm skin (SPEC-storm-language §3.8): `storm: true` on storm surfaces —
-// stormInset fill, 1px stormBorder, focus promotes to a bolt border with a
-// soft bolt halo ring outside the field.
+// `storm: true` on storm surfaces: stormInset fill, 1px stormBorder, and on
+// focus a bolt border with a soft bolt halo outside the field.
 TextField {
     id: root
 
@@ -24,34 +22,11 @@ TextField {
     font.pixelSize: AppTheme.textBody
     color: storm ? AppTheme.stormText : AppTheme.textPrimary
     placeholderTextColor: storm ? AppTheme.stormTextMuted : AppTheme.textMuted
-    // ── THE SELECTION HAS TO BE VISIBLE, WHICH IT WAS NOT ──────────────
-    //
-    // Reported as "Ctrl+A doesn't work in the text fields, Ctrl+V was
-    // fine". Ctrl+A works everywhere; the HIGHLIGHT was invisible, and that
-    // is what select-all looks like from outside — paste has a visible
-    // result, select-all's only feedback is the selection.
-    //
-    // MEASURED against the field, on screen and not from the literals:
-    // Indigo Night (the system DARK default) 1.06:1, dL* 2.3; Moss Light
-    // (the system LIGHT default) 1.05:1, dL* 2.0. 2442 px of selection
-    // block at 1.03:1 in one capture.
-    //
-    // Both former branches were wrong outside Storm. `accentSoft` is
-    // designed as a TILE FILL and sits a couple of L* from the surface it
-    // fills — fine for a tile, fatal when the couple of L* IS the signal —
-    // and it is defined by exactly three palettes, which are exactly the
-    // three worst. `stormSelection` falls through to `hover` outside the
-    // Storm theme, which is the same 1.01:1 defect the settings audit found
-    // on selected nav rows.
-    //
-    // `selectedHover` is the stronger selection tone, which is what a text
-    // selection IS — a firmer affordance than a hovered row — and it clears
-    // a floor on every palette: worst Moss Light 10.9 dL*, the rest 15.9 to
-    // 36.9. Note `selected` alone does NOT fix this: on Moss Light it is
-    // the same value as accentSoft.
-    //
-    // `theTextSelectionIsVisibleOnEveryTheme` holds the floor so a future
-    // palette cannot reintroduce it silently.
+    // `selectedHover` for the selection: accentSoft (a tile fill) and
+    // stormSelection (hover outside Storm) are nearly invisible against the
+    // field on several themes, including both defaults. `selected` alone isn't
+    // enough either (it equals accentSoft on Moss Light).
+    // theTextSelectionIsVisibleOnEveryTheme enforces the floor.
     selectionColor: AppTheme.selectedHover
     selectedTextColor: storm ? AppTheme.stormText : AppTheme.textPrimary
     verticalAlignment: TextInput.AlignVCenter
@@ -59,11 +34,8 @@ TextField {
     background: Rectangle {
         radius: AppTheme.radiusMd
         color: root.storm ? AppTheme.stormInset : AppTheme.inputBackground
-        // Integer weights only. The storm skin used to focus at 1.5px and the
-        // themed skin at 2px, so the same field showed focus at two different
-        // weights depending on its host — and a 1.5px border cannot land on a
-        // pixel boundary at DPR 1.0, so it rendered as two half-covered rows
-        // of antialiasing next to the 1px borders beside it.
+        // Integer weights only: a 1.5px border can't land on a pixel boundary
+        // at DPR 1.0 and renders as blurred rows.
         border.width: root.activeFocus ? 2 : 1
         border.color: {
             if (root.storm)
@@ -75,8 +47,7 @@ TextField {
                  : AppTheme.border
         }
 
-        // §3.8 focus halo: 0 0 0 3px bolt at 12% — an outside ring, never
-        // part of the field's own geometry.
+        // Focus halo: a 3px bolt ring at 12% outside the field's geometry.
         Rectangle {
             visible: root.storm && root.activeFocus
             anchors.fill: parent

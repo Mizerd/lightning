@@ -2,31 +2,22 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// The small chevron that opens a device chooser beside a call control.
-//
-// Deliberately its own control rather than a corner of the button: a device
-// change and a mute are different intents, and merging them means every
-// attempt to pick a microphone also toggles the microphone. Narrow, but a
-// full-height hit target, so it stays reachable without being easy to press
-// by accident.
+// The chevron that opens a device chooser beside a call control. A separate
+// control, not a corner of the button: picking a device and muting are
+// different intents.
 AbstractButton {
     id: root
 
     /// "microphone" | "speaker" | "camera"
     property string kind: "microphone"
     property string accessibleName: ""
-    /// Marks the chosen device as unavailable, so the reason audio is coming
-    /// from somewhere unexpected is visible on the control itself.
+    /// Marks the chosen device as unavailable, explaining unexpected audio
+    /// routing on the control itself.
     property bool warn: false
 
-    // Compact and vertically centred against the 40 px control it belongs
-    // to, so the pair reads as one affordance. A full-height slab beside a
-    // round button reads as a separate control, which is what the first
-    // rendering looked like.
-    //
-    // 26 px keeps a comfortable pointer target while staying clearly
-    // secondary to the button it qualifies; it is not overlapped, so it also
-    // remains an independent keyboard stop.
+    // Compact and vertically centred against its control so the pair reads as
+    // one affordance, while staying a separate pointer target and keyboard
+    // stop.
     implicitWidth: 20
     implicitHeight: 26
     hoverEnabled: true
@@ -65,9 +56,7 @@ AbstractButton {
 
     onClicked: menu.popup()
 
-    // ONE menu per chevron, created lazily: a device list is small, but a
-    // Menu per control instantiated eagerly is the per-row-menu mistake at a
-    // smaller scale.
+    // One menu per chevron, created lazily.
     CallDeviceMenu {
         id: menu
         kind: root.kind

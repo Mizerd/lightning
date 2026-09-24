@@ -2,9 +2,9 @@ import QtQuick
 import MatrixClient
 
 // Lazy compact preview for Room Information → Media. Requests the bridge's
-// list-thumbnail class only while its virtualized delegate intersects the
-// viewport. That class uses Matrix thumbnails and never substitutes an
-// encrypted full attachment merely to fill this tile.
+// list-thumbnail class only while its delegate intersects the viewport; that
+// class uses Matrix thumbnails and never substitutes an encrypted full
+// attachment.
 Rectangle {
     id: root
 

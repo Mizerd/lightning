@@ -4,48 +4,40 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.6.1: keyboard-driven quick switcher (Ctrl+K). A modal overlay over the
-// already-available local room/DM/Space/invite presentation data
-// (app.quickSwitcher). No network search, no persisted message text.
-// Selecting a result routes through the app's normal navigation.
-//
-// v0.6.5 (SPEC §1j+1k): one 480px-wide surface, two modes. Navigate mode
-// (default, Ctrl+K) lists rooms/people/spaces/invites grouped into sections.
-// Command mode (typed ">" as the first character, or Ctrl+Shift+K) swaps the
-// header glyph for a bolt tile (storm 2d), adds an Actions/Rooms/People
-// scope row, and lists a small declarative set of honestly-executable
-// application actions — never leave/mute/file actions, never a
-// slash-command registry.
+// Keyboard-driven quick switcher (Ctrl+K): a modal overlay over the local
+// room/DM/Space/invite data (app.quickSwitcher). No network search, no
+// persisted message text; selecting routes through normal navigation. Two modes
+// in one 480px surface. Navigate mode lists rooms, people, spaces and invites
+// in sections. Command mode (">" as the first character, or Ctrl+Shift+K) shows
+// a bolt tile, an Actions/Rooms/People scope row and a small declarative set of
+// executable actions (no leave/mute/file actions, no slash-command registry).
 Popup {
     id: switcher
-    // v0.7.x: Discover / Join commands are hosted by the main screen (the
-    // dialog lives in RoomsPanel); the switcher only announces the intent.
+    // Discover / Join is hosted elsewhere (the dialog lives in RoomsPanel); the
+    // switcher only announces the intent.
     signal discoverRequested(string startMode)
-    // v0.7.x: global message search (dialog hosted by MainScreen).
+    // Global message search (dialog hosted by MainScreen).
     signal globalSearchRequested()
     parent: Overlay.overlay
     modal: true
     dim: true
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-    // SPEC R6: one shared width (480) in both modes; the min() only guards
-    // against a window narrower than the design width.
+    // One shared width in both modes; min() guards narrow windows.
     width: Math.min(480, parent ? parent.width - 48 : 480)
     height: Math.min(460, parent ? parent.height - 120 : 460)
     x: parent ? (parent.width - width) / 2 : 0
-    // Top-aligned, as before v0.6.5.
     y: parent ? Math.max(60, parent.height * 0.12) : 0
     padding: 0
 
-    // Command mode state. Entered by typing ">" as the very first character
-    // of the query (stripped immediately so the field never shows it) or by
-    // Ctrl+Shift+K (MainScreen.qml). commandScope narrows the command-mode
-    // result list to Actions (the declarative action set) / Rooms / People
-    // (both simply filter the SAME live app.quickSwitcher results).
+    // Command mode, entered by ">" as the first character (stripped
+    // immediately) or Ctrl+Shift+K. commandScope narrows results to Actions /
+    // Rooms / People (the latter two filter the same app.quickSwitcher
+    // results).
     property bool commandMode: false
     property string commandScope: "actions"
-    // Set by openCommandMode() just before open(); onOpened consumes it
-    // exactly once so timing of the Popup's own open animation cannot race it.
+    // Set by openCommandMode() before open(); consumed once in onOpened so the
+    // open animation cannot race it.
     property bool _pendingCommandMode: false
 
     function openCommandMode() {
@@ -77,8 +69,8 @@ Popup {
         if (r.isSpace) {
             if (app.spaces) app.spaces.activeSpaceId = r.roomId
         } else {
-            // Rooms, DMs, and invites all open the room context; an invite
-            // opens its accept/decline view — never auto-accepted here.
+            // Rooms, DMs and invites open the room; an invite opens its
+            // accept/decline view, never auto-accepted.
             app.openRoom(r.roomId)
         }
         switcher.close()
@@ -97,11 +89,9 @@ Popup {
         }
     }
 
-    // ---- Command-mode declarative action list (SPEC 1k). Honestly
-    // executable actions only: Open Settings + each section, switch to a
-    // non-active account, and every real theme. No leave/mute/files/slash
-    // registry. Section icons/titles are duplicated from SettingsScreen.qml's
-    // sectionIcon()/sectionTitle() — keep them in sync if either changes.
+    // Command-mode actions: Open Settings and each section, switch to another
+    // account, and every real theme. Section icons/titles match
+    // SettingsScreen's sectionIcon()/sectionTitle().
     function buildCommandActions() {
         var actions = []
         actions.push({
@@ -141,13 +131,8 @@ Popup {
                 run: function() { switcher.globalSearchRequested() }
             })
         }
-        // EVERY section SettingsScreen has a nav row for. This list was a
-        // hand-kept copy and had silently fallen three behind — `shortcuts`
-        // and `updates` had never been here, and `sound` arrived on
-        // 2026-09-12 — so the one surface whose whole job is "type a name,
-        // land on it" could not reach them at all. The titles and glyphs
-        // match `sectionTitle()` / `sectionIcon()` there; SettingsShellQmlTest
-        // asserts the two lists agree, because nothing else can.
+        // Every section SettingsScreen has a nav row for, with matching titles
+        // and glyphs; SettingsShellQmlTest asserts the two lists agree.
         var sectionDefs = [
             { key: "account", title: qsTr("Account"), icon: "account_circle" },
             { key: "appearance", title: qsTr("Appearance"), icon: "palette" },
@@ -194,9 +179,8 @@ Popup {
             iconName: "palette", keywords: "theme match system auto",
             enabled: true, run: function() { app.settings.theme = 0 }
         })
-        // The custom theme is only offered once it exists: selecting an
-        // empty one applies a palette identical to its base, which looks
-        // like the command did nothing.
+        // The custom theme is offered only once it exists (an empty one looks
+        // like nothing happened).
         var themes = AppTheme.themeList.filter(
             (t) => t.id !== 12 || (app.customTheme && app.customTheme.exists))
         for (var t = 0; t < themes.length; ++t) {
@@ -222,8 +206,7 @@ Popup {
     }
     readonly property var filteredCommandActions: commandActions.filter(actionMatches)
 
-    // Rooms/People scope chips: a genuine filter of the SAME live
-    // app.quickSwitcher results (not a separate search), read via the
+    // Rooms/People scope: a filter over the same live results, via the
     // presentation-safe resultAt() fields.
     function scopedEntityRowsFor(wantDm) {
         var rows = []
@@ -244,13 +227,10 @@ Popup {
         : []
     readonly property var commandRows:
         commandScope === "actions" ? filteredCommandActions : scopedEntityRows
-    // The ListView renders from a ListModel kept in sync with commandRows,
-    // carrying PLAIN DATA only. Two reasons: action entries hold their
-    // run() closures (never model material), and Qt 6.11's delegate-model
-    // adapter can report count for a raw QJSValue object-array yet
-    // instantiate ZERO rows — a ListModel sidesteps that entirely.
-    // activateCommandRow() dispatches by index into commandRows, which
-    // stays the closure-carrying source in identical order.
+    // The ListView renders from a ListModel of plain data: action entries hold
+    // run() closures, and Qt 6.11's delegate model can report a count for a raw
+    // JS object array yet instantiate no rows. activateCommandRow() dispatches
+    // by index into commandRows, kept in the same order.
     ListModel { id: commandRowModel }
     function syncCommandRows() {
         commandRowModel.clear()
@@ -275,9 +255,8 @@ Popup {
         if (category === "invite") return qsTr("INVITES")
         return category.toUpperCase()
     }
-    // Section-jump (Tab/Shift+Tab, navigate mode only): the model sorts by
-    // category first (room, dm, space, invite), so section runs are
-    // contiguous and their starts are found in one pass.
+    // Section jump (Tab/Shift+Tab, navigate mode): the model sorts by category,
+    // so section runs are contiguous.
     function sectionStarts() {
         var starts = []
         var lastCat = null
@@ -305,8 +284,7 @@ Popup {
         }
     }
 
-    // HTML-escape untrusted display names before any StyledText highlight
-    // (room/DM names are user-controlled).
+    // HTML-escape untrusted names before any StyledText highlight.
     function escapeHtml(s) {
         return String(s)
             .replace(/&/g, "&amp;").replace(/</g, "&lt;")
@@ -331,7 +309,7 @@ Popup {
 
     background: Item {
         id: bgWrap
-        // One of the design's four sanctioned shadows (composer pattern).
+        // One of the design's four shadows (composer pattern).
         MultiEffect {
             source: card
             anchors.fill: card
@@ -345,8 +323,7 @@ Popup {
         Rectangle {
             id: card
             anchors.fill: parent
-            // Storm chrome (SPEC-storm-language §3.1 / mock 2d): the
-            // theme-invariant navy panel.
+            // Storm chrome: the theme-invariant navy panel.
             color: AppTheme.stormPanel
             border.color: AppTheme.stormBorder
             border.width: 1
@@ -357,7 +334,7 @@ Popup {
     contentItem: ColumnLayout {
         spacing: 0
 
-        // ── Header: leading glyph, query field, ESC keycap ────────────────
+        // Header: leading glyph, query field, ESC keycap
         RowLayout {
             Layout.fillWidth: true
             Layout.margins: AppTheme.spacing12
@@ -373,10 +350,8 @@ Popup {
                     size: 19
                     color: AppTheme.stormTextMuted
                 }
-                // Storm 2d: command mode swaps the search glyph for the
-                // bolt-accent square (bolt tile, boltInk glyph — ink on the
-                // bolt fill, readable once bolt routes to each legacy
-                // theme's own accent).
+                // Command mode swaps the search glyph for the bolt tile
+                // (boltInk glyph).
                 Rectangle {
                     anchors.centerIn: parent
                     visible: switcher.commandMode
@@ -409,10 +384,9 @@ Popup {
                 selectedTextColor: AppTheme.stormText
                 background: Item {}
                 onTextChanged: {
-                    // Typing ">" as the very first character of the query
-                    // enters command mode; the trigger character is stripped
-                    // immediately so it never becomes part of the query text
-                    // (this re-enters onTextChanged once, harmlessly).
+                    // ">" as the first character enters command mode and is
+                    // stripped immediately (re-entering onTextChanged once,
+                    // harmlessly).
                     if (!switcher.commandMode && text.length > 0 && text[0] === ">") {
                         switcher.commandMode = true
                         text = text.slice(1)
@@ -474,7 +448,7 @@ Popup {
             color: AppTheme.stormBorder
         }
 
-        // ── Command-mode scope chips (Actions / Rooms / People) ───────────
+        // Command-mode scope chips (Actions / Rooms / People)
         Row {
             visible: switcher.commandMode
             Layout.fillWidth: true
@@ -511,26 +485,18 @@ Popup {
                         border.width: 2
                         visible: scopeChip.visualFocus
                     }
-                    // Storm §3.7 scope chips: selected = bolt pill with
-                    // boltInk (ink on the bolt fill); resting =
-                    // stormBorderStrong outline, muted mono UPPERCASE. A
-                    // hovered-but-unselected chip's background brightens to
-                    // stormSelection (see background below) — the menu
-                    // language's own hover-brightens-ink idiom applies here
-                    // too, or textMuted-on-hover falls under AA on several
-                    // legacy themes (review finding).
+                    // Scope chips: selected is a bolt pill with boltInk;
+                    // resting is an outline. A hovered unselected chip
+                    // brightens its background so its ink stays AA.
                     contentItem: Label {
                         id: chipLabel
-                        // Remote or externally chosen text: never markup.
+                        // Untrusted text: never markup.
                         textFormat: Text.PlainText
                         text: scopeChip.modelData.label
                         color: scopeChip.selected ? AppTheme.boltInk
                                                   : scopeChip.hovered ? AppTheme.stormText
                                                   : AppTheme.stormTextMuted
-                        // Was 10px mono UPPERCASE. Three words of ordinary
-                        // wayfinding text set as a terminal HUD label reads
-                        // slower and smaller than the list it filters; the
-                        // chip vocabulary is the UI face at meta size.
+                        // The UI face at meta size, like other chips.
                         font.family: AppTheme.menuFont
                         font.pixelSize: AppTheme.textMeta
                         font.weight: AppTheme.weightStrong
@@ -555,7 +521,7 @@ Popup {
             color: AppTheme.stormBorder
         }
 
-        // ── Navigate-mode empty states ─────────────────────────────────────
+        // Navigate-mode empty states
         Label {
             visible: !switcher.commandMode && app.quickSwitcher.count === 0
             Layout.fillWidth: true
@@ -577,18 +543,16 @@ Popup {
             font.pixelSize: AppTheme.textBody
         }
 
-        // ── Navigate mode: sectioned rooms/people/spaces/invites list ─────
+        // Navigate mode: sectioned rooms/people/spaces/invites list
         ListView {
             id: resultList
             objectName: "quickSwitcherList"
             visible: !switcher.commandMode
             Layout.fillWidth: true
-            // Mode-dependent on purpose: a plain `true` leaves the column's
-            // height distribution STALE when the mode flips while the popup
-            // is closed (openCommandMode() before open()) — the invisible
-            // list keeps the fill space and its sibling opens at 0 height.
-            // Changing the attached property invalidates the layout at flip
-            // time, forcing a correct redistribution on show.
+            // Mode-dependent: a plain `true` leaves the column's height
+            // distribution stale when the mode flips while closed
+            // (openCommandMode() before open()), so the visible list would open
+            // at 0 height.
             Layout.fillHeight: !switcher.commandMode
             clip: true
             model: app.quickSwitcher
@@ -616,8 +580,7 @@ Popup {
 
                 background: Rectangle {
                     color: row.highlighted ? AppTheme.stormSelection : "transparent"
-                    // Storm §3.2 signature cursor: a small bolt overhanging
-                    // the selected row's left edge.
+                    // Bolt cursor overhanging the selected row's left edge.
                     Icon {
                         visible: row.highlighted
                         name: "bolt"
@@ -648,9 +611,8 @@ Popup {
                         Label {
                             Layout.fillWidth: true
                             textFormat: Text.StyledText
-                            // Matched fragment: bolt on the selected row
-                            // only; resting rows brighten it to stormText
-                            // (mock 2d — one yellow row per surface).
+                            // The matched fragment is bolt on the selected row
+                            // only; other rows brighten it to stormText.
                             text: switcher.highlightedName(
                                 model.name, app.quickSwitcher.query,
                                 row.highlighted ? "" + AppTheme.bolt
@@ -663,25 +625,18 @@ Popup {
                             elide: Label.ElideRight
                         }
                         Label {
-                            // Remote or externally chosen text: never markup.
+                            // Untrusted text: never markup.
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             visible: (model.subtitle || "").length > 0
                             text: model.subtitle || ""
-                            // AA on the selection fill: the highlighted
-                            // row's subtitle brightens one step.
+                            // AA on the selection fill.
                             color: row.highlighted ? AppTheme.stormTextSecondary
                                                  : AppTheme.stormTextMuted
-                            // §0's "mono for identities" rule made the
-                            // typeface change from ROW TO ROW down a single
-                            // vertical list — a room row set Manrope over
-                            // Manrope, the user row beneath it Manrope over
-                            // JetBrains Mono. Mono stays for content that is
-                            // genuinely monospaced (code, keycaps); a result
-                            // subtitle is not. One face down the list.
+                            // One face down the list; mono is for code and
+                            // keycaps.
                             font.family: AppTheme.uiFont
-                            // fontMonoXS is the mono identity-string size —
-                            // the wrong token now that this is not mono.
+                            // Meta size, not the mono identity size.
                             font.pixelSize: AppTheme.textMeta
                             elide: Label.ElideRight
                         }
@@ -695,14 +650,13 @@ Popup {
             }
         }
 
-        // ── Command mode: actions or the Rooms/People scoped copy ─────────
+        // Command mode: actions or the scoped Rooms/People copy
         ListView {
             id: commandList
             objectName: "quickSwitcherCommandList"
             visible: switcher.commandMode
             Layout.fillWidth: true
-            // Mode-dependent for the same stale-distribution reason as the
-            // navigate list above.
+            // Mode-dependent, as for the navigate list.
             Layout.fillHeight: switcher.commandMode
             clip: true
             model: commandRowModel
@@ -770,11 +724,9 @@ Popup {
                         Label {
                             objectName: "commandRowTitle"
                             Layout.fillWidth: true
-                            // R2: the row's ink follows the selection state
-                            // for BOTH kinds; only the MATCHED entity
-                            // fragment carries the accent tint (SPEC 1k),
-                            // via the same escape+highlight helper the
-                            // navigate list uses.
+                            // Row ink follows the selection for both kinds;
+                            // only the matched entity fragment is tinted, via
+                            // the same escape+highlight helper.
                             textFormat: model.kind === "entity"
                                         ? Text.StyledText : Text.PlainText
                             text: model.kind === "action"
@@ -792,19 +744,15 @@ Popup {
                             elide: Label.ElideRight
                         }
                         Label {
-                            // Remote or externally chosen text: never markup.
+                            // Untrusted text: never markup.
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             visible: (model.subtitle || "").length > 0
                             text: model.subtitle || ""
-                            // Identities and category words both ride the
-                            // muted ink — faint is reserved for decorative
-                            // mono headers (AA note in AppTheme).
+                            // Muted ink; faint is reserved for decorative
+                            // headers.
                             color: AppTheme.stormTextMuted
-                            // One face down the list, same reasoning as the
-                            // navigate list above — and one SIZE too: action
-                            // rows and entity rows were a pixel apart for no
-                            // reason a reader could name.
+                            // One face and one size down the list.
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
                             elide: Label.ElideRight
@@ -825,7 +773,7 @@ Popup {
             color: AppTheme.stormBorder
         }
 
-        // ── Footer hint bar ────────────────────────────────────────────────
+        // Footer hint bar
         Item {
             Layout.fillWidth: true
             Layout.margins: AppTheme.spacing12
@@ -850,10 +798,7 @@ Popup {
                     Label {
                         text: qsTr("navigate")
                         color: AppTheme.stormTextMuted
-                        // The KEY glyph beside it stays mono — it is a
-                        // keycap. The word is prose and belongs in the UI
-                        // face; setting it in mono is what made this bar
-                        // read as a terminal status line.
+                        // The keycap glyph stays mono; the word is prose.
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.textMeta
                     }

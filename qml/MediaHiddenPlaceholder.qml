@@ -2,18 +2,10 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// The stand-in for a locally hidden image, Element-style.
-//
-// THE POINT OF IT IS THE GEOMETRY. It fills the media box it replaces and
-// contributes no implicit size of its own, so the row keeps the exact
-// rectangle the picture reserved: the same width, the same height, the same
-// reply and thread positions, and the timeline does not move a pixel when the
-// reader hides something. Replacing a 360×270 picture with a text row would
-// jump every message above it, which for a hide-this-image control is a worse
-// outcome than the picture.
-//
-// Behind a Loader in its host, so a row that is never hidden pays nothing for
-// it.
+// Stand-in for a locally hidden image, Element-style. It fills the media box it
+// replaces and has no implicit size, so the row keeps its exact geometry and
+// the timeline does not move when an image is hidden. Behind a Loader in its
+// host.
 Item {
     id: root
 
@@ -22,8 +14,8 @@ Item {
 
     signal revealRequested()
 
-    // `visible` alone would leave the item hit-testable in some stacking
-    // orders; `enabled` is what actually stops the tap handler.
+    // `enabled` is what stops the tap handler; `visible` alone can leave it
+    // hit-testable.
     visible: root.hidden
     enabled: root.hidden
 
@@ -34,8 +26,7 @@ Item {
         sourceComponent: Rectangle {
             objectName: "mediaHiddenPlaceholder"
             radius: AppTheme.radiusSm
-            // A quiet surface, not a hole: the reader should read "there is a
-            // picture here that I hid", not "something failed to load".
+            // A quiet surface, reading as "hidden", not "failed to load".
             color: AppTheme.cardElevated
             border.width: 1
             border.color: AppTheme.border
@@ -55,9 +46,8 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("Show image")
                     font.pixelSize: AppTheme.textBody
-                    // The link ink, because it is the one action on the
-                    // surface and it behaves like a link: activating it
-                    // restores the content.
+                    // Link ink: the one action here, and it behaves like a
+                    // link.
                     color: AppTheme.link
                 }
             }
@@ -72,8 +62,8 @@ Item {
         }
     }
 
-    // Keyboard reach. The placeholder is the ONLY way back for a hidden
-    // image, so it has to be operable without a pointer.
+    // Keyboard reachable: the placeholder is the only way back for a hidden
+    // image.
     activeFocusOnTab: root.hidden
     Accessible.role: Accessible.Button
     Accessible.name: qsTr("Show image")
@@ -87,7 +77,7 @@ Item {
         }
     }
 
-    // The focus ring, so tabbing to it is visible.
+    // The focus ring.
     Rectangle {
         anchors.fill: parent
         visible: root.activeFocus

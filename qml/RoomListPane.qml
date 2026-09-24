@@ -26,11 +26,9 @@ Rectangle {
                     font.weight: Font.DemiBold
                 }
                 Item { Layout.fillWidth: true }
-                // Bind to the model's built-in `count` (a Q_PROPERTY on
-                // ListView's model wrapper) so the header stays in sync
-                // when rooms arrive after the initial sync. Empty when
-                // the initial sync hasn't landed yet, so we don't flash
-                // a bogus "0".
+                // Bound to the model's `count` so the header follows rooms
+                // arriving after the initial sync; empty before then rather
+                // than a bogus "0".
                 Label {
                     text: app.initialSyncDone ? list.count.toString() : ""
                     color: AppTheme.textMuted
@@ -39,9 +37,8 @@ Rectangle {
             }
         }
 
-        // v0.4.1: Space chip strip. Only visible when the current backend
-        // knows about at least one Space (SpaceManager surfaces an "All
-        // rooms" pseudo-row plus real Spaces plus optional "Other rooms").
+        // Space chip strip, visible only when the backend knows at least one
+        // Space.
         Rectangle {
             Layout.fillWidth: true
             visible: app.spaces && app.spaces.hasSpaces
@@ -117,16 +114,11 @@ Rectangle {
 
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
-            // v0.4.6: state-aware empty label so a user staring at a
-            // blank room list gets an honest read on what's happening.
-            // Precedence:
+            // State-aware empty label, in precedence order:
             //   1. not signed in                → "Sign in to see rooms"
-            //   2. sync loop hasn't produced a response yet
-            //                                   → "Loading rooms…"
-            //   3. sync loop live, a real Space is selected
-            //                                   → "No rooms in this Space"
-            //   4. sync loop live, All rooms selected, still empty
-            //                                   → "No joined rooms"
+            //   2. no sync response yet         → "Loading rooms…"
+            //   3. live, a real Space selected  → "No rooms in this Space"
+            //   4. live, All rooms, still empty → "No joined rooms"
             Label {
                 anchors.centerIn: parent
                 width: parent.width - AppTheme.spacingXL * 2

@@ -1,36 +1,30 @@
 import QtQuick
 import MatrixClient
 
-// v0.6.5 menu language (SPEC §0): the keyboard-accelerator keycap chip.
-// Renders a mono text shortcut ("R", "Ctrl+K", "ESC"), an icon for the
-// glyphs the bundled mono face does not carry (↵ → keyboard_return,
-// ⇥ → keyboard_tab), or both ("Shift" + ↵). Shortcuts render in the
-// project's cross-platform Ctrl convention, never macOS ⌘ symbols.
-//
-// Storm skin (SPEC-storm-language §3.2): resting chips are mono muted ink
-// with a 1px stormBorderStrong border; the chip on the selected/highlighted
-// row flips to a bolt fill with panel ink (`active`); danger-group chips ink
-// stormDanger with a 30%-alpha border. The room-list search hint opts out
-// (`storm: false`) — that column renders the user's theme.
+// Keyboard-accelerator keycap chip: mono text ("R", "Ctrl+K", "ESC"), an icon
+// for glyphs the mono face lacks (↵ → keyboard_return, ⇥ → keyboard_tab), or
+// both. Always the Ctrl convention, never macOS ⌘. Storm skin: resting chips
+// are muted mono with a stormBorderStrong border; `active` flips to a bolt
+// fill; `danger` inks stormDanger. The room-list search hint sets `storm:
+// false` to follow the user's theme.
 Rectangle {
     id: root
 
-    // Text part of the shortcut ("R", "Ctrl+C", "Shift"). May be empty
-    // when the chip is icon-only (↵).
+    // Text part ("R", "Ctrl+C", "Shift"); may be empty for icon-only chips.
     property string keys: ""
-    // Material Symbols glyph appended after the text part.
+    // Material Symbols glyph after the text.
     property string iconName: ""
-    // Header-scale chips (the quick-switcher ESC) use the larger padding.
+    // Header-scale chips (the quick-switcher ESC) use larger padding.
     property bool header: false
-    // Storm menu language (default); false renders the themed treatment for
-    // keycaps hosted on theme-following surfaces (room-list search).
+    // Storm treatment by default; false for keycaps on theme-following
+    // surfaces.
     property bool storm: true
-    // The chip on the selected/highlighted row: bolt fill, panel ink.
+    // The chip on the selected row: bolt fill, panel ink.
     property bool active: false
     // Danger-group chip: stormDanger ink and border.
     property bool danger: false
-    // Pre-Storm alias (selected-row re-ink, SPEC 1j); kept for hosts that
-    // still set it — equivalent to `active` under Storm.
+    // Older alias kept for hosts that set it; equivalent to `active` under
+    // Storm.
     property bool tinted: false
 
     readonly property bool _hot: active || tinted
@@ -43,8 +37,7 @@ Rectangle {
     readonly property color _ink: {
         if (!storm)
             return tinted ? AppTheme.selectedText : AppTheme.keycapText
-        // Ink on the bolt fill, not the panel ink — boltInk stays readable
-        // once bolt routes to each legacy theme's own accent.
+        // Ink on the bolt fill: boltInk.
         if (_hot) return AppTheme.boltInk
         if (danger) return AppTheme.stormDanger
         return AppTheme.stormTextMuted

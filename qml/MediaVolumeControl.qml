@@ -2,10 +2,9 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// Compact shared volume control for audio and video players. The caller owns
-// the QAudioOutput; this component only presents its live muted/volume state.
-// A hover/focus popup keeps the slider available without spending permanent
-// horizontal space in a media card.
+// Compact shared volume control for audio and video. The caller owns the
+// QAudioOutput; this presents its muted/volume state, with the slider in a
+// hover/focus popup.
 IconButton {
     id: root
 
@@ -25,18 +24,14 @@ IconButton {
     ToolTip.delay: 600
 
     function markUserVolumeIntent() {
-        // Video's explicit-intent start policy uses this bit to break its
-        // initial-muted binding. Audio outputs expose the same property so
-        // both player types follow one code path.
+        // Video uses this to break its initial-muted binding; audio outputs
+        // share the property, so both follow one path.
         if (audio)
             audio.userUnmuted = true
     }
 
-    // 2026-08-18 tester report ("neatsimena audio preferencu uzdeda default
-    // visada"): a level the user chose is remembered for the next card and
-    // the next session. Only an explicit user gesture writes it — never the
-    // player's own state changes, so a video card starting muted by policy
-    // cannot silently rewrite the stored level.
+    // Remember the chosen level for the next card and session. Only explicit
+    // user gestures write it, never player state changes.
     function rememberVolume(v) {
         if (v > 0)
             app.settings.mediaVolume = v
@@ -79,38 +74,30 @@ IconButton {
         else
             closeGrace.restart()
     }
-    // Long enough to cross the gap between the button and the popup, short
-    // enough not to linger once the pointer has genuinely left.
+    // Long enough to cross from the button to the popup.
     Timer { id: closeGrace; interval: 400 }
 
     Popup {
         id: volumePopup
         x: Math.round((parent.width - width) / 2)
-        // Touch the trigger's top edge so the pointer can travel into the
-        // popup without crossing a dead gap that would close it mid-motion.
+        // Touch the button's top edge so there is no dead gap.
         y: -height
         width: 44
         height: 124
         padding: AppTheme.spacing8
-        // Held open by a short grace timer, NOT by raw hover. The popup
-        // sits above the button, and moving the pointer from one to the
-        // other necessarily leaves both for a frame or two — with a bare
-        // "hovered || hovered" binding the popup vanished exactly as the
-        // user reached for it, which made the slider unusable.
+        // Held open by a grace timer, not raw hover: moving between button and
+        // popup leaves both for a frame or two.
         visible: root.audio !== null && (root.wantVolumeOpen || closeGrace.running)
         closePolicy: Popup.NoAutoClose
         background: Rectangle {
             radius: AppTheme.radiusMd
             color: root.scrim ? AppTheme.scrimSurface : AppTheme.surfaceElevated
-            // The scrim popup used to draw NO border, so a near-black
-            // panel floated on near-black video with nothing to separate
-            // them. The same hairline the rest of the media chrome uses.
+            // A hairline so the dark panel separates from dark video.
             border.width: 1
             border.color: root.scrim ? AppTheme.scrimBorder : AppTheme.border
         }
         HoverHandler { id: popupHover }
-        // Keyboard/pointer must be able to leave without a dead popup: any
-        // press or focus inside keeps it open through the same predicate.
+        // Any press or focus inside keeps the popup open (same predicate).
         contentItem: Slider {
             id: volumeSlider
             objectName: root.sliderObjectName
@@ -131,10 +118,7 @@ IconButton {
                     root.lastAudibleVolume = value
                 root.rememberVolume(value)
             }
-            // Track and handle MUST use the same horizontal expression or
-            // they visibly disagree. The handle previously added
-            // `+ leftPadding / 2` that the track did not, so the dot sat off
-            // to one side of the groove it was supposed to ride.
+            // Track and handle must use the same horizontal expression.
             background: Rectangle {
                 x: volumeSlider.leftPadding
                    + volumeSlider.availableWidth / 2 - width / 2
@@ -143,9 +127,8 @@ IconButton {
                 height: volumeSlider.availableHeight
                 radius: width / 2
                 color: root.scrim ? AppTheme.scrimSurfaceHover : AppTheme.borderStrong
-                // Filled portion grows from the BOTTOM: a vertical slider's
-                // visualPosition is 0 at the top, so the fill starts at
-                // visualPosition and runs to the end.
+                // The fill grows from the bottom: a vertical slider's
+                // visualPosition is 0 at the top.
                 Rectangle {
                     y: volumeSlider.visualPosition * parent.height
                     width: parent.width

@@ -3,20 +3,15 @@ import QtQuick.Effects
 import QtQuick.Controls
 import MatrixClient
 
-// v0.5.11: shared avatar element used across the whole UI (room list, Space
-// rail, room header, Room Information and invite results). A Matrix Space is
-// a room, so it uses the same account-scoped room-avatar mechanism.
+// Shared avatar element for people, rooms and Spaces (a Space is a room).
 //
-// It resolves the mxc URI through the shared MediaBridge (dedup, bounded
-// cache, account-separated, cleared on sign-out) and shows a stable initial
-// placeholder until — and unless — a real bitmap is available. The bitmap is
-// only shown once fully loaded, so a broken-image icon never appears and a
-// stale avatar never flashes when the mxc changes (delegate reuse, account
-// switch, logout, avatar-URL change). The avatar shape (circle for people,
-// rounded square for rooms/Spaces) is baked into the decoded bitmap by
-// MediaImageProvider via the "|shape:" source suffix — once per cached
-// image — instead of a per-item MultiEffect mask, which cost two extra
-// render passes per avatar on every scroll frame.
+// Resolves the mxc URI through the shared MediaBridge (deduplicated, bounded,
+// account-separated, cleared on sign-out) and shows initials until a real
+// bitmap has fully loaded, so no broken-image icon or stale avatar ever
+// flashes. The shape (circle or rounded square) is baked into the decoded
+// bitmap by MediaImageProvider via the "|shape:" suffix, once per cached
+// image, rather than a per-item MultiEffect mask (two extra render passes
+// per avatar per frame).
 Rectangle {
     id: root
 
@@ -26,33 +21,21 @@ Rectangle {
     property string name: ""
     property int size: 40
     property bool circle: true
-    // Rounded-square corner radius for room/Space avatars (design: 8 in the
-    // room list, 9 in the room header, 12 on the rail, 14 on the room card).
+    // Rounded-square corner radius for room/Space avatars.
     property int squareRadius: AppTheme.radiusMd
-    // Rooms render a "#" glyph instead of initials (design handoff).
-    // 2026-08-18 tester report #2: rooms now fall back to their INITIAL
-    // (Element style — "T" for Testroom) instead of a generic '#'. The
-    // property is retained as an inert compatibility knob: _initials()
-    // already strips a leading #/!/@/+ sigil, so unnamed rooms still get
-    // a sensible letter.
+    // Unused: rooms fall back to their initial like people (_initials() strips
+    // a leading #/!/@/+ sigil). Kept for compatibility.
     property bool roomGlyph: false
-    // Stable identity key for the fallback colour (roomId/userId); the
-    // display name is used when no key is given so renames keep a colour
-    // only as long as the name is stable.
+    // Stable identity key for the fallback colour (roomId/userId); falls back
+    // to the display name.
     property string colorKey: ""
     // Explicit initials font size; 0 derives from the avatar size.
     property int labelSize: 0
-    // NOTE: a 1px identity rim around every avatar was tried in the
-    // 2026-08-21 round and REMOVED at Rokas's request the same day — "im
-    // not a fan of the avatr and room color frames". It read as chrome
-    // competing with selection rather than as identity. Do not re-add it.
-    // Identity colour lives in the initials fallback and in the sender
-    // name, which is where it carries meaning.
-    // Perf: rows outside the viewport set this false so their loading
-    // skeletons stop animating — every other Skeleton in the app gates on
-    // rowOnScreen, and hundreds of off-screen infinite animations kept the
-    // scene graph permanently dirty during room open. Default true keeps
-    // non-timeline surfaces (room list, popovers, rail) unchanged.
+    // No identity rim around avatars; identity colour lives in the initials
+    // fallback and the sender name.
+    //
+    // Rows outside the viewport set this false so their loading skeletons stop
+    // animating (off-screen infinite animations keep the scene graph dirty).
     property bool onScreen: true
 
     implicitWidth: size
@@ -61,17 +44,13 @@ Rectangle {
     height: size
     radius: circle ? size / 2 : squareRadius
 
-    // v0.7: explicit avatar result states.
-    //   missing — no avatar to load: deterministic initials fallback.
-    //   loading — bytes/decode in flight: circular/rounded skeleton (no
-    //             initials flash, no random colour flash).
-    //   ready   — ONLY the decoded bitmap. The fallback fill must never
-    //             remain beneath a successfully loaded avatar: transparent
-    //             pixels reveal the surrounding surface, not the palette
-    //             colour (the shape mask is baked into the bitmap with its
-    //             alpha preserved).
-    //   failed  — fetch/decode failed: initials fallback (a later cache
-    //             completion still promotes to ready).
+    // Presentation states:
+    //   missing — nothing to load: deterministic initials fallback.
+    //   loading — fetch/decode in flight: shape-matched skeleton.
+    //   ready   — only the decoded bitmap; no fallback fill beneath it, since
+    //             its transparent pixels must show the surface behind.
+    //   failed  — fetch/decode failed: initials (a later cache completion
+    //             still promotes to ready).
     property bool fetchFailed: false
     readonly property string presentationState:
         !hasImage ? "missing"
@@ -79,11 +58,10 @@ Rectangle {
         : (fetchFailed || img.status === Image.Error) ? "failed"
         : "loading"
 
-    // Deterministic per-identity colour from the shared handoff palette;
-    // neutral surface only when there is nothing to derive a colour from.
+    // Per-identity colour; neutral surface when there is nothing to derive
+    // from.
     readonly property string _paletteKey: colorKey.length > 0 ? colorKey : name
-    // Delegates to the shared AppTheme identity hash so the disc colour and
-    // the sender-name ink derived from the same key always agree.
+    // Shared with the sender-name ink, so both agree for a key.
     function _paletteColor(key) {
         return AppTheme.avatarColor(key)
     }
@@ -104,32 +82,19 @@ Rectangle {
         return cleaned.charAt(0).toUpperCase()
     }
 
-    // The media bridge this avatar loads through. Normally the shared
-    // app.mediaBridge — but resolved DEFENSIVELY: when a Repeater
-    // instantiates a delegate synchronously from inside a property-change
-    // handler (the read-receipt chips: `shown` is reassigned while the row
-    // is still being built, or from a receipts dataChanged), the FIRST
-    // unqualified `app` context lookup performed during that nested
-    // creation resolves to undefined; every LATER lookup in the same
-    // object resolves correctly (observed by direct probing — the
-    // Qt-internal cause is not established, so this is a behavioral
-    // characterization, not a mechanism claim). A binding that THROWS on
-    // that first lookup (the 2026-08 live bug: "TypeError: Cannot read
-    // property 'mediaBridge' of undefined") sticks at its last value
-    // because none of its captured dependencies (only the per-chip
-    // constant `mxc`) ever changes for a chip — the avatar never fetched,
-    // initials only. So: `typeof`-guard the binding (never throws), and
-    // re-resolve via resolveBridge() at completion and on every refresh().
-    // KEEP `bridge` THE FIRST `app` REFERENCE IN THIS FILE: it is the
-    // canary that absorbs the one poisoned lookup; move another `app`
-    // binding above it and THAT binding takes the hit instead. A consumer
-    // can also inject its own bridge explicitly; resolveBridge() never
-    // overwrites a non-null value.
+    // The media bridge, resolved defensively. When a Repeater builds a delegate
+    // synchronously from a property-change handler (e.g. read-receipt chips),
+    // the first unqualified `app` lookup can resolve to undefined while later
+    // ones work (observed; the Qt cause isn't established). A throwing binding
+    // would stick, as its only dependency (`mxc`) never changes, so the binding
+    // is typeof-guarded and resolveBridge() re-resolves at completion and on
+    // every refresh(). Keep `bridge` the first `app` reference in this file: it
+    // absorbs the poisoned lookup. A consumer may inject its own bridge;
+    // resolveBridge() never overwrites a non-null value.
     property var bridge: (typeof app !== "undefined" && app)
                          ? app.mediaBridge : null
-    // Idempotent recovery: safe to call anywhere, no-op once resolved
-    // (and app.mediaBridge is a CONSTANT property, so replacing the
-    // original binding loses nothing).
+    // Idempotent; app.mediaBridge is constant, so replacing the binding loses
+    // nothing.
     function resolveBridge() {
         if (!bridge && typeof app !== "undefined" && app && app.mediaBridge)
             bridge = app.mediaBridge
@@ -139,85 +104,49 @@ Rectangle {
         && bridge.supported
     property string src: ""
 
-    /// ── A LAST-KNOWN PICTURE FOR WHEN THE BRIDGE CANNOT PRODUCE ONE ──────
+    /// A last-known local picture, opt-in (only the account switcher uses it).
+    /// The bridge fetches through the active client, so an inactive account's
+    /// avatar can't be fetched at all. Drawn only while `src` is empty, so the
+    /// real picture wins once available. Not a general fallback: other avatars
+    /// keep honest initials.
     ///
-    /// OPT-IN, and empty everywhere but the account switcher. `src` comes
-    /// from `MediaBridge`, which fetches through whichever client is ACTIVE —
-    /// so an inactive account's avatar is not slow to arrive, it CANNOT
-    /// arrive: its bytes live on that account's homeserver and this session
-    /// has no business asking. Those rows fell back to initials for ever.
-    ///
-    /// A plain local file, drawn only while `src` is empty, so the moment the
-    /// bridge does produce the real picture it wins. Deliberately NOT a
-    /// general fallback for every avatar in the application: a room or member
-    /// avatar that cannot be fetched should keep showing honest initials
-    /// rather than something this process happened to keep.
-    ///
-    /// It bypasses the media provider, so it does NOT arrive mask-baked the
-    /// way `src` does. This file deliberately avoids a per-item MultiEffect
-    /// because it cost two render passes per avatar on every scroll frame —
-    /// so the mask here is gated on `showingFallback`, which is false for
-    /// every avatar in the application except a switcher row whose account
-    /// is not the live one. A square picture among circles would be worse
-    /// than initials, and shipping one because the comment said `layer`
-    /// handles it is the kind of claim this project keeps paying for.
+    /// It bypasses the provider, so it isn't mask-baked; the mask below is
+    /// enabled only while `showingFallback`.
     property string fallbackSource: ""
     readonly property bool showingFallback:
         root.src === "" && root.fallbackSource !== ""
 
     function refresh() {
-        // Recovery point: if BOTH the creation-time lookup and completion
-        // missed (never observed, but unbounded by inspection), any later
-        // poke — an mxc change, hasImage flip, size change — self-heals
-        // instead of leaving a permanently initials-only avatar.
+        // Recovery point in case both earlier bridge lookups missed.
         resolveBridge()
         if (!hasImage) {
             src = ""
             return
         }
-        // The bridge fetches every avatar at one canonical server-side
-        // edge regardless of the render size (a single request, cache
-        // entry, and failure mark per identity); the Image scales down.
+        // One canonical server-side size per avatar (one request, cache entry
+        // and failure mark); the Image scales down.
         var s = bridge.avatarSource(mxc, size)
         src = s
-        // "" is either "fetch in flight" (loading) or "suppressed by a
-        // failure mark". The mark case has NO later signal of its own, so
-        // ask synchronously and show honest initials instead of an
-        // eternal skeleton; mediaRetryable promotes it back once the
-        // transient window expires.
+        // "" is either in flight or suppressed by a failure mark. The mark has
+        // no later signal, so check it now and show initials rather than an
+        // endless skeleton; mediaRetryable promotes it back later.
         if (s === "" && bridge.avatarFailureCategory(mxc) !== "")
             fetchFailed = true
     }
-    // ONE trigger for "what this avatar is asking the bridge for".
-    //
-    // There used to be three, and two of them could not change the answer:
-    //   * `onSizeChanged` was pure dead work — MediaBridge::avatarSource
-    //     opens with Q_UNUSED(size) and keys every avatar on one canonical
-    //     server-side edge, so a size change cannot alter the request. Any
-    //     delegate that sets a non-default size (the 16px read-receipt chips)
-    //     paid an extra QML->C++ call for nothing.
-    //   * `hasImage` is DERIVED from `mxc`, so an empty -> non-empty identity
-    //     fired onMxcChanged AND onHasImageChanged for one logical change.
-    // Three to four bridge calls per avatar, times every surface sharing a
-    // face, is what filled the log with `already-pending` lines.
-    //
-    // This still covers the case onHasImageChanged existed for — a late
-    // `bridge.supported` flip after setClient on session restore or an
-    // account switch — because a supported flip changes `hasImage` and
-    // therefore changes this key.
+    // The single trigger for a new bridge request. Size doesn't affect the
+    // request (avatarSource ignores it), and hasImage derives from mxc plus
+    // `bridge.supported`, so this key covers both, including a late
+    // `supported` flip after session restore or an account switch.
     readonly property string _requestKey: hasImage ? mxc : ""
     on_RequestKeyChanged: {
-        // A new identity is a new load attempt; the old failure (and any
-        // stale bitmap via the source change below) must not leak across
-        // delegate reuse.
+        // A new identity is a new attempt; the old failure must not leak
+        // across delegate reuse.
         fetchFailed = false
         refresh()
     }
     Component.onCompleted: {
-        // The completion half of the defensive bridge resolution (see the
-        // `bridge` property): by completion the scope was observed wired
-        // in every exercised creation path. refresh() calls
-        // resolveBridge() itself, so this is one call, not two.
+        // Completion half of the defensive bridge resolution; refresh() calls
+        // resolveBridge() itself.
         refresh()
     }
 
@@ -225,15 +154,9 @@ Rectangle {
         target: root.bridge
         enabled: root.hasImage
         function onMediaCached(cacheKey) {
-            // Cache keys end with the mxc URI ("mxc:<edge>:<uri>") — only
-            // this avatar's own completion needs a refresh, not every
-            // media byte fetched anywhere in the app. Skip it once already
-            // resolved: every continuation row of a sender shares one mxc, so
-            // an un-guarded fan-out re-resolves every already-shown same-sender
-            // avatar on each completion — the repeated avatar cache=hit churn
-            // seen while paginating a dense conversation. onMxcChanged /
-            // Component.onCompleted still resolve unconditionally (new identity
-            // / new instance); a failed avatar (fetchFailed) still retries.
+            // Cache keys end with the mxc ("mxc:<edge>:<uri>"). Skip once
+            // resolved: same-sender rows share an mxc, and refreshing them all
+            // on every completion churns. Failed avatars still retry.
             if (cacheKey.endsWith(":" + root.mxc)
                 && (root.src === "" || root.fetchFailed))
                 root.refresh()
@@ -243,19 +166,15 @@ Rectangle {
                 root.fetchFailed = true
         }
         function onMediaRetryable(cacheKey) {
-            // An expired transient failure mark: re-resolve exactly like a
-            // cache completion (bounded — the bridge re-arms the mark on a
-            // failed attempt, so this cannot hammer the backend).
+            // An expired transient failure: re-resolve. Bounded, since the
+            // bridge re-arms the mark on another failure.
             if (cacheKey.endsWith(":" + root.mxc))
                 root.refresh()
         }
     }
 
-    // Loading: shape-matched skeleton, washed with the identity colour
-    // rather than the neutral card tone. It is the same colour the initials
-    // fallback and the rim use, so an avatar that resolves late settles
-    // INTO its identity instead of flashing a grey disc first — no random
-    // palette flash, because the wash is derived from the same stable key.
+    // Loading skeleton, washed with the identity colour so a late avatar
+    // settles into its identity instead of flashing grey.
     Skeleton {
         objectName: "avatarSkeleton"
         anchors.fill: parent
@@ -275,11 +194,8 @@ Rectangle {
                  || root.presentationState === "failed"
         text: root._initials(root.name)
         textFormat: Text.PlainText
-        // The ink the DISC can carry, not a fixed white. Since the discs
-        // follow the theme's accent (AppTheme.avatarColor), half of them
-        // are pale — that alternation is what keeps two rooms apart once
-        // every hue belongs to one family — and white on a pale disc is
-        // unreadable. Neutral ink only on the colourless fallback surface.
+        // The ink the disc can carry: discs follow the theme accent and half
+        // are pale, so white isn't always readable.
         color: root._paletteKey.length > 0
                ? AppTheme.avatarInk(root._paletteKey)
                : AppTheme.textSecondary
@@ -290,9 +206,8 @@ Rectangle {
         font.weight: Font.ExtraBold
     }
 
-    // The mask the fallback path is cut with, in the shape this avatar would
-    // have been baked in. `visible: false` and `layer.enabled` make it a
-    // texture rather than something drawn.
+    // Mask for the fallback path, in the avatar's shape. `visible: false` with
+    // `layer.enabled` makes it a texture rather than drawn content.
     Item {
         id: fallbackMask
         anchors.fill: parent
@@ -320,9 +235,8 @@ Rectangle {
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
         cache: true
-        // OFF unless a fallback is actually being drawn: see the note on
-        // `fallbackSource`. `layer.effect` is instantiated lazily, so a row
-        // showing a provider-baked bitmap pays nothing for this existing.
+        // Only while a fallback is drawn; `layer.effect` is created lazily,
+        // so provider bitmaps pay nothing.
         layer.enabled: root.showingFallback
         layer.effect: MultiEffect {
             maskEnabled: true
@@ -330,13 +244,11 @@ Rectangle {
             maskThresholdMin: 0.5
             maskSpreadAtMin: 1.0
         }
-        // Only shown once fully decoded — no broken-image glyph, no flash.
+        // Only shown once fully decoded: no broken-image glyph, no flash.
         visible: img.status === Image.Ready
-        // Self-heal the cache-hit-then-evicted race: avatarSource() saw the
-        // bytes, but the provider read after LRU eviction and returned
-        // empty → Error. refresh() re-dispatches; the re-cached bytes get a
-        // NEW revision URL, so this Image actually reloads. Bounded: a
-        // cache hit returns the identical string (no reload, no loop).
+        // Self-heal a cache hit evicted before the provider read it (Error):
+        // refresh() re-dispatches, and re-cached bytes get a new revision
+        // URL. A cache hit returns the identical string, so no loop.
         onStatusChanged: {
             if (status === Image.Error)
                 root.refresh()

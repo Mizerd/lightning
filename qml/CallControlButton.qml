@@ -2,17 +2,14 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// One circular control on the call bar. Discord-style shape and states;
-// Lightning tokens throughout.
+// One circular control on the call bar.
 //
-// Three visual roles:
+// Roles:
 //   "neutral" — normal control, subdued fill
-//   "active"  — a toggle that is ENGAGED (mic muted, camera on, sharing)
-//   "danger"  — leave/hang up, deliberately distinct from everything else
+//   "active"  — an engaged toggle (mic muted, camera on, sharing)
+//   "danger"  — leave/hang up, deliberately distinct
 //
-// Icons carry no text label by design (PART 10), so a tooltip and an
-// accessible name are mandatory, not optional: without them the control is
-// unusable by keyboard and screen reader alike.
+// Icon-only, so the tooltip (also the accessible name) is mandatory.
 AbstractButton {
     id: root
 
@@ -21,24 +18,13 @@ AbstractButton {
     property string role: "neutral"
     property int diameter: 44
     property int glyphSize: 20
-    /// Corner radius. -1 (the default) is the circle every control on the
-    /// dock is; a caller passes a token when it needs a rounded SQUARE.
-    ///
-    /// It exists for one call site: the per-participant volume control on a
-    /// tile, which sits over video among the square-cornered chrome of the
-    /// tile itself. Everything else about the control — fill, hover, press,
-    /// hairline, focus ring, tooltip, accessible name — is deliberately the
-    /// same treatment as the dock, so a second styling path for "an icon
-    /// button on the call surface" is never opened.
+    /// Corner radius. -1 (default) is a circle; pass a token for a rounded
+    /// square (the per-participant volume button over video). Everything else
+    /// is the dock treatment, so there's no second styling path.
     property int cornerRadius: -1
-    /// Shown on hover/focus AND used as the accessible name.
-    ///
-    /// There is deliberately no "unavailableReason" property. A DISABLED
-    /// AbstractButton receives no hover events in Qt Quick, so a tooltip is
-    /// structurally incapable of explaining a disabled control — the reason
-    /// has to be rendered somewhere hover-independent (RoomCallBanner does
-    /// this with an inline label). A caller that cannot offer this control
-    /// should not show it.
+    /// Shown on hover/focus and used as the accessible name. There is no
+    /// "unavailableReason": a disabled control gets no hover, so a tooltip
+    /// can't explain it. Callers that can't offer the control should hide it.
     property string tooltip: ""
 
     implicitWidth: diameter
@@ -76,8 +62,8 @@ AbstractButton {
     }
 
     background: Rectangle {
-        // min(w,h)/2 rather than w/2: the hang-up control is deliberately
-        // wider than the round ones, and w/2 would render it as an ellipse.
+        // min(w,h)/2: the hang-up control is wider, and w/2 would make an
+        // ellipse.
         radius: root.cornerRadius >= 0 ? root.cornerRadius
                                        : Math.min(width, height) / 2
         color: root._fill

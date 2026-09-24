@@ -3,71 +3,52 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The timeline's call row — "Alice started a call", with a Join button while
-// the call is still up.
+// The timeline's call row ("Alice started a call"), with a Join button while
+// the call is still up. A call is room history, not a setting: it gets its
+// own row, is never hidden by the room-activity preference, and breaks a
+// state-activity run (TimelineModel).
 //
-// WHAT THIS REPLACES. A call used to arrive as a room-STATE row (msgtype
-// "state", state_kind "m.call", body the literal words "call event"), which
-// put it inside RoomActivityDelegate's collapsed group. One call therefore
-// rendered as "1 room update" expanding to "call event" — the reported
-// "room event look bleak". A call is room HISTORY, not a room setting: it
-// gets its own row, it is never hidden by the room-activity preference, and
-// it breaks a state-activity run rather than joining one (TimelineModel).
-//
-// SAFETY RULES THIS ROW OBEYS.
-//   * Every field is TYPED and presentation-safe. The sentence is built in
-//     TimelineModel from a closed set plus the actor's resolved display
-//     name; no free text a remote sender wrote reaches this row, because
-//     the row carries a control the reader is invited to click. That is the
-//     same rule that made the tombstone banner use Lightning's own wording.
-//   * THE BUTTON IS THE ONLY JOIN TARGET. Discord had a period where the
-//     whole call row was clickable and people joined calls by accident;
-//     this component deliberately declares NO TapHandler and NO MouseArea
-//     on the card, so the only way in is the button.
-//   * ONE join path. The gate is `app.rtc.joinBlockReason()` and the action
-//     is `app.groupCall.join()` — the same two calls RoomCallBanner makes,
-//     never a second mechanism. The banner's closed-set reason tokens are
-//     the only thing consulted; a raw server string is never shown. And
-//     when one of those tokens blocks a call that is still up, the row now
-//     SAYS SO: hiding the button explained nothing.
+// Safety rules:
+//   * Every field is typed and presentation-safe; the sentence is built in
+//     TimelineModel from a closed set plus the resolved display name. No
+//     sender-written free text reaches a row that carries a control.
+//   * The button is the only join target: no TapHandler or MouseArea on the
+//     card, so calls can't be joined by accident.
+//   * One join path: gated by `app.rtc.joinBlockReason()`, acted on by
+//     `app.groupCall.join()`, as in RoomCallBanner. Only the closed-set
+//     reason tokens are shown, never a raw server string, and a blocked live
+//     call says why.
 Item {
     id: root
 
-    /// The room this call belongs to (a real room id, never a composite
-    /// thread timeline id).
+    /// The call's room (a real room id, never a composite thread timeline id).
     property string roomId: ""
-    /// The caller. `actorName` is the RESOLVED display name; the user id is
-    /// carried only for the avatar's colour key.
+    /// The caller. `actorName` is the resolved display name; the user id is
+    /// only the avatar's colour key.
     property string actorUserId: ""
     property string actorName: ""
     property string actorAvatarMxc: ""
     /// The finished, translated sentence from TimelineModel.
     property string sentence: ""
-    /// The caller's stated VIDEO intent. False means "not known to be
-    /// video", never "audio only".
+    /// The caller's stated video intent. False means "not known to be video",
+    /// not "audio only".
     property bool video: false
-    /// How many people declined. A count — never who.
+    /// How many people declined. A count, never who.
     property int declinedCount: 0
     /// The event's own timestamp.
     property var timestamp: undefined
-    /// Passed down so an off-screen row does not fetch an avatar.
+    /// Passed down so an off-screen row doesn't fetch an avatar.
     property bool onScreen: true
 
-    // ── Is this call still up? ───────────────────────────────────────────
-    //
-    // EVERY binding below calls into C++, and Qt cannot track a function
-    // call as a dependency — a binding without `refreshTick` evaluates once
-    // and never again, which for `sessionLive` means the Join button would
-    // be frozen at whatever the room looked like when the row was built.
-    // Same discipline as RoomCallBanner; bump the counter the bindings READ,
-    // never assign over a binding.
+    // ── Is this call still up? ──
+    // These bindings call into C++, which Qt can't track, so they read
+    // `refreshTick` (bumped, never assigned over), as in RoomCallBanner.
     property int refreshTick: 0
     function refresh() {
         refreshTick = refreshTick + 1;
     }
-    // Guarded because this delegate is loaded by fixtures that supply no
-    // call controllers at all; there it degrades to "no live session", which
-    // is the honest answer when nothing can be asked.
+    // Guarded for fixtures that provide no call controllers; they degrade to
+    // "no live session".
     readonly property bool rtcReachable:
         typeof app !== "undefined" && app && app.rtc && root.roomId.length > 0
     readonly property bool groupCallReachable:
@@ -76,63 +57,35 @@ Item {
         var _ = root.refreshTick;
         return root.rtcReachable ? app.rtc.participantCount(root.roomId) : 0;
     }
-    /// The room's MatrixRTC session is still up, so joining is meaningful.
-    /// This is the ONLY thing that puts a Join button on a call row: a call
-    /// that ended is history and offers nothing.
+    /// The room's MatrixRTC session is up. The only thing that puts a Join
+    /// button on a call row.
     readonly property bool sessionLive: participantCount > 0
     readonly property string blockReason: {
         var _ = root.refreshTick;
         return root.rtcReachable ? app.rtc.joinBlockReason(root.roomId)
                                  : "unsupported";
     }
-    /// This device is already in the call, so the call controls are up and
-    /// this row has nothing left to offer.
-    ///
-    /// THE LOCAL CALL CONTROLLER IS THE ONLY AUTHORITY ON THIS. It used to
-    /// fall back to `app.rtc.ownDeviceInSession()`, which answers a different
-    /// question — whether ROOM STATE holds a membership naming this device —
-    /// and a device id survives a restart. A client that exited while a call
-    /// was running leaves one behind, so for the five minutes until it expires
-    /// this row would hide Join from the very user who had just been dropped
-    /// out of the call. ownUser would be wrong for the opposite reason: the
-    /// same account on another device is a real other participant.
+    /// This device is already in the call. Only the local call controller can
+    /// answer this: a room-state membership naming this device can outlive a
+    /// crash (until it expires), and the same user on another device is a real
+    /// other participant.
     readonly property bool alreadyInThisCall:
         root.groupCallReachable && app.groupCall.active
         && app.groupCall.roomId === root.roomId
-    /// Is this the call row the room's live session belongs to?
-    ///
-    /// `sessionLive` above answers for the ROOM, because that is all
-    /// `RtcController::participantCount` can answer — so on its own EVERY
-    /// call row in a room offers Join the moment anyone is in a call, and a
-    /// room with a day of call history grows a column of them. Reported by
-    /// the maintainer, 2026-09-13.
-    ///
-    /// MatrixRTC has one session per room, so joining from an old row and
-    /// from the newest are the same action and the button was never
-    /// FUNCTIONALLY wrong. The defect is that a row which reads as history
-    /// offers it at all. The newest call row keeps the affordance; the older
-    /// ones are history and say nothing.
-    ///
-    /// DEFAULT TRUE, deliberately: a host that does not supply it (the
-    /// fixtures load this delegate standalone) behaves exactly as before
-    /// rather than losing the button entirely, which is the same permissive
-    /// default MessageDelegate.mediaInBand uses.
+    /// Whether this is the newest call row. `sessionLive` is per room, so
+    /// without this every call row in the room would offer Join. MatrixRTC has
+    /// one session per room; only the newest row keeps the affordance. Defaults
+    /// to true for hosts that don't set it (standalone fixtures).
     property bool isLatestCallRow: true
     readonly property bool supersededByNewerCall: !isLatestCallRow
     readonly property bool canJoin:
         sessionLive && blockReason.length === 0 && !alreadyInThisCall
         && groupCallReachable && !supersededByNewerCall
 
-    /// Human wording for `blockReason`. The tokens are the same closed set
-    /// from RtcController::joinBlockReason that RoomCallBanner.blockText and
-    /// IncomingCallPrompt.joinBlockText map — a raw server string is never
+    /// Human wording for `blockReason`, the same closed token set
+    /// (RtcController::joinBlockReason) that RoomCallBanner.blockText and
+    /// IncomingCallPrompt.joinBlockText map. A raw server string is never
     /// shown.
-    ///
-    /// THIS ROW USED TO MAP NONE OF THEM. It only hid the Join button, so a
-    /// live call the reader could see and could not join said nothing at all
-    /// about why — the same "graceful fallback and silent absence look
-    /// identical" shape §16 keeps recording. The button standing down is not
-    /// an explanation.
     readonly property string blockText: {
         switch (root.blockReason) {
         case "":
@@ -158,20 +111,16 @@ Item {
             return qsTr("Joining isn't available");
         }
     }
-    /// Shown exactly where the Join button would have been: a call that is
-    /// still up, that this device is not already in, and that cannot be
-    /// joined. An ENDED call is history and explains nothing — there is
-    /// nothing to join and no refusal to report.
+    /// Shown where the Join button would be: a live call this device isn't in
+    /// and can't join. An ended call has nothing to explain.
     readonly property string joinBlockedText:
         (root.sessionLive && !root.alreadyInThisCall && root.groupCallReachable
          && !root.supersededByNewerCall
          && root.blockReason.length > 0) ? root.blockText : ""
 
-    // Re-read on a real session change only. RtcController emits this when
-    // something actually changed, so this does not churn on every poke —
-    // and this row deliberately does NOT call app.rtc.refresh() itself: the
-    // pane's RoomCallBanner already owns that for the open room, and one
-    // refresh per call row would be N requests for one answer.
+    // Re-read on a real session change only. This row doesn't call
+    // app.rtc.refresh() itself: the open room's RoomCallBanner owns that, and
+    // one refresh per row would be N requests for one answer.
     Connections {
         enabled: root.rtcReachable
         target: (typeof app !== "undefined" && app) ? app.rtc : null
@@ -186,10 +135,8 @@ Item {
     Connections {
         enabled: root.groupCallReachable
         target: (typeof app !== "undefined" && app) ? app.groupCall : null
-        // Joining from this very row must make the button stand down. The
-        // controller's `active` is NOTIFY stateChanged (there is no
-        // activeChanged signal — a Connections handler named for one would
-        // simply never run, and Qt only warns).
+        // Joining from this row must stand the button down. `active` is
+        // NOTIFY stateChanged (there is no activeChanged signal).
         function onStateChanged() {
             root.refresh();
         }
@@ -204,9 +151,8 @@ Item {
         implicitHeight: content.implicitHeight + AppTheme.spacing12 * 2
         height: implicitHeight
         radius: AppTheme.radiusMd
-        // A live call is the accent surface the banner uses; an ended call
-        // is a calm annotation. Both are CARDS — the point of the round is
-        // that a call stops looking like a line of grey activity text.
+        // A live call uses the banner's accent surface; an ended call a calm
+        // card.
         color: root.sessionLive ? AppTheme.accentSoft : AppTheme.cardElevated
         border.width: 1
         border.color: root.sessionLive ? AppTheme.accentBorder
@@ -218,11 +164,8 @@ Item {
             anchors.margins: AppTheme.spacing12
             spacing: AppTheme.spacing12
 
-            // The phone/camera glyph, on its own disc so the row reads as a
-            // call at a glance rather than as another avatar line. Only
-            // names present in Icon.qml's map may be used — the bundled
-            // Material Symbols font is a SUBSET and an unmapped name renders
-            // as tofu.
+            // The call glyph on its own disc. Only names in Icon.qml's map
+            // render (the bundled font is a subset).
             Rectangle {
                 Layout.alignment: Qt.AlignVCenter
                 implicitWidth: 32
@@ -255,15 +198,10 @@ Item {
                 Layout.alignment: Qt.AlignVCenter
                 spacing: 2
 
-                // BOTH labels sit behind Loaders, and this is not
-                // decoration. Every QQuickText is BORN carrying
-                // ItemObservesViewport and only setText() with a non-empty
-                // string clears it, so a Label whose text can be "" in the
-                // state it is created in makes Qt walk the whole
-                // instantiated timeline on every contentY change — §16's
-                // single most expensive QML mistake. A fixture row with no
-                // sentence, and any row whose timestamp is absent, are
-                // exactly that state.
+                // Both labels sit behind Loaders: a Text created with "" keeps
+                // ItemObservesViewport and makes Qt walk the timeline on every
+                // scroll. A missing sentence or timestamp is exactly that
+                // state.
                 Loader {
                     Layout.fillWidth: true
                     active: root.sentence.length > 0
@@ -271,12 +209,9 @@ Item {
                     sourceComponent: Label {
                         objectName: "callEventSentence"
                         text: root.sentence
-                        // PlainText, mandatory. The sentence embeds a
-                        // member-chosen display name; Qt's AutoText default
-                        // would promote a name beginning with markup to
-                        // StyledText, and an <img src="https://…"> name
-                        // would then fire an unconsented remote beacon from
-                        // every viewer.
+                        // PlainText is mandatory: the sentence contains a
+                        // member-chosen display name, and AutoText could render
+                        // an <img> name as a remote beacon for every viewer.
                         textFormat: Text.PlainText
                         color: AppTheme.textPrimary
                         font.pixelSize: AppTheme.scaled(AppTheme.textBody)
@@ -301,10 +236,8 @@ Item {
                     }
                 }
 
-                // WHY THERE IS NO JOIN BUTTON. Same Loader discipline as the
-                // two labels above, and for the same reason: this text is ""
-                // in every state where the call can be joined or has ended,
-                // which is most of them.
+                // Why there is no Join button. Behind a Loader like the labels
+                // above: usually "".
                 Loader {
                     Layout.fillWidth: true
                     active: root.joinBlockedText.length > 0
@@ -312,10 +245,8 @@ Item {
                     sourceComponent: Label {
                         objectName: "callEventBlockReason"
                         text: root.joinBlockedText
-                        // The wording is Lightning's own closed set, but
-                        // PlainText anyway: this row already carries a
-                        // control the reader is invited to click, and the
-                        // rule here is that nothing in it is ever markup.
+                        // Lightning's own closed set, but still PlainText:
+                        // nothing in a row carrying a control is ever markup.
                         textFormat: Text.PlainText
                         color: AppTheme.textMuted
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
@@ -325,10 +256,9 @@ Item {
                 }
             }
 
-            // The Join button, and ONLY while the call is still up. A
-            // Loader, not a `visible` toggle: an ended call must not carry a
-            // laid-out control at all, and this is also what the contract
-            // test looks for.
+            // Join, only while the call is up. A Loader rather than `visible`,
+            // so an ended call carries no control (the contract test checks
+            // this).
             Loader {
                 objectName: "callEventJoinLoader"
                 Layout.alignment: Qt.AlignVCenter
@@ -339,10 +269,8 @@ Item {
                     text: qsTr("Join")
                     kind: "primary"
                     size: "sm"
-                    // The SAME call RoomCallBanner's Join makes. Not a second
-                    // join path: one gate (app.rtc.joinBlockReason) and one
-                    // action (app.groupCall.join), so the two surfaces cannot
-                    // drift into disagreeing about whether a call is joinable.
+                    // The same gate and action as RoomCallBanner's Join, so the
+                    // two can't disagree about whether a call is joinable.
                     onClicked: app.groupCall.join(root.roomId, false)
                     Accessible.name: qsTr("Join the call")
                 }
@@ -350,9 +278,8 @@ Item {
         }
     }
 
-    // The secondary line: the time, and the decline count when there is one.
-    // Branched explicitly rather than with %n — without a loaded translation
-    // a %n source string renders its "(s)" literally (§16).
+    // Secondary line: time and, if any, the decline count. Explicit branches
+    // rather than %n, which renders "(s)" literally without a translation.
     readonly property string timeText:
         root.timestamp === undefined || root.timestamp === null
         ? "" : Qt.formatDateTime(root.timestamp, app.settings.clockTimeFormat)
@@ -369,8 +296,8 @@ Item {
         return qsTr("%1 · %2").arg(root.timeText).arg(root.declinedText);
     }
 
-    // The whole row announces itself as one thing to a screen reader; the
-    // button keeps its own name so "Join" is reachable by itself.
+    // One screen-reader name for the row; the button keeps its own so "Join"
+    // is reachable.
     Accessible.role: Accessible.StaticText
     Accessible.name: root.metaText.length > 0
                      ? qsTr("%1 %2").arg(root.sentence).arg(root.metaText)

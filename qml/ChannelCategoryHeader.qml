@@ -2,19 +2,12 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// A collapsible folder header in the Channels layout — a joined Space, or one
-// of the non-Space groups ("Invites", "Rooms").
+// A collapsible folder header in the Channels layout: a joined Space, or a
+// non-Space group ("Invites", "Rooms"). A rotating chevron, the Space's
+// avatar, and its name as given (not upper-cased).
 //
-// Sable-first, as directed: a chevron that rotates, the Space's own avatar,
-// and its name in the case its admin actually gave it. It used to upper-case
-// the label, which is right for a generic "CHANNELS" heading and wrong the
-// moment the heading IS a Space someone named — nobody calls their space
-// TRADEMARK TRAILWAYS.
-//
-// One thing it must never do is hide activity. A collapsed folder carries the
-// unread and mention totals of the rooms inside it, because otherwise
-// collapsing silently mutes them — and the user collapsed it to save space,
-// not to stop being told.
+// A collapsed folder shows the unread and mention totals of its rooms, so
+// collapsing never silently mutes them.
 ItemDelegate {
     id: root
 
@@ -28,10 +21,8 @@ ItemDelegate {
     property int hiddenUnread: 0
     property int hiddenHighlight: 0
 
-    // A Loader-hosted row: the Channels presenter picks between five row
-    // kinds, so this is loaded rather than declared inline. The Loader takes
-    // its height from this value, which is what makes the rows lay out one
-    // below another instead of stacking at y=0.
+    // Loaded by the Channels presenter (five row kinds); the Loader takes its
+    // height from this explicit value so rows stack instead of sitting at y=0.
     height: 32
     padding: 0
     hoverEnabled: true
@@ -46,8 +37,7 @@ ItemDelegate {
         }
         return root.collapsed ? qsTr("%1, collapsed").arg(base) : qsTr("%1, expanded").arg(base);
     }
-    // A screen reader needs to know this row DOES something, and "category"
-    // alone does not say that.
+    // Tells a screen reader the row does something.
     Accessible.description: root.collapsed ? qsTr("Activate to expand") : qsTr("Activate to collapse")
 
     background: Rectangle {
@@ -58,9 +48,7 @@ ItemDelegate {
         anchors.bottomMargin: 1
         radius: AppTheme.radiusSm
         color: root.hovered || root.activeFocus ? AppTheme.channelHover : "transparent"
-        // An OPEN folder keeps a quiet outline, so a long column reads as a
-        // set of groups rather than as one run of rows with occasional bold
-        // text in it. Sable draws the same pill.
+        // An open folder keeps a quiet outline, so the column reads as groups.
         border.width: root.activeFocus ? 2 : (root.collapsed ? 0 : 1)
         border.color: root.activeFocus ? AppTheme.focusRing : AppTheme.border
     }
@@ -75,8 +63,8 @@ ItemDelegate {
             name: "expand_more"
             size: 14
             color: AppTheme.channelCategoryText
-            // Rotation rather than two glyphs, so the transition reads as one
-            // control changing state.
+            // Rotation rather than two glyphs, so it reads as one control
+            // changing state.
             rotation: root.collapsed ? -90 : 0
             Behavior on rotation {
                 NumberAnimation {
@@ -104,9 +92,8 @@ ItemDelegate {
             }
         }
 
-        // Behind a Loader: a Space whose name has not resolved yet renders
-        // this row with an empty string, which is the ItemObservesViewport
-        // hazard.
+        // Behind a Loader: an unresolved Space name is empty, the
+        // ItemObservesViewport hazard.
         Loader {
             active: root.headerName.length > 0
             anchors.left: root.showsAvatar ? avatarLoader.right : chevron.right
@@ -138,10 +125,9 @@ ItemDelegate {
                 implicitWidth: root.hiddenHighlight > 0 ? pill.implicitWidth : 8
                 implicitHeight: 18
 
-                // A mention inside gets the real count; plain unread gets a
-                // dot, because the SUM of unread counts across a collapsed
-                // group is a number nobody asked for and it would be the
-                // loudest thing in the column.
+                // A mention gets the real count; plain unread gets a dot (a
+                // summed unread count would be noise and the loudest thing in
+                // the column).
                 UnreadBadge {
                     id: pill
                     anchors.centerIn: parent

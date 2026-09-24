@@ -2,41 +2,30 @@ import QtQuick
 import QtQuick.Effects
 import MatrixClient
 
-// The Storm Band — a 1:1 port of storm-band-export.html's mountStormBand().
-//
-// Every tile and sprite is generated in C++ (StormBandPainter, an exact port
-// of the reference's painters — same PRNG, same seeds, same pixels) and
-// served through image://storm-band/<layer>?bg=..&accent=.. — so the scene a
-// given (background, accent) pair produces matches the HTML reference.
-// This file reproduces the reference's LAYER STACK, geometry and CSS
-// keyframe timings:
+// The Storm Band, a port of storm-band-export.html's mountStormBand(). Tiles
+// and sprites come from C++ (StormBandPainter, an exact port of the reference's
+// painters) via image://storm-band/<layer>?bg=..&accent=.., so a given
+// (background, accent) pair matches the reference. This file reproduces the
+// layer stack, geometry and keyframe timings:
 //
 //   gradient(static) sky(1536/620s) moon shoot(23s) far(662/265s)
 //   mist(1090/128s) mid(794/158s) spire(1282/104s) bolts(6)+blooms
 //   front(1438/58s) rain(320/2.1s diagonal) horizon embers(11)
 //
-// and the container's 5-stop alpha mask (0 -> .18@14% -> .55@30% ->
-// .85@44% -> 1@58%), implemented as a MultiEffect mask over the whole
-// composite, so the band dissolves into WHATEVER is behind it.
-//
-// CSS keyframes are reproduced exactly: each animated element carries a
-// looping 0..1 `phase` and maps it through kf() — linear interpolation
-// between the reference's keyframe stops, which is precisely what CSS does.
-// Reduced motion mirrors the reference's prefers-reduced-motion rule
-// (animation: none): every phase and scroll offset rests at 0, leaving the
-// static scene visible. The band also pauses while off-screen, hidden, or
-// minimized.
-//
-// Purely decorative: no pointer or hover handlers of any kind and
-// `enabled: false`, so it never intercepts input or steals focus.
+// and the container's 5-stop alpha mask (0 -> .18@14% -> .55@30% -> .85@44% ->
+// 1@58%), a MultiEffect mask over the whole composite, so the band dissolves
+// into whatever is behind it. Each animated element loops a 0..1 `phase` mapped
+// through kf(), linear interpolation between keyframe stops as CSS does.
+// Reduced motion rests every phase at 0 (the static scene); the band also
+// pauses while off-screen, hidden or minimized. Decorative only: no handlers
+// and `enabled: false`.
 Item {
     id: root
 
     implicitHeight: 190
     enabled: false
 
-    // Palette inputs, exactly the reference's mountStormBand(host,
-    // { bg, accent }): bg is the color of the page BEHIND the band.
+    // The reference's inputs: bg is the colour of the page behind the band.
     property color backdropColor: AppTheme.background
     readonly property color accentColor: AppTheme.accent
 
@@ -47,7 +36,7 @@ Item {
                                         !== Window.Minimized
     readonly property bool animating: root.onScreen && !AppTheme.reducedMotion
 
-    // ---- provider URL plumbing -----------------------------------------
+    // Provider URL plumbing
     function hex2(v) {
         var h = Math.max(0, Math.min(255, Math.round(v * 255))).toString(16)
         return h.length < 2 ? "0" + h : h
@@ -58,19 +47,16 @@ Item {
         + "&accent=" + hex2(accentColor.r) + hex2(accentColor.g)
         + hex2(accentColor.b)
     function tileUrl(layer) {
-        // review M2: a hidden band generates NOTHING — the component is
-        // instantiated for every Settings section, and a theme switch on
-        // the Appearance page must not regenerate ~20 tiles for a band the
-        // user cannot see. root.visible is read here so every source
-        // binding re-evaluates when the About page shows.
+        // A hidden band generates nothing (it exists for every Settings
+        // section). Reading root.visible here re-evaluates the sources when
+        // About shows.
         if (!root.visible)
             return ""
         return "image://storm-band/" + layer + root.themeQuery
     }
 
-    // CSS-style keyframe evaluation: frames is [[t, value], ...] sorted by
-    // t; values interpolate linearly between stops, exactly like the
-    // reference's @keyframes.
+    // CSS-style keyframes: frames is [[t, value], ...] sorted by t,
+    // interpolated linearly.
     function kf(phase, frames) {
         if (phase <= frames[0][0])
             return frames[0][1]
@@ -94,9 +80,9 @@ Item {
          [1, 0]]
     readonly property var emberCurve: [[0, 0], [.12, .9], [.7, .6], [1, 0]]
 
-    // BOLTS: [left fraction, width css px, cycle ms, delay ms, curve,
-    // bloom]. Bolt tips land at y=158 (the ridge line) inside the 190px
-    // band; sprite height = w * 74 / 46.
+    // Bolts: [left fraction, width css px, cycle ms, delay ms, curve, bloom].
+    // Tips land at y=158 (the ridge) in the 190px band; sprite height = w * 74
+    // / 46.
     readonly property var boltDefs: [
         { xf: .17, w: 78, cycle: 9400,  delay: 0,     curve: "A", bloom: "bloomA", sprite: "bolt1" },
         { xf: .38, w: 62, cycle: 13700, delay: 2600,  curve: "B", bloom: "bloomB", sprite: "bolt2" },
@@ -105,17 +91,15 @@ Item {
         { xf: .89, w: 72, cycle: 27900, delay: 3700,  curve: "A", bloom: "bloomB", sprite: "bolt5" },
         { xf: .05, w: 52, cycle: 31400, delay: 11500, curve: "B", bloom: "bloomC", sprite: "bolt6" }
     ]
-    // EMBERS: [left %, bottom px, cycle s, delay s] — 11 rising motes.
+    // Embers: [left %, bottom px, cycle s, delay s], 11 rising motes.
     readonly property var emberDefs:
         [[9, 24, 9, 0], [17, 30, 12.5, 2.4], [26, 20, 10.8, 5.1],
          [34, 28, 14, 1.2], [43, 22, 11.4, 6.8], [51, 32, 13.2, 3.6],
          [60, 18, 10.2, 8.1], [68, 26, 15.3, 4.4], [77, 21, 12.1, 9.6],
          [85, 29, 13.9, 2.1], [94, 23, 11.7, 7.3]]
 
-    // Reusable phase driver: pause(delay) once, then loop phase 0..1 over
-    // one cycle — CSS animation-delay + infinite linear iteration. When
-    // stopped (reduced motion / hidden) the phase rests at 0, the CSS
-    // animation-none state.
+    // Phase driver: pause(delay) once, then loop 0..1 over one cycle (CSS
+    // animation-delay + infinite linear). Stopped, the phase rests at 0.
     component PhaseDriver: SequentialAnimation {
         id: driver
         property Item item
@@ -135,8 +119,8 @@ Item {
         }
     }
 
-    // One scrolling tile strip: background-repeat:repeat-x at 132px tall,
-    // bottom-aligned, background-position-x animating 0 -> -tileW.
+    // A scrolling tile strip: repeat-x at 132px tall, bottom-aligned, offset
+    // animating 0 -> -tileW.
     component Scroller: Item {
         id: sc
         property string layerKey
@@ -159,7 +143,7 @@ Item {
                 from: 0; to: -sc.tileW
                 duration: sc.cycleMs
                 loops: Animation.Infinite
-                // Stopped = the CSS animation-none state: offset 0.
+                // Stopped: offset 0.
                 onRunningChanged: if (!running) strip.x = 0
             }
             Repeater {
@@ -177,8 +161,7 @@ Item {
         }
     }
 
-    // The whole scene renders through the reference's alpha mask, so
-    // content scrolled behind the band shows through its dissolved top.
+    // The scene renders through the reference's alpha mask.
     Item {
         id: scene
         anchors.fill: parent
@@ -187,8 +170,7 @@ Item {
         layer.effect: MultiEffect {
             maskEnabled: true
             maskSource: maskGradient
-            // Threshold 0 + full spread = use the mask's alpha channel
-            // directly (the documented linear-mask configuration).
+            // Threshold 0 with full spread uses the mask's alpha directly.
             maskThresholdMin: 0.0
             maskSpreadAtMin: 1.0
         }
@@ -212,9 +194,9 @@ Item {
             source: root.tileUrl("moon")
         }
 
-        // shooting star: left 8%, top 48, 60x24; sb-shoot 23s — hidden 82%
-        // of the cycle, then a 6% sweep of translate(300px, 96px) with a
-        // short fade-out tail to (330, 106).
+        // shooting star: left 8%, top 48, 60x24; sb-shoot 23s, hidden 82% of
+        // the cycle, then a 6% sweep of translate(300px, 96px) with a fade to
+        // (330, 106).
         Image {
             id: shoot
             property real phase: 0
@@ -235,8 +217,8 @@ Item {
         Scroller { layerKey: "mid";   tileW: 794;  cycleMs: 158000 }
         Scroller { layerKey: "spire"; tileW: 1282; cycleMs: 104000 }
 
-        // Six bolts, each with its ground bloom sharing the same strike
-        // curve — radial-gradient(170px 120px at (left+1)% 78%).
+        // Six bolts, each with a ground bloom sharing its strike curve
+        // (radial-gradient(170px 120px at (left+1)% 78%)).
         Repeater {
             model: root.boltDefs
             Item {
@@ -259,8 +241,8 @@ Item {
                     source: root.tileUrl(bolt.modelData.bloom)
                 }
                 Image {
-                    // The sprite carries an 8px baked-glow pad ring around
-                    // the 46x74 art (see StormBandPainter::kBoltPad).
+                    // The sprite carries an 8px baked-glow pad around the 46x74
+                    // art (StormBandPainter::kBoltPad).
                     x: scene.width * bolt.modelData.xf
                        - 8 * bolt.spriteScale
                     y: (158 - bolt.boltH) - 8 * bolt.spriteScale
@@ -280,9 +262,8 @@ Item {
 
         Scroller { layerKey: "front"; tileW: 1438; cycleMs: 58000 }
 
-        // rain: 320x132 tile repeating in BOTH axes over the whole band,
-        // background-position animating (-320, +396) per 2.1s — one
-        // horizontal wrap and three vertical wraps per cycle.
+        // rain: a 320x132 tile repeating both ways, offset animating (-320,
+        // +396) per 2.1s.
         Item {
             id: rainLayer
             anchors.fill: parent
@@ -326,8 +307,8 @@ Item {
             source: root.tileUrl("horizon")
         }
 
-        // 11 rising embers: 2x2 motes translating (-9, -54) over one cycle
-        // with the sb-ember opacity curve.
+        // 11 rising embers: 2x2 motes translating (-9, -54) per cycle with the
+        // sb-ember opacity curve.
         Repeater {
             model: root.emberDefs
             Image {
@@ -350,9 +331,8 @@ Item {
         }
     }
 
-    // The reference's container mask, as a texture for the MultiEffect
-    // above: linear-gradient(to bottom, 0, .18 14%, .55 30%, .85 44%,
-    // 1 58%).
+    // The container mask as a texture: linear-gradient(to bottom, 0, .18 14%,
+    // .55 30%, .85 44%, 1 58%).
     Rectangle {
         id: maskGradient
         anchors.fill: parent

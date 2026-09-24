@@ -3,23 +3,17 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.9 (phase 7): "View event source" for technical users. The JSON is the
-// event as the SDK holds it (decrypted, in an encrypted room), shown in a
-// monospaced, scrollable, selectable viewer with Copy JSON / Copy event ID.
-// The encryption block beside it describes the envelope — algorithm,
-// sender key, sender device, verification — with public identifiers only:
-// no key material reaches THAT BLOCK (the FFI does not carry it).
+// "View event source": the event JSON as the SDK holds it (decrypted in an
+// encrypted room) in a monospaced, selectable viewer with Copy JSON / Copy
+// event ID. The encryption block shows the envelope (algorithm, sender key,
+// sender device, verification) with public identifiers only; the FFI carries
+// no key material for it.
 //
-// The JSON body is a different matter and the distinction was previously
-// stated too broadly here. It is the event verbatim, so for an attachment in
-// an encrypted room it includes `content.file.key`, the per-attachment AES
-// key — the user's own key, for their own room, exactly as Element's own
-// view-source shows it. Copy JSON therefore puts that on the shared
-// clipboard. That is the deliberate cost of a verbatim source view, but it
-// is not "no key material".
+// The JSON itself is verbatim, so for an encrypted attachment it includes
+// `content.file.key` (the per-attachment AES key, as Element's view-source
+// shows), and Copy JSON puts it on the clipboard.
 //
-// Plaintext in an encrypted room: held in this dialog's property while it
-// is open and dropped on close; never logged.
+// Plaintext is held in this dialog's property only while open; never logged.
 Dialog {
     id: root
     objectName: "eventSourceDialog"
@@ -57,8 +51,8 @@ Dialog {
         encryption = ({})
         eventId = ""
     }
-    // Same clipboard route as MessageDelegate.copyToClipboard: a hidden
-    // TextEdit, because QML has no clipboard API of its own.
+    // Hidden TextEdit clipboard route (as in MessageDelegate.copyToClipboard):
+    // QML has no clipboard API.
     TextEdit {
         id: clipboardHelper
         visible: false

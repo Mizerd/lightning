@@ -2,32 +2,28 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// Lightning scrollbar. Drop-in for the stock control in BOTH forms:
+// Lightning scrollbar, a drop-in for the stock control in both forms:
 //
 //   ScrollBar.vertical: AppScrollBar {}        // attached
 //   AppScrollBar { orientation: Qt.Vertical }  // standalone
 //
-// The stock Basic ScrollBar takes its handle from `palette.mid` and its
-// track from `palette.midlight`, i.e. a border grey on a border grey, with
-// square ends and no hover or press step — around thirty of them were
-// rendering that way beside a UI whose smallest rounded surface is 4px.
+// The Basic ScrollBar is a border grey on border grey with square ends and
+// no hover or press states.
 //
-// Behaviour: a pill handle that darkens through hover and press, a track
-// that only appears under the pointer, and a bar that thins to
-// `scrollbarWidthThin` unless it is being used. `thin: true` pins the narrow
-// size for dense hosts (combo popups, code blocks, inline lists) where the
-// extra 4px would reflow the band reserved for it.
+// A pill handle that darkens through hover and press, a track shown only
+// under the pointer, and a bar that stays thin (`scrollbarWidthThin`) unless
+// in use. `thin: true` pins the narrow size for dense hosts (combo popups,
+// code blocks, inline lists) where widening would reflow their layout.
 //
-// The fade states below are the Basic style's own show/hide contract,
-// re-expressed with Lightning's tokens: replacing `contentItem` throws away
-// the style's opacity states, and without them an AsNeeded bar would simply
-// never hide — every list in the app would grow a permanent rail.
+// The fade states reproduce Basic's show/hide contract: replacing
+// `contentItem` drops the style's opacity states, and an AsNeeded bar would
+// otherwise never hide.
 ScrollBar {
     id: root
 
     // Dense hosts keep the narrow bar even while hovered.
     property bool thin: false
-    // Contexts painting over media/scrim ink instead of a theme surface.
+    // For hosts painting over media/scrim rather than a theme surface.
     property bool scrim: false
 
     readonly property bool _wide: !thin && (hovered || pressed)
@@ -37,12 +33,10 @@ ScrollBar {
     implicitWidth: _thickness
     implicitHeight: _thickness
     padding: AppTheme.scrollbarMargin
-    // Explicit rather than inherited: the widen-on-hover behaviour is dead
-    // without it, and the Basic style's default has moved between Qt
-    // versions.
+    // Explicit: widen-on-hover depends on it, and Basic's default has changed
+    // between Qt versions.
     hoverEnabled: true
-    // Below this a long conversation's handle becomes a two-pixel tick that
-    // cannot be grabbed.
+    // Keeps the handle grabbable in long content.
     minimumSize: orientation === Qt.Vertical
                  ? Math.min(1, 28 / Math.max(1, height))
                  : Math.min(1, 28 / Math.max(1, width))
@@ -88,8 +82,8 @@ ScrollBar {
         when: root.policy === ScrollBar.AlwaysOn
               || (root.active && root.size < 1.0)
         PropertyChanges { handle.opacity: 1.0 }
-        // The groove only joins in under the pointer: a permanently visible
-        // track reads as a border down the edge of the pane.
+        // The groove appears only under the pointer; a permanent track reads
+        // as a border.
         PropertyChanges { groove.opacity: root.hovered || root.pressed ? 1.0 : 0.0 }
     }
 

@@ -4,29 +4,26 @@ import QtQuick.Layouts
 import QtQuick.Window
 import MatrixClient
 
-// Development-only screenshot-demo control panel. Loaded by Main.qml ONLY when
-// app.screenshotDemoActive, so it never exists in a release binary. A floating
-// overlay (no layout space): a compact collapsed pill that expands into
-// scenario / account / room / theme / appearance / window-size selectors,
-// toggles, and one-click reset / navigation actions. Ctrl+Shift+D (Main.qml)
-// toggles app.demo.controlsVisible to hide / restore the whole thing — hidden
-// leaves no overlay and no margin.
+// Development-only screenshot-demo control panel, loaded by Main.qml only
+// when app.screenshotDemoActive. A floating overlay: a collapsed pill that
+// expands into scenario / account / room / theme / appearance / window-size
+// selectors, toggles and reset/navigation actions. Ctrl+Shift+D (Main.qml)
+// toggles app.demo.controlsVisible.
 Item {
     id: root
     objectName: "demoControlPanel"
     anchors.fill: parent
     z: 100
-    // Hidden entirely (no overlay, no gap) when controls are hidden or there is
-    // no demo controller (defensive; app.demo is non-null in a demo build).
+    // Hidden entirely when controls are hidden or there is no demo controller
+    // (defensive; app.demo is non-null in a demo build).
     visible: app.screenshotDemoActive && !!app.demo && app.demo.controlsVisible
 
     property bool expanded: false
     readonly property var demo: app.demo
 
-    // C++ cannot resize the ApplicationWindow, so the controller asks us to.
-    // Imperative assignment (not a binding) so the user can still resize after.
-    // `Window.window` is an attached property and must be read off an Item
-    // (root), never off the non-Item Connections object.
+    // C++ can't resize the ApplicationWindow, so the controller asks us to.
+    // Assigned imperatively so the user can still resize afterwards.
+    // `Window.window` must be read off an Item (root), not off Connections.
     Connections {
         target: app.demo
         enabled: !!app.demo
@@ -52,7 +49,7 @@ Item {
         border.color: AppTheme.border
         border.width: 1
 
-        // ── Collapsed pill ───────────────────────────────────────────────
+        // ── Collapsed pill ──
         RowLayout {
             id: collapsed
             visible: !root.expanded
@@ -83,7 +80,7 @@ Item {
             }
         }
 
-        // ── Expanded panel ───────────────────────────────────────────────
+        // ── Expanded panel ──
         ColumnLayout {
             id: expandedCol
             visible: root.expanded

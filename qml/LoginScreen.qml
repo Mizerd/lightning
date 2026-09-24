@@ -5,8 +5,8 @@ import MatrixClient
 
 Item {
     id: root
-    // Located by the startup-state suite: the login form must never be
-    // instantiated during a valid-session launch.
+    // The startup-state suite checks this is never instantiated during a
+    // valid-session launch.
     objectName: "loginScreen"
 
     function submit() {
@@ -15,25 +15,15 @@ Item {
                            passField.text)
     }
 
-    // The password never outlives this screen: leaving it (successful
-    // login, or navigating away) wipes the field. It deliberately survives
-    // a FAILED attempt so a typo can be corrected — the failure keeps the
-    // user on this screen, with the secret still under their control.
+    // The password is wiped when leaving this screen, but survives a failed
+    // attempt so a typo can be corrected.
     onVisibleChanged: if (!visible) passField.text = ""
 
-    // The homeserver's bare host, for the browser button's label.
-    //
-    // "Continue with matrix.org" names the authority you are about to hand
-    // the sign-in to; a bare "Continue in browser" did not, which is why it
-    // was indistinguishable from the single-sign-on button right below it.
-    // Both are browser trips — what differs is WHO authenticates you, so
-    // that is what the labels now say (Element classic words its
-    // per-provider buttons the same way: "Continue with <provider>").
-    //
-    // Derived from what the USER typed, never from anything the server sent
-    // back: no homeserver gets to choose the words on Lightning's own
-    // button. Scheme, port and path are stripped; an IPv6 literal keeps its
-    // colons.
+    // The homeserver's bare host, for the browser button's label ("Continue
+    // with matrix.org"), which is what distinguishes it from the SSO button.
+    // Derived from what the user typed, never from server data, so no server
+    // chooses the words on our button. Scheme, port and path are stripped; an
+    // IPv6 literal keeps its colons.
     readonly property string browserAuthorityName: {
         var raw = (app.auth.discoveredHomeserver || "").trim()
         if (raw.length === 0)
@@ -46,19 +36,16 @@ Item {
         }
         return host
     }
-    // True when either browser path is on offer, so the divider that
-    // separates "type a password" from "sign in somewhere else" appears
-    // exactly when there is actually a choice to make.
+    // True when a browser path is on offer, so the "Or" divider appears only
+    // when there is a choice.
     readonly property bool offersBrowserPath:
         (app.auth.serverOffersBrowserLogin || app.auth.serverOffersSso)
         && !app.auth.browserLoginInProgress
 
-    // The identity that actually failed (from AppController, resolved
-    // server-canonically by the C++ layer) — never the raw typed text.
-    // Prefilling from it means the repair card always targets and displays
-    // the correct account, including during add-account, where the typed
-    // fields belong to a DIFFERENT account than whatever is currently
-    // active. See qml/AccountMenu.qml for the switcher-side counterpart.
+    // Prefill from the identity that actually failed (resolved server-
+    // canonically in C++), never the raw typed text, so the repair card targets
+    // the right account, including during add-account. See qml/AccountMenu.qml
+    // for the switcher-side counterpart.
     function applyFailureIdentityToFields() {
         if (app.localSessionFailureReasonCode === "")
             return
@@ -80,9 +67,8 @@ Item {
         color: AppTheme.background
     }
 
-    // v0.5.11: the login panel is a Flickable so an overflowing form (long
-    // errors, high-DPI scaling, short windows) scrolls instead of clipping,
-    // and the panel width tracks the window between a sensible min and max.
+    // A Flickable so an overflowing form scrolls instead of clipping; the panel
+    // width tracks the window between a min and max.
     Flickable {
         id: loginFlick
         anchors.fill: parent
@@ -100,29 +86,12 @@ Item {
             objectName: "loginPanel"
             anchors.horizontalCenter: parent.horizontalCenter
 
-            // CENTRED ON THE TALLEST STATE THE FORM REACHES, NOT ON ITS
-            // CURRENT HEIGHT — because a card centred on its current height
-            // MOVES THE FIELDS UNDER THE USER'S CURSOR.
-            //
-            // The homeserver probe is async: the browser-login and SSO
-            // sections are visible for matrix.org and disappear once a server
-            // that offers neither answers. `implicitHeight` then shrinks, so
-            // `(height - implicitHeight) / 2` GROWS and the whole card slides
-            // down — measured on Windows at 1280x800, **126 px**, with the
-            // card fill moving y=56 to y=182.
-            //
-            // The fields are at the TOP of this card and the optional buttons
-            // at the bottom, so the reader is typing into the part that
-            // moves. Type a homeserver, click where "User" was, and the
-            // PASSWORD goes into the clear-text Homeserver URL field.
-            // Reproduced on Windows against the published 0.9.8, and twice by
-            // an agent driving this screen. It is not persisted — the INI
-            // still held the URL — but it is on screen in clear text, and the
-            // user believes they typed it into a masked field.
-            //
-            // `_tallest` only ever grows, and resets on a viewport resize so
-            // a genuinely smaller window re-centres. A section appearing or
-            // vanishing can no longer move anything.
+            // Centred on the tallest height the form has reached, not its
+            // current height. The homeserver probe is async and can remove the
+            // browser/SSO sections, which would slide the card (and its fields)
+            // under the user's cursor mid-typing, e.g. putting a password into
+            // the clear-text homeserver field. `_tallest` only grows, and
+            // resets on a viewport resize.
             property real _tallest: implicitHeight
             onImplicitHeightChanged: {
                 if (implicitHeight > _tallest)
@@ -148,13 +117,11 @@ Item {
                 width: parent.width - AppTheme.spacingXL * 2
                 spacing: AppTheme.spacingM
 
-                // v0.7 add-account flow: reached from the account switcher
-                // while another account stays signed in — offer a way back
-                // that does not touch the existing session. Bound to the
-                // persisted active account (NOT app.loggedIn): a failed
-                // add-account attempt releases the shared client's session,
-                // and the Back button must survive that so the user can
-                // return; showMain() self-heals.
+                // Add-account flow: a way back that doesn't touch the existing
+                // session. Bound to the persisted active account, not
+                // app.loggedIn: a failed add-account releases the shared
+                // client's session and the button must survive that; showMain()
+                // self-heals.
                 AppButton {
                     id: backToAppButton
                     objectName: "backToAppButton"
@@ -164,18 +131,10 @@ Item {
                     onClicked: app.showMain()
                 }
 
-                // ── The way back to accounts already on this device ───────
-                //
-                // Back above needs an ACTIVE account, and that is exactly
-                // what is missing in the case this exists for: a stored
-                // active-account record that points at an account which
-                // cannot be restored leaves the other saved accounts with no
-                // route at all. Reported live — sign-in was refused because
-                // the accounts were already signed in, and there was no way
-                // to reach them; recovery took editing the config by hand.
-                //
-                // Gated on the SAVED LIST, never on the active one, which is
-                // the whole point.
+                // ── The way back to accounts already on this device ── For
+                // when the stored active account can't be restored, which would
+                // otherwise leave the other saved accounts unreachable. Gated
+                // on the saved list, not the active account.
                 ColumnLayout {
                     objectName: "signedInAccountsRecovery"
                     Layout.fillWidth: true
@@ -218,10 +177,7 @@ Item {
                     Label {
                         text: "Lightning"
                         color: AppTheme.text
-                        // The wordmark is the one place the brand face is
-                        // unambiguously right — displayFont keeps Space
-                        // Grotesk here now that menuFont has moved to the
-                        // user's chosen UI face everywhere else.
+                        // The wordmark uses the brand face.
                         font.family: AppTheme.displayFont
                         font.pixelSize: AppTheme.textTitle
                         font.weight: AppTheme.weightDisplay
@@ -239,15 +195,14 @@ Item {
                     font.weight: AppTheme.weightDisplay
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
-                    // Display leading, not body leading: 1.5 on a 22px
-                    // heading opens a gap the eye reads as two headings.
+                    // Display leading: body leading on a 22 px heading reads as
+                    // two.
                     lineHeight: AppTheme.lineHeightDisplay
                     lineHeightMode: Text.ProportionalHeight
                 }
                 Label {
                     text: {
-                        // Backend-aware sub-heading so the user knows what
-                        // backend they're signing into.
+                        // Backend-aware sub-heading.
                         if (app.backendName === "mock")
                             return qsTr("Mock backend — any credentials work")
                         if (app.backendName === "rust")
@@ -274,22 +229,15 @@ Item {
                     id: homeserverField
                     objectName: "homeserverField"
                     Layout.fillWidth: true
-                    // Prefill ONCE from the account-independent login prefill,
-                    // then let the user edit freely — no live binding to a
-                    // settings getter. Binding text to homeserverUrl (which
-                    // returns the ACTIVE account's server during the
-                    // add-account flow) re-asserted itself and reverted typed
-                    // input back to "your own" homeserver, making it
-                    // impossible to point the field at a different one.
+                    // Prefilled once from the account-independent login
+                    // prefill, not bound to a settings getter (which returns
+                    // the active account's server during add-account and would
+                    // revert typed input).
                     //
-                    // Discovery runs WITHOUT waiting for Enter (live report
-                    // 2026-08-15: the sign-in options were "hidden" until
-                    // the server was typed and Enter pressed): once for the
-                    // prefilled server on open, then debounced while
-                    // typing. AuthManager resets per call and tags results
-                    // by server, so a stale probe can never label a newer
-                    // one; the UI still never guesses on a homeserver's
-                    // behalf — it just asks sooner.
+                    // Discovery runs without waiting for Enter: once for the
+                    // prefill on open, then debounced while typing. AuthManager
+                    // tags results by server, so a stale probe can't label a
+                    // newer one.
                     Component.onCompleted: {
                         text = app.settings.loginHomeserverPrefill
                         if (text.length > 0)
@@ -307,9 +255,8 @@ Item {
                     onEditingFinished: {
                         discoverDebounce.stop()
                         app.settings.loginHomeserverPrefill = text
-                        // Ask the server what it actually offers. Until it
-                        // answers, no auth-method choices are shown at all —
-                        // the UI never guesses on a homeserver's behalf.
+                        // Ask the server what it offers; no auth choices are
+                        // shown until it answers.
                         app.auth.discoverAuthMethods(text)
                     }
                     KeyNavigation.tab: userField
@@ -374,12 +321,9 @@ Item {
 
                 Label {
                     objectName: "loginErrorLabel"
-                    // A classified reason with no dedicated card (info ===
-                    // null) must still show SOMETHING — repair.active alone
-                    // hid this for every classified code, including ones
-                    // with no case in classify() below, leaving a blank
-                    // form. Only a code that both is classified AND has a
-                    // rendered card suppresses this fallback.
+                    // A classified reason without a dedicated card (info ===
+                    // null) still needs this fallback; only a rendered card
+                    // suppresses it.
                     visible: app.auth.lastError !== ""
                              && (!repair.active || repair.info === null)
                     text: app.auth.lastError
@@ -396,12 +340,8 @@ Item {
                     id: loginBtn
                     objectName: "loginSubmitButton"
                     kind: "primary"
-                    // Staged progress (AuthManager.loginStage): a flat
-                    // "Signing in…" hides real progress on a slow SDK
-                    // handle/store open, especially right after a repair.
-                    // Falls back to a fixed label if the stage token isn't
-                    // recognized, so this stays safe even before the
-                    // property lands.
+                    // Staged progress (AuthManager.loginStage), falling back to
+                    // a fixed label for unknown stages.
                     text: {
                         if (!app.auth.isLoggingIn) return qsTr("Sign in")
                         switch (app.auth.loginStage) {
@@ -421,12 +361,8 @@ Item {
                     onClicked: root.submit()
                 }
 
-                // ── "Or" ────────────────────────────────────────────────
-                // The password form above and the browser buttons below are
-                // alternatives, not a sequence. Without a divider they read
-                // as a stack of four things to try, which is how "I wouldn't
-                // know which one I want" happens. Element classic separates
-                // the same two groups with the same word.
+                // ── "Or" ── The password form and the browser buttons are
+                // alternatives, not a sequence.
                 RowLayout {
                     visible: root.offersBrowserPath
                     Layout.fillWidth: true
@@ -453,32 +389,25 @@ Item {
                     }
                 }
 
-                // ── Browser sign-in (OAuth 2.0 / OIDC) ──────────────────
-                // Shown ONLY when the homeserver's own discovery says it
-                // offers OAuth and this build can perform it. Nothing here
-                // is hard-coded for any particular provider.
+                // ── Browser sign-in (OAuth 2.0 / OIDC) ── Shown only when the
+                // homeserver's discovery offers OAuth and this build supports
+                // it. Nothing is hard-coded per provider.
                 AppButton {
                     id: browserLoginBtn
                     objectName: "browserLoginButton"
-                    // Primary when the server accepts no password: this is
-                    // then the only way in, and Element classic makes the
-                    // same call. Secondary alongside a usable password form,
-                    // so that form keeps its own primary.
+                    // Primary when the server accepts no password (the only way
+                    // in); secondary beside a usable password form.
                     kind: app.auth.serverOffersPassword ? "secondary"
                                                         : "primary"
                     visible: app.auth.serverOffersBrowserLogin
                              && !app.auth.browserLoginInProgress
-                    // Named after the homeserver, because that is what
-                    // distinguishes it from the single-sign-on buttons below
-                    // — both open a browser; only the authority differs. The
-                    // fallback is Element's own bare "Continue", used when
-                    // the field is empty and there is no host to name.
+                    // Named after the homeserver to distinguish it from SSO.
+                    // Falls back to a bare "Continue" when there is no host.
                     text: root.browserAuthorityName.length > 0
                           ? qsTr("Continue with %1").arg(root.browserAuthorityName)
                           : qsTr("Continue")
-                    // Browser sign-in needs no typed user or password — the
-                    // homeserver identifies the account, which is why the
-                    // store cannot be chosen until it answers.
+                    // Needs no typed user or password: the homeserver
+                    // identifies the account.
                     enabled: !app.auth.isLoggingIn
                     Layout.fillWidth: true
                     Layout.topMargin: AppTheme.spacingXS
@@ -499,10 +428,8 @@ Item {
                     lineHeightMode: Text.ProportionalHeight
                 }
 
-                // The waiting state ALWAYS offers a way out. A browser that
-                // is closed, denied, or simply ignored must never leave this
-                // screen stuck: Cancel resolves it immediately, and the
-                // backend also times the attempt out on its own.
+                // The waiting state always offers a way out. Cancel resolves it
+                // at once, and the backend also times the attempt out.
                 ColumnLayout {
                     visible: app.auth.browserLoginInProgress
                     Layout.fillWidth: true
@@ -531,45 +458,23 @@ Item {
                     }
                 }
 
-                // ── Single sign-on (legacy m.login.sso) ─────────────────
-                // A REAL action since 0.7.6+: this was a "not supported"
-                // notice, because the SDK's login_sso convenience helper needs
-                // a feature this build cannot vendor. The primitives under it
-                // are not gated, so the flow works — see the module docs in
-                // rust/src/sso.rs.
-                //
-                // Two shapes, decided by what the SERVER advertises and never
-                // hard-coded per vendor:
-                //
-                //   no providers  one generic "Sign in with single sign-on"
-                //                 button. This is the common case, and it is
-                //                 also the correct state while the provider
-                //                 list is still being fetched;
-                //   providers     one "Continue with <name>" button each,
-                //                 named by the server, rather than silently
-                //                 picking an arbitrary one.
-                //
-                // Both strings are Element classic's, verbatim. The wording
-                // avoids Matrix protocol terms — never "m.login.sso" — and
-                // avoids the "SSO" abbreviation, which assumed the reader
-                // already knew which of two browser buttons they wanted.
+                // ── Single sign-on (legacy m.login.sso) ── See
+                // rust/src/sso.rs. Driven by what the server advertises, never
+                // hard-coded per vendor: no providers gives one generic button
+                // (also the state while the list is loading); otherwise one
+                // "Continue with <name>" per provider. Wording follows Element
+                // and avoids protocol terms and the "SSO" abbreviation.
                 AppButton {
                     id: ssoLoginBtn
                     objectName: "ssoLoginButton"
-                    // Primary only when nothing else can sign you in: with a
-                    // password form or a browser button present, this is the
-                    // fallback of the three. Element classic makes the same
-                    // distinction.
+                    // Primary only when nothing else can sign you in.
                     kind: (app.auth.serverOffersPassword
                            || app.auth.serverOffersBrowserLogin)
                           ? "secondary" : "primary"
                     visible: app.auth.serverOffersSso
                              && app.auth.ssoProviders.length === 0
                              && !app.auth.browserLoginInProgress
-                    // Element classic's exact wording for an unnamed
-                    // provider. "Sign in with SSO" was an abbreviation the
-                    // user had to already know; spelled out, it at least says
-                    // it is a sign-on run by someone else.
+                    // Element's wording for an unnamed provider.
                     text: qsTr("Sign in with single sign-on")
                     enabled: !app.auth.isLoggingIn
                     Layout.fillWidth: true
@@ -582,10 +487,8 @@ Item {
                     visible: ssoLoginBtn.visible
                              || ssoProviderRepeater.count > 0
                     Layout.fillWidth: true
-                    // Says what the difference IS, rather than naming the
-                    // protocol: the browser button above goes to the
-                    // homeserver, this one goes to whoever the homeserver
-                    // trusts to identify you.
+                    // Explains the difference: this goes to whoever the
+                    // homeserver trusts to identify you.
                     text: qsTr("Signs you in through an identity provider "
                                + "your homeserver trusts, in your browser.")
                     color: AppTheme.textMuted
@@ -607,16 +510,10 @@ Item {
                         required property int index
                         objectName: "ssoProviderButton" + index
                         kind: "secondary"
-                        // The server chose this name. It is remote text, so it
-                        // is rendered as a plain string and never as markup;
-                        // an unnamed provider falls back to the generic label
-                        // rather than showing an empty button.
-                        //
-                        // "Continue with <provider>" is Element classic's own
-                        // string for this button, and it is the same shape as
-                        // the browser button above on purpose: both name the
-                        // authority, which is the only thing that differs
-                        // between them.
+                        // Server-chosen name: plain text, never markup. An
+                        // unnamed provider falls back to the generic label.
+                        // Same "Continue with" shape as the browser button:
+                        // both name the authority.
                         text: (modelData.name && modelData.name.length > 0)
                               ? qsTr("Continue with %1").arg(modelData.name)
                               : qsTr("Sign in with single sign-on")
@@ -629,22 +526,16 @@ Item {
                     }
                 }
 
-                // ── Local-session repair card ───────────────────────────
-                // Replaces the old single-message reset dead-end. Driven
-                // entirely by AppController's classified failure (reason
-                // code + the FAILED account's own identity — never typed
-                // form text), so the repair action always targets the
-                // right account even mid add-account flow. classify()
-                // below covers every reasonCode currently reachable from
-                // matrix::rust_session::StoreBlockReason (see
-                // src/matrix/RustSessionPolicy.cpp), except
+                // ── Local-session repair card ── Driven by AppController's
+                // classified failure (reason code plus the failed account's own
+                // identity, never typed form text), so the action targets the
+                // right account even during add-account. classify() covers
+                // every reasonCode reachable from
+                // matrix::rust_session::StoreBlockReason
+                // (src/matrix/RustSessionPolicy.cpp) except
                 // "existing_store_requires_restore", which AppController
-                // intercepts before it ever becomes a classified failure
-                // (it is "already signed in — switch instead", not a
-                // repair). If a reasonCode ever arrives that classify()
-                // doesn't recognise — a real gap, not something to shrug
-                // off — loginErrorLabel is the fallback so the form is
-                // never silently blank; see its visibility binding below.
+                // intercepts. An unrecognised code falls back to
+                // loginErrorLabel so the form is never blank.
                 QtObject {
                     id: repair
                     readonly property string reasonCode: app.localSessionFailureReasonCode || ""
@@ -652,19 +543,14 @@ Item {
                     readonly property bool active: reasonCode !== ""
                     readonly property var info: repair.classify(reasonCode)
 
-                    // Which reasonCode gets a destructive primary action
-                    // mirrors matrix::rust_session::suggestsLocalReset() in
-                    // src/matrix/RustSessionPolicy.cpp — keep these two in
-                    // sync by hand; there is no live-bound property for it
-                    // yet. Reasons it returns true (a store with something
-                    // real to clear) get "Quarantine and rebuild"/"Retry".
-                    // Reasons it returns false — access_token_revoked and
-                    // ambiguous_store_candidates included — must NEVER
-                    // route to app.repairLocalSession(): for a revoked
-                    // token the store is exactly the key material the user
-                    // still needs, and for an ambiguous store Lightning
-                    // does not know which one is real. Never re-arm here
-                    // what the policy layer disarmed.
+                    // Which codes get a destructive action mirrors
+                    // matrix::rust_session::suggestsLocalReset() in
+                    // src/matrix/RustSessionPolicy.cpp; keep them in sync by
+                    // hand. Codes it rejects (including access_token_revoked
+                    // and ambiguous_store_candidates) must never route to
+                    // app.repairLocalSession(): the store holds key material
+                    // the user still needs, or Lightning can't tell which store
+                    // is real.
                     function classify(code) {
                         switch (code) {
                         case "session_without_device_id":
@@ -706,10 +592,8 @@ Item {
                                 body: bodyByCode[code],
                                 primaryLabel: qsTr("Quarantine and rebuild"),
                                 confirmTitle: qsTr("Rebuild the local session?"),
-                                // "Quarantine" is literal, not a euphemism
-                                // for delete: the old local session data is
-                                // moved aside on this device, not removed,
-                                // in case it's ever needed for recovery.
+                                // "Quarantine" is literal: the data is moved
+                                // aside on this device, not deleted.
                                 confirmBody: qsTr(
                                     "This moves Lightning's local session data for %1 on "
                                     + "this device aside — kept, not deleted — so a fresh "
@@ -721,8 +605,8 @@ Item {
                             }
                         }
                         case "saved_session_without_store":
-                            // Honest outcome only: the old device's Olm identity is
-                            // gone and cannot be resurrected — never imply otherwise.
+                            // The old device's Olm identity is gone and can't
+                            // be resurrected; never imply otherwise.
                             return {
                                 headline: qsTr("This device needs to sign in again"),
                                 body: qsTr(
@@ -732,32 +616,22 @@ Item {
                                     + "messages stay on the server; encrypted history may "
                                     + "need your recovery key or another verified device "
                                     + "afterwards."),
-                                // NO primary action. There is no store left to
-                                // quarantine, so a local reset has nothing to
-                                // repair and the backend refuses it. The
-                                // remedy is the sign-in form directly above,
-                                // already prefilled with this account — the
-                                // body says so. Offering a button here gave
-                                // the user a red "this would destroy
-                                // encryption keys" error on the exact state
-                                // the store-identity bug leaves them in.
+                                // No primary action: there is no store to
+                                // quarantine, so the backend refuses a reset.
+                                // The remedy is the prefilled sign-in form
+                                // above.
                                 primaryLabel: "",
                                 confirmTitle: "",
                                 confirmBody: "",
                                 showRemove: true
                             }
                         case "access_token_revoked":
-                            // matrix::rust_session::suggestsLocalReset() is
-                            // FALSE for this reason on purpose: the session
-                            // died on the SERVER, so the local store is
-                            // exactly the key material the user still
-                            // needs, not something to clear. NO destructive
-                            // primary action here — that is the whole fix
-                            // for this reason code. "Remove this account"
-                            // stays available as an explicit, honestly-
-                            // worded fallback (its own confirm copy already
-                            // states the encryption store is deleted), but
-                            // it is never the default/suggested action.
+                            // suggestsLocalReset() is false here: the session
+                            // died on the server and the local store is key
+                            // material the user still needs. No destructive
+                            // primary action. "Remove this account" stays as an
+                            // explicit, honestly worded fallback, never the
+                            // suggested action.
                             return {
                                 headline: qsTr("This session was signed out remotely"),
                                 body: qsTr(
@@ -775,11 +649,10 @@ Item {
                                 showRemove: true
                             }
                         case "secret_backend_unavailable":
-                            // The keyring could not be read — locked, or the
-                            // session bus is gone. The sign-in IS saved and
-                            // the store is intact; nothing here is broken and
-                            // nothing should be cleared. Purely informational:
-                            // the remedy is outside Lightning.
+                            // The keyring is locked or the session bus is gone.
+                            // The sign-in is saved and the store intact;
+                            // informational only, the remedy is outside
+                            // Lightning.
                             return {
                                 headline: qsTr("Lightning can't read your saved sign-in"),
                                 body: qsTr(
@@ -795,14 +668,10 @@ Item {
                                 showRemove: false
                             }
                         case "ambiguous_store_candidates":
-                            // suggestsLocalReset() is FALSE here too, and for
-                            // a sharper reason than access_token_revoked: the
-                            // store DOES exist and DOES hold real key
-                            // material, but Lightning cannot tell which of
-                            // several candidates is the right one — clearing
-                            // (or removing the account) could destroy the
-                            // valid store instead of a stale one. Never guess:
-                            // no destructive action of any kind here.
+                            // suggestsLocalReset() is false: several candidate
+                            // stores hold real key material and Lightning can't
+                            // tell which is valid. No destructive action of any
+                            // kind.
                             return {
                                 headline: qsTr("More than one local session was found"),
                                 body: qsTr(
@@ -855,19 +724,11 @@ Item {
                     property bool statusOk: false
                     property string statusText: ""
                 }
-                // Snapshot of what the confirm dialog is acting on,
-                // captured at OPEN time — never read `repair.*` live once
-                // the dialog is up. Without this, a slow sign-in leaving a
-                // stale card up (or a different account failing mid
-                // add-account) could change the reason code or the target
-                // account out from under an already-open dialog: the title
-                // and body would visibly change (or go blank, if the new
-                // reason has no card), and confirming would silently act
-                // on the NEW failure/account instead of the one the user
-                // actually reviewed and clicked through to. See the
-                // confirm button's onClicked below for the matching
-                // refuse-if-changed check, and the Connections block after
-                // this one for the proactive auto-close.
+                // Snapshot of what the confirm dialog acts on, taken when it
+                // opens, so a failure changing underneath (a slow sign-in,
+                // another account failing mid add-account) can't change the
+                // dialog's target. See the auto-close below and the
+                // refuse-if-changed check in onClicked.
                 QtObject {
                     id: confirmState
                     property string kind: "" // "repair" | "remove"
@@ -890,14 +751,8 @@ Item {
                         repairPanel.statusOk = ok
                         repairPanel.statusText = message
                     }
-                    // Proactive half of the fix: close immediately if the
-                    // classified failure changes while the dialog is open,
-                    // rather than leaving a stale confirmation showing
-                    // (possibly blank) content the user never reviewed.
-                    // onClicked's own reasonCode/userId comparison is the
-                    // backstop for the (effectively zero-width, but not
-                    // provably impossible) gap between this firing and the
-                    // dialog actually closing.
+                    // Close the dialog if the classified failure changes while
+                    // it is open. onClicked re-checks as a backstop.
                     function onLocalSessionFailureChanged() {
                         if (repairConfirmDialog.visible
                                 && (confirmState.reasonCode !== repair.reasonCode
@@ -963,14 +818,9 @@ Item {
                                 id: repairPrimaryButton
                                 objectName: "loginRepairPrimaryAction"
                                 kind: "danger"
-                                // Bound to the BACKEND policy, not to a
-                                // per-reason list kept in this file. A card
-                                // must never offer an action that
-                                // repairLocalSession() will refuse: that
-                                // produced a red "this would destroy
-                                // encryption keys" error on the one state a
-                                // user recovering from the store-identity
-                                // bug actually lands in.
+                                // Bound to the backend policy, not a per-reason
+                                // list here, so a card never offers an action
+                                // repairLocalSession() would refuse.
                                 visible: repair.info && repair.info.primaryLabel !== ""
                                          && repair.reasonCode !== "cleanup_incomplete"
                                          && app.localResetHelpsFor(repair.reasonCode)
@@ -1024,10 +874,8 @@ Item {
                     }
                 }
 
-                // One shared confirmation dialog for both destructive
-                // actions (repair, remove) — Cancel is the default/focused
-                // button in both cases, and the body always names the
-                // exact account being affected.
+                // One shared confirmation for repair and remove. Cancel is the
+                // default button and the body names the exact account.
                 Dialog {
                     id: repairConfirmDialog
                     objectName: "loginRepairConfirmDialog"
@@ -1040,20 +888,14 @@ Item {
                            : (confirmState.info ? confirmState.info.confirmTitle : "")
                     standardButtons: Dialog.NoButton
                     closePolicy: Popup.CloseOnEscape
-                    // Cancel is the default/focused button for every
-                    // destructive confirmation in this card: `focus: true`
-                    // on the button marks it as the candidate, but a plain
-                    // Button (Qt.TabFocus policy, not a text-input control)
-                    // is not reliably granted activeFocus purely from that
-                    // the instant a custom-buttoned Dialog opens — grab it
-                    // explicitly so the safe choice is genuinely what a
-                    // keyboard Enter/Space press activates first.
+                    // Cancel must actually hold focus when the dialog opens:
+                    // `focus: true` alone doesn't reliably grant activeFocus to
+                    // a button in a custom-buttoned Dialog, so Enter/Space
+                    // would hit something else.
                     onOpened: repairConfirmCancelButton.forceActiveFocus()
 
-                    // Basic's Dialog header is a Label on a square
-                    // palette.window strip; supply the app's own title
-                    // treatment so this reads as one surface with the card
-                    // behind it.
+                    // Replace Basic's square header strip with the app's title
+                    // style.
                     header: Label {
                         text: repairConfirmDialog.title
                         visible: text.length > 0
@@ -1096,19 +938,8 @@ Item {
                         RowLayout {
                             Layout.fillWidth: true
                             Item { Layout.fillWidth: true }
-                            // Both were raw stock Buttons until 2026-08-21,
-                            // and the two disagreed about everything: Cancel
-                            // kept Basic's 100x40 SQUARE box (no background
-                            // override, so implicitHeight came from Basic's
-                            // 40), while the destructive one replaced the
-                            // background with a Rectangle carrying no
-                            // implicit size and landed at ~30px. Different
-                            // heights, different radii, different colour
-                            // systems, side by side — and the destructive
-                            // one acknowledged neither hover nor keyboard
-                            // focus, having dropped Basic's focus border
-                            // with the background it replaced. AppButton
-                            // gives both one geometry and all three states.
+                            // AppButton for both, for one geometry and proper
+                            // hover/focus states.
                             AppButton {
                                 id: repairConfirmCancelButton
                                 objectName: "loginRepairCancel"
@@ -1129,14 +960,9 @@ Item {
                                     var capturedReason = confirmState.reasonCode
                                     var capturedUserId = confirmState.userId
                                     repairConfirmDialog.close()
-                                    // Backstop for the Connections auto-close
-                                    // above: if the classified failure moved
-                                    // on to a different reason OR a different
-                                    // account since this dialog opened,
-                                    // refuse rather than act on stale
-                                    // confirmation — the account the user
-                                    // actually reviewed is not necessarily
-                                    // the one this would now affect.
+                                    // Backstop for the auto-close above: refuse
+                                    // if the failure's reason or account
+                                    // changed since the dialog opened.
                                     if (capturedReason !== repair.reasonCode
                                             || capturedUserId !== repair.userId) {
                                         return

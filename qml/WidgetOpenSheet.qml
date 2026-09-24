@@ -3,21 +3,12 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The consent step before a widget is opened in the user's browser.
-//
-// A widget URL is ROOM STATE, writable by any member with permission. Opening
-// one hands its origin whatever the URL templates — a display name, a device
-// id, the room id — plus the connection itself. This says what THIS widget
-// receives, derived from its own URL, so the notice never claims more than is
-// shared: a widget using no variables says only that the site learns you
-// connected to it.
-//
-// That precision is the point. A notice that overstated would be dismissed
-// unread, and then it would be protecting nobody.
-//
-// The address is shown in full, in a monospace face, because the origin is the
-// one thing a person can actually judge — and it is shown as the RESOLVED
-// address, after substitution, since that is what will be opened.
+// Consent step before opening a widget in the browser. A widget URL is room
+// state any permitted member can write, and opening it hands its origin
+// whatever the URL templates (display name, device id, room id). This says
+// exactly what this widget receives, derived from its own URL, so the notice
+// never overstates. The resolved address is shown in full, in mono, since the
+// origin is what a person can judge.
 Dialog {
     id: root
     objectName: "widgetOpenSheet"
@@ -31,8 +22,8 @@ Dialog {
     anchors.centerIn: parent
     padding: AppTheme.spacing16
 
-    /// The row from WidgetController.rowAt(), and its index — the index is
-    /// what actually opens it, so QML never names an address.
+    /// The row from WidgetController.rowAt() and its index; the index opens it,
+    /// so QML never names an address.
     property var widget: ({})
     property int widgetRow: -1
     readonly property string widgetName: widget && widget.name ? widget.name : ""
@@ -61,10 +52,8 @@ Dialog {
         Label {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            // The name is REMOTE text — a widget name is chosen by whoever
-            // added it. Label defaults to Text.AutoText, so a name containing
-            // a known tag would render as rich text and `<img src=...>` would
-            // beacon the moment this sheet opened.
+            // Remote text: Label's AutoText would render tags, and an <img>
+            // would beacon as soon as the sheet opened.
             textFormat: Text.PlainText
             text: qsTr("Lightning opens widgets in your browser rather than "
                        + "inside the app, so the page cannot reach your "
@@ -99,9 +88,7 @@ Dialog {
                     Layout.fillWidth: true
                     wrapMode: Text.WrapAnywhere
                     textFormat: Text.PlainText
-                    // MONO for an address, like every other address in this
-                    // client: it is the one thing the person can judge, and a
-                    // proportional face makes lookalike characters worse.
+                    // Mono for an address, where lookalike characters matter.
                     text: root.widgetUrl
                     color: AppTheme.stormTextSecondary
                     font.family: AppTheme.monoFont
@@ -153,10 +140,9 @@ Dialog {
                 kind: "primary"
                 enabled: root.widgetUrl.length > 0
                 onClicked: {
-                    // BY ROW, never by address: no QML path can hand the
-                    // desktop a URL that did not come from the model's own
-                    // validated list. The controller re-checks it on the way
-                    // out through the application's single desktop exit.
+                    // By row, never by address: no QML path can hand the
+                    // desktop a URL outside the model's validated list. The
+                    // controller re-checks it at the single desktop exit.
                     app.widgets.openWidget(root.widgetRow)
                     root.close()
                 }

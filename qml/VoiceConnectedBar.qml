@@ -2,10 +2,8 @@ import QtQuick
 import QtQuick.Layouts
 import MatrixClient
 
-// The persistent "Voice Connected" strip — Discord's idea, Lightning's
-// tokens. Lives in the navigation column so the user can browse other rooms
-// while staying in the call: the call does NOT end because they opened
-// another room, and this is how they get back to it.
+// The persistent "Voice connected" strip in the navigation column, so the user
+// can browse other rooms without ending the call and get back to it.
 Rectangle {
     id: root
 
@@ -13,10 +11,8 @@ Rectangle {
     /// Emitted when the user asks to return to the call surface.
     signal returnToCallRequested
 
-    // Only while the call is somewhere ELSE. This bar exists so a call
-    // survives browsing away from its room; inside that room the call
-    // controls are already at the top of the conversation, and showing both
-    // put three copies of the same call on screen at once.
+    // Only while the call is elsewhere; inside its room the call controls are
+    // already at the top of the conversation.
     visible: app.groupCall.active && !(app.currentScreen === 1 && app.groupCall.roomId === app.currentRoomId)
     implicitHeight: visible ? content.implicitHeight + AppTheme.spacing8 * 2 : 0
     height: implicitHeight
@@ -33,11 +29,9 @@ Rectangle {
 
         ColumnLayout {
             Layout.fillWidth: true
-            // SHRINKABLE, or the buttons cannot fit. A non-fill Text is fixed
-            // at its own width inside a Layout, so at the column's narrow
-            // floor the "Voice connected" line kept its width and pushed the
-            // hang-up button out through the bar's edge (2026-09-05
-            // screenshot). The text yields and elides; the buttons never move.
+            // Shrinkable: a non-fill Text keeps its width in a Layout and would
+            // push the hang-up button out of the bar. The text elides; the
+            // buttons never move.
             Layout.minimumWidth: 0
             spacing: 0
             RowLayout {
@@ -47,8 +41,7 @@ Rectangle {
                 Icon {
                     name: "call"
                     size: 14
-                    // Green while connected, warning while reconnecting —
-                    // the state is shown, never left as a frozen picture.
+                    // Green while connected, warning while reconnecting.
                     color: app.groupCall.state === SfuCallController.Connected ? AppTheme.success : AppTheme.warning
                 }
                 Text {
@@ -66,9 +59,8 @@ Rectangle {
                 textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: {
-                    // findRoom is a plain C++ call Qt cannot observe, so
-                    // this re-reads whenever the call's room changes —
-                    // which is the only thing that can change it here.
+                    // findRoom is a plain C++ call; this re-reads when the
+                    // call's room changes, the only input that can change it.
                     if (!app.roomList || app.groupCall.roomId.length === 0)
                         return "";
                     var room = app.roomList.findRoom(app.groupCall.roomId);

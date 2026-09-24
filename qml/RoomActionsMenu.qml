@@ -2,19 +2,9 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// The room row context menu, shared by BOTH navigation layouts.
-//
-// Extracted from RoomDelegate.qml, verbatim apart from taking the room's
-// fields as properties instead of reading a `model` that only a Classic row
-// has. The Channels layout had NO menu at all, so favourite / mark read /
-// notifications / copy link / leave were unreachable in it — reported as
-// "favorite, mute and all the other actions are unavailable". Duplicating
-// 160 lines into a second delegate is how two menus drift; this is one menu
-// with two hosts.
-//
-// Signal-only, exactly as before: nothing here writes a setting or calls the
-// bridge. The host performs every mutation, so a refused server write cannot
-// leave a row and the account disagreeing.
+// The room row context menu, shared by both navigation layouts; takes the
+// room's fields as properties. Signal-only: the host performs every mutation,
+// so a refused write cannot desynchronize a row.
 AppMenu {
     id: root
     menuWidth: AppTheme.menuWidthRoom
@@ -28,29 +18,25 @@ AppMenu {
 
     signal markRead()
     signal markUnread()
-    // Carries the value to WRITE, not a toggle request.
+    // Carries the value to write, not a toggle.
     signal setFavourite(bool on)
     signal setNotificationMode(int mode)
     signal copyRoomLink()
     signal leaveRoomRequested()
-    // Storm §4 2b: mono room-address header. Mono is for ADDRESSES —
-    // use the canonical alias when the room has one; otherwise the
-    // display name WITHOUT a fabricated # prefix.
+    // Mono room-address header: the canonical alias when there is one,
+    // otherwise the display name without a fabricated "#".
     contextLabel: root.isDirect
                   ? root.roomName
                   : (root.canonicalAlias.length > 0
                      ? root.canonicalAlias : root.roomName)
-    // Element classic puts Favourite at the top of the room menu, as a
-    // toggle showing the CURRENT state. Offered only where the backend
-    // can write the tag: a device-local "favourite" would mean something
-    // different here than on every other client on the account.
+    // Favourite at the top, showing the current state. Offered only where the
+    // backend can write the tag (a device-local favourite would differ from
+    // other clients).
     AppMenuItem {
         objectName: "roomFavouriteItem"
         visible: app.roomList.roomFavouritesSupported
-        // One glyph for both states: the icon font is Material Symbols
-        // at FILL=0, so "star" is already the OUTLINE and there is no
-        // filled counterpart to switch to. The row's text carries the
-        // state, which is how the read/unread rows below do it too.
+        // One glyph for both states: the Material Symbols font is FILL=0, so
+        // there is no filled star; the text carries the state.
         iconName: "star"
         text: root.isFavourite ? qsTr("Remove from favourites")
                                : qsTr("Add to favourites")
@@ -68,27 +54,22 @@ AppMenu {
         onTriggered: root.markUnread()
     }
     AppMenuSeparator {}
-    // v0.6.5 (SPEC 1d): per-room notification mode, three radio rows
-    // bound to the REAL setting (SettingsManager::roomNotification-
-    // Mode is Q_INVOKABLE, not a property, so it is re-queried explicitly
-    // rather than bound directly — see refreshMode() below). radioSelected
-    // stays a pure binding on the local currentMode property; it is never
-    // imperatively assigned (AppMenuItem itself never self-toggles it).
-    // On backends with server push-rule support the setting doubles as
-    // the cache of the account's server mode (see AppController).
+    // Per-room notification mode. roomNotificationMode is a Q_INVOKABLE, so it
+    // is re-queried (refreshMode()) rather than bound; radioSelected binds to
+    // the local currentMode and is never assigned. With server push rules the
+    // setting also caches the account's server mode (see AppController).
     AppMenu {
         id: notificationsFlyout
         objectName: "roomNotificationsFlyout"
         title: qsTr("Notifications")
         submenuIconName: "notifications"
         menuWidth: AppTheme.menuWidthFlyout
-        // Storm §4 2b: flyout header is a bare mono caption, no bolt.
+        // Flyout header: a bare mono caption.
         contextLabel: qsTr("Notify mode")
         contextBolt: false
         property int currentMode: 0
-        // True while the room's last server push-rule write failed —
-        // the disclaimer then says the mode was kept on this device
-        // instead of claiming it was saved to the account.
+        // True while the last server push-rule write failed; the disclaimer
+        // then says the mode was kept on this device.
         property bool syncFailed: false
         function refreshMode() {
             currentMode = app.settings.roomNotificationMode(root.roomId)
@@ -96,10 +77,8 @@ AppMenu {
         }
         onAboutToShow: {
             refreshMode()
-            // Poll-on-open: re-query the server rule so a change made
-            // in another client lands in the cache (and, via the
-            // Connections below, in this flyout). A guarded no-op on
-            // backends without server push-rule support.
+            // Re-query the server rule on open so changes from other clients
+            // land. A no-op without server push-rule support.
             app.requestRoomNotificationMode(root.roomId)
         }
         Connections {
@@ -123,8 +102,8 @@ AppMenu {
             onTriggered: root.setNotificationMode(0)
         }
         AppMenuItem {
-            // "& keywords" is what the rule actually does: the SDK's
-            // MentionsAndKeywordsOnly mode keeps keyword rules firing.
+            // The SDK's MentionsAndKeywordsOnly mode keeps keyword rules
+            // firing.
             text: qsTr("Mentions & keywords")
             radio: true
             radioSelected: notificationsFlyout.currentMode === 1
@@ -136,12 +115,8 @@ AppMenu {
             radioSelected: notificationsFlyout.currentMode === 2
             onTriggered: root.setNotificationMode(2)
         }
-        // v0.7: the same "follow account default" choice Room
-        // Information offers. Without it a room set to mode 3 shows NO
-        // selected radio here — two entry points to one setting
-        // disagreeing, with this one rendering a state it cannot
-        // express. Server-capable backends only: with a device-local
-        // backend there is no account rule to defer to.
+        // "Follow account default", as in Room Information, so mode 3 has a
+        // selected radio. Server-capable backends only.
         AppMenuItem {
             visible: app.serverRoomNotificationModes
             text: qsTr("Follow account default")
@@ -151,41 +126,19 @@ AppMenu {
         }
         Label {
             objectName: "roomNotificationDisclaimer"
-            // THE WIDTH IS THE WHOLE POINT OF THIS LINE. A Label is not a
-            // MenuItem, so nothing sizes it in time, and `wrapMode` on an
-            // unsized Text wraps at its own implicitWidth, which is the
-            // whole sentence. Three configurations of the RUNNING app,
-            // measured 2026-09-20 on the notifications flyout:
-            //
-            //   as shipped          one line, no wrap, cut mid-word at the
-            //                       panel border ("Local setting: it does
-            //                       not chang") — a wrapping Text does not
-            //                       elide, so there was not even an ellipsis
-            //   menu fit, no width  wraps to two lines at 199 px, but the
-            //                       panel's height was already decided, so
-            //                       the SECOND line falls outside it
-            //   both               w=199, 2 lines, panel 168 px, all inside
-            //
-            // Bound to the MENU, so it follows the fit in AppMenu rather
-            // than a literal — and set at creation, which is what gets the
-            // wrapped height into the menu's own content height. It is not
-            // a row, so it does not vote on that fit and there is no loop.
+            // Sized to the menu so the text wraps (an unsized wrapping Text
+            // uses its implicit width, the whole sentence) and its height
+            // counts toward the menu's. Not a row, so it does not affect
+            // AppMenu's fit and cannot loop.
             width: notificationsFlyout.width - notificationsFlyout.leftPadding
                    - notificationsFlyout.rightPadding
             leftPadding: AppTheme.menuItemPadding
             rightPadding: AppTheme.menuItemPadding
             topPadding: AppTheme.spacing4
             bottomPadding: AppTheme.spacing6
-            // Backend-honest: the Rust backend writes the account's
-            // server push rules through the SDK ("saved", not
-            // continuously synced — there is no live push-rule watcher
-            // yet); a failed write is admitted instead of claimed
-            // saved; other backends keep the mode strictly
-            // device-local.
-            // v0.7: a failed write is now retried on the next
-            // reconnection, so the failure line says so. It still
-            // admits the failure first — the retry is a promise to try
-            // again, never a claim that the rule was saved.
+            // The Rust backend writes the account's server push rules ("saved",
+            // not live-synced); a failed write is admitted, with a retry on the
+            // next reconnection. Other backends are device-local.
             text: app.serverRoomNotificationModes
                   ? (notificationsFlyout.syncFailed
                      ? qsTr("Couldn't save to the server — "

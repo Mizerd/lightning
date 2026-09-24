@@ -3,51 +3,21 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// One rebindable action on the Settings → Keyboard page: what it does, the
-// key it is on, a Change control that CAPTURES the next combination, and a
-// Reset that only exists once the action has been moved off its default.
-//
-// WHY CAPTURE AND NOT A TEXT FIELD. A text field would need the user to
-// spell "Ctrl+Shift+X" the way QKeySequence spells it, and would silently
-// store nothing for every other spelling. Capturing the real press is the
-// only input method that cannot be typed wrong.
-//
-// THE ONE QT MECHANISM THIS DEPENDS ON. While capturing, this item accepts
-// Qt's ShortcutOverride event. Qt sends that event to the FOCUS ITEM before
-// it dispatches a shortcut, and accepting it turns the shortcut back into an
-// ordinary key press delivered here. Without it, pressing Ctrl+K to rebind
-// the quick switcher would OPEN the quick switcher — a Shortcut is consumed
-// before the focused item ever sees the key (the same Qt fact that keeps
-// timeline paging on a Keys handler rather than a Shortcut). Every shortcut
-// in the application is therefore capturable, including the ones that are
-// currently bound to something.
-//
-// ── TWO SHORTCUTS THAT RENDER AS THE SAME STRING ARE ONE CONTROL ──────
-//
-// The action name was the only cell with `fillWidth`, so it absorbed the
-// whole shortfall while the 132 px keycap and the Change button kept their
-// full width, and it ELIDED. Measured at 640x520 — the app's own declared
-// minimum width plus a little — "Open the quick switcher" and "Open the
-// quick switcher in command mode" BOTH rendered as "Open the …", so there
-// was no way to tell which shortcut the Change button beside them was about
-// to rebind. Others collapsed to "Quit Light…", "Open Setti…", "Show the k…".
-//
-// The collision class is much wider than that one pair — four rows begin
-// "Show or hide", three "Mark the…", four "Open the…" — so rewriting the
-// descriptions to differ in their first ten characters is not a fix, it is
-// a request that English read like a database key. The description WRAPS
-// instead, and at a narrow width the row STACKS so the wrap has room:
-// nothing is ever shortened, at any width, in any translation.
-//
-// `compact` is pushed in by the host rather than read from this item's own
-// width on purpose. A `columns:` bound to `row.width` inside a layout that
-// derives the row's width from `columns` is a loop waiting for a window
-// dragged across the threshold; the settings pane knows its own width and
-// nothing downstream of this changes it.
+// One rebindable action on Settings → Keyboard: its description, its key, a
+// Change control that captures the next combination, and a Reset shown only
+// when moved off the default. Capture rather than a text field, so a sequence
+// cannot be spelled wrong. While capturing, this item accepts ShortcutOverride,
+// which Qt sends to the focus item before dispatching a shortcut; accepting it
+// turns the shortcut into a plain key press here. Without it, pressing Ctrl+K
+// to rebind the quick switcher would open it. The description wraps, and at
+// narrow widths the row stacks, so it is never elided: many descriptions share
+// their first words and elided rows became indistinguishable. `compact` is
+// pushed in by the host: a `columns:` bound to this row's own width inside a
+// layout that sizes the row from `columns` would loop.
 GridLayout {
     id: row
 
-    // Stack the name above the controls instead of beside them.
+    // Stack the name above the controls.
     property bool compact: false
 
     columns: row.compact ? 1 : 2
@@ -87,20 +57,15 @@ GridLayout {
             text: row.description
             color: AppTheme.stormText
             font.pixelSize: AppTheme.textBody
-            // NOT elide — see the file header. A name shortened to the
-            // point where two rows read alike is worse than a tall row.
+            // Wrap, not elide (see the header).
             wrapMode: Text.WordWrap
             lineHeight: AppTheme.lineHeightBody
             lineHeightMode: Text.ProportionalHeight
         }
-        // Three different messages can appear under one row and they mean
-        // very different things, so they are three Loaders rather than one
-        // Label with a ternary: a conflict means BOTH actions are dead, a
-        // shadow means both still work, and a capture error means nothing
-        // was stored. Loaders (not `visible:`) because a Label whose text
-        // can be "" keeps ItemObservesViewport forever — the single most
-        // expensive QML mistake this codebase has recorded. This row is not
-        // in the timeline, but the habit is the point.
+        // Three messages with different meanings, so three Loaders: a conflict
+        // (both actions dead), a shadow (both still work), a capture error
+        // (nothing stored). Loaders, since an empty Label stays a viewport
+        // observer.
         Loader {
             Layout.fillWidth: true
             active: row.conflictsWith !== ""
@@ -141,17 +106,16 @@ GridLayout {
         }
     }
 
-    // The keycap and its buttons travel together: they are ONE cell of the
-    // grid, so `columns: 1` stacks them under the name instead of breaking
-    // the four of them across four rows.
+    // The keycap and buttons are one grid cell, so `columns: 1` stacks them
+    // under the name as a group.
     RowLayout {
         id: controlGroup
         spacing: AppTheme.spacing8
         Layout.alignment: row.compact ? Qt.AlignLeft | Qt.AlignVCenter
                                       : Qt.AlignRight | Qt.AlignVCenter
 
-        // The key itself, or the capture prompt in its place. One rectangle for
-        // both states so the row does not change width when capture starts.
+        // The key, or the capture prompt in its place; one rectangle so the
+        // width does not change when capture starts.
         Rectangle {
             id: chip
             objectName: "shortcutChip_" + row.actionId
@@ -177,9 +141,8 @@ GridLayout {
             }
         }
 
-        // The focus sink that does the capturing. It is a zero-size Item rather
-        // than a focusable button, so nothing about the visible chip depends on
-        // Qt's focus ring.
+        // The capturing focus sink: a zero-size Item, independent of focus
+        // rings.
         Item {
             id: captureSink
             objectName: "shortcutCaptureSink_" + row.actionId
@@ -188,8 +151,8 @@ GridLayout {
             focus: false
             activeFocusOnTab: false
 
-            // See the header note: this is what lets a key that is ALREADY a
-            // live shortcut reach us instead of firing.
+            // Lets a key that is already a live shortcut reach us (see the
+            // header).
             Keys.onShortcutOverride: (event) => {
                 if (row.capturing)
                     event.accepted = true
@@ -206,15 +169,13 @@ GridLayout {
                 }
                 var seq = app.shortcuts.sequenceFromKeyEvent(event.key,
                                                              event.modifiers)
-                // Empty means the user is still holding modifiers and has not
-                // reached a real key yet. Stay open — that is most of the time a
-                // capture is running, not an error.
+                // Empty means modifiers are still held; keep capturing.
                 if (seq === "")
                     return
                 var err = app.shortcuts.setBinding(row.actionId, seq)
                 if (err !== "") {
-                    // NOTHING was stored. Keep capturing so the next press is a
-                    // correction rather than requiring another click on Change.
+                    // Nothing was stored; keep capturing so the next press is a
+                    // correction.
                     row.captureError = err
                     return
                 }
@@ -222,9 +183,8 @@ GridLayout {
                 row.endCapture()
             }
             onActiveFocusChanged: {
-                // Clicking anywhere else abandons the capture. Without this the
-                // row would keep swallowing shortcut overrides after the user
-                // had visibly moved on.
+                // Focus elsewhere abandons the capture, so this stops
+                // swallowing overrides.
                 if (!activeFocus)
                     row.endCapture()
             }
@@ -245,9 +205,7 @@ GridLayout {
             size: "sm"
             kind: "ghost"
             objectName: "shortcutReset_" + row.actionId
-            // Hidden rather than disabled when already default: a permanently
-            // greyed control on every row is noise, and there is nothing to
-            // explain about it.
+            // Hidden rather than disabled when already default.
             visible: !row.isDefault
             text: qsTr("Reset")
             onClicked: {

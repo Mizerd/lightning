@@ -5,75 +5,37 @@ import MatrixClient
 
 Item {
     id: root
-    // TableView owns the row rectangle. Nested Loader content must never paint
-    // into an adjacent message while a recycled row is being remeasured.
-    // Clip everywhere except the thread ListView, which keeps its previous
-    // unclipped behaviour. The room timeline's rows are packed edge to edge in
-    // a Column, so a row must not paint over its neighbours.
-    // NOT clipped. The clip dates from the TableView era ("while a recycled
-    // row is being remeasured"); rows are no longer recycled and size to
-    // their content exactly, so there is nothing to spill. What the clip DID
-    // do was cut the hover action bar off on any row shorter than it, which
-    // is the reported defect. The thread panel has always run unclipped with
-    // the same delegate and the same bar.
+    // Not clipped: rows size to their content exactly, and a clip would cut off
+    // the hover action bar on a row shorter than it.
     clip: false
-    // The room timeline is a one-column TableView; thread replies still use
-    // ListView. Keep the delegate's interaction contract independent of the
-    // virtualizer while preserving each view's attached reuse lifecycle.
-    // Settable, not readonly: the room timeline instantiates rows in a
-    // Repeater/Column where no attached view exists, so it injects itself.
-    // The thread panel is still a real ListView and keeps the attached
-    // default (including its delegate reuse, which the room timeline no
-    // longer does at all).
+    // Settable: the room timeline instantiates rows in a Repeater/Column with
+    // no attached view, so it injects itself. The thread panel is a ListView
+    // and keeps the attached default.
     property var timelineView:
         TableView.view ? TableView.view : ListView.view
 
-    // ── Multi-message selection (0.9 forwarding) ─────────────────────────
-    //
-    // While selecting, a tap TOGGLES the row instead of doing whatever that
-    // row's tap normally does — opening an image, following a link, adding a
-    // reaction. Selection has to be the whole interaction or a mis-tap sends
-    // a reaction to a room the user is only trying to quote from.
-    /// The open room's display name, for "with context" forwarding. Set by
-    /// the pane, which is what already resolves it for the header.
+    // Multi-message selection: while selecting, a tap toggles the row instead
+    // of its normal action (open an image, follow a link, react).
+    /// The open room's display name, for "with context" forwarding.
     property string sourceRoomName: ""
     readonly property bool selectionMode: app.forward.selecting === true
-    /// WHAT A ROW'S OWN SURFACES ARE GATED ON WHILE SELECTING.
-    ///
-    /// The selection TapHandler below carries
-    /// `grabPermissions: CanTakeOverFromAnything` and a comment claiming
-    /// "everything a row normally does — open an image, follow a link, add a
-    /// reaction — is suspended while selecting". It is not: grab permissions
-    /// govern who may take an EXCLUSIVE grab, and pointer events are
-    /// delivered innermost-first, so a handler on a child acts before the
-    /// row's ever sees the press. Reproduced 2026-09-18 — clicking a picture
-    /// while picking messages to forward opened the full-screen viewer over
-    /// the picker.
-    ///
-    /// So the suspension is explicit, on each surface, and derived from one
-    /// name so a surface added later is a one-word change rather than a
-    /// silent regression.
+    /// What a row's own surfaces are gated on while selecting. The selection
+    /// TapHandler's grab permissions do not suspend child handlers (they receive
+    /// the press first), so each surface checks this explicitly.
     readonly property bool rowActionsEnabled: !root.selectionMode
-    // MESSAGES select. A call card or a state row has an event id too, and
-    // the circle drew over the call card's own glyph (2026-09-05 screenshot);
-    // forwarding "X started a call" is not a thing anyone asked for.
+    // Only messages are selectable, not call cards or state rows.
     readonly property bool rowSelectable:
         model.isVirtual !== true && model.redacted !== true
         && model.isLocalEcho !== true
         && !root.isCallEvent && !root.isStateActivity
         && root.eventIdForActions() !== ""
-        // A gallery forwards as its first attachment only (the snapshot
-        // below carries one mediaKey); see the Forward menu item.
+        // A gallery forwards as its first attachment only.
         && !root.isGallery
-    /// The circle's own column while selecting. The row's content shifts
-    /// right by this much so the circle never sits on the avatar or the
-    /// text (it drew over the avatar on identity rows).
+    /// Width of the selection circle's column; the content shifts right by this
+    /// so the circle never overlaps the avatar or text.
     readonly property real selectionGutterWidth: 26
-    // isSelected() is a plain call Qt cannot observe, so on its own this
-    // binding never re-ran after a toggle: the footer counted "1 message(s)
-    // selected" while every circle stayed empty (2026-09-05 report).
-    // selectedCount changes on every toggle and carries the dependency; it
-    // is a true precondition as well.
+    // isSelected() is a plain call Qt cannot observe; selectedCount changes on
+    // every toggle and carries the dependency.
     readonly property bool rowSelected:
         root.selectionMode && root.rowSelectable
         && app.forward.selectedCount > 0
@@ -98,59 +60,36 @@ Item {
             mediaKey: model.mediaKey || "",
             mediaFilename: model.mediaFilename || "",
             timestampMs: model.timestampMs || 0,
-            // The source room's NAME, for "with context" mode. Read from
-            // the open room rather than resolved per event: a selection is
-            // always from one room, and this is what the header shows.
+            // Read from the open room: a selection is always from one room.
             sourceRoomName: root.sourceRoomName || "",
         })
     }
-    // v0.5.7: virtual SDK timeline rows (date divider / read marker /
-    // timeline start) render as thin separators instead of messages.
-    // eventType: 7 = DateDivider, 8 = ReadMarker, 9 = TimelineStart.
-    // Speculative media work (full-payload prefetch, poster extraction) is
-    // only worth spending on a row the reader actually stopped on — see the
-    // long note on `speculativeMediaAllowed` in TimelinePane.qml. A host
-    // without a pane (fixtures, the thread panel) is permissive.
+    // Virtual rows (eventType 7 = DateDivider, 8 = ReadMarker, 9 =
+    // TimelineStart) render as thin separators. Speculative media work is only
+    // spent on rows the reader stopped on (see speculativeMediaAllowed in
+    // TimelinePane.qml). A host without a pane is permissive.
     readonly property bool speculativeMediaAllowed:
         rowOnScreen
         && (!root.timelineView
             || root.timelineView.speculativeMediaAllowed !== false)
-    // Whether this row is close enough to the viewport for its PICTURE to be
-    // worth fetching now (2026-09-05). The rows of a room are all
-    // instantiated, so before this every image in the loaded history asked
-    // the bridge for its payload the moment the room opened — hundreds of
-    // downloads, decodes and, in an encrypted room without server
-    // thumbnails, full-size files — all competing with the rows the reader
-    // was actually looking at. The pane publishes a band in content
-    // coordinates (see `refreshMediaBand` in TimelinePane.qml) and only
-    // moves it at discrete moments, so this costs one comparison per row
-    // per settle, never one per scroll frame. A host without a band
-    // (fixtures, the thread panel) is permissive.
-    // Settable for the same reason rowOnScreen is: in the room timeline the
-    // per-row Loader assigns it from the pane's index range. A host without a
-    // band (the thread ListView, fixtures) leaves it permissive.
+    // Whether this row is near enough to the viewport to fetch its picture now.
+    // Every row is instantiated, so without this every image in the loaded
+    // history would fetch on room open. The pane publishes the band (see
+    // refreshMediaBand in TimelinePane.qml) and assigns this from its index
+    // range. Hosts without a band (thread ListView, fixtures) stay permissive.
     property bool mediaInBand: true
 
     readonly property bool isVirtualRow: model.isVirtual === true
     readonly property bool isStateActivity: model.isStateActivity === true
     readonly property bool isRoutineActivity: model.isRoutineActivity === true
-    // 2026-08-26: a call somebody started. Its OWN row kind, not a state
-    // event — this is the third row family in this chooser (message /
-    // virtual / state), and §16 records what happens when a chooser names
-    // only SOME of the model's kinds: a group label rendered as a room row.
-    // Every branch below that enumerates row kinds names this one too.
-    // `=== true` deliberately: a host whose model lacks the role reads
-    // `undefined` and keeps today's behaviour.
+    // A call somebody started: its own row kind alongside message, virtual and
+    // state. Every branch that enumerates row kinds must name it. `=== true` so
+    // a model without the role keeps the old behaviour.
     readonly property bool isCallEvent: model.isCallEvent === true
-    // State events remain in the authoritative timeline model. This is only
-    // a zero-height presentation filter, so toggling the setting restores the
-    // same delegates without a resync or a second timeline.
-    // 2026-08-26: "room activity" is now a master switch with two halves,
-    // and the bridge has distinguished them all along (rust/src/timeline.rs
-    // emits state_kind "membership" and "member_profile"). Anything that is
-    // neither — room settings, topic, name — follows the master alone.
-    // Keep this matrix in step with TimelineModel::activityKindVisible,
-    // which answers the same question for a DATE DIVIDER's own visibility.
+    // A zero-height presentation filter: state events stay in the model, so
+    // toggling the setting needs no resync. "Room activity" is a master switch
+    // with membership and member_profile halves; other kinds follow the master.
+    // Keep in step with TimelineModel::activityKindVisible.
     readonly property bool roomActivityVisible: {
         if (!isRoutineActivity) return true
         if (!app.settings.showRoomActivity) return false
@@ -160,23 +99,16 @@ Item {
             return app.settings.showProfileChangeEvents
         return true
     }
-    // v0.6.0: the timeline model this delegate's stable-id actions resolve
-    // against. The room timeline supplies app.timeline; the thread panel
-    // supplies app.thread.model — identical role/invokable surface.
+    // The model this delegate's stable-id actions resolve against: app.timeline
+    // for the room, app.thread.model for the thread panel.
     readonly property var timelineModel:
         root.timelineView && root.timelineView.timelineModel
         ? root.timelineView.timelineModel : app.timeline
-    // Whether this row's send can still be aborted. Asks the model, never
-    // the status alone: a backend with no send queue has nothing to cancel,
-    // and a row with no transaction id is not addressable in one. The
-    // typeof guard is for the QML suites' plain ListModel fixtures, which
-    // carry no such method.
-    //
-    // A FUNCTION, not a root property: it needs `index`, and a root-level
-    // binding on `index` is a creation-time delegate-context lookup — the
-    // family that produced the poisoned-context defect fixed in 30ee39b.
-    // Its one caller is deep in the built tree, where the Retry row already
-    // reads `index` safely.
+    // Whether this row's send can still be aborted. Asks the model: a backend
+    // without a send queue has nothing to cancel. The typeof guard is for plain
+    // ListModel fixtures. A function rather than a root property because it
+    // needs `index`, and a root-level binding on `index` is a creation-time
+    // context lookup.
     function canCancelSendAt(viewRow) {
         return root.timelineModel !== null
             && typeof root.timelineModel.canCancelSend === "function"
@@ -186,36 +118,28 @@ Item {
         return root.timelineView && root.timelineView.sourceRowForViewRow
                 ? root.timelineView.sourceRowForViewRow(viewRow) : viewRow
     }
-    // v0.6.0: the thread panel pins the root above the reply list; the same
-    // row inside the ListView collapses so the root is never duplicated.
+    // The thread panel pins the root above the reply list, so the same row
+    // inside the ListView collapses.
     readonly property bool suppressedAsThreadRoot:
         root.timelineView && (root.timelineView.suppressRootEventId || "") !== ""
         && (model.eventId || "") === root.timelineView.suppressRootEventId
     readonly property var stateActivityEntries: model.stateGroupEntries || []
     readonly property bool showsIdentity: model.showSenderIdentity === true
 
-    // A date divider that introduces nothing the reader can see — a run of
-    // routine state rows hidden by the room-activity setting, or the
-    // non-leader rows of a collapsed group — is an orphan date and must not
-    // render at all. The MODEL answers this (one cached scan of the run);
-    // the delegate never walks its neighbours. `=== false` deliberately:
-    // a host whose model lacks the role reads `undefined` and keeps today's
-    // behaviour rather than silently hiding every divider.
+    // A date divider that introduces nothing visible is suppressed. The model
+    // answers this. `=== false` so a model without the role keeps every
+    // divider.
     readonly property bool dividerSuppressed:
         isVirtualRow && model.eventType === 7
         && model.dividerIntroducesVisibleContent === false
 
-    // A redacted row that is NOT the first of its run renders nothing: the
-    // leader carries the whole run's "N messages deleted" line. `=== false`
-    // deliberately, matching dividerSuppressed above — a host whose model
-    // lacks the role reads `undefined` and keeps one row per deletion rather
-    // than silently hiding every deleted message.
+    // A redacted row that is not the first of its run renders nothing; the
+    // leader shows "N messages deleted". `=== false` as above.
     readonly property bool deletedFollower:
         model.redacted === true && model.deletedGroupLeader === false
 
-    // Settings → Appearance → Message layout (0 Modern, 1 Bubbles, 2
-    // Compact). The thread panel always keeps the Modern rows; Bubbles
-    // applies only to direct-message timelines (never ordinary rooms).
+    // 0 Modern, 1 Bubbles, 2 Compact. The thread panel always uses Modern;
+    // Bubbles applies only to direct-message timelines.
     readonly property int timelineLayout:
         inThreadPanel ? 0 : app.settings.messageLayout
     property bool isDirectRoom: root.timelineView
@@ -224,10 +148,8 @@ Item {
     readonly property bool compactMode: timelineLayout === 2
     readonly property real bubblePad: bubbleMode ? 10 : 0
 
-    // Group leaders (a new sender block or a lone message) get a slightly
-    // more generous gap than the tight 8px so distinct groups read as
-    // separated; continuation lines within a group stay at 1px. Compact/IRC
-    // stays dense.
+    // Group leaders get a larger gap than continuation lines. Compact stays
+    // dense.
     readonly property real messageTopSpacing: showsIdentity
                                                ? (compactMode ? 2
                                                               : AppTheme.spacingM)
@@ -235,30 +157,17 @@ Item {
     readonly property real avatarGutterWidth: compactMode ? 8
                                               : (bubbleMode ? 44 : 40)
 
-    // v0.7: shared on-screen check for skeleton shimmer and GIF playback —
-    // rows pooled in the cache buffer are `visible` but not on screen, and
-    // must not burn animation work.
-    // One geometry test for both hosts. The room timeline instantiates every
-    // loaded row, so "instantiated" no longer implies "on screen" and this
-    // must be a real intersection against the viewport. It is also safe to
-    // read our own y/height now: the previous version had to avoid them
-    // because they fed back into the rowHeightProvider measuring this same
-    // object, and that provider is gone.
-    // Settable for the same reason timelineView is: in the room timeline this
-    // item sits inside a per-row Loader, so its own y is 0 relative to that
-    // Loader and cannot be compared against the viewport. The Loader knows its
-    // content-space position and assigns this. The default binding below still
-    // serves the thread ListView, where the delegate IS the positioned item.
+    // On-screen check for skeleton shimmer and GIF playback. Settable: in the
+    // room timeline this item sits inside a per-row Loader (its own y is 0), so
+    // the Loader assigns it. The default binding serves the thread ListView,
+    // where the delegate is the positioned item.
     property bool rowOnScreen:
         !!root.timelineView
         && (y + height) > root.timelineView.contentY
         && y < (root.timelineView.contentY + root.timelineView.height)
 
-    // Once the verified-session bootstrap has given up (the automatic key
-    // request timed out, or there is no backup to restore from), stop
-    // shimmering every undecryptable row forever — hold a static reserved
-    // state instead. Keys arriving later (e.g. after manual recovery) still
-    // replace the row in place.
+    // Once the bootstrap has given up on keys, stop shimmering undecryptable
+    // rows and hold a static state. Keys arriving later still replace the row.
     readonly property bool decryptStalled:
         app.cryptoBootstrap
         && (app.cryptoBootstrap.phase
@@ -280,39 +189,26 @@ Item {
     property bool heightMeasurementReady: false
     implicitHeight: heightSeedActive ? heightSeed : naturalImplicitHeight
 
-    // Stable key for the pin-one-toolbar-at-a-time state on the ListView.
-    // Prefer the SDK item id; fall back to the event id for backends that
-    // don't set it. Empty for virtual rows (they have no actions).
+    // Key for the one-pinned-toolbar state: the SDK item id, else the event id.
+    // Empty for virtual rows.
     readonly property string actionKey: (model.itemId && model.itemId.length > 0)
                                         ? model.itemId
                                         : (model.eventId || "")
-    // ── Element-style hide image ─────────────────────────────────────────
-    //
-    // PURELY LOCAL. Hiding sends nothing, edits nothing and redacts nothing;
-    // it stops this client painting a bitmap. See MediaVisibilityStore for
-    // why the flag is session-scoped and why it lives there rather than in
-    // this delegate (a timeline row is destroyed the moment it leaves the
-    // cache buffer, so a flag inside one is gone by the time the reader
-    // scrolls back).
-    //
-    // Images and stickers only. Both draw a bitmap the reader may not want on
-    // screen; a video card has its own poster and controls, and extending
-    // this to it without evidence that anyone wants it there would be adding
-    // a control to a surface that did not ask for one.
+    // Element-style hide image. Purely local: nothing is sent, edited or
+    // redacted. The flag lives in MediaVisibilityStore because a row can be
+    // destroyed and rebuilt. Images and stickers only.
     readonly property bool mediaHideable:
         (model.isImage === true || model.isSticker === true)
         && model.redacted !== true
         && root.mediaVisibilityKey.length > 0
-    // The row's media identity. `mediaKey` IS the event id once the event is
-    // remote (see the Rust bridge), so this is per-event in practice; the
-    // eventId fallback covers a backend that reports no key.
+    // `mediaKey` is the event id once the event is remote; eventId is the
+    // fallback.
     readonly property string mediaVisibilityKey:
         (model.mediaKey && model.mediaKey.length > 0)
             ? model.mediaKey : (model.eventId || "")
-    // A plain tracked property, not a binding on the Q_INVOKABLE: isHidden()
-    // carries no per-key NOTIFY for QML to bind to. Refreshed on the two
-    // events that can change the answer for THIS row — the identity changing
-    // under delegate reuse, and the store announcing a write.
+    // A tracked property rather than a binding on the Q_INVOKABLE (isHidden()
+    // has no per-key NOTIFY). Refreshed when the identity changes and when the
+    // store announces a write.
     property bool mediaHidden: false
     function refreshMediaHidden() {
         if (typeof app === "undefined" || !app || !app.mediaVisibility) {
@@ -333,56 +229,26 @@ Item {
     Connections {
         target: (typeof app !== "undefined" && app) ? app.mediaVisibility : null
         function onHiddenChanged(key, hidden) {
-            // Keyed, so one reveal somewhere else in the timeline cannot
-            // re-resolve every image row in the app.
+            // Keyed, so one reveal does not re-resolve every image row.
             if (key === root.mediaVisibilityKey)
                 root.mediaHidden = hidden
         }
     }
-    // ── Collapse embeds to one line ──────────────────────────────────────
-    //
-    // "modern media, too much clutter, please add an option to reduce all
-    // embeds in to single lines, with an expanding arrow or mouse over or
-    // keyboard shortcut something something" — the maintainer, 2026-09-19.
-    //
-    // OFF BY DEFAULT. With the setting off every binding below is false and
-    // every Loader it gates keeps exactly the `active`/`sourceComponent` it
-    // had before, so a reader who never opens Settings sees no change.
-    //
-    // WHAT IT COVERS, and the exclusions are decisions rather than
-    // omissions:
-    //   * covered — images, GIFs, stickers, video cards, audio and voice
-    //     cards, file cards, and a LOADED link preview. Those are the six
-    //     surfaces that paint a block instead of a line.
-    //   * NOT the reply quote. It is conversational context, not media; a
-    //     reply whose quote is one word of chrome is unreadable, which is
-    //     the opposite of decluttering.
-    //   * NOT the thread summary card. It is navigation, and it is already
-    //     one compact row.
-    //   * NOT polls or shared places. Each IS the message — a poll's
-    //     question and its vote buttons, a place's name and its map action
-    //     — so collapsing one hides content rather than a rendering of it.
-    //   * NOT a link preview that is still asking, loading or failed. Those
-    //     states are already one band and each carries the only control the
-    //     reader has (the consent button, the retry). Putting a second
-    //     click in front of the privacy gate would be a worse trade than
-    //     the space it saves.
-    //   * NOT code blocks. They are message text, not an attachment.
-    //
-    // THE COLLAPSED ROW FETCHES NOTHING. While a row is collapsed the media
-    // component is not INSTANTIATED, so every MediaBridge call site in it —
-    // `mediaSource`, `videoPosterSource`, `animatedSource`, the audio card's
-    // prefetch — is unreachable. Collapsing strictly removes downloads; it
-    // never moves one into a smaller surface.
+    // Collapse embeds to one line. Off by default; with it off every Loader it
+    // gates keeps its normal `active`/`sourceComponent`.
+    //   * Covered: images, GIFs, stickers, video, audio/voice, file cards, and
+    //     a loaded link preview.
+    //   * Not covered: reply quotes (context, not media), thread summary cards,
+    //     polls and places (the card is the message), link previews still
+    //     asking/loading/failed (they carry the consent or retry control), and
+    //     code blocks.
+    // A collapsed row does not instantiate its media component, so it fetches
+    // nothing.
     readonly property bool collapseEmbedsSetting:
         typeof app !== "undefined" && app && app.settings
         && app.settings.collapseEmbeds === true
-    // TRANSIENT, and deliberately not persisted anywhere. An expansion is
-    // "show me this one", not a preference: persisting it per event would
-    // grow an unbounded store of reader state and would make the setting
-    // stop applying to rows the reader had opened weeks ago. Reset when the
-    // row's identity changes (see onActionKeyChanged), which is the same
-    // point every other per-row cache in this delegate resets at.
+    // Transient, not persisted: an expansion is "show me this one", not a
+    // preference. Reset when the row identity changes (onActionKeyChanged).
     property bool embedExpanded: false
     function toggleEmbedExpanded() { root.embedExpanded = !root.embedExpanded }
 
@@ -391,7 +257,7 @@ Item {
         && model.redacted !== true
     readonly property bool mediaEmbedCollapsed:
         root.mediaEmbedCollapsible && !root.embedExpanded
-    // `loaded` ONLY — see the exclusion list above.
+    // `loaded` only; see the exclusions above.
     readonly property bool previewEmbedCollapsible:
         root.collapseEmbedsSetting
         && root.preview !== undefined && root.preview !== null
@@ -414,14 +280,9 @@ Item {
             return qsTr("%1 KB").arg(Math.round(bytes / 1024))
         return qsTr("%1 MB").arg((bytes / (1024 * 1024)).toFixed(1))
     }
-    // A FUNCTION, not a `readonly property`, and so are the three below it.
-    // Every row in this timeline is instantiated, so a property here would
-    // be a string lowercase-and-compare per row whether or not the setting
-    // is on; a function is evaluated only from inside the summary
-    // component, which only exists while a row is collapsed. (It is still a
-    // reactive binding where it is used: a QML function's property reads are
-    // captured by the binding that calls it. That is not the refuted case in
-    // §16 — that one reached a C++ Q_INVOKABLE, which captures nothing.)
+    // Functions rather than properties: they only run inside the summary
+    // component (collapsed rows), so uncollapsed rows pay nothing. Property
+    // reads inside a QML function are still captured by the calling binding.
     function mediaIsGif() {
         return (model.mediaMimetype || "").toLowerCase() === "image/gif"
     }
@@ -449,28 +310,20 @@ Item {
         if (model.isFile === true) return qsTr("File")
         return qsTr("Attachment")
     }
-    // Whatever this surface ALREADY knows about itself, in the order a
-    // reader scans: what it is called, then how big it is. Every part is
-    // optional — a sticker often has no filename and an encrypted image may
-    // arrive with no dimensions — and an empty detail is why the row says
-    // "Image" rather than "Image · ".
+    // Name, then size. Every part is optional; an empty detail yields "Image",
+    // not "Image · ".
     function mediaEmbedDetail() {
-        // A gallery's primary name and size describe one of its pictures, not
-        // the message; the count in mediaEmbedKind() is the whole summary.
+        // A gallery's summary is its count (see mediaEmbedKind()).
         if (root.isGallery) return ""
         var parts = []
         var name = (model.mediaFilename || "").trim()
-        // A voice message's "filename" is a generated one nobody chose; its
-        // length is the only thing worth a line.
+        // A voice message's filename is generated; only its length matters.
         if (name.length > 0 && model.mediaIsVoice !== true)
             parts.push(name)
         if (model.isVideo === true || model.isAudio === true) {
             var d = root.embedDurationText(model.mediaDurationMs || 0)
             if (d.length > 0) parts.push(d)
-            // A CLIP WHOSE DURATION IS NOT KNOWN YET STILL HAS A SIZE, and
-            // without this an audio row collapsed to its bare filename while
-            // every other kind carried a second fact — measured on a GUI pass
-            // against a card that said "0:00 • 281 KB" beside it.
+            // Audio whose duration is unknown still has a size.
             else if (model.isAudio === true) {
                 var as = root.embedSizeText(model.mediaSize || 0)
                 if (as.length > 0) parts.push(as)
@@ -479,16 +332,9 @@ Item {
             if (model.mediaWidth > 0 && model.mediaHeight > 0) {
                 parts.push(model.mediaWidth + "×" + model.mediaHeight)
             } else {
-                // NO DIMENSIONS IS NOT NO SECOND FACT. A sticker sent
-                // from a pack LIGHTNING uploaded has none, because
-                // `upload_to_user_pack` deliberately does not decode the
-                // image to fill an advisory `info`, and `sticker_image_info`
-                // then omits `w`/`h` rather than claiming zero. Stickers
-                // from other clients, and from packs Lightning did not
-                // write, usually DO carry dimensions and take the branch
-                // above — this is the fallback for the ones that cannot.
-                // An image can reach it too, before its own info hydrates.
-                // Same shape as the audio branch above.
+                // Stickers from packs Lightning uploaded have no dimensions
+                // (upload_to_user_pack does not decode the image), and an image
+                // may arrive before its info hydrates; fall back to size.
                 var is = root.embedSizeText(model.mediaSize || 0)
                 if (is.length > 0) parts.push(is)
             }
@@ -499,10 +345,8 @@ Item {
         }
         return parts.join(" · ")
     }
-    // The link preview's one line. `host` is derived from the URL by
-    // LinkPreviewController::sanitizedHost and needs no fetch; `title` and
-    // `siteName` are already resolved, because this row only exists in the
-    // `loaded` state.
+    // `host` comes from LinkPreviewController::sanitizedHost; title and
+    // siteName are resolved because this only exists in the `loaded` state.
     function previewEmbedDetail() {
         var p = root.preview || {}
         var parts = []
@@ -513,34 +357,25 @@ Item {
         if (title.length > 0) parts.push(title)
         return parts.join(" · ")
     }
-    // ── Find-in-timeline highlighting ────────────────────────────────────
-    // The active query, or "" when the reader is not searching. Reads the
-    // delegate's OWN model, so a thread panel search never lights up the room
-    // timeline behind it.
+    // Find highlighting: the active query, or "". Reads the delegate's own
+    // model, so a thread panel search does not light up the room timeline.
     readonly property string searchHighlight:
         root.timelineModel && root.timelineModel.searchActive === true
         ? (root.timelineModel.searchQuery || "") : ""
-    // Whether this row is the match the find bar is currently sitting on, so
-    // it can be distinguished from the other matches on screen.
+    // Whether this row is the current match.
     readonly property bool isCurrentSearchHit:
         root.searchHighlight !== ""
         && root.timelineModel
         && (model.eventId || "") !== ""
         && (model.eventId || "") === root.timelineModel.searchCurrentEventId
 
-    // Wrap every occurrence of `needle` in a highlight span.
-    //
-    // The body is RichText — either sanitized HTML from a formatted message or
-    // linkified plain text — so a naive string replace would happily rewrite
-    // the inside of a tag or an entity and corrupt the markup. This walks the
-    // string instead, copying tags through untouched and only ever
-    // substituting within text runs. Entities are treated as atomic for the
-    // same reason: searching "amp" must not split "&amp;" down the middle.
+    // Wrap every occurrence of `needle` in a highlight span. The body is
+    // RichText, so walk it: tags are copied untouched and only text runs are
+    // substituted. Entities are atomic, so "amp" does not split "&amp;".
     function highlightSearchMatches(html, needle, current) {
         if (!needle || needle.length === 0 || !html || html.length === 0)
             return html
-        // Cheap reject first. Every loaded row re-evaluates this on each
-        // query change, and in this timeline every loaded row is live.
+        // Cheap reject first: every row re-evaluates on each query change.
         if (html.toLowerCase().indexOf(needle.toLowerCase()) < 0)
             return html
 
@@ -596,7 +431,7 @@ Item {
             result += highlightRun(html.substring(i, tagStart))
             var tagEnd = html.indexOf(">", tagStart)
             if (tagEnd < 0) {
-                // Malformed tail: copy it through rather than guess.
+                // Malformed tail: copy it through.
                 result += html.substring(tagStart)
                 break
             }
@@ -619,26 +454,15 @@ Item {
                 heightSeedActive = true
             }
         }
-        // Keep a recycled delegate at its own last known height for one event
-        // turn while the nested Loaders rebind. After that, expose natural
-        // geometry and let TableView measure it. Holding an estimate longer
-        // lets child content paint outside stale row bounds and visibly stack.
+        // Keep a recycled delegate at its last known height for one event turn
+        // while nested Loaders rebind, then expose natural geometry.
         heightSeedReleaseTimer.restart()
     }
     onNaturalImplicitHeightChanged: {
-        // Nested reply/media/preview Loaders can finish after the initial
-        // reuse turn. A custom TableView rowHeightProvider is not guaranteed
-        // to be queried again for that implicit-size change, so explicitly
-        // coalesce a fresh exact measurement. Do not reactivate the seed:
-        // that was what allowed stale row geometry to persist and stack.
-        //
-        // Readiness IS dropped here, deliberately: a nested Loader mid-swap
-        // can expose its previous item's implicit size, and accepting that
-        // live would cache a wrong height and shrink-then-grow the row. Keeping
-        // readiness across in-place changes was tried in the belief that this
-        // line was starving the cache; the real cause was the broken attached
-        // -property guard in heightResolutionTimer below, so the debounce
-        // stands as originally written.
+        // Nested Loaders can finish after the reuse turn, and a
+        // rowHeightProvider is not guaranteed to be queried again, so coalesce
+        // a fresh measurement. Do not reactivate the seed. Readiness is dropped
+        // because a Loader mid-swap can expose its previous item's size.
         if (TableView.view && root.timelineView) {
             heightMeasurementReady = false
             heightResolutionTimer.restart()
@@ -658,29 +482,16 @@ Item {
     }
     Timer {
         id: heightResolutionTimer
-        // A recycled media/preview Loader can expose its previous item's
-        // implicit size for one or more queued turns. Commit only after the
-        // natural geometry has been quiet for one frame. Every intervening
-        // change restarts this timer through the handler above.
+        // Commit only after natural geometry has been quiet for one frame.
         interval: 16
         onTriggered: {
             if (root.heightSeedIdentity !== root.actionKey) {
                 root.refreshHeightSeed()
                 return
             }
-            // root.timelineView ONLY. `TableView.view` here would attach to
-            // this Timer, not to the delegate root — the attached `view` is
-            // populated only on the item the TableView instantiated, so it was
-            // permanently null and this guard returned every single time.
-            // That one line disabled the whole exact-height cache: it made
-            // rememberDelegateHeight() unreachable, and because it also
-            // skipped setting heightMeasurementReady, the rowHeightProvider's
-            // own commit path (which waits on that flag) never ran either.
-            // Confirmed live: heightCommits=0 heightCached=0 in every gesture
-            // of a full session, so contentHeight was a sum of pure metadata
-            // estimates while TableView laid the loaded rows out at their real
-            // heights. root.timelineView already resolves the attached view in
-            // the delegate's own scope and covers the ListView case too.
+            // root.timelineView only: `TableView.view` here would attach to
+            // this Timer, not the delegate, and would always be null.
+            // root.timelineView covers the ListView case too.
             if (!root.timelineView)
                 return
             root.heightMeasurementReady = true
@@ -702,22 +513,12 @@ Item {
     readonly property bool actionsPinned: root.timelineView
             && root.timelineView.pinnedActionsKey !== ""
             && root.timelineView.pinnedActionsKey === actionKey
-    // One bar at a time. The hovered row always wins over a PINNED one (a
-    // pinned row shows its bar only while nothing is hovered) — without
-    // that, a pinned row and a hovered row both rendered and two messages
-    // looked selected at once.
-    //
-    // The single deliberate exception is a row whose More menu is open: the
-    // menu is positioned from that bar, so hiding it would strand the menu.
-    // That state ends with the menu.
-    //
-    // C6: while a transient surface owns row interaction — the shared
-    // reaction picker, its tone popup, the profile/reader popovers, the image
-    // viewer — no row may show its bar. One owner on the view, not another
-    // boolean per surface, and deliberately NOT solved with z: a bar that is
-    // merely covered still takes hover and still reads as selected. The More
-    // menu keeps the exception above, because it is positioned FROM the bar.
-    // An undefined owner (a host that predates the contract) blocks nothing.
+    // One bar at a time: a hovered row beats a pinned one. A row whose More
+    // menu is open keeps its bar, since the menu is positioned from it. While a
+    // transient surface owns row interaction (picker, tone popup,
+    // profile/reader popovers, image viewer), no row shows its bar; not solved
+    // with z, since a covered bar still takes hover. An undefined owner blocks
+    // nothing.
     readonly property bool transientOwnerBlocks: {
         if (!root.timelineView)
             return false
@@ -735,15 +536,10 @@ Item {
                         && root.timelineView.hoveredActionsKey === ""))))
     property string menuEventId: ""
 
-    // Clears the view's hovered key if — and only if — this row owns it.
-    // A row can stop being hovered without ever getting a leave event: the
-    // delegate is destroyed under the pointer on a room change. The key
-    // would then keep naming a row that no longer exists and NO bar would
-    // show until the pointer entered some other row.
-    //
-    // Destruction is the only hook that can do this. An actionKey change
-    // cannot: by the time the handler runs the property already holds the
-    // NEW key, so there is nothing left to compare the stale one against.
+    // Clears the view's hovered key if this row owns it. A row destroyed under
+    // the pointer (room change) gets no leave event, and no bar would show
+    // until the pointer entered another row. Only destruction can do this: in
+    // onActionKeyChanged the old key is already gone.
     function releaseHoveredActions() {
         if (root.timelineView
                 && root.timelineView.hoveredActionsKey === root.actionKey)
@@ -751,14 +547,10 @@ Item {
     }
     Component.onDestruction: releaseHoveredActions()
 
-    // v0.7: pooled-delegate reuse. The ListView recycles this delegate for a
-    // different row; model-bound state re-derives through its change handlers
-    // (onActionKeyChanged -> refreshPreview, onMediaIdentityChanged -> media
-    // reset), but transient non-model state — the write-before-use popup
-    // targets and the details payload — must be scrubbed so a stale event id
-    // or dialog body can never carry across rows. Any popup opened on the old
-    // row lives in the Overlay and is closed here defensively. objectName is
-    // read by the reuse-safety test.
+    // Pooled-delegate reuse: model-bound state re-derives through change
+    // handlers, but transient state (popup targets, the details payload) is
+    // scrubbed so a stale event id cannot carry across rows. objectName is read
+    // by the reuse-safety test.
     objectName: "messageDelegateRoot"
     function resetForReuse() {
         menuEventId = ""
@@ -777,27 +569,17 @@ Item {
         refreshHeightSeed()
     }
 
-    // v0.7.1: `alreadyInOverlaySpace` lets a caller that already computed a
-    // point in Overlay.overlay coordinates (the floating action bar below)
-    // hand it over directly — mapping it through root.mapToItem again would
-    // double-map it.
+    // `alreadyInOverlaySpace`: the caller passes a point already in
+    // Overlay.overlay coordinates, so it is not mapped twice.
     function openContextMenu(x, y, alreadyInOverlaySpace) {
         var eventId = root.eventIdForActions()
         if (eventId === "" || root.isVirtualRow || root.isStateActivity
             || root.isCallEvent)
             return
-        // Dismiss any transient row surface FIRST. The picker and this menu
-        // are both Popup.Item in one overlay, so the last one opened paints
-        // and hit-tests on top — and a menu opened over the emoji grid covers
-        // the very thing the reader is trying to click. z cannot fix that
-        // (see TimelinePane's note); mutual exclusion can.
-        //
-        // Reached through `timelineView`, NOT through the pane root: a
-        // delegate only ever sees its view, so a pane-root function is
-        // invisible here. That is the same unreachability that silently
-        // killed the reader-popover click in the 2026-08-19 round, and this
-        // contract was declared on the view in the 2026-08-21 round and then
-        // never called from here — which is why the picker kept being covered.
+        // Dismiss transient row surfaces first: the picker and this menu share
+        // one overlay, so the later one covers the other and z cannot fix it.
+        // Reached through `timelineView`, since a delegate cannot see pane-root
+        // functions.
         if (root.timelineView && root.timelineView.closeTransientRowSurfaces)
             root.timelineView.closeTransientRowSurfaces()
         menuEventId = eventId
@@ -808,10 +590,8 @@ Item {
                                  y === undefined ? 0 : y)
         root.ensureContextMenu().popup(Overlay.overlay, p.x, p.y)
     }
-    // Open THIS row's sender profile. One function, three callers: the
-    // avatar, the sender name, and the context menu's "View profile" — a
-    // tester asked for clicking a user to open their profile and only the
-    // menu did it, which is the least discoverable of the three.
+    // Opens this row's sender profile. Shared by the avatar, sender name and
+    // the context menu's "View profile".
     function openSenderProfileForRow() {
         if (!root.timelineView || !root.timelineView.openSenderProfile)
             return
@@ -824,18 +604,15 @@ Item {
             avatarUrl: model.senderAvatarMxc || ""
         })
     }
-    // Mentions carry an internal "mention:<user-id>" link (rewritten by the
-    // sanitizer); open the member profile. Everything else is a validated
-    // http(s) or Matrix URL. Lives on root because every body renderer in
-    // this delegate — the single TextEdit and each rich-text segment —
-    // must route identically.
+    // Mentions carry an internal "mention:<user-id>" link (from the sanitizer)
+    // that opens the member profile; everything else is a validated http(s) or
+    // Matrix URL. On root so every body renderer routes identically.
     function openMessageLink(link) {
-        // v0.9 spoilers: the internal reveal/re-hide toggle. Handled first
-        // and NEVER routed toward the browser — the scheme exists only
-        // inside sanitize()'s own output.
+        // Internal spoiler toggle; the scheme only exists in sanitize()'s
+        // output and never reaches the browser.
         if (link === "spoiler:toggle") {
-            // Through timelineModel, not app.timeline: the thread panel's
-            // rows resolve against app.thread.model.
+            // Through timelineModel: thread rows resolve against
+            // app.thread.model.
             if (root.timelineModel && root.timelineModel.toggleSpoilers)
                 root.timelineModel.toggleSpoilers(model.eventId)
             return
@@ -851,14 +628,13 @@ Item {
             }
             return
         }
-        // v0.7.x: room-oriented Matrix links open IN-APP through the
-        // Discover surface (which resolves them via the SDK). User links
-        // keep the web behavior — matrix.to renders a profile page there.
+        // Room-oriented Matrix links open in-app through Discover (resolved via
+        // the SDK). User links keep the web behaviour.
         var isMatrixLink =
             link.indexOf("matrix:") === 0
             || link.indexOf("matrix.to/#/") !== -1
-        // Percent-encoded user permalinks (Element emits
-        // matrix.to/#/%40user…) are user links too (review L2).
+        // Percent-encoded user permalinks (matrix.to/#/%40user…) are user links
+        // too.
         var lower = link.toLowerCase()
         var isUserLink =
             link.indexOf("#/@") !== -1
@@ -877,9 +653,8 @@ Item {
         clipboardHelper.copy()
         clipboardHelper.text = ""
     }
-    // v0.6.0: inside the thread panel a reply targets the thread composer
-    // (a rich reply WITHIN the thread via the SDK path); in the room
-    // timeline it targets the main composer as before.
+    // In the thread panel a reply targets the thread composer (an in-thread
+    // rich reply via the SDK path); in the room timeline, the main composer.
     readonly property bool inThreadPanel:
         root.timelineView && root.timelineView.threadContext === true
     function beginReply(eventId) {
@@ -909,10 +684,9 @@ Item {
             actionsPinned ? "" : actionKey
     }
 
-    // v0.7: recoverable unable-to-decrypt rows show a shimmering text
-    // skeleton (keys can still arrive and replace the row in place);
-    // deterministic failures (sent before join, sender requires
-    // verification, withheld) keep their honest static explanation.
+    // Recoverable decryption failures shimmer (keys can still arrive and
+    // replace the row); deterministic failures (sent before join, verification
+    // required, withheld) keep their static explanation.
     readonly property bool showsDecryptingSkeleton: {
         if (model.undecryptable !== true || model.redacted)
             return false
@@ -921,25 +695,16 @@ Item {
                && kind !== "withheld"
     }
 
-    // ── Fenced code blocks ───────────────────────────────────────────────
-    // The model hands over ORDERED segments only for a body that actually
-    // carries a <pre> block; an ordinary message reads back an empty list and
-    // keeps the single-TextEdit path below untouched, which is the whole
-    // point — this timeline instantiates every loaded row, so the hot path
-    // must not grow an item for a feature most messages never use.
-    // `|| []` covers a host whose model has no such role at all.
+    // Fenced code blocks: the model returns ordered segments only for a body
+    // with a <pre> block; ordinary messages get an empty list and keep the
+    // single TextEdit path, so the hot path gains no items. `|| []` covers
+    // models without the role.
     readonly property var messageSegments: model.messageSegments || []
-    // Media/redacted/poll rows suppress the body for their own reasons; the
-    // segmented renderer must obey exactly the same suppression, so both it
-    // and bodyLabel read these two predicates instead of each keeping its
-    // own copy. They live on root (not on bodyLabel) because a root property
-    // must never dereference an id declared further down the document.
-    // An MSC4274 gallery's attachments (two or more), or empty. `|| []`
-    // covers a host whose model has no such role (fixtures, older backends).
+    // An MSC4274 gallery's attachments (two or more), or empty.
     readonly property var galleryItems: model.galleryItems || []
     readonly property bool isGallery: galleryItems.length > 1
-    // "3 images" / "3 attachments" — one wording for the gallery's collapsed
-    // summary and for a reply quoting one.
+    // "3 images" / "3 attachments", for the gallery summary and a reply quoting
+    // one.
     function galleryCountLabel(count, allImages) {
         return allImages ? qsTr("%n image(s)", "", count)
                          : qsTr("%n attachment(s)", "", count)
@@ -950,10 +715,9 @@ Item {
         }
         return true
     }
-    // What the reply quote says when the target has no words to quote: an
-    // image whose body is empty (Sable's default for one attachment), or a
-    // gallery with no caption. Empty when the kind is unknown, so the
-    // "(original message not loaded)" fallback keeps meaning exactly that.
+    // What the reply quote says when the target has no text: an image with an
+    // empty body, or a gallery with no caption. Empty when the kind is unknown,
+    // so the "(original message not loaded)" fallback keeps its meaning.
     function replyKindLabel() {
         var count = model.replyToCount || 0
         var kind = model.replyToKind || ""
@@ -974,10 +738,8 @@ Item {
         || model.isVideo === true
         || model.isAudio === true
         || model.isFile === true
-    // -1 means "uploading, extent unknown"; 0..1 is a REPORTED fraction.
-    // Normalised once here so every reader agrees, and so a fixture model
-    // without the role (the QML suites' ListModels) reads as unknown rather
-    // than assigning undefined to a real property.
+    // -1 means uploading with unknown extent; 0..1 is a reported fraction.
+    // Normalised here so a model without the role reads as unknown.
     readonly property real uploadProgress:
         model.uploadProgress === undefined ? -1 : model.uploadProgress
     readonly property bool mediaCaptionBody: {
@@ -994,16 +756,10 @@ Item {
         && !showsDecryptingSkeleton
         && (!mediaRowBody || mediaCaptionBody)
 
-    // ── Navigation (C5) ──────────────────────────────────────────────────
-    // The delegate is shared by the room timeline and the thread panel, so it
-    // must not know HOW a jump is performed — only that its host offers one.
-    // The room pane routes to PaginationController; the thread panel resolves
-    // the target inside its own thread timeline. A true thread reply must
-    // never be handed to the room history loader, and the SDK's thread focus
-    // guarantees a reply preview in the panel points at another in-thread
-    // event or at the root, so there is no room-handoff case to write here.
-    // Guarded on the function existing: a standalone fixture host degrades to
-    // doing nothing instead of throwing.
+    // Navigation: the delegate is shared by the room timeline and thread panel,
+    // so it only knows that its host offers a jump. A thread reply's targets
+    // are always in-thread, so there is no room hand-off case. Guarded so a
+    // fixture host does nothing instead of throwing.
     readonly property string navigationHighlightId:
         root.timelineView
         && root.timelineView.navigationHighlightEventId !== undefined
@@ -1016,27 +772,13 @@ Item {
             root.timelineView.navigateToEvent(target)
     }
 
-    // ---- Reply-quote identity (2026-08-21 reply restyle) ----------------
-    // Element puts the QUOTED sender's own colour on the quote's rule and
-    // name, which is what makes a one-line quote scannable — you know who
-    // you are about to jump to before you read a word of it. This is the
-    // same deterministic hash the message header below uses, so a person's
-    // quote and their own messages agree on one hue.
-    //
-    // The key is the raw MXID, and `replyToSenderId` IS a role now (added
-    // 2026-08-28 alongside the Rust backend resolving the quoted sender's
-    // display name from the embedded event's own profile). It has to stay the
-    // MXID rather than ReplyToSenderRole, which resolves a DISPLAY NAME:
-    // hashing that would give the same person a different colour in the quote
-    // than on their own message, which is worse than no colour at all. The
-    // `|| ""` is kept deliberately — on backends that know no id the role is
-    // empty, userColor("") falls back to the primary ink, and the quote stays
-    // neutral-but-legible instead of taking a colour that means nothing.
+    // The quoted sender's colour on the quote's rule and name, using the same
+    // hash as the message header. Keyed by the raw MXID, not the display name
+    // (ReplyToSenderRole), so a person's quote and messages share one hue.
+    // Empty falls back to the primary ink.
     readonly property string replySenderKey: model.replyToSenderId || ""
-    // Inside an own outgoing bubble the quote sits on saturated accent, so
-    // the identity inks — tuned for contrast against surface / card /
-    // other-bubble — do not apply and the bubble's own ink family does.
-    // Same two-branch shape as the body ink and the status line.
+    // Inside an own bubble the quote sits on accent, so the bubble's ink family
+    // applies instead of the identity inks.
     readonly property bool replyOnOwnBubble:
         bubbleMode && model.isOwn === true
     readonly property color replySenderInk:
@@ -1045,23 +787,11 @@ Item {
     readonly property color replyBodyInk:
         replyOnOwnBubble ? AppTheme.onAccentMuted : AppTheme.textSecondary
 
-    // ---- Read-receipt rail clearance -----------------------------------
-    // The facepile is a zero-height overlay painted UPWARD from the row's
-    // bottom edge at the ROW's right margin (a fixed rail, maintainer
-    // decision 2026-08-14), while the content column stops at
-    // timelineContentMaxWidth. The reaction Flow already reserves the
-    // rail's width; the body never did, so once the pane was narrower than
-    // roughly 820px — the 320px pane minimum, the thread panel open, a
-    // laptop screen — four avatars landed directly on the last line of the
-    // message.
-    //
-    // Reserve EXACTLY the overlap, and only when there is one: an
-    // unconditional reservation would shave the rail's width off every
-    // message body on a wide window for a facepile that is nowhere near it.
-    // Modern/Compact only — in Bubbles the bubble's width IS its content's
-    // width, so feeding a content constraint back from it closes a loop,
-    // and that layout already handles the collision with the tap-band
-    // exclusion on the bubble.
+    // Read-receipt rail clearance. The facepile paints upward from the row's
+    // bottom at the row's right margin; on a narrow pane it would land on the
+    // body's last line. Reserve exactly the overlap, only when there is one.
+    // Modern/Compact only: in Bubbles the bubble's width is its content's
+    // width, so this would close a loop.
     readonly property real receiptRailReserve:
         (!root.bubbleMode && readReceiptStrip.visible)
         ? Math.max(0, (bubble.x + bubble.width)
@@ -1070,46 +800,20 @@ Item {
                       + AppTheme.spacingXS)
         : 0
 
-    // ---- Bubbles vs the read-receipt rail ------------------------------
-    // An own bubble is right-aligned to `parent.width` while the facepile
-    // rides that SAME edge, so the avatars landed on the bubble's bottom-right
-    // corner and clipped it (seen live 2026-09-14 on a one-word reply). The
-    // width cap already subtracts 40 for a rail, but the PLACEMENT ignored it,
-    // so a short bubble was pushed flush to the row edge where that rail is.
-    //
-    // Insets the own bubble and narrows a wide incoming one by exactly the
-    // pile's width, and only when there is a pile. `receiptRow.width` is a
-    // chip count (18px each at -4 spacing) and depends on nothing below the
-    // bubble, so this cannot close the loop the Bubbles layout is otherwise
-    // full of — see segmentCap and the identity header's own cap.
+    // An own bubble is right-aligned to the same edge the facepile rides, so
+    // inset it (and narrow a wide incoming one) by the pile's width when there
+    // is a pile. receiptRow.width depends only on the chip count, so no loop.
     readonly property real bubbleReceiptInset:
         (root.bubbleMode && readReceiptStrip.visible && receiptRow.width > 0)
         ? receiptRow.width + AppTheme.spacingXS
         : 0
 
-    // ---- What a child INSIDE the content column may actually be ---------
-    //
-    // `bubbleContent` insets every child by `bubblePad` on each side, and
-    // `bubblePad` is 0 in Modern/Compact and 10 in Bubbles. Every width cap
-    // in this file was written against `bubble.width` — the column's OUTER
-    // width — which is exactly right where the padding is zero and 20px too
-    // generous where it is not. Measured 2026-09-19 on the real delegate at
-    // a 640px row: in Bubbles a long body was laid out 12px past the
-    // bubble's inner edge and 2px past the ROW, and an image / video /
-    // audio / file card 10px past both, because `min(360, bubble.width)` is
-    // the bubble's WHOLE width and the card is drawn 10px inside it.
-    //
-    // Derived from `bubbleRow` and NOT from `bubble`, which is the escape
-    // `segmentCap` and the identity header's cap already document: in
-    // Bubbles the bubble is SIZED FROM bubbleContent's implicit width, so a
-    // child clamped against `bubble.width` feeds its own input.  bubbleRow
-    // is fillWidth in `layout` and reports no implicit width, so that end
-    // of the chain is inert, and `bubbleReceiptInset` rides a chip COUNT
-    // and depends on nothing below the bubble either.
-    //
-    // In Modern/Compact this is algebraically `bubble.width`: the same
-    // `Math.min(timelineContentMaxWidth, bubbleRow.width - gutter)` the
-    // bubble itself computes, minus a zero padding.
+    // The width a child inside the content column may use. bubbleContent insets
+    // children by bubblePad (0 in Modern/Compact, 10 in Bubbles), so caps
+    // written against bubble.width are too generous in Bubbles. Derived from
+    // bubbleRow, not bubble: in Bubbles the bubble is sized from its content,
+    // so a child clamped against bubble.width would feed its own input. In
+    // Modern/Compact this equals bubble.width.
     readonly property real contentInnerCap: {
         var avail = Math.max(1, bubbleRow.width - root.avatarGutterWidth)
         avail = root.bubbleMode
@@ -1118,47 +822,23 @@ Item {
         return Math.max(1, avail - root.bubblePad * 2)
     }
 
-    // ---- Action bar vs the read-receipt rail ---------------------------
-    // REPORTED 2026-09-14, with a screenshot: "this is a bit messy and hard
-    // to click on stuff". Four receipt avatars sat ON TOP of the hover action
-    // bar, over its Edit and overflow buttons.
-    //
-    // The two are anchored to the same rail from opposite ends of the row.
-    // The bar is `anchors.top/right` on bubbleRow, 3px above its top edge;
-    // the facepile paints UPWARD from `layout.y + layout.height` at the row's
-    // own right margin. On a TALL row (an image, a long wrap) they are
-    // nowhere near each other, which is why this went unnoticed. On a SHORT
-    // one — a single line, a continuation row, or any row on a scaled-up
-    // desktop, which is what the reporter suspected — the row's top and
-    // bottom are barely 30px apart and the two land on the same pixels. The
-    // facepile wins: both carry z 3 and the strip is later in the document,
-    // so the buttons underneath are not merely ugly, they are unclickable.
-    //
-    // Reserve the pile's width, and ONLY while the two bands actually meet,
-    // so the bar keeps the row's corner everywhere it can. The bar's bottom
-    // edge sits 29px below bubbleRow's top (28px buttons + 2*2 padding, less
-    // the 3px overhang); +4 keeps them from touching. `layout.y` is common to
-    // both and cancels.
-    //
-    // Feeds ONE rightMargin on a Loader and nothing else, so unlike
-    // receiptRailReserve above it cannot close a loop through the bubble's
-    // width — which is why this one applies in Bubbles too.
+    // The hover action bar and the read-receipt facepile are anchored to the
+    // same rail from opposite ends of the row. On a short row they overlap and
+    // the facepile (same z, later in the document) makes the buttons
+    // unclickable. Reserve the pile's width only while the two bands meet. The
+    // bar's bottom is 29px below bubbleRow's top (28px buttons + 2*2 padding -
+    // 3px overhang), +4 so they do not touch. Feeds only a Loader's
+    // rightMargin, so it cannot loop through the bubble's width and applies in
+    // Bubbles too.
     readonly property real actionBarReceiptReserve:
         (readReceiptStrip.visible && receiptRow.width > 0
          && (layout.height - bubbleRow.y - receiptRow.height) < 33)
         ? receiptRow.width + AppTheme.spacingXS
         : 0
 
-    // Date-divider wording. A divider that always spells out
-    // "pirmadienis, 17 rugpjūčio 2025" makes the reader do arithmetic to
-    // answer the only question it is there for — is this today? Element
-    // branches Today / Yesterday / weekday-within-a-week / date, and drops
-    // the year while it is the current one.
-    //
-    // `now` is sampled at binding time and is NOT reactive: a session left
-    // open across midnight keeps yesterday's "Today" until the row is
-    // rebuilt. Accepted — the alternative is a per-row clock dependency on
-    // a surface that instantiates one item per loaded day.
+    // Today / Yesterday / weekday within a week / date, without the year while
+    // it is the current one. `now` is not reactive: a session open across
+    // midnight keeps "Today" until the row is rebuilt.
     function dayLabel(ts) {
         if (!ts || typeof ts.getFullYear !== "function")
             return ""
@@ -1177,15 +857,12 @@ Item {
                                                        : "d MMMM yyyy")
     }
 
-    // v0.5.11: link-preview state for this row, resolved by
-    // LinkPreviewController. Calling previewFor() may dispatch an automatic
-    // request (unencrypted rooms with auto-load on); encrypted rooms stay in
-    // "requires_action" until the explicit Load action.
+    // Link-preview state from LinkPreviewController. previewFor() may dispatch
+    // an automatic request (unencrypted rooms with auto-load on); encrypted
+    // rooms stay in "requires_action" until the explicit Load.
     property var preview: ({ state: "none" })
-    // The reader dismissed this row's card. The controller reports it
-    // alongside state "none" (which collapses the Loader and gives the row
-    // its space back), so the only surface that still needs to know is the
-    // context menu's undo.
+    // The reader dismissed this row's card. State is "none" (the Loader
+    // collapses); only the context menu's undo needs this.
     readonly property bool previewDismissed:
         root.preview ? root.preview.dismissed === true : false
     readonly property bool roomEncrypted:
@@ -1209,11 +886,8 @@ Item {
     onActionKeyChanged: {
         refreshHeightSeed()
         refreshPreview()
-        // A different event in this row: its expansion is not this one's.
-        // The room timeline no longer recycles delegates, but the thread
-        // panel's ListView still does, and a fixture can rebind a row in
-        // place — all three would otherwise show the previous message's
-        // picture under the new message's summary line.
+        // A different event: reset its expansion. The thread ListView still
+        // recycles delegates, and fixtures can rebind a row in place.
         embedExpanded = false
     }
     onPreviewRoomIdChanged: {
@@ -1232,61 +906,36 @@ Item {
         id: virtualRow
         visible: root.isVirtualRow
         width: parent.width
-        // A day boundary is the strongest structural break a timeline has,
-        // and it used to get LESS vertical air (label + 8px total) than the
-        // 12px gap between two consecutive sender groups, while rendering
-        // as an unadorned scrap of grey text with no rule. It now shares
-        // the unread divider's rule-label-rule idiom — two dividers in one
-        // file must not speak two visual languages — at the same 30px row
-        // height, with the rules in `border` so the day break stays quieter
-        // than the unread break it sits near.
+        // Same rule-label-rule idiom and 30px height as the unread divider,
+        // with the rules in `border` so the day break stays quieter.
         implicitHeight: unreadDivider.visible ? 30
                         : virtualLabel.active
                         ? Math.max(30, virtualLabel.implicitHeight
                                        + AppTheme.spacingS * 2)
                         : 0
-        // Computed on the ROW, not inside the Loader's Label: it is also
-        // the Loader's `active` guard, so a divider whose text resolves
-        // empty (an invalid timestamp) creates no item at all rather than a
-        // Label born holding "" — the permanent-viewport-observer hazard
-        // documented immediately below.
+        // Computed on the row because it is also the Loader's `active` guard:
+        // an empty text creates no Label at all (see below).
         readonly property string dividerText:
             model.eventType === 7 ? root.dayLabel(model.timestamp)
             : model.eventType === 9 ? qsTr("Beginning of conversation")
             : ""
-        // ── 2026-08-19 scroll round: THE expensive QML mistake ─────────
-        // A Loader, never an always-created Label. Mechanism, verified in
-        // qtdeclarative 6.11.1 sources:
-        //   * every QQuickText is BORN with ItemObservesViewport
-        //     (QQuickTextPrivate::init, "default until size is known");
-        //   * the ONLY code that clears it is QQuickText::setText, which
-        //     opens with `if (d->text == n) return;` — so a text binding
-        //     that produces the SAME empty string the item already holds
-        //     never reaches the clearing line. (Visibility is never
-        //     consulted; an invisible Label with real text is fine.)
-        //   * QQuickItemPrivate::transformChanged can only switch off its
-        //     per-subtree walk once NO descendant observes the viewport.
-        // So one such Label per row makes Qt walk the ENTIRE instantiated
-        // timeline tree on EVERY contentY change: profiled at 19.2% of all
-        // cycles, with a tree walk measuring exactly 3 observers per row
-        // over 1000 rows. THE RULE: in a per-row delegate, a Label whose
-        // text can be "" in the state it is created in belongs in a Loader
-        // — and that includes labels reading message fields, which are all
-        // empty on a VIRTUAL (date-divider / read-marker) row.
+        // A Loader, never an always-created Label. Every QQuickText is born
+        // with ItemObservesViewport, and only setText() clears it, which
+        // returns early when the text is unchanged. One Label per row created
+        // with "" makes Qt walk the whole timeline tree on every contentY
+        // change. Rule: in a per-row delegate, a Label whose text can be "" at
+        // creation belongs in a Loader. This includes labels reading message
+        // fields, which are empty on virtual rows.
         Loader {
             id: virtualLabel
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            // Start the rule at the message content indent so the divider
-            // lines up with the timeline instead of floating in the avatar
-            // gutter.
+            // Start the rule at the content indent, not in the avatar gutter.
             anchors.leftMargin: root.avatarGutterWidth
             anchors.rightMargin: AppTheme.spacingS
-            // `!dividerSuppressed`: an orphan date divider creates no label
-            // at all, which is also what zeroes virtualRow's implicitHeight
-            // above — the row occupies no space rather than drawing an empty
-            // one.
+            // An orphan date divider creates no label, which also zeroes the
+            // row's implicitHeight.
             active: root.isVirtualRow && model.eventType !== 8
                     && !root.dividerSuppressed
                     && virtualRow.dividerText.length > 0
@@ -1302,9 +951,7 @@ Item {
                     objectName: "timelineDayDividerLabel"
                     text: virtualRow.dividerText
                     color: AppTheme.textMuted
-                    // Message-stream text, not container chrome: it must
-                    // follow the text-size setting like the timestamps and
-                    // the message body it sits between.
+                    // Message-stream text: follows the text-size setting.
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     font.weight: AppTheme.weightStrong
                     Accessible.name: text
@@ -1322,34 +969,22 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            // Same inset and gap as the day divider above: one divider
-            // idiom, two semantics (border rules for the day break, the
-            // unread tone for the unread break).
+            // Same inset and gap as the day divider.
             anchors.leftMargin: root.avatarGutterWidth
             anchors.rightMargin: AppTheme.spacingS
             spacing: AppTheme.spacingM
-            // SDK receipt tracking (which the receipt chips require) also
-            // revives the SDK's ReadMarker virtual row. While the reader
-            // is pinned to the bottom, the own-receipt ack cycle
-            // (~800ms ReadReceiptCoordinator debounce) would insert this
-            // divider above every incoming message and remove it a moment
-            // later — a 28px layout bounce under a live conversation. So
-            // the divider renders ONLY when the reader is NOT following
-            // the bottom (scrolled up = genuinely catching up). Standalone
-            // hosts without a timeline ListView (fixtures, previews) keep
-            // it visible.
+            // Receipt tracking revives the SDK's ReadMarker row, and while
+            // pinned to the bottom the own-receipt ack cycle would insert and
+            // remove it above every incoming message. Render only when the
+            // reader is not following the bottom. Hosts without a timeline view
+            // keep it visible.
             readonly property bool suppressedWhilePinned:
                 root.timelineView
                 && root.timelineView.stickToBottom === true
             visible: root.isVirtualRow && model.eventType === 8
                      && !suppressedWhilePinned
-            // v0.6.5: reads unreadBadge, not accent — this divider is the
-            // same "unread" semantic as every numeric unread badge in the
-            // app, and it renders once per unread boundary in the visible
-            // timeline (a passive, recurring status marker, not a
-            // selection/focus/primary-action moment). unreadBadge is
-            // periwinkle under Storm for exactly this reason; falls back to
-            // accent for every legacy theme (pixel-identical).
+            // unreadBadge, the same "unread" semantic as the numeric badges;
+            // falls back to accent on legacy themes.
             Rectangle {
                 Layout.fillWidth: true
                 implicitHeight: 1
@@ -1359,9 +994,7 @@ Item {
                 objectName: "unreadDividerLabel"
                 text: qsTr("New messages")
                 color: AppTheme.unreadBadge
-                // Scaled for the same reason the day divider is: both are
-                // markers inside the message stream, and at 140% a 11px
-                // fixed label beside a 20px body reads as a rendering bug.
+                // Scaled like the day divider.
                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 font.weight: AppTheme.weightStrong
                 Accessible.name: text
@@ -1374,35 +1007,28 @@ Item {
         }
     }
 
-    // A call somebody started. Behind a Loader because the overwhelming
-    // majority of rows are not calls and this row instantiates a card, an
-    // avatar, a glyph and a live-session gate — the room timeline is not
-    // virtualized, so an item every row pays for is an item every row pays
-    // for. `active` on the row kind alone, so a call row is built exactly
-    // once and never rebuilt.
+    // Call row, behind a Loader because most rows are not calls and the
+    // timeline is not virtualized. Active on the row kind alone, so it is built
+    // once.
     Loader {
         id: callEventRow
         objectName: "callEventRow"
         active: root.isCallEvent
         visible: active
-        // Its own air, not the message ladder's: `messageTopSpacing` is 1px
-        // for a row that begins no sender group, and a CARD sitting 1px
-        // under a message reads as part of it.
+        // Its own spacing: messageTopSpacing is 1px for a continuation, and a
+        // card 1px under a message reads as part of it.
         y: AppTheme.spacingS
         width: parent.width
         sourceComponent: CallEventDelegate {
-            // The room the CALL is in. A call row only ever appears in the
-            // room timeline (a thread has none), and the pane's own call
-            // banner reads the same room, so both surfaces answer for one
-            // call.
+            // The call's room. Call rows only appear in the room timeline,
+            // matching the pane's call banner.
             roomId: root.previewRoomId
             actorUserId: model.sender || ""
             actorName: model.senderDisplayName || ""
             actorAvatarMxc: model.senderAvatarMxc || ""
             sentence: model.callEventText || ""
-            // Only the newest call row in the room carries Join; see
-            // CallEventDelegate.isLatestCallRow for why. The model tracks it
-            // so the row does not have to scan the timeline itself.
+            // Only the newest call row carries Join (see
+            // CallEventDelegate.isLatestCallRow); the model tracks it.
             isLatestCallRow: !root.timelineModel
                              || !root.timelineModel.latestCallEventId
                              || root.timelineModel.latestCallEventId === (model.eventId || "")
@@ -1413,17 +1039,14 @@ Item {
         }
     }
 
-    // Compact, discreet room-activity summary (Element-style) — never a
-    // message-bubble-like card. Collapsed by default; the whole row (not
-    // just the chevron) is the Expand/Collapse control.
+    // Compact room-activity summary, collapsed by default; the whole row is the
+    // expand/collapse control.
     RoomActivityDelegate {
         id: stateActivity
         objectName: "stateActivityGroup"
-        // An EMPTY entry list draws nothing: a run made only of call
-        // membership yields no entries, and "0 room updates" is worse than
-        // no row at all. The count comes from the DELEGATE, not from the raw
-        // list — it drops call entries of its own (see its note), so the raw
-        // length would claim a row it will not draw.
+        // An empty entry list draws nothing ("0 room updates" is worse than no
+        // row). The count comes from the delegate, which drops call entries
+        // itself.
         visible: root.isStateActivity && model.stateGroupLeader === true
                  && stateActivity.entryCount > 0
         width: parent.width
@@ -1438,13 +1061,8 @@ Item {
         }
     }
 
-    // ── Selection affordance ─────────────────────────────────────────────
-    //
-    // Painted UNDER the row's own content and ABOVE the hover highlight, so a
-    // selected row still reads as a message rather than a widget. The tap
-    // handler takes the whole row while selecting, because a selection mode
-    // where some parts of a row select and others open an image is worse
-    // than none.
+    // Selection affordance, painted under the row's content and above the hover
+    // highlight. The tap handler takes the whole row while selecting.
     Rectangle {
         anchors.fill: parent
         visible: root.rowSelected
@@ -1459,8 +1077,7 @@ Item {
         anchors.leftMargin: 2
         anchors.verticalCenter: parent.verticalCenter
         width: 18; height: 18; radius: 9
-        // Solid when empty too, so the circle reads over an avatar on an
-        // identity row instead of vanishing into it.
+        // Solid when empty too, so the circle reads over an avatar.
         color: root.rowSelected ? AppTheme.accent : AppTheme.background
         border.width: 1
         border.color: root.rowSelected ? AppTheme.accent : AppTheme.borderStrong
@@ -1475,29 +1092,21 @@ Item {
     }
     TapHandler {
         enabled: root.selectionMode && root.rowSelectable
-        // Everything a row normally does — open an image, follow a link, add
-        // a reaction — is suspended while selecting.
         grabPermissions: PointerHandler.CanTakeOverFromAnything
         onTapped: root.toggleSelectionForThisRow()
     }
 
     Rectangle {
         id: rowHighlight
-        // C5: the VIEW says what is highlighted. Reading app.pagination here
-        // lit up the wrong timeline — a room jump highlighted the matching id
-        // inside an open thread panel, which is a different navigation.
+        // The view says what is highlighted; reading app.pagination here would
+        // light up a matching id inside an open thread panel.
         readonly property bool navigationLanded:
             root.navigationHighlightId === (model.eventId || "")
         readonly property bool wanted:
             !root.isVirtualRow && !root.isStateActivity && !root.isCallEvent
             && (rowHover.hovered || root.actionsPinned || navigationLanded)
-        // Opacity, not `visible`. A reply jump used to SLAM a saturated
-        // selected-blue block on and then off again with no easing when
-        // PaginationController's 1800ms timer fired — it read as a
-        // rendering glitch rather than as "this is the message you asked
-        // for", and the thread panel's equivalent landing has always been
-        // a soft 120ms animated accent border. One user action must not
-        // have two visual languages.
+        // Opacity rather than `visible`, so the jump highlight fades like the
+        // thread panel's landing instead of snapping on and off.
         visible: opacity > 0
         opacity: wanted ? 1 : 0
         Behavior on opacity {
@@ -1509,8 +1118,7 @@ Item {
         width: root.width + AppTheme.spacingXS * 2
         height: layout.height
         color: navigationLanded ? AppTheme.selected : AppTheme.hover
-        // Design shell: message-row hover highlight is the soft theme tint
-        // at an 8px radius — no border, no elevation.
+        // Soft theme tint at an 8px radius, no border or elevation.
         radius: AppTheme.radiusMd
         z: 0
     }
@@ -1519,16 +1127,14 @@ Item {
         id: layout
         visible: !root.isVirtualRow && !root.isStateActivity && !root.isCallEvent
         y: root.messageTopSpacing
-        // Indented while selecting so the selection circle has a column of
-        // its own (see selectionGutterWidth).
+        // Indented while selecting so the circle has its own column.
         x: root.selectionMode && root.rowSelectable ? root.selectionGutterWidth : 0
         width: parent.width - x
         spacing: 2
         z: 1
 
-        // One left-aligned sender timeline for every participant. Identity is
-        // shown once at the start of a model-defined sender group; continuation
-        // rows retain the same content indent without repeating the avatar.
+        // One left-aligned sender timeline. Identity is shown once per sender
+        // group; continuation rows keep the same indent without the avatar.
         Item {
             id: bubbleRow
             objectName: "messagePresentationRow"
@@ -1542,10 +1148,8 @@ Item {
                     if (!root.timelineView || root.actionKey === "")
                         return
                     if (hovered) {
-                        // C6: a stray hover under an open picker must not
-                        // re-claim the bar the owner just cleared. No
-                        // re-hover is needed once the owner releases — the
-                        // next real hover event sets the key normally.
+                        // A stray hover under an open picker must not re-claim
+                        // the bar.
                         if (root.transientOwnerBlocks)
                             return
                         root.timelineView.hoveredActionsKey = root.actionKey
@@ -1555,9 +1159,8 @@ Item {
                 }
             }
             TapHandler {
-                // DELIBERATELY NOT gated on `rowActionsEnabled`. The context
-                // menu is how selection mode is LEFT as well as entered, and
-                // a right-click is not the gesture the picker consumes.
+                // Not gated on rowActionsEnabled: the context menu is also how
+                // selection mode is left.
                 acceptedButtons: Qt.RightButton
                 onTapped: (eventPoint, button) => {
                     var p = bubbleRow.mapToItem(root, eventPoint.position.x,
@@ -1583,16 +1186,14 @@ Item {
                     size: 32
                     mxc: model.senderAvatarMxc || ""
                     name: model.senderDisplayName || model.senderInitials
-                    // Stable fallback colour per user id — resolving the
-                    // display name later must not recolour the person.
+                    // Keyed by user id so resolving the display name later does
+                    // not recolour.
                     colorKey: model.sender || ""
                     Accessible.name: qsTr("Avatar for %1").arg(
                                          model.senderDisplayName || model.sender)
 
-                    // Clicking a person opens that person, as in Element and
-                    // Discord. LeftButton only, so the row's right-click
-                    // context menu still comes through from the bubble
-                    // handler above.
+                    // Clicking a person opens their profile. LeftButton only,
+                    // so right-click still reaches the row's context menu.
                     TapHandler {
                         enabled: root.rowActionsEnabled
                         acceptedButtons: Qt.LeftButton
@@ -1601,50 +1202,29 @@ Item {
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                 }
 
-                // Continuations keep Discord's stable gutter without paying
-                // for another avatar-height row. The timestamp is available
-                // on hover in that gutter instead of consuming a metadata
-                // line beneath every short message.
-                // Loader, active only WHILE HOVERED (2026-08-19 scroll
-                // round). Measured as a viewport observer before this
-                // change: Qt.formatDateTime() yields "" for the absent
-                // timestamp of a VIRTUAL row, so the flag was never
-                // cleared there (see the virtualLabel note). Not creating
-                // it until hover also drops one item per continuation row.
-                // Accepted trade, NOT separately measured: mousing down a
-                // column now creates and destroys one Label per row
-                // crossed, instead of ~microseconds of nothing. The
-                // alternative — a persistent laid-out Label on every
-                // continuation row — costs a text layout per row at load,
-                // which is the more expensive side.
+                // Continuations show the timestamp in the gutter on hover only.
+                // A Loader active while hovered: an always-present Label would
+                // be a viewport observer on virtual rows (empty text) and a
+                // text layout on every continuation row.
                 Loader {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.rightMargin: 5
-                    // The gutter is the selection circle's while selecting:
-                    // the hovered row's time drew over the circle
-                    // ("blocked by date", 2026-09-05).
+                    // While selecting the gutter belongs to the selection
+                    // circle.
                     active: !root.showsIdentity && rowHover.hovered
                             && !root.compactMode && !root.selectionMode
                     sourceComponent: Label {
                         objectName: "continuationTimestamp"
-                        // ONE clock format for the whole application
-                        // (Settings -> Appearance): 24-hour, 12-hour, or the
-                        // system's. The literal "hh:mm" every message row
-                        // used was 24-hour regardless of locale while the
-                        // room list and Home used the locale's short format,
-                        // so a 12-hour locale already saw both. Read as a
-                        // PROPERTY so the binding has a real dependency —
-                        // through a helper function it would keep rendering
-                        // the old format until the row was next created.
+                        // The app-wide clock format (Settings -> Appearance),
+                        // read as a property so the binding updates when it
+                        // changes.
                         text: Qt.formatDateTime(model.timestamp,
                                                 app.settings.clockTimeFormat)
                         horizontalAlignment: Text.AlignRight
                         color: AppTheme.textMuted
-                        // Scaled like the identity-line timestamp it stands
-                        // in for; a fixed 9px beside a scaled sender line
-                        // was the widest gap in the row at 140%.
+                        // Scaled like the identity-line timestamp.
                         font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                         Accessible.name: qsTr("Sent at %1").arg(text)
                     }
@@ -1652,13 +1232,13 @@ Item {
             }
 
             // Transparent content column: ordinary messages are rows, not
-            // incoming/outgoing speech bubbles.
+            // bubbles.
             Rectangle {
                 id: bubble
                 objectName: "messageContentColumn"
-                // Bubbles (DM only): content-sized, own messages right-
-                // aligned in the accent-dark bubble, incoming in the chip
-                // bubble. Modern/Compact keep the full-width row.
+                // Bubbles (DM only): content-sized, own messages right-aligned
+                // in the accent bubble, incoming in the chip bubble.
+                // Modern/Compact use the full row.
                 x: root.bubbleMode && model.isOwn === true
                    ? Math.max(root.avatarGutterWidth,
                               parent.width - width - root.bubbleReceiptInset)
@@ -1668,50 +1248,15 @@ Item {
                                   Math.max(60, parent.width
                                                - root.avatarGutterWidth - 40
                                                - root.bubbleReceiptInset))
-                         // Modern/Compact: full row width up to a readable max,
-                         // so long messages and media stay balanced on wide
-                         // desktop windows (narrow windows shrink below it).
+                         // Modern/Compact: full width up to a readable max.
                        : Math.min(AppTheme.timelineContentMaxWidth,
                                   Math.max(1, parent.width - root.avatarGutterWidth))
-                // History note: a `renderedContentRight` anchor (walking
-                // the widest visible bubbleContent child) lived here from
-                // the 2026-08-06 float fix until 2026-08-14, when the
-                // maintainer asked for Element parity instead — the chip
-                // stack now rides the FULL ROW's right edge (one fixed
-                // rail identical for every row, like Element's receipt
-                // gutter), so a per-row content anchor is no longer
-                // needed.
                 height: implicitHeight
                 implicitHeight: bubbleContent.implicitHeight + root.bubblePad * 2
-                // ── THE MENTIONED-ROW WASH IS GONE (2026-08-21) ──────────
-                // History: v0.6.0 washed a mentioned row in
-                // `mentionHighlight`; v0.6.5 live feedback called it "too
-                // heavy/red" and the alpha was cut 0.14/0.07 -> 0.05/0.03
-                // (345f4d1) rather than removed. It came back as the SAME
-                // report this round — "tagging a person creates a red box
-                // around it" — and the mechanism is now measured: Storm
-                // routes `mentionHighlight` to `_stoMention` #E5677A, the
-                // rose the room list uses for its MENTION BADGE, and the
-                // three other design themes carry the same red family. The
-                // wash is therefore a rounded rectangle in the app's
-                // DANGER hue drawn around every message that mentions you,
-                // so a routine ping reads as an error state. Cutting the
-                // alpha only made a red box fainter; it never stopped
-                // being red.
-                //
-                // The edge bar below already exists precisely because the
-                // wash was judged too loud once — it is the deliberate
-                // signal (bolt for "you", neutral for @room) and it is
-                // enough. Removing the fill also fixes the second half of
-                // that live-feedback report: a reaction chip's own
-                // translucent fill compositing on top of a tinted row
-                // muddied both ("black boxes over washed rows"), and
-                // there is now no tint to composite onto.
-                //
-                // If a wash is ever wanted back, it belongs in AppTheme as
-                // a `mentionRowWash` token pointed at something that is
-                // NOT the danger family — not at `mentionHighlight`, whose
-                // job is the badge.
+                // No mention wash: mentionHighlight is the danger-family badge
+                // colour, so a tinted row reads as an error. The edge bar below
+                // is the signal. If a wash is ever wanted, add a mentionRowWash
+                // token outside the danger family.
                 color: root.bubbleMode
                        ? (model.isOwn === true ? AppTheme.ownBubble
                                                : AppTheme.otherBubble)
@@ -1723,13 +1268,9 @@ Item {
                                 ? (model.isOwn === true ? 4 : 16) : radius
                 opacity: model.redacted ? 0.65 : 1.0
 
-                // v0.6.5 live-feedback: the mention edge bar. Sits flush at
-                // the bubble's own left edge — bubbleContent below gets a
-                // matching extra left inset so the bar never overlaps the
-                // sender/body text. Since the wash above was removed this
-                // is the WHOLE signal, so it is rounded at both ends
-                // instead of reading as a cut-off slab against a fill that
-                // no longer exists.
+                // Mention edge bar, flush at the bubble's left edge;
+                // bubbleContent gets a matching inset so it never overlaps
+                // text. Rounded at both ends.
                 readonly property bool mentionBarVisible:
                     !root.bubbleMode
                     && (model.mentionsMe === true || model.mentionsRoom === true)
@@ -1746,16 +1287,16 @@ Item {
                            ? AppTheme.bolt : AppTheme.borderStrong
                 }
 
-                // Click the message content to pin the action toolbar (click again
-                // or press Escape to close). Does not consume media/link taps,
-                // which have their own handlers on top.
+                // Clicking the message content pins the action toolbar (click
+                // again or Escape to close). Media and link taps have their own
+                // handlers on top.
                 TapHandler {
                     enabled: root.rowActionsEnabled
                     acceptedButtons: Qt.LeftButton
                     onTapped: (eventPoint) => {
-                        // Seventh occurrence: the "edited" marker opens the
-                        // edit history from its own TapHandler inside this
-                        // bubble — without the band, one click did both.
+                        // TapHandlers are non-exclusive across subtrees, so
+                        // each overlaid control needs a band exclusion here.
+                        // The "edited" marker opens the edit history.
                         if (model.edited === true && metaLabel.visible) {
                             var mp = bubble.mapToItem(
                                         metaLabel,
@@ -1765,13 +1306,8 @@ Item {
                                 && mp.y >= 0 && mp.y <= metaLabel.height)
                                 return
                         }
-                        // The receipt facepile paints upward from a
-                        // zero-height boundary and can overlap this
-                        // bubble's bottom edge (flush in bubbleMode on
-                        // own messages). TapHandlers are non-exclusive
-                        // across subtrees — the EmojiPicker lesson from
-                        // this same round — so a tap in the facepile's
-                        // band must not ALSO pin the action toolbar.
+                        // The receipt facepile can overlap this bubble's bottom
+                        // edge.
                         if (receiptRow.visible) {
                             var rp = bubble.mapToItem(
                                         receiptRow,
@@ -1781,12 +1317,8 @@ Item {
                                 && rp.y >= 0 && rp.y <= receiptRow.height)
                                 return
                         }
-                        // Same class, fifth occurrence (facepile, rail
-                        // chevron, tone popup, receipt chips, and now this):
-                        // the reply preview's own TapHandler lives in a
-                        // SIBLING subtree, so without this band exclusion a
-                        // click that navigates to the replied message ALSO
-                        // pinned this row's action bar.
+                        // The reply preview's own TapHandler (navigates to the
+                        // replied message).
                         if (replyBox.visible) {
                             var qp = bubble.mapToItem(
                                         replyBox,
@@ -1796,11 +1328,7 @@ Item {
                                 && qp.y >= 0 && qp.y <= replyBox.height)
                                 return
                         }
-                        // Sixth occurrence. The sender name carries its own
-                        // TapHandler (click a person, get that person), and
-                        // it lives INSIDE this bubble — so without the band
-                        // the one click both opened the profile and pinned
-                        // the action bar behind it.
+                        // The sender name opens the profile.
                         if (identityLoader.visible) {
                             var ip = bubble.mapToItem(
                                         identityLoader,
@@ -1810,14 +1338,9 @@ Item {
                                 && ip.y >= 0 && ip.y <= identityLoader.height)
                                 return
                         }
-                        // Eighth occurrence, and the one that fires on the
-                        // control the user is aiming at. The action bar is a
-                        // plain Rectangle anchored over this bubble's
-                        // top-right corner: its five BUTTONS accept the
-                        // press, but its 2px padding and the gaps between
-                        // them do not — so a click that misses a button by a
-                        // pixel fell through to here and TOGGLED the pin,
-                        // closing the bar out from under the pointer.
+                        // The action bar's padding and the gaps between its
+                        // buttons do not accept the press, so a near miss would
+                        // toggle the pin and close the bar.
                         if (messageActionBarLoader.visible) {
                             var ap = bubble.mapToItem(
                                         messageActionBarLoader,
@@ -1840,57 +1363,25 @@ Item {
                                         + (bubble.mentionBarVisible ? 8 : 0)
                     spacing: 2
 
-                    // Loader (2026-08-19 scroll round): the header's own
-                    // Labels read message fields, which are ALL empty on a
-                    // virtual row — and an empty text binding leaves the
-                    // born-with ItemObservesViewport flag in place (see the
-                    // virtualLabel note). Not creating the header on a
-                    // continuation row, where it is invisible anyway, also
-                    // drops several items per row.
+                    // A Loader: the header's Labels read message fields, which
+                    // are empty on virtual rows (see the viewport-observer note
+                    // above), and continuation rows need no header.
                     Loader {
                         id: identityLoader
-                        // Own DM bubbles need no self-identity line.
                         active: root.showsIdentity
                                 && !(root.bubbleMode && model.isOwn === true)
                         visible: active
-                        // Nested layouts default to fillWidth; the header
-                        // line hugs its content so the timestamp sits 8px
-                        // beside the sender name (design §3), not at the
-                        // row's far edge. These live on the LOADER because
-                        // Layout attached properties only bind on a direct
-                        // child of the enclosing ColumnLayout.
+                        // Hug the content so the timestamp sits 8px beside the
+                        // name. On the Loader because Layout attached
+                        // properties only bind on direct children of the
+                        // ColumnLayout.
                         Layout.fillWidth: false
-                        // NOT `bubble.width` IN BUBBLES, AND THAT IS A LOOP
-                        // RATHER THAN A PREFERENCE.
-                        //
-                        // In Bubbles the bubble is SIZED FROM this column's
-                        // implicitWidth, so clamping a non-fillWidth child
-                        // against `bubble.width` feeds the child's own input:
-                        // Qt resolves it with whatever the bubble measured
-                        // last, and for a short body that is smaller than
-                        // 112, so `Math.max(1, …)` pinned the whole identity
-                        // header to ONE PIXEL of contributed width. The
-                        // bubble then sized itself to the BODY alone and the
-                        // sender name and timestamp rendered outside it, over
-                        // the timeline background — seen live 2026-09-14 on a
-                        // DM whose reply was "got it".
-                        //
-                        // Derived from `bubbleRow` and nothing below it, the
-                        // same escape the code-segment cap uses a few hundred
-                        // lines down and for the same reason: bubbleRow is
-                        // fillWidth in `layout` and reports no implicit width,
-                        // so that end of the chain is inert. The expression
-                        // mirrors the bubble's own cap so the header can never
-                        // ask for more than the bubble may become.
-                        // ... AND IT MUST MIRROR THE WHOLE CAP. The
-                        // bubble's own width also subtracts
-                        // `bubbleReceiptInset`; this did not, so on a narrow
-                        // row with receipts the header was allowed to be the
-                        // facepile's width wider than the bubble could ever
-                        // become. Measured 2026-09-19 at a 360px row with
-                        // four receipts: bubble 44..256, header 54..310 and
-                        // its timestamp at 293..319 — outside the bubble and
-                        // underneath the avatars.
+                        // Not bubble.width in Bubbles: the bubble is sized from
+                        // this column's implicitWidth, so clamping against it
+                        // feeds the child's own input and collapsed the header
+                        // to one pixel. Derived from bubbleRow (inert:
+                        // fillWidth, no implicit width), mirroring the bubble's
+                        // whole cap including bubbleReceiptInset.
                         Layout.maximumWidth: root.bubbleMode
                             ? root.contentInnerCap
                             : Math.max(1, bubble.width - 112)
@@ -1903,9 +1394,8 @@ Item {
                             objectName: "senderName"
                             text: model.senderDisplayName || model.sender
                             textFormat: Text.PlainText
-                            // Element-style identity colour: deterministic
-                            // per-user ink hashed from the MXID, hue-matched
-                            // to the same user's avatar disc.
+                            // Deterministic per-user ink hashed from the MXID,
+                            // matching the avatar.
                             color: AppTheme.userColor(model.sender || "")
                             font.pixelSize: AppTheme.scaled(
                                 root.compactMode || root.inThreadPanel
@@ -1914,8 +1404,7 @@ Item {
                             elide: Label.ElideRight
                             Layout.maximumWidth: 320
                             Accessible.name: qsTr("Sender: %1").arg(text)
-                            // Full MXID on hover; always available even when
-                            // the display name is shown.
+                            // Full MXID on hover.
                             ToolTip.text: model.sender
                             ToolTip.visible: nameHover.hovered
                             ToolTip.delay: 400
@@ -1929,12 +1418,9 @@ Item {
                                 onTapped: root.openSenderProfileForRow()
                             }
                         }
-                        // v0.5.9: compact disambiguator when the SDK reports
-                        // two active members share this display name. A
-                        // Loader (2026-08-19 scroll round): its text is
-                        // model.sender, which is "" on a virtual row, so it
-                        // measured as a viewport observer — see the
-                        // virtualLabel note for the mechanism.
+                        // Disambiguator when two members share this display
+                        // name. A Loader because its text is "" on virtual rows
+                        // (viewport observer).
                         Loader {
                             active: model.senderNameAmbiguous === true
                                     && (model.senderDisplayName
@@ -1945,9 +1431,7 @@ Item {
                                 text: model.sender
                                 textFormat: Text.PlainText
                                 color: AppTheme.textMuted
-                                // Message data, not chrome: it sits on the
-                                // identity line beside a scaled name and a
-                                // scaled timestamp and has to move with them.
+                                // Scaled with the name and timestamp beside it.
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                                 elide: Label.ElideMiddle
                             }
@@ -1963,81 +1447,35 @@ Item {
                         }
                     }
 
-                    // ── Reply quote (2026-08-21 rebuild) ─────────────────
-                    // Element's quote tile: a rule in the QUOTED SENDER's
-                    // identity ink, the name in that same ink, one
-                    // ellipsised line of body, and NO resting fill.
-                    //
-                    // What was wrong before, in order of severity:
-                    //
-                    //  * The fill was `AppTheme.hover` — the exact token the
-                    //    row highlight painted underneath it — so pointing
-                    //    at a reply made its quote DISSOLVE into the row.
-                    //    And in four palettes (Lightning Light, Nordic,
-                    //    Warm, Moss Light) `hover` is byte-identical to
-                    //    `otherBubble`, so an incoming DM bubble's quote had
-                    //    zero contrast at rest as well. A quote needs no
-                    //    fill: the rule is the signifier, and leaving the
-                    //    resting state transparent is what lets hover mean
-                    //    something.
-                    //  * It was the only coloured thing in the bubble that
-                    //    never branched on Bubbles-for-DMs, so inside an own
-                    //    outgoing bubble a pale slab of grey-blue sat in
-                    //    saturated accent.
-                    //  * Both labels were raw `font.pixelSize: 11`, so the
-                    //    90-140% text-size setting did not reach the quote
-                    //    at all: at 140% an ~20px body carried an 11px
-                    //    ribbon.
-                    //  * implicitWidth/implicitHeight named only the text
-                    //    column and ignored the 34px thumbnail beside it, so
-                    //    an image reply elided ~40px early and the thumb was
-                    //    cropped to 34x31 by PreserveAspectCrop.
-                    //  * It capped at a hardcoded 320px while every sibling
-                    //    binds to `bubble.width` — eliding at 320 of an
-                    //    available 760 in the room, and exceeding the 340px
-                    //    thread panel.
-                    //  * Two stacked 11px labels made the quote ~48% of a
-                    //    one-line reply row: the thing being quoted
-                    //    outweighed the thing being said. It is ONE row now.
-                    //
-                    // The ↰ was also dropped: a Unicode arrow inside a
-                    // translatable string, rendered in the UI face (so it
-                    // falls back to a system font wherever the codepoint is
-                    // missing) and kept by ElideRight while the display name
-                    // it decorates is cut. The mapped Material Symbols
-                    // "reply" glyph is the same signifier without any of
-                    // that.
+                    // Reply quote: a rule and name in the quoted sender's
+                    // identity ink, one elided line of body, and no resting
+                    // fill (the row hover tint would dissolve it, and several
+                    // palettes share that tint with otherBubble). Scaled text,
+                    // sized to the bubble, and a Material Symbols "reply" glyph
+                    // rather than a Unicode arrow.
                     Rectangle {
                         id: replyBox
                         objectName: "replyNavigationTarget"
                         visible: model.replyToEventId && model.replyToEventId.length > 0
                                  && !model.redacted
                         readonly property int barWidth: 2
-                        // Bind to the bubble like every sibling (media,
-                        // preview card, metaRow) instead of a constant that
-                        // is simultaneously too small for the room and too
-                        // large for the thread panel. Spanning the message's
-                        // own width is also what makes the left rule read as
-                        // a rule rather than as the edge of a pill.
+                        // Spans the bubble like its siblings, so the rule reads
+                        // as a rule.
                         Layout.fillWidth: true
                         Layout.maximumWidth: root.contentInnerCap
                         Layout.bottomMargin: 2
                         implicitWidth: replyRowWrap.implicitWidth
                                        + replyBox.barWidth + 16
                         implicitHeight: replyRowWrap.implicitHeight + 8
-                        // Transparent at rest; the hover tint is drawn from
-                        // the quoted sender's own ink so the feedback
-                        // belongs to the tile instead of repeating the row
-                        // highlight it sits on.
+                        // Transparent at rest; the hover tint uses the quoted
+                        // sender's ink.
                         color: replyHover.hovered
                                ? Qt.alpha(root.replySenderInk, 0.12)
                                : "transparent"
                         Behavior on color { ColorAnimation { duration: 90 } }
                         radius: AppTheme.radiusSm
-                        // A quote block that navigates is a control, and it
-                        // was reachable only with a mouse: no tab stop, no
-                        // key activation, no focus ring, and an accessible
-                        // name that never said whose message it goes to.
+                        // A navigating quote is a control: tab stop, key
+                        // activation, focus ring, accessible name.
                         activeFocusOnTab: true
                         border.width: activeFocus ? 2 : 0
                         border.color: AppTheme.focusRing
@@ -2058,20 +1496,15 @@ Item {
                             root.navigateToReplyTarget()
                             event.accepted = true
                         }
-                        // The tile responded to nothing on hover although
-                        // the cursor changed shape over it — so it never
-                        // read as clickable.
                         HoverHandler { id: replyHover }
                         TapHandler {
                             enabled: root.rowActionsEnabled
                             cursorShape: Qt.PointingHandCursor
                             // Routes through the view contract, never
-                            // app.pagination: inside the thread panel that
-                            // would hand a true thread reply to the ROOM
-                            // history loader, which cannot hold it.
-                            // Deliberately does NOT take focus: a mouse jump
-                            // must not pull focus out of the composer
-                            // mid-sentence. Tab reaches the same control.
+                            // app.pagination: in the thread panel that would
+                            // hand a thread reply to the room loader. Does not
+                            // take focus, so a mouse jump does not pull focus
+                            // out of the composer.
                             onTapped: root.navigateToReplyTarget()
                         }
                         Rectangle {
@@ -2081,10 +1514,8 @@ Item {
                             anchors.bottom: parent.bottom
                             anchors.topMargin: 1
                             anchors.bottomMargin: 1
-                            // Rounded so the rule's ends do not fill in the
-                            // arc the box's own radius cuts out on hover —
-                            // the square-corners-inside-a-rounded-box edge
-                            // this block used to show.
+                            // Rounded so the rule's ends follow the box's
+                            // corner radius on hover.
                             radius: 1
                             color: root.replySenderInk
                             opacity: replyHover.hovered ? 1.0 : 0.8
@@ -2094,10 +1525,8 @@ Item {
                             id: replyRowWrap
                             anchors.left: parent.left
                             anchors.right: parent.right
-                            // verticalCenter, NOT top+bottom: anchoring both
-                            // edges stretched the row to the box height the
-                            // box had computed from the TEXT alone, which is
-                            // what squashed a 34px thumbnail to 31px.
+                            // verticalCenter, not top+bottom, which would
+                            // squash the thumbnail to the text's height.
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.leftMargin: replyBox.barWidth + 8
                             anchors.rightMargin: 8
@@ -2109,22 +1538,15 @@ Item {
                                 opacity: 0.75
                                 Layout.alignment: Qt.AlignVCenter
                             }
-                            // 2026-08-18 tester report #2: an image reply
-                            // target shows a small thumbnail — same media
-                            // bridge, same registry, keyed by the reply
-                            // target's own event id. 24px on ONE line now,
-                            // with the corner baked by MediaImageProvider's
-                            // "|shape:round:" suffix (the message image and
-                            // the video poster already use it) rather than a
-                            // per-row MultiEffect mask, which costs two
-                            // extra render passes per item per frame.
+                            // Thumbnail for an image reply target, keyed by the
+                            // target's event id. The corner is baked by
+                            // MediaImageProvider's "|shape:round:" suffix
+                            // rather than a per-row MultiEffect mask.
                             Image {
                                 id: replyThumb
-                                // Bumped by the cache-fill handler below, so
-                                // this re-resolves without anyone assigning
-                                // `source` imperatively — that would destroy
-                                // the binding and strand the row on whichever
-                                // image happened to land first.
+                                // Bumped by the cache-fill handler so `source`
+                                // re-resolves without an imperative assignment,
+                                // which would destroy the binding.
                                 property int resolveTick: 0
                                 readonly property string bridgeSource: {
                                     var _tick = resolveTick
@@ -2150,9 +1572,8 @@ Item {
                                     enabled: (model.replyToMediaKey || "")
                                                  .length > 0
                                     function onMediaCached(key) {
-                                        // The first mediaSource() call may
-                                        // return "" while bytes fetch;
-                                        // re-ask once the cache fills.
+                                        // mediaSource() may return "" while
+                                        // fetching; re-ask once the cache fills.
                                         if (key === "thumb:" + (model.replyToMediaKey || "")
                                             && replyThumb.source.toString()
                                                    .length === 0)
@@ -2168,15 +1589,9 @@ Item {
                                 font.weight: AppTheme.weightStrong
                                 elide: Label.ElideRight
                                 maximumLineCount: 1
-                                // A user-chosen display name must not be
-                                // allowed to eat the quoted line it
-                                // introduces; the body keeps the rest.
-                                // A FIXED cap, deliberately — deriving it
-                                // from replyRowWrap.width closes a loop in
-                                // Bubbles mode, where the bubble's width is
-                                // its content's implicit width and this
-                                // Label is part of that content. The message
-                                // header above caps the same way (320).
+                                // A display name must not eat the quoted line.
+                                // A fixed cap: deriving it from
+                                // replyRowWrap.width loops in Bubbles.
                                 Layout.maximumWidth: AppTheme.scaled(180)
                             }
                             Label {
@@ -2195,12 +1610,9 @@ Item {
                         }
                     }
 
-                    // The one-line summary that REPLACES the attachment while
-                    // embeds are collapsed, and stays above it as the way
-                    // back once the reader has expanded one. It is its own
-                    // Layout child rather than a sibling inside mediaBox
-                    // because in the expanded state both are on screen and
-                    // the summary belongs above the picture, not on it.
+                    // One-line summary that replaces the attachment while
+                    // embeds are collapsed, and stays above it once expanded.
+                    // Its own Layout child because both can be on screen.
                     Loader {
                         id: mediaEmbedSummaryLoader
                         objectName: "mediaEmbedSummaryLoader"
@@ -2219,9 +1631,9 @@ Item {
                             onToggleRequested: root.toggleEmbedExpanded()
                         }
                     }
-                    // Media block (image, sticker, video, audio, or file).
-                    // Every class reserves its own type-correct geometry
-                    // before bytes arrive, so hydration never reflows rows.
+                    // Media block (image, sticker, video, audio, file). Each
+                    // class reserves its geometry before bytes arrive, so
+                    // hydration never reflows rows.
                     Item {
                         id: mediaBox
                         visible: (model.isImage || model.isFile
@@ -2233,23 +1645,17 @@ Item {
                         Layout.preferredWidth: Math.min(root.contentInnerCap,
                                                         implicitWidth)
                         Layout.maximumWidth: root.contentInnerCap
-                        // v0.5.11: contribute a real implicit width so an
-                        // image-only row grows to the media size instead of
-                        // collapsing to the timestamp width (which made images
-                        // render avatar-sized). Files stay compact.
+                        // A real implicit width so an image-only row grows to
+                        // the media size. Files stay compact.
                         implicitWidth: mediaLoader.item
                                        ? mediaLoader.item.implicitWidth : 0
                         implicitHeight: mediaLoader.item
                                         ? mediaLoader.item.implicitHeight : 0
                         Loader {
                             id: mediaLoader
-                            // `active`, NOT a `visible: false` on the item it
-                            // builds. A collapsed row must cost nothing and
-                            // fetch nothing, and every MediaBridge call site
-                            // for this attachment lives inside the component
-                            // below — an instantiated-but-hidden picture
-                            // would still download, decode and, for a GIF,
-                            // animate.
+                            // `active`, not `visible`: a hidden but
+                            // instantiated attachment would still download,
+                            // decode and animate.
                             active: !root.mediaEmbedCollapsed
                             anchors.left: parent.left
                             width: Math.min(root.contentInnerCap,
@@ -2267,9 +1673,9 @@ Item {
                         }
                     }
 
-                    // Poll block (MSC3381, v0.7). Renders the SDK-aggregated
-                    // outcome only; votes route through app.composer and the
-                    // updated poll returns as an in-place Set diff.
+                    // Poll block (MSC3381): renders the SDK-aggregated outcome;
+                    // votes go through app.composer and return as an in-place
+                    // diff.
                     Loader {
                         id: pollLoader
                         active: model.isPoll === true
@@ -2280,10 +1686,8 @@ Item {
                         sourceComponent: pollComponent
                     }
 
-                    // A SHARED PLACE (v0.9.0). Its own card rather than a
-                    // line of text, because the useful action is opening a
-                    // map — and because a live share has to say whether it
-                    // is still current.
+                    // Shared place: a card, since the useful action is opening
+                    // a map and a live share must say whether it is current.
                     Loader {
                         id: locationLoader
                         active: model.isLocation === true
@@ -2294,33 +1698,23 @@ Item {
                         sourceComponent: locationComponent
                     }
 
-                    // Body text (hidden for media messages whose body is just
-                    // the filename already shown in the media block, for poll
-                    // rows, whose card renders the question, and for
-                    // recoverable undecryptable rows, which show the
-                    // decrypting skeleton instead).
+                    // Body text. Hidden for media rows whose body is the
+                    // filename, polls (the card shows the question) and
+                    // recoverable undecryptable rows (skeleton).
                     TextEdit {
                         id: bodyLabel
                         objectName: "messageBody"
                         visible: text.length > 0 && !root.showsDecryptingSkeleton
-                        // Media rows suppress a body that is just the
-                        // filename echo; a genuinely different body renders
-                        // once, styled as a caption below the card.
-                        // Defined on root so the segmented renderer below can
-                        // apply the identical suppression without an id
-                        // dereference into this object; the two names stay
-                        // here because the whole file reads them.
+                        // Media rows suppress a filename echo; a different body
+                        // renders once as a caption. Defined on root so the
+                        // segmented renderer applies the same rule.
                         readonly property bool isMediaRow: root.mediaRowBody
                         readonly property bool isMediaCaption:
                             root.mediaCaptionBody
-                        // Big-emoji: a body of exactly 1-3 user-perceived
-                        // emoji sequences (and nothing but whitespace) renders
-                        // large, Element-style. The count comes from the C++
-                        // Unicode Emoji 17 catalogue — one ZWJ family, flag,
-                        // keycap or tone variant counts once — so QML never
-                        // scans the catalogue or guesses with a regex. Media
-                        // captions, polls, redacted and undecryptable rows
-                        // keep ordinary sizing.
+                        // Big emoji: a body of 1-3 emoji sequences renders
+                        // large. The count comes from the C++ Unicode Emoji
+                        // catalogue. Captions, polls, redacted and
+                        // undecryptable rows keep ordinary sizing.
                         readonly property int emojiOnlyCount:
                             (model.redacted || model.isPoll === true
                              || model.undecryptable === true || isMediaRow)
@@ -2330,59 +1724,39 @@ Item {
                         readonly property bool bigEmoji:
                             emojiOnlyCount >= 1 && emojiOnlyCount <= 3
                         text: {
-                            // A body that carries fenced code renders through
-                            // the segmented column below instead. Returning ""
-                            // here (rather than only hiding this item) is what
-                            // keeps a long code message from being laid out
-                            // twice — the RichText document would otherwise
-                            // still be built for an invisible item.
+                            // Fenced code renders through the segmented column;
+                            // returning "" keeps the RichText document from
+                            // being built for an invisible item.
                             if (root.hasMessageSegments) return ""
                             if (model.redacted) {
-                                // A run of deletions collapses to one line.
-                                // TimelineModel groups them exactly the way it
-                                // groups state changes, so a moderator
-                                // clearing twenty messages costs one row here
-                                // instead of twenty identical ones.
+                                // A run of deletions collapses to one line,
+                                // grouped by TimelineModel.
                                 return model.deletedGroupCount > 1
                                     ? qsTr("%n message(s) deleted",
                                            "collapsed run of redactions",
                                            model.deletedGroupCount)
                                     : qsTr("[message deleted]")
                             }
-                            // The poll card presents the question; the body
-                            // is only the MSC1767 fallback for old clients.
+                            // The poll card shows the question; the body is the
+                            // MSC1767 fallback.
                             if (model.isPoll === true) return ""
-                            // A location's card already renders the body as
-                            // its own line, so leaving it here printed it
-                            // twice whenever the sender gave no separate
-                            // description — which is the common case.
+                            // The location card already shows the body.
                             if (model.isLocation === true) return ""
-                            // Filename echoes never print twice. MSC2530
-                            // senders (Element) put the caption in body and
-                            // the real name in filename — compare loosely so
-                            // case/whitespace variants of the same name are
-                            // still recognized as echoes, not captions.
+                            // MSC2530 senders put the caption in body and the
+                            // name in filename; compare loosely so
+                            // case/whitespace variants are still echoes.
                             if (isMediaRow && !isMediaCaption) return ""
-                            // Formatted messages (mentions, rich text) render
-                            // their sanitized HTML directly — it is already a
-                            // safe RichText subset from MessageHtml::sanitize,
-                            // so it must NOT be re-escaped through linkifiedBody.
-                            // Read the role ONCE — each read used to run the
-                            // full sanitize in C++ (now memoized, but one
-                            // read is still half the work of two).
+                            // Formatted bodies are already sanitized by
+                            // MessageHtml::sanitize and must not be re-escaped.
+                            // Read the role once.
                             var fb = model.formattedBody
                             var html = (fb && fb.length > 0)
                                 ? fb
                                 : app.linkPreviews.linkifiedBody(
                                       model.body || "")
-                            // A whole-room mention is plain body text in BOTH
-                            // paths — there is no matrix.to link for
-                            // "everyone here" — so without this it renders as
-                            // ordinary text while every other mention is
-                            // inked. Gated on the event's own
-                            // m.mentions.room: a body that merely contains
-                            // the characters must never be painted as a
-                            // broadcast ping.
+                            // @room is plain text (no matrix.to link), so ink
+                            // it explicitly. Gated on the event's
+                            // m.mentions.room, never on the characters alone.
                             if (model.mentionsRoom === true && root.timelineModel)
                                 html = root.timelineModel.markRoomMention(html)
                             return root.highlightSearchMatches(
@@ -2395,17 +1769,12 @@ Item {
                                : bodyLabel.isMediaCaption ? AppTheme.textSecondary
                                : root.bubbleMode && model.isOwn === true
                                  ? AppTheme.ownBubbleText : AppTheme.text
-                        // TextEdit does not inherit the Controls font; the
-                        // message body must follow the selected UI family.
-                        // A whole FONT, so the colour emoji face rides behind the UI
-                        // face as REAL per-character fallback. A sent message is
-                        // RichText and its emoji came out as tofu while the composer
-                        // beside it was already correct: QML cannot express a families
-                        // list, and Qt 6.8's automatic fallback prefers a monochrome
-                        // face that claims the codepoint.
-                        //
-                        // Size and italic are passed through rather than set beside
-                        // this, because assigning the `font` group replaces them.
+                        // TextEdit does not inherit the Controls font. A whole
+                        // font so the colour emoji face is a real per-character
+                        // fallback (QML has no families list, and Qt 6.8's
+                        // automatic fallback picks a monochrome face). Size and
+                        // italic pass through because assigning `font` replaces
+                        // them.
                         font: app.textFontWithEmoji(
                                   AppTheme.uiFont,
                                   bodyLabel.bigEmoji
@@ -2416,53 +1785,34 @@ Item {
                                             : root.compactMode || root.inThreadPanel
                                               ? 13 : AppTheme.fontSizeM),
                                   model.redacted || model.undecryptable === true)
-                        // NO lineHeight here, and it is not an oversight.
-                        // The design system asks for
-                        // AppTheme.lineHeightBody on every wrapping text
-                        // item, and a wrapped message paragraph genuinely
-                        // does run tighter inside itself (~1.2, the font's
-                        // own hhea metrics) than the 12px gap between two
-                        // senders — which is what makes a busy room read as
-                        // a wall. But `lineHeight`/`lineHeightMode` are
-                        // QQuickText properties and this is a TextEdit
-                        // (selectByMouse + RichText + link activation), so
-                        // assigning them is a hard "cannot assign to
-                        // non-existent property" component error, not a
-                        // no-op — verified with qmllint 6.11.1 against the
-                        // resolved QtQuick module. Setting the leading here
-                        // needs either a `line-height` declaration emitted
-                        // by MessageHtml::sanitize (C++) or a move off
-                        // TextEdit; both are outside a presentation change.
+                        // No lineHeight: lineHeight/lineHeightMode are
+                        // QQuickText properties, and assigning them on a
+                        // TextEdit is a load-time error. Body leading would
+                        // need a `line-height` from MessageHtml::sanitize or a
+                        // move off TextEdit.
                         wrapMode: Text.Wrap
                         readOnly: true
-                        // ColumnLayout incubates children before bubbleRow has
-                        // received its final layout width. Measuring wrapped
-                        // text against the old 1px clamp can turn a large body
-                        // into a transient tens-of-thousands-pixel delegate,
-                        // causing ListView to discard and recreate it forever.
-                        // Use a normal column width during that brief startup
-                        // phase, then follow the actual responsive width.
+                        // Before bubbleRow has its final width, measuring
+                        // wrapped text against a tiny width yields an enormous
+                        // transient height; use a normal column width until
+                        // then.
                         Layout.maximumWidth: bubbleRow.width > 8
                                              ? Math.min(720,
                                                         root.contentInnerCap)
                                              : 560
-                        // Keep the last line clear of the receipt rail —
-                        // see receiptRailReserve.
+                        // Keep the last line clear of the receipt rail.
                         Layout.rightMargin: root.receiptRailReserve
                         textFormat: Text.RichText
                         selectByMouse: true
                         Accessible.name: model.body || ""
-                        // One routing implementation, shared with the
-                        // segmented renderer below — a second copy would
-                        // drift, and this one carries the mention and
-                        // user-permalink rules.
+                        // One routing implementation, shared with the segmented
+                        // renderer.
                         onLinkActivated: function(link) {
                             root.openMessageLink(link)
                         }
 
-                        // v0.5.0-prep+12: hover tooltip for undecryptable rows
-                        // so the user knows why the body is a placeholder.
-                        // Text is deliberately reassuring, not alarming.
+                        // Tooltip explaining an undecryptable placeholder;
+                        // reassuring, not alarming.
                         HoverHandler {
                             id: undecryptHover
                             enabled: model.undecryptable === true
@@ -2477,22 +1827,15 @@ Item {
                         }
                     }
 
-                    // ── Fenced code blocks (C1) ──────────────────────────
-                    // Ordered segments in place of the single body TextEdit,
-                    // for the only rows that need them. A Loader, not an
-                    // always-created column: `active` is false for every
-                    // ordinary message, so those rows instantiate NOTHING
-                    // here — which also keeps the zero-viewport-observer
-                    // guarantee, since none of the text items below can
-                    // exist holding an empty string.
+                    // Fenced code blocks: ordered segments in place of the
+                    // single body TextEdit. Inactive for ordinary messages, so
+                    // they instantiate nothing (and no text item can exist
+                    // holding "").
                     Loader {
                         id: segmentsLoader
                         objectName: "messageSegments"
-                        // Row values captured OUT HERE, outside the Repeater:
-                        // inside a delegate the bare name `model` can resolve
-                        // to the segment's own model object instead of this
-                        // timeline row's, and a silently wrong resolution is
-                        // exactly the class of bug this file keeps paying for.
+                        // Captured outside the Repeater: inside it, `model` can
+                        // resolve to the segment's own model.
                         readonly property bool ownMessage: model.isOwn === true
                         readonly property string plainBody: model.body || ""
                         active: root.hasMessageSegments
@@ -2503,33 +1846,17 @@ Item {
                                                         root.contentInnerCap)
                                              : 560
                         Layout.rightMargin: root.receiptRailReserve
-                        // The width a segment may grow to, derived from the
-                        // ROW and nothing below it. It cannot be read from
-                        // `bubble.width` or from a segment's own arranged
-                        // width: in Bubbles mode bubble.width IS
-                        // bubbleContent.implicitWidth, which is this column's
-                        // implicit width, which is the segments' — so a
-                        // segment sized against either one feeds its own
-                        // input and Qt reported a binding loop on
-                        // implicitWidth for every message carrying a fenced
-                        // code block. bubbleRow is fillWidth in `layout`
-                        // (whose width is the delegate's) and reports no
-                        // implicit width, so this end of the chain is inert.
-                        // Now ONE expression with every other cap in
-                        // this file (`root.contentInnerCap`) — this block's
-                        // own escape is what the others were missing, and
-                        // the shared form also subtracts the receipt inset.
+                        // Derived from the row, not bubble.width or the
+                        // segment's own width: in Bubbles those are this
+                        // column's implicit width, which loops. Same cap as
+                        // everywhere else (root.contentInnerCap).
                         readonly property real segmentCap:
                             Math.max(80, Math.min(720,
                                                   root.contentInnerCap - 8))
                         sourceComponent: ColumnLayout {
                             spacing: 4
-                            // ONE accessible reading for the whole message,
-                            // on the container: naming every segment with
-                            // the full body would read the message once per
-                            // segment, and naming each with its own
-                            // RichText would read markup. model.body is the
-                            // original markdown source, code fences and all.
+                            // One accessible reading on the container;
+                            // model.body is the original markdown source.
                             Accessible.role: Accessible.StaticText
                             Accessible.name: segmentsLoader.plainBody
                             Repeater {
@@ -2538,95 +1865,38 @@ Item {
                                     id: segmentRow
                                     objectName: "messageSegmentRow"
                                     required property var modelData
-                                    // kind: 0 RichText, 1 CodeBlock. Anything
-                                    // else is treated as rich text — an
-                                    // unknown kind must degrade to readable
-                                    // prose, never to a blank row.
+                                    // kind: 0 RichText, 1 CodeBlock. Unknown
+                                    // kinds degrade to rich text.
                                     readonly property bool isCode:
                                         modelData && modelData.kind === 1
                                     Layout.fillWidth: true
-                                    // Both implicit sizes are propagated, not
-                                    // just the height: in Bubbles layout the
-                                    // bubble's width IS bubbleContent's
-                                    // implicit width, so a row that reports 0
-                                    // would collapse a code-only DM message
-                                    // to the 60px floor.
-                                    //
-                                    // Read from the LOADER, never from
-                                    // `segmentLoader.item`, and that is HALF
-                                    // of a real binding-loop fix (2026-08-27;
-                                    // a live run printed
-                                    // "Binding loop detected for property
-                                    // implicitWidth" once per rich segment of
-                                    // every fenced message). QQuickTextEdit
-                                    // computes its implicit width LAZILY: the
-                                    // first read sets requireImplicitWidth and
-                                    // runs updateSize(), which calls
-                                    // setImplicitWidth() and emits
-                                    // implicitWidthChanged SYNCHRONOUSLY —
-                                    // while this binding is still on the
-                                    // stack, which is exactly what Qt reports
-                                    // as a loop. QQuickLoader mirrors the
-                                    // item's implicit size onto itself through
-                                    // that signal, so reading the loader is a
-                                    // plain cached read with no side effect
-                                    // and the same value. Measured: with the
-                                    // item read, EVERY rich segment loops;
-                                    // with the loader read, only a segment
-                                    // narrower than the cap still does (the
-                                    // other half, below).
+                                    // Propagate both implicit sizes: in Bubbles
+                                    // the bubble's width is bubbleContent's
+                                    // implicit width, so a 0 would collapse a
+                                    // code-only message. Read from the Loader,
+                                    // never segmentLoader.item: QQuickTextEdit
+                                    // computes its implicit width lazily and
+                                    // emits implicitWidthChanged synchronously
+                                    // on the first read, which Qt reports as a
+                                    // binding loop. The Loader mirrors the same
+                                    // value without that side effect.
                                     implicitWidth: segmentLoader.implicitWidth
                                     implicitHeight: segmentLoader.implicitHeight
                                     Loader {
                                         id: segmentLoader
                                         anchors.left: parent.left
-                                        // ── The other half of the loop ─────
-                                        // The two components do NOT share a
-                                        // sizing contract, and giving them one
-                                        // is what closed the cycle.
-                                        //
-                                        // A CodeBlock's implicitWidth is
-                                        // width-INDEPENDENT by construction
-                                        // (a NoWrap gutter plus a NoWrap
-                                        // TextEdit, clamped to a constant), so
-                                        // it can safely size itself: that is
-                                        // what keeps `ls -la` a narrow frame
-                                        // instead of an edge-to-edge grey box,
-                                        // and what makes a longer line clamp
-                                        // at the cap and scroll internally.
-                                        // A code segment has never looped, in
-                                        // any layout, at any width.
-                                        //
-                                        // A WRAPPING TextEdit is the opposite:
-                                        // its width decides its content, so
-                                        // `width: min(cap, item.implicitWidth)`
-                                        // hands it a width derived from its own
-                                        // measurement. Whenever the natural
-                                        // width is below the cap the min picks
-                                        // the item's own number, the item is
-                                        // laid out at exactly its ideal width,
-                                        // and the relayout answers back. So a
-                                        // rich segment takes its width FROM
-                                        // ABOVE — the row, which is filled by
-                                        // the layout out of the cap — and
-                                        // reports its natural width upward
-                                        // through implicitWidth only. A short
-                                        // message still produces a narrow
-                                        // bubble (the bubble is sized from that
-                                        // implicit width), and the text now
-                                        // fills the bubble it is in rather than
-                                        // sitting inside it at its own width,
-                                        // which is also what keeps a
-                                        // right-aligned RTL paragraph inside
-                                        // the bubble.
-                                        //
-                                        // The `> 8` startup guard is
-                                        // bodyLabel's, for bodyLabel's reason:
-                                        // the ColumnLayout incubates this row
-                                        // before it has a width, and measuring
-                                        // wrapped text against a 0px clamp
-                                        // turns a paragraph into a transient
-                                        // tens-of-thousands-of-pixels delegate.
+                                        // The two components have different sizing
+                                        // contracts. A CodeBlock's implicit width
+                                        // is width-independent (NoWrap, clamped),
+                                        // so it can size itself: short code stays
+                                        // narrow, long lines clamp and scroll. A
+                                        // wrapping TextEdit's content depends on
+                                        // its width, so it takes its width from
+                                        // the row and reports its natural width
+                                        // upward only; min(cap, implicitWidth)
+                                        // here would loop. The `> 8` guard is
+                                        // bodyLabel's: before the row has a width,
+                                        // wrapped text measures enormously tall.
                                         width: !segmentLoader.item
                                                ? segmentsLoader.segmentCap
                                                : segmentRow.isCode
@@ -2642,12 +1912,9 @@ Item {
                                                          ? codeSegment
                                                          : richSegment
                                     }
-                                    // Declared inside the delegate on
-                                    // purpose: an inline Component's creation
-                                    // context is the object it is declared
-                                    // in, so `segmentRow` and `root` resolve
-                                    // here. A Component hoisted to the file
-                                    // root could not see the delegate scope.
+                                    // Declared inside the delegate so its
+                                    // creation context resolves `segmentRow`
+                                    // and `root`.
                                     Component {
                                         id: richSegment
                                         TextEdit {
@@ -2657,14 +1924,9 @@ Item {
                                                       || "",
                                                       root.searchHighlight,
                                                       root.isCurrentSearchHit)
-                                            // Same ink, family, scaling and
-                                            // interaction the single-body
-                                            // path uses, so prose either
-                                            // side of a code block is
-                                            // visually unchanged. Big emoji
-                                            // cannot occur here: a body with
-                                            // a fenced block is not an
-                                            // emoji-only body.
+                                            // Same ink, font, scaling and interaction
+                                            // as the single-body path. Big emoji
+                                            // cannot occur with a fenced block.
                                             color: root.bubbleMode
                                                    && segmentsLoader.ownMessage
                                                    ? AppTheme.ownBubbleText
@@ -2675,9 +1937,7 @@ Item {
                                                 : root.compactMode
                                                   || root.inThreadPanel
                                                 ? 13 : AppTheme.fontSizeM)
-                                            // No lineHeight, same reason
-                                            // as the single-body path
-                                            // above: TextEdit has no such
+                                            // No lineHeight: TextEdit has no such
                                             // property.
                                             wrapMode: Text.Wrap
                                             readOnly: true
@@ -2691,9 +1951,8 @@ Item {
                                     Component {
                                         id: codeSegment
                                         CodeBlock {
-                                            // PLAIN text from the model,
-                                            // never html — CodeBlock renders
-                                            // it with PlainText formatting.
+                                            // Plain text, rendered by CodeBlock as
+                                            // PlainText.
                                             code: segmentRow.modelData.text
                                                   || ""
                                             language:
@@ -2706,10 +1965,9 @@ Item {
                         }
                     }
 
-                    // v0.7: decrypting-text skeleton for recoverable rows.
-                    // Two bounded line bars reserve stable text geometry; the
-                    // in-place decryption update replaces them with the real
-                    // body without moving the scroll anchor.
+                    // Decrypting skeleton: two line bars reserve text geometry;
+                    // decryption replaces them in place without moving the
+                    // anchor.
                     ColumnLayout {
                         id: decryptingSkeleton
                         objectName: "decryptingSkeleton"
@@ -2737,32 +1995,23 @@ Item {
                         }
                     }
 
-                    // v0.6.0 checkpoint 8: unable-to-decrypt action row —
-                    // safe reason category, automatic-recovery hint, a manual
-                    // Retry (bounded/deduplicated in the backend), and a jump
-                    // to Security settings. Never shows session ids,
-                    // ciphertext, or raw event JSON.
+                    // Unable-to-decrypt actions: reason category, recovery
+                    // hint, a bounded manual Retry and a link to Security
+                    // settings. Never shows session ids, ciphertext or raw
+                    // event JSON.
                     RowLayout {
                         id: utdRow
                         visible: model.undecryptable === true
                         spacing: AppTheme.spacingS
                         Label {
                             text: {
-                                // B011: "Waiting for keys…" IS A LIE WHEN THE
-                                // KEYS CAN NEVER ARRIVE. If this session's
-                                // published identity key does not match its
-                                // own Olm account, every peer encrypts to a
-                                // key we cannot read and no wait will ever
-                                // end. The corner prompt carries the
-                                // explanation and the repair; this row stops
-                                // promising something that will not happen.
-                                //
-                                // ONE extra property read, on a dedicated
-                                // notify signal that fires at most once per
-                                // session — not securityStateChanged, which
-                                // would re-evaluate this binding in every
-                                // instantiated row on every trust update. It
-                                // adds no item to the delegate.
+                                // If this session's published identity key does
+                                // not match its Olm account, keys can never
+                                // arrive, so do not say "Waiting for keys…";
+                                // the corner prompt explains and repairs. Uses
+                                // a dedicated signal that fires at most once
+                                // per session rather than securityStateChanged,
+                                // which would re-evaluate every row.
                                 if (app.encryptionIdentityBroken)
                                     return qsTr("This session can't unlock "
                                                 + "encrypted messages")
@@ -2779,15 +2028,7 @@ Item {
                             font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             font.italic: true
                         }
-                        // v0.6.5: these are inline text links (underlined,
-                        // click-to-act), the exact role AppTheme.link exists
-                        // for — not accent, which under Storm is bolt,
-                        // reserved for selection/focus/the one primary
-                        // action. link is periwinkle under Storm and falls
-                        // back to accent for every legacy theme (pixel-
-                        // identical), matching the real hyperlinks elsewhere
-                        // in this same delegate (message-body links, mention
-                        // links) that already read AppTheme.link.
+                        // Inline text links use AppTheme.link, not accent.
                         Label {
                             text: qsTr("Retry decryption")
                             color: AppTheme.link
@@ -2814,11 +2055,9 @@ Item {
                         }
                     }
 
-                    // The link preview's own one-line summary. Same control
-                    // and the same expansion flag as the media one above;
-                    // only a LOADED card is ever collapsed (the consent
-                    // gate, the loading band and the retry each carry the
-                    // reader's only action and are already one band).
+                    // The link preview's one-line summary, sharing the media
+                    // summary's control and expansion flag. Only a loaded card
+                    // collapses.
                     Loader {
                         id: previewEmbedSummaryLoader
                         objectName: "previewEmbedSummaryLoader"
@@ -2837,10 +2076,9 @@ Item {
                             onToggleRequested: root.toggleEmbedExpanded()
                         }
                     }
-                    // v0.5.11: rich link-preview card. Backed by
-                    // LinkPreviewController — Rust performs the protected
-                    // outbound fetch; QML only renders whitelisted fields.
-                    // Encrypted rooms default to click-to-load (privacy).
+                    // Rich link-preview card from LinkPreviewController: Rust
+                    // performs the protected fetch; QML renders whitelisted
+                    // fields only. Encrypted rooms default to click-to-load.
                     Loader {
                         id: previewLoader
                         Layout.alignment: Qt.AlignLeft
@@ -2861,28 +2099,13 @@ Item {
                                          : linkPreviewComponent
                     }
 
-                    // Undo for a dismissed preview, where the card WAS.
-                    //
-                    // Dismissal is session-only and already had an undo, but
-                    // it lived in the message context menu and nobody found
-                    // it — the report was that an X'd preview is "gone for
-                    // good". A collapsed card leaves no trace to aim at, so
-                    // the affordance has to be here.
-                    //
-                    // Revealed on HOVER so it costs the row nothing at rest:
-                    // it reserves no height when hidden, which is the whole
-                    // point of dismissing the card. A Loader, not a hidden
-                    // Label — a Label born holding "" keeps
-                    // ItemObservesViewport for its whole life (§16), and
-                    // this one sits in every text row in the timeline.
+                    // Undo for a dismissed preview, where the card was. A
+                    // Loader rather than a hidden Label (a Label born with ""
+                    // stays a viewport observer).
                     Loader {
                         objectName: "previewRestoreLoader"
-                        // ALWAYS shown while dismissed, not only on hover.
-                        // Hover-gating it meant the card was "just gone for
-                        // that session" — the reader had no way to know a
-                        // preview was ever there, let alone that it could
-                        // come back. It is one muted line; that is a small
-                        // price for the state being reversible at all.
+                        // Always shown while dismissed, so the reader can tell
+                        // a preview existed and bring it back.
                         active: root.previewDismissed
                         visible: active
                         Layout.alignment: Qt.AlignLeft
@@ -2900,17 +2123,8 @@ Item {
                                 cursorShape: Qt.PointingHandCursor
                             }
                             TapHandler {
-                                // `previewRoomId`, THE SAME KEY THE DISMISSAL
-                                // USED. Dismissal, lookup and the context
-                                // menu's undo all key on
-                                // `app.currentRoomId`; this one reached for
-                                // the view's own roomId instead, so it
-                                // computed an ownership key nobody had
-                                // dismissed and restorePreview() found
-                                // nothing to restore. The button was inert
-                                // from the day it shipped, and silently so —
-                                // restoring a key that is not there is not an
-                                // error, it is a no-op.
+                                // previewRoomId: the same key the dismissal and
+                                // the context menu's undo use.
                                 enabled: root.rowActionsEnabled
                     onTapped: app.linkPreviews.restorePreviewForEvent(
                                     root.previewRoomId, root.actionKey)
@@ -2918,22 +2132,10 @@ Item {
                         }
                     }
 
-                    // Upload progress for an outgoing attachment. The
-                    // figures are the SDK send queue's own MediaUpload
-                    // reports, carried on the local echo's send state, so
-                    // this is real transferred bytes and not a timer.
-                    //
-                    // uploadProgress is -1 while the total is NOT known —
-                    // the first diff of a media send routinely lands before
-                    // the first progress report — and that renders as the
-                    // INDETERMINATE sweep. Drawing a 0% bar there would
-                    // claim a measurement that does not exist, and it would
-                    // sit at 0% for the whole of a small upload.
-                    //
-                    // Loader, not a `visible:` binding: this exists on one
-                    // row in a thousand, and an always-built bar is one more
-                    // permanent item per delegate in an un-virtualized
-                    // Column.
+                    // Upload progress for an outgoing attachment, from the SDK
+                    // send queue's MediaUpload reports. -1 (total not known
+                    // yet) shows the indeterminate sweep rather than a false
+                    // 0%. A Loader: this exists on very few rows.
                     Loader {
                         id: uploadProgressLoader
                         objectName: "uploadProgressLoader"
@@ -2959,10 +2161,8 @@ Item {
                         id: metaRow
                         Layout.fillWidth: true
                         spacing: AppTheme.spacingXS
-                        // Loader, not an empty-text Label: this text is ""
-                        // on every row that is neither sending, failed nor
-                        // edited, which is a permanent viewport observer —
-                        // see the virtualLabel note for the mechanism.
+                        // A Loader: this text is "" on most rows, which would
+                        // be a permanent viewport observer.
                         Loader {
                             id: metaLabel
                             active: (model.isOwn === true
@@ -2977,9 +2177,7 @@ Item {
                                         app.settings.clockTimeFormat)
                                     // Status: 0=Sent, 1=Sending, 2=Failed
                                     if (model.isOwn && model.status === 1) {
-                                        // Percentage only where there IS
-                                        // one. -1 is "extent unknown", and
-                                        // "sending… 0%" would be a claim.
+                                        // Percentage only when known.
                                         if (root.uploadProgress >= 0)
                                             return qsTr("%1 • sending… %2%")
                                                 .arg(ts)
@@ -2997,10 +2195,8 @@ Item {
                                        ? AppTheme.onAccentMuted
                                        : AppTheme.textMuted
                                 font.pixelSize: AppTheme.scaled(10)
-                                // v0.9 (phase 7): the "edited" marker is the
-                                // door to the edit history. Underlined only
-                                // when it is one, so a "sending…" label does
-                                // not look clickable.
+                                // The "edited" marker opens the edit history;
+                                // underlined only then.
                                 font.underline: model.edited === true
                                                 && !(model.isOwn && model.status !== 1
                                                      && model.status !== undefined
@@ -3018,52 +2214,37 @@ Item {
                                 }
                             }
                         }
-                        // v0.5.7: retry action for failed local echoes. The
-                        // SDK send queue re-attempts the same queued item,
-                        // so retrying never duplicates the message. v0.6.5:
-                        // an inline text link — see the "Retry
-                        // decryption"/"Security settings" comment above for
-                        // why this reads AppTheme.link, not accent.
+                        // Retry for failed local echoes: the SDK send queue
+                        // re-attempts the same item, so retrying never
+                        // duplicates. An inline link (AppTheme.link).
                         Label {
                             visible: model.isOwn && model.status === 2
                             text: qsTr("Retry")
                             color: AppTheme.link
-                            // Its sibling one line up is already
-                            // scaled(10); the two are one status line.
+                            // Matches its sibling on the same status line.
                             font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                             font.underline: true
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                // NOT gated on `rowActionsEnabled`: a failed local
-                        // echo is not selectable (`rowSelectable` excludes
-                        // it), so the picker has nothing to lose here and
-                        // retrying or cancelling a stuck send mid-pick is a
-                        // reasonable thing to want.
+                                // Not gated on rowActionsEnabled: failed echoes
+                                // are not selectable, so retrying mid-selection
+                                // is harmless.
                         onClicked: root.timelineModel.retrySend(
                                                root.sourceModelRow(index))
                             }
                         }
-                        // Discard a send that has not reached the server —
-                        // the answer to a message wedged in "sending…", and
-                        // to a failed one the user simply does not want any
-                        // more. Routed to the SDK send queue's own abort,
-                        // which is the only thing that can cancel an
-                        // in-flight media UPLOAD as well as a queued event.
-                        //
-                        // The row is not removed here. The abort can lose
-                        // the race with the server, and the backend removes
-                        // the item only when it really aborted — a local
-                        // removal would hide a message the room already
-                        // has. Gated on the model, not on the status alone,
-                        // so a backend with no send queue never offers a
-                        // cancel there is nothing behind.
+                        // Discard a send that has not reached the server, via
+                        // the SDK send queue's abort (the only thing that can
+                        // cancel an in-flight upload). The row is not removed
+                        // here: the abort can lose the race, and the backend
+                        // removes the item only when it really aborted. Gated
+                        // on the model, so a backend without a send queue
+                        // offers nothing.
                         Label {
                             objectName: "cancelSendLink"
-                            // model.status is named FIRST so the binding
-                            // takes a dependency on it: canCancelSendAt is
-                            // a plain function call and re-evaluates only
-                            // when something in this expression changes.
+                            // model.status first so the binding depends on it;
+                            // canCancelSendAt is a plain function call.
                             visible: model.isOwn === true
                                      && (model.status === 1
                                          || model.status === 2)
@@ -3081,58 +2262,26 @@ Item {
                                                root.sourceModelRow(index))
                             }
                         }
-                        // v0.6.1: Element-style thread summary card on the root
-                        // event. Thread replies are hidden from the main
-                        // timeline (SDK hide_threaded_events), so the root
-                        // carries the entire thread's presence here. The card
-                        // shows the message-bubble icon, latest sender, a safe
-                        // preview, the authoritative reply count and an unread
-                        // indicator; activating it opens the correct thread.
-                        // Loader (2026-08-19 scroll round): the card existed
-                        // in EVERY row though thread roots are the rare
-                        // case, and its own timeLabel() returns "" whenever
-                        // latestTimestamp is unset — a permanent viewport
-                        // observer (see the virtualLabel note). Note that
-                        // hazard survives INSIDE an active card, so the
-                        // regression test seeds a thread root with no
-                        // timestamp. previewLoader above is the precedent.
+                        // Thread summary card on the root event. Thread replies
+                        // are hidden from the main timeline, so the root shows
+                        // the thread: icon, latest sender, preview, reply count
+                        // and unread indicator. A Loader because roots are rare
+                        // and the card's time label is "" without a timestamp
+                        // (viewport observer).
                         Loader {
                             active: model.isThreadRoot === true
                             visible: active
-                            // BOUNDED BY WHAT IS LEFT OF THE ROW, not only by
-                            // its own natural width. This Loader shares
-                            // `metaRow` with the "edited" / "sending…" marker,
-                            // and an edited thread ROOT has both: the marker
-                            // takes the left of the row and the card, sized
-                            // only by its own implicitWidth, then ran off the
-                            // right edge of the bubble and clipped its own
-                            // timestamp. Seen live on the packaged flatpak,
-                            // 2026-09-13 -- edit a message that is a thread
-                            // root and the card loses the last character or
-                            // two of "10:46".
-                            //
-                            // fillWidth makes the layout hand it the space
-                            // that is actually left; maximumWidth keeps it at
-                            // its natural size when there is room, so a row
-                            // WITHOUT the marker looks exactly as before.
-                            // ThreadSummaryCard's own content is anchored to
-                            // fill and its preview Label is fillWidth, so a
-                            // narrower card elides rather than clips.
-                            //
-                            // LOOP-FREE ONLY BECAUSE THAT PREVIEW LABEL IS
-                            // SINGLE-LINE + ELIDE. maximumWidth reads the
-                            // item's implicitWidth while the layout sets the
-                            // item's WIDTH, so the cycle closes only if the
-                            // card's implicitWidth follows its width -- and it
-                            // does not: a non-wrapping QQuickText reports its
-                            // unelided natural width, so
-                            // `content.implicitWidth` is width-independent and
-                            // the binding settles on the first pass (the
-                            // Math.min(420, ...) cap is a second stabiliser).
-                            // Give that Label a `wrapMode`, or drop its
-                            // `maximumLineCount: 1`, and THIS becomes a real
-                            // binding loop -- from an edit in a different
-                            // file. Raised in review.
+                            // Bounded by what is left of the row: an edited
+                            // thread root shares metaRow with the "edited"
+                            // marker, and a card sized only by its implicit
+                            // width would run off the bubble. maximumWidth
+                            // keeps its natural size when there is room; the
+                            // card's preview elides. Loop-free only because
+                            // that preview Label is single-line with elide, so
+                            // its implicit width does not follow its width.
+                            // Giving it a wrapMode or removing
+                            // maximumLineCount: 1 would make this a binding
+                            // loop.
                             Layout.fillWidth: true
                             Layout.maximumWidth: item ? item.implicitWidth : 0
                             sourceComponent: ThreadSummaryCard {
@@ -3149,43 +2298,29 @@ Item {
                             onActivated: app.thread.openThread(
                                 app.currentRoomId, root.eventIdForActions())
 
-                            // v0.7 facepile. The root event id is read once
-                            // here rather than in each binding below, so a
-                            // late model change cannot leave the card
-                            // showing one thread's faces under another's.
+                            // Read once so a late model change cannot mix two
+                            // threads' faces.
                             readonly property string rootId:
                                 model.isThreadRoot === true
                                     ? root.eventIdForActions() : ""
-                            // Guarded like Avatar.qml's canary: an
-                            // unqualified `app` lookup performed during
-                            // delegate creation can resolve undefined, and
-                            // the binding would then throw and latch at ""
-                            // with no self-heal path (30ee39b).
+                            // Guarded: an unqualified `app` lookup during
+                            // delegate creation can resolve undefined and latch
+                            // the binding at "".
                             readonly property string roomId:
                                 typeof app !== "undefined" ? app.currentRoomId : ""
 
-                            // Pure read — issues no request, so this is safe
-                            // as a binding. The fetch is explicit below.
+                            // Pure read, no request; the fetch is explicit
+                            // below.
                             function refreshParticipants() {
                                 participants = (rootId !== "" && roomId !== "")
                                     ? app.threads.participants(roomId, rootId)
                                     : []
                             }
-                            // Fetched once per (room, root) —
-                            // requestParticipants is idempotent, so a card
-                            // may call this on every appearance without
-                            // generating traffic.
-                            //
-                            // NOTE this is NOT a viewport gate. The room
-                            // timeline is a non-virtualized Repeater +
-                            // Column (TimelinePane), so every LOADED row is
-                            // instantiated and visible whether or not it is
-                            // on screen. Opening a thread-heavy room, and
-                            // each pagination batch that lands more roots,
-                            // therefore issues one relations fetch per root.
-                            // Bounding that fan-out is an accepted
-                            // follow-up; the per-root dedupe already caps it
-                            // at once per root per session.
+                            // Fetched once per (room, root);
+                            // requestParticipants is idempotent. Not a viewport
+                            // gate: every loaded row is instantiated, so
+                            // opening a thread-heavy room issues one relations
+                            // fetch per root (deduplicated per session).
                             function ensureParticipants() {
                                 if (!visible || rootId === "" || roomId === "")
                                     return
@@ -3209,83 +2344,35 @@ Item {
                 }
             }
 
-            // Action toolbar.
-            //
-            // v0.7.1 CORRECTION: an earlier version of this fix made the
-            // per-row Loader's loaded Rectangle reparent into
-            // Overlay.overlay to escape bubbleRow's clip (needed because a
-            // short/continuation row is shorter than the ~32px bar). That
-            // reparenting was BROKEN: the Loader still believed it owned
-            // the (now elsewhere-parented) item for destruction purposes,
-            // and destroying the delegate during pagination/room-switch
-            // churn produced a dangling-pointer SIGSEGV — bisected against
-            // timeline-pane-qml-test (52 passed/11 failed on HEAD, crash on
-            // that version). The `detailsDialogComponent` Dialog precedent
-            // this followed does not transfer: a Dialog is a Popup, which
-            // manages its own overlay/window lifetime; a plain Rectangle
-            // loaded by a Loader is not.
-            //
-            // Root's clip is `false` in the thread panel (a real ListView —
-            // see line 13's `ListView.view === null`), so that host never
-            // had the clipping defect and keeps the original, always-safe,
-            // in-row anchored bar below (with the tooltip-flip fix folded
-            // in, since that half of the original report — the "More"
-            // tooltip clipping against the window's top edge — applies
-            // there too).
-            //
-            // ONE bar per row, created on first hover and anchored in
-            // place. Positioning is plain anchors against the row itself —
-            // no mapToItem into an overlay, which could not survive the
-            // rows' 180-degree rotation (it placed the bar at the visual
-            // BOTTOM) and had no dependency to re-evaluate on when the view
-            // scrolled. Hover is naturally exclusive, so two rows can never
-            // both show one.
+            // Action toolbar: one bar per row, created on first hover and
+            // anchored in the row with plain anchors. Never reparent it into
+            // Overlay.overlay: a Loader still owns the item for destruction,
+            // which crashed during pagination and room switches, and mapToItem
+            // cannot survive the rows' 180° rotation. Hover is exclusive, so
+            // two rows never both show one.
             Loader {
                 id: messageActionBarLoader
                 objectName: "messageActionBarLoader"
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.topMargin: -3
-                // `parent` is bubbleRow — the FULL timeline width. The bar
-                // sits at the row's top-RIGHT CORNER, which is where Element
-                // puts it (`mx_MessageActionBar` is `right: 8px` on an event
-                // tile that spans the whole timeline panel).
-                //
-                // The 2026-08-21 round briefly pulled the bar left by the
-                // content column's empty gutter, to land it on the text's
-                // own right edge. That was WRONG in practice and Rokas
-                // reported it: the content column is clamped to
-                // timelineContentMaxWidth, so the "content edge" is a
-                // CONSTANT — the bar rendered at the same fixed x on every
-                // row, floating mid-row with nothing under it, and short
-                // rows looked no different from long ones. A corner is a
-                // landmark; a fixed offset into open space is not.
-                //
-                // The margin clears the overlaid vertical scrollbar
-                // (AppScrollBar sits on the Flickable's right edge and this
-                // row is not inset from it) so the bar can never render
-                // underneath the handle.
-                //
-                // Still a plain in-row anchor: no mapToItem, which is what
-                // the reverted overlay bar was and could not survive the
-                // rows' 180-degree rotation.
+                // Top-right corner of the full-width row, as in Element. The
+                // margin clears the overlaid scrollbar.
                 anchors.rightMargin: AppTheme.scrollbarWidth + AppTheme.spacing2
                                      + root.actionBarReceiptReserve
                 z: 3
-                // Created on first need, then latched alive for the
-                // delegate's lifetime; visibility gates afterwards. The
-                // latch write is DEFERRED: onLoaded fires synchronously
-                // inside the active binding's own evaluation, and a direct
-                // write to one of its dependencies from there is a
-                // detected binding loop.
+                // Created on first need, then kept for the delegate's lifetime.
+                // The latch write is deferred: onLoaded runs inside the
+                // `active` binding's evaluation, and writing a dependency there
+                // is a binding loop.
                 property bool latched: false
                 active: latched || root.actionsVisible
                 onLoaded: Qt.callLater(function() { latched = true })
                 visible: root.actionsVisible
                 sourceComponent: Rectangle {
                 id: messageActionBar
-                // v0.6.5 (SPEC 1a): container surface bg, 1px borderStrong,
-                // radius radiusTile, 2px padding.
+                // Surface background, 1px borderStrong, radiusTile, 2px
+                // padding.
                 radius: AppTheme.radiusTile
                 color: AppTheme.surface
                 border.color: AppTheme.borderStrong
@@ -3295,13 +2382,9 @@ Item {
                 implicitHeight: threadActionRow.implicitHeight
                                 + AppTheme.spacing2 * 2
 
-                // Tooltip-flip only — a plain computed boolean from a live
-                // mapToItem READ. This stores nothing and reparents
-                // nothing, so it carries none of the risk the bar's own
-                // positioning did; it is exactly as safe as the reaction
-                // picker's own anchor-point computation elsewhere in this
-                // file. 44 is a conservative one-line tooltip height
-                // (~30px) plus a clear margin.
+                // Tooltip flip only: a computed boolean from a live mapToItem
+                // read; stores and reparents nothing. 44 is a one-line tooltip
+                // plus margin.
                 readonly property bool tooltipsBelow:
                     Overlay.overlay
                     ? bubbleRow.mapToItem(Overlay.overlay, 0, 0).y < 44
@@ -3311,13 +2394,9 @@ Item {
                     id: threadActionRow
                     anchors.centerIn: parent
                     spacing: 2
-                    // Element's own bar leads with this on an image row, and
-                    // leading is right: it is the only action here that is
-                    // about the picture rather than about the message.
-                    //
-                    // Gone once the image IS hidden — the placeholder's "Show
-                    // image" is then the primary action, and a second control
-                    // offering to hide what is already hidden is noise.
+                    // Leads on an image row, as in Element. Hidden once the
+                    // image is hidden; the placeholder's "Show image" is then
+                    // the action.
                     IconButton {
                         id: threadHideMediaButton
                         objectName: "messageHideMediaButton"
@@ -3343,10 +2422,9 @@ Item {
                         radius: AppTheme.radiusControl
                         iconName: "add_reaction"
                         iconSize: 18
-                        // Cheap local predicate — semantically identical
-                        // to "messagePermalink() is non-empty" but without
-                        // the per-row O(n) timeline scan the C++ call cost
-                        // (three of these per row made room open O(n²)).
+                        // Local predicate equivalent to "messagePermalink() is
+                        // non-empty", without the per-row timeline scan the C++
+                        // call costs.
                         enabled: !model.redacted
                                  && (model.eventId || "").length > 0
                                  && model.eventId.indexOf("local:") !== 0
@@ -3372,10 +2450,9 @@ Item {
                         radius: AppTheme.radiusControl
                         iconName: "reply"
                         iconSize: 18
-                        // Cheap local predicate — semantically identical
-                        // to "messagePermalink() is non-empty" but without
-                        // the per-row O(n) timeline scan the C++ call cost
-                        // (three of these per row made room open O(n²)).
+                        // Local predicate equivalent to "messagePermalink() is
+                        // non-empty", without the per-row timeline scan the C++
+                        // call costs.
                         enabled: !model.redacted
                                  && (model.eventId || "").length > 0
                                  && model.eventId.indexOf("local:") !== 0
@@ -3399,9 +2476,8 @@ Item {
                         radius: AppTheme.radiusControl
                         iconName: "edit_square"
                         iconSize: 18
-                        // The same gate as the context menu's Edit: own,
-                        // editable text, not a local echo. Evaluated when
-                        // the bar is built for the hovered row.
+                        // Same gate as the context menu's Edit: own editable
+                        // text, not a local echo.
                         visible: root.timelineModel
                                  && root.timelineModel.canEditEvent(
                                         root.eventIdForActions())
@@ -3420,7 +2496,7 @@ Item {
                                 id,
                                 root.timelineModel.visibleTextForEvent(id),
                                 root.timelineModel.sanitizedHtmlForEvent(id),
-                                // The timeline that HOLDS it: the composite
+                                // The timeline that holds it: the composite id
                                 // in a thread panel, the room id otherwise.
                                 root.timelineModel.roomId)
                         }
@@ -3431,8 +2507,7 @@ Item {
                         radius: AppTheme.radiusControl
                         iconName: "more_vert"
                         iconSize: 18
-                        // v0.6.5 (SPEC 1a): active button gets the accentSoft
-                        // chip while its menu is open.
+                        // accentSoft chip while the menu is open.
                         active: root.moreMenuOpen
                         Accessible.name: qsTr("More message actions")
                         ToolTip {
@@ -3445,20 +2520,11 @@ Item {
                         }
                         onClicked: {
                             var menu = root.ensureContextMenu()
-                            // MAP to overlay space — the old code passed
-                            // row-LOCAL coordinates while claiming they were
-                            // already in overlay space, so the menu popped at
-                            // a position that had nothing to do with the
-                            // button, and the room timeline's 180-degree row
-                            // rotation mirrored it to the opposite edge of
-                            // the screen.
-                            //
-                            // Both corners are mapped and the max taken
-                            // rather than assuming which local corner is
-                            // visually bottom-right: that flips with the
-                            // rotation, and the thread panel is NOT rotated.
-                            // mapToItem handles the transform; this only has
-                            // to stay agnostic about which way round it is.
+                            // Map to overlay space. Both corners are mapped and
+                            // the max taken, since which local corner is
+                            // visually bottom-right depends on rotation (the
+                            // room timeline is rotated, the thread panel is
+                            // not).
                             var a = messageActionBar.mapToItem(
                                 Overlay.overlay, 0, 0)
                             var b = messageActionBar.mapToItem(
@@ -3479,12 +2545,9 @@ Item {
         Flow {
             id: reactionsFlow
             objectName: "reactionsFlow"
-            // Identity-guarded projection (same pattern as the read-receipt
-            // strip below): ReactionsRole builds a fresh QVariantList on
-            // every read, and a Repeater bound to it tore down and rebuilt
-            // every chip on every unrelated Set diff (receipt moves alone
-            // made that per-message-burst). Only a REAL change replaces the
-            // model the Repeater sees.
+            // Identity-guarded projection: ReactionsRole returns a fresh list
+            // on every read, so only a real change replaces the Repeater's
+            // model (otherwise every chip is rebuilt on unrelated diffs).
             readonly property var liveReactions: model.reactions || []
             property var shownReactions: []
             function refreshReactions() {
@@ -3495,36 +2558,18 @@ Item {
             onLiveReactionsChanged: refreshReactions()
             Component.onCompleted: refreshReactions()
             visible: !model.redacted && shownReactions.length > 0
-            // 2026-08-18 tester report ("infinite reactions eina i sona"):
-            // a Flow only wraps if it HAS a width, and without fillWidth its
-            // width was its own implicit single-row width — so a busy message
-            // ran its chips straight off the right edge of the window, out of
-            // reach, and over the row's hover action bar. Filling the row
-            // gives the Flow a real width to wrap inside; the right margin
-            // keeps the last chip clear of the read-receipt rail, which is
-            // painted upward from the row's bottom edge at the same corner.
+            // A Flow only wraps if it has a width. The right margin keeps the
+            // last chip clear of the read-receipt rail.
             Layout.fillWidth: true
-            // ── AN OWN BUBBLE IS RIGHT-ALIGNED AND THE CHIPS WERE NOT ────
-            //
-            // A Flow packs from its own left edge, and this one fills the
-            // row, so in Bubbles a reaction on YOUR OWN message was laid out
-            // at the row's left edge while the bubble it annotates sat at
-            // the right. Measured live 2026-09-19 in a DM on a 1920px
-            // window: chips at x 444..520, the bubble at x 1156..1883 —
-            // 636px of empty row between a message and its own reactions,
-            // which reads as a reaction on the OTHER person's side.
-            //
-            // The fix is the Flow's BOX, not its packing: give it the
-            // bubble's own band so the chips hang under the message.
-            // Reading `bubble.x`/`bubble.width` is safe HERE where the
-            // identity header's cap could not (see contentInnerCap): this
-            // Flow is a SIBLING of bubbleRow, outside bubbleContent, so
-            // nothing in it feeds the bubble's measurement.
+            // A Flow packs from its left edge, so under an own bubble
+            // (right-aligned in Bubbles) the chips landed far from the message.
+            // Give the Flow the bubble's band so the chips hang under it.
+            // Reading bubble.x/width is safe here: this Flow is a sibling of
+            // bubbleRow and does not feed the bubble's measurement.
             readonly property bool followsOwnBubble:
                 root.bubbleMode && model.isOwn === true
-            // The facepile rides the row's right edge whatever the layout,
-            // so its reservation is a FLOOR on the right margin and not an
-            // alternative to the bubble's.
+            // The facepile rides the row's right edge in every layout, so its
+            // reservation is a floor on the right margin.
             readonly property real pileReserve: readReceiptStrip.visible
                 ? receiptRow.width + AppTheme.spacingXS : 0
             Layout.rightMargin: reactionsFlow.followsOwnBubble
@@ -3532,14 +2577,10 @@ Item {
                            bubbleRow.width - (bubble.x + bubble.width))
                 : reactionsFlow.pileReserve
             Layout.alignment: Qt.AlignLeft
-            // Align with the message body across every layout mode (Modern 40,
-            // compact 8, bubble 44) instead of a fixed 36; add a deliberate
-            // gap so the chips sit clearly below a media card rather than
-            // crowding it. Under an own bubble the band starts at the
-            // BUBBLE's left edge — except that a two-word message makes a
-            // 60px bubble, and stacking chips one per line under it would
-            // trade one bad reading for another, so the band is never
-            // narrower than a short run of them.
+            // Align with the message body in every layout (Modern 40, Compact
+            // 8, Bubbles 44) plus a gap below media cards. Under an own bubble
+            // the band starts at the bubble's left edge, but is never narrower
+            // than a short run of chips.
             readonly property real ownBubbleChipRun: 220
             Layout.leftMargin: reactionsFlow.followsOwnBubble
                 ? Math.max(root.avatarGutterWidth,
@@ -3554,30 +2595,15 @@ Item {
                 Rectangle {
                     id: reactionChip
                     objectName: "reactionChip"
-                    // Design §3: own reaction = accent-soft fill + accent
-                    // border + accent-text; others = neutral chip. Pill radius,
-                    // 9px side / 3px vertical padding, min height 22. Every
-                    // state is PAINT ONLY — geometry never moves on
-                    // hover/press/focus/selected, because these chips wrap
-                    // in a Flow and a 1px growth would reflow the row.
-                    // v0.6.5 live-feedback: "add deliberate yellow" for byMe
-                    // chips — the softer accentBorder fallback read as too
-                    // faint to register as "you reacted here" at a glance
-                    // (worse once it was sitting on the mention wash this
-                    // round also toned down). Full-strength accent for the
-                    // border only, a touch heavier — the fill stays the
-                    // soft tint deliberately (a solid bolt fill on every
-                    // own-reaction pill across a busy thread would be the
-                    // over-yellow case the design's own discipline warns
-                    // against; the crisp ring is enough to read as "mine").
+                    // Own reaction: accent-soft fill, full accent border,
+                    // accent text; others: a neutral chip. Pill radius, 9px/3px
+                    // padding, min height 22. States change paint only, never
+                    // geometry, because a 1px growth would reflow the Flow.
                     readonly property color baseFill: modelData.byMe
                         ? AppTheme.reactionSelectedBackground
                         : AppTheme.reactionBackground
-                    // Qt.darker BOTH ways was backwards on the eight dark
-                    // themes: the pill moved toward the near-black row
-                    // behind it, so pointing at the most-clicked control in
-                    // a chat client made it RECEDE. Lift on dark, deepen on
-                    // light — one predicate, both directions.
+                    // Lift on dark themes, deepen on light, so the hovered chip
+                    // never recedes.
                     readonly property color hoverFill:
                         AppTheme.dark ? Qt.lighter(baseFill, 1.35)
                                       : Qt.darker(baseFill, 1.07)
@@ -3591,14 +2617,9 @@ Item {
                                   ? AppTheme.accent
                                   : reactionHover.hovered
                                     ? AppTheme.borderStrong : AppTheme.border
-                    // Whole pixels only: a 1.5px border cannot land on a
-                    // pixel boundary at DPR 1 and rendered as two rows of
-                    // half-covered antialiasing — soft exactly where the
-                    // "you reacted" signal has to be crisp.
+                    // Whole pixels only: a fractional border blurs at DPR 1.
                     border.width: modelData.byMe ? 2 : 1
-                    // The chip was a bare Rectangle: Accessible.role said
-                    // Button but a Rectangle is not a focus stop, so Tab
-                    // never reached it and nothing ever drew focus.
+                    // A focus stop, so Tab reaches the chip.
                     activeFocusOnTab: true
                     Keys.onReturnPressed: (event) => {
                         root.timelineModel.toggleReaction(root.eventIdForActions(),
@@ -3615,10 +2636,9 @@ Item {
                                              modelData.key)
                         event.accepted = true
                     }
-                    // Drawn INSIDE the pill, not at the shared -4px outset:
-                    // chips sit in a Flow with 4px spacing and an outset
-                    // ring would cross its neighbour and the read-receipt
-                    // rail beside the last one.
+                    // Focus ring drawn inside the pill: an outset ring would
+                    // cross the neighbouring chip (4px Flow spacing) and the
+                    // receipt rail.
                     Rectangle {
                         anchors.fill: parent
                         visible: reactionChip.activeFocus
@@ -3628,40 +2648,26 @@ Item {
                         border.color: AppTheme.focusRing
                     }
                     implicitWidth: reactionRow.implicitWidth + 14
-                    // reactionRow.implicitHeight is deterministic now: both
-                    // labels below are pinned to a fixed 16px content height,
-                    // so every chip in a row lands on the SAME height no
-                    // matter which emoji it holds. Before this, a taller
-                    // color-emoji glyph (many report bigger font metrics than
-                    // the 12px count label at the identical pixel size) grew
-                    // reactionRow's own implicitHeight, so per-chip height —
-                    // and the count label's vertical position within it —
-                    // varied chip to chip. Chip chrome stays unscaled by
-                    // design (it's interface chrome, not message-body text).
-                    // The 22px floor scales with the chip's own text:
-                    // pinning it while the labels grow would let a 140%
-                    // count overflow its pill.
+                    // Both labels are pinned to a 16px content height so every
+                    // chip has the same height regardless of emoji font
+                    // metrics. The 22px floor scales with the text so a large
+                    // count does not overflow.
                     implicitHeight:
                         Math.max(AppTheme.scaled(AppTheme.reactionChipHeight),
                                  reactionRow.implicitHeight + 4)
                     HoverHandler { id: reactionHover }
 
-                    // ── Who reacted (C2) ─────────────────────────────────
-                    // Names are RESOLVED in C++ (room display name, localpart
-                    // fallback, never a bare MXID) and the delivered list is
-                    // capped; `reactorTotal` is the UNCAPPED count, so the
-                    // tail is always truthful. Nothing is fabricated here: an
-                    // absent list means no tooltip at all, never a guess.
-                    // Degrades on a host whose model predates the fields.
+                    // Who reacted: names are resolved in C++ (display name,
+                    // localpart fallback, never a bare MXID) and capped;
+                    // reactorTotal is the uncapped count. An absent list means
+                    // no tooltip. Degrades on models without the fields.
                     readonly property var reactorNames:
                         modelData.reactorNames || []
                     readonly property int reactorTotal:
                         modelData.reactorTotal >= 0
                         ? modelData.reactorTotal : (modelData.count || 0)
-                    // A display name is user-chosen and can be 255 chars, and
-                    // the shared ToolTip instance has no width cap of its
-                    // own — so bound each name here and mark the cut with an
-                    // ellipsis. Visibly truncated, never silently rewritten.
+                    // Bound each user-chosen name (the shared ToolTip has no
+                    // width cap) and mark the cut with an ellipsis.
                     function boundedName(value) {
                         var name = value || ""
                         return name.length > 24
@@ -3672,8 +2678,8 @@ Item {
                         if (names.length === 0
                                 || (names[0] || "").length === 0)
                             return ""
-                        // A delivered list longer than the reported total
-                        // would make the tail negative — trust the larger.
+                        // A list longer than the reported total would make the
+                        // tail negative.
                         var total = Math.max(reactionChip.reactorTotal,
                                              names.length)
                         var first = reactionChip.boundedName(names[0])
@@ -3695,43 +2701,25 @@ Item {
                         return qsTr("%1, %2 and %3 others")
                             .arg(first).arg(second).arg(total - 2)
                     }
-                    // The ATTACHED form, exactly like the read-receipt strip
-                    // above: one shared ToolTip instance for the whole
-                    // application. A declared ToolTip child would build a
-                    // Popup, a background and a Label PER CHIP, and a busy
-                    // message carries dozens of chips — the same eager
-                    // per-row instantiation cost this file has already paid
-                    // for twice (the context menu and the details dialog are
-                    // both lazy now for exactly this reason).
-                    //
-                    // The HoverHandler covers the whole chip, so moving the
-                    // pointer within it never leaves and the tip cannot
-                    // flicker. Short delay — this is a read, not a warning.
+                    // The attached ToolTip: one shared instance app-wide,
+                    // rather than a Popup per chip. The HoverHandler covers the
+                    // whole chip, so the tip does not flicker.
                     ToolTip.text: reactionChip.reactorSummary
                     ToolTip.visible: reactionHover.hovered
                                      && reactionChip.reactorSummary.length > 0
                     ToolTip.delay: 300
-                    // A reaction key is ordinarily a Unicode emoji, but
-                    // MSC2545 clients (Cinny, and Sable after it) react with
-                    // a CUSTOM emoji by putting the pack image's own mxc URI
-                    // in the key — read out of Sable's Reaction.tsx, not
-                    // guessed. Lightning renders one so those reactions are
-                    // legible rather than appearing as a raw "mxc://…"
-                    // string, which is what happened before.
-                    //
-                    // The key is remote text chosen by whoever reacted, so
-                    // only a syntactically plain mxc takes the image branch
-                    // and it is fetched through the ordinary MediaBridge —
-                    // never as an arbitrary URL, and never as rich text.
+                    // MSC2545 clients (Cinny, Sable) react with a custom emoji
+                    // by putting the pack image's mxc URI in the key; render it
+                    // rather than showing a raw "mxc://…". The key is remote
+                    // text, so only a syntactically plain mxc takes the image
+                    // branch, fetched through MediaBridge, never as a URL or
+                    // rich text.
                     readonly property bool customEmojiReaction:
                         typeof modelData.key === "string"
                         && modelData.key.startsWith("mxc://")
                         && modelData.key.length > 6
-                    // The shortcode when this account happens to hold a pack
-                    // carrying that image; "" otherwise, which is the common
-                    // case because packs are only read when a surface asks
-                    // for them. Never the raw mxc: an accessible label that
-                    // reads a media id aloud names nothing.
+                    // The shortcode when a pack this account holds carries that
+                    // image, else "". Never the raw mxc.
                     readonly property string customEmojiName: {
                         if (!reactionChip.customEmojiReaction)
                             return ""
@@ -3747,40 +2735,21 @@ Item {
                             objectName: "reactionEmoji"
                             visible: !reactionChip.customEmojiReaction
                             Layout.alignment: Qt.AlignVCenter
-                            // A FIXED BOX, and the line height pinned to it.
-                            //
-                            // Layout.preferredHeight alone was not enough:
-                            // it fixes what the LAYOUT sees while the text
-                            // inside still lays itself out on the font's own
-                            // ascent and descent, and colour-emoji faces
-                            // report wildly different metrics per sequence.
-                            // The ink then sits high in its line box and the
-                            // glyph reads as optically RAISED beside the
-                            // count — which is exactly the reported symptom,
-                            // and why it affected only some emoji.
-                            //
-                            // FixedHeight makes every key lay out into the
-                            // same line box whatever its face claims, so a
-                            // ZWJ family, a skin-tone modifier, a keycap and
-                            // a flag all sit where a plain thumbs-up does.
+                            // A fixed box with the line height pinned to it:
+                            // colour-emoji faces report different metrics per
+                            // sequence, and without FixedHeight the ink sits
+                            // high and looks raised beside the count.
                             Layout.preferredHeight:
                                 AppTheme.scaled(AppTheme.reactionEmojiBox)
                             lineHeightMode: Text.FixedHeight
                             lineHeight: AppTheme.scaled(AppTheme.reactionEmojiBox)
                             text: reactionChip.customEmojiReaction
                                   ? "" : modelData.key
-                            // The reaction key is an emoji; name the face so
-                            // Qt 6.8 does not fall back to a monochrome one.
+                            // Name the emoji face so Qt 6.8 does not fall back
+                            // to a monochrome one.
                             font.family: app.emojiFontFamily || ""
-                            // Sized like the inline emoji in a message body,
-                            // not like the count beside it: a reaction IS an
-                            // emoji, and drawing it at meta-text size made it
-                            // the smallest glyph on the row. The COUNT keeps
-                            // meta size, so the chip still reads as a chip.
-                            //
-                            // The chip's own implicitHeight is
-                            // max(scaled(22), row + 6), so it follows this
-                            // rather than clipping it.
+                            // Sized like inline emoji in a body, not like the
+                            // count; the chip's implicitHeight follows it.
                             font.pixelSize:
                                 AppTheme.scaled(AppTheme.reactionEmojiSize)
                             verticalAlignment: Text.AlignVCenter
@@ -3789,9 +2758,7 @@ Item {
                             id: customEmojiImage
                             visible: reactionChip.customEmojiReaction
                             Layout.alignment: Qt.AlignVCenter
-                            // Matched to the unicode glyph beside it, or a
-                            // custom-emoji reaction would read as a different
-                            // size from an ordinary one on the same row.
+                            // Matched to the Unicode glyph size.
                             Layout.preferredHeight:
                                 AppTheme.scaled(AppTheme.reactionEmojiBox)
                             Layout.preferredWidth:
@@ -3799,10 +2766,8 @@ Item {
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
                             cache: true
-                            // Re-resolve through a counter the binding READS.
-                            // Assigning `source` from the cache handler would
-                            // destroy the binding and freeze this chip on the
-                            // first image it ever loaded.
+                            // Re-resolve through a counter the binding reads;
+                            // assigning `source` would destroy the binding.
                             property int resolveTick: 0
                             source: {
                                 var _tick = resolveTick
@@ -3838,10 +2803,9 @@ Item {
                         enabled: root.rowActionsEnabled
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
-                        // Deliberately does NOT take focus, for the same
-                        // reason the reply quote does not: a click here must
-                        // not pull the caret out of the composer mid-
-                        // sentence. Tab reaches the same control.
+                        // Does not take focus, so a click does not pull the
+                        // caret out of the composer. Tab reaches the same
+                        // control.
                         onClicked: root.timelineModel.toggleReaction(
                                        root.eventIdForActions(), modelData.key)
                     }
@@ -3852,33 +2816,22 @@ Item {
                     Accessible.name: modelData.byMe
                         ? qsTr("Reaction %1, %2, selected").arg(reactionChip.accessibleKey).arg(modelData.count)
                         : qsTr("Reaction %1, %2").arg(reactionChip.accessibleKey).arg(modelData.count)
-                    // The same information the hover tooltip carries, so a
-                    // keyboard/AT user is not the only one who cannot find
-                    // out who reacted. Empty when the senders are unknown —
-                    // an absent list is never described as "nobody".
+                    // Same information as the tooltip. Empty when senders are
+                    // unknown.
                     Accessible.description: reactionChip.reactorSummary
-                    // Accessible.role/name alone describe the control to
-                    // assistive tech but do not make it ACTIVATABLE — an AT
-                    // user invoking it (not clicking with a mouse) needs
-                    // this mirror of the MouseArea's onClicked.
+                    // Makes the control activatable by assistive technology,
+                    // mirroring onClicked.
                     Accessible.onPressAction:
                         root.timelineModel.toggleReaction(root.eventIdForActions(), modelData.key)
                 }
             }
 
-            // Element's inline "+" pill, closing the reaction row. Joining
-            // an EXISTING reaction was one click; adding a NEW one to a
-            // message that already had reactions meant finding the hover
-            // toolbar — which, before this round, floated hundreds of pixels
-            // to the right of the row. This puts the affordance where the
-            // hand already is. It reuses the SHARED picker through the same
-            // openReactionPickerFor() the toolbar button calls, so it costs
-            // no extra popup instance per row.
+            // Inline "+" pill closing the reaction row. Reuses the shared
+            // picker via openReactionPickerFor(), so it adds no popup per row.
             Rectangle {
                 id: reactionAddChip
                 objectName: "reactionAddChip"
-                // The same geometry contract as the chips beside it: paint
-                // changes on hover/press/focus, geometry never moves.
+                // Same geometry contract as the chips: paint changes only.
                 visible: !model.redacted
                          && (model.eventId || "").length > 0
                          && model.eventId.indexOf("local:") !== 0
@@ -3896,8 +2849,8 @@ Item {
                             : Qt.darker(AppTheme.reactionBackground, 1.07))
                          : "transparent"
                 Behavior on color { ColorAnimation { duration: 80 } }
-                // Outlined at rest so it reads as "add", not as a reaction
-                // somebody left; it fills in only once pointed at.
+                // Outlined at rest so it reads as "add", not as someone's
+                // reaction.
                 border.width: 1
                 border.color: addChipHover.hovered ? AppTheme.borderStrong
                                                    : AppTheme.border
@@ -3950,19 +2903,12 @@ Item {
             }
         }
 
-        // Element-style read-receipt chips: a small stack of the OTHER
-        // users whose read receipt points at this message (the model
-        // excludes ONLY the local user and sorts newest first — a user's
-        // marker renders even on their own message, which is how a DM
-        // says "read up to here"). Bounded to 4 avatars + a "+N"
-        // overflow chip fed by the uncapped readReceiptsTotal. Invisible
-        // when the list is empty — a ColumnLayout skips invisible children
-        // entirely, so an unread message keeps exactly its previous
-        // geometry. Thread rows never carry receipt metadata (their SDK
-        // timelines deliberately keep receipt tracking Disabled: the SDK's
-        // receipt handling is not thread-aware, so enabling it would
-        // attach the room's unthreaded receipts to thread rows), so the
-        // strip stays collapsed in the thread panel.
+        // Read-receipt chips: other users whose receipt points at this message
+        // (the model excludes only the local user, newest first). Up to 4
+        // avatars plus a "+N" chip from the uncapped readReceiptsTotal.
+        // Invisible when empty. Thread rows carry no receipts: SDK receipt
+        // handling is not thread-aware, so thread timelines keep tracking
+        // disabled.
     }
 
     Item {
@@ -3970,22 +2916,16 @@ Item {
         objectName: "readReceiptStrip"
         readonly property var receipts: model.readReceipts || []
         readonly property int maxAvatars: 4
-        // Uncapped other-reader count from the model; degrades to the
-        // delivered list length when the role is absent (fixtures,
-        // older payloads) — undefined fails the >= 0 test.
+        // Uncapped count; degrades to the list length when the role is absent.
         readonly property int totalOthers:
             model.readReceiptsTotal >= 0 ? model.readReceiptsTotal
                                          : receipts.length
         readonly property int overflowCount:
             Math.max(0, totalOthers - shown.length)
 
-        // Chip payload with an identity guard: `receipts` delivers a
-        // fresh array object on every role read, and binding the
-        // Repeater to a per-evaluation slice() would tear down and
-        // recreate every chip delegate on each unrelated Set diff.
-        // `shown` is reassigned ONLY when the projected content
-        // actually changes (≤4 plain objects — stringify comparison
-        // is cheap).
+        // Identity-guarded chip payload: `receipts` is a fresh array on every
+        // read, so `shown` is reassigned only when the projected content
+        // changes.
         property var shown: []
         function refreshShown() {
             var next = []
@@ -4002,9 +2942,8 @@ Item {
         onReceiptsChanged: refreshShown()
         Component.onCompleted: refreshShown()
 
-        // One line for the tooltip, the accessible name, and the QML
-        // test. Reads at most the first two names; the rest is the
-        // total count — never a walk over all N receipts.
+        // One line for the tooltip, accessible name and test: at most two
+        // names, then the total.
         readonly property string summary: {
             if (totalOthers <= 0 || receipts.length === 0)
                 return ""
@@ -4025,36 +2964,19 @@ Item {
             return qsTr("Read by %1, %2 and %3 others")
                 .arg(first).arg(second).arg(totalOthers - 2)
         }
-        // ...and only on a row that has a body of its own: a folded or
-        // suppressed row (height 0) has nothing to sit on.
+        // Only on a row with a body of its own.
         visible: !model.redacted && receipts.length > 0
                  && root.naturalImplicitHeight > 0
-        // Sender status must never drive horizontal flow in Modern
-        // rows — that is the semantic rule of the one-left-aligned-
-        // sender presentation contract (whose scan enforces it by
-        // banning the layout right-align literal in this file). This
-        // strip respects it: the placement is identical for every
-        // message, own or not. Since 2026-08-14 (maintainer request,
-        // Element parity) the chip stack rides this strip's own right
-        // edge — the FULL ROW width, not the 760px-capped content
-        // column — one fixed receipt rail for every row, like
-        // Element's receipt gutter at the timeline's right edge.
+        // Placement is identical for every message, own or not (the
+        // one-left-aligned-sender contract; its scan bans the right-align
+        // literal in this file). The chip stack rides the full row's right
+        // edge: one fixed receipt rail, as in Element.
         x: layout.x
         width: layout.width
-        // This is a zero-height overlay boundary at the message bottom,
-        // not another row below the message. Cancel ColumnLayout's
-        // inter-child spacing and paint the measured chip row upward from
-        // that boundary, so neither font scaling nor media/reaction height
-        // can create a receipt-only tail.
-        // OUTSIDE `layout` since 2026-09-05, at the bottom edge of
-        // whichever body this row shows. It used to be the layout's
-        // last child, and `layout` is hidden for call-event and
-        // room-activity rows — so a receipt pointing at "X started a
-        // call" or at a membership update had no strip to paint on and
-        // simply vanished (reported: "when call event read receipts
-        // disappear"). For message rows this is the exact old position:
-        // the strip added no height and cancelled its spacing, so it sat
-        // at the layout's bottom.
+        // A zero-height overlay at the bottom of whichever body this row shows;
+        // the chips paint upward from it, so receipts never add a tail. Outside
+        // `layout` because `layout` is hidden for call-event and room-activity
+        // rows, which can carry receipts too.
         y: root.isCallEvent || root.isStateActivity
            ? root.height : layout.y + layout.height
         height: 0
@@ -4066,26 +2988,18 @@ Item {
             x: Math.max(root.avatarGutterWidth,
                         readReceiptStrip.width - width)
             y: -height
-            // Facepile overlap; each avatar sits on an 18px surface
-            // ring so overlapped edges stay legible on any theme.
+            // Facepile overlap; each avatar sits on an 18px surface ring.
             spacing: -4
-            // The ring must paint what the row currently shows — a
-            // bare AppTheme.background ring punches visible holes
-            // into the hover/selection tint. Since the row highlight
-            // now FADES, the ring has to fade with it or the discs
-            // flash a fully-opaque tint over a half-faded row.
+            // The ring must match what the row shows, including the fading
+            // hover tint.
             readonly property color hoverTint:
                 rowHighlight.visible ? rowHighlight.color : "transparent"
             readonly property real hoverTintOpacity:
                 rowHighlight.visible ? rowHighlight.opacity : 0
             Repeater {
-                // Array model + modelData, the same shape the reaction
-                // chips use: each delegate carries its receipt
-                // directly, with no document-id dereference from
-                // delegate scope (which resolved undefined under the
-                // engine-test fixture). `shown` is the identity-
-                // guarded projection above, so delegates are only
-                // recreated when the visible chips actually change.
+                // Array model + modelData, like the reaction chips: no
+                // document-id lookups from delegate scope. Delegates are
+                // rebuilt only when `shown` changes.
                 model: readReceiptStrip.shown
                 Rectangle {
                     id: chip
@@ -4095,12 +3009,8 @@ Item {
                     radius: 9
                     color: AppTheme.background
                     z: index
-                    // Hover-tint overlay: composites the row's own
-                    // highlight tint over the ring exactly like the
-                    // row rectangle composites it over the pane
-                    // background. Reads only the guarded visual
-                    // parent chain — no document ids from delegate
-                    // scope.
+                    // Composites the row's highlight tint over the ring,
+                    // reading only the visual parent chain.
                     Rectangle {
                         anchors.fill: parent
                         radius: chip.radius
@@ -4134,10 +3044,7 @@ Item {
                     anchors.centerIn: parent
                     text: "+" + readReceiptStrip.overflowCount
                     color: AppTheme.textSecondary
-                    // The rail's geometry is fixed (18px avatar discs),
-                    // so this label is genuinely chrome and does NOT
-                    // scale — but it goes through the token rather than
-                    // a bare 9.
+                    // Chrome on a fixed rail: not scaled, but uses the token.
                     font.pixelSize: AppTheme.fontMicro
                     font.weight: AppTheme.weightBold
                 }
@@ -4145,19 +3052,14 @@ Item {
 
             TapHandler {
                 enabled: root.rowActionsEnabled
-                // Click → the full reader list (2026-08-18 tester report #2):
-                // everything the bridge delivered (up to 16, newest first)
-                // plus a truthful "+N more" tail — never fabricated names.
+                // Click opens the full reader list (up to 16, newest first,
+                // plus a truthful "+N more").
                 onTapped: (eventPoint) => {
                     if (!root.timelineView
                         || !root.timelineView.openReceiptList)
                         return
-                    // eventPoint.position is local to the handler's
-                    // PARENT — receiptRow, not the strip. The row is
-                    // offset from the strip by its right-alignment x
-                    // and its own -height y, so mapping from the
-                    // strip would misplace the popover by exactly
-                    // that offset (review find, 2026-08-18).
+                    // eventPoint.position is local to the handler's parent,
+                    // receiptRow, so map from there.
                     var p = receiptRow.mapToItem(
                                 Overlay.overlay,
                                 eventPoint.position.x,
@@ -4172,18 +3074,15 @@ Item {
             ToolTip.visible: receiptHover.hovered
                              && readReceiptStrip.summary.length > 0
             ToolTip.delay: 500
-            // One accessible summary for the whole strip — individual
-            // chips are deliberately not focus stops.
+            // One accessible summary; individual chips are not focus stops.
             Accessible.role: Accessible.StaticText
             Accessible.name: readReceiptStrip.summary
         }
     }
 
-    // v0.7: the reaction picker and sender-profile popover are SHARED
-    // view-level surfaces (one instance per timeline, not one per row —
-    // dozens of eager per-delegate popups measurably slowed room opening
-    // and scrolling). The target event id is snapshotted at open, so a
-    // recycled delegate can never redirect a reaction.
+    // The reaction picker and profile popover are shared view-level surfaces.
+    // The target event id is captured at open, so a recycled delegate cannot
+    // redirect a reaction.
     function openReactionPickerFor(eventId, anchorItem) {
         if (!root.timelineView || !root.timelineView.openReactionPicker
             || eventId === "")
@@ -4200,13 +3099,9 @@ Item {
         height: 0
     }
 
-    // Perf: the ~25-item context menu (with its Shortcuts and quick-react
-    // strip) and the modal details dialog used to be instantiated eagerly
-    // by EVERY loaded row — the dominant per-row creation cost this
-    // timeline pays for its no-virtualization design. Both now load on
-    // first use and stay loaded for the delegate's lifetime. The Loaders
-    // inherit the delegate context, so model.* and every root.* helper
-    // resolve exactly as before.
+    // The context menu and details dialog load on first use and then stay,
+    // since eager creation on every row was the dominant per-row cost. The
+    // Loaders inherit the delegate context.
     readonly property bool moreMenuOpen:
         moreMenuItem ? moreMenuItem.opened : false
     function ensureContextMenu() {
@@ -4215,15 +3110,8 @@ Item {
         return moreMenuItem
     }
 
-    // DESTRUCTIVE MENU ITEMS ASK FIRST. Delete, Remove edits and End poll
-    // acted on the click; every one of them is irreversible on Matrix (a
-    // redaction cannot be undone, edits are taken back by redacting them,
-    // and a poll cannot be reopened) and every reversible action around them
-    // already confirms. B022.
-    //
-    // Lazily created like the details dialog, and for the same reason: this
-    // is the hottest delegate in the app and anything instantiated eagerly
-    // is paid once per row, on every row, forever.
+    // Destructive items (Delete, Remove edits, End poll) confirm first: each is
+    // irreversible on Matrix. Created lazily, like the details dialog.
     property var confirmDialogItem: null
     function confirmDestructive(title, body, acceptText, action) {
         if (!confirmDialogItem)
@@ -4244,12 +3132,8 @@ Item {
             modal: true
             storm: false
             standardButtons: Dialog.NoButton
-            // CLICKING OUTSIDE CANCELS, and that is safe here precisely
-            // because this dialog's only committing path is an explicit
-            // press on the destructive button. Escape alone left the one
-            // reflex every other modal in this app honours — press the
-            // scrim to back out — doing nothing at all, so the only way out
-            // was to find Cancel.
+            // Clicking outside cancels; the only committing path is the
+            // destructive button.
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
             width: Math.min(420, parent ? parent.width - 32 : 420)
             property string heading: ""
@@ -4269,18 +3153,8 @@ Item {
                     Layout.fillWidth: true
                     spacing: AppTheme.spacing8
                     Item { Layout.fillWidth: true }
-                    // AppButton, NOT a bare Button. These two were the
-                    // Qt Basic default — square corners, flat grey, both
-                    // identical — sitting in a dialog whose every sibling
-                    // uses the app's own ladder, and the destructive action
-                    // was indistinguishable from the safe one. AppButton's
-                    // own header names `dangerPrimary` as the kind "for the
-                    // confirm button of a destructive dialog, where quiet is
-                    // wrong": the component existed for this exact case and
-                    // this call site never used it. Geometry (height,
-                    // radius, padding) comes from the AppTheme ladder, which
-                    // is what stops the next button here being a different
-                    // size from these.
+                    // AppButton so the destructive action uses `dangerPrimary`
+                    // and geometry comes from the AppTheme ladder.
                     AppButton {
                         objectName: "messageDestructiveConfirmCancel"
                         kind: "secondary"
@@ -4310,9 +3184,8 @@ Item {
         detailsDialogItem.details = details
         detailsDialogItem.open()
     }
-    // Popups are not Items, so a Loader cannot host them — lazy-create
-    // through a Component instead (created parented to the delegate, so
-    // lifetime and context are identical to the old inline declaration).
+    // Popups are not Items, so a Loader cannot host them; lazily created
+    // through a Component parented to the delegate.
     property var moreMenuItem: null
     Component {
         id: moreMenuComponent
@@ -4320,21 +3193,15 @@ Item {
             id: moreMenu
             objectName: "messageContextMenu"
             menuWidth: AppTheme.menuWidthMessage
-            // Storm §3.1 mono context header — this row's own
-            // sender and time (the menu instance lives in the
-            // delegate, so the row data is authoritative).
+            // Mono context header with this row's sender and time.
             contextLabel: qsTr("Message · %1 · %2")
                 .arg(model.senderDisplayName || model.sender || "")
                 .arg(Qt.formatDateTime(model.timestamp,
                                        app.settings.clockTimeFormat))
-            // C6: the menu takes transient row-interaction ownership so no
-            // OTHER row can show its toolbar underneath it, while this row
-            // keeps its own — transientOwnerBlocks carries exactly that
-            // exception, because the menu is positioned FROM this row's bar
-            // and hiding it would strand the menu. Without these two lines
-            // the "menu" owner was never claimed by anything, so the
-            // documented exception was unreachable and the round's own
-            // comment described behaviour the code did not have.
+            // The menu claims transient row-interaction ownership so no other
+            // row shows its toolbar underneath; this row keeps its own (the
+            // exception in transientOwnerBlocks), since the menu is positioned
+            // from it.
             onOpened: {
                 if (root.timelineView
                         && root.timelineView.claimTransientInteraction)
@@ -4345,24 +3212,16 @@ Item {
                 if (root.timelineView
                         && root.timelineView.releaseTransientInteraction)
                     root.timelineView.releaseTransientInteraction("menu", "")
-                // Hand the view's open-menu slot back (a scroll closes the
-                // menu it holds; see openContextMenu).
+                // Hand back the view's open-menu slot.
                 if (root.timelineView && ("openRowMenu" in root.timelineView)
                         && root.timelineView.openRowMenu === moreMenu)
                     root.timelineView.openRowMenu = null
             }
-            // v0.6.5 (SPEC 1a): single-key accelerators while
-            // the menu is open. Keys cannot attach to a Menu
-            // (a Popup, not an Item), so these are Shortcuts
-            // scoped by moreMenu.opened — inert whenever the
-            // menu is closed. Each one calls exactly the same
-            // action expression as the matching row's
-            // onTriggered below, gated by the same enabled
-            // condition, then closes the menu. The mock hints
-            // ↑ on Edit (a composer-history convention this
-            // app does not have, and a Key_Up shortcut would
-            // steal menu arrow navigation) — the real binding
-            // is E and the row's keycap says so.
+            // Single-key accelerators while the menu is open. Keys cannot
+            // attach to a Menu, so these are Shortcuts scoped by
+            // moreMenu.opened, each calling the same action as its row under
+            // the same enabled condition. Edit is E, not ↑ (which would steal
+            // menu arrow navigation).
             Shortcut {
                 sequence: "R"
                 enabled: moreMenu.opened
@@ -4427,12 +3286,8 @@ Item {
                     }
                 }
             }
-            // v0.6.5 (SPEC 1a): quick-react row — the 5 most
-            // recently used emoji plus a trailing "more" cell
-            // that opens the full shared picker. Replaces the
-            // standalone "React" row (removed below); the
-            // hover action bar's own React button is a
-            // separate affordance and is unaffected.
+            // Quick-react row: the 5 most recently used emoji plus a cell that
+            // opens the shared picker.
             QuickReactionStrip {
                 objectName: "quickReactionStrip"
                 emojis: app.emojiCatalog.recentEmoji || []
@@ -4479,22 +3334,15 @@ Item {
                     var rootId = (details.threadRootId || "").length > 0
                                  ? details.threadRootId
                                  : root.menuEventId
-                    // v0.6.0: opens the thread panel; its
-                    // composer sends real SDK m.thread
+                    // Opens the thread panel; its composer sends SDK m.thread
                     // replies.
                     app.thread.openThread(app.currentRoomId,
                                           rootId)
                 }
             }
-            // v0.6.0 checkpoint 5: from a thread reply,
-            // locate the same event in the room timeline
-            // (highlighted); the existing navigation shows a
-            // safe message when the target is unavailable.
-            // This one deliberately KEEPS app.pagination while
-            // the reply preview moved to the view contract: it
-            // is offered only in the thread panel and its whole
-            // purpose is the ROOM, so routing it through the
-            // thread's own navigation would defeat it.
+            // From a thread reply, locate the event in the room timeline. Uses
+            // app.pagination on purpose: this action is about the room, not the
+            // thread.
             AppMenuItem {
                 iconName: "arrow_forward"
                 text: qsTr("Open in room")
@@ -4504,29 +3352,16 @@ Item {
                     root.menuEventId)
             }
             AppMenuSeparator {}
-            // v0.7.x pinned messages. Exactly ONE of these is ever offered:
-            // canTogglePin() answers false for the action that does not
-            // apply, for a viewer without the room's real
-            // m.room.pinned_events power level, and while a write is in
-            // flight. It also fails closed before the first snapshot, so
-            // the menu never offers a pin it cannot honour.
-            //
-            // Deliberately hidden in the thread panel: a thread reply is
-            // pinnable Matrix-wise, but the pinned surface lives in Room
-            // Information and pinning from a thread would put the message
-            // somewhere the user is not looking.
+            // Only one of pin/unpin is offered: canTogglePin() is false for the
+            // inapplicable action, without the real m.room.pinned_events power
+            // level, while a write is in flight, and before the first snapshot.
+            // Hidden in the thread panel, since pins live in Room Information.
             AppMenuItem {
                 iconName: "push_pin"
                 text: qsTr("Pin message")
-                // `revision` is the re-evaluation dependency: canTogglePin
-                // is a Q_INVOKABLE and a binding cannot observe its inputs.
-                //
-                // 2026-08-18 tester report ("you can pin 'message deleted'
-                // useless"): a redacted event has no content left to pin, so
-                // pinning one only adds a dead entry to
-                // m.room.pinned_events. UNPIN below stays offered for a
-                // redacted event on purpose — a message pinned before it was
-                // deleted must still be removable.
+                // `revision` is the dependency for the Q_INVOKABLE. A redacted
+                // event cannot be pinned; unpin stays offered so a message
+                // deleted after pinning can still be removed.
                 visible: !root.inThreadPanel && app.pinned
                          && model.redacted !== true
                          && app.pinned.revision >= 0
@@ -4558,24 +3393,15 @@ Item {
                 onTriggered: root.copyToClipboard(
                     root.timelineModel.messagePermalink(root.menuEventId))
             }
-            // Right-clicking a picture should offer what a person expects
-            // to find there (the 2026-08-22 report asked for it in those
-            // words). Open comes first because it is what the left click
-            // does, and a context menu that omits the obvious action reads
-            // as the wrong menu.
-            //
-            // There is deliberately no "Copy image address": under
-            // authenticated media an mxc URL is not a link anyone else can
-            // follow, and handing one out is exactly what CLAUDE.md §6
-            // forbids.
+            // Open image first: it is what the left click does. No "Copy image
+            // address": an authenticated-media mxc URL is not shareable and
+            // must not be handed out.
             AppMenuItem {
                 objectName: "openMediaMenuItem"
                 iconName: "open_in_full"
                 text: qsTr("Open image")
-                // Images and stickers only. The image viewer is what
-                // `openImage` opens; a video row has its own player card and
-                // its own fullscreen overlay, and sending it here would open
-                // the wrong surface.
+                // Images and stickers only; video has its own player and
+                // fullscreen overlay.
                 visible: (model.isImage === true || model.isSticker === true)
                          && model.mediaSourceAvailable === true
                 enabled: visible && root.timelineView
@@ -4583,36 +3409,18 @@ Item {
                 onTriggered: root.timelineView.openImage(
                     model.mediaKey || "", model.mediaUrl)
             }
-            // v0.7: unified media action — every media row
-            // offers Save from the same menu (cards keep
-            // their inline affordances too).
-            // "Add to my stickers" — Sable's own idea (its PR #107), and
-            // the only client that has it; Cinny, Nheko, FluffyChat, NeoChat
-            // and Element all keep pack editing in settings.
-            //
-            // What it does: writes this sticker's mxc into THIS account's
-            // im.ponies.user_emotes pack. No re-upload and no transcoding —
-            // a pack holds a plain mxc, so the media is already exactly what
-            // the pack needs. Taken from Sable: the destination pack, the
-            // dedupe by mxc, and usage ["sticker"].
-            //
-            // Where Lightning diverges DELIBERATELY (this is our choice, not
-            // Sable parity): the shortcode is derived from the sticker's
-            // BODY and sanitized to MSC2545's own [a-zA-Z0-9-_] alphabet,
-            // where Sable uses `sticker-$eventId` — illegal under the MSC
-            // twice over, and unusable in another client's :shortcode:
-            // completion. A name collision gets a numeric suffix, a
-            // duplicate mxc is refused in Rust rather than merely hidden in
-            // the UI, and the read-modify-write reads the SERVER copy so a
-            // concurrent edit from another device is not clobbered.
-            //
-            // NOT gated on "is it already saved": that would need the
-            // account's pack to have been fetched, and greying the row out
-            // because nothing LOOKED is the worse lie (the same reasoning as
-            // the rail's Invite row). A duplicate is refused authoritatively
-            // and says so. An ENCRYPTED sticker carries an EncryptedFile and
-            // no mxc at all, so it structurally cannot go in a pack —
-            // canSave() answers false and the row is genuinely absent.
+            // Every media row offers Save from this menu. "Add to my stickers":
+            // writes this sticker's mxc into the account's
+            // im.ponies.user_emotes pack, with no re-upload (a pack holds a
+            // plain mxc), deduplicated by mxc and usage ["sticker"]. The
+            // shortcode is derived from the sticker's body and sanitized to
+            // MSC2545's [a-zA-Z0-9-_] alphabet; collisions get a numeric
+            // suffix, a duplicate mxc is refused in Rust, and the
+            // read-modify-write reads the server copy so a concurrent edit is
+            // not clobbered. Not gated on "already saved", which would need the
+            // pack fetched first; a duplicate is refused and reported. An
+            // encrypted sticker has no mxc, so canSave() is false and the row
+            // is absent.
             AppMenuItem {
                 objectName: "saveStickerMenuItem"
                 iconName: "star"
@@ -4627,20 +3435,10 @@ Item {
                     model.mediaWidth || 0, model.mediaHeight || 0,
                     model.mediaSize || 0)
             }
-            // The same sticker, into the ROOM's own pack rather than this
-            // account's. This is MSC2545's one write that is ROOM STATE, so
-            // unlike the row above it is POWER-LEVEL GATED — Rust asks the
-            // SDK for the room's real required level for
-            // `im.ponies.room_emotes` and refuses without sending anything
-            // when this account lacks it.
-            //
-            // Offered ONLY when a snapshot for THIS room actually reported
-            // the permission. That is the opposite decision from the row
-            // above, and deliberately: a room-state write the server will
-            // refuse is worth not offering, and offering it would be a claim
-            // about permission that nothing has checked. Unknown therefore
-            // means absent, not greyed out — and the row above still works,
-            // so the action is never the only way to save a sticker.
+            // The same sticker into the room's own pack. im.ponies.room_emotes
+            // is room state, so this is power-level gated in Rust. Offered only
+            // when a snapshot for this room reported the permission; unknown
+            // means absent, and the personal pack row still works.
             AppMenuItem {
                 objectName: "saveStickerToRoomMenuItem"
                 iconName: "workspaces"
@@ -4648,10 +3446,8 @@ Item {
                 visible: model.isSticker === true
                          && (model.mediaMxc || "").length > 0
                          && app.stickers.available
-                         // canSaveToRoom is a plain function call, so the
-                         // binding establishes no dependency of its own —
-                         // reading `revision` is what re-evaluates it when a
-                         // snapshot lands (the PresenceManager idiom).
+                         // canSaveToRoom is a plain call; reading `revision`
+                         // re-evaluates it when a snapshot lands.
                          && (app.stickers.revision >= 0)
                          && app.stickers.canSaveToRoom(
                                 app.currentRoomId, model.mediaMxc || "")
@@ -4673,10 +3469,9 @@ Item {
                           || model.isFile === true)
                          && model.mediaSourceAvailable === true
                          && app.mediaBridge.supported
-                         // A gallery's row media is ONE of its attachments;
-                         // saving that from a menu about the whole message
-                         // would silently skip the rest. Each tile and chip,
-                         // and the viewer, save their own.
+                         // A gallery's row media is one attachment; saving it
+                         // here would skip the rest. Tiles, chips and the
+                         // viewer save their own.
                          && !root.isGallery
                 enabled: visible && root.menuEventId !== ""
                 onTriggered: {
@@ -4687,16 +3482,9 @@ Item {
                             model.mediaFilename || "download")
                 }
             }
-            // A SIBLING of "Save as…", not a child of it. Nested inside, this
-            // became a child ITEM of that row and painted on top of it — two
-            // labels overlapping in the same 32px strip, which is the
-            // "Sopy asnage" in the 2026-08-21 screenshot. A Menu lays out its
-            // own AppMenuItem children; one nested in another is not in that
-            // list and gets no row of its own.
-            // The same local hide, from the menu. Not duplication for its own
-            // sake: the action bar appears on hover, and a keyboard user
-            // reaches the menu instead. One state, two entry points, and the
-            // label says which way it goes.
+            // A sibling of "Save as…": nested inside it, it would paint over
+            // that row. The same local hide as the action bar, reachable by
+            // keyboard.
             AppMenuItem {
                 objectName: "hideMediaMenuItem"
                 iconName: root.mediaHidden ? "visibility" : "visibility_off"
@@ -4707,16 +3495,10 @@ Item {
                 onTriggered: root.setMediaHidden(!root.mediaHidden)
             }
 
-            // Undo for the preview X. It lives in the menu rather than as an
-            // on-row placeholder because nothing is actually lost when a
-            // preview is dismissed — the link itself is still in the message
-            // body, linkified and clickable — so spending timeline geometry
-            // on a "preview hidden" stand-in would defeat the whole point of
-            // reclaiming the space.
-            //
-            // Restoring grants nothing: it clears the dismissal and lets the
-            // ordinary policy decide again, so a link that was never
-            // consented to comes back as the consent gate, not as a fetch.
+            // Undo for the preview X, in the menu because the link itself is
+            // still in the body. Restoring grants nothing: the ordinary policy
+            // decides again, so an unconsented link returns as the consent
+            // gate.
             AppMenuItem {
                 objectName: "restoreLinkPreviewMenuItem"
                 iconName: "link"
@@ -4730,8 +3512,7 @@ Item {
                 objectName: "copyImageMenuItem"
                 iconName: "content_copy"
                 text: qsTr("Copy image")
-                // Images only (the raster clipboard is meaningless for video/
-                // files), same availability gates as Save as.
+                // Images only, same gates as Save as.
                 visible: model.isImage === true
                          && model.mediaSourceAvailable === true
                          && app.mediaBridge.supported
@@ -4739,13 +3520,7 @@ Item {
                 enabled: visible && root.menuEventId !== ""
                 onTriggered: app.copyImageToClipboard(model.mediaKey || "")
             }
-            // v0.6.6 UX rework: GIF starring moved OFF this
-            // menu entirely — it is now a Discord-style hover
-            // star overlaid on the GIF media itself (see
-            // imageComponent's starEligible/refreshStarredState
-            // below), never a dropdown row.
-            // SPEC 1a: the copy group and the people/editing
-            // group are separate — third divider.
+            // Separates the copy group from the people/editing group.
             AppMenuSeparator { }
             AppMenuItem {
                 iconName: "person"
@@ -4763,10 +3538,9 @@ Item {
                     root.timelineModel.messageDetails(
                         root.menuEventId))
             }
-            // v0.9 (phase 7). Edit history for any edited message (the
-            // "edited" marker opens it too); View source for every real
-            // event — technical users only, hence its place at the bottom
-            // of this group rather than beside Reply.
+            // Edit history for edited messages (the "edited" marker opens it
+            // too); View source for every real event, at the bottom of the
+            // group.
             AppMenuItem {
                 objectName: "editHistoryMenuItem"
                 iconName: "schedule"
@@ -4795,12 +3569,10 @@ Item {
                     root.timelineModel.sanitizedHtmlForEvent(root.menuEventId),
                     root.timelineModel.roomId)
             }
-            // 2026-08-18 tester request ("add function remove all edits").
-            // Matrix has no unedit: the edits are separate m.replace events
-            // and taking them back means redacting them, which is what this
-            // does — the message returns to its original text and stops
-            // being marked as edited. Own, edited, editable messages only,
-            // and only on a backend that can reach the relations.
+            // Matrix has no unedit: edits are separate m.replace events, so
+            // this redacts them and the message returns to its original text.
+            // Own, edited, editable messages only, on a backend that can reach
+            // the relations.
             AppMenuItem {
                 objectName: "removeEditsMenuItem"
                 iconName: "undo"
@@ -4820,9 +3592,7 @@ Item {
                         function() { app.composer.removeEdits(id) })
                 }
             }
-            // v0.7 polls: conservative rule — own running
-            // polls only. The server and receiving clients
-            // enforce the actual MSC3381 permission rules.
+            // Own running polls only; servers and clients enforce MSC3381.
             AppMenuItem {
                 objectName: "endPollMenuItem"
                 iconName: "check_circle"
@@ -4848,16 +3618,11 @@ Item {
                          || (app.moderation.reportSupported
                              && model.isOwn !== true)
             }
-            // v0.7.x message forwarding :
-            // withheld for redacted / local-echo / undecryptable / poll
-            // content — none of it has anything safe to re-send — and for
-            // a media row whose source is not (yet) fetchable. begin()
-            // takes an IMMUTABLE snapshot of exactly this row's model data,
-            // captured here at click time, never a live re-resolution (see
-            // ForwardController's class comment) — this is why the whole
-            // snapshot is built inline rather than deferred into C++.
-            // Multi-message forwarding starts here rather than in a toolbar:
-            // the user is already pointing at the first message they want.
+            // Forwarding is withheld for redacted, local-echo, undecryptable
+            // and poll content, and for media whose source is not fetchable.
+            // begin() takes an immutable snapshot of this row's data at click
+            // time (see ForwardController), so it is built inline.
+            // Multi-message forwarding starts here.
             AppMenuItem {
                 objectName: "selectMessagesMenuItem"
                 iconName: "check"
@@ -4884,10 +3649,9 @@ Item {
                     && model.isVirtual !== true && model.isPoll !== true
                     && (isMediaRow ? model.mediaSourceAvailable === true
                                    : (model.body || "").length > 0)
-                    // Forwarding re-sends the row's ONE media key, which on
-                    // a gallery is its first attachment: the rest would be
-                    // dropped without a word. Not offered until forwarding
-                    // can carry a whole gallery.
+                    // Forwarding sends the row's one media key, which on a
+                    // gallery is its first attachment; not offered until a
+                    // whole gallery can be forwarded.
                     && !root.isGallery
                 enabled: eligible && root.menuEventId !== ""
                 visible: eligible
@@ -4914,9 +3678,8 @@ Item {
                         mediaHeight: model.mediaHeight || 0
                     })
             }
-            // v0.7.x: report to the homeserver administrator (stable /v3
-            // event report). Own messages are excluded — deleting them is
-            // the sensible action, and self-reports only add noise.
+            // Report to the homeserver admin (/v3 event report). Not offered on
+            // own messages.
             AppMenuItem {
                 iconName: "flag"
                 text: qsTr("Report message")
@@ -4948,8 +3711,8 @@ Item {
             }
         }
     }
-    // v0.9 (phase 7): lazily created like the details dialog — Dialogs own
-    // their overlay lifetime, so the createObject(root) precedent holds.
+    // Created lazily like the details dialog; Dialogs own their overlay
+    // lifetime.
     property var editHistoryDialogItem: null
     property var eventSourceDialogItem: null
     Component {
@@ -4985,10 +3748,8 @@ Item {
                 modal: true
                 title: qsTr("Message details")
                 standardButtons: Dialog.Ok
-                // The body Labels ink from the GENERAL namespace
-                // (AppTheme.text / textMuted), so the panel must be the
-                // general surface too — a storm panel under general inks
-                // pairs two different routing tables.
+                // General namespace surface, matching the body Labels' general
+                // inks.
                 storm: false
                 property var details: ({})
                 width: Math.min(520, parent ? parent.width - 32 : 520)
@@ -5040,17 +3801,14 @@ Item {
         }
     }
 
-    // Local echoes carry "local:*" ids. QML actions should still work because
-    // the backend keys pendingSends by txnId, but redact of a local echo will
-    // fail server-side. We still allow it — the failure surfaces via the
-    // status bar error signal.
+    // Local echoes carry "local:*" ids. Redacting one fails server-side and the
+    // error surfaces through the status bar.
     function eventIdForActions() { return model.eventId }
 
     // ---- link preview card ----
 
-    // A validated direct raster response is media, not article metadata.
-    // It receives its own compact renderer so GIFs and images never inherit
-    // the generic embed card's accent edge, host footer, or fixed card width.
+    // A validated direct raster response is media, not article metadata, and
+    // gets its own compact renderer.
     Component {
         id: directMediaPreviewComponent
         Rectangle {
@@ -5079,13 +3837,10 @@ Item {
                 p.isGif === true && app.settings.gifAutoplay !== 2
                 ? app.mediaBridge.previewAnimatedSource(p.imageSource || "",
                                                         p.imageMime || "") : ""
-            // A SERVER-route preview (the homeserver's /preview_url) delivers
-            // og:image as an mxc:// URI it cached itself; previewImageSource
-            // accepts only an inline data: payload (the direct route), so
-            // every server preview drew no picture (reported: "still no
-            // images in previews, like github or gitlab"). An mxc goes
-            // through the same authenticated media route as an avatar, and
-            // the tick re-reads the binding when that fetch lands.
+            // A server-route preview (/preview_url) delivers og:image as an mxc
+            // URI; previewImageSource only accepts inline data:, so an mxc goes
+            // through the authenticated media route and the tick re-reads when
+            // it lands.
             property int previewTick: 0
             Connections {
                 target: app.mediaBridge
@@ -5149,9 +3904,8 @@ Item {
                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: app.media.openWebUrl(directMedia.p.url)
             }
-            // Same dismissal as the ordinary card. This component is only
-            // ever built for a LOADED direct-media preview, so there is no
-            // state to gate on here.
+            // Same dismissal as the ordinary card; only built for a loaded
+            // preview.
             IconButton {
                 id: directDismissButton
                 objectName: "linkPreviewDismissButton"
@@ -5181,14 +3935,14 @@ Item {
             objectName: "linkPreviewCard"
             readonly property var p: root.preview
             readonly property string st: p.state || "none"
-            // Only a preview that is actually on screen can be dismissed;
-            // see the X below for why the consent gate is excluded.
+            // Only a preview actually on screen can be dismissed; not the
+            // consent gate.
             readonly property bool dismissible: st === "loaded" || st === "failed"
             readonly property string previewAnimation:
                 p.isGif === true && app.settings.gifAutoplay !== 2
                 ? app.mediaBridge.previewAnimatedSource(p.imageSource || "",
                                                         p.imageMime || "") : ""
-            // Same mxc-or-data split as the full card above.
+            // Same mxc-or-data split as the full card.
             property int previewTick: 0
             Connections {
                 target: app.mediaBridge
@@ -5205,32 +3959,20 @@ Item {
             }
             readonly property real fullW:
                 Math.min(400, root.contentInnerCap)
-            // The consent gate is ONE band, so it sizes to its own content
-            // instead of claiming the full preview width for a link nobody
-            // has agreed to load yet; every other state still fills the
-            // column. Reading a layout's implicitWidth from an ancestor is
-            // only safe when nothing under it reads the width that layout
-            // COMPUTES (CLAUDE.md 2026-08-26, the recursive-rearrange
-            // round) — everything in the gate row contributes a natural
-            // text or control implicit width, and QQuickText reports its
-            // unwrapped natural width whatever wrapMode says, so there is
-            // no path back from the assigned width into this value.
+            // The consent gate sizes to its content; other states fill the
+            // column. Safe because nothing under it reads the width this layout
+            // computes (QQuickText reports its unwrapped natural width
+            // regardless of wrapMode).
             implicitWidth: st === "requires_action"
                            ? Math.min(fullW,
                                       cardCol.implicitWidth
                                       + AppTheme.spacingM + AppTheme.spacingS)
                            : fullW
-            // Gate/loading/failed keep a monotonic reserved height so a
-            // failure never reflows the row under the reader; only the
-            // loaded preview re-measures. The latch is per-event: pooled
-            // delegate reuse for another row must not inherit the previous
-            // event's minimum.
-            //
-            // The gate is now SHORTER than the loading skeletons, so the
-            // consent click grows the row by one step. That is deliberate
-            // and it is the user's own click: the alternative is reserving
-            // a loading-sized box under every unloaded link in the room,
-            // which is the cost readers complained about.
+            // Gate/loading/failed keep a monotonic reserved height so a failure
+            // never reflows the row; only the loaded preview re-measures. Per
+            // event, so a reused delegate does not inherit it. The gate is
+            // shorter than the loading skeleton, so the consent click grows the
+            // row once.
             property real reservedH: 0
             readonly property string _rowIdentity: root.actionKey
             on_RowIdentityChanged: reservedH = 0
@@ -5260,17 +4002,11 @@ Item {
                 onClicked: app.media.openWebUrl(card.p.url)
             }
 
-            // Dismiss (X). Offered only once a preview has actually been
-            // SHOWN — loaded, or failed and sitting there as noise. It is
-            // deliberately absent from the consent gate: the gate is a
-            // question, not a preview, and every control there is pinned by
-            // LinkPreviewQmlTest::onlyTheButtonConsents to be inert so that
-            // nothing but the Show button can agree to contact the site.
-            //
-            // Overlaid rather than laid out, so it costs the card no height
-            // and cannot disturb the monotonic reservedH latch below. The
-            // column's right margin widens to match, which changes wrapping
-            // only — never the height reserved for a gate or a skeleton.
+            // Dismiss, offered only once a preview has been shown (loaded or
+            // failed). Absent from the consent gate, where only the Show button
+            // may consent (LinkPreviewQmlTest::onlyTheButtonConsents).
+            // Overlaid, so it costs no height; the column's right margin widens
+            // instead.
             IconButton {
                 id: previewDismissButton
                 objectName: "linkPreviewDismissButton"
@@ -5300,30 +4036,18 @@ Item {
                 anchors.topMargin: AppTheme.spacingS
                 anchors.bottomMargin: AppTheme.spacingS
                 anchors.leftMargin: AppTheme.spacingM
-                // Room for the overlaid X, so a title never runs under it.
+                // Room for the overlaid X.
                 anchors.rightMargin: card.dismissible
                                      ? AppTheme.spacingS + 24
                                      : AppTheme.spacingS
                 spacing: 4
 
-                // Consent / privacy gate (encrypted rooms, or auto-load off).
-                //
-                // 2026-08-26: this used to be a STACK — a host row, a
-                // wrapped two-line amber sentence, then a full-width
-                // button — roughly four message lines of timeline spent on
-                // one link nobody had agreed to load, and that is what the
-                // reader report was about. What the gate has to STATE is
-                // unchanged, because it is the whole reason the control
-                // exists (link previews default OFF, and an encrypted room
-                // is stricter still): the linked site is contacted
-                // DIRECTLY, and it therefore learns your IP. Both facts are
-                // still in the row; the long sentence is still readable
-                // verbatim, as the row's tooltip.
-                //
-                // The BUTTON is still the consent. The row is deliberately
-                // not clickable and the card's whole-card MouseArea stays
-                // gated on "loaded" — hovering to read the privacy sentence
-                // must never be able to agree to the fetch.
+                // Consent gate (encrypted rooms, or auto-load off), one compact
+                // row. It must still state that the site is contacted directly
+                // and learns your IP; the full sentence is the tooltip. The
+                // button is the consent: the row is not clickable and the
+                // whole-card MouseArea is gated on "loaded", so hovering to
+                // read the notice can never agree to the fetch.
                 RowLayout {
                     id: consentRow
                     objectName: "linkPreviewConsentRow"
@@ -5331,24 +4055,13 @@ Item {
                     Layout.fillWidth: true
                     spacing: AppTheme.spacing6
 
-                    // The ATTACHED tooltip form: one shared instance for the
-                    // whole application. A declared ToolTip child would
-                    // build a Popup, a background and a Label per timeline
-                    // row carrying a link (the reaction chips above carry
-                    // the same note and the same reason).
-                    // STATES THE ORDER, because the order is the privacy
-                    // property. Your homeserver fetches the page, so the
-                    // linked site sees the SERVER and not you — and the
-                    // thumbnail comes back as an mxc:// that rides the
-                    // authenticated media path, so the image costs no direct
-                    // contact either.
-                    //
-                    // The second sentence is not a hedge, it is the honest
-                    // half: a server with previews disabled cannot do this,
-                    // and Lightning then loads directly, which does reveal
-                    // your address. Promising only the good case would make
-                    // this notice a lie on every server that has previews
-                    // off — and that is Synapse's DEFAULT.
+                    // Attached tooltip: one shared instance. States the order
+                    // because the order is the privacy property: the homeserver
+                    // fetches the page and the thumbnail comes back as an mxc
+                    // on the authenticated media path. The second sentence is
+                    // the honest half: a server with previews disabled
+                    // (Synapse's default) cannot do this, and Lightning then
+                    // loads directly, revealing your address.
                     readonly property string fullPrivacyText:
                         qsTr("Your homeserver loads this preview, so the linked site does not see your IP address. If your server cannot, Lightning loads it directly and the site does see your IP.")
                     ToolTip.text: consentRow.fullPrivacyText
@@ -5378,29 +4091,15 @@ Item {
                         }
                         Label {
                             objectName: "linkPreviewConsentNotice"
-                            // Short, but it still names BOTH facts: the
-                            // request goes to the site itself, and the site
-                            // sees your address. It WRAPS rather than
-                            // elides — an elided privacy notice is a notice
-                            // the reader may never reach the end of, and on
-                            // a narrow bubble the tail is the half that
-                            // matters.
-                            // Both halves again, compressed. The encrypted
-                            // variant keeps its sharper wording for a
-                            // different reason than the IP: asking the
-                            // homeserver to preview a link tells it a URL
-                            // the encryption was keeping from it, so an
-                            // encrypted room still requires this explicit
-                            // gesture whichever route ends up serving it.
-                            // SHORT ON PURPOSE — the gate must stay
-                            // narrower than the loaded card, which
-                            // consentGateIsNarrowerThanTheStateItLeadsTo
-                            // pins and which a longer sentence here broke.
-                            // The complete explanation is the tooltip
-                            // above; this row carries only the three words
-                            // that change the reader's decision: who
-                            // fetches, that direct is the fallback, and
-                            // that the fallback costs their IP.
+                            // Short, but names both facts (who fetches, and
+                            // that the direct fallback costs your IP). Wraps
+                            // rather than elides so the tail is never lost. The
+                            // encrypted variant stays stricter because asking
+                            // the homeserver to preview reveals a URL the
+                            // encryption was hiding. Must stay narrower than
+                            // the loaded card
+                            // (consentGateIsNarrowerThanTheStateItLeadsTo); the
+                            // full text is the tooltip.
                             text: root.roomEncrypted
                                   ? qsTr("Your server sees this URL — or directly, your IP")
                                   : qsTr("Your server loads it — or directly, your IP")
@@ -5408,11 +4107,8 @@ Item {
                                                       : AppTheme.textMuted
                             font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                             wrapMode: Text.WordWrap
-                            // EXPLICIT, not left to the Label default: the
-                            // comment above claims this notice is never
-                            // truncated, and a claim a style could quietly
-                            // override is not a guarantee. Pinned by
-                            // LinkPreviewQmlTest.
+                            // Explicit so no style can truncate the notice.
+                            // Pinned by LinkPreviewQmlTest.
                             elide: Label.ElideNone
                             Layout.fillWidth: true
                         }
@@ -5420,11 +4116,7 @@ Item {
 
                     AppButton {
                         objectName: "linkPreviewLoadButton"
-                        // "Show preview" as a full-height button was a
-                        // third row of its own. The label shortens; what it
-                        // DOES is unchanged, and the accessible name keeps
-                        // the long form for anyone reading the row without
-                        // seeing it.
+                        // Short label; the accessible name keeps the long form.
                         text: qsTr("Show")
                         size: "sm"
                         minWidth: 0
@@ -5435,10 +4127,8 @@ Item {
                     }
                 }
 
-                // Loading: separate title/description/domain region
-                // skeletons at a stable card height, replaced in place as
-                // the validated preview fields arrive — the card never
-                // collapses to a spinner row and re-expands.
+                // Loading: region skeletons at a stable card height, replaced
+                // in place as fields arrive.
                 ColumnLayout {
                     objectName: "linkPreviewSkeleton"
                     visible: card.st === "loading"
@@ -5521,10 +4211,8 @@ Item {
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
                             cache: true
-                            // Re-resolve through a counter, never by assigning
-                            // `source`: an imperative write destroys the
-                            // binding, so a card whose preview later changes
-                            // would keep painting the first image it loaded.
+                            // Re-resolve through a counter; assigning `source`
+                            // would destroy the binding.
                             property int resolveTick: 0
                             source: {
                                 var _tick = resolveTick
@@ -5601,8 +4289,7 @@ Item {
                         text: card.p.description || ""
                         color: AppTheme.textMuted
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                        // A wrapping paragraph inside a card needs the same
-                        // leading rule as the message body it sits under.
+                        // Same leading as the message body.
                         lineHeight: AppTheme.lineHeightBody
                         lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.WordWrap
@@ -5624,19 +4311,11 @@ Item {
 
     // ---- media sub-components ----
 
-    // An MSC4274 GALLERY (2026-09-23): several attachments in ONE event,
-    // which is what Sable sends for more than one picture. Reported as "my
-    // comparison images aren't visible on Lightning" — the event used to be
-    // dropped before it became a row at all (rust/src/timeline.rs,
-    // is_visible_gallery_message).
-    //
-    // Pictures and videos are square tiles in a grid; audio and other files
-    // are one-line chips under it. Every tile fetches through the media bridge
-    // by its OWN key (the primary keeps the row's), under exactly the gates a
-    // single picture obeys: nothing is asked for while the row is outside the
-    // media band, while the reader has hidden the row's media, or while embeds
-    // are collapsed (this component is not even built then). Tile geometry is
-    // fixed before any byte arrives, so hydration never moves the row.
+    // MSC4274 gallery: several attachments in one event (what Sable sends for
+    // multiple pictures). Pictures and videos are square tiles; audio and other
+    // files are chips below. Each tile fetches by its own key under the same
+    // gates as a single picture: media band, hidden media, collapsed embeds.
+    // Tile geometry is fixed before bytes arrive.
     Component {
         id: galleryComponent
         Item {
@@ -5685,21 +4364,17 @@ Item {
                             border.width: 1
                             readonly property string key: modelData.mediaKey || ""
                             readonly property bool isVideo: modelData.kind === "video"
-                            // A video tile draws its POSTER, and only a real
-                            // one: without a server thumbnail the bridge would
-                            // fall back to the video payload itself, which is
-                            // not a picture and would only be refused.
+                            // A video tile draws only a real poster; without a
+                            // server thumbnail the bridge would fall back to
+                            // the video payload itself.
                             readonly property bool drawable:
                                 key.length > 0
                                 && (!isVideo || modelData.thumbAvailable === true)
                             readonly property string fetchKind:
                                 modelData.thumbAvailable === true ? "thumb" : "full"
-                            // Asks the store as well as root.mediaHidden:
-                            // this binding first runs while the row is still
-                            // being built, BEFORE root's onCompleted has read
-                            // the store, and a hidden row must not fetch in
-                            // that window. root.mediaHidden is still what
-                            // re-runs it on hide and reveal.
+                            // Also asks the store: this first runs before
+                            // root's onCompleted has read it, and a hidden row
+                            // must not fetch in that window.
                             readonly property bool hiddenNow:
                                 root.mediaHidden
                                 || (!!app.mediaVisibility
@@ -5709,10 +4384,8 @@ Item {
                             readonly property bool wanted:
                                 drawable && app.mediaBridge.supported
                                 && root.mediaInBand && !hiddenNow
-                            // Bumped when the cache fills, so the binding
-                            // below re-asks without anything assigning
-                            // `source` imperatively (§16: that destroys the
-                            // binding and strands the tile).
+                            // Bumped on cache fill so the binding re-asks
+                            // without assigning `source`.
                             property int resolveTick: 0
                             property bool failed: false
                             readonly property string bridgeSource: {
@@ -5764,12 +4437,9 @@ Item {
                                         galleryTile.failed = true
                                 }
                                 function onMediaRetryable(cacheKey) {
-                                    // The same recovery channel the image,
-                                    // sticker and video boxes hear: a swept
-                                    // transient mark re-asks, or a tile that
-                                    // failed once sits on its fallback until
-                                    // a restart. Bounded by the bridge, which
-                                    // re-arms the mark on a failed attempt.
+                                    // Same recovery channel as the other media
+                                    // boxes: a swept transient mark re-asks.
+                                    // Bounded by the bridge.
                                     if (cacheKey === galleryTile.fetchKind + ":"
                                             + galleryTile.key) {
                                         galleryTile.failed = false
@@ -5790,14 +4460,11 @@ Item {
                                         galleryTile.resolveTick++
                                         return
                                     }
-                                    // A picture opens the viewer. In the room
-                                    // timeline it pages through the room's
-                                    // pictures, each gallery item among them
+                                    // A picture opens the viewer, which pages
+                                    // through the room's pictures
                                     // (TimelineModel::mediaEntries); in the
-                                    // thread panel openFor() reads the ROOM's
-                                    // list, misses, and shows this picture
-                                    // alone. A video has no viewer here; it is
-                                    // saved like any other attachment.
+                                    // thread panel it shows this picture alone.
+                                    // Videos are saved like other attachments.
                                     if (!galleryTile.isVideo) {
                                         if (root.timelineView && root.timelineView.openImage)
                                             root.timelineView.openImage(galleryTile.key, "")
@@ -5884,19 +4551,14 @@ Item {
         id: imageComponent
         Item {
             id: imageBox
-            // Named like its four siblings (stickerMedia, videoMedia,
-            // audioMedia, fileCard) so a suite can ask whether the picture
-            // was BUILT, not merely whether it is visible. That distinction
-            // is the whole assertion behind the collapse setting: a hidden
-            // Image still downloads and decodes; an unbuilt one cannot.
+            // Named like its siblings (stickerMedia, videoMedia, audioMedia,
+            // fileCard) so a suite can check the picture was built, not merely
+            // visible.
             objectName: "imageMedia"
 
-            // v0.5.11: responsive timeline-image sizing. The display box is
-            // derived from the intrinsic media dimensions and a responsive
-            // bound (never avatar-sized, never overflowing the column, never
-            // upscaling a tiny image beyond its natural size). This box's
-            // implicitWidth/Height flow up into the row so the row grows
-            // to the picture instead of collapsing to the timestamp width.
+            // Responsive sizing from the intrinsic dimensions: never
+            // avatar-sized, never overflowing the column, never upscaling. The
+            // implicit size flows up so the row grows to the picture.
             readonly property real maxW:
                 Math.min(360, root.contentInnerCap)
             readonly property real maxH: 320
@@ -5904,9 +4566,8 @@ Item {
             readonly property real natH: model.mediaHeight > 0 ? model.mediaHeight : 0
             readonly property real ratio: (natW > 0 && natH > 0)
                                           ? (natH / natW) : 0.66
-            // Never upscale media with known intrinsic dimensions. Unknown
-            // dimensions use the responsive bound until the image metadata is
-            // available from a later timeline update.
+            // Never upscale known dimensions; unknown ones use the responsive
+            // bound until metadata arrives.
             readonly property real dispW: {
                 var w = natW > 0 ? Math.min(natW, maxW) : maxW
                 if (w * ratio > maxH) w = maxH / ratio
@@ -5919,11 +4580,9 @@ Item {
 
             readonly property bool isGif:
                 (model.mediaMimetype || "").toLowerCase() === "image/gif"
-            // 2026-08 media round: the hover star's eligibility gate generalized from
-            // "GIF only" to any of the four raster formats Lightning can
-            // validate/store byte-for-byte (see gif::validateRasterBytes) —
-            // isGif itself is UNCHANGED and still drives GIF-only animation
-            // playback above/below.
+            // The hover star applies to any of the four raster formats
+            // Lightning can validate and store (see gif::validateRasterBytes);
+            // isGif still drives animation.
             readonly property bool isRasterImage: {
                 var m = (model.mediaMimetype || "").toLowerCase()
                 return m === "image/gif" || m === "image/png"
@@ -5934,7 +4593,7 @@ Item {
                 || (model.mediaUrl ? model.mediaUrl.toString()
                         .indexOf("send-queue.localhost") >= 0 : false)
             property string animatedSource: ""
-            // v0.6.1: autoplay policy — 0 Always, 1 OnHover, 2 Never.
+            // Autoplay: 0 Always, 1 OnHover, 2 Never.
             readonly property int gifMode: app.settings.gifAutoplay
             property bool gifHovered: false
             HoverHandler {
@@ -5945,14 +4604,12 @@ Item {
                 isGif && gifMode !== 2
                 && (gifMode === 0 || gifHovered)
                 && !pendingMedia && animatedSource.length > 0
-                // A hidden animation must actually STOP. Leaving an
-                // AnimatedImage playing behind an opaque placeholder burns a
-                // decode per frame for something nobody can see.
+                // A hidden animation must stop decoding.
                 && !root.mediaHidden
 
-            // v0.5.9: prefer the media bridge (works for encrypted rooms —
-            // the SDK decrypts inside Rust); HTTP-backend URLs remain the
-            // fallback. An empty bridgeSource means "fetch in flight".
+            // Prefer the media bridge (works in encrypted rooms; Rust
+            // decrypts); HTTP URLs are the fallback. An empty bridgeSource
+            // means a fetch is in flight.
             readonly property bool usesBridge:
                 model.mediaSourceAvailable === true && app.mediaBridge.supported
             readonly property string mediaIdentity: root.actionKey + "\u001f"
@@ -5964,17 +4621,13 @@ Item {
 
             function refreshBridgeSource() {
                 if (!usesBridge || !model.mediaKey) return
-                // Hiding must never START a fetch. It is a rendering
-                // preference, so a hidden row asks the network for nothing;
-                // bytes already cached stay cached, and revealing takes the
-                // ordinary cache path.
+                // Hiding never starts a fetch; cached bytes stay cached.
                 if (root.mediaHidden) return
-                // Out of the media band: nothing is asked for yet. The
-                // band-entry Connections below asks the moment the reader
-                // settles near this row (see `mediaInBand` on the root).
+                // Outside the media band: the band-entry Connections below asks
+                // when the reader settles nearby.
                 if (!root.mediaInBand) return
-                // Fetch the animated bytes whenever autoplay is not Never, so
-                // OnHover playback starts instantly on hover.
+                // Fetch the animated bytes unless autoplay is Never, so OnHover
+                // starts instantly.
                 if (isGif && app.settings.gifAutoplay !== 2 && !pendingMedia) {
                     animatedSource = app.mediaBridge.animatedSource(model.mediaKey)
                     return
@@ -5986,71 +4639,25 @@ Item {
                     model.mediaKey,
                     model.mediaThumbAvailable ? "thumb" : "full")
             }
-            // v0.6.6 UX rework: Discord-style hover star — replaced the old
-            // "Star GIF"/"Unstar GIF" context-menu rows entirely. Eligible
-            // under the exact same mimetype/source/bridge gate those rows
-            // used, and toggles through the exact same app.starChatGif /
-            // GifStarredStore path.
-            //
-            // v0.6.6 review (L1), DELIBERATE NARROWING: the removed menu
-            // row's gate was mimetype-only, so it also matched an animated
-            // GIF STICKER (m.sticker, image/gif) — this hover star only
-            // exists here, inside imageComponent (model.isImage rows), never
-            // in stickerComponent, so a GIF sticker is no longer starrable.
-            // Extending it there is not a small lift: stickerComponent has
-            // none of isGif/starEligible/starred/
-            // refreshStarredState/the starredStore Connections, and (unlike
-            // imageComponent) not even an onMediaIdentityChanged reuse hook
-            // for its own media identity — duplicating that whole block
-            // would be ~80-100 lines of new, independently-maintained state
-            // for a rare case (chat GIFs are sent as m.image via
-            // GifSendController, never as a sticker; a sticker-starrable row
-            // could previously only come from an m.sticker some other
-            // client/bot sent). Accepted as a real, honest gap rather than
-            // silently claimed as covered — see
+            // Hover star for saving to the chat GIF collection, through
+            // app.starChatGif / GifStarredStore. DELIBERATE NARROWING: only in
+            // imageComponent, so GIF stickers are not starrable; chat GIFs are
+            // sent as m.image. See
             // GifHoverStarContractTest::hoverStarIsScopedToImageRowsNotStickers.
-            // `starred` is a plain tracked property (not a live QML binding
-            // on the Q_INVOKABLE isChatGifStarred() call, which carries no
-            // NOTIFY QML could bind to) — refreshed on reuse/identity
-            // change, on the store's own starFinished/unstarFinished
-            // signals (exactly like bridgeSource/animatedSource above
-            // already refresh from the same signals), and — v0.6.6 fix —
-            // whenever MediaBridge caches this row's full bytes
-            // (onAnimatedMediaReady/onMediaCached below), since the durable
-            // content-hash answer app.isChatGifStarred() gives can only
-            // become true once those bytes exist. See GifStarredStore's
-            // class comment ("DURABLE STARRED-STATE DESIGN") for what
-            // app.isChatGifStarred() actually checks — it is NOT
-            // session-scoped, despite MessageDelegate only ever seeing one
-            // session.
-            //
-            // v0.6.6 fix: excludes a row still pending (local echo — see
-            // `pendingMedia`). Starring while pending would fetch/hash bytes
-            // keyed off the echo's temporary id, then never be found again
-            // once the echo is replaced by the real event (its mediaKey
-            // changes) — the hover star simply does not exist yet for a row
-            // that has not finished sending.
-            // 2026-08 media round: generalized from GIF-only to any saveable raster
-            // format — see isRasterImage above. Still excludes a sticker
-            // (this gate only exists inside imageComponent, never
-            // stickerComponent — see the DELIBERATE NARROWING note above)
-            // and a pending local echo.
+            // `starred` is a tracked property, since isChatGifStarred() has no
+            // NOTIFY; it is refreshed on reuse, on the store's finish signals,
+            // and when the bridge caches this row's bytes (the durable
+            // content-hash answer needs them; see GifStarredStore). Excludes a
+            // pending local echo, whose temporary id would be lost when the
+            // echo is replaced.
             readonly property bool starEligible:
                 imageBox.isRasterImage && model.mediaSourceAvailable === true
                 && app.mediaBridge.supported && !imageBox.pendingMedia
             property bool starred: false
-            // `app` resolved DEFENSIVELY, exactly as commit 30ee39b does for
-            // the receipt chips. This runs from Component.onCompleted, and a
-            // delegate built synchronously from inside a property-change
-            // handler can see a POISONED context lookup for the one
-            // unqualified `app` it evaluates first. §16 listed this site as
-            // "structurally exposed, not observed failing" — a real session
-            // log on 2026-09-05 then showed exactly
-            //   MessageDelegate.qml: ReferenceError: app is not defined
-            //   (exception occurred during delayed function evaluation)
-            // from this line. Guarded rather than reordered: the canary
-            // pattern is the recorded fix and reordering `app` references
-            // just moves which one absorbs the poisoned lookup.
+            // `app` resolved defensively (as for the receipt chips): this runs
+            // from Component.onCompleted, and a delegate built synchronously
+            // inside a property-change handler can see a failed lookup for the
+            // first unqualified `app` it evaluates.
             function refreshStarredState() {
                 var a = (typeof app !== "undefined" && app) ? app : null
                 imageBox.starred = imageBox.starEligible && a !== null
@@ -6067,9 +4674,8 @@ Item {
                 refreshBridgeSource()
                 refreshStarredState()
             }
-            // The reader settled near this row: ask now if nothing has been
-            // asked for yet. A row that already holds its picture (or an
-            // animated one) is left alone.
+            // The reader settled near this row: ask if nothing has been asked
+            // for yet.
             Connections {
                 target: root
                 function onMediaInBandChanged() {
@@ -6078,14 +4684,10 @@ Item {
                         imageBox.refreshBridgeSource()
                 }
             }
-            // A row created before the SDK confirmed mediaSourceAvailable/
-            // bridge support keeps starEligible (and thus starred)
-            // false until that flips — re-check the instant it does, rather
-            // than staying stuck showing an outline star for a row that just
-            // became eligible.
+            // Re-check as soon as the row becomes eligible.
             onStarEligibleChanged: refreshStarredState()
-            // Revealing takes the ordinary path: whatever is cached is used,
-            // and a row hidden before its bytes ever arrived fetches now.
+            // Revealing uses whatever is cached; a row hidden before its bytes
+            // arrived fetches now.
             Connections {
                 target: root
                 function onMediaHiddenChanged() {
@@ -6097,54 +4699,30 @@ Item {
                 target: app.mediaBridge
                 enabled: imageBox.usesBridge
                 function onMediaRetryable(cacheKey) {
-                    // THE STUCK-IMAGE FIX. A transient failure (a timeout,
-                    // a dropped fetch) marks the key; 60 s later the bridge
-                    // sweeps the mark and emits this so the surface can ask
-                    // again. Avatars and list thumbnails listened; TIMELINE
-                    // IMAGES DID NOT — so a failed image sat on its fallback
-                    // until something happened to rebuild the binding, which
-                    // in a quiet room means an app restart. That is the
-                    // reported "small images in inactive rooms get stuck
-                    // loading forever, fixed by restarting".
-                    //
-                    // Bounded by construction: the bridge re-arms the mark on
-                    // a failed attempt, so this cannot hammer the backend.
+                    // A transient failure marks the key; 60 s later the bridge
+                    // sweeps the mark and emits this so the image asks again.
+                    // Without it a failed image stayed on its fallback until a
+                    // restart. Bounded: the bridge re-arms the mark on a failed
+                    // attempt.
                     if (cacheKey === imageBox.bridgeCacheKey)
                         imageBox.refreshBridgeSource()
                 }
                 function onMediaCached(cacheKey) {
                     if (cacheKey === imageBox.bridgeCacheKey)
                         imageBox.bridgeSource = app.mediaBridge.cachedSource(cacheKey)
-                    // v0.6.6 fix: the durable starred check only becomes
-                    // answerable once the FULL payload (never the "thumb:"
-                    // class) is cached — re-check exactly then, whether or
-                    // not it was also this row's bridgeCacheKey.
-                    //
-                    // review H1c: mediaCached and animatedMediaReady BOTH
-                    // fire for the same "full:" key whenever a GIF's bytes
-                    // land while the animated preview path is also active
-                    // (MediaBridge emits mediaCached unconditionally, and
-                    // animatedMediaReady whenever the key was in
-                    // m_animatedWanted) — Qt.callLater coalesces the two
-                    // calls into at most one deferred refreshStarredState()
-                    // per event-loop turn, rather than running the check
-                    // twice back to back.
-                    // 2026-08 media round: was `imageBox.isGif` — generalized to
-                    // starEligible so a saved-eligible PNG/JPEG/WebP row
-                    // also re-checks once its full bytes land (a static
-                    // image never fetches an "animatedSource", so this is
-                    // its only trigger to learn the durable answer besides
-                    // the store's own signals below).
+                    // The durable starred check is answerable once the full
+                    // payload (never "thumb:") is cached. mediaCached and
+                    // animatedMediaReady can both fire for the same key, so
+                    // Qt.callLater coalesces them into one refresh. Applies to
+                    // every star-eligible raster, since a static image never
+                    // fetches an animatedSource.
                     if (imageBox.starEligible && cacheKey === "full:" + (model.mediaKey || ""))
                         Qt.callLater(imageBox.refreshStarredState)
                 }
                 function onAnimatedMediaReady(cacheKey) {
                     if (cacheKey === "full:" + (model.mediaKey || "")) {
                         imageBox.animatedSource = app.mediaBridge.animatedSource(model.mediaKey)
-                        // v0.6.6 fix: full bytes just landed in the cache —
-                        // the durable starred answer may now be knowable.
-                        // See the H1c comment above onMediaCached for why
-                        // this is deferred/coalesced rather than direct.
+                        // Full bytes landed; coalesced as above.
                         Qt.callLater(imageBox.refreshStarredState)
                     }
                 }
@@ -6163,22 +4741,11 @@ Item {
                 function onUnstarFinished(hash) {
                     imageBox.refreshStarredState()
                 }
-                // v0.6.6 review (H1): starFinished/unstarFinished are NOT the
-                // only ways the session-starred answer can change under a
-                // row that never gets torn down. Settings -> Clear All wipes
-                // the whole store and emits ONLY countChanged (never
-                // unstarFinished per hash); an account switch repoints the
-                // same long-lived store at a different directory via
-                // openFor()/close() -> GifStoredModel::reopen(), which also
-                // emits only countChanged. Without this handler a starred
-                // tile that Clear All just deleted from disk kept rendering
-                // filled/"Remove from saved GIFs", and activating it would
-                // have called app.starChatGif() and RE-WRITTEN the bytes the
-                // user just explicitly deleted — a real data-at-rest leak,
-                // not just a stale label. countChanged also fires on every
-                // ordinary star/unstar (GifStoredModel::insertFront/
-                // removeEntry), so this is a safe, idempotent superset of
-                // the two handlers above, not a replacement for them.
+                // Clear All and an account switch change the store and emit
+                // only countChanged. Without this a deleted GIF would still
+                // show as saved, and activating it would re-write the bytes the
+                // user just deleted. Also fires on every star/unstar, so it is
+                // an idempotent superset of the handlers above.
                 function onCountChanged() {
                     imageBox.refreshStarredState()
                 }
@@ -6190,19 +4757,16 @@ Item {
                               && model.mediaThumbUrl.toString().length > 0
                               ? model.mediaThumbUrl
                               : (model.mediaUrl || ""))
-            // Round the corners of a media-bridge image via the provider's baked
-            // mask (no per-frame effect). Only the in-process provider path can
-            // carry the shape suffix; a plain http fallback URL is left as-is.
+            // Rounded via the provider's baked mask (no per-frame effect). Only
+            // the in-process provider path accepts the suffix.
             readonly property string roundedSource:
                 resolvedSource.indexOf("image://lightning-media/") === 0
                 ? resolvedSource + "|shape:round:35"
                 : resolvedSource
 
-            // v0.7: image skeleton keeps the exact reserved rectangle while
-            // bytes download/decrypt, and is replaced in place — no zero-size
-            // flash, no reflow when the bitmap arrives. Shimmer runs only
-            // while the row is on screen; a fetch failure keeps the static
-            // surface (geometry never collapses).
+            // Keeps the reserved rectangle while bytes download/decrypt and is
+            // replaced in place. Shimmer only while on screen; a failure keeps
+            // the static surface.
             Skeleton {
                 objectName: "imageSkeleton"
                 anchors.fill: parent
@@ -6213,8 +4777,7 @@ Item {
                 active: root.rowOnScreen && !imageBox.bridgeFailed
                         && img.status !== Image.Error
             }
-            // GIFs announce themselves on the placeholder too, so the
-            // reserved box reads as "an animation is coming".
+            // GIFs announce themselves on the placeholder too.
             Rectangle {
                 visible: imageBox.isGif && !root.mediaHidden
                          && img.status !== Image.Ready
@@ -6243,9 +4806,8 @@ Item {
                 anchors.fill: parent
                 visible: !imageBox.animateGif && !root.mediaHidden
                 fillMode: Image.PreserveAspectFit
-                // Cleared while hidden rather than merely made invisible: an
-                // Image with a source still holds the decoded pixmap, and the
-                // point of hiding is that it is not painted or decoded.
+                // Cleared while hidden: an Image with a source still holds the
+                // decoded pixmap.
                 source: (imageBox.animateGif || root.mediaHidden)
                         ? "" : imageBox.roundedSource
                 sourceSize.width: 640
@@ -6253,9 +4815,8 @@ Item {
                 cache: true
             }
 
-            // Animated path — only when the message is a confirmed GIF and the
-            // "Animate GIF previews" setting is on. Paused while off-screen to
-            // avoid burning CPU on scrolled-away rows.
+            // Animated path: confirmed GIFs with animation enabled. Paused
+            // off-screen.
             AnimatedImage {
                 id: animatedImg
                 anchors.fill: parent
@@ -6291,12 +4852,8 @@ Item {
                 }
             }
 
-            // v0.6.6 review (L5): only a GIF ever needs the hover star — a
-            // Loader keeps every plain (non-GIF) image row from paying for a
-            // HoverHandler + Item + Icon + two Rectangles it will never use.
-            // `active` re-evaluates starEligible live, so a row that only
-            // later confirms itself as a GIF (see onStarEligibleChanged
-            // above) still gets one created.
+            // A Loader, so rows that are not star-eligible do not pay for the
+            // star's items. `active` tracks starEligible live.
             Loader {
                 id: gifStarLoader
                 anchors.fill: parent
@@ -6306,44 +4863,21 @@ Item {
                         id: starLayer
                         anchors.fill: parent
 
-                        // Hover detection uses a HoverHandler — a passive
-                        // pointer handler — never a MouseArea, so it can
-                        // never grab/steal the wheel or drag gestures needed
-                        // to scroll the timeline over a GIF (CLAUDE.md GIF
-                        // integration rules; the maintainer's UX request for
-                        // a Discord-style hover star).
+                        // A passive HoverHandler, never a MouseArea, so it
+                        // cannot steal wheel or drag gestures from the
+                        // timeline.
                         HoverHandler {
                             id: gifStarHover
                         }
 
-                        // The star itself: revealed while the pointer is
-                        // over the media OR the star (so moving from the
-                        // media onto the button never hides it), or while it
-                        // holds keyboard focus. It stays present (visible:
-                        // true, only its opacity toggles) so Tab can reach
-                        // it even before the pointer hovers anything —
-                        // mirrors QuickReactionStrip's cell (HoverHandler +
-                        // TapHandler + explicit Keys handlers +
-                        // Accessible.onPressAction), never an AbstractButton
-                        // — Qt Quick Controls' built-in Space/Return
-                        // handling on AbstractButton would risk firing a
-                        // second time on top of an explicit Keys handler for
-                        // the exact same key.
-                        //
-                        // v0.6.6 review (M2): bottom-right, not top-right —
-                        // the message action bar (React/Reply/Thread/More)
-                        // is anchored top-right of the WHOLE row at z:3, and
-                        // a continuation row with no reply preview puts
-                        // mediaBox's own top flush with the row's top, so a
-                        // wide GIF filling a narrow column (the 340px thread
-                        // panel, or any narrow window) put a top-right star
-                        // directly under the action bar's higher-z buttons —
-                        // unreachable by mouse and invisible under them.
-                        // The action bar is anchored to the row's TOP only
-                        // (never bottom) regardless of width, so bottom-right
-                        // is clear in every layout; bottom-left already
-                        // belongs to the "GIF" badge, so bottom-right stays
-                        // free.
+                        // The star: revealed while the pointer is over the
+                        // media or the star, or while it has focus. Always
+                        // present (opacity only) so Tab can reach it. Not an
+                        // AbstractButton, whose built-in Space/Return handling
+                        // would fire twice with the explicit Keys handlers.
+                        // Bottom-right: the action bar is anchored to the row's
+                        // top-right at a higher z and would cover a top-right
+                        // star; bottom-left holds the GIF badge.
                         Item {
                             id: gifStarButton
                             objectName: "gifHoverStarButton"
@@ -6357,28 +4891,14 @@ Item {
                             readonly property bool revealed:
                                 gifStarHover.hovered || starHover.hovered
                                 || gifStarButton.activeFocus
-                            // v0.6.7 (maintainer request): the star appears on
-                            // hover/focus ONLY — never parked on the media at
-                            // rest. v0.6.6 had kept a saved GIF's star
-                            // permanently visible so its state could be read
-                            // without hovering; in practice that left a
-                            // yellow badge sitting on every saved GIF in the
-                            // timeline. The state is still legible the moment
-                            // the pointer arrives, and the picker's Saved tab
-                            // is the authoritative list. GifPicker.qml's tile
-                            // star follows the same rule, so the one star
-                            // behaves identically in both places.
+                            // Shown on hover or focus only, never at rest (same
+                            // rule as GifPicker's tile star).
                             opacity: revealed ? 1 : 0
                             Behavior on opacity { NumberAnimation { duration: 100 } }
 
                             Accessible.role: Accessible.Button
-                            // v0.6.7: one verb everywhere. This button and the
-                            // picker's tile star now do the same thing, say
-                            // the same thing, and land in the same place — the
-                            // picker's Saved tab. See GifPicker.qml's header.
-                            // 2026-08 media round: format-neutral wording — this button now
-                            // saves GIF/PNG/JPEG/WebP alike, so it no longer
-                            // names "GIF" specifically.
+                            // Same wording as the picker's tile star;
+                            // format-neutral since it saves GIF/PNG/JPEG/WebP.
                             Accessible.name: imageBox.starred
                                 ? qsTr("Remove from saved") : qsTr("Save image")
                             Accessible.onPressAction: gifStarButton.activate()
@@ -6387,22 +4907,16 @@ Item {
                                 var key = model.mediaKey || ""
                                 if (!key)
                                     return
-                                // v0.6.6 fix: app.isChatGifStarred/
-                                // unstarChatGif give the durable,
-                                // content-addressed answer (not just this
-                                // session's) — see GifStarredStore's class
-                                // comment.
+                                // Durable, content-addressed answer; see
+                                // GifStarredStore.
                                 if (app.isChatGifStarred(key))
                                     app.unstarChatGif(key)
                                 else
                                     app.starChatGif(key)
                             }
 
-                            // v0.6.7: saved state is a FILL, matching the
-                            // picker tile exactly — the bundled Material
-                            // Symbols subset is a static FILL=0 instance, so
-                            // there is no filled star glyph and colour alone
-                            // had to carry the whole state.
+                            // Saved state is a fill: the bundled Material
+                            // Symbols subset has no filled star glyph.
                             Rectangle {
                                 anchors.fill: parent
                                 radius: 13
@@ -6427,32 +4941,18 @@ Item {
                             }
 
                             HoverHandler { id: starHover }
-                            // v0.6.6 review (L3): gated on `revealed`, not
-                            // just `enabled: true` — the Item stays
-                            // visible/hit-testable at opacity 0 so Tab can
-                            // reach it, which on a TOUCH input (no synthetic
-                            // hover-before-tap the way a mouse gets one)
-                            // would otherwise let a tap on the invisible
-                            // corner silently star/unstar without the user
-                            // ever seeing the button.
-                            //
-                            // v0.6.7: the `|| imageBox.starred` relaxation
-                            // added in v0.6.6 is REMOVED along with the
-                            // at-rest visibility that justified it. A saved
-                            // GIF's star is now invisible at rest again, so
-                            // allowing a tap on it would restore exactly the
-                            // hazard above — an unseen corner that
-                            // saves/unsaves on touch. The gate must track the
-                            // opacity, not the saved state.
+                            // Gated on `revealed`: the star is hit-testable at
+                            // opacity 0 for Tab, and a touch tap has no hover
+                            // first, so an invisible corner would otherwise
+                            // save/unsave. The gate tracks opacity, not saved
+                            // state.
                             TapHandler {
                                 enabled: gifStarButton.revealed
                                          && root.rowActionsEnabled
                                 onTapped: gifStarButton.activate()
                             }
-                            // v0.6.6 review (L2): ignore key-repeat — held
-                            // Space/Return would otherwise call activate() at
-                            // OS repeat rate, each one a real file write/
-                            // QFile::remove plus a banner re-trigger.
+                            // Ignore key repeat: each activation is a real file
+                            // write or removal.
                             Keys.onReturnPressed: (event) => {
                                 if (!event.isAutoRepeat) gifStarButton.activate()
                             }
@@ -6485,9 +4985,8 @@ Item {
     }
 
     // ---- sticker ----
-    // Stickers keep their transparency intent: the reserved aspect box has
-    // no opaque backing card once the bitmap is ready — transparent pixels
-    // reveal the timeline surface. The skeleton only exists while loading.
+    // Stickers keep their transparency: no opaque backing card once loaded. The
+    // skeleton exists only while loading.
     Component {
         id: stickerComponent
         Item {
@@ -6511,41 +5010,21 @@ Item {
             readonly property string bridgeCacheKey:
                 (model.mediaThumbAvailable ? "thumb:" : "full:")
                 + (model.mediaKey || "")
-            // The bridge keys its animated materialization by kind 0, so this
-            // is the SAME key as bridgeCacheKey for a sticker with no server
-            // thumbnail — which is the ordinary MSC2545 shape. One fetch
-            // serves both the still frame and the animation.
+            // The bridge keys animated materialization by kind 0, so for a
+            // sticker with no server thumbnail (the usual MSC2545 shape) this
+            // equals bridgeCacheKey and one fetch serves both.
             readonly property string animatedCacheKey:
                 "full:" + (model.mediaKey || "")
             property string bridgeSource: ""
             property bool bridgeFailed: false
 
-            // ── Animated stickers ────────────────────────────────────────
-            //
-            // A sticker used to be an Image and nothing else, so an animated
-            // GIF sticker rendered as its first frame forever while the same
-            // event animated in every other client. Two things had to change.
-            //
-            // 1. THE DECLARED MIMETYPE CANNOT BE THE GATE. `info.mimetype` is
-            //    OPTIONAL for an `m.sticker` under MSC2545 and
-            //    `MsgLikeKind::Sticker` (rust/src/timeline.rs) forwards it
-            //    only when the sender supplied one, so `mediaMimetype` is
-            //    routinely "" on a perfectly good GIF. That is the same
-            //    absent-label hazard recorded in CLAUDE.md §6 for SVG, and it
-            //    gets the same answer: ask the BYTES. MediaBridge decides
-            //    from the container magic (animatedExtensionFor) and answers
-            //    animatedMediaReady only for a real animation.
-            // 2. ASKING MUST BE FREE OF CONSEQUENCE. The request is
-            //    SPECULATIVE (`animatedSource(key, true)`): a payload that
-            //    turns out to be a still PNG answers with silence instead of
-            //    marking the key failed, because the still Image below is
-            //    already drawing those very bytes and an error card there
-            //    would be a regression for every non-animated sticker.
-            //
-            // The declared mimetype is still used, but only to AVOID a
-            // pointless extra full-payload fetch: a sticker that says it is a
-            // PNG or a JPEG is taken at its word for the purpose of not
-            // asking. An empty label always asks.
+            // Animated stickers. info.mimetype is optional for m.sticker, so
+            // the declared type cannot be the gate; MediaBridge decides from
+            // the container magic and answers animatedMediaReady only for a
+            // real animation. The request is speculative, so a still image
+            // answers with silence rather than an error. The declared mimetype
+            // is only used to skip the fetch when it names a PNG or JPEG; an
+            // empty one always asks.
             readonly property string declaredMimetype:
                 (model.mediaMimetype || "").toLowerCase()
             readonly property bool maybeAnimated:
@@ -6559,8 +5038,7 @@ Item {
 
             function refreshBridgeSource() {
                 if (!usesBridge || !model.mediaKey) return
-                // Hiding never starts a fetch; see the note in
-                // imageComponent's own refreshBridgeSource.
+                // Hiding never starts a fetch.
                 if (root.mediaHidden) return
                 if (bridgeFailed)
                     app.mediaBridge.retry(bridgeCacheKey)
@@ -6597,18 +5075,13 @@ Item {
                         stickerBox.bridgeFailed = true
                 }
                 function onMediaRetryable(cacheKey) {
-                    // Same recovery channel the image box uses: a swept
-                    // transient mark must reach every surface that renders
-                    // bridge bytes, or that surface sits on its fallback
-                    // until something rebuilds the binding.
+                    // Same recovery channel as the image box.
                     if (cacheKey === stickerBox.bridgeCacheKey)
                         stickerBox.refreshBridgeSource()
                 }
                 function onAnimatedMediaReady(cacheKey) {
-                    // The bridge validated the bytes as an animation. Only
-                    // now does an AnimatedImage get a source; a sticker that
-                    // is not one never reaches here and keeps its still
-                    // frame, which is why asking is safe.
+                    // The bridge validated the bytes as an animation; only now
+                    // does the AnimatedImage get a source.
                     if (cacheKey === stickerBox.animatedCacheKey)
                         stickerBox.animatedSource =
                             app.mediaBridge.animatedSource(model.mediaKey, true)
@@ -6632,11 +5105,9 @@ Item {
             Image {
                 id: stickerImg
                 anchors.fill: parent
-                // The still frame is the DEFAULT and the FALLBACK, never
-                // merely the not-animated case: it keeps drawing until the
-                // AnimatedImage below actually reports Ready, so a build
-                // whose image plugins cannot decode the animation degrades
-                // to exactly today's picture instead of to a blank box.
+                // The still frame is the default and fallback: it draws until
+                // the AnimatedImage reports Ready, so an undecodable animation
+                // degrades to the still picture.
                 visible: !root.mediaHidden && !stickerAnim.animating
                 fillMode: Image.PreserveAspectFit
                 source: root.mediaHidden ? "" : stickerBox.resolvedSource
@@ -6650,9 +5121,8 @@ Item {
                 anchors.fill: parent
                 fillMode: Image.PreserveAspectFit
                 // Loaded whenever animated bytes exist and animation is not
-                // globally off, so On-hover playback starts on the hover
-                // rather than on a decode. `animating` — not `source` — is
-                // what the still frame yields to.
+                // globally off, so on-hover playback starts immediately. The
+                // still frame yields to `animating`, not `source`.
                 source: (!root.mediaHidden && stickerBox.gifMode !== 2)
                         ? stickerBox.animatedSource : ""
                 readonly property bool animating:
@@ -6705,29 +5175,23 @@ Item {
     }
 
     // ---- video ----
-    // Reserves the thumbnail geometry from Matrix info metadata (bounded
-    // 16:9 fallback), shows the media skeleton plus a play badge and the
-    // duration, and swaps the real thumbnail in place. Playback stays an
-    // explicit Save/External action — Lightning has no embedded player yet.
+    // Reserves thumbnail geometry from the event info (bounded 16:9 fallback),
+    // shows the skeleton with a play badge and duration, and swaps in the real
+    // thumbnail in place.
     Component {
         id: videoComponent
         Item {
             id: videoBox
             objectName: "videoMedia"
-            // 60-75% of the content column, bounded: landscape videos get a
-            // useful width, portrait videos a useful height, and the card
-            // never drops below the width the control bar needs (the old
-            // flat 360/320 caps rendered portrait video ~180px wide and
-            // clipped seek/speed/expand clean off).
+            // 60-75% of the content column, bounded, and never narrower than
+            // the control bar needs.
             readonly property real maxW: {
                 var cap = Math.min(
                     560, Math.max(280, root.contentInnerCap * 0.72))
                 return Math.max(1, Math.min(cap, root.contentInnerCap))
             }
             // Dimensions learned from a previous poster extraction (persisted
-            // per account) size the card correctly from the FIRST render —
-            // without them a metadata-less video started 16:9 and visibly
-            // resized when its poster landed (maintainer screenshots).
+            // per account) size the card correctly from the first render.
             readonly property size learnedDims:
                 model.mediaWidth > 0 ? Qt.size(0, 0)
                 : app.settings.knownVideoDimensions(model.mediaKey || "")
@@ -6737,13 +5201,8 @@ Item {
             readonly property real natH: model.mediaHeight > 0
                 ? model.mediaHeight
                 : (learnedDims.height > 0 ? learnedDims.height : 0)
-            // Metadata-less events (every Lightning-sent video before the
-            // send-metadata fix) used to default the card to 16:9, which
-            // letterboxed square/portrait videos massively during playback
-            // (maintainer screenshots, 2026-08-12). The extracted poster
-            // carries the video's REAL shape — use it whenever the event
-            // itself declares none; 16:9 remains only the last-resort
-            // guess before any poster exists.
+            // Without declared dimensions, use the extracted poster's real
+            // shape; 16:9 is the last resort before any poster exists.
             readonly property real posterRatio:
                 thumbImg.status === Image.Ready && thumbImg.implicitWidth > 0
                 ? thumbImg.implicitHeight / thumbImg.implicitWidth : 0
@@ -6760,24 +5219,21 @@ Item {
                 return Math.max(minControlW, Math.min(w, maxW))
             }
             implicitWidth: dispW
-            // Height caps even after the minimum-width floor (a portrait
-            // video letterboxes inside rather than towering).
+            // Height is capped even after the width floor; portrait video
+            // letterboxes.
             implicitHeight: Math.max(1, Math.min(maxH, dispW * ratio))
 
-            // v0.7: inline playback. Explicit user intent swaps the cover
-            // for the player card in place — identical geometry, so
-            // starting playback never reflows the timeline. Delegate reuse
-            // for another event always drops back to the cover.
+            // Inline playback: the player replaces the cover in place with
+            // identical geometry. Delegate reuse drops back to the cover.
             property bool playerActive: false
             readonly property string mediaIdentity:
                 root.actionKey + "\u001f" + (model.mediaKey || "")
             readonly property bool playbackAvailable:
                 model.mediaSourceAvailable === true && app.mediaBridge.supported
 
-            // The poster path serves BOTH cases now: a Matrix thumbnail is
-            // fetched as before, and a video without one gets a locally
+            // Serves both a Matrix thumbnail and, without one, a locally
             // extracted first-frame poster (MediaBridge.videoPosterSource),
-            // bounded by the speculative prefetch cap.
+            // bounded by the prefetch cap.
             readonly property bool usesBridge:
                 model.mediaSourceAvailable === true && app.mediaBridge.supported
             readonly property string bridgeCacheKey:
@@ -6789,15 +5245,10 @@ Item {
                 if (bridgeFailed)
                     app.mediaBridge.retry(bridgeCacheKey)
                 bridgeFailed = false
-                // Speculative payload prefetch is governed by the SAME
-                // user preference as GIF autoplay (never = no passive
-                // downloads); a declared size of 0 makes MediaBridge
-                // decline while the poster path still serves an
-                // already-materialized file.
-                // Declared size first; else the size learned from a
-                // previous fetch (persisted per account), so the
-                // pre-metadata-fix backlog prefetches — and posters — on
-                // every session after a single play.
+                // Speculative prefetch follows the GIF autoplay preference
+                // (Never means no passive downloads); a size of 0 makes
+                // MediaBridge decline. Uses the declared size, else the size
+                // learned from a previous fetch.
                 var prefetchSize = app.settings.gifAutoplay !== 2
                                    ? (model.mediaSize
                                       || app.settings.knownMediaSizeBytes(
@@ -6805,33 +5256,28 @@ Item {
                                       || 0)
                                    : 0
                 if (model.mediaThumbAvailable === true) {
-                    // Thumbnails are never gated: small, and they are what
-                    // the reader is looking at while scrolling.
+                    // Thumbnails are never gated.
                     bridgeSource = app.mediaBridge.mediaSource(model.mediaKey,
                                                                "thumb")
                 } else if (root.speculativeMediaAllowed) {
-                    // videoPosterSource MATERIALIZES the payload to extract a
-                    // frame (MediaBridge::videoPosterSource -> prefetchPlayable),
-                    // so it is speculative work too, not a cheap read.
+                    // videoPosterSource materializes the payload to extract a
+                    // frame, so it is speculative work too.
                     bridgeSource = app.mediaBridge.videoPosterSource(
                         model.mediaKey, prefetchSize)
                 } else {
-                    // Off-screen rows, and rows sweeping past mid-gesture,
-                    // must not trigger poster/prefetch work; the observers
-                    // below re-run this once the view settles.
+                    // Rows off screen or swept past mid-gesture do no
+                    // poster/prefetch work; the observers below re-run this
+                    // once the view settles.
                     bridgeSource = ""
                 }
-                // Bounded speculative payload prefetch so pressing Play is
-                // (usually) instant instead of a multi-second download.
-                // MediaBridge enforces the size cap and deduplication.
+                // Bounded prefetch so Play is usually instant. MediaBridge
+                // enforces the cap and deduplication.
                 if (root.speculativeMediaAllowed && playbackAvailable
                     && prefetchSize > 0)
                     app.mediaBridge.prefetchPlayable(model.mediaKey,
                                                      prefetchSize)
             }
-            // Re-run when the row appears OR when the view settles — a row
-            // that swept past mid-gesture deliberately took the empty
-            // branch above and needs the retry once spending is allowed.
+            // Re-run when the row appears or the view settles.
             readonly property bool coverOnScreen: root.speculativeMediaAllowed
             onCoverOnScreenChanged: {
                 if (coverOnScreen && bridgeSource.length === 0
@@ -6839,10 +5285,9 @@ Item {
                     videoSourceRefresh.restart()
             }
             function resetForMedia() {
-                // A pooled Loader keeps this videoBox instance alive while
-                // model roles rebind. Clear the old thumbnail synchronously
-                // so another video's duration can never appear over stale
-                // pixels, then fetch after the role-update turn settles.
+                // A pooled Loader keeps this instance while roles rebind: clear
+                // the old thumbnail synchronously, then fetch after the update
+                // settles.
                 playerActive = false
                 bridgeSource = ""
                 bridgeFailed = false
@@ -6868,18 +5313,13 @@ Item {
                         videoBox.bridgeFailed = true
                 }
                 function onMediaRetryable(cacheKey) {
-                    // The third and last bridge-backed surface in this
-                    // delegate. All three now hear the swept mark; before
-                    // this only Avatar and MediaListThumbnail did.
+                    // Same swept-mark recovery as the image and sticker boxes.
                     if (cacheKey === videoBox.bridgeCacheKey)
                         videoBox.refreshBridgeSource()
                 }
-                // A video with NO declared size (every Lightning-sent
-                // video before the send-metadata fix) is never prefetched,
-                // so its poster can only come from the file the user's own
-                // Play just materialized. Re-run the poster path exactly
-                // when that file lands — videoPosterSource then extracts
-                // from the materialized file with no network at all.
+                // A video with no declared size is never prefetched, so its
+                // poster can only come from the file the user's Play
+                // materialized; re-run the poster path when it lands.
                 function onPlayableMediaReady(cacheKey) {
                     if (cacheKey === "full:" + (model.mediaKey || "")
                         && model.mediaThumbAvailable !== true
@@ -6899,14 +5339,9 @@ Item {
                 return m + ":" + (s < 10 ? "0" : "") + s
             }
 
-            // No Matrix thumbnail (or its fetch failed): a stable styled
-            // placeholder instead of an empty transparent box — surface
-            // tone, type icon, filename. The play affordance and duration
-            // chip overlay it exactly as they would a real poster, so the
-            // card never looks broken while (or because) no poster exists.
-            // Placeholder shows when no bridge is available, the fetch
-            // failed, or a no-Matrix-thumbnail video has no poster (yet, or
-            // ever — an over-cap video is not prefetched for one).
+            // Stable placeholder (surface tone, type icon, filename) when there
+            // is no bridge, the fetch failed, or no poster exists; the play
+            // affordance and duration overlay it as they would a real poster.
             readonly property bool showPlaceholder:
                 !usesBridge || bridgeFailed
                 || (model.mediaThumbAvailable !== true
@@ -6950,8 +5385,8 @@ Item {
                 id: thumbImg
                 anchors.fill: parent
                 fillMode: Image.PreserveAspectCrop
-                // Rounded via the provider's baked mask when served from the
-                // in-process media bridge (see the image path above).
+                // Rounded via the provider's baked mask when served by the
+                // media bridge.
                 source: videoBox.usesBridge
                         ? (videoBox.bridgeSource.indexOf("image://lightning-media/") === 0
                            ? videoBox.bridgeSource + "|shape:round:35"
@@ -7053,10 +5488,8 @@ Item {
     }
 
     // ---- audio / voice ----
-    // v0.7: real inline playback. The compact card keeps its stable
-    // geometry; pressing Play fetches through MediaBridge's validated
-    // playable materialization and plays in-process. Voice messages render
-    // their real MSC3245 waveform when present. Non-bridge backends keep
+    // Inline playback through MediaBridge's validated playable materialization.
+    // Voice messages render their MSC3245 waveform. Non-bridge backends keep
     // the external-open path.
     Component {
         id: audioComponent
@@ -7072,10 +5505,8 @@ Item {
             isVoice: model.mediaIsVoice === true
             waveform: model.mediaWaveform || []
             rowOnScreen: root.rowOnScreen
-            // The card's speculative prefetch waits for a settle for the
-            // same reason the video path does (see TimelinePane.qml's
-            // `speculativeMediaAllowed`): a row swept past is not worth a
-            // download. Its playback/reclamation logic keeps rowOnScreen.
+            // Speculative prefetch waits for a settle, like the video path.
+            // Playback logic keeps rowOnScreen.
             prefetchAllowed: root.speculativeMediaAllowed
             canSave: model.mediaSourceAvailable === true
                      && app.mediaBridge.supported
@@ -7103,10 +5534,8 @@ Item {
             border.color: AppTheme.border
             border.width: 1
 
-            // Save state, keyed by this card's media so pooled delegate
-            // reuse and unrelated downloads can never cross-talk. The view
-            // exposes the keys only in the main timeline; thread-panel
-            // delegates fall back to stateless presentation.
+            // Save state keyed by this card's media. Only the main timeline
+            // exposes the keys; thread-panel delegates stay stateless.
             readonly property var tlView: root.timelineView
             readonly property bool saving:
                 tlView && tlView.saveInFlightKey !== undefined
@@ -7129,8 +5558,8 @@ Item {
                 return "attach_file"
             }
             function fileTypeLabel(mime) {
-                // "application/x-zip-compressed" → "ZIP", "application/pdf"
-                // → "PDF": the subtype tail reads better than a raw MIME.
+                // Show the subtype tail ("ZIP", "PDF") rather than a raw MIME
+                // type.
                 var m = (mime || "")
                 var slash = m.indexOf("/")
                 if (slash < 0) return m
@@ -7179,13 +5608,8 @@ Item {
                     }
                     Label {
                         text: {
-                            // ONE FORMATTER. This computed its own size and
-                            // disagreed with the collapsed summary about the
-                            // same file — 427 B there, "0.4 KB" here, both on
-                            // screen as the setting is toggled. It also had no
-                            // bytes tier and, being built from bare " KB" /
-                            // " MB" literals, was the one size string in this
-                            // file that no catalog could translate.
+                            // Shared formatter, so this matches the collapsed
+                            // summary and is translatable.
                             var size = root.embedSizeText(model.mediaSize || 0)
                             var kind = fileCard.fileTypeLabel(model.mediaMimetype)
                             var status = fileCard.saving ? qsTr("Saving…")
@@ -7207,9 +5631,8 @@ Item {
                     }
                 }
 
-                // Download / save state action. MediaBridge saves are
-                // atomic (no progress or cancel API) — the in-flight state
-                // is honest-indeterminate, never a fake percentage.
+                // Saves are atomic with no progress API, so the in-flight state
+                // is indeterminate.
                 AppBusyIndicator {
                     size: 26
                     visible: fileCard.saving
@@ -7244,7 +5667,7 @@ Item {
                                                          || "download")
                     }
                 }
-                // HTTP backend keeps its external-open path (plain media).
+                // HTTP backend keeps its external-open path.
                 IconButton {
                     visible: !(model.mediaSourceAvailable === true)
                              && (model.mediaUrl
@@ -7260,19 +5683,12 @@ Item {
         }
     }
 
-    // MSC3381 poll card (v0.7). Entirely stateless: selection, counts and
-    // the ended flag all derive from model roles, so pooled-delegate reuse
-    // can never show another row's votes. Undisclosed running polls arrive
-    // with zeroed counts from the bridge — hidden tallies never reach QML.
-    // A SHARED PLACE. There is no embedded map: Lightning has no map widget
-    // and adding one would be a network dependency on a tile server that
-    // every reader's IP address would then reach. So the card shows the
-    // place in words and offers to open it in the browser.
-    //
-    // The link is BUILT from the parsed numbers, never from the sender's
-    // `geo:` string: UrlLauncher's allowlist is http/https/mailto and
-    // widening it to `geo:` would hand an attacker-controlled string
-    // straight to xdg-open.
+    // Poll card (MSC3381): stateless, derived from model roles, so reuse never
+    // shows another row's votes. Undisclosed running polls arrive with zeroed
+    // counts. Shared place: no embedded map (a tile server would see every
+    // reader's IP); the card describes the place and opens it in the browser.
+    // The link is built from the parsed numbers, never the sender's geo:
+    // string, which UrlLauncher's allowlist would have to widen to accept.
     Component {
         id: locationComponent
         Rectangle {
@@ -7295,10 +5711,8 @@ Item {
                     Layout.fillWidth: true
                     spacing: AppTheme.spacing8
                     Icon {
-                        // "explore", not "place": the icon font is a SUBSET
-                        // (scripts/generate-icon-font.sh) and Icon.qml answers
-                        // an unknown name with an EMPTY STRING — so a wrong
-                        // name is a silently blank glyph, not tofu.
+                        // The icon font is a subset and Icon.qml returns "" for
+                        // an unknown name, so a wrong name is a blank glyph.
                         name: "explore"
                         size: 18
                         color: AppTheme.textMuted
@@ -7354,9 +5768,8 @@ Item {
                     size: "sm"
                     text: qsTr("Open in a map")
                     onClicked: {
-                        // Zoom 16 is a street. The link is assembled here
-                        // from numbers the bridge validated, so nothing the
-                        // sender wrote reaches the URL.
+                        // Zoom 16 is street level. Built from validated numbers
+                        // only.
                         var lat = model.locationLat
                         var lon = model.locationLon
                         app.media.openWebUrl(
@@ -7365,8 +5778,7 @@ Item {
                     }
                 }
 
-                // A point we could not read. Say so rather than showing a
-                // card that looks like a place and does nothing.
+                // A point we could not read; say so.
                 Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
@@ -7420,17 +5832,16 @@ Item {
                         selection.push(answerId)
                     else return // selection cap reached
                 } else {
-                    // Re-clicking the own choice retracts the vote (the
-                    // empty response list is the MSC3381 retraction).
+                    // Re-clicking your own choice retracts the vote (an empty
+                    // response list).
                     selection = ownSelection().indexOf(answerId) >= 0
                                 ? [] : [answerId]
                 }
                 app.composer.votePoll(eventId, selection, pollThreadRoot)
             }
 
-            // Fixed intrinsic width; the Loader's Layout.maximumWidth clamps
-            // it to the bubble. Referencing bubble.width here is circular in
-            // the Bubbles layout (bubble sizes itself from content width).
+            // Fixed intrinsic width; the Loader's maximumWidth clamps it.
+            // bubble.width here would loop in Bubbles.
             implicitWidth: 420
             implicitHeight: pollColumn.implicitHeight + 20
             color: AppTheme.embedSurface
@@ -7564,9 +5975,8 @@ Item {
                                     anchors.left: parent.left
                                     anchors.top: parent.top
                                     anchors.bottom: parent.bottom
-                                    // A rounded pill: give any non-zero share at
-                                    // least its own height so it never renders as
-                                    // a thin sliver; zero votes show no fill.
+                                    // Any non-zero share gets at least its own
+                                    // height; zero shows no fill.
                                     width: answerRow.voteShare > 0
                                            ? Math.max(height,
                                                       parent.width * answerRow.voteShare)

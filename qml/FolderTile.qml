@@ -2,19 +2,10 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// A local Space folder's tile: a composite of the Spaces inside it.
-//
-// Discord's folder icon is a grid of the servers it holds, and that is not
-// decoration. A collapsed folder raises exactly one question — WHICH folder is
-// this — and a generic letter tile answers the one question the user already
-// knows the answer to. Four member avatars answer the real one at a glance, on
-// 40 px, without a label.
-//
-// The bundled Material Symbols subset carries no folder glyph (regenerating it
-// needs the network), so there is no icon fallback to fall back TO: an empty
-// folder shows its NAME, which is at least the thing the user typed.
-//
-// Every colour is a theme token. Nothing here is Discord's.
+// A local Space folder's tile: a composite of up to four member Spaces'
+// avatars, which identifies the folder at a glance without a label. The
+// bundled icon subset has no folder glyph, so an empty folder shows its
+// name. Colours are theme tokens.
 Item {
     id: root
 
@@ -41,8 +32,8 @@ Item {
         z: 1
     }
 
-    // One member: a single larger tile, centred. A 2×2 grid with one cell
-    // filled reads as a rendering fault rather than as a folder.
+    // One member: a single larger tile, centred (a 2×2 grid with one cell
+    // filled looks broken).
     Loader {
         anchors.centerIn: parent
         active: root.memberCount === 1
@@ -79,11 +70,9 @@ Item {
         }
     }
 
-    // An empty folder still renders: it is a place the user made, and one
-    // that vanished when its last Space moved out would be a bug report.
-    // Behind a Loader because the name is legitimately empty while a rename
-    // is in flight, and a never-laid-out empty Text keeps
-    // ItemObservesViewport for the life of the delegate.
+    // An empty folder still renders: the user made it. Behind a Loader
+    // because the name is empty during a rename, and an empty Text keeps
+    // ItemObservesViewport.
     Loader {
         anchors.centerIn: parent
         active: root.memberCount === 0 && root.fallbackName.length > 0

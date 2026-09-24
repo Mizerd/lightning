@@ -3,11 +3,8 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// One row in the media browser's list view — files, audio and links, and
-// visual media when the reader prefers a list.
-//
-// Links get a different shape from attachments on purpose: what identifies a
-// link is its HOST, and what identifies a file is its name and size.
+// One row in the media browser's list view. A link is identified by its host, a
+// file by its name and size, so the two are shaped differently.
 ItemDelegate {
     id: row
 
@@ -72,8 +69,8 @@ ItemDelegate {
                 elide: Label.ElideMiddle
             }
 
-            // A link's second line is the URL itself; an attachment's is its
-            // sender, size and date. Different questions, different answers.
+            // A link's second line is the URL; an attachment's is sender, size
+            // and date.
             Label {
                 Layout.fillWidth: true
                 textFormat: Text.PlainText
@@ -127,9 +124,8 @@ ItemDelegate {
             text: qsTr("Copy link")
             visible: row.kind === "link" && row.url.length > 0
             height: visible ? implicitHeight : 0
-            // The SAME hidden-TextEdit route MessageDelegate uses. There is
-            // no `app.copyToClipboard` — this called one and would have
-            // failed at runtime the first time anyone used the menu item.
+            // The hidden-TextEdit route MessageDelegate uses; there is no
+            // app.copyToClipboard.
             onTriggered: {
                 clipboardHelper.text = row.url
                 clipboardHelper.selectAll()
@@ -139,8 +135,7 @@ ItemDelegate {
         }
     }
 
-    // Locale-aware enough to be honest without pretending to be a formatter:
-    // binary units, one decimal, and never "0.0 KB" for a 400-byte file.
+    // Binary units, one decimal, and never "0.0 KB" for a 400-byte file.
     function humanSize(bytes) {
         if (bytes < 1024)
             return qsTr("%1 B").arg(bytes)
@@ -158,8 +153,7 @@ ItemDelegate {
         return m + ":" + (s < 10 ? "0" : "") + s
     }
 
-    // Off-screen and never focusable: QML has no clipboard API, so a
-    // TextEdit's copy() is the route every other surface here uses.
+    // Off-screen and never focusable: QML has no clipboard API.
     TextEdit {
         id: clipboardHelper
         visible: false

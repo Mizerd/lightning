@@ -3,30 +3,22 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.5.9 (Phase 10): invite users into an existing joined room. Opened from
-// the Room Information People tab, and only when the SDK-derived
-// permission (RoomMember::can_invite) allows it. Selected users are
-// deduplicated; per-user pending/ok/failed state is shown; a failure for
-// one user never discards the others' results.
-//
-// v0.6.5 (SPEC 1t): token-field chip restyle over the exact same flow —
-// selection/dedup, the already-member pre-check, and the per-user
-// pending/ok/failed results are unchanged. selectedUsers now carries
-// {id, name, avatar} so a chip can show a small Avatar; inviteUsers() still
-// dispatches a plain user-id list.
+// Invite users into a joined room. Opened from Room Information's People tab,
+// only when the SDK permission (RoomMember::can_invite) allows. Selected users
+// are deduplicated and shown as chips ({id, name, avatar}); results are shown
+// per user (pending/ok/failed) and one failure never discards the others.
+// inviteUsers() dispatches a plain user-id list.
 Dialog {
     id: root
     objectName: "invitePeopleDialog"
     modal: true
-    // The shared navy modal scrim (QuickSwitcher convention) —
-    // never the Basic style default dim (2026-08-19 audit).
+    // The shared modal scrim, not the Basic style's default dim.
     Overlay.modal: Rectangle { color: AppTheme.modalScrim }
     standardButtons: Dialog.NoButton
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     width: Math.min(480, parent ? parent.width - AppTheme.spacing24 * 2 : 480)
-    // Clamp to the window and let the chip/result body scroll — an unbounded
-    // invite list otherwise grows the dialog past the overlay, pushing the
-    // title and the footer buttons off screen.
+    // Clamp to the window and let the body scroll, so a long invite list can't
+    // push the title and footer off screen.
     height: Math.min(implicitHeight,
                      parent ? parent.height - AppTheme.spacing24 * 2 : implicitHeight)
     anchors.centerIn: parent
@@ -36,10 +28,9 @@ Dialog {
     property var selectedUsers: [] // [{id, name, avatar}]
     property bool batchDone: false
 
-    // v0.6.5 (SPEC 1t): the room being invited to, resolved from the live
-    // room-list record at open time — name in the title, mono address line
-    // below it. Falls back to the plain generic title when the record is
-    // unavailable; nothing is fabricated.
+    // The room being invited to, from the live room-list record at open time:
+    // name in the title, address below. Falls back to a generic title; nothing
+    // is fabricated.
     readonly property var roomRecord: roomId !== ""
                                       ? app.roomList.findRoom(roomId) : ({})
     readonly property string roomDisplayName:
@@ -69,8 +60,8 @@ Dialog {
         target: app.conversations
         function onInviteBatchCompleted(okCount, failCount) {
             root.batchDone = true
-            // Membership updates arrive via authoritative sync; the Room
-            // Information panel refreshes from membersChanged.
+            // Membership updates arrive via sync; Room Information refreshes
+            // from membersChanged.
         }
     }
 
@@ -80,9 +71,8 @@ Dialog {
         radius: AppTheme.radiusLg
     }
 
-    // True while the invitee is already joined/invited per the loaded
-    // member snapshot (best-effort pre-check; the server remains the
-    // authority).
+    // True when the invitee is already joined/invited per the loaded member
+    // snapshot (best-effort; the server decides).
     function membershipOf(userId) {
         var members = app.roomInfo.members
         for (var i = 0; i < members.length; ++i) {
@@ -99,15 +89,12 @@ Dialog {
         return -1
     }
 
-    // Local "primary with send icon" button (SPEC 1t footer): AppButton has
-    // no icon slot, so this is a one-off inline component rather than an
-    // edit to the shared (lead-owned) AppButton.qml.
+    // A primary button with a send icon; AppButton has no icon slot.
     component InvitePrimaryButton: AbstractButton {
         id: primaryBtn
-        // Real padding, not a widened implicitWidth: an AbstractButton
-        // stretches its contentItem to the full control width, so extra
-        // width without padding pins the icon+label to the button's left
-        // edge instead of centring them on the accent fill.
+        // Real padding, not a widened implicitWidth: the contentItem is
+        // stretched to the button width, so extra width alone pins the content
+        // to the left edge.
         leftPadding: 14
         rightPadding: 14
         implicitHeight: 32
@@ -115,9 +102,7 @@ Dialog {
         focusPolicy: Qt.TabFocus
         Accessible.role: Accessible.Button
         Accessible.name: primaryBtn.text
-        // Storm §3.9 primary: bolt fill, boltInk ink (ink on the bolt
-        // fill — stays readable once bolt routes to each legacy theme's
-        // own accent).
+        // Bolt fill with boltInk, readable on every theme's accent.
         contentItem: RowLayout {
             id: primaryContent
             spacing: AppTheme.spacing6
@@ -157,9 +142,8 @@ Dialog {
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
 
-        // Themed header, never Dialog.title — the Basic style renders
-        // that as its own unthemed bar glued onto the storm surface
-        // (2026-08-19 audit; the DiscoverJoinDialog convention).
+        // Themed header instead of Dialog.title, which Basic renders as its own
+        // unthemed bar.
         Label {
             // Remote or externally chosen text: never markup.
             textFormat: Text.PlainText
@@ -174,7 +158,7 @@ Dialog {
             elide: Label.ElideRight
         }
 
-        // Mono room address under the title (SPEC 1t), only when real.
+        // Room address under the title, only when real.
         Label {
             // Remote or externally chosen text: never markup.
             textFormat: Text.PlainText
@@ -205,11 +189,8 @@ Dialog {
             visible: !root.batchDone
             onUserSelected: (userId, displayName, avatarUrl) => {
                 var membership = root.membershipOf(userId)
-                // "banned" joined this pre-check with the unban round: the
-                // server refuses invites to banned users outright, so
-                // letting the selection through produced an unexplained
-                // "Not permitted" failure (live report 2026-08-14). Point
-                // at the real remedy instead.
+                // The server refuses invites to banned users, so point at the
+                // remedy rather than letting it fail as "Not permitted".
                 if (membership === "joined" || membership === "invited"
                         || membership === "banned") {
                     alreadyLabel.userId = userId
@@ -249,9 +230,8 @@ Dialog {
             lineHeightMode: Text.ProportionalHeight
         }
 
-        // ── Token chips + per-user results (scrolls when height-
-        // constrained; mirrors NewConversationDialog's tabFlick so a long
-        // invite list can never grow the dialog past the window) ─────────
+        // ── Token chips + per-user results (scrolls when height-constrained,
+        // like NewConversationDialog's tabFlick) ──
         Flickable {
             id: inviteBodyFlick
             Layout.fillWidth: true
@@ -271,9 +251,7 @@ Dialog {
                 width: inviteBodyFlick.width
                 spacing: AppTheme.spacing12
 
-                // Selected users before dispatch — token chips (SPEC 1t):
-                // pill, accentSoft bg, 1px accentBorder, 20px Avatar,
-                // textMuted remove.
+                // Selected users before dispatch, as token chips.
                 Flow {
                     Layout.fillWidth: true
                     spacing: AppTheme.spacing6
@@ -307,16 +285,16 @@ Dialog {
                                     colorKey: chip.modelData.id
                                 }
                                 Label {
-                                    // Remote or externally chosen text: never markup.
+                                    // Remote or externally chosen text: never
+                                    // markup.
                                     textFormat: Text.PlainText
                                     text: chip.label
                                     color: AppTheme.stormText
                                     font.pixelSize: AppTheme.textBody
                                     font.weight: AppTheme.weightStrong
-                                    // A Flow wraps BETWEEN chips, never
-                                    // inside one — cap a single long name/
-                                    // MXID so one chip can never outgrow
-                                    // the dialog card.
+                                    // A Flow wraps between chips, never inside
+                                    // one, so cap a long name/MXID to keep a
+                                    // chip within the dialog.
                                     Layout.maximumWidth: 280
                                     elide: Label.ElideMiddle
                                 }
@@ -327,8 +305,8 @@ Dialog {
                                     radius: AppTheme.radiusPill
                                     iconName: "close"
                                     iconSize: 12
-                                    // Storm rest-state ink (stormTextMuted)
-                                    // carries SPEC 1t's muted remove glyph.
+                                    // Muted rest-state ink for the remove
+                                    // glyph.
                                     Accessible.name: qsTr("Remove %1").arg(chip.label)
                                     onClicked: {
                                         var next = root.selectedUsers.slice()
@@ -352,13 +330,13 @@ Dialog {
                             Layout.fillWidth: true
                             spacing: AppTheme.spacing8
                             Label {
-                                // Remote or externally chosen text: never markup.
+                                // Remote or externally chosen text: never
+                                // markup.
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: modelData.userId
-                                // Identity ink: a column of MXIDs in one
-                                // grey is the hardest thing in this dialog
-                                // to read a specific line out of.
+                                // Identity ink, so a specific MXID is easy to
+                                // pick out.
                                 color: AppTheme.userColor(modelData.userId)
                                 elide: Label.ElideMiddle
                                 font.pixelSize: AppTheme.textBody

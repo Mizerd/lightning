@@ -3,64 +3,37 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The in-call control bar, at the TOP of the conversation.
+// The in-call control bar, at the top of the conversation.
 //
-// Replaces the corner card as the place a live call is driven from: a call is
-// the thing the user is doing in this room, so its controls belong with the
-// room, directly under its header — not floating over a corner where they
-// compete with passive prompts for the same space.
+// Serves both call lanes: the legacy 1:1 lane (`app.calls`, audio only) and
+// the MatrixRTC group lane (`app.groupCall`). At most one is live, and the
+// properties below resolve to it so controls don't check twice.
 //
-// Serves BOTH call lanes, because both are real:
-//   * the legacy 1:1 lane (`app.calls`), which carries audio today
-//   * the MatrixRTC group lane (`app.groupCall`)
-// Whichever is live owns the bar. They cannot both be, and the properties
-// below resolve to the active one rather than each control checking twice.
-//
-// Controls that pair a toggle with a device chooser use a split shape: the
-// button toggles, the chevron opens the device menu. That is the arrangement
-// the maintainer asked for, and it keeps "mute" one click away while making
-// "which microphone" reachable without a trip to Settings.
+// Toggle-plus-device controls use a split shape: the button toggles, the
+// chevron opens the device menu.
 Rectangle {
     id: root
 
     objectName: "callHeaderBar"
-    /// The participant list was asked for. The host decides where it opens.
+    /// The participant list was requested; the host decides where it opens.
     signal participantsRequested()
 
-    /// Render as if a call were live, without one.
-    ///
-    /// A real seam, not test scaffolding: the theme editor has to be able to
-    /// show this surface so a theme can be designed against it, and a
-    /// screenshot harness needs the same thing. Both want the bar's
-    /// APPEARANCE with no session behind it.
-    ///
-    /// Controls still bind to the real controllers, so nothing here can
-    /// fabricate call STATE — a preview shows an idle-but-visible bar.
+    /// Render as if a call were live, for the theme editor and screenshot
+    /// harness. Controls still bind to the real controllers, so no call state
+    /// is fabricated.
     property bool previewMode: false
 
-    /// Where this bar is being shown: "header" (the strip under the room
-    /// header, which is also the only placement the legacy 1:1 lane has) or
-    /// "dock" (a floating pill at the bottom of the call stage, which is
-    /// where a call client's controls belong and what was asked for).
-    ///
-    /// ONE definition of the control set, two placements. A second component
-    /// for the dock would be two control bars to keep in step, and the last
-    /// time this surface was split the result was two orphan buttons under
-    /// the call UI.
+    /// Placement: "header" (the strip under the room header; the legacy lane's
+    /// only placement) or "dock" (a floating pill on the call stage). One
+    /// definition of the control set, several placements.
     property string placement: "header"
     readonly property bool dock: root.placement === "dock"
-    /// The COLLAPSED call strip's form of the dock: smaller controls, no pill
-    /// behind them, and only the controls a one-line strip has room for.
-    ///
-    /// It exists because collapsing the call panel destroys the expanded dock,
-    /// and the header instance stands down for the whole time the stage is on
-    /// screen (`stageOwnsControls`) — so without this a collapsed call would
-    /// have NO controls anywhere. Still one definition of the control set;
-    /// this is a third placement of it, not a fourth bar.
+    /// The collapsed call strip's form of the dock: smaller controls, no pill,
+    /// only what fits on one line. Needed because the header instance stands
+    /// down while the stage is on screen.
     property bool compact: false
-    /// True when the call STAGE for this room is on screen. The stage carries
-    /// its own dock, so the header must not draw a second copy of the same
-    /// controls directly above it.
+    /// True when this room's call stage is on screen; it carries its own
+    /// controls, so the header must not duplicate them.
     readonly property bool stageOwnsControls:
         app.groupCall.active && app.groupCall.roomId === app.currentRoomId
     readonly property int controlDiameter:
@@ -76,9 +49,8 @@ Rectangle {
     readonly property bool groupLive: app.groupCall.active
     readonly property bool live: previewMode || legacyLive || groupLive
 
-    /// The room the live call belongs to. The bar only shows in that room —
-    /// the persistent Voice Connected strip is what follows the user
-    /// elsewhere.
+    /// The live call's room. The bar only shows there; the Voice Connected
+    /// strip follows the user elsewhere.
     readonly property string callRoomId: groupLive ? app.groupCall.roomId
                                                    : app.calls.activeRoomId
 
@@ -88,9 +60,8 @@ Rectangle {
                                                : app.calls.deafened
     readonly property bool audioControlAvailable:
         previewMode || (groupLive ? true : app.calls.muteControlAvailable)
-    /// Camera and screen share exist only on the SFU lane: the legacy 1:1
-    /// lane is audio-only by design, so those controls are absent there
-    /// rather than present and refusing.
+    /// Camera and screen share exist only on the SFU lane; the legacy lane is
+    /// audio-only, so they are absent there rather than refusing.
     readonly property bool richMedia: previewMode || groupLive
 
     readonly property string stateText: {
@@ -116,38 +87,22 @@ Rectangle {
     visible: previewMode
              || (live && callRoomId === app.currentRoomId
                  && (root.dock || !root.stageOwnsControls))
-    // The compact strip is a ONE-LINE band, so it gets one-line padding: the
-    // dock's generous vertical breathing room is what a floating pill needs,
-    // not what a 56 px strip has.
+    // One-line padding for the compact strip.
     implicitHeight: visible
                     ? bar.implicitHeight
                       + (root.compact ? AppTheme.spacing4 : AppTheme.spacing12) * 2
                     : 0
     height: implicitHeight
-    // AN IMPLICIT WIDTH IS NOT OPTIONAL FOR THIS COMPONENT, and its absence
-    // was a real overlap rather than a tidiness point.
-    //
-    // Two of the three placements host this bar in something that READS its
-    // implicit size instead of stretching it: the COLLAPSED strip puts it in
-    // a Loader inside a RowLayout, and the full-screen window puts it in a
-    // Loader anchored to the bottom centre. A Loader adopts the loaded
-    // item's implicit size, a Rectangle's is 0, and a RowLayout cell of
-    // width 0 then places the NEXT control immediately after it — while
-    // `bar` (anchors.centerIn) is centred on that zero-width point and draws
-    // ~110 px each side of it. So the collapsed call strip drew its controls
-    // straight through the collapse button and the speaker bubbles beside
-    // it. `implicitHeight` above was already carrying the same job for the
-    // vertical axis; this is its missing half.
+    // Needed: the collapsed strip and the full-screen window host this bar in
+    // Loaders that adopt its implicit size. With a 0 implicit width the next
+    // row item would be placed over the centred controls.
     implicitWidth: visible
                    ? bar.implicitWidth
                      + (root.compact ? 0 : AppTheme.spacing16 * 2)
                    : 0
-    // The dock floats over the stage's canvas, so it paints no field of its
-    // own — the pill behind the controls is the surface.
+    // The dock floats on the stage canvas; the pill is its surface.
     color: root.dock ? "transparent" : AppTheme.stormInset
-    // A hairline underneath rather than a floating card: the header bar is
-    // part of the room's chrome, continuous with the header above it. The
-    // dock has no edge to continue from.
+    // A hairline beneath: the header bar continues the room chrome above it.
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
@@ -157,17 +112,13 @@ Rectangle {
         visible: root.visible && !root.dock
     }
 
-    // The dock's own surface: one rounded pill under the controls, which is
-    // what makes a floating control row read as a single object rather than
-    // a scatter of circles on the canvas.
+    // The dock's pill, so the controls read as one object.
     Rectangle {
         anchors.centerIn: bar
         width: bar.implicitWidth + AppTheme.spacing16 * 2
         height: bar.implicitHeight + AppTheme.spacing8 * 2
         radius: height / 2
-        // The compact strip already sits on the call panel's own field; a
-        // second pill inside a one-line strip reads as a control inside a
-        // control.
+        // Not in the compact strip, which already sits on the panel's field.
         visible: root.dock && root.visible && !root.compact
         color: AppTheme.stormPanel
         border.width: 1
@@ -176,49 +127,19 @@ Rectangle {
 
     RowLayout {
         id: bar
-        // CENTRED WHILE IT FITS, AND NEVER PAST THE RIGHT EDGE WHEN IT
-        // DOES NOT. `anchors.centerIn: parent` was the whole of this, and
-        // it is only correct while the parent is at least as wide as the
-        // content — which stopped being guaranteed the moment the stage's
-        // dock cell was allowed to shrink.
-        //
-        // MEASURED, on the real stage, at every width from 1100 down to
-        // 480: the hang-up button ended a CONSTANT 49 px past the stage's
-        // own right edge. Constant is the tell — it is not a squeeze
-        // running out of room, it is a fixed offset, and here is what it
-        // was made of. With no live call this bar is `visible: false`, so
-        // `implicitWidth` above reports 0 (deliberately: the header row
-        // must not reserve a band for an absent dock). The stage caps the
-        // Loader cell at `Layout.maximumWidth: implicitWidth`, so the cell
-        // is ZERO WIDE. A QQuickLayout ignores a child by its OWN
-        // `visible`, not by its ancestors' — so this RowLayout went on
-        // laying itself out at 199 px behind an invisible root, and
-        // `centerIn` hung 99 px of it off each side of a zero-width point.
-        // The cell's right edge sits 50 px inside the stage (a 12 px
-        // ColumnLayout margin, 8 px of row spacing, the 30 px collapse
-        // button), so 99 - 50 = 49, whatever the panel width.
-        //
-        // The same shape is recorded at `implicitWidth` above for the
-        // COLLAPSED strip, which is the second time this bar has been
-        // centred on a point rather than inside a box. Anchoring cannot
-        // express "centre me, but keep my right edge in" — the clamp is
-        // arithmetic, and it is identity whenever the parent is wide
-        // enough: at a 651 px host with a 619 px bar it still gives 16.
-        //
-        // AND THE DIRECTION IS A DECISION, not an accident. When the
-        // content genuinely does not fit, this spills to the LEFT, so what
-        // leaves the panel first is the camera button — never Leave.
-        // CallStage.qml says the same thing where it chooses compaction
-        // over overflow: Share and Raise hand have other routes, and
-        // leaving a call does not.
+        // Centred while it fits, but never past the parent's right edge.
+        // A Layout lays out children by their own `visible`, not their
+        // ancestors', so with no live call this row is still 199 px wide inside
+        // a zero-width cell, and centerIn would hang it off both sides. When
+        // the content doesn't fit it spills left, so the camera button leaves
+        // the panel first, never Leave (see CallStage.qml).
         anchors.verticalCenter: parent.verticalCenter
         x: Math.min(Math.round((parent.width - width) / 2),
                     parent.width - width)
         spacing: AppTheme.spacing8
 
-        // State, on the leading side so the controls stay optically centred.
-        // Not in the dock: the stage's own header already names the call and
-        // its state, and repeating it inside the control pill is noise.
+        // State, leading so the controls stay optically centred. Not in the
+        // dock: the stage header already names the call.
         RowLayout {
             spacing: 6
             visible: !root.dock
@@ -270,11 +191,7 @@ Rectangle {
         }
 
         // ── Screen share + options (SFU lane only) ──
-        //
-        // ONE RowLayout for the pair, spacing 0 and a 2 px margin on the
-        // chevron — exactly what the camera and microphone pairs do. As two
-        // siblings of the outer row they took the outer spacing instead and
-        // the gap read wider than everything beside it.
+        // One inner RowLayout with spacing 0, like the camera and mic pairs.
         Loader {
             active: root.richMedia
             visible: active
@@ -297,16 +214,10 @@ Rectangle {
                             app.groupCall.requestScreenShare()
                     }
                 }
-                // The share's OPTIONS, on a chevron beside it — the same
-                // split shape the mic and camera use: the button does the
-                // thing, the chevron qualifies it. Sound, resolution and
-                // frame rate live in here rather than as controls on the
-                // bar, because they are set once.
-                //
-                // AND BECAUSE THE SHARE PICKER IS UNREACHABLE ON WAYLAND:
-                // the portal draws that dialog, so anything living only
-                // there is invisible on KDE. This surface is shown on every
-                // route.
+                // Share options (sound, resolution, frame rate) on a chevron,
+                // the same split shape as mic and camera. Also needed because
+                // the portal draws the share picker on Wayland, so options
+                // there would be invisible.
                 AbstractButton {
                     id: shareChevron
                     objectName: "callBarShareOptionsChevron"
@@ -353,63 +264,34 @@ Rectangle {
         }
 
         // ── Raise hand (SFU lane only) ──
-        //
-        // Here rather than on the call stage. The stage used to carry its own
-        // control bar for raise-hand and the participant list, and once the
-        // media controls moved up here that left two orphan buttons floating
-        // under the call UI — reported exactly that way. One control surface,
-        // at the top, which is what was asked for.
-        //
-        // STILL LOCAL ONLY, AND THE TOOLTIP SAYS SO. "raise hand does nothing
-        // in element" — correct: `SfuCallController::setHandRaised()` reaches
-        // no SFU, no MatrixRTC membership and no to-device message, so the
-        // hand shows on this device's own tile and nowhere else. element-call
-        // raises a hand with an ordinary room `m.reaction` annotating the
-        // sender's OWN membership state event (key U+1F590 U+FE0F), lowered
-        // by redacting it — established by reading element-call @b51a33c, and
-        // written up for the round that lands it. Until that ships the
-        // control tells the truth rather than implying a peer can see it:
-        // this repo's own "kept on this device" pattern, and the reason it is
-        // not merely disabled (a disabled Qt Quick control gets no hover and
-        // so cannot explain itself).
+        // element-call's format: an m.reaction (U+1F590 U+FE0F) annotating the
+        // sender's own membership state event, lowered by redaction.
         Loader {
             active: root.richMedia && !root.compact
             visible: active
             sourceComponent: CallControlButton {
                 objectName: "callBarHandButton"
-                // front_hand, not back_hand: the icon map carries the
-                // former and IconChromeTest refuses a name it cannot draw —
-                // an unmapped glyph renders as tofu.
+                // front_hand: the icon map carries it, and IconChromeTest
+                // refuses names it can't draw.
                 iconName: "front_hand"
                 role: app.groupCall.handRaised ? "active" : "neutral"
                 diameter: root.controlDiameter
                 glyphSize: root.controlGlyph
-                // The hand is on the wire now, in element-call's own
-                // format, so the "only on this device" disclaimer it used to
-                // carry would be false. It said that because the toggle
-                // really was local-only until the wire representation was
-                // read out of element-call's source rather than guessed at.
+                // The hand is on the wire in element-call's format, so no
+                // "only on this device" disclaimer.
                 tooltip: app.groupCall.handRaised ? qsTr("Lower your hand")
                                                   : qsTr("Raise your hand")
                 onClicked: app.groupCall.toggleHandRaised()
             }
         }
 
-        // ── React (SFU lane only) ──
-        //
-        // Beside the hand, because they are the same gesture on the wire:
-        // element-call sends a transient `io.element.call.reaction` referencing
-        // the sender's own membership, exactly as a raise annotates it, and
-        // both are read by the same `ReactionsReader`. Here rather than on the
-        // stage for the reason recorded in `exactlyOneSurfaceOwnsTheMedia
-        // Controls`: every call control lives in this bar.
-        //
-        // THE SET IS element-call's OWN, and only its first row: `ReactionSet`
-        // in element-call/src/reactions/index.ts, of which the first
-        // `ReactionsRowSize` (5) are the ones their UI always shows. The
-        // `name` beside each emoji is what an Element client looks its SOUND
-        // up by, so the pairs must match theirs exactly — rust/src/rtc.rs
-        // holds the same table and refuses to send a pair that is not in it.
+        // ── React (SFU lane only) ── element-call sends a transient
+        // `io.element.call.reaction` referencing the sender's membership, read
+        // by the same ReactionsReader as a raised hand. The set is the first
+        // row (5) of element-call's ReactionSet (src/reactions/index.ts); each
+        // `name` is what Element clients look the sound up by, so the pairs
+        // must match. rust/src/rtc.rs holds the same table and refuses pairs
+        // not in it.
         Loader {
             active: root.richMedia && !root.compact
             visible: active
@@ -427,23 +309,16 @@ Rectangle {
                 Popup {
                     id: reactionPopup
                     objectName: "callBarReactionPopup"
-                    // Above the bar in the dock, below it in the header:
-                    // the dock sits at the BOTTOM of the stage, so opening
-                    // downward would put the picker off the surface.
+                    // Above the bar in the dock (at the bottom of the stage),
+                    // below it in the header.
                     x: (reactButton.width - width) / 2
                     y: root.dock ? -height - 8 : reactButton.height + 8
                     padding: 6
-                    // MODAL, with no dim. A non-modal popup over a tile leaves
-                    // the handlers beneath it live, and this repo has shipped
-                    // that collision three times (§16) — the emoji picker was
-                    // made modal for exactly this reason.
+                    // Modal without dim, so handlers beneath the popup stay
+                    // inactive.
                     modal: true
-                    // WITHOUT THIS, CloseOnEscape IS DEAD. Qt routes Escape
-                    // only to a popup holding active focus, and this one is
-                    // modal — so a keyboard user who opens it has no way out
-                    // at all, and the focus ring the choices below draw on
-                    // activeFocus can never appear. Every sibling popup in
-                    // the call UI sets it.
+                    // Required for CloseOnEscape: Qt routes Escape only to a
+                    // popup with active focus.
                     focus: true
                     dim: false
                     closePolicy: Popup.CloseOnEscape
@@ -458,12 +333,10 @@ Rectangle {
                     contentItem: Row {
                         spacing: 2
                         Repeater {
-                            // element-call's ReactionSet, first row. LITERAL
-                            // emoji, like QuickReactionStrip's own defaults:
-                            // this file's bytes are what a contract test
-                            // compares against rust/src/rtc.rs's table, and
-                            // a mistyped escape would be a load-time error
-                            // that takes the whole bar down.
+                            // element-call's ReactionSet, first row. Literal
+                            // emoji: a contract test compares these bytes with
+                            // rust/src/rtc.rs, and a mistyped escape would
+                            // break loading.
                             model: [
                                 { emoji: "👍", name: "thumbsup",
                                   label: qsTr("Thumbs up") },
@@ -499,12 +372,9 @@ Rectangle {
                                     border.color: AppTheme.focusRing
                                 }
                                 contentItem: Text {
-                                    // Emoji, not interface chrome, so this is
-                                    // one of the few places a glyph is text —
-                                    // and the family is resolved in C++
-                                    // (§16: QML has no `font.families`, and
-                                    // Qt's own fallback picks a monochrome
-                                    // face on some versions).
+                                    // Emoji text. The family is resolved in C++
+                                    // (QML has no `font.families`; Qt's
+                                    // fallback may pick a monochrome face).
                                     textFormat: Text.PlainText
                                     text: reactionChoice.modelData.emoji
                                     font.pixelSize: 20
@@ -540,9 +410,8 @@ Rectangle {
                 role: "neutral"
                 diameter: root.controlDiameter
                 glyphSize: root.controlGlyph
-                // The count goes in the TOOLTIP: CallControlButton has no
-                // badge, and inventing one here would be a second styling
-                // path for the same control.
+                // The count goes in the tooltip; CallControlButton has no
+                // badge.
                 tooltip: app.groupCall.participantCount > 0
                          ? qsTr("Show who's in the call (%1)")
                            .arg(app.groupCall.participantCount)
@@ -551,24 +420,17 @@ Rectangle {
             }
         }
 
-        // ── Pop out (picture-in-picture) ──
-        //
-        // Manual entry to the same floating window Main.qml opens by itself
-        // when the window is minimised. Offered here because "I want the call
-        // floating while I use another application" is a wish the automatic
-        // rule cannot read: an unminimised window that is simply behind
-        // something else is indistinguishable, to Qt, from one in front.
+        // ── Pop out (picture-in-picture) ── Manual entry to the floating
+        // window Main.qml opens on minimise; Qt can't tell an unminimised
+        // window behind another app from one in front.
         Loader {
             active: root.live && !root.compact
             visible: active
             sourceComponent: CallControlButton {
                 objectName: "callBarPipButton"
-                // close_fullscreen, not picture_in_picture_alt: THE ICON
-                // FONT IS A SUBSET (see qml/Icon.qml and
-                // scripts/generate-icon-font.sh), and a name that is not in
-                // the subset renders as TOFU in a packaged build while
-                // looking fine on a machine with the full font installed.
-                // "Make it small and detach it" is what this does anyway.
+                // close_fullscreen: the icon font is a subset (see qml/Icon.qml
+                // and scripts/generate-icon-font.sh), and a missing name
+                // renders as tofu in packaged builds.
                 iconName: "close_fullscreen"
                 role: "neutral"
                 diameter: root.controlDiameter
@@ -586,8 +448,7 @@ Rectangle {
             spacing: 0
             CallControlButton {
                 objectName: "callBarMicButton"
-                // The icon states the CURRENT state: a struck-through mic
-                // means "you are muted", as in every other call client.
+                // The icon shows the current state (struck-through = muted).
                 iconName: root.micMuted ? "mic_off" : "mic"
                 role: root.micMuted ? "active" : "neutral"
                 diameter: root.controlDiameter
@@ -610,9 +471,7 @@ Rectangle {
                 accessibleName: qsTr("Choose microphone")
                 Layout.alignment: Qt.AlignVCenter
                 Layout.leftMargin: 2
-                // Marked when the chosen device is gone, so the reason audio
-                // is coming from somewhere unexpected is visible here rather
-                // than only in Settings.
+                // Flags a missing chosen device here as well as in Settings.
                 warn: app.callDevices.preferredMicrophoneMissing
             }
         }
@@ -661,9 +520,8 @@ Rectangle {
             iconName: "call_end"
             role: "danger"
             diameter: root.controlDiameter
-            // Wider than the round controls: leaving is the one irreversible
-            // action on this bar and must not be a same-shaped neighbour of
-            // Mute.
+            // Wider than the round controls: the one irreversible action
+            // shouldn't look like Mute.
             implicitWidth: root.dock ? (root.compact ? 46 : 70) : 58
             glyphSize: root.controlGlyph
             tooltip: qsTr("Leave call")

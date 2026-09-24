@@ -4,52 +4,27 @@ import QtQuick.Layouts
 import QtMultimedia
 import MatrixClient
 
-// One participant on the call stage — Discord's layout, Lightning's tokens.
+// One participant on the call stage. The stage decides which shape is drawn:
 //
-// Two shapes, and which one is drawn is NOT this component's decision:
+//   * `bare`: a circular avatar on the stage canvas with the name beneath,
+//     no panel (voice-only calls);
+//   * a tile: a 16:9 rounded rectangle with a nameplate pill, used for
+//     every participant once anyone has a camera or share on.
 //
-//   * `bare` — a circular avatar on the stage's own canvas, no panel, no
-//     border, no fill, with the name centred beneath it. This is what the
-//     maintainer asked for ("bubbles of participats and their avatar").
-//     HONESTY NOTE so nobody later "corrects" this against a screenshot:
-//     CURRENT desktop Discord does not do this. Every participant there is a
-//     rounded-rect tile with a circular avatar inside it, camera or not; the
-//     free-standing circles are Discord's mobile call and its older desktop
-//     DM call. The brief asked for circles-until-video, which is the older
-//     shape, and it is a good one — but it is not "what Discord does today".
-//   * a TILE — a 16:9 rounded rectangle with a nameplate pill, which is what
-//     every participant becomes the moment ANYONE in the call turns on a
-//     camera or starts a share, including the people who have neither.
+// `micKnown`/`cameraKnown` exist because the SFU reports muted state only for
+// tracks it knows about. Unknown renders nothing rather than a confident,
+// wrong "not muted".
 //
-// HONESTY RULE, and the whole reason `micKnown`/`cameraKnown` exist: the SFU
-// reports a track's muted state only for tracks it knows about. Before a
-// participant publishes, or for a device that never will, the state is
-// genuinely UNKNOWN — and a boolean cannot say that. So a badge renders only
-// when something authoritative said so, and unknown renders NOTHING rather
-// than a confident, wrong "not muted".
-//
-// Delegate discipline: this is instantiated per participant, so every Label
-// whose text can legitimately be empty lives behind a Loader. A never
-// laid-out empty Text keeps ItemObservesViewport forever and makes Qt walk
-// the whole instantiated tree on every scroll frame — the single most
-// expensive QML mistake recorded in this repo.
+// Per-participant delegate: every Label whose text can be empty lives behind
+// a Loader. An empty, never laid-out Text keeps ItemObservesViewport and
+// makes Qt walk the whole tree on every scroll frame.
 Item {
     id: root
 
-    /// THIS RENDERER CANNOT DRAW VIDEO, so the tile must not hand its space
-    /// to a VideoOutput that will paint nothing.
-    ///
-    /// Qt Quick's software adaptation has no node type for video at all, and
-    /// frames still ARRIVE — the sink reports a real videoSize and the
-    /// engine's counters climb — so every "is there a picture" test in this
-    /// file answers yes while the tile shows an empty rectangle. Measured on
-    /// Windows with no usable GL, and reproduced on Linux with
-    /// QT_QUICK_BACKEND=software as the only change.
-    ///
-    /// Staying in the placeholder state is strictly better: the reader sees
-    /// what they see before the first frame, which is at least interpretable,
-    /// and CallStage says once why no video is coming. Defensive `app` lookup
-    /// because this component is loaded standalone in tests.
+    /// True under Qt Quick's software renderer, which cannot draw video even
+    /// though frames arrive and the sink reports a size. The tile then stays in
+    /// its placeholder state and CallStage explains why once. `app` is looked
+    /// up defensively because tests load this component standalone.
     readonly property bool softwareRendererHidesVideo:
         typeof app !== "undefined" && app && app.softwareRenderer === true
 
@@ -61,61 +36,38 @@ Item {
     property bool micMuted: false
     property bool cameraKnown: false
     property bool cameraOn: false
-    /// The SFU participant identity this tile shows. Routes video, and it
-    /// is the only identifier that works for BOTH membership formats — the
-    /// sticky form's identity is a hash, so it cannot be rebuilt from a user
-    /// and device id.
+    /// The SFU participant identity this tile shows; routes video. The only id
+    /// that works for both membership formats (the sticky form's is a hash).
     property string identity: ""
     property bool screenSharing: false
     property bool handRaised: false
-    /// A TRANSIENT reaction's emoji, or "" — which is its ordinary state.
-    ///
-    /// Set from `CallParticipantModel`'s `reactionEmoji` role, which the
-    /// model itself clears when the reaction's window ends, so nothing here
-    /// runs a timer or decides a lifetime. The string is a REMOTE value:
-    /// bounded and reduced to one grapheme cluster in rust/src/rtc.rs, and
-    /// rendered as plain text only.
+    /// A transient reaction emoji, usually "". The model clears it when the
+    /// reaction expires. A remote value, bounded to one grapheme cluster in
+    /// rust/src/rtc.rs and rendered as plain text only.
     property string reactionEmoji: ""
-    /// "" (unknown) | "poor" | "good" | "excellent". UNKNOWN DRAWS NOTHING —
-    /// the SFU may never report quality for a participant, and an invented
-    /// "good" is a claim nobody made.
+    /// "" (unknown) | "poor" | "good" | "excellent". Unknown draws nothing.
     property string connectionQuality: ""
 
-    /// Which of this participant's video tracks this surface shows:
-    /// "camera" or "screen". A person can send BOTH at once, and one surface
-    /// can only render one of them — the stage gives a share its own TILE
-    /// (see CallShareTile) rather than replacing the person with it.
+    /// Which video track this surface shows: "camera" or "screen". A share gets
+    /// its own tile (see CallShareTile) rather than replacing the person.
     property string mediaKind: "camera"
-    /// Routing keys from the participant row, watched only so the sink is
-    /// RE-ATTACHED when they change. The SFU can announce a participant
-    /// before it says which media section their tracks landed on, and an
-    /// attach made while the key was still empty never receives a frame.
+    /// Routing keys, watched so the sink is re-attached when they arrive: the
+    /// SFU may announce a participant before its tracks have keys.
     property string cameraTrackKey: ""
     property string screenTrackKey: ""
     readonly property string activeTrackKey: root.mediaKind === "screen" ? root.screenTrackKey : root.cameraTrackKey
-    // Re-attach when the routing key finally arrives. Attaching once at
-    // creation is not enough: the key can still be empty then, and an attach
-    // under an empty key never receives a frame. Declared HERE rather than in
-    // a Connections inside the Loader — the change signal of a property whose
-    // name starts with an underscore is not reachable by an `on…Changed`
-    // handler name, and a handler that never runs looks exactly like one that
-    // does nothing.
+    // Re-attach when the routing key arrives; an attach under an empty key
+    // never receives a frame. Declared here rather than in a Connections inside
+    // the Loader, because an `on…Changed` handler can't reach a property whose
+    // name starts with an underscore.
     onActiveTrackKeyChanged: if (videoLoader.item)
         videoLoader.item.attach()
 
     /// Voice-activity ring, driven by the SFU's speaker updates.
     property bool speaking: false
-    /// Amplitude, 0.0-1.0, from LiveKit's `SpeakerInfo.level`.
-    ///
-    /// THIS is "volume shows up as a circle arround user". Discord itself
-    /// cannot do it — its voice gateway's speaking payload is a bitmask with
-    /// no amplitude field at all — but LiveKit publishes a level and
-    /// Lightning was throwing it away before CallParticipantModel existed.
-    ///
-    /// An SFU that publishes only `active` gives speaking=true, level=0.0,
-    /// and the ring degrades to its fixed minimum. That is deliberate: no
-    /// level is fabricated from the boolean, because a made-up amplitude
-    /// would animate a number nobody measured.
+    /// Amplitude 0.0-1.0, from LiveKit's `SpeakerInfo.level`. An SFU that only
+    /// reports `active` gives level 0.0 and the ring stays at its minimum; no
+    /// level is fabricated.
     property real speakingLevel: 0.0
     /// This participant is the local device.
     property bool local: false
@@ -123,11 +75,8 @@ Item {
     property bool focused: false
     /// Compact form for the strip beside a screen share.
     property bool compact: false
-    /// Draw no card: just the avatar, its speaking ring and the name, on
-    /// whatever the stage's canvas is. See the shape note at the top.
-    ///
-    /// Selection and keyboard focus still draw a card, because those are
-    /// states the user caused and must be able to see.
+    /// Draw no card: just the avatar, ring and name on the stage canvas.
+    /// Selection and keyboard focus still draw a card.
     property bool bare: false
     readonly property bool _drawsCard:
         !root.bare || videoLoader.visible || root.focused || root.activeFocus
@@ -137,17 +86,11 @@ Item {
     implicitWidth: compact ? 148 : 240
     implicitHeight: compact ? 96 : 168
 
-    // ── The speaking ring ────────────────────────────────────────────────
-    //
-    // The ring is OUTSIDE the avatar and the avatar does not move: the ring
-    // Rectangle is a CHILD of a fixed-size holder, so however far it breathes
-    // it contributes nothing to this item's implicit size and reflows
-    // nothing. Scaling the avatar instead would move every neighbour on every
-    // syllable, which is the reasoning already written into
-    // CallSpeakerBubbles.qml and it is correct.
-    //
-    // Attack fast, release slow, or a ring that follows amplitude strobes:
-    // speech amplitude crosses zero between syllables.
+    // ── The speaking ring ──
+    // The ring is a child of a fixed-size holder, so it never affects layout
+    // (scaling the avatar would move every neighbour; see
+    // CallSpeakerBubbles.qml). Fast attack, slow release, or it strobes between
+    // syllables.
     readonly property real ringTarget:
         root.speaking ? 3 + 6 * Math.max(0, Math.min(1, root.speakingLevel)) : 0
     property real ringGap: 0
@@ -155,9 +98,8 @@ Item {
         ringMotion.duration = root.ringTarget > root.ringGap ? 60 : 220
         root.ringGap = root.ringTarget
     }
-    // The binding's FIRST evaluation does not arrive as a change, so a tile
-    // created while its owner is already talking would sit at gap 0 until
-    // they paused.
+    // The first evaluation isn't a change, so seed the gap for a tile created
+    // while its owner is already talking.
     Component.onCompleted: root.ringGap = root.ringTarget
     Behavior on ringGap {
         NumberAnimation {
@@ -168,69 +110,40 @@ Item {
     }
 
     readonly property int _avatarSize: {
-        // Fit the avatar to the tile rather than to a fixed ladder, so the
-        // grid stays sane from a 2-up 1:1 layout to a 12-up group.
+        // Fit the avatar to the tile, from 2-up to 12-up grids.
         var box = Math.min(width, height - (compact ? 18 : 26))
-        // A bare tile has no card to sit inside, so the avatar IS the tile
-        // and takes the room a panel's padding would have used.
+        // A bare tile has no card, so the avatar takes the padding's room too.
         var size = Math.round(box * (root.bare && !root.compact ? 0.74 : 0.52))
         return Math.max(compact ? 28 : 40,
                         Math.min(size, root.bare && !root.compact ? 148 : 96))
     }
 
-    // "You" for the local device, but the AVATAR and colour key still come
-    // from the real account — reported as: "I came in as You, should show my
-    // avatar and display name". The label says who the tile is; it is not a
-    // reason to draw a blank circle.
+    // "You" for the local device; the avatar and colour key still come from the
+    // real account.
     readonly property string _label: root.local
                                      ? qsTr("You")
                                      : (root.displayName.length > 0
                                         ? root.displayName : root.userId)
-    /// What the avatar draws initials from when there is no image: the real
-    /// name, never the word "You" (which would render "Y" for everyone).
+    /// Initials source: the real name, never "You".
     readonly property string _avatarName: root.displayName.length > 0
                                           ? root.displayName
                                           : root.userId
 
-    // ── Per-person playback volume ───────────────────────────────────────
+    // ── Per-person playback volume ──
+    // Persisted per person (not per call). Not offered on the local tile: you
+    // don't hear your own audio; send gain lives in CallDeviceSettings.
     //
-    // "if a user A sets user B volume to 70% it stays the same in next call
-    // or other room." Discord's model exactly: the person, not the call.
-    //
-    // WHY IT IS NOT OFFERED ON THE LOCAL TILE. This is a PLAYBACK volume —
-    // how loud this device renders that person. Nobody hears their own
-    // published audio, so a slider on your own tile would move a number with
-    // no audible effect and read as broken. What the local device controls is
-    // the GAIN on what it SENDS, which lives with the other device settings
-    // (CallDeviceSettings) because it is a property of this computer's
-    // microphone, not of a call.
-    //
-    // WHERE THE VALUE COMES FROM. `SfuCallController` — both directions,
-    // and never QSettings from here. The controller owns the mapping from the
-    // SFU identity this tile holds to the Matrix user id the store is keyed
-    // by, which is the whole reason the setting survives a rejoin: an
-    // identity is per DEVICE (and, in the sticky membership format, an opaque
-    // hash), so keying a stored preference by it would forget the choice the
-    // moment the person came back.
-    //
-    // READ ON OPEN, not bound. A binding would need a tick to observe a C++
-    // call, and there is nothing to observe: no remote party can change this
-    // value, so the only writer while the popup is up is the slider itself.
-    // Re-reading on every open is what makes it show 70 rather than always
-    // 100 — the defect this replaces was a control with no read path at all.
+    // SfuCallController owns reads and writes, mapping the SFU identity (per
+    // device, sometimes an opaque hash) to the Matrix user id the store is
+    // keyed by, so the setting survives a rejoin. Read on open rather than
+    // bound: only the slider writes it while the popup is up.
     readonly property bool _volumeOffered:
         !root.local && root.identity.length > 0
         && typeof app !== "undefined" && app && app.groupCall
 
-    /// This person's stored volume, or the 100% neutral point when nothing
-    /// is known.
-    ///
-    /// `participantVolume()` and not the model's `volumePercent` role,
-    /// deliberately: the invokable answers from the STORE, so it is right
-    /// from the first frame a tile exists, whereas the role is only correct
-    /// once the controller has seeded the row. Those two are the same number
-    /// in the steady state and different exactly at the moment a call opens —
-    /// which is when a person is most likely to reach for this.
+    /// Stored volume, or 100% when unknown. Uses participantVolume(), which
+    /// answers from the store, rather than the model's volumePercent role,
+    /// which is only right once the controller has seeded the row.
     function currentVolumePercent() {
         if (!root._volumeOffered)
             return 100;
@@ -238,16 +151,12 @@ Item {
         return (value === undefined || value === null) ? 100 : value;
     }
 
-    /// Bumped by every write. Any binding that CALLS `currentVolumePercent()`
-    /// must read this, because Qt cannot observe a C++ function call as a
-    /// dependency — a binding without it evaluates once and then describes a
-    /// value that has since changed. The repo has shipped that mistake often
-    /// enough to have a name for the fix.
+    /// Bumped on every write. Bindings that call currentVolumePercent() must
+    /// read it, since Qt can't observe a C++ call as a dependency.
     property int volumeRevision: 0
 
-    /// Apply a level. ONE writer, the controller — it drives the engine AND
-    /// records the preference, so a surface cannot persist a value the audio
-    /// path never received, or the reverse.
+    /// Apply a level. The controller is the one writer: it drives the engine
+    /// and records the preference together.
     function applyVolumePercent(percent) {
         if (!root._volumeOffered)
             return;
@@ -263,10 +172,8 @@ Item {
 
     Accessible.role: Accessible.Button
     Accessible.name: root._label.length > 0 ? root._label : qsTr("Participant")
-    // Carries the same facts the badges show, so a screen-reader user learns
-    // what a sighted one does — and is told nothing when the state is
-    // unknown. The speaking LEVEL is deliberately absent: an amplitude is
-    // decoration, and announcing a number would be noise.
+    // Carries the same facts as the badges, and nothing when state is unknown.
+    // The speaking level is decoration and is left out.
     Accessible.description: {
         var parts = []
         if (root.micKnown && root.micMuted)
@@ -293,11 +200,8 @@ Item {
             root.activated()
             event.accepted = true
         }
-        // The context key reaches the volume control without a pointer. The
-        // hover button is genuinely unreachable by keyboard — it is revealed
-        // by hover — so without this the setting would be pointer-only, which
-        // for a preference that persists is a worse gap than a missing hover
-        // affordance.
+        // The context key opens the volume control; the hover button isn't
+        // keyboard-reachable.
         if (event.key === Qt.Key_Menu && root._volumeOffered) {
             root.openVolumeControl()
             event.accepted = true
@@ -317,32 +221,16 @@ Item {
                       ? AppTheme.focusRing
                       : (root.focused ? AppTheme.accentBorder : AppTheme.borderSubtle)
 
-        // Live video, when there is any.
-        //
-        // Behind a Loader so a voice-only tile builds no VideoOutput at all
-        // — this is a per-participant delegate, and a grid of idle video
-        // surfaces costs real GPU memory for nothing.
-        //
-        // `cameraOn` is only ever true when something authoritative said so
-        // (see the honesty rule above), so an unknown camera shows the
-        // avatar rather than a black rectangle.
+        // Live video, when there is any. Behind a Loader so voice-only tiles
+        // build no VideoOutput. An unknown camera shows the avatar, not black.
         Loader {
             id: videoLoader
             anchors.fill: parent
-            // A screen share is video as much as a camera is. Gating on
-            // `cameraOn` alone meant a shared screen never rendered at all —
-            // reported as "I did not see their screenshare".
-            //
-            // `local` is excluded because the engine publishes our own media
-            // rather than receiving it: there is no remote stream for this
-            // device — but the engine TEES both captures into a self-view
-            // branch, so our own screen share AND our own camera do have
-            // local video. Without the camera branch a local tile could only
-            // ever show an avatar while the capture light was on, which read
-            // as "the camera doesn't work".
-            //
-            // A local CAMERA tile follows our own cameraOn rather than the
-            // SFU's report about us, which is the same fact arriving later.
+            // Screen shares are video too. The local device receives no remote
+            // stream, but the engine tees both captures into a self-view, so
+            // local camera and screen tiles have video. A local camera tile
+            // follows our own cameraOn rather than the SFU's later report about
+            // us.
             active: root.identity.length > 0
                     && (root.mediaKind === "screen"
                         ? root.screenSharing
@@ -352,45 +240,26 @@ Item {
             visible: active && item && item.hasFrame
                      && !root.softwareRendererHidesVideo
             sourceComponent: Item {
-                /// Nothing has arrived yet: the tile keeps showing the
-                /// avatar instead of a black hole while the first frame is
-                /// in flight.
+                /// Keeps the avatar showing until the first frame arrives.
                 readonly property bool hasFrame:
                     output.videoSink && output.videoSink.videoSize.width > 0
 
                 VideoOutput {
                     id: output
                     anchors.fill: parent
-                    // A shared screen is CONTENT: cropping it hides the
-                    // edges of what the other person is showing, which is
-                    // usually where their toolbars and tabs are. A camera
-                    // frame crops to fill because a letterboxed face in a
-                    // grid cell looks broken.
+                    // Shares fit (cropping hides their edges); cameras crop to
+                    // fill.
                     fillMode: root.mediaKind === "screen"
                               ? VideoOutput.PreserveAspectFit
                               : VideoOutput.PreserveAspectCrop
                 }
 
-                // Attach on creation, RELEASE on destruction — and the
-                // release names this SINK, never a key.
-                //
-                // The four key-named detaches this replaced were the whole of
-                // "camera no longer works". Qt destroys a replaced surface
-                // with deleteLater() while it creates the replacement
-                // synchronously, so on every grid↔spotlight swap and on every
-                // QQuickRepeater regenerate (which is how a Repeater answers
-                // beginMoveRows — a participant reorder) the order is: new
-                // tile attaches, THEN old tile detaches. A key-named detach
-                // removed whatever was there, so the dying tile unhooked the
-                // living one, and since attach() only runs on creation and on
-                // an activeTrackKey change, NOTHING put it back for the rest
-                // of the call.
-                //
-                // Before this round that was masked: the stage bound a JS
-                // array rebuilt on every update, so every tile was destroyed
-                // and re-created several times a second and re-attached
-                // itself. The model that removed that churn is what exposed
-                // this.
+                // Attach on creation, release on destruction, and the release
+                // names this sink, never a key. Qt creates a replacement
+                // surface before deleteLater() destroys the old one (layout
+                // swaps, Repeater regeneration on row moves), so a key-named
+                // detach from the dying tile would unhook the live one for the
+                // rest of the call.
                 function attach() {
                     if (root.mediaKind === "screen") {
                         if (root.local)
@@ -406,50 +275,28 @@ Item {
                     }
                 }
                 function detach() {
-                    // ONE verb, naming the sink. It cannot name the wrong
-                    // key, and once another surface has claimed what this one
-                    // held there is nothing here left to give up — so a late
-                    // destruction takes nothing with it.
-                    //
-                    // The branch this replaced could ALSO name the wrong key
-                    // honestly: `local` and `mediaKind` are tile properties,
-                    // and the key itself is derived from a track sid that
-                    // arrives late — so a tile could compute a different key
-                    // at destruction than it did at creation.
+                    // One verb, naming the sink: it can't name the wrong key,
+                    // and once another surface has claimed the key there's
+                    // nothing left to give up. (The key itself can change
+                    // between creation and destruction.)
                     app.groupCall.detachSink(output.videoSink);
                 }
                 Component.onCompleted: attach()
                 Component.onDestruction: detach()
 
-                // NO periodic re-arm here, and that is a decision rather than
-                // an omission.
-                //
-                // A `Connections { onParticipantsChanged: attach() }` was
-                // written, analysed and REMOVED. It looks like free
-                // self-healing — attachSink is an idempotent hash write — and
-                // it would restore explicitly what the old
-                // constantly-resetting surface used to provide by accident.
-                // But it fires on a DYING tile too: between a layout swap and
-                // the deferred delete that ends the old tile, both tiles are
-                // alive and connected, so one participant update in that
-                // window has the dying tile re-CLAIM the key from its
-                // successor — and then its destruction releases it as the
-                // rightful owner, leaving the live surface blank. That is the
-                // exact defect this round exists to remove, reintroduced by
-                // its own safety net.
-                //
-                // The late-key case it was meant to cover is already handled
-                // where it belongs: `onActiveTrackKeyChanged` on the tile
-                // re-attaches when the SFU finally names the track.
+                // No periodic re-arm (e.g. on participantsChanged): it would
+                // also fire on a dying tile during a layout swap, letting it
+                // reclaim the key from its successor and then release it,
+                // blanking the live surface. Late keys are handled by
+                // onActiveTrackKeyChanged.
             }
         }
 
         // The avatar and its ring.
         Item {
             id: avatarBlock
-            // Hidden, not destroyed, while video is live: the camera can go
-            // off at any moment and rebuilding the avatar block then would
-            // flash an empty tile.
+            // Hidden, not destroyed, while video is live, so the camera going
+            // off doesn't flash an empty tile.
             visible: !videoLoader.visible
             anchors.centerIn: parent
             anchors.verticalCenterOffset: root.compact ? -6 : -8
@@ -458,19 +305,16 @@ Item {
 
             Rectangle {
                 anchors.centerIn: parent
-                // The ONLY thing amplitude moves. `ringGap` is animated, so
-                // this width follows it smoothly without any layout being
-                // involved: the holder's size is fixed and this Rectangle is
-                // a free child of it.
+                // The only thing amplitude moves; a free child of the
+                // fixed-size holder, so no layout is involved.
                 width: parent.width + 2 * root.ringGap
                 height: parent.height + 2 * root.ringGap
                 radius: width / 2
                 color: "transparent"
                 border.width: root.bare ? 3 : 2
                 border.color: AppTheme.success
-                // Louder also reads as brighter, but never fully transparent
-                // while speaking — an SFU that reports no level must still
-                // show a ring.
+                // Louder reads brighter, but never invisible while speaking (an
+                // SFU may report no level).
                 opacity: root.speaking
                          ? 0.55 + 0.45 * Math.max(0, Math.min(1, root.speakingLevel))
                          : 0
@@ -483,27 +327,17 @@ Item {
             Avatar {
                 anchors.fill: parent
                 mxc: root.avatarMxc
-                // The real name, not the "You" label: initials of "You"
-                // would be a Y on the local tile and nothing recognisable.
+                // The real name, not "You".
                 name: root._avatarName
                 colorKey: root.userId
                 size: root._avatarSize
             }
         }
 
-        // ── Nameplate ────────────────────────────────────────────────────
-        //
-        // On a TILE it is a pill in the bottom-left with the mute glyph
-        // INSIDE it, ahead of the name — the badge belongs to the name, and
-        // a mute state a reader has to hover to discover is the single
-        // most-complained-about thing about Discord's current call tile.
-        // Nothing here is hover-gated.
-        //
-        // On a BARE avatar there is no pill: a filled pill under a
-        // free-standing circle reads as a tile that failed to draw.
-        //
-        // Behind a Loader: the label is empty until a profile resolves,
-        // which is the state this delegate is created in.
+        // ── Nameplate ── On a tile: a pill in the bottom-left with the mute
+        // glyph inside it, ahead of the name, never hover-gated. A bare avatar
+        // gets no pill. Behind a Loader because the label is empty until a
+        // profile resolves.
         Loader {
             active: root._label.length > 0 && !root.bare
             visible: active
@@ -518,30 +352,16 @@ Item {
                                         surface.width - (root.compact ? 12 : 16))
                 implicitHeight: plate.implicitHeight + 6
                 radius: AppTheme.radiusPill
-                // A translucent dark plate over whatever the tile is showing,
-                // so the name stays legible on a bright screen share as well
-                // as on the tile's own surface.
+                // Translucent dark plate, legible over bright shares too.
                 color: Qt.rgba(0, 0, 0, 0.55)
 
                 RowLayout {
                     id: plate
                     objectName: "callTileNameplateRow"
-                    // THE CAP ABOVE ONLY BINDS IF THE ROW IS TOLD ABOUT IT.
-                    //
-                    // `centerIn` sets x and y and nothing else, so this row
-                    // took its full IMPLICIT width — the whole unelided name
-                    // — while the pill behind it stopped at the tile's edge.
-                    // `Layout.fillWidth` on the label then had nothing to
-                    // fill against, so it never elided: the name simply ran
-                    // out past both ends of its own plate, and on the share
-                    // tile (which clips) it was cut off mid-word instead.
-                    // Windows only made it visible sooner — the same name is
-                    // a different number of pixels there.
-                    //
-                    // `namePlate.width` comes from the Rectangle's implicit
-                    // width, which reads this row's IMPLICIT width; a Text's
-                    // implicit width does not change when it elides, so this
-                    // is a one-way read and not a loop.
+                    // Anchored left and right so the width cap above applies to
+                    // the row; centerIn alone let it take its full implicit
+                    // width, so the name never elided. Not a loop: a Text's
+                    // implicit width doesn't change when it elides.
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.left: parent.left
                     anchors.right: parent.right
@@ -563,10 +383,9 @@ Item {
                         textFormat: Text.PlainText
                         Layout.fillWidth: true
                         text: root._label
-                        // Deliberately a fixed light ink, not a theme text
-                        // token: this plate paints its own dark field over
-                        // arbitrary video, so the surrounding theme says
-                        // nothing about what is legible on it.
+                        // A fixed light ink: the plate paints its own dark
+                        // field over arbitrary video, so theme tokens don't
+                        // apply.
                         color: "#FFFFFF"
                         font.pixelSize: root.compact ? 11 : 12
                         font.weight: Font.Medium
@@ -598,9 +417,8 @@ Item {
             }
         }
 
-        // State badges, top-right. Each in its own Loader so an inactive
-        // badge costs nothing and contributes no empty Text. ALWAYS visible
-        // — never hover-gated.
+        // State badges, top-right, each in its own Loader so inactive badges
+        // cost nothing. Never hover-gated.
         RowLayout {
             anchors.top: parent.top
             anchors.right: parent.right
@@ -608,10 +426,8 @@ Item {
             spacing: 4
 
             Loader {
-                // Only a REPORTED poor link earns a badge. "good" and
-                // "excellent" are the ordinary case and drawing a badge for
-                // them is decoration; "" means the SFU never said, and a
-                // badge there would be a claim nobody made.
+                // Only a reported poor link earns a badge; "" means the SFU
+                // never said.
                 active: root.connectionQuality === "poor"
                 visible: active
                 sourceComponent: CallTileBadge {
@@ -636,9 +452,8 @@ Item {
                 }
             }
             Loader {
-                // Only an authoritative "camera is off" earns a badge, and
-                // only on a tile: a bare avatar IS the "no camera" state, so
-                // the badge would be saying what the shape already says.
+                // Only an authoritative "camera off", and only on a tile: a
+                // bare avatar already means no camera.
                 active: root.cameraKnown && !root.cameraOn && !root.bare
                 visible: active
                 sourceComponent: CallTileBadge {
@@ -648,35 +463,10 @@ Item {
             }
         }
 
-        // The TRANSIENT reaction, top-left — the badges own the top-right and
-        // the nameplate the bottom, so this is the corner where a pill can
-        // appear and disappear without moving anything.
-        //
-        // IT IS NOT THE ONLY THING IN THIS CORNER, though the comment here
-        // said so for a while and the volume affordance below says the same
-        // about itself. Both anchored to `parent.top` + `parent.left`; the
-        // volume button is declared later, so it painted straight over the
-        // emoji. Measured on a 4-up grid with a reaction on the hovered
-        // tile: pill (562,100)-(597.2,126) against button (560,98)-(588,126)
-        // — 26x26 px of overlap, 74% of the pill, the glyph itself entirely
-        // hidden and only a crescent of the pill's right edge visible. Not a
-        // small-tile collision either: the two are anchored to the same
-        // point, so they overlap at every size, and they do it exactly when
-        // someone hovers a person who has just reacted.
-        //
-        // So the corner is SHARED, in reading order, and the reservation is
-        // read off the affordance rather than restating its diameter — the
-        // recurring failure here is a width cap that reserves a rail the
-        // placement then ignores (§16), and two copies of one constant is
-        // how that starts. The BUTTON keeps the corner and the pill yields,
-        // because a control that moves out from under a cursor that is
-        // reaching for it is worse than a badge that slides.
-        //
-        // IN A LOADER, and that is not a style choice: "" is this property's
-        // ordinary state, and a Text created empty keeps ItemObservesViewport
-        // for the life of the item, which makes Qt walk the whole
-        // instantiated tree on every scroll frame. The single most expensive
-        // QML mistake recorded in this repo (§16).
+        // The transient reaction, top-left. The volume button shares this
+        // corner and keeps it (a control shouldn't move under a cursor reaching
+        // for it), so the pill is offset by the button's actual width. In a
+        // Loader because "" is the usual state (see the note at the top).
         Loader {
             active: root.reactionEmoji.length > 0
             visible: active
@@ -694,9 +484,8 @@ Item {
                 implicitHeight: reactionGlyph.implicitHeight
                                 + (root.compact ? 4 : 6)
                 radius: height / 2
-                // Its own dark field, like the nameplate: this sits over
-                // arbitrary video, so a theme surface token would be legible
-                // on some frames and not others.
+                // Its own dark field, like the nameplate, since it sits over
+                // video.
                 color: Qt.rgba(0, 0, 0, 0.55)
                 border.width: 1
                 border.color: Qt.rgba(1, 1, 1, 0.18)
@@ -704,10 +493,10 @@ Item {
                 Text {
                     id: reactionGlyph
                     anchors.centerIn: parent
-                    // A REMOTE STRING. Plain text, never markup — and the
-                    // emoji family is resolved in C++, because QML has no
-                    // `font.families` and Qt's automatic fallback picks a
-                    // MONOCHROME face on some versions (§16).
+                    // A remote string: plain text only. The emoji family is
+                    // resolved in C++ (QML has no `font.families`, and Qt's
+                    // automatic fallback picks a monochrome face on some
+                    // versions).
                     textFormat: Text.PlainText
                     text: root.reactionEmoji
                     color: "#FFFFFF"
@@ -716,17 +505,9 @@ Item {
                                   && app.emojiFontFamily) || ""
                 }
 
-                // A short entrance so a reaction reads as something that
-                // just happened rather than a badge that was always there.
-                // Nothing animates on the way out: the model clears the role
-                // and the Loader deactivates, and an exit transition would
-                // need the item to outlive its own data.
-                //
-                // Declarative and TARGETED BY ID. `target: parent` inside an
-                // Animation resolves to the enclosing item's parent, not to
-                // the item — it would animate the Loader. And with reduced
-                // motion the animation simply never runs, leaving the
-                // property values declared above.
+                // A short entrance; no exit animation, since the item
+                // disappears with its data. Targeted by id (`target: parent`
+                // would animate the Loader). With reduced motion it never runs.
                 scale: 1.0
                 opacity: 1.0
                 ParallelAnimation {
@@ -750,9 +531,8 @@ Item {
             }
         }
 
-        // A muted mic still has to be visible on a BARE avatar, where there
-        // is no nameplate to carry it: a small badge on the circle itself,
-        // exactly where the bubble strip puts it.
+        // Mute badge on a bare avatar, which has no nameplate, placed as in the
+        // bubble strip.
         Loader {
             active: root.bare && root.micKnown && root.micMuted
                     && !videoLoader.visible
@@ -776,40 +556,24 @@ Item {
         }
 
         TapHandler {
-            // Left button only: TapHandlers are non-exclusive across
-            // subtrees, so grabbing every button here would also swallow
-            // presses meant for the stage beneath.
+            // Left button only: TapHandlers are non-exclusive across subtrees,
+            // so taking every button would swallow presses meant for the stage.
             acceptedButtons: Qt.LeftButton
             onTapped: root.activated()
         }
 
-        // The volume gesture. RIGHT button, and it must be its own handler
-        // with its own accepted button: TapHandlers are non-exclusive across
-        // subtrees, so a single handler taking every button here would also
-        // swallow right presses meant for the stage, and this repo has shipped
-        // that collision three separate times.
+        // Right-click opens the volume control; a separate handler for the same
+        // reason as above.
         TapHandler {
             enabled: root._volumeOffered
             acceptedButtons: Qt.RightButton
             onTapped: root.openVolumeControl()
         }
 
-        // ── The visible way in ───────────────────────────────────────────
-        //
-        // A right-click-only control is a control most people never find, so
-        // the same action gets a button. HOVER-REVEALED and in the TOP-LEFT:
-        // the state badges own the top-right and the nameplate owns the
-        // bottom-left, and a control that covers either would hide a fact to
-        // offer a preference.
-        //
-        // THE TOP-LEFT IS NOT FREE — the transient reaction pill is anchored
-        // to the same point, and this used to be drawn straight over it (see
-        // the measurement at that Loader). This keeps the corner because a
-        // button that moves under the cursor reaching for it is the worse of
-        // the two; the pill reserves this affordance's own width and slides.
-        //
-        // Behind a Loader, and the Loader is inactive when the button is not
-        // wanted, so a grid of tiles nobody is pointing at builds no buttons.
+        // ── The visible way in ── A hover-revealed button for the volume
+        // control, top-left (badges own the top-right, the nameplate the
+        // bottom-left). It keeps the corner over the reaction pill. Inactive
+        // when not wanted, so idle grids build no buttons.
         Loader {
             id: volumeAffordance
             active: root._volumeOffered
@@ -819,38 +583,22 @@ Item {
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.margins: root.compact ? 4 : 6
-            // IT NEEDS A GROUND OF ITS OWN, and that is what it was missing.
-            //
-            // As an `IconButton` this drew a bare glyph — transparent at
-            // rest, a translucent hover wash at best — directly onto a video
-            // frame. Over a bright screen share it read as a stray mark
-            // rather than a control ("make the icon the control user volume
-            // more visible to user give a sqaure backround or something").
-            //
-            // CallControlButton is the treatment the call surface already
-            // has for exactly this: a filled ground, a hairline, real hover
-            // and pressed states, a focus ring and a tooltip that doubles as
-            // the accessible name. The only thing added for this site is a
-            // rounded SQUARE instead of a circle, which is the shape the
-            // maintainer asked for and reads as a control sitting on
-            // content. Tokens throughout — nothing here picks a colour.
+            // CallControlButton with a rounded-square ground, so it reads as a
+            // control over bright video rather than a stray glyph.
             sourceComponent: CallControlButton {
                 objectName: "callParticipantVolumeButton"
                 diameter: root.compact ? 24 : 28
                 glyphSize: root.compact ? 15 : 17
                 cornerRadius: AppTheme.radiusMd
-                // `volume_off` at zero is the honest glyph: a person turned
-                // all the way down is muted FOR THIS DEVICE, and drawing a
-                // speaker with waves would say the opposite. Both names are in
-                // Icon.qml's map — the bundled Material Symbols font is a
-                // SUBSET, and an unmapped name renders as tofu.
+                // `volume_off` at zero: the person is muted for this device.
+                // Both names are in Icon.qml's map (the bundled font is a
+                // subset).
                 iconName: {
                     var _ = root.volumeRevision;
                     return root.currentVolumePercent() > 0 ? "volume_up"
                                                            : "volume_off";
                 }
-                // CallControlButton takes its accessible name FROM the
-                // tooltip, so the two cannot drift apart here.
+                // CallControlButton uses the tooltip as its accessible name.
                 tooltip: qsTr("Volume for %1").arg(root._label)
                 onClicked: root.openVolumeControl()
             }
@@ -859,22 +607,13 @@ Item {
         HoverHandler { id: tileHover }
     }
 
-    // ── The volume popup ─────────────────────────────────────────────────
-    //
-    // A child of the TILE, deliberately, and this is the one place the
-    // message-action-bar precedent does NOT apply. That crash came from a
-    // per-row Loader's loaded Rectangle reparenting itself to
-    // `Overlay.overlay` while the Loader stayed its destruction owner. A
-    // Popup is not that: it owns its own overlay lifetime, exactly as the
-    // timeline's details Dialog does, so a participant leaving mid-adjust
-    // takes the popup down with the tile instead of leaving a dangling item
-    // on the overlay.
+    // ── The volume popup ──
+    // A child of the tile: a Popup owns its own overlay lifetime, so a
+    // participant leaving mid-adjust takes the popup down with the tile.
     Popup {
         id: volumePopup
         objectName: "callParticipantVolumePopup"
-        // Centred over the tile it belongs to, clamped into the window by
-        // Popup's own margins so a tile at the edge of the grid does not put
-        // its slider off screen.
+        // Centred over its tile; Popup's margins keep it on screen.
         x: Math.round((root.width - width) / 2)
         y: Math.round((root.height - height) / 2)
         width: 268
@@ -884,10 +623,8 @@ Item {
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-        // Read here rather than in a binding: see currentVolumePercent(). An
-        // `onOpened` read also means a popup reopened after the controller
-        // clamped or reset a value shows what the controller actually has,
-        // not what this surface last sent.
+        // Read on open rather than bound (see currentVolumePercent()), so it
+        // shows what the controller actually holds.
         onOpened: volumeSlider.value = root.currentVolumePercent()
 
         background: Rectangle {
@@ -896,32 +633,16 @@ Item {
             border.width: 1
             border.color: AppTheme.stormBorder
 
-            // A POPUP DOES NOT CONSUME A PRESS THAT LANDS ON IT.
-            //
-            // `QQuickPopup::mousePressEvent` sets `accepted = blockInput()`,
-            // and `blockInput()` returns FALSE when the item IS the popup
-            // item — so delivery keeps walking down to whatever is behind the
-            // overlay. `modal: true` would not help: it blocks presses
-            // OUTSIDE a popup only, and this repo has already shipped one fix
-            // resting on the opposite premise, which was inert.
-            //
-            // Behind this popup sit the tile's two TapHandlers. Without this
-            // sink, a left press on the popup's padding reaches
-            // `root.activated()` and re-spotlights the stage while the user is
-            // reading a slider, and a right press reaches the volume handler
-            // and re-opens the popup under itself. The Slider consumes its own
-            // presses, which is exactly what makes the hole easy to miss:
-            // dragging works, and only the surrounding chrome misbehaves.
-            //
-            // The sink belongs in `background:` — the bottom-most
-            // hit-testable item, below `contentItem`, so it catches what the
-            // content did not want and steals nothing the content did. NOT
-            // fixed with `z`.
+            // A Popup doesn't consume presses on itself (blockInput() is false
+            // for its own item) and `modal` only blocks presses outside it.
+            // Without this sink, presses on the padding reach the tile's
+            // TapHandlers beneath (re-spotlighting, or re-opening the popup).
+            // In `background:`, below contentItem, so it only catches what the
+            // content doesn't take.
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.AllButtons
-                // Hover too: without it the tile beneath keeps reporting
-                // hover through the popup.
+                // Hover too, or the tile beneath keeps reporting hover.
                 hoverEnabled: true
             }
         }
@@ -941,10 +662,8 @@ Item {
                     // Remote or externally chosen text: never markup.
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
-                    // No Loader: this label is never empty. `_label` falls
-                    // back to the user id, and the popup cannot be opened on
-                    // a tile with neither, because `_volumeOffered` requires
-                    // an identity.
+                    // No Loader: never empty (`_label` falls back to the user
+                    // id, and `_volumeOffered` requires an identity).
                     text: root._label
                     color: AppTheme.stormText
                     font.pixelSize: AppTheme.textBody
@@ -966,22 +685,16 @@ Item {
                 objectName: "callParticipantVolumeSlider"
                 Layout.fillWidth: true
                 from: 0
-                // 200, not 100: above the neutral point is real
-                // amplification, which is the whole reason a per-person
-                // control is worth having — a quiet participant is the case
-                // it exists for.
+                // Up to 200: amplifying a quiet participant is the main use.
                 to: 200
                 stepSize: 1
                 snapMode: Slider.SnapAlways
                 Accessible.name: qsTr("Volume for %1").arg(root._label)
 
-                // `onMoved`, NEVER `onValueChanged`. `onMoved` fires only for
-                // a USER gesture; `onValueChanged` also fires for the
-                // programmatic read in `onOpened`, which would write the
-                // value straight back to the controller on every open — a
-                // pointless store write per open, and one that would defeat
-                // the store's own "the default is not recorded" rule by
-                // re-recording whatever was read.
+                // `onMoved`, never `onValueChanged`: the latter also fires for
+                // the programmatic read in onOpened and would write the value
+                // back on every open, recording the default the store
+                // deliberately omits.
                 onMoved: root.applyVolumePercent(value)
 
                 background: Rectangle {
@@ -1000,10 +713,7 @@ Item {
                         color: AppTheme.bolt
                     }
 
-                    // The neutral point, drawn ON the track. 100 is not the
-                    // middle of a preference, it is the ONE value that
-                    // changes nothing, and a slider whose default sits
-                    // unmarked half way along reads as a range with no home.
+                    // Marks the neutral point (100%) on the track.
                     Rectangle {
                         objectName: "callParticipantVolumeNeutralMark"
                         x: Math.round(parent.width / 2) - 1
@@ -1023,9 +733,8 @@ Item {
                     width: 16
                     height: 16
                     radius: 8
-                    // White, not boltInk: the thumb rides the fill BOUNDARY,
-                    // so a dark disc reads as disabled past half range. Same
-                    // reasoning as the Settings sliders.
+                    // White, not boltInk: a dark thumb on the fill boundary
+                    // reads as disabled. Same as the Settings sliders.
                     color: "#FFFFFF"
                     border.width: volumeSlider.visualFocus ? 2 : 0
                     border.color: AppTheme.bolt
@@ -1038,32 +747,19 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    // A PARAGRAPH IN A ROW WILL EAT THE BUTTON BESIDE IT.
-                    //
-                    // A wrapping Text still reports the whole unwrapped
-                    // sentence as its implicit — therefore its PREFERRED —
-                    // width, which here is roughly 700 px in a 244 px popup.
-                    // A RowLayout that cannot fit its children shrinks them
-                    // in proportion to those preferred widths, so Reset was
-                    // being squeezed to about a fifth of its label, which an
-                    // AppButton draws straight out over the text (its
-                    // content Row is centred and unconstrained). Asking for
-                    // 1 px while filling means the sentence still takes
-                    // every spare pixel and the button keeps its own.
+                    // Preferred width 1 while filling: a wrapping Text reports
+                    // its unwrapped width as preferred, and the RowLayout would
+                    // squeeze the Reset button proportionally.
                     Layout.preferredWidth: 1
                     wrapMode: Text.WordWrap
                     color: AppTheme.stormTextMuted
                     font.pixelSize: AppTheme.textMeta
-                    // ALWAYS shown, not revealed once the user is already
-                    // past 100. A consequence disclosed only after the fact
-                    // is not a disclosure. Stated flatly: what it does, and
-                    // what it can cost.
+                    // Always shown, so the consequence is disclosed before the
+                    // user goes past 100.
                     text: qsTr("Above 100% amplifies and can clip. 200% applies the maximum the audio stage can reach.")
                 }
 
-                // Only when there is something to reset. A permanently
-                // present Reset next to a control already at its default is
-                // furniture.
+                // Only when there is something to reset.
                 Loader {
                     active: Math.round(volumeSlider.value) !== 100
                     visible: active
@@ -1074,10 +770,8 @@ Item {
                         text: qsTr("Reset")
                         onClicked: {
                             volumeSlider.value = 100;
-                            // Set explicitly: assigning `value` is not a
-                            // user gesture, so `onMoved` does not fire and
-                            // the reset would otherwise change the picture
-                            // and nothing else.
+                            // Assigning `value` isn't a user gesture, so
+                            // onMoved won't fire; apply explicitly.
                             root.applyVolumePercent(100);
                         }
                     }

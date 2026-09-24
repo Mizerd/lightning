@@ -3,10 +3,9 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Room-scoped server search plus a draft/apply filter surface. Matrix can
-// apply room and sender on the server; MessageSearchController applies the
-// remaining predicates to a bounded number of returned pages. Unsupported
-// Discord concepts (embed, forward and guessed bot identity) are absent.
+// Room-scoped server search with a draft/apply filter surface. The server
+// applies room and sender; MessageSearchController applies the remaining
+// predicates to a bounded number of returned pages.
 Rectangle {
     id: root
 
@@ -62,12 +61,9 @@ Rectangle {
         root[propertyName] = values
     }
 
-    // The roster comes from RoomInfoController, which tracks the ROOM
-    // INFORMATION panel's room — not necessarily this one. Opening search
-    // without ever having opened Room Information left it pointed elsewhere
-    // (or nowhere), so every member section came up empty and clicking
-    // Mentions or From found nobody. Point it at the room being searched
-    // before reading the roster.
+    // The roster comes from RoomInfoController, which follows the Room
+    // Information panel's room; point it at the searched room before reading
+    // members.
     onVisibleChanged: if (visible) ensureRoster()
     Component.onCompleted: if (visible) ensureRoster()
 
@@ -79,9 +75,8 @@ Rectangle {
     }
 
     function filteredMembers() {
-        // Reading the snapshot keeps the binding live when the async roster
-        // arrives. filterMembers is case-insensitive and returns its native
-        // avatar/member shape.
+        // Reading the snapshot keeps the binding live when the roster arrives.
+        // filterMembers is case-insensitive.
         var snapshot = app.roomInfo.members
         var rows = app.roomInfo.filterMembers(memberNeedle)
         var joined = []
@@ -178,8 +173,7 @@ Rectangle {
                 text: root.filterEditing ? qsTr("Search filters")
                                          : qsTr("Search messages")
                 color: AppTheme.textPrimary
-                // The shared pane-header role (16), same as the room list
-                // header and Room Information beside it.
+                // The shared pane-header size.
                 font.pixelSize: AppTheme.textTitle
                 font.weight: AppTheme.weightBold
                 Layout.fillWidth: true
@@ -271,15 +265,9 @@ Rectangle {
                 wrapMode: Text.Wrap
             }
 
-            // Absorbs the slack when the results list is hidden — which is
-            // the ordinary case in an ENCRYPTED room, where the server
-            // cannot search and only the field plus the notice are shown.
-            // Without it nothing in this column can stretch, so the OUTER
-            // ColumnLayout hands its children an equal share of the panel
-            // height and centres each one inside it: the header floated to
-            // y=240 and the field to y=1178 of a 2000px panel, which is the
-            // reported "search bar not at the top". A layout needs exactly
-            // one thing that can grow.
+            // Absorbs slack when the results list is hidden (the usual case in
+            // encrypted rooms): a layout needs one item that can grow, or it
+            // spreads the children evenly down the panel.
             Item {
                 visible: !root.historyAvailable
                 Layout.fillWidth: true
@@ -339,7 +327,7 @@ Rectangle {
                             RowLayout {
                                 Layout.fillWidth: true
                                 Label {
-                                    // Remote or externally chosen text: never markup.
+                                    // Untrusted text: never markup.
                                     textFormat: Text.PlainText
                                     text: resultDelegate.senderDisplayName
                                           || resultDelegate.sender
@@ -354,13 +342,12 @@ Rectangle {
                                     text: new Date(Number(resultDelegate.timestampMs))
                                               .toLocaleDateString(Qt.locale(), Locale.ShortFormat)
                                     color: AppTheme.textMuted
-                                    // Was an unscaled 10 beside a scaled
-                                    // sender name: at 140% this row sheared.
+                                    // Scaled like the sender name beside it.
                                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 }
                             }
                             Label {
-                                // Remote or externally chosen text: never markup.
+                                // Untrusted text: never markup.
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: resultDelegate.body
@@ -410,7 +397,7 @@ Rectangle {
             }
         }
 
-        // Scrollable criteria with the action footer outside it.
+        // Scrollable criteria, with the action footer outside.
         ScrollView {
             visible: root.filterEditing
             Layout.fillWidth: true
@@ -508,10 +495,9 @@ Rectangle {
                             model: ["image", "video", "audio", "file", "link", "sticker"]
                             CheckBox {
                                 required property string modelData
-                                // Native control on a themed surface — the
-                                // label ink must follow the app palette
-                                // (SettingsScreen convention), or it
-                                // renders OS-default gray on dark themes.
+                                // Native control on a themed surface: the label
+                                // ink must follow the app palette, or it
+                                // renders in the OS default.
                                 palette.windowText: AppTheme.textPrimary
                                 text: root.typeLabel(modelData)
                                 checked: root.contains(root.draftTypes, modelData)

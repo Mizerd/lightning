@@ -4,57 +4,34 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// One window-overlay picker shared by reaction and composer entry points.
-// Catalogue/search/recent state lives in the process-wide C++ model.
+// One window-overlay picker shared by the reaction and composer entry points.
+// Catalogue, search and recents live in the process-wide C++ model.
 //
-// v0.6.5 (SPEC §0/§1m): width 324, zero outer padding with per-row 12px
-// gutters, a Material-icon category rail (replacing the Unicode-glyph strip),
-// an 8-column glyph grid, and a footer that previews whichever cell is
-// hovered or keyboard-focused instead of only ever showing the static hint.
-// There is deliberately NO global skin-tone swatch: EmojiCatalog's persisted
-// preferredTone is never read back by the grid's rendering (only recorded
-// for later, unused), so a global control would be presentational fiction —
-// the ONE shared per-emoji tone popup below is the real mechanism.
-//
-// Storm skin (SPEC-storm-language §4/2e): stormPanel chrome, storm search
-// field, bolt-underlined active category, stormSelection hover cells.
-//
-// 2026-08-21 design pass: the footer's emoji NAME left the bolt/mono ":zap:"
-// treatment for the UI face (there is no shortcode to render, so that slot was
-// carrying a plain label in code type), the at-rest hint became MenuKeycap
-// chips so both composer pickers speak one keyboard language, the cell
-// highlight is square at any picker width, and the panel gained the sanctioned
-// popover shadow. The press sink in `background` is the real fix for the
-// reported "emoji clicking still doesnt work right" — read it before touching
-// the popup flags.
-// v0.6.7: the root is AnchoredPopup, not a bare Popup — anchorPoint and
-// placeInsideWindow() moved there, and the popup now re-anchors on a window
-// resize instead of being placed once and left behind. Callers that open it
-// from a button set `anchorItem`; the reaction-picker entry points still pass
-// a bare `anchorPoint` (there is no stable item under a message-row point).
+// There is deliberately no global skin-tone swatch: the grid never reads
+// EmojiCatalog's preferredTone, so the shared per-emoji tone popup is the
+// real mechanism. The press sink in `background` is what makes clicks work;
+// read it before touching the popup flags. Button hosts set `anchorItem`;
+// reaction entry points pass a bare `anchorPoint` (no stable item under a
+// message-row point).
 AnchoredPopup {
     id: picker
     property string mode: "composer"
     property bool closeAfterSelection: true
     signal emojiChosen(string emoji)
-    // The nested skin-tone popup's lifetime, reported to whoever owns
-    // transient row interaction (TimelinePane's transientInteractionOwner).
-    // A host that does not care simply does not connect them.
+    // The nested tone popup's lifetime, for the owner of transient row
+    // interaction (TimelinePane's transientInteractionOwner).
     signal toneOpened()
     signal toneClosed()
 
-    // Footer preview state: the emoji + name of whichever cell is currently
-    // hovered or keyboard-focused. Empty when nothing is (the footer then
-    // falls back to the static keyboard hint).
+    // Footer preview: the emoji and name of the hovered or keyboard-focused
+    // cell. Empty falls back to the static keyboard hint.
     property string previewEmoji: ""
     property string previewName: ""
-    // The cell the preview belongs to (hovered, or keyboard-focused). The
-    // shared Alt+V shortcut needs the ITEM, not just its emoji: the tone
-    // popup is positioned at the cell it was asked for.
+    // The preview's cell; Alt+V needs the item to position the tone popup.
     property Item previewCell: null
 
     // Category -> Material Symbols glyph, keyed by EmojiCatalog's exact
-    // category strings (verified against EmojiCatalog.cpp's kCategories).
+    // category strings (kCategories in EmojiCatalog.cpp).
     readonly property var _categoryIcons: ({
         "Recently Used": "schedule",
         "Smileys & Emotion": "mood",
@@ -68,42 +45,28 @@ AnchoredPopup {
         "Flags": "flag",
     })
 
-    // One section heading reflecting whichever single bucket is currently
-    // visible. EmojiCatalog swaps ONE precomputed bucket at a time (recents /
-    // a category / a search result set) rather than concatenating every
-    // category into one scroll — that bucket-swap is what keeps category
-    // switching a constant-time operation (see EmojiCatalogTest's
-    // categorySwitchingIsBucketSwapFast), so the heading names whichever
-    // bucket is on screen rather than implying a multi-section list that
-    // does not exist.
+    // Heading for the single visible bucket. EmojiCatalog swaps one
+    // precomputed bucket at a time (recents, a category or search results),
+    // which keeps category switching constant-time
+    // (categorySwitchingIsBucketSwapFast).
     readonly property string sectionHeading:
         search.text.length > 0 ? qsTr("Search results")
         : app.emojiCatalog.category === "Recently Used" ? qsTr("Recently used")
         : app.emojiCatalog.category
 
-    // v0.6.7: sized as a SHARE of the available space (see AnchoredPopup), and
-    // sharing the GIF picker's remembered value — resizing either resizes
-    // both. The minimum keeps the 8-column grid and the category rail usable.
+    // Sized as a share of the available space (see AnchoredPopup), sharing the
+    // GIF picker's remembered size. The minimum keeps the 8-column grid and the
+    // category rail usable.
     widthFraction: 0.36
     heightFraction: 0.58
     minWidth: 300
     minHeight: 320
     sizeSettingsKey: "picker"
     padding: 0
-    // Modality bounds presses that land OUTSIDE the picker: a click on the
-    // timeline closes it and is consumed, instead of also acting on the row
-    // it landed on. That is all it does. It does NOT protect the picker's
-    // own surface — the 2026-08-18 round believed it did, and the barrier
-    // that actually works is the press sink in `background` below, which
-    // carries the mechanism. dim: false keeps the look.
-    // NOT modal. Modality was added in the 2026-08-18 round as a press
-    // barrier, on a premise that is false (a Popup does not consume a press
-    // that lands INSIDE it — blockInput() returns false there), so it never
-    // bought the barrier. What it did buy was a grabbed overlay, which is why
-    // the timeline could not be scrolled while the picker was open.
-    //
-    // The barrier now lives where presses actually are: each grid cell
-    // consumes its own, and the background sink catches the picker's chrome.
+    // Not modal: a Popup doesn't consume presses inside it anyway, and a
+    // grabbed overlay stops the timeline scrolling while the picker is open.
+    // Grid cells consume their own presses and the background sink catches
+    // the chrome.
     modal: false
     dim: false
     focus: true
@@ -116,28 +79,19 @@ AnchoredPopup {
         if (closeAfterSelection) close()
     }
 
-    // MSC2545 custom emoji, REACTION MODE ONLY.
+    // MSC2545 custom emoji, reaction mode only. A custom-emoji reaction is an
+    // m.reaction whose key is the pack image's mxc URI (the Cinny/Sable
+    // convention); MessageDelegate renders such a key as an image.
     //
-    // A custom-emoji reaction is an ordinary m.reaction whose KEY is the pack
-    // image's own mxc URI — the convention Cinny established and Sable
-    // inherited (read out of Sable's Reaction.tsx and its editor output, not
-    // inferred). MessageDelegate renders a chip with that key as an image.
-    //
-    // Deliberately NOT offered in composer mode: inserting an mxc into the
-    // message box would put a bare URI in the body. Sending a custom emoji
-    // INSIDE a message needs `formatted_body` carrying
-    // `<img data-mx-emoticon …>`, which Lightning's HTML sanitizer does not
-    // yet allow through on the RECEIVE side — so it would send messages it
-    // could not itself display. That half is deferred, on purpose.
-    //
-    // It also does NOT call recordUse(): the recents bucket is the Unicode
-    // catalogue's, and an mxc is not one of its emoji.
+    // Not offered in composer mode: sending one inside a message needs
+    // `<img data-mx-emoticon>` in formatted_body, which our HTML sanitizer
+    // doesn't yet accept on receive. Doesn't call recordUse(): recents are the
+    // Unicode catalogue's.
     readonly property bool customEmojiOffered:
         mode === "reaction" && app.stickers.available
     readonly property var customEmoji: {
-        // findEmoticons() is a plain call, so the binding establishes no
-        // dependency of its own; reading `revision` is what re-evaluates it
-        // when a snapshot lands (the PresenceManager idiom).
+        // findEmoticons() is a plain call; reading `revision` re-evaluates this
+        // when a snapshot lands.
         var _live = app.stickers.revision
         return picker.customEmojiOffered
             ? app.stickers.findEmoticons("", 32) : []
@@ -148,8 +102,8 @@ AnchoredPopup {
         if (closeAfterSelection) close()
     }
 
-    // v0.7: the single shared skin-tone popup (one per picker, positioned
-    // at the requesting cell on demand — never one per grid cell).
+    // The single shared skin-tone popup, positioned at the requesting cell
+    // (never one per grid cell).
     function openTonePopupFor(cellItem, baseEmoji) {
         tonePopup.variants = app.emojiCatalog.variantsFor(baseEmoji)
         if (tonePopup.variants.length === 0)
@@ -164,12 +118,9 @@ AnchoredPopup {
         tonePopup.open()
     }
 
-    // 2026-08-18 tester report ("alt+v emoji bar neveikia"): the shortcut was
-    // implemented only as a Keys handler on a grid CELL, and the picker opens
-    // with the keyboard focus in its search field — so the cell never saw the
-    // key and the footer advertised a shortcut that could not fire. It now
-    // lives on the picker, targeting whichever cell the user is actually on:
-    // the hovered one, else the keyboard-current one.
+    // Alt+V lives on the picker, not on a cell: the picker opens with focus in
+    // the search field, so a cell-level handler never saw the key. Targets the
+    // hovered cell, else the keyboard-current one.
     Shortcut {
         sequences: ["Alt+V"]
         enabled: picker.visible
@@ -184,18 +135,15 @@ AnchoredPopup {
         picker.openTonePopupFor(cell, cell.baseEmoji)
     }
 
-    // placeInsideWindow()/reanchor() are AnchoredPopup's, and AnchoredPopup's
-    // own onAboutToShow already performs the initial placement.
+    // AnchoredPopup's own onAboutToShow performs the initial placement.
     onAboutToShow: {
         search.text = ""
         app.emojiCatalog.searchText = ""
         previewEmoji = ""
         previewName = ""
         previewCell = null
-        // Reaction mode only: read this account's MSC2545 packs so the custom
-        // emoji strip has something in it. refreshIfStale() is a no-op when a
-        // snapshot for this room is already in hand, so opening the picker
-        // repeatedly costs nothing — and composer mode never asks at all.
+        // Reaction mode only: load this account's MSC2545 packs.
+        // refreshIfStale() is a no-op when a snapshot is already in hand.
         if (picker.customEmojiOffered)
             app.stickers.refreshIfStale()
         Qt.callLater(search.forceActiveFocus)
@@ -210,40 +158,20 @@ AnchoredPopup {
             border.width: 2
             radius: AppTheme.menuRadius + 6
 
-            // THE press barrier — and the reason it has to live here rather
-            // than in the popup's own flags.
-            //
-            // A Popup does not consume a press that lands on it:
-            // QQuickPopup::mousePressEvent sets accepted = blockInput(), and
-            // blockInput() returns FALSE when the press is inside the popup's
-            // own item, so the delivery agent keeps walking the hit list down
-            // to whatever sits behind the overlay. Modality bounds presses
-            // OUTSIDE a popup only.
-            //
-            // Nothing else in this picker stops a RIGHT press. The grid cells
-            // use TapHandlers, and a pointer handler grabs the point but never
-            // ACCEPTS it; the GridView is a Flickable, which Qt constructs
-            // with setAcceptedMouseButtons(Qt::LeftButton) — so left presses
-            // were being swallowed by accident and right presses fell straight
-            // through to MessageDelegate's Qt.RightButton TapHandler, opening
-            // the message context menu on top of the open picker and covering
-            // the grid. That is the reported "emoji clicking still doesnt work
-            // right".
-            //
-            // The background fills the whole popupItem, padding included, and
-            // sits below contentItem, so every control the picker actually
-            // handles still sees the press first. This only catches what would
-            // otherwise have left the picker entirely.
+            // The press barrier. A Popup doesn't consume presses on itself
+            // (blockInput() is false inside its own item), and nothing else
+            // here stops a right press: TapHandlers grab without accepting, and
+            // the GridView accepts left presses only. Right presses would reach
+            // MessageDelegate's context-menu TapHandler behind the picker. It
+            // sits below contentItem, so it only catches what would leave the
+            // picker.
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.AllButtons
             }
         }
-        // One of the design's sanctioned popover shadows (the AccountMenu /
-        // QuickSwitcher pattern): the effect and its source must be SIBLINGS,
-        // which is the only reason the background is an Item wrapping the
-        // panel instead of the panel itself. Without it the picker floats over
-        // the timeline on a border alone and reads as part of it.
+        // Popover shadow. Effect and source must be siblings, hence the Item
+        // wrapper.
         MultiEffect {
             source: pickerPanel
             anchors.fill: pickerPanel
@@ -256,16 +184,15 @@ AnchoredPopup {
         }
     }
 
-    // v0.6.7: the column is wrapped in a plain Item so the resize grip can be
-    // anchored over its bottom-right corner — a direct child of the
-    // ColumnLayout would be laid out as another row instead.
+    // Wrapped in an Item so the resize grip can sit over the column without
+    // becoming another row.
     contentItem: Item {
 
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
 
-        // ── Row 1: search only — no skin-tone swatch (see file header) ──
+        // ── Row 1: search only (no skin-tone swatch; see file header) ──
         AppTextField {
             id: search
             Layout.fillWidth: true
@@ -288,7 +215,7 @@ AnchoredPopup {
             }
         }
 
-        // ── Row 2: category icon rail ────────────────────────────────
+        // ── Row 2: category icon rail ──
         ScrollView {
             Layout.fillWidth: true
             Layout.leftMargin: AppTheme.spacing12
@@ -296,9 +223,8 @@ AnchoredPopup {
             Layout.bottomMargin: AppTheme.spacing8
             Layout.preferredHeight: 28
             contentWidth: categoryRow.implicitWidth
-            // A ScrollView does NOT clip by default: on a window narrow
-            // enough to shrink the popup, the rail icons would paint over
-            // the rounded border and out of the card.
+            // ScrollView doesn't clip by default; the rail would paint past the
+            // rounded border on a narrow popup.
             clip: true
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AlwaysOff }
             ScrollBar.horizontal: AppScrollBar { thin: true; policy: ScrollBar.AsNeeded }
@@ -312,9 +238,8 @@ AnchoredPopup {
                         required property string modelData
                         readonly property bool selected:
                             app.emojiCatalog.category === modelData
-                        // 10 cells × 28 + 9 × 2 = 298 ≤ the 300px gutter
-                        // width, so the whole rail (Flags included) shows
-                        // at rest per SPEC 1m.
+                        // 10 × 28 + 9 × 2 = 298, so the whole rail fits at the
+                        // minimum gutter width.
                         implicitWidth: 28
                         implicitHeight: 28
                         hoverEnabled: true
@@ -335,9 +260,7 @@ AnchoredPopup {
                             name: picker._categoryIcons[categoryCell.modelData]
                                   || "mood"
                             size: 18
-                            // Three states, not two: the plate lit on hover
-                            // while the glyph stayed muted, so hovering an
-                            // inactive category read as barely anything.
+                            // Three states: selected, hovered/focused, rest.
                             color: categoryCell.selected ? AppTheme.bolt
                                  : categoryCell.hovered || categoryCell.visualFocus
                                    ? AppTheme.stormText
@@ -348,14 +271,10 @@ AnchoredPopup {
                             color: categoryCell.selected || categoryCell.hovered
                                    || categoryCell.visualFocus
                                    ? AppTheme.stormSelection : "transparent"
-                            // The rail is Tab-reachable (focusPolicy above),
-                            // and keyboard focus drew nothing at all: the
-                            // plate lit for hover and selection only, so a
-                            // keyboard user could not see where they were.
+                            // Keyboard focus ring (the rail is Tab-reachable).
                             border.width: categoryCell.visualFocus ? 2 : 0
                             border.color: AppTheme.bolt
-                            // 2e: the active category carries a 2px bolt
-                            // underline bar at the cell's bottom edge.
+                            // The active category's 2px bolt underline.
                             Rectangle {
                                 visible: categoryCell.selected
                                 anchors.left: parent.left
@@ -377,7 +296,7 @@ AnchoredPopup {
             color: AppTheme.stormBorder
         }
 
-        // ── Body: one section heading + the current bucket's grid ───
+        // ── Body: one section heading + the current bucket's grid ──
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -391,8 +310,7 @@ AnchoredPopup {
                 spacing: AppTheme.spacing6
 
                 // ── Custom emoji from this account's MSC2545 packs ──
-                // Reaction mode only, and only when a pack actually holds
-                // emoticons: an empty strip under a heading reads as broken.
+                // Reaction mode only, and only when a pack holds emoticons.
                 MenuSectionLabel {
                     Layout.fillWidth: true
                     visible: picker.customEmoji.length > 0
@@ -409,11 +327,9 @@ AnchoredPopup {
                     spacing: AppTheme.spacing4
                     model: picker.customEmoji
                     boundsBehavior: Flickable.StopAtBounds
-                    // The shared wheel component, on its HORIZONTAL axis —
-                    // see qml/SmoothWheelArea.qml. Declared as a DIRECT child
-                    // so `scrollTarget` walks up to this ListView; a handler
-                    // one level deeper attaches to the content item instead
-                    // and would be inert while looking correct.
+                    // Horizontal wheel scrolling; see qml/SmoothWheelArea.qml.
+                    // Must be a direct child so `scrollTarget` finds this
+                    // ListView.
                     SmoothWheelArea { axis: "horizontal" }
 
                     delegate: AbstractButton {
@@ -424,8 +340,8 @@ AnchoredPopup {
                         hoverEnabled: true
                         focusPolicy: Qt.TabFocus
                         Accessible.role: Accessible.Button
-                        // The shortcode is remote text: a plain label and a
-                        // plain tooltip, never markup.
+                        // The shortcode is remote text: plain label and tooltip
+                        // only.
                         Accessible.name: customCell.modelData.shortcode
                         ToolTip.text: ":" + customCell.modelData.shortcode + ":"
                         ToolTip.visible: hovered
@@ -443,46 +359,23 @@ AnchoredPopup {
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
                             cache: true
-                            // A counter the binding READS — never an
-                            // imperative source assignment, which would
-                            // destroy the binding.
+                            // Bumped to re-evaluate `source`; never assign
+                            // `source` directly, which would destroy the
+                            // binding.
                             property int resolveTick: 0
-                            // RESOLVED DEFENSIVELY, the pattern 30ee39b
-                            // established for receipt chips. A delegate built
-                            // synchronously from inside a property-change
-                            // handler — and this LISTVIEW's model is rebuilt
-                            // from `app.stickers.revision`, which is exactly
-                            // such a handler — can have its FIRST unqualified
-                            // `app` lookup resolve to undefined.
-                            //
-                            // THE ASSUMPTION THIS RESTS ON, named because it
-                            // is load-bearing: resolveBridge() at
-                            // Component.onCompleted recovers only because
-                            // 30ee39b characterized the poisoning as hitting
-                            // the FIRST lookup in an object and no later one.
-                            // The false branch registers no dependency on
-                            // `app`, so were that ever wider this binding
-                            // would never re-evaluate — the same objection
-                            // that got the theme-card guard reverted. The
-                            // difference is that the theme card had NO
-                            // recovery; here Component.onCompleted is it.
-                            //
-                            // A binding that THROWS there sticks
-                            // at its last value forever, because its only
-                            // other dependency is the per-cell constant url:
-                            // the sticker would never load and nothing would
-                            // say why. Behavioural characterization, not a
-                            // mechanism claim (see that commit).
-                            //
-                            // KEEP THIS THE FIRST `app` REFERENCE IN THE
-                            // DELEGATE: it is the canary that absorbs the one
-                            // poisoned lookup. Moving another `app` binding
-                            // above it makes THAT one take the hit.
+                            // Resolved defensively: a delegate built
+                            // synchronously from a property-change handler
+                            // (this model is rebuilt from
+                            // `app.stickers.revision`) can see its first
+                            // unqualified `app` lookup resolve to undefined.
+                            // The false branch registers no dependency, so
+                            // Component.onCompleted's resolveBridge() is the
+                            // recovery. Keep this the first `app` reference in
+                            // the delegate: it absorbs the one poisoned lookup.
                             property var bridge: (typeof app !== "undefined" && app)
                                                  ? app.mediaBridge : null
-                            // Idempotent, and never overwrites a resolved
-                            // value; app.mediaBridge is a CONSTANT property,
-                            // so replacing the original binding loses nothing.
+                            // Idempotent; app.mediaBridge is constant, so
+                            // replacing the binding loses nothing.
                             function resolveBridge() {
                                 if (!bridge && typeof app !== "undefined"
                                     && app && app.mediaBridge)
@@ -497,10 +390,8 @@ AnchoredPopup {
                                     customCell.modelData.url, 64)
                             }
                             Connections {
-                                // The same lookup, and the same hazard: a
-                                // null target silently connects to nothing,
-                                // so a late-cached sticker would never
-                                // re-tick even once the bridge resolved.
+                                // A null target connects to nothing, so this
+                                // follows the resolved bridge.
                                 target: customCellImage.bridge
                                 function onMediaCached(cacheKey) {
                                     if (cacheKey.endsWith(
@@ -526,18 +417,15 @@ AnchoredPopup {
                         id: emojiGrid
                         anchors.fill: parent
                         clip: true
-                        // SPEC 1m: exactly 8 columns — divide the body
-                        // width rather than flooring width/cellSize, which
-                        // yielded 9 columns at the 324px picker width.
+                        // Exactly 8 columns: divide the width rather than
+                        // flooring width/cellSize.
                         cellWidth: Math.floor(width / 8)
                         cellHeight: AppTheme.emojiCellSize
                         model: app.emojiCatalog
                         keyNavigationWraps: true
                         activeFocusOnTab: true
                         boundsBehavior: Flickable.StopAtBounds
-                        // The shared bar, not the Basic style's: a stock
-                        // ScrollBar takes its handle from palette.mid, which
-                        // on the navy panel is a grey sliver with square ends.
+                        // The shared bar; Basic's uses palette.mid.
                         ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
                         // Same wheel/touchpad feel as the room timeline;
                         // see qml/SmoothWheelArea.qml.
@@ -554,10 +442,9 @@ AnchoredPopup {
                             width: emojiGrid.cellWidth
                             height: emojiGrid.cellHeight
                             activeFocusOnTab: true
-                            // Keyboard navigation moves GridView.currentIndex;
-                            // without this the current cell never took active
-                            // focus, so its Keys handlers (and the focus ring)
-                            // were unreachable by arrow keys.
+                            // Arrow keys move currentIndex; this gives the
+                            // current cell active focus so its Keys handlers
+                            // and ring work.
                             focus: GridView.isCurrentItem
                             Accessible.name: accessibleLabel
                             Accessible.role: Accessible.Button
@@ -575,14 +462,9 @@ AnchoredPopup {
                                 }
                             }
 
-                            // SQUARE, centred — deliberately not
-                            // anchors.fill. The column count is fixed at 8
-                            // while the row height is the fixed
-                            // emojiCellSize, so every cell wider than 32px
-                            // (any picker over ~256px, i.e. all of them)
-                            // stretched its highlight into a letterbox around
-                            // a centred glyph. The grid geometry itself is
-                            // contract-pinned; the highlight is not.
+                            // Square and centred rather than anchors.fill:
+                            // cells are wider than they are tall, which would
+                            // stretch the highlight into a letterbox.
                             Rectangle {
                                 anchors.centerIn: parent
                                 width: Math.min(cell.width, cell.height)
@@ -598,19 +480,14 @@ AnchoredPopup {
                                 anchors.centerIn: parent
                                 text: cell.emoji
                                 // Named, not left to fallback: Qt 6.8 picks a
-                                // monochrome face over the colour one.
-                                // Resolved against installed fonts in C++;
-                                // empty when the host has none, which leaves
-                                // the default face exactly as before.
+                                // monochrome face. Resolved in C++; empty when
+                                // the host has none.
                                 font.family: app.emojiFontFamily || ""
                                 font.pixelSize: AppTheme.emojiGlyphSize
                             }
                             Label {
-                                // The corner fold that says "this emoji has
-                                // skin tones". It only ever mattered on the
-                                // cell the pointer is on, so it rests faint
-                                // and lifts to the accent there instead of
-                                // speckling the whole grid at one weight.
+                                // Skin-tone marker: faint at rest, accent on
+                                // the hovered/focused cell.
                                 visible: cell.hasSkinTones
                                 anchors.right: parent.right
                                 anchors.bottom: parent.bottom
@@ -635,25 +512,12 @@ AnchoredPopup {
                                     }
                                 }
                             }
-                            // A MouseArea, NOT a TapHandler, and the
-                            // difference is the whole bug.
-                            //
-                            // A pointer handler GRABS the point but never
-                            // ACCEPTS the event, so Qt keeps delivering the
-                            // same press down the hit list. The picker's
-                            // background press sink then received it too,
-                            // accepted it, and took the exclusive grab — which
-                            // CANCELS the handler's grab, so no tap was ever
-                            // emitted and selecting an emoji silently did
-                            // nothing. The barrier meant to stop presses
-                            // escaping the picker was eating the picker's own
-                            // clicks.
-                            //
-                            // A MouseArea accepts the press, so delivery stops
-                            // here: the cell gets its click AND nothing behind
-                            // the picker ever sees it. Grid flicking is
-                            // unaffected — preventStealing is false, so the
-                            // Flickable still takes the grab on a drag.
+                            // A MouseArea, not a TapHandler: a handler grabs
+                            // without accepting, so the background sink would
+                            // also get the press, take the exclusive grab and
+                            // cancel the tap. A MouseArea accepts, so delivery
+                            // stops here. preventStealing is false, so the
+                            // Flickable still takes drags.
                             MouseArea {
                                 anchors.fill: parent
                                 acceptedButtons: Qt.LeftButton | Qt.RightButton
@@ -667,11 +531,8 @@ AnchoredPopup {
                                         picker.choose(cell.emoji)
                                 }
                             }
-                            // v0.7: variants open the picker's ONE shared tone
-                            // popup. The previous per-cell Popup built ~70–100
-                            // popup subtrees synchronously every time the grid
-                            // (re)populated — the dominant "picker feels slow"
-                            // cost.
+                            // Variants open the picker's one shared tone popup;
+                            // per-cell popups were expensive to build.
                             function openVariants() {
                                 picker.openTonePopupFor(cell, baseEmoji)
                             }
@@ -732,18 +593,8 @@ AnchoredPopup {
                     font.pixelSize: AppTheme.textDisplay
                 }
                 Label {
-                    // Data source: EmojiCatalog's TSV has no shortcode column
-                    // (fields are emoji/name/keywords/category/baseEmoji/tone
-                    // — see data/emoji-catalog.tsv), so this shows the
-                    // display name only rather than a fabricated shortcode.
-                    //
-                    // It is a NAME, so it renders in the UI face at body
-                    // weight. It used to be bolt-inked JetBrains Mono, on the
-                    // theory that it occupied the ":zap:" shortcode slot of
-                    // the Storm language — but with no shortcode to show, that
-                    // treatment put a yellow monospace string where every
-                    // other picker in the app shows a plain label, which is a
-                    // large part of "the font looks out of place".
+                    // The display name only: data/emoji-catalog.tsv has no
+                    // shortcode column. A name, so UI face at body weight.
                     Layout.fillWidth: true
                     text: picker.previewName
                     font.family: AppTheme.uiFont
@@ -754,13 +605,10 @@ AnchoredPopup {
                 }
             }
 
-            // The at-rest hint, in the SAME keycap language the GIF picker's
-            // footer already speaks (MenuKeycap) — the two pickers are peers
-            // that share a size and an anchor, so they should not disagree
-            // about how a keyboard hint looks. Hints drop from the right as
-            // the picker narrows, keyed off this bar's own width so nothing
-            // can overflow the rounded border on a small window; the full
-            // sentence stays on the row for assistive technology.
+            // At-rest hint in the same MenuKeycap language as the GIF picker.
+            // Hints drop from the right as the bar narrows so nothing
+            // overflows; the full sentence stays on the row for assistive
+            // technology.
             Row {
                 id: hintRow
                 anchors.centerIn: parent
@@ -822,19 +670,12 @@ AnchoredPopup {
         property var variants: []
         parent: picker.contentItem
         padding: 4
-        // Tile size, and how many of them honestly fit. Six across was a
-        // fixed 260px, but this popup is a CHILD of the picker's content
-        // item and AnchoredPopup's width floor is Math.min(minWidth, cap) —
-        // so a small window legitimately produces a picker narrower than its
-        // own 300px minimum, and the fixed width then overhung the picker's
-        // rounded border while openTonePopupFor()'s x clamp had already
-        // bottomed out at 0. Bound the popup to the space it actually has and
-        // let the Grid wrap; the placement maths above is correct and stays
-        // untouched.
+        // Columns bounded by the space available: the picker can be narrower
+        // than its 300 px minimum on a small window, and a fixed width would
+        // overhang its border. The Grid wraps.
         readonly property int toneCell: 42
         readonly property int toneColumns: {
-            // Null-tolerant on purpose: Control.contentItem is a DEFERRED
-            // property, so this binding can be evaluated before it exists.
+            // Null-tolerant: contentItem is deferred and may not exist yet.
             var room = picker.contentItem ? picker.contentItem.width : 0
             return Math.max(1, Math.min(6, Math.floor(
                 (room - 2 * padding) / toneCell)))
@@ -843,13 +684,9 @@ AnchoredPopup {
                + 2 * padding
         height: Math.ceil(Math.max(variants.length, 1) / toneColumns) * toneCell
                 + 2 * padding
-        // Modality bounds presses outside this popup (which is how a click
-        // elsewhere in the picker dismisses it). Presses that land ON it are
-        // consumed by the sink in its background, for the reason spelled out
-        // at the picker's own background: a Popup does not accept a press
-        // inside itself, and these tiles are ToolButtons — QQuickAbstractButton
-        // accepts LeftButton only — so a right-click on a tone tile leaked to
-        // the message row underneath exactly as the grid's did.
+        // Modal so a click elsewhere in the picker dismisses it. Presses on it
+        // are consumed by the background sink (see the picker's own); the tone
+        // tiles are ToolButtons that accept left presses only.
         modal: true
         dim: false
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -867,9 +704,7 @@ AnchoredPopup {
                     acceptedButtons: Qt.AllButtons
                 }
             }
-            // Raised above the picker it sits inside, not merely bordered —
-            // it is a popover over a popover, and the screenshot that opened
-            // this round read it as a stray floating panel.
+            // Raised above the picker: a popover over a popover.
             MultiEffect {
                 source: tonePanel
                 anchors.fill: tonePanel
@@ -891,17 +726,12 @@ AnchoredPopup {
                     width: tonePopup.toneCell; height: tonePopup.toneCell
                     text: modelData.emoji
                     font.pixelSize: AppTheme.textDisplay
-                    // Storm hover fill in place of the Basic style's
-                    // palette-derived flat highlight on the navy panel.
+                    // Storm hover fill instead of Basic's palette highlight.
                     background: Rectangle {
                         radius: AppTheme.radiusControl
                         color: toneButton.hovered || toneButton.visualFocus
                                ? AppTheme.stormSelection : "transparent"
-                        // These tiles are Tab-reachable (ToolButton keeps
-                        // Qt.StrongFocus), so keyboard focus needs the same
-                        // bolt ring every other focusable control in this
-                        // picker draws — a fill alone is indistinguishable
-                        // from hover.
+                        // Keyboard focus ring; a fill alone looks like hover.
                         Rectangle {
                             anchors.fill: parent
                             anchors.margins: 2

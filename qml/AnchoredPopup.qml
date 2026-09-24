@@ -2,84 +2,57 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// v0.6.7: an overlay Popup pinned to the control it belongs to, resizable by a
-// corner grip.
+// An overlay Popup pinned to the control it belongs to, resizable by a corner
+// grip.
 //
-// ── Placement: let Qt do it ─────────────────────────────────────────────
+// Placement: `parent: anchorItem` with x/y in the anchor's coordinates. A
+// Popup positions itself relative to its parent, and QQuickPopupPositioner
+// tracks geometry changes on that item and all ancestors synchronously, so
+// the popup stays rigid relative to its control with no lag or correction
+// pass. Computing absolute overlay positions ourselves (once, deferred, or
+// via bindings) lagged, drifted or missed ancestor moves.
 //
-// This file went through three wrong answers before the right one, all of them
-// variations on "compute an absolute overlay position ourselves":
+// Layout: the popup sits directly above its anchor with a hairline gap, its
+// right edge aligned with the anchor's. The bottom-right corner is pinned, so
+// growing extends up and left, and the resize grip is top-left.
 //
-//   1. Place once in onAboutToShow from a snapshotted overlay point. The
-//      coordinate-mapping call walks ancestor geometry without establishing a
-//      dependency on it, so a window resize left the popup behind while its
-//      button moved away.
-//   2. Re-place from a deferred call on every reflow. Fixed the drift, but
-//      cost an event-loop turn (visible LAG) and ran once per trigger, so a
-//      late-settling anchor left it a few pixels off.
-//   3. Bindings on placedX/placedY. Killed the lag, but missed an anchor moved
-//      by an ANCESTOR (~400px off, permanently, on the thread panel), so a
-//      deferred correction pass had to be added back — which is what the
-//      maintainer then saw as the popup snapping back into place after a
-//      resize.
-//
-// The right answer is not to compute an absolute position at all, and not to
-// map coordinates anywhere. A Popup positions itself relative to its `parent`
-// item, and QQuickPopupPositioner already listens for geometry changes on that
-// item AND every ancestor, so it repositions synchronously and exactly.
-// Setting `parent: anchorItem` and expressing x/y in the ANCHOR's coordinates
-// therefore makes the popup rigid with respect to the control it belongs to:
-// it does not move relative to that control at all, so there is nothing to lag
-// or correct.
-//
-// ── Layout ──────────────────────────────────────────────────────────────
-//
-// The popup sits directly on top of its anchor with a hairline gap, and its
-// right edge lines up with the anchor's right edge — never past it. Both
-// bindings keep the BOTTOM-RIGHT corner pinned, which is why growing the popup
-// extends it up and to the left, and why the resize grip is at the top-left.
-//
-// A caller with no stable item to anchor to (the reaction pickers, which open
-// at a point inside a scrolling message row) sets `anchorPoint` instead: those
-// are placed once from that point in overlay coordinates and afterwards only
-// clamped back inside a shrinking window, never re-placed toward what is by
-// then a stale point.
+// Callers with no stable anchor item (reaction pickers opening at a point in
+// a scrolling row) set `anchorPoint`: placed once in overlay coordinates, then
+// only clamped inside a shrinking window, never re-placed.
 Popup {
     id: root
 
-    // The control this popup belongs to. It becomes the popup's PARENT, which
-    // is what makes Qt keep the two rigid with respect to each other.
+    // The control this popup belongs to; it becomes the popup's parent, which
+    // keeps the two rigid relative to each other.
     property Item anchorItem: null
-    // Explicit anchor in OVERLAY coordinates, for callers with no anchorItem.
+    // Explicit anchor in overlay coordinates, for callers with no anchorItem.
     property point anchorPoint: Qt.point(0, 0)
-    // Hairline separation between the popup's bottom and the anchor's top.
+    // Gap between the popup's bottom and the anchor's top.
     property real anchorGap: 2
 
-    // Smallest usable size for the component; the share-based sizing below
-    // never goes under it unless the window itself is smaller.
+    // Smallest usable size; share-based sizing never goes below it unless the
+    // window is smaller.
     property real minWidth: 260
     property real minHeight: 280
-    // Id under which the dragged share is remembered across restarts
-    // (SettingsManager::pickerWidthShare, whitelisted there). BOTH pickers use
-    // the same id on purpose: resizing one resizes the other. Empty means "do
-    // not persist".
+    // Key under which the dragged share is remembered
+    // (SettingsManager::pickerWidthShare, whitelisted there). Both pickers use
+    // the same key, so resizing one resizes the other. Empty disables
+    // persistence.
     property string sizeSettingsKey: ""
 
     readonly property Item overlayItem: Overlay.overlay
 
     parent: anchorItem ? anchorItem : overlayItem
 
-    // Never wider than the anchor — "on the right go no further than the text
-    // box" — and never wider than the window when there is no anchor.
+    // Never wider than the anchor, or than the window when there is no anchor.
     readonly property real maxWidth: {
         if (anchorItem)
             return anchorItem.width
         return overlayItem ? overlayItem.width - AppTheme.spacingM * 2
                            : minWidth
     }
-    // Never taller than the room above the anchor. The anchor sits at the
-    // bottom of the window, so reserving its own height plus the margins is
-    // the bound, and it needs no coordinate mapping.
+    // Never taller than the room above the anchor, which sits at the bottom of
+    // the window.
     readonly property real maxHeight: {
         if (!overlayItem)
             return minHeight
@@ -89,21 +62,14 @@ Popup {
         return room
     }
 
-    // v0.6.7: the picker is sized as a SHARE of the space available to it,
-    // never as a pixel count. That single decision covers three separate
-    // reports at once:
+    // Sized as a share of the available space, not in pixels: it scales with
+    // the window, transfers between screens, and lets the GIF and emoji pickers
+    // share one remembered value despite different design sizes.
     //
-    //   * resizing the window scales the picker continuously, instead of it
-    //     sitting at one fixed size until the window got too small to hold it;
-    //   * a size dragged on one screen still makes sense on another;
-    //   * and because a share is unitless, the GIF and emoji pickers can share
-    //     one remembered value even though their design sizes differ.
-    //
-    // widthFraction/heightFraction are the defaults; userWidthFraction /
-    // userHeightFraction (0 = never resized) override them and are what gets
-    // persisted. maxAutoWidth/maxAutoHeight bound only the DEFAULT share, so an
-    // untouched picker never becomes absurd on a very large display — a share
-    // the user chose by hand is honoured to the full available space.
+    // widthFraction/heightFraction are defaults; userWidthFraction /
+    // userHeightFraction (0 = never resized) override them and are persisted.
+    // maxAutoWidth/maxAutoHeight cap only the default share; a share the user
+    // chose is honoured up to the full space.
     property real widthFraction: 0.38
     property real heightFraction: 0.62
     property real maxAutoWidth: 560
@@ -120,8 +86,8 @@ Popup {
         var cap = userWidthFraction > 0 ? maxWidth
                                         : Math.min(maxWidth, maxAutoWidth)
         var want = maxWidth * effectiveWidthFraction
-        // The floor itself is capped: in a window too narrow for minWidth the
-        // available space wins, or the picker would overhang its anchor.
+        // The floor is capped too: in a very narrow window the available space
+        // wins, or the picker would overhang its anchor.
         return Math.max(Math.min(want, cap), Math.min(minWidth, cap))
     }
     height: {
@@ -131,10 +97,8 @@ Popup {
         return Math.max(Math.min(want, cap), Math.min(minHeight, cap))
     }
 
-    // ── Anchored placement: pure bindings in the ANCHOR's coordinates ────
-    // Bottom-right pinned. No coordinate mapping, no revision counter, no
-    // deferred correction — Qt's popup positioner handles every ancestor
-    // movement, synchronously.
+    // ── Anchored placement: bindings in the anchor's coordinates ──
+    // Bottom-right pinned; Qt's popup positioner handles ancestor movement.
     readonly property real anchoredX: anchorItem ? Math.max(0, anchorItem.width - width) : 0
     readonly property real anchoredY: -height - anchorGap
 
@@ -153,13 +117,11 @@ Popup {
         restoreMode: Binding.RestoreNone
     }
 
-    // ── Point placement, for callers with no anchor item ─────────────────
-    // Clamped fully inside the overlay: horizontally centred on the point,
-    // vertically below it when it fits and above it when it does not.
-    // preferAbove flips that order — for popovers whose trigger sits at
-    // the BOTTOM of its own content (the read-receipt chips), opening
-    // upward is the natural direction and keeps a card that grows after
-    // placement away from the window's bottom edge.
+    // ── Point placement, for callers with no anchor item ──
+    // Clamped inside the overlay: centred on the point horizontally, below it
+    // if it fits, else above. preferAbove flips that order, e.g. for triggers
+    // at the bottom of their content (read-receipt chips), which also keeps a
+    // card that grows later away from the window's bottom edge.
     property bool preferAbove: false
     function placeAtPoint() {
         if (!overlayItem)
@@ -181,10 +143,8 @@ Popup {
             : Math.max(AppTheme.spacingS, above)
     }
 
-    // The one correction a point-placed popup gets: keep it inside a window
-    // that shrank. Never a re-place — the captured point is already stale, so
-    // re-placing would slide an edge-clamped popover somewhere arbitrary or
-    // flip one that opened above its point to below.
+    // A point-placed popup is only ever clamped inside a shrinking window,
+    // never re-placed: the captured point is stale by then.
     function clampInsideWindow() {
         if (!visible || !overlayItem || anchorItem)
             return
@@ -198,24 +158,14 @@ Popup {
         function onWidthChanged() { root.clampInsideWindow() }
         function onHeightChanged() { root.clampInsideWindow() }
     }
-    // A content-sized popup can GROW after placement: placeAtPoint() runs
-    // in onAboutToShow, before a list's delegates have materialized, so
-    // the placement decision is made against the header-only height and
-    // the settled card can extend past the window's bottom edge
-    // (2026-08-19, reader card — screenshot-confirmed on the desktop;
-    // the offscreen fixture is rescued by Qt's own popup positioner, so
-    // this clamp is the explicit guarantee). Same clamp, keyed on the
-    // popup's own size — still never a re-place.
+    // A content-sized popup can grow after placement (placeAtPoint() runs
+    // before a list's delegates exist), so clamp on its own size changes too.
     onWidthChanged: clampInsideWindow()
     onHeightChanged: clampInsideWindow()
 
-    // ── Resize, driven by PopupResizeGrip ───────────────────────────────
-    //
-    // There is no "detach" here, and there deliberately is not: the placement
-    // bindings keep the bottom-right corner pinned, so a bigger size grows the
-    // popup up and to the left on its own. That is also why the grip lives at
-    // the TOP-LEFT — it is the only free corner — and why dragging it away
-    // from the anchor is what makes the popup bigger.
+    // ── Resize, driven by PopupResizeGrip ──
+    // The bottom-right corner is pinned by the bindings, so a larger size grows
+    // up and left; hence the grip at the top-left.
     function resizeTo(w, h) {
         if (maxWidth > 0)
             userWidthFraction = Math.max(0.08, Math.min(1, w / maxWidth))
@@ -223,10 +173,7 @@ Popup {
             userHeightFraction = Math.max(0.08, Math.min(1, h / maxHeight))
     }
 
-    // Persisted as per-mille of the available space, under a key BOTH pickers
-    // share — resizing either one resizes the other, which is what was asked
-    // for and is only coherent because the stored value is a share rather than
-    // a pixel size.
+    // Persisted as per-mille of the available space, under the shared key.
     function endResize() {
         if (sizeSettingsKey.length > 0)
             app.settings.setPickerShare(sizeSettingsKey,
@@ -234,13 +181,9 @@ Popup {
                                         Math.round(userHeightFraction * 1000))
     }
 
-    // Carry the remembered size in on every open. Reading it here rather than
-    // binding it keeps this the one point where a persisted size can enter, so
-    // a mid-session drag is never fighting the store.
-    //
-    // A Connections object rather than an inline handler: both derived pickers
-    // assign their own onAboutToShow, and this gives the base an independent
-    // connection that runs after theirs and that no subclass can displace.
+    // Load the remembered size on every open, the one point a persisted size
+    // enters, so a mid-session drag never fights the store. A Connections
+    // object so derived pickers' own onAboutToShow can't displace it.
     Connections {
         target: root
         function onAboutToShow() {

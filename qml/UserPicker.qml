@@ -3,28 +3,25 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.5.9: reusable Matrix user search (Phase 7). Debounce, stale-result
-// rejection and duplicate removal live in C++ (UserSearchModel); this
-// component provides the input, result list, keyboard navigation and
-// selection signal. Used by the New Conversation and Invite People dialogs.
-//
-// ALL instances share ONE UserSearchModel (app.conversations.userSearch);
-// owners keep at most one picker visible at a time and clear the search
-// when switching surfaces.
+// Reusable Matrix user search, used by the New Conversation and Invite People
+// dialogs. Debounce, stale-result rejection and deduplication live in C++
+// (UserSearchModel); this provides the input, results, keyboard navigation and
+// selection signal. All instances share one UserSearchModel
+// (app.conversations.userSearch); owners keep at most one picker visible and
+// clear the search when switching.
 ColumnLayout {
     id: root
     spacing: AppTheme.spacing8
 
-    // Emitted when the user picks a result row (click or Enter). Existing
-    // two-argument handlers keep working; avatarUrl is additive.
+    // Emitted on click or Enter. avatarUrl is additive, so two-argument
+    // handlers still work.
     signal userSelected(string userId, string displayName, string avatarUrl)
 
     property alias searchText: searchField.text
     readonly property var model: app.conversations.userSearch
-    // v0.6.5 (SPEC 1u): the New Conversation omnibox reuses this exact
-    // instance/objectNames with a different border/icon/type treatment
-    // instead of a separate field, so every CreationDialogQmlTest assertion
-    // keyed on "<objectName>SearchField" keeps working untouched.
+    // The New Conversation omnibox reuses this instance and its objectNames
+    // with a different treatment, so CreationDialogQmlTest's
+    // "<objectName>SearchField" lookups keep working.
     property bool omniboxStyle: false
 
     function clear() {
@@ -36,10 +33,9 @@ ColumnLayout {
         searchField.forceActiveFocus()
     }
 
-    // HTML-escape untrusted display names before any StyledText highlight,
-    // then tint the matched query substring (SPEC 1t typeahead). Storm: the
-    // caller passes bolt for the highlighted row, stormText otherwise —
-    // yellow discipline keeps one bolt fragment per surface.
+    // HTML-escape untrusted display names before the StyledText highlight, then
+    // tint the matched substring. The caller passes bolt for the highlighted
+    // row only.
     function escapeHtml(s) {
         return String(s)
             .replace(/&/g, "&amp;").replace(/</g, "&lt;")
@@ -68,19 +64,17 @@ ColumnLayout {
         searchIcon: !root.omniboxStyle
         clearButton: true
         leftPadding: root.omniboxStyle ? 38 : (searchIcon ? 32 : 12)
-        // The omnibox is the dialog's subject, not a field beside other
-        // fields — it takes the title size. Everywhere else the picker is
-        // one control among many and stays at body size.
+        // Title size for the omnibox, which is the dialog's subject; body size
+        // elsewhere.
         font.pixelSize: root.omniboxStyle ? AppTheme.textTitle
                                           : AppTheme.textBody
         placeholderText: root.omniboxStyle
             ? qsTr("Type a name, an @user ID, or a #room address…")
             : qsTr("Search people, or enter a full Matrix ID…")
         Accessible.name: qsTr("Search for a user")
-        // Storm §3.8: stormInset field on the navy dialogs; focus promotes
-        // to a bolt border with the soft bolt halo. The omnibox keeps its
-        // larger radius and leading bolt glyph (SPEC 1u) — overridden from
-        // here rather than editing AppTextField.qml (lead-owned).
+        // stormInset field with a bolt focus border and halo. The omnibox's
+        // larger radius and leading glyph are overridden here rather than in
+        // AppTextField.
         storm: true
         background: Rectangle {
             radius: root.omniboxStyle ? AppTheme.radiusOmnibox : AppTheme.radiusMd
@@ -90,7 +84,7 @@ ColumnLayout {
                           : (root.omniboxStyle || searchField.hovered)
                             ? AppTheme.stormBorderStrong
                           : AppTheme.stormBorder
-            // §3.8 focus halo: an outside ring, never field geometry.
+            // Focus halo: an outside ring, never field geometry.
             Rectangle {
                 visible: searchField.activeFocus
                 anchors.fill: parent
@@ -108,7 +102,7 @@ ColumnLayout {
             anchors.verticalCenter: parent.verticalCenter
             name: "bolt"
             size: 18
-            // Mock 2i: the omnibox glyph inks bolt while focused.
+            // The omnibox glyph inks bolt while focused.
             color: searchField.activeFocus ? AppTheme.bolt
                                            : AppTheme.stormTextMuted
         }
@@ -137,7 +131,7 @@ ColumnLayout {
         }
     }
 
-    // State line: loading / no results / error. Results replace it.
+    // State line: loading / no results / error.
     Label {
         objectName: root.objectName.length > 0
                     ? root.objectName + "StateLabel" : "userPickerStateLabel"
@@ -171,8 +165,8 @@ ColumnLayout {
         function selectRow(row) {
             var userId = root.model.userIdAt(row)
             if (userId && userId.length > 0) {
-                // Avatar comes from the visible delegate (the model keeps
-                // avatarUrl as a role; the highlighted row is instantiated).
+                // The avatar comes from the visible delegate (the highlighted
+                // row is instantiated).
                 var delegateItem = resultsList.itemAtIndex(row)
                 root.userSelected(userId, root.model.displayNameAt(row) || "",
                                   delegateItem ? delegateItem.rowAvatarUrl : "")
@@ -220,7 +214,7 @@ ColumnLayout {
                         elide: Label.ElideRight
                     }
                     Label {
-                        // Remote or externally chosen text: never markup.
+                        // Untrusted text: never markup.
                         textFormat: Text.PlainText
                         Layout.fillWidth: true
                         visible: model.displayName && model.displayName.length > 0
@@ -231,11 +225,7 @@ ColumnLayout {
                         elide: Label.ElideMiddle
                     }
                 }
-                // v0.5.11: provenance chip so the user understands where a
-                // result came from (directory vs a confirmed exact lookup).
-                // The comment above already calls this a chip; it was a
-                // faint bare word. StatusChip is the shared pill, and the
-                // info tone separates provenance from the row's own inks.
+                // Provenance chip: directory result vs confirmed exact lookup.
                 StatusChip {
                     readonly property string src: model.source || "directory"
                     storm: true

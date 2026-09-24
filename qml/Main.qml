@@ -7,27 +7,10 @@ import MatrixClient
 ApplicationWindow {
     id: window
 
-    // ── Window geometry ──────────────────────────────────────────────────
-    // Restored from the last run, and saved as the user moves and resizes.
-    // Both halves used to be missing: the window opened at 1100x720 wherever
-    // the platform felt like putting it, every launch.
-    //
-    // The restore is DECLARATIVE, in these four bindings, and that is not a
-    // style choice. Qt shows the window during the component's own
-    // componentComplete(), which runs BEFORE any Component.onCompleted — so
-    // geometry applied from a completion handler lands after the window is
-    // already on screen and the user watches it jump.
-    //
-    // AppController::restorableWindowGeometry is CONSTANT, so these bindings
-    // evaluate once. Qt overwrites x/y/width/height directly when the user
-    // drags the frame, which breaks each binding, which is exactly right: the
-    // stored value is a starting point, not a leash. Nothing here reads a
-    // notifying property, so saving cannot feed back into restoring.
-    //
-    // It comes from AppController rather than straight from the settings
-    // because it is already filtered for a display layout that may have
-    // changed since — an invalid rect here means "do not restore", never
-    // "nothing was stored".
+    // Window geometry, restored from the last run and saved as the user moves
+    // and resizes. AppController::restorableWindowGeometry is constant and
+    // already validated against the current display layout; an invalid rect
+    // means "do not restore".
     readonly property rect startupGeometry: app.restorableWindowGeometry
     readonly property bool hasStartupGeometry: startupGeometry.width > 0
                                                && startupGeometry.height > 0
@@ -36,54 +19,26 @@ ApplicationWindow {
     minimumWidth: 640
     minimumHeight: 420
 
-    // THE POSITION IS APPLIED ONCE AND THEN LET GO OF.
-    //
-    // x and y used to be BINDINGS, and on the fresh-launch branch they read
-    // Screen.desktopAvailableWidth/Height — which notify — and `width`, which
-    // changes whenever the user resizes. So the window re-centred itself
-    // under its own user: drag it toward another monitor and the Screen
-    // attached property changes, the binding fires, and the window is pulled
-    // back to the middle of wherever it now thinks it is. That is the
-    // reported "trying to move the window makes it fight the movement", and
-    // it is also how a window can end up half off screen — the metrics are
-    // not final when an ApplicationWindow is first created, particularly on
-    // macOS, so the first centring runs against numbers that are about to
-    // change.
-    //
-    // The comment that used to sit here claimed these bindings evaluate once
-    // because restorableWindowGeometry is constant. That is true of the
-    // RESTORE branch and false of the centring branch beside it.
-    //
-    // So: start hidden, compute once, assign imperatively (which breaks the
-    // binding for good), then show. Hidden-until-placed also removes the jump
-    // the previous round hit when it tried to do this from
-    // Component.onCompleted while the window was already visible — Qt shows
-    // during componentComplete(), so the user watched it move. Nothing
-    // watches it move if it was never on screen.
+    // Start hidden, compute the position once, assign it imperatively, then
+    // show. Bindings on x/y re-centred the window whenever screen metrics or
+    // width changed, fighting the user's drags; and Qt shows the window during
+    // componentComplete(), so placing it later from onCompleted makes it jump.
     visible: false
 
     function applyStartupPlacement() {
         if (hasStartupGeometry) {
-            // Already validated in C++ against the CURRENT display layout: a
-            // rect whose grab band no longer meets any screen was dropped
-            // there, so reaching here means it is usable, including the
-            // legitimate negative coordinates of a monitor left of or above
-            // the primary.
+            // Validated in C++ against the current display layout, including
+            // legitimate negative coordinates of monitors left of or above the
+            // primary.
             x = startupGeometry.x
             y = startupGeometry.y
             app.noteWindowPlacement("restored", x, y, width, height)
             return
         }
-        // Centred on ONE SCREEN's available area, computed and validated in
-        // C++ (AppController::centredWindowRect, which carries the argument
-        // and the measurement).
-        //
-        // This used to be arithmetic on `Screen.desktopAvailableWidth` — the
-        // width of the whole VIRTUAL DESKTOP — so with two monitors it aimed
-        // at the middle of the pair, and on the maintainer's layout landed
-        // 90px past the desktop's right edge: the window opened invisible.
-        // An empty rect means the answer could not be trusted, and then the
-        // window manager places the window, which it does well.
+        // Centred on one screen's available area
+        // (AppController::centredWindowRect); the virtual desktop's width would
+        // aim between two monitors. An empty rect means the metrics could not
+        // be trusted, and the window manager places it.
         var centred = app.centredWindowRect(width, height)
         if (centred.width > 0 && centred.height > 0) {
             x = centred.x
@@ -91,22 +46,15 @@ ApplicationWindow {
             app.noteWindowPlacement("centred", x, y, width, height)
             return
         }
-        // No usable metrics — a headless or still-settling display. Leave the
-        // platform's own placement rather than centring against zeroes, which
-        // is what puts a window in the top-left corner or half off screen.
+        // No usable metrics (headless or still settling): leave the platform's
+        // placement rather than centring against zeroes.
         app.noteWindowPlacement("platform-default", x, y, width, height)
     }
 
-    // Development screenshot mode gets a clear window-title suffix so a demo
-    // window is never mistaken for a real account. It drops automatically when
-    // the demo controls are hidden, for a fully clean final screenshot.
-    // THE TITLE CARRIES THE UNREAD COUNT, because the taskbar is the one
-    // surface visible while Lightning is not. Reported: messages arrive and
-    // go unnoticed until the same account is opened in another client.
-    //
-    // Rooms, not messages, and mentions called out separately — "2 unread,
-    // 1 mention" is something a person acts on, where a summed message
-    // count is a number nobody can do anything with.
+    // Screenshot demo mode adds a title suffix so a demo window is never taken
+    // for a real account; it drops when the demo controls are hidden. The title
+    // carries the unread count, since the taskbar is visible while Lightning is
+    // not: rooms rather than messages, with mentions separately.
     readonly property string unreadTitleSuffix: {
         if (!app.roomList)
             return ""
@@ -124,34 +72,18 @@ ApplicationWindow {
 
     color: AppTheme.background
 
-    // ── Right-to-left ────────────────────────────────────────────────────
-    // LocalizationManager sets the process-wide layout direction when the
-    // language changes; Qt turns that into text alignment on its own, but
-    // ANCHORS and Layouts only mirror where LayoutMirroring says so. Enabling
-    // it here with childrenInherit mirrors the whole shell from one place:
-    // the rail moves to the right, the room list follows it, panels swap
-    // sides, and every leftMargin behaves as a leading margin.
-    //
-    // What this does NOT do, so nobody goes looking for it: LayoutMirroring
-    // resolves anchors and layout order. It never mirrors PIXELS, so images,
-    // video and avatars are untouched by construction. The timeline's
-    // `rotation: 180` Flickable is likewise unaffected — its scroll axis is
-    // vertical and mirroring is horizontal — so the timeline mirrors like any
-    // other pane and the scroll machinery is not in the blast radius.
-    //
-    // The one deliberate opt-out is CodeBlock: source code reads
-    // left-to-right in every language.
+    // Right-to-left: LocalizationManager sets the layout direction; anchors and
+    // Layouts only mirror where LayoutMirroring says so, so enabling it here
+    // with childrenInherit mirrors the whole shell. It never mirrors pixels
+    // (images, video, avatars), and the timeline's vertical rotation is
+    // unaffected. CodeBlock opts out: code reads left to right.
     LayoutMirroring.enabled: app.localization.rightToLeft
     LayoutMirroring.childrenInherit: true
 
-    // Theme correctness for every native Qt Quick Controls surface. The
-    // window item palette below covers in-window chrome (buttons, fields),
-    // but Fusion resolves POPUPS (ComboBox dropdowns, Menus, ToolTips,
-    // ScrollBars, Dialogs) from the *application* palette, which an item
-    // palette never reaches — that is what left dropdowns the default light
-    // colour on a dark theme. syncControlPalette() pushes the same tokens
-    // onto QGuiApplication so popups follow the theme too; it runs on load
-    // and on every theme change.
+    // Popups (ComboBox dropdowns, Menus, ToolTips, ScrollBars, Dialogs) resolve
+    // their palette from the application palette, which an item palette never
+    // reaches; push the same tokens onto QGuiApplication on load and on every
+    // theme change.
     function syncControlPalette() {
         app.applyControlPalette({
             "window": AppTheme.background,
@@ -210,41 +142,26 @@ ApplicationWindow {
 
     Component.onCompleted: {
         syncControlPalette()
-        // Placement FIRST, and while the window is still hidden: everything
-        // below decides how to SHOW it, and a window that is shown before it
-        // has been positioned is one the user watches jump.
+        // Place first, while still hidden, so the user never sees it move.
         applyStartupPlacement()
         visible = true
-        // Maximized is applied here rather than in a `visibility` binding: a
-        // binding would be broken the first time the user un-maximizes, and
-        // then re-established by the save below, fighting them. It also has
-        // to lose to startMinimized and startInTray, which is why it is
-        // first.
+        // Maximized is applied here rather than bound to `visibility`, which
+        // would fight the user after they un-maximize. It must lose to
+        // startMinimized and startInTray, so it comes first.
         if (app.settings && app.settings.initialWindowMaximized)
             window.visibility = Window.Maximized
         if (app.settings && app.settings.startMinimized)
             window.visibility = Window.Minimized
-        // Start straight into the tray. Guarded on the tray actually
-        // existing, and SettingsManager::startInTray already refuses unless
-        // closeToTray is on — starting invisibly with no way back would be
-        // the worst possible failure of this feature.
+        // Start in the tray only if a tray exists; SettingsManager::startInTray
+        // also requires closeToTray, so the window can always be brought back.
         if (app.settings && app.settings.startInTray && app.trayAvailable)
             window.hide()
         geometrySaver.armed = true
     }
 
-    // ── Saving the geometry back ──────────────────────────────────────────
-    // Debounced: a drag reports every pixel, and one QSettings write per
-    // mouse move is not a thing to do.
-    //
-    // Only the WINDOWED state is recorded. A maximized window's frame is the
-    // screen and a minimized one has no useful frame at all, so storing
-    // either as "the size the user chose" would throw that size away. The
-    // maximized FLAG is stored separately, which is how both survive.
-    //
-    // `armed` keeps startup out of it: applying the restore above changes x,
-    // y, width and height, and saving those back would be writing our own
-    // input, plus one write per launch for nothing.
+    // Saving geometry, debounced. Only the windowed state is recorded (the
+    // maximized flag separately). `armed` keeps the startup restore from being
+    // written back.
     Timer {
         id: geometrySaver
         property bool armed: false
@@ -268,11 +185,9 @@ ApplicationWindow {
     onYChanged: noteGeometryChanged()
     onWidthChanged: noteGeometryChanged()
     onHeightChanged: noteGeometryChanged()
-    // The last visibility the window actually had ON SCREEN. Minimized and
-    // Hidden are transient states the user comes BACK from, so raiseIntoView()
-    // restores this rather than guessing Windowed. `initialWindowMaximized` is
-    // CONSTANT in SettingsManager (read once at load), so it cannot answer this
-    // question after the user has maximized or restored during the session.
+    // The last visibility the window had on screen, restored by raiseIntoView()
+    // after Minimized/Hidden. initialWindowMaximized is read once at load and
+    // cannot answer this mid-session.
     property int lastOnScreenVisibility: Window.Windowed
 
     onVisibilityChanged: {
@@ -280,39 +195,23 @@ ApplicationWindow {
                 || window.visibility === Window.Windowed)
             window.lastOnScreenVisibility = window.visibility
         // Picture-in-picture follows the window off screen and back (see
-        // syncAutomaticPip below). Placed FIRST so a return from the tray
-        // stands the floating window down before anything else runs.
+        // syncAutomaticPip); first, so a return from the tray stands it down.
         window.syncAutomaticPip()
         if (!geometrySaver.armed || !app.settings)
             return
-        // Minimized and Hidden say nothing about which of maximized or
-        // windowed the user will come back to, so they are not recorded —
-        // otherwise closing to tray from a maximized window would remember
-        // "not maximized".
+        // Minimized and Hidden say nothing about the state the user returns to,
+        // so they are not recorded.
         if (window.visibility === Window.Maximized)
             app.settings.saveWindowMaximized(true)
         else if (window.visibility === Window.Windowed)
             app.settings.saveWindowMaximized(false)
     }
 
-    // ── Bringing the window forward without disturbing it ────────────────
-    //
-    // NEVER show(). QWindow::show() forces the NORMAL state, so calling it on
-    // a window that is already on screen and MAXIMIZED un-maximizes it — and
-    // onVisibilityChanged above then persists saveWindowMaximized(false), so
-    // the user's window preference is silently rewritten as a side effect of
-    // a click. Reported by a tester as "clicking a notification in the bell
-    // menu minimizes Lightning": the maximized window snapping back to its
-    // small remembered frame is what that looks like.
-    //
-    // The three states are genuinely different and only two of them may touch
-    // visibility at all:
-    //   Hidden     — closed to the tray; `visible = true` brings it back in
-    //                the state it had, which is why the tray path uses that
-    //                and not show().
-    //   Minimized  — a real desktop-notification click; restore the state the
-    //                window was in before it was minimized.
-    //   on screen  — raise and focus ONLY. Do not write visibility.
+    // Bring the window forward without disturbing it. Never show(): it forces
+    // the normal state, un-maximizing a maximized window and persisting that.
+    // Hidden     — closed to the tray; `visible = true` restores its state.
+    // Minimized  — restore the state it had before minimizing. on screen  —
+    // raise and focus only; do not write visibility.
     function raiseIntoView() {
         if (window.visibility === Window.Hidden)
             window.visible = true
@@ -322,24 +221,14 @@ ApplicationWindow {
         window.requestActivate()
     }
 
-    // ── Close to tray ────────────────────────────────────────────────────
-    // Requested by a tester on Windows. Off by default, and gated on the
-    // platform having a tray at all: hiding the window into a tray that does
-    // not exist would leave no way to get it back. Clicking the tray icon —
-    // any button — restores it.
-    //
-    // `quitRequested` is what makes Ctrl+Q work at all while this is on, and
-    // it is not a convenience flag — see the Shortcut below. Qt asks every
-    // top-level window to close as part of quitting, and a window that
-    // REFUSES stops the quit; without this the close-to-tray branch answered
-    // that request too, so Ctrl+Q silently hid the window instead of exiting.
+    // Close to tray: off by default and only where a tray exists; clicking the
+    // tray icon restores the window. `quitRequested` lets a real quit through:
+    // Qt asks every top-level window to close while quitting, and a refusal
+    // aborts the quit.
     property bool quitRequested: false
     onClosing: (close) => {
-        // Flush first, and unconditionally: the 400 ms debounce may still be
-        // running, and both branches below end this window's useful life —
-        // quitting outright, or hiding it, after which `visible` is false and
-        // the timer would decline to save. Losing the last resize because the
-        // user closed promptly after it is exactly the reported symptom.
+        // Flush first: the 400 ms debounce may still be pending, and both
+        // branches end this window's useful life.
         window.flushGeometry()
         if (!window.quitRequested && app.settings
                 && app.settings.closeToTray && app.trayAvailable) {
@@ -349,46 +238,25 @@ ApplicationWindow {
     }
     Connections {
         target: app
-        // A deliberate quit from C++ (applying an update) must not be vetoed
-        // by close-to-tray. Same flag Ctrl+Q sets, set for the same reason.
+        // A deliberate quit from C++ (applying an update) must not be vetoed by
+        // close-to-tray.
         function onApplicationQuitIntended() {
             window.quitRequested = true
         }
         function onTrayShowRequested() {
-            // See raiseIntoView(): `visible = true`, never show(). This is the
-            // path that first learned it, and the notification path now shares
-            // the same helper rather than repeating the mistake.
+            // `visible = true`, never show(); see raiseIntoView().
             window.raiseIntoView()
         }
     }
-    // Ctrl+Q quits for real. It exists because the tray icon deliberately
-    // carries no context menu (QSystemTrayIcon takes a QtWidgets QMenu and
-    // this process is a QGuiApplication), so this is the way out once the
-    // window has been closed into the tray and brought back.
-    //
-    // "For real" needs the flag. Qt.quit() posts QEvent::Quit, and
-    // QGuiApplication answers it by asking every top-level window to close
-    // FIRST — one that refuses aborts the whole quit (`e->ignore()`). With
-    // close-to-tray on, onClosing above was that refusal, so Ctrl+Q merely
-    // hid the window: the one documented way out of the tray did not work in
-    // exactly the mode that puts you there. Announcing the intent before
-    // asking lets the close handler stand aside.
-    //
-    // Deliberately still Qt.quit() and not Qt.exit(): the real shutdown work
-    // hangs off QCoreApplication::aboutToQuit (AppController's teardown, and
-    // UpdateManager's apply-on-quit), and tearing the event loop down under
-    // it would skip both.
-    //
-    // ApplicationShortcut, not the default WindowShortcut, so it still fires
-    // while a native dialog of ours holds focus. Nothing can reach it while
-    // the window is hidden in the tray — a hidden window has no focus — which
-    // is why restoring from the tray comes first.
+    // Ctrl+Q quits for real; the tray icon has no context menu, so this is the
+    // way out after closing to the tray. It sets quitRequested first so the
+    // close handler does not veto the quit. Qt.quit() rather than Qt.exit() so
+    // aboutToQuit teardown (AppController, UpdateManager apply-on-quit) still
+    // runs. ApplicationShortcut so it fires while one of our native dialogs has
+    // focus.
     Shortcut {
-        // Sequence from ShortcutRegistry (Settings -> Keyboard shortcuts).
-        // bindingRevision is read INSIDE the binding on purpose: sequenceFor()
-        // is a function call and creates no dependency Qt can track, so
-        // without it a rebind would not apply until this component was next
-        // created.
+        // From ShortcutRegistry. bindingRevision is read inside the binding
+        // because sequenceFor() creates no dependency.
         sequences: {
             var _rev = app.shortcuts.bindingRevision
             return [app.shortcuts.sequenceFor("app.quit")]
@@ -400,42 +268,21 @@ ApplicationWindow {
         }
     }
 
-    // SECURITY, application-wide. Qt Quick Controls uses ONE shared ToolTip
-    // instance for every attached `ToolTip.text`, and the Basic style builds
-    // its contentItem as a Text with the default AutoText format. AutoText
-    // runs mightBeRichText() over the string, so any tooltip whose text can
-    // begin with markup is promoted to StyledText — and several of ours carry
-    // remote-chosen member display names (the reaction reactor list, the
-    // read-receipt strip). A display name containing an <img src="https://…">
-    // would then make every viewer who merely HOVERS fetch that URL: an
-    // unconsented remote beacon reporting IP and timing, inside rooms where
-    // link previews are deliberately off by default.
-    //
-    // Fixing it once on the shared instance is what makes it a property of
-    // the application rather than of whichever call site someone remembered.
-    // Declaring a per-chip ToolTip with a plain-text contentItem would also
-    // work but costs a Popup + background + Label PER CHIP, which is the
-    // eager per-row instantiation this timeline has already un-done twice.
-    //
-    // It lives on an Item, not on the window: ToolTip is an attached property
-    // of Item, and attaching it to an ApplicationWindow warns
-    // "ToolTip attached property must be attached to an object deriving from
-    // Item" — which the QML-warning suites correctly fail on.
+    // Security, application-wide: Qt Quick Controls shares one ToolTip instance
+    // for every attached ToolTip.text, and the Basic style's Text uses
+    // AutoText, which promotes markup-looking strings to StyledText. Several
+    // tooltips show remote display names, so an <img> in a name would make
+    // every hovering viewer fetch that URL. Forcing plain text on the shared
+    // instance fixes it once for the whole app. On an Item, not the window:
+    // ToolTip attaches to Item, and attaching to the ApplicationWindow warns.
     Item {
         id: sharedToolTipGuard
         objectName: "sharedToolTipPlainTextGuard"
 
-        // The same shared instance also carries the app's most-seen popup
-        // chrome, and it was the only popup in the product that was not
-        // rounded: Basic's ToolTip background is a square Rectangle outlined
-        // in `palette.dark`, which Main.qml maps to the theme's secondary
-        // TEXT colour — a text-weight grey hairline around every tip, on a
-        // UI whose hairlines are AppTheme.border.
-        //
-        // These are imperative assignments rather than bindings because the
-        // instance is created by the style, not declared here — so they must
-        // be re-applied whenever the palette moves, which is what the
-        // Connections below is for. Fill and ink already follow the palette.
+        // Rounded chrome with the theme border for the shared tooltip (Basic's
+        // is a square outlined in a text-weight grey). Imperative because the
+        // style creates the instance; re-applied on palette changes by the
+        // Connections below.
         function applyToolTipChrome() {
             const shared = ToolTip.toolTip
             if (!shared)
@@ -450,9 +297,8 @@ ApplicationWindow {
         }
 
         Component.onCompleted: {
-            // Touching `contentItem` forces the lazy instance to exist.
-            // Guarded: a style whose tooltip content is not a Text simply has
-            // no textFormat, and must not throw here.
+            // Touching contentItem forces the lazy instance to exist. Guarded
+            // for styles whose content is not a Text.
             const shared = ToolTip.toolTip
             if (shared && shared.contentItem
                     && shared.contentItem.textFormat !== undefined)
@@ -468,10 +314,9 @@ ApplicationWindow {
         }
     }
 
-    // v0.6.0 checkpoint 11: a clicked notification raises Lightning, selects
-    // the room, opens the thread when it was a thread reply, and locates the
-    // event (the existing navigation shows a safe message when the target is
-    // unavailable). Identity only — the payload never carries tokens.
+    // A clicked notification raises Lightning, selects the room, opens the
+    // thread for a thread reply, and locates the event. The payload carries
+    // identity only, never tokens.
     Connections {
         target: app
         function onNotificationOpenRequested(roomId, eventId, threadRootId) {
@@ -483,34 +328,15 @@ ApplicationWindow {
             var inThread = threadRootId && threadRootId.length > 0
             if (inThread)
                 app.thread.openThread(roomId, threadRootId)
-            // A THREAD REPLY IS NOT IN THE ROOM TIMELINE, so asking it to
-            // jump there could only fail.
-            //
-            // The live room timeline is TimelineFocus::Live with
-            // hide_threaded_events, which is the whole point of it, so a
-            // threaded event id is not a row there: the jump found nothing,
-            // paginated looking for something that can never appear, and
-            // ended on the unavailable notice. Clicking a notification for a
-            // thread reply therefore landed nowhere. B023.
-            //
-            // The thread panel opened just above IS the destination, and the
-            // one thing the room timeline can still contribute is context:
-            // a thread ROOT does remain in the main timeline (CLAUDE.md §8),
-            // so that is what it locates. There is no thread-scoped jump to
-            // call; if one is ever added, the reply itself is the better
-            // target and this is the line to change.
-            //
-            // BUT CONTEXT MAY NOT PAGINATE. A thread root can be arbitrarily
-            // old, and jumpToEvent is allowed to spend kMaxNavigationBatches
-            // real backward paginations hunting for one — so a click on a
-            // thread notification walked the reader's ROOM view backwards
-            // through months of history nobody asked to see, reported as a
-            // notification that "started scrolling backwards" until it
-            // reached the previous month. The destination was already on
-            // screen the whole time. revealIfLoaded() takes the context when
-            // it is free and leaves the room timeline alone when it is not.
+            // A thread reply is not in the room timeline (Live with
+            // hide_threaded_events), so jumping to it there can only fail; the
+            // thread panel opened above is the destination. The thread root
+            // does remain in the main timeline (CLAUDE.md §8) and can give
+            // context, but must not paginate: jumpToEvent could walk the room
+            // back through months of history. revealIfLoaded() takes it only
+            // when already loaded.
             if (inThread) {
-                // `inThread` IS the non-empty test, above.
+                // `inThread` is the non-empty test above.
                 Qt.callLater(function() {
                     app.pagination.revealIfLoaded(threadRootId)
                 })
@@ -522,47 +348,36 @@ ApplicationWindow {
         }
     }
 
-    // Push the current theme selection into the AppTheme singleton so all
-    // consumers repaint on change.
+    // Push the theme selection into the AppTheme singleton.
     Binding {
         target: AppTheme
         property: "mode"
         value: app.settings ? app.settings.theme : 0
     }
-    // v0.5.11: the platform light/dark preference drives the "System" theme.
+    // The platform light/dark preference drives the "System" theme.
     Binding {
         target: AppTheme
         property: "systemDark"
         value: app.systemDarkMode
     }
-    // Reduced motion, assigned at last. AppTheme has DECLARED `reducedMotion`
-    // since the design round and ~20 branches across ten QML files consume it
-    // — and nothing ever wrote it, so every one of those branches was dead.
-    //
-    // PUSHED IN from here rather than read inside the singleton, exactly like
-    // `mode` and `customOverrides` above: AppTheme is a `pragma Singleton`
-    // that may be created before the `app` context property exists, and an
-    // `app.` dereference inside it would be resolved at whatever moment the
-    // singleton happens to be built.
+    // Reduced motion, pushed in from here like `mode` and customOverrides: the
+    // AppTheme singleton may be created before the `app` context property
+    // exists.
     Binding {
         target: AppTheme
         property: "reducedMotion"
         value: app.settings ? app.settings.reducedMotion : false
     }
-    // Composer policy, pushed into the C++ composer the same way the theme
-    // settings are pushed into AppTheme. MessageComposer holds no
-    // SettingsManager (its collaborators are injected), and a setting nothing
-    // ever writes is the dead-branch failure `reducedMotion` just cost us —
-    // so the one place that owns both objects does the assignment.
+    // Composer policy pushed into the C++ composer, which holds no
+    // SettingsManager; this is the one place that owns both.
     Binding {
         target: app.composer
         property: "sendTextAsCaption"
         value: app.settings ? app.settings.sendTextAsCaption : false
     }
-    // v0.9 slash commands: the composer only ASKS for these — mode is a
-    // setting, and display-name changes carry AppController's op-id
-    // bookkeeping. Wired here because this is the one place that owns both
-    // sides, same rationale as the caption binding above.
+    // Slash commands only ask for these; the mode is a setting and display-name
+    // changes carry AppController's op-id bookkeeping. Wired here, where both
+    // sides are owned.
     Connections {
         target: app.composer
         function onComposerModeToggleRequested() {
@@ -588,10 +403,9 @@ ApplicationWindow {
             app.submitOwnDisplayName(name)
         }
     }
-    // The user-authored palette (Settings → Appearance → Custom theme).
-    // Pushed in the same way as the theme id, so selecting Custom and editing
-    // a colour repaint through exactly one path. CustomThemeStore has already
-    // dropped unknown roles and malformed values.
+    // The custom palette (Settings → Appearance → Custom theme), pushed in the
+    // same way as the theme id. CustomThemeStore has already dropped unknown
+    // roles and malformed values.
     Binding {
         target: AppTheme
         property: "customOverrides"
@@ -608,27 +422,19 @@ ApplicationWindow {
         property: "textScale"
         value: app.settings ? app.settings.textScale / 100 : 1
     }
-    // The selected UI font follows the per-account Appearance setting.
-    // Controls inherit through the window font; explicit AppTheme.uiFont
-    // bindings cover non-inheriting text items.
-    //
-    // The value is FontManager's RESOLVED family, not the raw setting: the
-    // user may have chosen a system font that has since been uninstalled, or
-    // an imported one whose file is gone, and this token must never carry a
-    // family the host cannot draw. FontManager falls back to the bundled face
-    // WITHOUT rewriting the stored choice, so re-installing the font brings
-    // it back on its own.
+    // The UI font. Controls inherit through the window font; AppTheme.uiFont
+    // covers non-inheriting text. Uses FontManager's resolved family, never a
+    // family the host cannot draw; the stored choice is kept, so reinstalling a
+    // missing font brings it back.
     Binding {
         target: AppTheme
         property: "uiFont"
-        // `typeof` and not a plain truth test: `fonts` is a CONTEXT
-        // property, and several QML suites load this shell without one.
-        // Referencing an unresolved name throws a ReferenceError and kills
-        // the binding; `typeof` on it does not.
+        // `typeof`: `fonts` is a context property some suites do not install,
+        // and referencing an unresolved name throws.
         value: (typeof fonts !== "undefined" && fonts)
                ? fonts.uiFamily : "Manrope"
     }
-    // Same contract for the code/monospace face.
+    // Same for the code/monospace face.
     Binding {
         target: AppTheme
         property: "monoFont"
@@ -637,26 +443,18 @@ ApplicationWindow {
     }
     font.family: AppTheme.uiFont
 
-    // v0.7 design shell: no global header bar — the shell columns carry
-    // their own headers (room-list workspace header, room header).
+    // No global header bar; the shell columns carry their own headers.
 
     Loader {
         id: pageLoader
         anchors.fill: parent
 
-        // 2026-08-18 tester report ("tarpas neveikia pause ir unpause"):
-        // Space toggles whatever inline media is currently audible.
-        //
-        // Deliberately a Keys handler on an ANCESTOR, not a window
-        // Shortcut. A Shortcut is consumed before the focused item ever
-        // sees the key, which would silently take Space away from every
-        // control that already uses it — the timeline's page-down, the
-        // emoji and GIF grids, the focused player button itself. Key
-        // events instead bubble UP the parent chain, so this only ever
-        // sees a Space that nothing else wanted, and typing a space in
-        // the composer is untouched.
+        // Space toggles whatever inline media is audible. A Keys handler on an
+        // ancestor rather than a Shortcut: a Shortcut would take Space before
+        // the focused item (timeline paging, emoji/GIF grids, composer), while
+        // bubbling keys only reach here if nothing else wanted them.
         Keys.onSpacePressed: (event) => {
-            // Held Space would otherwise toggle on every auto-repeat.
+            // Held Space would toggle on every auto-repeat.
             if (event.isAutoRepeat) {
                 event.accepted = false
                 return
@@ -668,39 +466,30 @@ ApplicationWindow {
                 event.accepted = false
             }
         }
-        // Hidden (not unloaded) while the full-view Settings covers the
-        // content area: chat state survives without being visible,
-        // interactive, or part of active layout.
+        // Hidden, not unloaded, under full-view Settings so chat state
+        // survives.
         visible: app.currentScreen !== 2
         enabled: visible
 
-        // AppController::Screen enum ordering — kept in sync with
-        // src/app/AppController.h. We hard-code the integers here
-        // instead of `case app.LoginScreen:` because a switch whose
-        // case expressions read enum values on a context-property-
-        // exposed QObject was falling through under some Qt Quick
-        // compiler configurations, which kept HTTP login stuck on the
-        // login screen even after `loginSucceeded` fired (v0.4.4 bug).
-        // Integer literals against the notify-tracked
-        // `app.currentScreen` property are unambiguous.
+        // AppController::Screen values, kept in sync with
+        // src/app/AppController.h. Integer literals rather than
+        // `app.LoginScreen`: case expressions reading enum values off a
+        // context-property object fell through under some Qt Quick compiler
+        // configurations.
         function pickComponent() {
             var s = app.currentScreen
-            // Settings (2) keeps MainScreen LOADED (so the selected room,
-            // timeline position, and drafts survive) but hidden — the
-            // full-view Settings loader below covers the entire content
-            // area.
+            // Settings (2) keeps MainScreen loaded but hidden, so the selected
+            // room, timeline position and drafts survive.
             if (s === 1 || s === 2) return mainComponent
-            // 3 = BootScreen: a saved session is restoring. The login form
-            // is never instantiated in this state — a valid-session launch
-            // goes Boot -> Main without the form ever existing.
+            // 3 = BootScreen: a saved session is restoring; the login form is
+            // never created on that path.
             if (s === 3) return bootComponent
             return loginComponent                  // 0 = LoginScreen
         }
         sourceComponent: pickComponent()
 
-        // Belt-and-braces re-eval on the explicit signal. If the binding
-        // above tracks the property correctly this is a no-op; if it
-        // doesn't (as in the v0.4.4 bug), this closes the gap.
+        // Re-evaluate on the explicit signal as a fallback; a no-op when the
+        // binding tracks the property.
         Connections {
             target: app
             function onCurrentScreenChanged() {
@@ -711,9 +500,8 @@ ApplicationWindow {
 
     Component { id: loginComponent;    LoginScreen {} }
     Component { id: mainComponent;     MainScreen {} }
-    // Minimal branded restoration surface: theme background, wordmark, one
-    // quiet spinner. No credentials fields, no stale room content, and the
-    // saved theme already resolved (AppTheme.mode binds before load).
+    // Minimal restoration surface: background, wordmark, one spinner. No
+    // credential fields or stale content; the saved theme is already resolved.
     Component {
         id: bootComponent
         Rectangle {
@@ -722,8 +510,7 @@ ApplicationWindow {
             Column {
                 anchors.centerIn: parent
                 spacing: AppTheme.spacingM
-                // Brand mark above the wordmark — same bolt-in-tile idiom as
-                // the room-list workspace header.
+                // Brand mark, same bolt-in-tile idiom as the room-list header.
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: 44
@@ -759,21 +546,10 @@ ApplicationWindow {
         }
     }
 
-    // Full application-view Settings: occupies the entire content area
-    // below the window title bar. The spaces rail, room list, timeline,
-    // composer, and any right-side panel are hidden while it is open.
-    //
-    // BUILT ONCE AND KEPT. Reported: "when i open settings it takes like a
-    // second to open the menu, it should be instant". Measured with
-    // LIGHTNING_GUI_STALL_TRACE=100: opening Settings blocked the GUI thread
-    // for 428 ms, because `active` followed the current screen and so the
-    // 7,000-line SettingsScreen was instantiated from scratch on EVERY open
-    // and torn down on every close. Now the first build sticks (`warm`), a
-    // closed Settings merely hides, and every later open is a visibility
-    // flip. The first build is also started ahead of the user, asynchronously
-    // (the incubator interleaves with painting, so it is not a stall) a
-    // moment after the main screen shows; an open that arrives before that
-    // finishes still builds synchronously, exactly as before.
+    // Full-view Settings, covering the whole content area. Built once and kept:
+    // instantiating SettingsScreen on every open blocked the GUI thread for
+    // hundreds of milliseconds. The first build starts asynchronously shortly
+    // after the main screen shows; an earlier open builds synchronously.
     Loader {
         id: settingsViewLoader
         objectName: "settingsViewLoader"
@@ -797,23 +573,17 @@ ApplicationWindow {
         onTriggered: settingsViewLoader.warm = true
     }
 
-    // ── Development-only screenshot-demo control panel ───────────────────
-    // A floating control panel (scenario/account/room/theme/appearance/size
-    // selectors, toggles, reset) that also identifies the fake data. It is an
-    // overlay child of the window (not in any layout), so hiding it leaves NO
-    // gap. `app.screenshotDemoActive` is always false in a normal/release
-    // binary, so the panel component is never even loaded in production.
-    // Ctrl+Shift+D hides/restores it (app.demo.controlsVisible).
+    // Development-only screenshot-demo control panel, an overlay child of the
+    // window (no layout gap). Never loaded in a normal build
+    // (app.screenshotDemoActive is false). Ctrl+Shift+D toggles it.
     Shortcut {
         sequence: "Ctrl+Shift+D"
         enabled: app.screenshotDemoActive
         onActivated: if (app.demo) app.demo.toggleControls()
     }
 
-    // Interface zoom (Discord-style shortcuts). The value is applied as
-    // QT_SCALE_FACTOR at startup — Qt reads it exactly once — so changes
-    // take effect on the next launch; the transient notice says so
-    // honestly instead of silently doing nothing.
+    // Interface zoom. Applied as QT_SCALE_FACTOR, which Qt reads once at
+    // startup, so it takes effect on the next launch and the notice says so.
     function _adjustZoom(delta) {
         var next = delta === 0 ? 100 : app.settings.interfaceZoom + delta
         app.settings.interfaceZoom = next
@@ -822,11 +592,9 @@ ApplicationWindow {
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
-            // Ctrl++ stays a hard-coded ALTERNATE. Keyboards differ on
-            // whether Ctrl+= or Ctrl++ is reachable, and the registry stores
-            // ONE sequence per action — dropping the alternate would silently
-            // remove zoom-in on some layouts. It is deliberately not a
-            // registry row: it is the same action, not a second one.
+            // Ctrl++ stays a hard-coded alternate: keyboards differ on whether
+            // Ctrl+= or Ctrl++ is reachable, and the registry stores one
+            // sequence per action.
             return [app.shortcuts.sequenceFor("view.zoomIn"), "Ctrl++"]
         }
         onActivated: window._adjustZoom(5)
@@ -850,9 +618,7 @@ ApplicationWindow {
         id: zoomNotice
         function show() { visible = true; zoomNoticeTimer.restart() }
         visible: false
-        // In the OVERLAY, above any open popup — a plain window child
-        // renders below Popups and the notice would be invisible with
-        // Settings or a picker open (review nit).
+        // In the overlay so it shows above open popups.
         parent: Overlay.overlay
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
@@ -878,21 +644,15 @@ ApplicationWindow {
             onTriggered: zoomNotice.visible = false
         }
     }
-    // v0.7.x pinned messages: a pin/unpin FAILURE has to be visible where the
-    // action was taken. The common path is the message context menu, which
-    // closes on trigger — without this the only report was app.pinned.error
-    // inside Room Information → Pinned, a surface the user is usually not
-    // looking at. Same overlay-parented transient shape as zoomNotice above
-    // (it must sit above any open popup, for the same reason).
-    // Success is silent on purpose: the pinned list updating IS the feedback.
+    // Transient notice for failures of actions taken from menus that have
+    // already closed (pin/unpin and others below). Success is usually silent.
+    // Overlay-parented like zoomNotice.
     Rectangle {
         id: pinNotice
         objectName: "pinActionNotice"
         property string message: ""
-        // Whether this notice is reporting a FAILURE. Every original caller
-        // is an error report and passes nothing, so an omitted argument
-        // stays danger — the sticker round is the first non-failure user of
-        // this banner and passes false explicitly.
+        // Whether this reports a failure. Defaults to true; non-failure callers
+        // pass false.
         property bool danger: true
         function show(text, isDanger) {
             message = text
@@ -931,20 +691,15 @@ ApplicationWindow {
             interval: 4000
             onTriggered: pinNotice.visible = false
         }
-        // 2026-08-18 "Remove edits": the message menu is closed by the time
-        // the server answers, so the outcome is reported here. Removing
-        // nothing is a real outcome and is stated as such rather than being
-        // passed off as success.
+        // "Remove edits": the menu is closed by the time the server answers.
+        // Removing nothing is reported as such, not as success.
         Connections {
             target: app.composer
             function onEditsRemoved(eventId, ok, removed, failed, truncated) {
-                // ok == false with nothing attempted means the edits could
-                // not be READ at all (offline, cache miss). Saying "there
-                // are none" there would be a lie about the message.
+                // ok == false with nothing attempted means the edits could not
+                // be read at all; "there are none" would be false.
                 if (!ok && removed === 0 && failed === 0) {
-                    // One literal: qsTr() on a concatenation is not
-                    // extractable by lupdate, so a split string would never
-                    // be translatable.
+                    // One literal: lupdate cannot extract a concatenation.
                     pinNotice.show(qsTr("This message's edits could not be read. Check your connection and try again."))
                 } else if (failed > 0) {
                     pinNotice.show(
@@ -966,20 +721,9 @@ ApplicationWindow {
                     pinNotice.show(message)
             }
         }
-        // A REPORT WAS SUBMITTED AND THEN NOTHING HAPPENED, WHICH IS THE
-        // WHOLE PROBLEM. `ModerationController::reportFinished` had no
-        // consumer anywhere outside its own test, and `submitReport` clears
-        // the prompt BEFORE the server answers, so ReportMessageDialog closes
-        // at once. The user pressed Report, the dialog vanished, and nothing
-        // ever said whether the server accepted it, refused it, rate-limited
-        // it or lost it.
-        //
-        // SUCCESS is reported here, unlike a pin: nothing visible changes
-        // when a report lands, so a silent success is indistinguishable from
-        // a dead menu item -- the same reasoning as the sticker save below.
-        // The controller already carries a translated sentence for both
-        // outcomes, so this names no wording of its own and cannot drift
-        // from it.
+        // Report outcome. The report dialog closes before the server answers,
+        // so report both outcomes here (a silent success looks like a dead menu
+        // item). The controller supplies the translated sentences.
         Connections {
             target: app.moderation
             function onReportFinished(ok, message) {
@@ -987,22 +731,13 @@ ApplicationWindow {
                     pinNotice.show(message, !ok)
             }
         }
-        // "Add to my stickers": the message context menu has closed by the
-        // time the account-data write answers, so the outcome is reported
-        // here, on the same transient notice.
-        //
-        // SUCCESS is reported, unlike a pin — nothing visible changes when a
-        // sticker lands in your pack (the pack is only seen inside the
-        // picker), so a silent success is indistinguishable from a dead
-        // menu item. The shortcode the image actually got is named, because
-        // it may carry a numeric suffix the user did not ask for.
+        // "Add to my stickers" outcome, reported here since the menu has
+        // closed. Success is reported (the pack is only visible in the picker),
+        // naming the shortcode, which may have a numeric suffix.
         Connections {
             target: app.stickers
             function onSaveFinished(ok, category, shortcode, scope) {
-                // Two destinations report here — this account's own pack and
-                // the ROOM's — and a notice that could not tell them apart
-                // would tell the user their sticker went somewhere it did
-                // not.
+                // Distinguish this account's pack from the room's.
                 var toRoom = scope === "room"
                 if (ok) {
                     if (toRoom) {
@@ -1019,9 +754,7 @@ ApplicationWindow {
                                 : qsTr("Saved to your stickers"), false)
                     }
                 } else if (category === "duplicate") {
-                    // Not an error: the sticker IS in the pack, which is what
-                    // the user wanted. Saying "failed" here would send them
-                    // looking for a problem that does not exist.
+                    // Not an error: the sticker is already in the pack.
                     pinNotice.show(
                         toRoom
                             ? qsTr("That sticker is already in this room's stickers")
@@ -1035,8 +768,8 @@ ApplicationWindow {
                                    + "stickers in another client to add more."),
                         true)
                 } else if (category === "forbidden") {
-                    // Only the ROOM write can be refused this way: it is a
-                    // state event and the room decides who may send it.
+                    // Only the room write can be refused this way (room state,
+                    // power-level gated).
                     pinNotice.show(
                         qsTr("You do not have permission to change this "
                              + "room's stickers."), true)
@@ -1046,21 +779,14 @@ ApplicationWindow {
                 }
             }
         }
-        // v0.7.x forwarding: a forwarded ATTACHMENT is a direct upload, not
-        // a queued send, and the target timeline was not open when it was
-        // dispatched — so there is no local echo to fail visibly. Without
-        // this the user arrives in the target room, sees nothing, and
-        // believes the forward worked. Reuses this notice rather than adding
-        // a second transient banner class.
+        // A forwarded attachment is a direct upload with no local echo in the
+        // target room, so report a failure here.
         Connections {
             target: app.forward
             function onForwardFailed(targetRoomId, message) {
                 if (message.length === 0)
                     return
-                // Only while the user is still looking at the room it was
-                // aimed at — the same decision the voice-send path makes.
-                // A context-free "could not be forwarded" about a room they
-                // have since left names nothing and helps nobody.
+                // Only while the user is still looking at the target room.
                 if (targetRoomId.length > 0
                         && targetRoomId !== app.currentRoomId)
                     return
@@ -1069,11 +795,8 @@ ApplicationWindow {
         }
     }
 
-    // v0.7.x session verification. ONE dialog for the whole app: it follows
-    // AppController's verification state and opens itself, so Settings, the
-    // corner prompt and an INCOMING request from another client all surface
-    // through the same presentation. Declaring it per-page would give two
-    // instances that both react to the same state.
+    // One verification dialog for the whole app, following AppController's
+    // state, so Settings, the corner prompt and incoming requests share it.
     VerificationDialog {
         id: verificationDialog
         objectName: "verificationDialog"
@@ -1081,46 +804,33 @@ ApplicationWindow {
         anchors.centerIn: parent
     }
 
-    // v0.7.x: the ONE UIA prompt. Opens itself off UiaController's
-    // challenge state, so every privileged operation that hits a server
-    // challenge surfaces through the same presentation — never a per-page
-    // password dialog.
+    // The one UIA prompt, opened by UiaController's challenge state.
     UiaPromptDialog {
         id: uiaPromptDialog
         parent: Overlay.overlay
     }
 
-    // v0.7.x: the ONE report-message prompt (opens itself off
-    // ModerationController's pending-report state).
+    // The one report-message prompt (ModerationController's pending report).
     ReportMessageDialog {
         id: reportMessageDialog
         parent: Overlay.overlay
     }
 
-    // v0.7.x message forwarding (task #14): the ONE forward room-picker
-    // (opens itself off ForwardController's `active` state).
+    // The one forward room-picker (ForwardController's `active` state).
     ForwardMessageDialog {
         id: forwardMessageDialog
         parent: Overlay.overlay
     }
 
-    // The ONE update-available prompt. Like the dialogs above it opens itself
-    // off UpdateManager's state and closes when the version is dismissed, so
-    // it needs no wiring here beyond existing — but it does need to exist:
-    // without this instance the update-available state has no prompt at all
-    // and the only way to learn about an update is to open Settings.
+    // The one update-available prompt, opened by UpdateManager's state.
     UpdateAvailableDialog {
         id: updateAvailableDialog
         parent: Overlay.overlay
     }
 
-    // First-run nudge. Deliberately a corner card rather than a modal: an
-    // unverified session still works, so this must not block the app.
-    // Both corner prompts share ONE bottom-right column so they can never
-    // draw on top of each other: an unverified session and a pending update
-    // are independent conditions and are routinely true at the same time.
-    // A hidden prompt sets visible:false, so Column reclaims its space and
-    // no gap is left behind when only one is showing.
+    // Corner prompts share one bottom-right column so they never overlap;
+    // hidden prompts reclaim their space. The verification nudge is a card, not
+    // a modal: an unverified session still works.
     Column {
         objectName: "cornerPromptHost"
         parent: Overlay.overlay
@@ -1130,11 +840,7 @@ ApplicationWindow {
         spacing: AppTheme.spacing8
         z: 900
 
-        // Update first (above), verification nearest the corner: the
-        // security prompt is the more important of the two and keeps the
-        // anchored position it already had.
-        // A live ring outranks the passive prompts: first in the column,
-        // so it renders above them while they keep their corner spots.
+        // A live ring comes first, above the passive prompts.
         IncomingCallPrompt {
             objectName: "incomingCallPromptHost"
         }
@@ -1145,44 +851,30 @@ ApplicationWindow {
         VerifySessionPrompt {
             objectName: "verifySessionPromptHost"
         }
-        // B011: nearest the corner, below the verification nudge. An
-        // unverified session is a nudge; a session whose published identity
-        // key does not match its own account can never open anything it
-        // receives, so it takes the most anchored spot. The two are
-        // independent and can both be true.
+        // Nearest the corner: a session whose published identity key does not
+        // match its account cannot decrypt anything it receives.
         EncryptionBrokenPrompt {
             objectName: "encryptionBrokenPromptHost"
         }
     }
 
-    // ── Picture-in-picture ───────────────────────────────────────────────
-    //
-    // A separate top-level Window, so it lives outside this window's scene
-    // entirely and keeps carrying the call when this one is minimised or
-    // closed to the tray. Its visibility is driven by CallStageState's flag
-    // (see CallPipWindow's header for why that is imperative rather than a
-    // binding), and the flag is dropped when the call ends.
+    // Picture-in-picture: a separate top-level Window, so it keeps carrying the
+    // call while this one is minimised or in the tray. Visibility follows
+    // CallStageState's flag (see CallPipWindow); dropped when the call ends.
     CallPipWindow {
         objectName: "callPipWindow"
         onRestoreRequested: {
-            // Standing the PiP down BEFORE raising is deliberate: the window
-            // this is going back to will rebuild the call stage, and the
-            // video router hands a track's sink to whoever attached last —
-            // so the surface that is going away has to let go first.
+            // Stand the PiP down before raising: the video router gives a
+            // track's sink to the last attach, so the departing surface must
+            // release first.
             if (app.groupCall && app.groupCall.stageState)
                 app.groupCall.stageState.setPictureInPicture(false)
             window.raiseIntoView()
         }
     }
-    // Automatic pop-out. A floating window is worth having exactly when this
-    // one is not on screen, and that is the only case it fires in: minimised
-    // or closed to the tray, with a call actually live. Coming back on screen
-    // stands it down again, so the two are never both showing the call.
-    //
-    // It never opens by itself while this window is visible — that would be a
-    // window appearing over the user's work for no reason they asked for —
-    // and it does not close a PiP the user opened deliberately from the call
-    // bar, which is why it only writes the flag on a transition it caused.
+    // Automatic pop-out: only when this window is minimised or in the tray with
+    // a live call, and stood down on return. It never opens over a visible
+    // window, and only closes a PiP it opened itself.
     property bool pipAutoOpened: false
     readonly property bool pipCallLive:
         (app.groupCall && app.groupCall.active)
@@ -1207,29 +899,24 @@ ApplicationWindow {
             window.pipAutoOpened = false
         }
     }
-    // NOT a second onVisibilityChanged — QML permits exactly one handler per
-    // signal and the second is a compile error ("Property value set multiple
-    // times"), so this hangs off the existing one at the top of the file.
+    // Only one onVisibilityChanged handler is allowed, so this hangs off the
+    // existing one.
     onPipCallLiveChanged: window.syncAutomaticPip()
 
     Loader {
         active: app.screenshotDemoActive
         anchors.fill: parent
         z: 100
-        // String source is resolved at runtime, so a non-demo build (where the
-        // component is not in the module and active is always false) never
-        // references it.
+        // A string source resolved at runtime, so non-demo builds never
+        // reference the component.
         source: app.screenshotDemoActive ? "DemoControlPanel.qml" : ""
     }
 
-    // Slim status strip: shown only while something needs attention
-    // (connecting, offline, error) or on the login screen; the steady
-    // "Connected" state stays quiet per the design's low-noise shell.
+    // Status strip, shown only while something needs attention or on the login
+    // screen.
     footer: Rectangle {
         color: AppTheme.surface
-        // The screenshot demo runs on the mock backend; its connection footer
-        // ("Mock backend • …") is meaningless there and only clutters clean
-        // promotional screenshots, so it is suppressed in demo mode only.
+        // Hidden in the screenshot demo (mock backend).
         visible: !app.screenshotDemoActive
                  && (app.currentScreen !== 1
                      || app.connectionStatus !== qsTr("Connected")
@@ -1241,8 +928,7 @@ ApplicationWindow {
             anchors.fill: parent
             anchors.margins: AppTheme.spacingS
             spacing: AppTheme.spacingM
-            // v0.5.0-prep+12: coloured status dot + backend label so
-            // "Connected" / "Error" is legible at a glance.
+            // Status dot plus backend label.
             Rectangle {
                 id: statusDot
                 Layout.alignment: Qt.AlignVCenter

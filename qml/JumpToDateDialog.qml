@@ -3,23 +3,16 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// "Jump to date" — MSC3030 `timestamp_to_event`, stable since Matrix 1.6.
+// "Jump to date": MSC3030 `timestamp_to_event` (stable since Matrix 1.6).
 //
-// The SERVER answers which event is closest to a timestamp. Nothing here
-// scans a timeline and there is no client-side fallback: paginating backwards
-// until the dates look right is an unbounded walk through a room's whole
-// history to answer a question one request answers, and it would be slowest
-// in exactly the rooms this feature is for.
+// The server answers which event is closest; there is no client-side
+// fallback, since paginating back through history is unbounded and slowest in
+// the rooms this is for. Searches forward from the start of the chosen day,
+// so it lands on that day's first message, or the next message after an
+// empty day.
 //
-// FORWARD from the start of the chosen day, which is what "jump to date"
-// means: the FIRST message of that day, not the last one before it. A day
-// with no messages therefore lands on the next message after it — the honest
-// answer to "take me to here", rather than refusing to move.
-//
-// The dialog STAYS OPEN until the answer arrives. A homeserver that does not
-// implement the endpoint is a real outcome and the user has to be told; a
-// dialog that closes on click and then does nothing is the failure mode this
-// whole surface exists to avoid.
+// The dialog stays open until the answer arrives, so an unsupported
+// homeserver can be reported rather than the click silently doing nothing.
 Dialog {
     id: root
     objectName: "jumpToDateDialog"
@@ -47,9 +40,8 @@ Dialog {
         open()
     }
 
-    // Local midnight of the chosen day. LOCAL, not UTC: the user picks a date
-    // off their own calendar, and a UTC midnight is somebody else's day for
-    // most of the planet.
+    // Local midnight of the chosen day: the user picks from their own
+    // calendar.
     function chosenMs() {
         var now = new Date()
         switch (root.choice) {
@@ -72,8 +64,8 @@ Dialog {
             if (!(y >= 1970 && m >= 1 && m <= 12 && d >= 1 && d <= 31))
                 return -1
             var picked = new Date(y, m - 1, d)
-            // Round-tripped, so 2026-02-31 is refused rather than silently
-            // becoming the 3rd of March.
+            // Round-tripped, so 2026-02-31 is refused rather than becoming
+            // 3 March.
             if (picked.getFullYear() !== y || picked.getMonth() !== m - 1
                     || picked.getDate() !== d)
                 return -1
@@ -91,17 +83,13 @@ Dialog {
     function failureText(category) {
         switch (category) {
         case "not_found":
-            // The commonest real outcome, and now it says ONLY that. A server
-            // with no MSC3030 answers 404 M_UNRECOGNIZED and classifies as
-            // "unrecognized" below, so this no longer has to hedge — a hedge
-            // carried on the common case is read as noise and stops carrying
-            // anything on the rare one.
+            // The common outcome. A server without MSC3030 is classified as
+            // "unrecognized" below, so this needn't hedge.
             return qsTr("Your homeserver could not find a message on or "
                         + "after that date.")
         case "unrecognized":
-            // A homeserver too old for MSC3030 (stable since Matrix 1.6).
-            // Nothing the user can do in the app, so the message says whose
-            // limitation it is rather than offering a retry.
+            // Homeserver too old for MSC3030: nothing to retry in the app, so
+            // say whose limitation it is.
             return qsTr("Your homeserver does not support jumping to a date. "
                         + "That needs a newer homeserver; searching this "
                         + "room still works.")
@@ -220,9 +208,8 @@ Dialog {
                         return
                     var op = app.jumpToDate(at)
                     if (op === 0) {
-                        // 0 is "this build cannot ask", which is a different
-                        // answer from the server saying no — and saying
-                        // "your homeserver" about it would be a lie.
+                        // 0 means this build can't ask, which isn't the server
+                        // saying no.
                         root.status = "backend"
                         return
                     }

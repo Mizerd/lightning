@@ -3,24 +3,13 @@ import QtQuick.Controls
 import QtQuick.Effects
 import MatrixClient
 
-// The Lightning dialog shell. Every modal in the app should be this rather
-// than a bare `Dialog`.
+// The Lightning dialog shell; use it instead of a bare `Dialog`.
 //
-// Why it exists. main.cpp sets QQuickStyle "Basic", whose Dialog background
-// is `Rectangle { color: palette.window; border.color: palette.dark }` — no
-// radius — and whose footer is a DialogButtonBox of plain 100x40 square
-// Buttons. Six dialogs shipped that way: square corners against an app whose
-// smallest rounded surface is 4px, a panel painted in the CANVAS token so
-// under Storm the dialog body was the same colour as the screen behind it,
-// separated only by a 1px hairline drawn in a BODY-TEXT ink.
-//
-// Worse, Basic's Button draws keyboard focus as
-// `border.color: visualFocus ? palette.highlight : palette.windowText`, and
-// Main.qml maps both `button` -> cardElevated and `highlight` -> selected,
-// which under Storm are the SAME colour (#3D4190 on #3D4190). Tabbing
-// through a stock dialog under the app's own brand theme produced no visible
-// focus indicator at all. AppButton's inset ring fixes that here by
-// construction, on all eleven themes.
+// The Basic style's Dialog has square corners, a canvas-coloured panel
+// (indistinguishable from the screen under Storm) and a footer of square
+// stock Buttons whose focus border is invisible under Storm. This gives a
+// rounded storm panel and AppButton footer buttons with a visible focus ring
+// on every theme.
 //
 // Usage:
 //   AppDialog {
@@ -32,15 +21,14 @@ import MatrixClient
 Dialog {
     id: root
 
-    // Marks the accept/yes button as destructive: it renders as a solid
-    // danger button instead of the accent primary. Say it once here rather
-    // than restyling a footer button per dialog.
+    // Renders the accept/yes button as a solid danger button instead of the
+    // accent primary.
     property bool destructive: false
-    // Storm surfaces are the default for dialogs (every popover in the app
-    // is), but a dialog hosted inside a themed pane can opt out.
+    // Dialogs are storm surfaces by default; one hosted in a themed pane can
+    // opt out.
     property bool storm: true
-    // Some dialogs are their own header (a hero card, an avatar row); those
-    // set `title` empty and get no header strip.
+    // Dialogs that are their own header (hero card, avatar row) leave `title`
+    // empty and get no header strip.
     readonly property bool _hasHeader: title.length > 0
 
     modal: true
@@ -49,8 +37,7 @@ Dialog {
     topPadding: _hasHeader ? AppTheme.spacing4 : AppTheme.spacing20
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-    // The dim behind a modal. Basic paints `#80000000`; the token is theme
-    // aware and matches every other modal surface in the app.
+    // The theme-aware modal dim, matching every other modal.
     Overlay.modal: Rectangle {
         color: AppTheme.modalScrim
     }
@@ -89,9 +76,8 @@ Dialog {
         topPadding: AppTheme.spacing16
         background: Item {}
 
-        // Every footer button is an AppButton, so the geometry, the corner,
-        // the hover/press ladder and above all the focus ring are the app's
-        // and not the style's.
+        // Every footer button is an AppButton, for the app's geometry, states
+        // and focus ring.
         delegate: AppButton {
             storm: root.storm
             readonly property int _role: DialogButtonBox.buttonRole
@@ -110,9 +96,8 @@ Dialog {
     background: Item {
         implicitWidth: 320
 
-        // Sibling shadow, sourced from the panel and sized to it, so the
-        // dialog's measured geometry is untouched — the same constraint
-        // AppMenu documents.
+        // Sibling shadow sized to the panel, so the dialog's measured geometry
+        // is untouched (as in AppMenu).
         MultiEffect {
             source: dialogPanel
             anchors.fill: dialogPanel

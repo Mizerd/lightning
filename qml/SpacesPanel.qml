@@ -3,10 +3,8 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.5.3: left sidebar — Spaces section.
-// Sits above RoomsPanel in a ColumnLayout. Has its own search and
-// ScrollView. Collapse toggle shrinks the panel to header-only height so
-// RoomsPanel absorbs the freed space. Uses AppTheme tokens throughout.
+// Left sidebar Spaces section above RoomsPanel, with its own search and list.
+// Collapsing shrinks it to the header so RoomsPanel takes the space.
 Rectangle {
     id: root
     color: AppTheme.sidebar
@@ -14,11 +12,11 @@ Rectangle {
 
     property bool collapsed: false
 
-    // implicitHeight tracks the visible content so the parent ColumnLayout
-    // (in MainScreen) can size correctly when the panel collapses/expands.
+    // Tracks the visible content so the parent ColumnLayout resizes on
+    // collapse.
     implicitHeight: column.implicitHeight
 
-    // ── Internal layout ──────────────────────────────────────────────────
+    // Internal layout
     ColumnLayout {
         id: column
         anchors.top: parent.top
@@ -26,7 +24,7 @@ Rectangle {
         anchors.right: parent.right
         spacing: 0
 
-        // ── Header ───────────────────────────────────────────────────────
+        // Header
         Rectangle {
             Layout.fillWidth: true
             color: AppTheme.sidebar
@@ -52,11 +50,7 @@ Rectangle {
 
                 Item { Layout.fillWidth: true }
 
-                // Was a bare Basic ToolButton painting a geometric-shapes
-                // Unicode triangle at 9px — a half-opacity stock control and
-                // the only chevron in the app that was not a Material
-                // Symbols glyph. Same IconButton every other collapse
-                // affordance uses, with the shared attached tooltip.
+                // The shared IconButton collapse affordance with its tooltip.
                 IconButton {
                     implicitWidth: 24
                     implicitHeight: 24
@@ -73,8 +67,7 @@ Rectangle {
             }
         }
 
-        // ── "No spaces" compact empty state ──────────────────────────────
-        // Shown when no real Matrix Spaces exist on the active account.
+        // Compact empty state when the account has no Spaces.
         Label {
             Layout.fillWidth: true
             Layout.topMargin: AppTheme.spacing8
@@ -88,11 +81,7 @@ Rectangle {
             horizontalAlignment: Text.AlignHCenter
         }
 
-        // ── Search ───────────────────────────────────────────────────────
-        // The shared field, not a hand-rolled TextField: the local copy set
-        // its own background but never `color`, `placeholderTextColor`,
-        // `selectionColor` or `selectedTextColor`, so its ink came from the
-        // OS palette rather than from the theme.
+        // Search: the shared themed field.
         AppTextField {
             id: spaceSearch
             Layout.fillWidth: true
@@ -106,7 +95,7 @@ Rectangle {
             clearButton: true
         }
 
-        // ── Spaces ListView ───────────────────────────────────────────────
+        // Spaces list
         ListView {
             id: spaceList
             Layout.fillWidth: true
@@ -124,8 +113,8 @@ Rectangle {
 
                 property bool isSelected: model.spaceId === (app.spaces ? app.spaces.activeSpaceId : "")
 
-                // Pseudo-space rows (All rooms, Other rooms) always pass the
-                // filter; real spaces are checked case-insensitively by name.
+                // Pseudo-space rows always pass; real Spaces match by name,
+                // case-insensitive.
                 property bool matchesFilter: {
                     var q = spaceSearch.text
                     if (q === "") return true
@@ -159,10 +148,7 @@ Rectangle {
                     anchors.rightMargin: AppTheme.spacing8
                     spacing: AppTheme.spacing8
 
-                    // Pseudo-row glyphs. Both were Labels carrying literal
-                    // characters — one of them the EMPTY string, so the
-                    // "All rooms" row had no glyph at all and its 14px slot
-                    // silently collapsed.
+                    // Pseudo-row glyphs.
                     Icon {
                         visible: model.spaceId === ""
                                  || model.spaceId === "@orphans"
@@ -170,11 +156,8 @@ Rectangle {
                         size: 16
                         color: isSelected ? AppTheme.accent : AppTheme.textMuted
                     }
-                    // The shared Avatar, not a local initials disc: it
-                    // owns the identity palette, the mediaCached wiring and
-                    // the baked "|shape:" mask, and the hand-rolled copy
-                    // here painted one flat cardElevated square for every
-                    // Space — no identity colour at all.
+                    // The shared Avatar: identity palette, mediaCached wiring
+                    // and baked mask.
                     Avatar {
                         visible: model.spaceId !== "" && model.spaceId !== "@orphans"
                         size: 22

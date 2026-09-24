@@ -4,86 +4,43 @@ import QtQuick.Layouts
 import QtMultimedia
 import MatrixClient
 
-// One SCREEN SHARE on the call stage.
+// One screen share on the call stage. A share is a tile, not a mode: every
+// live share is an ordinary grid tile, so the grid is a complete index and
+// dismissing the spotlight can't strand a share. A person sharing with their
+// camera on occupies two tiles (this and their CallParticipantTile), one per
+// track.
 //
-// A SHARE IS A TILE, NOT A MODE. That sentence is the whole point of this
-// file. The stage used to have exactly one notion of a share: `sharingPerson`
-// returned the FIRST participant whose `screenSharing` was true and the layout
-// switched itself to a spotlight on them. Consequences, both reported:
-//   * a SECOND simultaneous sharer had no surface anywhere — not a tile, not a
-//     strip entry, not a picker. They were structurally unreachable.
-//   * "Back to grid" latched `layoutMode = "grid"` and nothing ever wrote it
-//     back, so the share became unreachable for the rest of the call
-//     ("now if share is closed no way to get it back").
-// Both disappear once every live share is an ordinary tile in the grid: the
-// grid is then a COMPLETE index of everything on offer, so dismissing a
-// spotlight cannot lose anything. Discord works this way and that is why it
-// never strands you.
-//
-// One person sharing WITH their camera on therefore occupies TWO tiles — this
-// one and their CallParticipantTile — which is correct: they are two separate
-// tracks and one surface can only render one of them.
-//
-// ONE SINK PER TRACK, AND THE LAST ATTACH OWNS IT. `SfuVideoRouter` holds a
-// single screen sink per participant identity: a second attach on the same
-// identity replaces the first, and a release names the SINK — so it gives up
-// only what that sink still owns, and a superseded surface gives up nothing.
-//
-// That second clause was missing until 2026-08-27, and its absence is the
-// reported "when i full screen it it stop shwoing video". The comment here
-// used to claim the safety property came from "the grid and the spotlight are
-// mutually exclusive Loaders" — which is true of their `active` and NOT of
-// their object LIFETIME. Qt builds the newly activated Loader's content
-// synchronously and destroys the deactivated one's with `deleteLater()`, so
-// the two overlap by one event-loop turn, and the dying tile's key-named
-// detach landed inside that window every single time.
-//
-// A share is still rendered in exactly ONE place at a time — the strip
-// excludes the spotlighted share BY shareId, and full screen stands the stage
-// surfaces down — but that is now an arrangement, not the guarantee. The
-// guarantee is the ownership rule.
+// SfuVideoRouter holds one screen sink per participant identity: the last
+// attach owns it, and a release names the sink, so a superseded surface gives
+// up nothing. That matters because Qt builds a newly activated Loader's
+// content synchronously but destroys the old one with deleteLater(), so
+// surfaces overlap for one event-loop turn during layout changes.
 Item {
     id: root
 
-    /// THIS RENDERER CANNOT DRAW VIDEO, so the tile must not hand its space
-    /// to a VideoOutput that will paint nothing.
-    ///
-    /// Qt Quick's software adaptation has no node type for video at all, and
-    /// frames still ARRIVE — the sink reports a real videoSize and the
-    /// engine's counters climb — so every "is there a picture" test in this
-    /// file answers yes while the tile shows an empty rectangle. Measured on
-    /// Windows with no usable GL, and reproduced on Linux with
-    /// QT_QUICK_BACKEND=software as the only change.
-    ///
-    /// Staying in the placeholder state is strictly better: the reader sees
-    /// what they see before the first frame, which is at least interpretable,
-    /// and CallStage says once why no video is coming. Defensive `app` lookup
-    /// because this component is loaded standalone in tests.
+    /// True under Qt Quick's software renderer, which can't draw video even
+    /// though frames arrive. The tile then keeps its placeholder and CallStage
+    /// explains why. `app` is looked up defensively for standalone tests.
     readonly property bool softwareRendererHidesVideo:
         typeof app !== "undefined" && app && app.softwareRenderer === true
 
-    /// Stable identity of this share for one call. Remote: the LiveKit
-    /// screen-share track sid. Local: "local:<n>". A share that stops and
-    /// restarts is a NEW published track and so a new id — which is why a
-    /// restarted share can never arrive still-dismissed.
+    /// Stable id of this share for one call: the LiveKit screen-share track
+    /// sid, or "local:<n>" for ours. A restarted share is a new track and a new
+    /// id, so it can never arrive already dismissed.
     property string shareId: ""
-    /// The SFU identity of whoever is sharing. This is what routes the video:
-    /// the screen sink is keyed on the participant, not on the track key.
+    /// The sharer's SFU identity; the screen sink is keyed on it.
     property string ownerIdentity: ""
     property string ownerDisplayName: ""
-    /// Watched only so the sink is RE-ATTACHED when it arrives. The SFU can
-    /// announce a share before it says which media section the track landed
-    /// on, and an attach made while the key was still empty never receives a
-    /// frame. A LOCAL share exists before the SFU has named a track for it at
-    /// all, so this is empty for a while by construction.
+    /// Watched so the sink is re-attached when it arrives: an attach under an
+    /// empty key never receives a frame. A local share exists before the SFU
+    /// names its track.
     property string trackKey: ""
-    /// Our own share. Routes through the engine's self-view tee rather than
-    /// through a received stream — there is no remote stream for this device.
+    /// Our own share, routed through the engine's self-view tee.
     property bool local: false
 
     /// Compact form, for the strip beside the spotlight.
     property bool compact: false
-    /// This tile IS the spotlight.
+    /// This tile is the spotlight.
     property bool focused: false
 
     signal activated()
@@ -119,14 +76,10 @@ Item {
         id: surface
         anchors.fill: parent
         radius: AppTheme.radiusTile
-        // A share tile is always a panel: there is content in it, or there is
-        // about to be. It never takes the bare-avatar shape.
+        // Always a panel, never the bare-avatar shape.
         color: AppTheme.stormInset
-        // While the picture is showing, the picture's own frame (below) is
-        // the only frame — a second edge around the tile bounds read as
-        // "two frames" on the popout and the stage (2026-09-05). The
-        // keyboard focus ring still draws on the tile, since it is about the
-        // tile and not the picture.
+        // While the picture shows, its own frame (below) is the only edge. The
+        // focus ring still draws on the tile.
         readonly property bool pictureFramed:
             videoLoader.visible && videoLoader.item
             && videoLoader.item.pictureFramed === true
@@ -145,9 +98,7 @@ Item {
             visible: active && item && item.hasFrame
                      && !root.softwareRendererHidesVideo
             sourceComponent: Item {
-                /// Nothing has arrived yet: the tile keeps its placeholder
-                /// rather than showing a black hole while the first frame is
-                /// in flight.
+                /// Keeps the placeholder until the first frame arrives.
                 readonly property bool hasFrame:
                     output.videoSink && output.videoSink.videoSize.width > 0
                 readonly property bool pictureFramed: videoFrame.visible
@@ -155,19 +106,14 @@ Item {
                 VideoOutput {
                     id: output
                     anchors.fill: parent
-                    // A shared screen is CONTENT: it is FITTED, never
-                    // cropped. Cropping hides the edges of what the other
-                    // person is showing, which is usually exactly where their
-                    // toolbars and tabs are.
+                    // Shares are fitted, never cropped: the edges usually hold
+                    // the sharer's toolbars and tabs.
                     fillMode: VideoOutput.PreserveAspectFit
                 }
-                // A frame around the PICTURE, not around the tile: on a big
-                // surface the aspect-fit video leaves bare strips at the
-                // sides and the tile's own 1px edge sits at the window edge,
-                // so the stream read as "thrown in there" (2026-09-05 report,
-                // popout and main stage alike). The painted rectangle is
-                // computed here from the frame size — VideoOutput's own
-                // contentRect did not describe it on the live build.
+                // A frame around the painted picture rather than the tile, so
+                // the fitted video doesn't look loose on a large surface.
+                // Computed from the frame size: VideoOutput's contentRect
+                // didn't describe it.
                 Rectangle {
                     id: videoFrame
                     objectName: "callShareVideoFrame"
@@ -189,7 +135,7 @@ Item {
                     color: "transparent"
                     radius: AppTheme.radiusSm
                     border.width: 2
-                    // Carries the spotlight accent the tile edge used to.
+                    // Carries the spotlight accent.
                     border.color: root.focused ? AppTheme.accentBorder
                                                : Qt.rgba(1, 1, 1, 0.34)
                 }
@@ -202,36 +148,24 @@ Item {
                                                        output.videoSink);
                 }
                 function detach() {
-                    // Names the SINK, never the key. The key-named detach
-                    // this replaced is what made a spotlighted share blank:
-                    // the spotlight's tile is built SYNCHRONOUSLY while the
-                    // grid's is destroyed by deleteLater(), so the dying grid
-                    // tile removed the key the spotlight had just taken, and
-                    // nothing re-attached. That is "when i full screen it it
-                    // stop shwoing video", every time rather than as a race.
+                    // Names the sink, never the key: a dying tile's key-named
+                    // detach would unhook the surface that just replaced it.
                     app.groupCall.detachSink(output.videoSink);
                 }
                 Component.onCompleted: attach()
                 Component.onDestruction: detach()
 
-                // No periodic re-arm — see CallParticipantTile for why one was
-                // written and removed. `onTrackKeyChanged` on the tile covers
-                // the late-key case, which is the only one that needs it.
+                // No periodic re-arm (see CallParticipantTile);
+                // onTrackKeyChanged covers late keys.
             }
         }
 
-        // Placeholder while the first frame is in flight. NOT a claim that
-        // the share is unviewable — the old stage drew permanent wording of
-        // that kind over an empty rectangle and never rendered anything,
-        // which is how "I did not see their screenshare" happened.
+        // Placeholder while the first frame is in flight; not a claim the share
+        // is unviewable.
         ColumnLayout {
             anchors.centerIn: parent
-            // A WIDTH, so the sentence below has something to elide against.
-            // Centred with no width, the column took its own implicit one —
-            // the whole unwrapped line — and a grid cell narrower than that
-            // simply cut the wording off at both ends, because this tile
-            // clips. Which cells are narrower than the line is a function of
-            // how wide the platform draws it.
+            // A width so the text below can elide; otherwise the column takes
+            // the line's full width and the clipping tile cuts it off.
             width: parent.width - AppTheme.spacing16
             spacing: 6
             visible: !videoLoader.visible
@@ -242,15 +176,10 @@ Item {
                 color: AppTheme.stormTextSecondary
             }
             Loader {
-                // FILLING, not centre-aligned: an aligned cell is not
-                // stretched, so the text would keep its implicit width and
-                // overflow exactly as before. The label centres itself
-                // inside the width it is given instead.
+                // Filling, not centre-aligned, so the text has a width to elide
+                // against; the label centres itself.
                 Layout.fillWidth: true
-                // A Label whose text can be empty in the state it is created
-                // in belongs behind a Loader — this delegate is instantiated
-                // per share, and a never-laid-out empty Text keeps
-                // ItemObservesViewport forever.
+                // Behind a Loader: an empty Text keeps ItemObservesViewport.
                 active: !root.compact && root._label.length > 0
                 visible: active
                 sourceComponent: Text {
@@ -263,13 +192,10 @@ Item {
             }
         }
 
-        // Nameplate: bottom-left pill, the share glyph INSIDE it ahead of the
-        // name, always visible. This is the affordance that says "this is a
-        // screen, and whose".
-        // On a big surface the plate covers the picture, so it behaves like
-        // the full-screen controls: shown for a few seconds after the tile
-        // appears or the pointer moves over it, then faded out. Small grid
-        // tiles keep it, there it IS the tile's label.
+        // Nameplate: bottom-left pill with the share glyph ahead of the name.
+        // On a large surface it covers the picture, so it fades out 3 s after
+        // the tile appears or the pointer last moved; small grid tiles keep it
+        // as their label.
         readonly property bool plateAutoHides: root.width >= 480
         property int plateIdleTicks: 0
         property bool plateIdle: false
@@ -318,19 +244,14 @@ Item {
                                     surface.width - (root.compact ? 12 : 16))
             implicitHeight: plate.implicitHeight + 6
             radius: AppTheme.radiusPill
-            // Its own dark field, painted over arbitrary video, so the name
-            // stays legible on a bright screen share.
+            // Its own dark field, legible over bright video.
             color: Qt.rgba(0, 0, 0, 0.55)
 
             RowLayout {
                 id: plate
                 objectName: "callShareNameplateRow"
-                // Anchored to the plate's EDGES, not merely centred in it —
-                // see the long note in CallParticipantTile. `centerIn` gave
-                // this row its full implicit width, so "%1's screen" ran out
-                // past both ends of its own pill and was then cut off by the
-                // tile's clip. The label can only elide against a width
-                // somebody gave it.
+                // Anchored to the plate's edges so the label can elide (see
+                // CallParticipantTile).
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.left: parent.left
                 anchors.right: parent.right
@@ -348,9 +269,8 @@ Item {
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
                     text: root._label
-                    // A fixed light ink rather than a theme token: this plate
-                    // paints its own field over video, so the surrounding
-                    // theme says nothing about what is legible on it.
+                    // A fixed light ink: the plate paints its own field over
+                    // video.
                     color: "#FFFFFF"
                     font.pixelSize: root.compact ? 11 : 12
                     font.weight: Font.Medium
@@ -361,9 +281,8 @@ Item {
         }
 
         TapHandler {
-            // Left button only: TapHandlers are non-exclusive across
-            // subtrees, so grabbing every button would also swallow presses
-            // meant for the stage beneath.
+            // Left button only: TapHandlers are non-exclusive across subtrees,
+            // so taking every button would swallow presses meant for the stage.
             acceptedButtons: Qt.LeftButton
             onTapped: root.activated()
         }
@@ -373,25 +292,12 @@ Item {
             cursorShape: Qt.PointingHandCursor
         }
     }
-    // ── The share's own volume ───────────────────────────────────────────
-    //
-    // SEPARATE FROM THE SHARER'S MICROPHONE, because they are separate
-    // tracks and a viewer wants them apart: turn the game down without
-    // silencing the person playing it. The engine keys its receive volume
-    // per TRACK for exactly this — one participant publishing both a
-    // microphone and a desktop used to collide on a single volume element,
-    // so a change landed on whichever GStreamer found first.
-    //
-    // Offered only when the share actually carries sound. A slider that
-    // cannot move anything is worse than no slider.
-    // `shareHasAudio()` IS A PLAIN CALL WITH NO NOTIFY BEHIND IT, so this
-    // binding cannot re-evaluate on its own. That matters because a sharer
-    // can toggle share audio MID-SHARE from our own menu: without a
-    // dependency the slider would never appear for a share that started
-    // silent, and the right-click would stay dead for the rest of the call.
-    // `participantsChanged` is emitted from the path that rebuilds
-    // participants out of SFU track state, which is exactly when the answer
-    // can change.
+    // ── The share's own volume ──
+    // Separate from the sharer's microphone (separate tracks; the engine keys
+    // receive volume per track). Offered only when the share carries sound.
+    // shareHasAudio() is a plain call with no notify, so participantsChanged
+    // (emitted when participants are rebuilt from SFU track state) drives a
+    // revision, since share audio can be toggled mid-share.
     property int shareAudioRevision: 0
     Connections {
         target: app.groupCall
@@ -424,10 +330,8 @@ Item {
             shareVolumePopup.open()
     }
 
-    // A right-click on the share opens it, mirroring the participant tile —
-    // and gated on the share actually having sound, so it never swallows a
-    // press the stage wanted when there is nothing to adjust. That collision
-    // has shipped three times in this repo.
+    // Right-click opens it, as on the participant tile, and only when the share
+    // has sound, so it never swallows a press the stage wanted.
     TapHandler {
         enabled: root.shareAudioOffered
         acceptedButtons: Qt.RightButton

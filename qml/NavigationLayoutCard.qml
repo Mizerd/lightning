@@ -2,18 +2,10 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// A selectable preview of one room-list navigation layout.
-//
-// A card rather than another segmented control, because the choice is about
-// SHAPE and a two-word label cannot convey shape. The preview is drawn from
-// AppTheme tokens — it is a diagram of the layout, deliberately not a live
-// instance of it: a real RoomListClassicPresenter in a settings card would
-// need a room list, fetch avatars, and change while you look at it.
-//
-// The two diagrams differ in exactly the ways the layouts differ, which is
-// the whole job: Classic shows tall rows with a preview line under each name;
-// Channels shows a category header with short single-line rows indented
-// beneath it.
+// A selectable preview of one room-list navigation layout. A diagram drawn from
+// AppTheme tokens, not a live instance (which would need a room list and
+// avatars). Classic: tall rows with a preview line; Channels: a category header
+// with short indented rows.
 AbstractButton {
     id: root
 
@@ -24,16 +16,8 @@ AbstractButton {
     property bool current: false
 
     implicitWidth: 200
-    // GROWS WITH ITS TEXT. This was a flat 152, and at any width where the
-    // subtitle wraps to a second line the card simply cut it off — "One
-    // list, most recent first, with message previews." lost the word
-    // "previews." to the card's own bottom edge, and so did "rooms." on the
-    // Channels card. Reported from a resized window on 0.8.4.
-    //
-    // 152 is kept as a FLOOR so the two cards stay the same comfortable size
-    // whenever the text does fit, which is the shape the design wants; the
-    // RowLayout that hosts them imposes no height of its own, so the
-    // taller of the two now sets the row.
+    // Grows with its text; 152 is a floor so both cards match when the text
+    // fits.
     implicitHeight: Math.max(152, cardBody.implicitHeight)
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
@@ -45,10 +29,8 @@ AbstractButton {
 
     background: Rectangle {
         radius: AppTheme.radiusMd
-        // stormSelection / hover are the theme-ROUTED pair. There is no
-        // `stormSelected` or `stormHover` token, and naming one silently
-        // yields an undefined colour rather than an error — caught only by
-        // the no-QML-warnings gate.
+        // stormSelection / hover are the routed pair; a non-existent token name
+        // yields an undefined colour silently.
         color: root.current ? AppTheme.stormSelection : (root.hovered || root.activeFocus ? AppTheme.hover : AppTheme.stormPanel)
         border.width: root.current || root.activeFocus ? 2 : 1
         border.color: root.activeFocus ? AppTheme.focusRing : (root.current ? AppTheme.accentBorder : AppTheme.stormBorder)
@@ -64,7 +46,7 @@ AbstractButton {
         spacing: AppTheme.spacing8
         padding: AppTheme.spacing12
 
-        // ── The diagram ──────────────────────────────────────────────────
+        // The diagram
         Rectangle {
             width: root.width - AppTheme.spacing12 * 2
             height: 76
@@ -72,8 +54,8 @@ AbstractButton {
             color: AppTheme.sidebar
             clip: true
 
-            // Classic: four tall rows, each a name bar over a dimmer
-            // preview bar, with a leading avatar disc.
+            // Classic: four tall rows, each a name bar over a preview bar, with
+            // an avatar disc.
             Column {
                 visible: root.variant === "classic"
                 anchors.fill: parent
@@ -112,8 +94,8 @@ AbstractButton {
                 }
             }
 
-            // Channels: a category header, then short indented rows — and a
-            // second category, so the STRUCTURE is what the card shows.
+            // Channels: a category header, short indented rows, and a second
+            // category.
             Column {
                 visible: root.variant === "channels"
                 anchors.fill: parent
@@ -125,8 +107,8 @@ AbstractButton {
                     delegate: Column {
                         required property int index
                         spacing: 3
-                        // The all-caps category bar: short and dim, the way
-                        // the real header is the quietest thing in the list.
+                        // The category bar: short and dim, like the real
+                        // header.
                         Rectangle {
                             width: 40
                             height: 3
@@ -165,12 +147,11 @@ AbstractButton {
             }
         }
 
-        // Behind a Loader: these are set by the host and are empty in the
-        // state this card is created in.
+        // Behind a Loader: set by the host and empty at creation.
         Loader {
             active: root.title.length > 0
             sourceComponent: Label {
-                // Remote or externally chosen text: never markup.
+                // Untrusted text: never markup.
                 textFormat: Text.PlainText
                 text: root.title
                 color: AppTheme.stormText
@@ -181,7 +162,7 @@ AbstractButton {
         Loader {
             active: root.subtitle.length > 0
             sourceComponent: Label {
-                // Remote or externally chosen text: never markup.
+                // Untrusted text: never markup.
                 textFormat: Text.PlainText
                 width: root.width - AppTheme.spacing12 * 2
                 text: root.subtitle

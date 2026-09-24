@@ -3,42 +3,27 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// MANAGING a custom emoji / sticker pack: rename an image's shortcode, remove
-// one, rename the pack, empty it.
-//
-// Reading a pack and ADDING to one already existed; this is the other half.
-// Without it a shortcode typed wrong at upload time was permanent, and a pack
-// could only ever grow.
-//
-// # Nothing is applied optimistically, anywhere
-//
-// Every action asks the bridge and waits. On success the manager marks the
-// snapshot stale and re-reads the authoritative pack, so what this shows is
-// always what the server holds — a refusal cannot leave the list showing an
-// image the account does not have. That is why the list is bound to the live
-// model rather than to a copy taken when the dialog opened.
-//
-// # Room packs are power-level gated and say so
-//
-// `canManagePack` is the SNAPSHOT's own recorded permission for that room,
-// and the absence of the claim is not permission. Where it is false the
-// actions are absent rather than present-and-failing, and the reason is on
-// screen instead of arriving as an error after a click.
+// Managing a custom emoji/sticker pack: rename or remove an image, rename the
+// pack, empty it. Nothing is optimistic: each action waits for the bridge, and
+// on success the manager re-reads the authoritative pack, so the list (bound to
+// the live model) always shows what the server holds. Room packs are
+// power-level gated: canManagePack is the snapshot's recorded permission, and
+// its absence is not permission. Without it the actions are absent and the
+// reason is shown.
 Dialog {
     id: root
     objectName: "stickerPackEditor"
 
-    /// The manager — handed in rather than looked up, so this component owns
-    /// no globals and can be built in a test.
+    /// The manager, passed in so this component has no globals and can be
+    /// tested.
     property var stickers: null
-    /// The pack being edited. Its images come from the manager's own grid
-    /// model, which is already narrowed to the selected pack.
+    /// The pack being edited; the manager's grid model is already narrowed to
+    /// it.
     property string packId: ""
     property string packName: ""
     property bool canManage: false
 
-    /// A message to show under the header — the last outcome, in the user's
-    /// words rather than the bridge's category string.
+    /// The last outcome, in the user's words rather than the bridge's category.
     property string notice: ""
     property bool noticeIsError: false
 
@@ -64,13 +49,12 @@ Dialog {
         open()
     }
 
-    /// Which image is being renamed, by its CURRENT shortcode. One at a time:
-    /// the row turns into a field in place, so there is never a second field
-    /// competing for the Return key.
+    /// The image being renamed, by current shortcode. One at a time, in place,
+    /// so only one field competes for Return.
     property string renamingShortcode: ""
-    /// Deleting a whole pack is two clicks, and the second one says what it
-    /// will destroy. It is not undoable — Matrix has no delete verb for
-    /// either store, so the pack is emptied and its name dropped.
+    /// Deleting a pack takes two clicks and the second says what is destroyed.
+    /// Not undoable: Matrix has no delete verb for either store, so the pack is
+    /// emptied and its name dropped.
     property bool confirmingDelete: false
 
     Connections {
@@ -83,9 +67,8 @@ Dialog {
                 root.notice = qsTr("Saved.")
                 return
             }
-            // The bridge's own classes, said in words. An unrecognised one
-            // falls through to a generic message rather than showing the
-            // user a category name they cannot act on.
+            // The bridge's categories in words; unknown ones get a generic
+            // message.
             if (category === "shortcode_taken")
                 root.notice = qsTr("That name is already used in this pack.")
             else if (category === "invalid_shortcode")
@@ -109,7 +92,7 @@ Dialog {
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
 
-        // ── The pack's own name ──────────────────────────────────────────
+        // The pack's own name
         Label {
             Layout.fillWidth: true
             text: qsTr("Manage pack")
@@ -125,8 +108,8 @@ Dialog {
             AppTextField {
                 id: nameField
                 Layout.fillWidth: true
-                // A field a layout can squeeze to nothing takes its
-                // neighbour's width with it.
+                // Without a zero minimum the field would take its neighbour's
+                // width.
                 Layout.minimumWidth: 0
                 placeholderText: qsTr("Pack name")
                 enabled: !root.busy
@@ -148,8 +131,7 @@ Dialog {
                        + "room's pack that is the room's own name.")
         }
 
-        // Not manageable: say why, once, instead of showing controls that
-        // would each fail on their own.
+        // Not manageable: say why once.
         Label {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
@@ -171,7 +153,7 @@ Dialog {
             font.pixelSize: AppTheme.textMeta
         }
 
-        // ── The images ───────────────────────────────────────────────────
+        // The images
         ListView {
             id: imageList
             objectName: "stickerPackEditorList"
@@ -191,14 +173,9 @@ Dialog {
 
                 width: ListView.view.width
                 height: 44
-                // The row itself does nothing: every action here is a
-                // deliberate button, because the two that are not undoable
-                // sit beside each other.
-                //
-                // NOT `enabled: false`. QQuickItem::enabled PROPAGATES, so
-                // that disabled the Rename and Remove buttons and the inline
-                // rename field — the entire per-image half of pack editing —
-                // while every controller test still passed.
+                // The row itself does nothing; every action is a deliberate
+                // button. Not `enabled: false`: enabled propagates and would
+                // disable the per-image buttons and rename field.
                 hoverEnabled: false
                 background: null
 
@@ -212,12 +189,9 @@ Dialog {
                         fillMode: Image.PreserveAspectFit
                         asynchronous: true
                         sourceSize.width: 56
-                        // RE-ASKED WHEN THE BYTES LAND — see the same note in
-                        // EmojiCompletionPopup. `mxcImageSource` answers
-                        // empty on a miss and dispatches; without a counter
-                        // bumped from `mediaCached` this binding never asks
-                        // again, and a pack opened for editing before its
-                        // images are cached shows a column of blank squares.
+                        // Re-asked when the bytes land (see
+                        // EmojiCompletionPopup): mxcImageSource returns empty
+                        // on a miss.
                         property int resolveTick: 0
                         source: {
                             var _tick = resolveTick
@@ -234,13 +208,12 @@ Dialog {
                         }
                     }
 
-                    // Either the name, or the field that is renaming it.
+                    // The name, or the field renaming it.
                     Label {
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
                         visible: root.renamingShortcode !== imageRow.shortcode
-                        // A shortcode is remote text from a pack somebody
-                        // else may have written: never markup.
+                        // A shortcode is remote text: never markup.
                         textFormat: Text.PlainText
                         text: ":" + imageRow.shortcode + ":"
                         color: AppTheme.textPrimary
@@ -301,7 +274,7 @@ Dialog {
             font.pixelSize: AppTheme.textBody
         }
 
-        // ── Footer ───────────────────────────────────────────────────────
+        // Footer
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -340,10 +313,9 @@ Dialog {
             visible: root.confirmingDelete
             color: AppTheme.danger
             font.pixelSize: AppTheme.textMeta
-            // Honest about what it does and does not do. Matrix has no delete
-            // verb for either store, so this empties the pack; it is not a
-            // redaction and the old state stays in the room's history like
-            // every state event does.
+            // Matrix has no delete verb for either store, so this empties the
+            // pack; it is not a redaction and old state stays in the room's
+            // history.
             text: qsTr("This removes every image and the pack's name. It "
                        + "cannot be undone, and for a room's pack everyone "
                        + "in the room loses it.")

@@ -3,12 +3,10 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.9 (phase 10): set / edit / clear the account's personal status. The
-// text is published as the spec presence status_msg (with the emoji as its
-// first characters, so it federates to every client); the expiry is a
-// Lightning-side convenience — PresenceManager clears the status when the
-// deadline passes, on a timer while running and on the next start
-// otherwise. Nothing here pretends the expiry itself federates.
+// Set, edit or clear the account's personal status. The text is published as
+// the presence status_msg (the emoji first, so every client sees it). The
+// expiry is Lightning-side: PresenceManager clears the status at the deadline
+// (on a timer, or at the next start); it does not federate.
 Dialog {
     id: root
     objectName: "statusDialog"

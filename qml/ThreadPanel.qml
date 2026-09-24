@@ -4,21 +4,17 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
-// The thread side panel (correction spec §4): a 340px right-side surface
-// that replaces the member panel — never the room timeline. 58px header
-// (accent forum glyph, "Thread", room name, bare close X), the root event
-// in a raised bordered card, an "N replies" hairline divider, plain reply
-// rows, and a single-row mini composer pinned at the bottom. Backed
-// entirely by app.thread (ThreadController): the reply list is the SDK
-// thread timeline reusing MessageDelegate, and the composer sends through
-// the SDK thread path only. No Matrix protocol logic lives here.
+// Thread side panel: a 340px right-side surface replacing the member panel,
+// never the room timeline. Header, the root event in a raised card, an "N
+// replies" divider, reply rows and a single-row composer. Backed by app.thread
+// (ThreadController): replies are the SDK thread timeline in MessageDelegate,
+// and the composer sends only through the SDK thread path.
 Rectangle {
     id: panel
     color: AppTheme.sidebar
 
     signal closeRequested()
-    // Media entry points supplied by TimelinePane (shared image viewer and
-    // Save As dialog).
+    // Media entry points supplied by TimelinePane.
     property var openImage: function(mediaKey, httpUrl) {}
     property var saveMedia: function(mediaKey, filename) {}
 
@@ -27,14 +23,10 @@ Rectangle {
 
     readonly property string panelRoomId:
         app.thread.active ? app.thread.roomId : app.currentRoomId
-    /// The panel's room, RE-READ when the room list changes.
-    ///
-    /// `findRoom()` is a Q_INVOKABLE, so a binding that only calls it takes
-    /// its answer at open and keeps it. TimelinePane solves this with
-    /// `refreshCurrentRoom()` on the same two signals; this is that, for the
-    /// thread panel. It matters most for `roomEncrypted` below, which picks
-    /// the link-preview disclosure wording and the auto-load policy — a
-    /// stale `false` shows the weaker sentence about what the server sees.
+    /// The panel's room, re-read when the room list changes: findRoom() is a
+    /// Q_INVOKABLE, so a binding calling it would keep its first answer. Matters
+    /// for roomEncrypted, which picks the link-preview wording and auto-load
+    /// policy.
     property var panelRoom: ({})
     function refreshPanelRoom() {
         panelRoom = panelRoomId === "" ? ({})
@@ -49,15 +41,10 @@ Rectangle {
     readonly property string panelRoomName:
         panelRoom && panelRoom.name ? panelRoom.name : ""
 
-    // Presentation-only normalization for the reply preview.
-    //
-    // ThreadController::beginReply stores `visibleTextForEvent(...).left(80)`
-    // verbatim, so this banner rendered the raw matrix.to markdown a mention
-    // leaves in the plain body, and folded nothing — the same defect the
-    // TIMELINE quote had before matrix::preview::normalizePreviewText became
-    // its choke point. Mirrors that function's three rules; identical to
-    // MessageComposerBar.previewLine, and both should disappear once
-    // beginReply routes through the C++ one.
+    // Presentation-only normalization for the reply preview, mirroring
+    // matrix::preview::normalizePreviewText (beginReply stores raw text).
+    // Identical to MessageComposerBar.previewLine; both should go once
+    // beginReply uses the C++ function.
     function previewLine(text) {
         if (!text)
             return ""
@@ -69,28 +56,17 @@ Rectangle {
             .trim()
     }
 
-    // List-row recency, kept byte-identical to RoomDelegate.activityLabel()
-    // and HomePane.activityLabel(). The thread list used a private
-    // "d MMM hh:mm", so the same moment read one way in the room list and
-    // another two panels away. (Three copies of this now exist because the
-    // three hosts are unrelated components with no shared JS module; that
-    // is a known duplication, not an accident — see the report.)
+    // List-row recency, identical to RoomDelegate.activityLabel() and
+    // HomePane.activityLabel() (no shared JS module between these hosts).
     function activityLabel(when) {
         if (!when || isNaN(when.getTime()) || when.getTime() <= 0)
             return ""
         var now = new Date()
         var days = Math.floor((now - when) / 86400000)
         if (when.toDateString() === now.toDateString())
-            // ONE clock format for the whole application (Settings ->
-            // Appearance): 24-hour, 12-hour, or the system's. The setting
-            // resolves to a Qt format string on the C++ side, so nothing
-            // here has to know what "12-hour" spells. Read as a PROPERTY —
-            // a settings HELPER call would create no dependency anywhere.
-            //
-            // Honest limitation: this label is produced by a function, so
-            // it re-renders when its caller's binding next does rather than
-            // the instant the format changes. That is exactly what the
-            // locale read it replaces already did.
+            // The app-wide clock format, resolved in C++ to a Qt format string.
+            // Being inside a function, it updates when the caller's binding
+            // next re-evaluates.
             return Qt.formatTime(when, app.settings.clockTimeFormat)
         if (days < 2) return qsTr("Yesterday")
         if (days < 7) return Qt.formatDate(when, "ddd")
@@ -99,10 +75,8 @@ Rectangle {
         return Qt.formatDate(when, "MMM yyyy")
     }
 
-    // v0.6.0 checkpoint 5: per-thread scroll restoration (session-local).
-    // Positions are keyed by the composite thread timeline id and saved when
-    // scrolling settles; reopening the same thread restores the position
-    // instead of always jumping to the end.
+    // Per-thread scroll positions (session-local), keyed by the composite
+    // thread timeline id, so reopening a thread restores its position.
     property var savedScrollPositions: ({})
     function saveThreadScrollPosition() {
         var key = app.thread.model.roomId
@@ -140,11 +114,9 @@ Rectangle {
         target: app.thread
         function onStateChanged() {
             panel.refreshRoot()
-            // A thread lifecycle change (switch/close) abandons any open
-            // mention popup for the previous thread.
+            // A thread switch/close abandons any open mention popup.
             threadMentionPopup.close()
-            // Any lifecycle transition invalidates in-flight wheel motion —
-            // old-thread motion must never scroll the new thread.
+            // Any lifecycle transition cancels in-flight wheel motion.
             app.threadScroll.cancel()
             if (app.thread.state === ThreadController.Ready) {
                 panel.restoreThreadScrollPosition()
@@ -164,12 +136,9 @@ Rectangle {
     }
     Connections {
         target: app.thread
-        // The root card is a SNAPSHOT, and the four things that change it —
-        // a late decryption, an edit, a redaction, the sender's name or
-        // avatar resolving — all arrive as in-place Sets that change no row
-        // count, so countChanged above never fires for them. The controller
-        // identifies a root-row change (it already does, for the reply
-        // count) and says so.
+        // The root card is a snapshot. Late decryption, edits, redactions and
+        // profile resolution arrive as in-place changes with no row-count
+        // change, so the controller signals them explicitly.
         function onRootInfoChanged() { panel.refreshRoot() }
     }
     Connections {
@@ -184,7 +153,7 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // ── Header (58px): forum glyph · Thread · room name · close ──────
+        // Header: forum glyph · Thread · room name · close
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 58
@@ -195,8 +164,7 @@ Rectangle {
                 anchors.leftMargin: AppTheme.spacing16
                 anchors.rightMargin: AppTheme.spacing16
                 spacing: AppTheme.spacing8
-                // Back to the Threads list when the panel was entered from it
-                // (panel-internal navigation, not a route).
+                // Back to the Threads list when entered from it.
                 IconButton {
                     objectName: "threadBackToListButton"
                     visible: app.thread.active && app.thread.listOpen
@@ -215,13 +183,12 @@ Rectangle {
                 Label {
                     text: app.thread.active ? qsTr("Thread") : qsTr("Threads")
                     color: AppTheme.textPrimary
-                    // The pane-header role from the type scale, not a
-                    // fifteenth hand-picked size.
+                    // Pane-header size from the type scale.
                     font.pixelSize: AppTheme.scaled(AppTheme.textTitle)
                     font.weight: AppTheme.weightBold
                 }
                 Label {
-                    // Remote or externally chosen text: never markup.
+                    // Untrusted text: never markup.
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
                     text: panel.panelRoomName
@@ -229,16 +196,16 @@ Rectangle {
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     elide: Label.ElideRight
                 }
-                // v0.6.0 checkpoint 5: MSC4306 follow state. Hidden until the
-                // homeserver confirms support — never a pretend toggle.
+                // MSC4306 follow state. Hidden until the homeserver confirms
+                // support.
                 AppButton {
                     id: followButton
                     objectName: "threadFollowButton"
                     visible: app.thread.active && app.thread.followSupported
                     enabled: !app.thread.followBusy
                     size: "sm"
-                    // A width floor makes sense in a dialog footer; in a
-                    // 340px panel header it would eat the room name.
+                    // No width floor in a 340px header; it would eat the room
+                    // name.
                     minWidth: 0
                     text: app.thread.followed ? qsTr("Unfollow")
                                               : qsTr("Follow")
@@ -265,7 +232,7 @@ Rectangle {
         }
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
 
-        // ── Threads list (Threads view mode) ─────────────────────────────
+        // Threads list (Threads view mode)
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -286,8 +253,7 @@ Rectangle {
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 }
             }
-            // Every empty state in the app was a single muted sentence with
-            // no icon and no explanation of what would fill it.
+            // Empty state with icon and explanation.
             ColumnLayout {
                 anchors.centerIn: parent
                 width: Math.min(parent.width - AppTheme.spacing24 * 2, 260)
@@ -331,14 +297,8 @@ Rectangle {
                 clip: true
                 model: app.thread.threadList
                 spacing: 1
-                // Thread rows are the same TILE as a room row, deliberately.
-                //
-                // They used to be avatar-less and set on a private 9/10/11px
-                // scale, so opening the Threads view dropped the reader into
-                // a denser, flatter list that looked like a different
-                // application — and the hover chip spanned the full panel
-                // width, so its radius was clipped flat at both edges. Element
-                // uses one tile language for its room and thread lists.
+                // Thread rows use the same tile as room rows (avatar, type
+                // scale, inset hover chip), as Element does.
                 delegate: Item {
                     id: threadRow
                     width: threadListView.width
@@ -346,12 +306,9 @@ Rectangle {
 
                     readonly property string rowSender:
                         modelData.rootSenderName || ""
-                    // The thread-list entry carries the root sender's MXID
-                    // (RustSdkMatrixClient's "rootSender"), so the name can
-                    // take the SAME identity ink as the timeline and the
-                    // avatar the same stable fallback colour. Never hash the
-                    // display name: it would disagree with every other
-                    // surface showing this person.
+                    // The root sender's MXID, so the name takes the same
+                    // identity ink and the avatar the same fallback colour as
+                    // elsewhere. Never hash the display name.
                     readonly property string rowSenderId:
                         modelData.rootSender || ""
                     readonly property bool rowUnread: modelData.unread === true
@@ -361,8 +318,7 @@ Rectangle {
                                               modelData.rootEventId || "")
                     }
 
-                    // The row was tap-only: reachable with a mouse, invisible
-                    // to the keyboard despite being the list's only action.
+                    // Keyboard reachable.
                     activeFocusOnTab: true
                     Accessible.role: Accessible.Button
                     Accessible.name: {
@@ -382,9 +338,8 @@ Rectangle {
 
                     Rectangle {
                         anchors.fill: parent
-                        // The 4px gutter the room list leaves for exactly the
-                        // same reason: a full-bleed chip has no visible
-                        // corners.
+                        // A 4px gutter, as in the room list, so the hover
+                        // chip's corners show.
                         anchors.leftMargin: AppTheme.spacing4
                         anchors.rightMargin: AppTheme.spacing4
                         radius: AppTheme.radiusMd
@@ -417,7 +372,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 spacing: AppTheme.spacing6
                                 Label {
-                                    // Remote or externally chosen text: never markup.
+                                    // Untrusted text: never markup.
                                     textFormat: Text.PlainText
                                     Layout.fillWidth: true
                                     text: threadRow.rowSender
@@ -445,7 +400,7 @@ Rectangle {
                                 }
                             }
                             Label {
-                                // Remote or externally chosen text: never markup.
+                                // Untrusted text: never markup.
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: modelData.rootPreview || ""
@@ -458,7 +413,7 @@ Rectangle {
                                 maximumLineCount: 1
                             }
                             Label {
-                                // Remote or externally chosen text: never markup.
+                                // Untrusted text: never markup.
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: qsTr("%n reply(s)", "",
@@ -495,7 +450,7 @@ Rectangle {
             }
         }
 
-        // ── Pinned root: raised, bordered card (12px pad, radius 10) ─────
+        // Pinned root: raised, bordered card (12px pad, radius 10)
         Rectangle {
             objectName: "threadRootHeader"
             Layout.fillWidth: true
@@ -508,17 +463,15 @@ Rectangle {
                                      + AppTheme.spacing12 * 2, 190)
             clip: true
             radius: AppTheme.radiusLg
-            // Reply navigation to the thread ROOT pulses this card: the root
-            // has no row of its own in the list below (replyList suppresses
-            // it), so this card IS the target. A reply preview pointing here
-            // must never close the thread or jump to the room.
+            // Reply navigation to the root pulses this card, since the root has
+            // no row in the list below. It must never close the thread or jump
+            // to the room.
             readonly property bool navigationHighlighted:
                 app.thread.navigationHighlightEventId !== ""
                 && app.thread.navigationHighlightEventId
                    === (panel.rootData.eventId || "")
-            // Colour, not width: the card's content is anchored inside its
-            // own edges, so animating the BORDER WIDTH nudged every line in
-            // the card by 1px each time a reply-jump landed on the root.
+            // Colour, not width: animating the border width nudged the card's
+            // content.
             border.color: navigationHighlighted ? AppTheme.accent
                                                 : AppTheme.border
             border.width: 1
@@ -534,19 +487,10 @@ Rectangle {
                 spacing: 4
                 RowLayout {
                     objectName: "threadRootHeaderRow"
-                    // CAPPED AT THE COLUMN, and the cap is what makes the
-                    // card readable. `rootColumn` is anchored to the card, so
-                    // its width is 292 at a 316px card — but a `fillWidth`
-                    // child of a ColumnLayout was being given the layout's
-                    // IMPLICIT width instead, which this header's own
-                    // contents set. Measured at 140%: the body Label came out
-                    // 377px wide inside a 292px column, so it wrapped for 377
-                    // and the card's `clip: true` ate the overhang — the
-                    // message lost the characters "ree" out of "space-tree"
-                    // with nothing on screen to say so.
-                    //
-                    // No width loop: the card's width comes from the panel,
-                    // and only its HEIGHT is derived from this column.
+                    // Capped at the column: a fillWidth child here was
+                    // otherwise given the layout's implicit width and wrapped
+                    // wider than the card, which clipped it. No loop: the
+                    // card's width comes from the panel.
                     Layout.fillWidth: true
                     Layout.maximumWidth: rootColumn.width
                     spacing: AppTheme.spacingS
@@ -558,23 +502,13 @@ Rectangle {
                         colorKey: panel.rootData.sender || ""
                     }
                     Label {
-                        // Remote or externally chosen text: never markup.
+                        // Untrusted text: never markup.
                         textFormat: Text.PlainText
-                        // THE NAME IS WHAT GIVES WAY, and only when it has
-                        // to. It is the one thing in this row that can be
-                        // shortened and still be useful, so it may SHRINK
-                        // (minimum 0, elided) but never GROW past its natural
-                        // width — the spacer below still pushes "Open in
-                        // room" to the card's right edge whenever there is
-                        // room, which is every ordinary case.
-                        //
-                        // The minimum is the load-bearing half: a layout can
-                        // never be narrower than the sum of its children's
-                        // minimums, and a Text offers its own implicit width
-                        // as that minimum. Without the 0 the row's floor was
-                        // the WHOLE name plus the action, the cap on the row
-                        // could not bite, and it overflowed the card at 140%
-                        // — taking "Open in room" off the edge with it.
+                        // The name gives way when it must: it may shrink
+                        // (minimum 0, elided) but not grow past its natural
+                        // width. The zero minimum is essential; a Text offers
+                        // its implicit width as its minimum, which made the row
+                        // overflow the card.
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
                         Layout.maximumWidth: implicitWidth
@@ -600,11 +534,9 @@ Rectangle {
                         color: AppTheme.textMuted
                     }
                     Item { Layout.fillWidth: true }
-                    // Root context action: locate the root in the room
-                    // timeline (highlighted), without leaving the room. A
-                    // 10px underlined label over a bare MouseArea was a link
-                    // pretending to be a button — no pressed state, no focus
-                    // ring, and a hit area exactly the size of the text.
+                    // Locate the root in the room timeline without leaving the
+                    // room. A real button (pressed state, focus ring, proper
+                    // hit area).
                     AppButton {
                         objectName: "threadOpenInRoomButton"
                         Layout.alignment: Qt.AlignVCenter
@@ -618,7 +550,7 @@ Rectangle {
                 }
                 Label {
                     objectName: "threadRootBody"
-                    // Remote or externally chosen text: never markup.
+                    // Untrusted text: never markup.
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
                     Layout.maximumWidth: rootColumn.width
@@ -650,7 +582,7 @@ Rectangle {
             }
         }
 
-        // ── "N replies" divider: hairline · label · hairline ─────────────
+        // "N replies" divider: hairline · label · hairline
         RowLayout {
             objectName: "threadReplyDivider"
             Layout.fillWidth: true
@@ -668,11 +600,9 @@ Rectangle {
                 color: AppTheme.border
             }
             Label {
-                // The controller resolves this: the SDK's num_replies when
-                // it is known, a loaded count otherwise, and the thread
-                // ROOT subtracted only when the root is really a row. QML
-                // cannot make that choice — it cannot see whether the root
-                // is in the model. See ThreadController::replyCount.
+                // Resolved by the controller (SDK num_replies when known, else
+                // a loaded count, with the root subtracted only when it is a
+                // row). See ThreadController::replyCount.
                 readonly property int replies: app.thread.replyCount
                 text: qsTr("%n reply(s)", "replies in the open thread",
                            replies)
@@ -687,7 +617,7 @@ Rectangle {
             }
         }
 
-        // ── Body states + reply list (plain rows) ────────────────────────
+        // Body states + reply list
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -728,9 +658,7 @@ Rectangle {
                     lineHeight: AppTheme.lineHeightBody
                     lineHeightMode: Text.ProportionalHeight
                 }
-                // Recovery from a failed thread load is a real action, so it
-                // gets a real button — not an underlined label over a bare
-                // MouseArea with no pressed state and no focus ring.
+                // A real button for recovery.
                 AppButton {
                     objectName: "threadRetryButton"
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -742,7 +670,7 @@ Rectangle {
                 }
             }
 
-            // Empty state: thread is ready but only the root is loaded.
+            // Empty state: ready, but only the root is loaded.
             Label {
                 anchors.centerIn: parent
                 visible: app.thread.state === ThreadController.Ready
@@ -765,34 +693,23 @@ Rectangle {
                 leftMargin: AppTheme.spacing12
                 rightMargin: AppTheme.spacing12
 
-                // MessageDelegate view contract (shared with the room
-                // timeline ListView in TimelinePane.qml).
+                // MessageDelegate view contract, shared with TimelinePane.
                 property var timelineModel: app.thread.model
                 property string suppressRootEventId: app.thread.rootEventId
                 property bool threadContext: true
                 property string pinnedActionsKey: ""
                 property bool emojiPickerOpen: false
-                // Declared here for the first time, and it repairs a latent
-                // defect rather than only serving C6 below: the shared
-                // MessageDelegate WRITES `timelineView.hoveredActionsKey`
-                // (MessageDelegate.qml:773) and reads it in actionsVisible,
-                // but this pane never declared it — so in the thread panel
-                // those were assignments to a non-existent property and the
-                // hover toolbar could only ever appear via the More menu.
-                // The room timeline has always declared it.
+                // Required by MessageDelegate, which writes and reads
+                // timelineView.hoveredActionsKey; without it the hover toolbar
+                // never appears here.
                 property string hoveredActionsKey: ""
-                // C6: the SAME transient-interaction contract the room
-                // timeline supplies. MessageDelegate is shared, and its
-                // `transientOwnerBlocks` treats an UNDEFINED owner as
-                // "blocks nothing" — so without these the picker and its
-                // nested tone popup suppressed the row action bar in the room
-                // and silently did nothing here, in the one pane where the
-                // popup and the bar are closest together (340px wide).
+                // The same transient-interaction contract as the room timeline;
+                // an undefined owner would block nothing.
                 property string transientInteractionOwner: ""
                 function claimTransientInteraction(owner) {
                     if (!owner || owner.length === 0)
                         return
-                    // CLEAR, not cover — same rule as the room timeline.
+                    // Clear, not cover.
                     hoveredActionsKey = ""
                     pinnedActionsKey = ""
                     transientInteractionOwner = owner
@@ -807,18 +724,15 @@ Rectangle {
                         && hoveredActionsKey !== "")
                         hoveredActionsKey = ""
                 }
-                // From the panel's re-read record, not a bare findRoom()
-                // call: see `panelRoom`. This value chooses the link-preview
-                // disclosure wording and the auto-load policy, so a stale
-                // `false` understates what the user's server can see.
+                // From the panel's re-read record (see panelRoom).
                 property bool roomEncrypted:
                     panel.panelRoom && panel.panelRoom.encrypted === true
                 function stateGroupExpanded(groupId) { return true }
                 function toggleStateGroup(groupId) {}
                 property var openImage: panel.openImage
                 property var saveMedia: panel.saveMedia
-                // v0.7: shared reaction picker / sender profile entry points
-                // (one instance per panel; event id captured at open).
+                // Shared reaction picker / sender profile entry points; event
+                // id captured at open.
                 property var openReactionPicker: function(eventId, point) {
                     if (!eventId || eventId.length === 0)
                         return
@@ -829,14 +743,11 @@ Rectangle {
                 property var openSenderProfile: function(member) {
                     threadSenderProfile.openFor(member)
                 }
-                // v0.7.4 reply navigation (contract C5). The POLICY — the
-                // bounded thread pagination, the thread-identity guard and
-                // the honest failure wording — lives in ThreadController;
-                // this view owns only where the row ends up on screen, which
-                // is the architecture's split. Note the target is resolved
-                // against THIS thread's timeline only: a reply preview inside
-                // a thread never points at an ordinary room message, so there
-                // is deliberately no app.pagination path here.
+                // Reply navigation. The policy (bounded thread pagination,
+                // thread-identity guard, failure wording) lives in
+                // ThreadController; this view only places the row. Targets
+                // resolve in this thread only, so there is no app.pagination
+                // path here.
                 property string navigationHighlightEventId:
                     app.thread.navigationHighlightEventId
                 property var navigateToEvent: function(eventId) {
@@ -846,22 +757,19 @@ Rectangle {
                     if (row < 0 || row >= count)
                         return
                     followLatest = false
-                    // A programmatic landing must not be finished off by a
-                    // lingering wheel animation, and must not be undone by a
-                    // pagination anchor the same batch armed — that anchor
-                    // belongs to where the reader WAS, not to where they
-                    // asked to go. Dropping it makes restoreCapturedAnchor()
-                    // a no-op rather than a competitor.
+                    // A programmatic landing must not be undone by a lingering
+                    // wheel animation or by a pagination anchor armed for where
+                    // the reader was; dropping it makes restoreCapturedAnchor()
+                    // a no-op.
                     app.threadScroll.cancel()
                     anchorStableId = ""
                     positionViewAtIndex(row, ListView.Center)
                     panel.saveThreadScrollPosition()
                 }
 
-                // v0.6.0 checkpoint 6: the panel's own wheel motion engine
-                // (app.threadScroll) — same device-aware policy as the room
-                // timeline, fully isolated motion state. Programmatic
-                // positioning (restore, follow-latest) cancels it first.
+                // The panel's own wheel motion engine (app.threadScroll), with
+                // the same policy as the room timeline and isolated state.
+                // Programmatic positioning cancels it first.
                 function wheelMinY() { return originY - topMargin }
                 function wheelMaxY() {
                     var maxY = originY + contentHeight + bottomMargin - height
@@ -884,15 +792,11 @@ Rectangle {
                     onWheel: (event) => {
                         var minY = replyList.wheelMinY()
                         var maxY = replyList.wheelMaxY()
-                        // A phased frame is a TOUCHPAD frame even when it
-                        // carries 0 whole pixels: Qt Wayland rounds each frame
-                        // to pixels, carries the remainder, and still sends
-                        // angleDelta. Treating those px=0 frames as wheel
-                        // notches made a slow swipe glide ~20x farther than
-                        // the finger moved (measured on the laptop,
-                        // 2026-09-23; see TimelinePane.qml's wheel handler and
-                        // docs/timeline-scrolling.md). A wheel never has a
-                        // phase, on any platform, so it keeps the notch path.
+                        // A phased frame is a touchpad frame even with 0 whole
+                        // pixels (Qt Wayland carries the remainder); treating
+                        // those as notches made slow swipes glide far too far.
+                        // See TimelinePane's wheel handler. Wheels never have a
+                        // phase.
                         var continuousSource = event.phase !== Qt.NoScrollPhase
                         if (event.pixelDelta.y !== 0
                                 || (continuousSource && event.angleDelta.y !== 0)) {
@@ -901,9 +805,7 @@ Rectangle {
                                 event.pixelDelta.y, replyList.contentY,
                                 minY, maxY)
                             replyList.afterWheelSettled()
-                            // Upward touchpad intent leaves follow-latest, as
-                            // in the mouse branch — otherwise a near-bottom
-                            // up-scroll could not disengage.
+                            // Upward touchpad intent leaves follow-latest.
                             if (event.pixelDelta.y > 0
                                     || (continuousSource && event.angleDelta.y > 0))
                                 replyList.followLatest = false
@@ -933,26 +835,12 @@ Rectangle {
                 }
                 Component.onDestruction: app.threadScroll.cancel()
 
-                // v0.7: scroll-anchor preservation across a backward prepend
-                // into this thread's reply list. requestOlder() (below and in
-                // afterWheelSettled) inserts older replies AT THE TOP of this
-                // same plain ListView pattern TimelinePane.qml documents: "a
-                // fixed contentY would make the whole conversation jump."
-                // Ported from TimelinePane.qml's captureAnchor()/
-                // restoreCapturedAnchor(), including 9a0e41a's fix — the
-                // restore reads the LIVE contentY at restore time and applies
-                // a RELATIVE shift, rather than recomputing an absolute
-                // target from state captured when the request started, so a
-                // reader still scrolling when the page lands (routine on a
-                // touchpad, whose round-trip-length gestures overlap the
-                // async fetch) is never snapped back to a stale position.
-                // Deliberately duplicated rather than shared: TimelinePane's
-                // timeline and this replyList are independent ListViews with
-                // independent scroll engines (app.timelineScroll vs
-                // app.threadScroll) and independent pagination models
-                // (PaginationController vs TimelineModel.requestOlder());
-                // unifying them into one shared implementation is a larger,
-                // riskier refactor than this checkpoint's scope.
+                // Scroll-anchor preservation across a backward prepend into
+                // this reply list (a plain ListView). The restore reads the
+                // live contentY and applies a relative shift, so a reader still
+                // scrolling when the page lands is not snapped back. Separate
+                // from TimelinePane's mechanism: different views, scroll
+                // engines and pagination models.
                 property string anchorStableId: ""
                 property real anchorOffset: 0
                 property real anchorContentHeight: 0
@@ -961,12 +849,8 @@ Rectangle {
                     var row = indexAt(width / 2, contentY + topMargin + 1)
                     if (row < 0) { anchorStableId = ""; return }
                     var it = itemAtIndex(row)
-                    // Room-activity rows may collapse during a presentation
-                    // toggle (see TimelinePane.qml); skip to the first
-                    // loaded non-activity row so the anchor still has
-                    // height. Thread replies are not expected to carry
-                    // activity rows today, but MessageDelegate is the same
-                    // shared component, so this stays defensive.
+                    // Skip collapsed activity rows so the anchor has height
+                    // (defensive; the delegate is shared).
                     for (var probe = row; probe < count; ++probe) {
                         var candidate = itemAtIndex(probe)
                         if (!candidate)
@@ -983,23 +867,17 @@ Rectangle {
                     anchorItemY = it ? it.y : 0
                 }
                 function restoreCapturedAnchor() {
-                    // A followLatest reader (e.g. one who jumped to the
-                    // bottom while the fetch was in flight) must not be
-                    // pulled back up to a now-irrelevant anchor.
+                    // A reader following latest must not be pulled back to the
+                    // anchor.
                     if (anchorStableId === "" || followLatest) {
                         anchorStableId = ""
                         return
                     }
-                    // Read the CURRENT position before anything below moves
-                    // the view — requestOlder() is a real async SDK round
-                    // trip, so the reader may have kept scrolling (most
-                    // commonly an in-flight touchpad gesture) between
-                    // captureAnchor() and here. The restore is a RELATIVE
-                    // shift applied to THIS value, never an absolute jump
-                    // back to the stale pre-fetch contentY.
+                    // Read the current position now: requestOlder() is async
+                    // and the reader may have kept scrolling. The restore is a
+                    // relative shift from this value.
                     var beforeY = contentY
-                    // A programmatic re-anchor must never be finished off by
-                    // a lingering wheel animation.
+                    // Cancel any lingering wheel animation.
                     app.threadScroll.cancel()
                     var newRow = app.thread.model.rowForStableId(anchorStableId)
                     if (newRow < 0) {
@@ -1008,9 +886,8 @@ Rectangle {
                         anchorStableId = ""
                         return
                     }
-                    // Forces the anchor delegate to be created so its
-                    // geometry below is real, not an averaged
-                    // ListView.contentHeight estimate for uncreated rows.
+                    // Forces the anchor delegate to exist so its geometry is
+                    // real.
                     positionViewAtIndex(newRow, ListView.Beginning)
                     var it = itemAtIndex(newRow)
                     if (it) {
@@ -1038,11 +915,8 @@ Rectangle {
 
                 property bool followLatest: true
                 // Bottom-follow is latched to user intent (see the room
-                // timeline's atBottomEdge): a sub-line slack means scrolling
-                // up to re-read always disengages, and only a genuine return
-                // to the end resumes following. The wide 40px window let a
-                // small up-scroll near the end stay "following", re-pinning
-                // the reader on the next content-height change.
+                // timeline): a sub-line slack means scrolling up always
+                // disengages.
                 readonly property real bottomFollowSlack: 8
                 function atBottomEdge() {
                     return atYEnd
@@ -1051,8 +925,8 @@ Rectangle {
                 function scrollToEndDeferredIfFollowing() {
                     if (followLatest && count > 0) {
                         Qt.callLater(function() { replyList.positionViewAtEnd() })
-                        // v0.6.0 checkpoint 5: reading the latest reply sends
-                        // ONE deduplicated THREADED receipt (never room-wide).
+                        // Reading the latest reply sends one deduplicated
+                        // threaded receipt (never room-wide).
                         app.thread.markRead()
                     }
                 }
@@ -1060,8 +934,7 @@ Rectangle {
                     followLatest = atBottomEdge()
                     if (followLatest)
                         app.thread.markRead()
-                    // Near-top backfill for long threads; the model's
-                    // requestOlder() is single-flight in the backend.
+                    // Near-top backfill; requestOlder() is single-flight.
                     if (contentY - originY < height * 0.5)
                         app.thread.model.requestOlder()
                     panel.saveThreadScrollPosition()
@@ -1101,11 +974,8 @@ Rectangle {
                 ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
             }
 
-            // Honest failure notice for reply navigation — the SAME sentence
-            // the room timeline shows (ThreadController reuses
-            // PaginationController's single translatable string). A transient
-            // inline pill over the list, never a dialog: the reader asked to
-            // look at a message, not to acknowledge an error.
+            // Failure notice for reply navigation, the same sentence as the
+            // room timeline. An inline pill, not a dialog.
             Label {
                 objectName: "threadNavigationNotice"
                 visible: app.thread.navigationMessage.length > 0
@@ -1133,15 +1003,9 @@ Rectangle {
             }
         }
 
-        // Reply-within-thread banner (checkpoint 4): shows the active reply
-        // target; ✕ or Escape cancels it without closing the panel.
-        //
-        // This was the FOURTH rendition of "the message you are replying to"
-        // and the most degraded: one interpolated string at a raw 10px —
-        // below the app's smallest type token and unscaled, so ~9px at the
-        // 90% text setting — with no rule, no thumbnail, no divider and no
-        // name/body distinction. It is now built exactly like the room
-        // composer's strip, because it is the same thing.
+        // Reply-within-thread banner: shows the active reply target; ✕ or
+        // Escape cancels it without closing the panel. Built like the room
+        // composer's context strip.
         Item {
             id: threadReplyBanner
             objectName: "threadReplyBanner"
@@ -1248,18 +1112,17 @@ Rectangle {
             }
         }
 
-        // ── Mini composer: ONE row in a raised card, pinned at the bottom.
-        // Sends ONLY through ThreadController.sendText → the backend's SDK
-        // m.thread path (text and attachments). The main room composer and
-        // its draft are untouched. ─────────────────────────────────────────
+        // Mini composer: one row in a raised card, pinned at the bottom. Sends
+        // only through ThreadController.sendText (the SDK m.thread path, text
+        // and attachments); the room composer and its draft are untouched.
         Item {
             Layout.fillWidth: true
             visible: app.thread.active
             implicitHeight: threadComposerCol.implicitHeight
                             + AppTheme.spacing12
 
-            // Files dropped over the thread composer are queued for the OPEN
-            // thread — never rerouted to the room composer.
+            // Files dropped here are queued for the open thread, never the room
+            // composer.
             DropArea {
                 id: threadDropArea
                 anchors.fill: parent
@@ -1331,7 +1194,7 @@ Rectangle {
                                 ColumnLayout {
                                     spacing: 0
                                     Label {
-                                        // Remote or externally chosen text: never markup.
+                                        // Untrusted text: never markup.
                                         textFormat: Text.PlainText
                                         text: model.fileName
                                         color: AppTheme.text
@@ -1417,9 +1280,8 @@ Rectangle {
                             ToolTip.delay: 500
                             onClicked: threadAttachDialog.open()
                         }
-                        // v0.9 rich composer for the thread panel; same
-                        // growth rules as threadInputFlick, visibility-
-                        // exclusive with it on panel.richMode.
+                        // Rich composer for the thread panel; same growth rules
+                        // as threadInputFlick, visibility-exclusive with it.
                         Flickable {
                             id: threadRichFlick
                             objectName: "threadRichInputFlick"
@@ -1554,17 +1416,14 @@ Rectangle {
                             id: threadInputFlick
                             visible: !panel.richMode
                             Layout.fillWidth: true
-                            // v0.9 slash commands: the refusal, with the
-                            // literal-send escape spelled out.
+                            // Slash-command refusal, with the literal-send
+                            // escape spelled out.
                             ToolTip.visible: !panel.richMode
                                              && app.thread.commandError.length > 0
                             ToolTip.text: app.thread.commandError + " "
                                           + qsTr("Press Enter again to send it as a message.")
-                            // Grows to ~6 lines at the current text scale,
-                            // then scrolls with the caret kept in view — a
-                            // bare TextArea cannot scroll, so the cap alone
-                            // painted overflow lines outside the box
-                            // (mirrors the room composer fix).
+                            // Grows to ~6 lines, then scrolls with the caret
+                            // kept in view (as the room composer).
                             Layout.maximumHeight: AppTheme.scaled(110)
                             implicitHeight: threadComposerInput.implicitHeight
                             clip: true
@@ -1577,21 +1436,18 @@ Rectangle {
                             objectName: "threadComposerInput"
                             placeholderText: qsTr("Reply in thread")
                             placeholderTextColor: AppTheme.textMuted
-                            // Declared and deliberately empty; the room
-                            // composer carries the full rationale. Neither
-                            // Qt.ImhNoPredictiveText nor Qt.ImhSensitiveData
-                            // may ever appear on a message composer.
+                            // Declared and deliberately empty; see the room
+                            // composer.
                             inputMethodHints: Qt.ImhNone
                             wrapMode: TextArea.Wrap
                             enabled: app.thread.state === ThreadController.Ready
-                            // The card carries the chrome; the field itself
-                            // is bare (no inner frame).
+                            // The card carries the chrome; the field is bare.
                             background: Rectangle { color: "transparent" }
                             color: AppTheme.text
                             font.pixelSize: AppTheme.scaled(13)
-                            // v0.7: the composer text lives on app.thread so
-                            // outgoing @-mentions can be tracked (two-way sync,
-                            // mirroring the room composer).
+                            // The text lives on app.thread so outgoing
+                            // @-mentions can be tracked (two-way sync, as in
+                            // the room composer).
                             text: app.thread.text
                             onTextChanged: {
                                 if (app.thread.text !== text)
@@ -1605,8 +1461,7 @@ Rectangle {
                             }
                             onWidthChanged: threadSpellTimer.restart()
 
-                            // Spell underlines; see the room composer for the
-                            // reasoning behind drawing them.
+                            // Spell underlines; see the room composer.
                             Timer {
                                 id: threadSpellTimer
                                 objectName: "threadSpellTimer"
@@ -1629,13 +1484,9 @@ Rectangle {
                                 }
                             }
 
-                            // Right-click editing menu, which this composer
-                            // did not have at all. Ours for the same reason
-                            // the room composer's is ours: TextEdit's own
-                            // Paste is text-only, so a copied image pasted
-                            // through the context menu sent its source LINK
-                            // while Ctrl+V sent the picture. It also carries
-                            // the spelling rows.
+                            // Right-click editing menu, for the same reason as
+                            // the room composer's (TextEdit's own Paste is
+                            // text-only), plus the spelling rows.
                             MouseArea {
                                 anchors.fill: parent
                                 acceptedButtons: Qt.RightButton
@@ -1732,20 +1583,17 @@ Rectangle {
                                     onTriggered: panel.activeThreadEditor().selectAll()
                                 }
                             }
-                            // Qt sends a ShortcutOverride to the FOCUS ITEM
-                            // before dispatching a shortcut; accepting it
-                            // turns that shortcut back into an ordinary key
-                            // press delivered below. Claimed ONLY for what
-                            // this box handles, so Ctrl+K and Ctrl+Q still
-                            // reach the window from inside a thread reply.
+                            // Accept ShortcutOverride only for keys this box
+                            // handles, so the key arrives here as a plain
+                            // press; Ctrl+K and Ctrl+Q still reach the window.
                             Keys.onShortcutOverride: (event) => {
                                 if (app.shortcuts.editorActionForKey(
                                         event.key, event.modifiers) !== "")
                                     event.accepted = true
                             }
                             Keys.onPressed: (event) => {
-                                // Mention popup gets first refusal of the
-                                // navigation keys while it is open.
+                                // The mention popup gets the navigation keys
+                                // first while open.
                                 if (threadMentionPopup.visible) {
                                     if (event.key === Qt.Key_Down) {
                                         threadMentionPopup.moveDown()
@@ -1766,11 +1614,9 @@ Rectangle {
                                         event.accepted = true; return
                                     }
                                 }
-                                // Editor formatting, ahead of the plain-key
-                                // branches below: every editor binding carries
-                                // Ctrl, so none of them can collide with the
-                                // bare Return/Escape/Backspace cases. Nothing
-                                // the registry does not recognise is accepted.
+                                // Editor formatting, before the plain-key
+                                // branches (every editor binding has Ctrl).
+                                // Unrecognised keys are not accepted.
                                 var threadFormatAction =
                                     app.shortcuts.editorActionForKey(
                                         event.key, event.modifiers)
@@ -1799,8 +1645,8 @@ Rectangle {
                                             || event.key === Qt.Key_Delete)
                                            && threadComposerInput.selectionStart
                                               === threadComposerInput.selectionEnd) {
-                                    // Atomic mention delete, mirroring the
-                                    // room composer.
+                                    // Atomic mention delete, as in the room
+                                    // composer.
                                     var ranges = app.thread.mentionRanges
                                     for (var i = 0; i < ranges.length; ++i) {
                                         var r = ranges[i]
@@ -1823,9 +1669,9 @@ Rectangle {
                                 document: threadComposerInput.textDocument
                                 ranges: panel.threadMentionHighlightRanges
                                 accentColor: AppTheme.accent
-                                // Named, because Qt 6.8 picks a monochrome face for emoji
-                                // where 6.11 picks the colour one. Per-range, so the words
-                                // around them keep the UI face.
+                                // Named, because Qt 6.8 picks a monochrome
+                                // emoji face; per-range, so the surrounding
+                                // words keep the UI face.
                                 emojiFontFamily: app.emojiFontFamily || ""
                             }
                             }
@@ -1841,24 +1687,14 @@ Rectangle {
                             enabled: app.thread.state === ThreadController.Ready
                             Accessible.name: qsTr("Insert emoji")
                             onClicked: {
-                                // v0.6.7 fix: this mapped into `panel`, but
-                                // the anchor point is interpreted in OVERLAY
-                                // coordinates — so the picker was placed as
-                                // far left of the button as the thread panel
-                                // is inset from the window's left edge (340px
-                                // of right-hand panel, i.e. most of the
-                                // window). anchorItem does the mapping in the
-                                // right space, and re-does it on resize.
+                                // anchorItem maps into overlay coordinates
+                                // correctly and re-maps on resize.
                                 threadEmojiPicker.anchorItem = threadMiniComposer
                                 threadEmojiPicker.open()
                             }
                         }
-                        // ── GIFs and stickers: ONE button, ONE window ──
-                        //
-                        // The room composer's own block carries the whole
-                        // reasoning. This copy previously also had NO focus
-                        // ring, so it was a Tab stop with no visible focus;
-                        // an IconButton draws one.
+                        // GIFs and stickers: one button, one window (see the
+                        // room composer). An IconButton so it has a focus ring.
                         IconButton {
                             id: threadMediaButton
                             objectName: "threadMediaButton"
@@ -1867,7 +1703,7 @@ Rectangle {
                             iconName: "gif_box"
                             iconSize: 18
                             // Present and disabled when neither kind is
-                            // available, matching the room composer.
+                            // available.
                             visible: panel.composerButtonShown("media")
                             enabled: app.thread.state === ThreadController.Ready
                                      && (app.gif.available
@@ -1884,18 +1720,16 @@ Rectangle {
                             ToolTip.delay: 500
                             onClicked: panel.openThreadMediaPicker()
                         }
-                        // v0.7 thread parity: voice capture, using the same
-                        // shared recorder as the room composer. Ownership
-                        // lives in app.voiceOwner, so at most one composer is
-                        // ever armed to send a finished recording.
+                        // Voice capture with the shared recorder; ownership
+                        // lives in app.voiceOwner, so only one composer can
+                        // send a finished recording.
                         IconButton {
                             objectName: "threadMicButton"
                             implicitWidth: 24; implicitHeight: 24
                             radius: AppTheme.radiusControl
                             iconName: "mic"
                             iconSize: 18
-                            // A recording in flight keeps its controls, same
-                            // as the room composer.
+                            // A recording in flight keeps its controls.
                             visible: !panel.voiceActive
                                      && panel.composerButtonShown("voice")
                             enabled: app.thread.state === ThreadController.Ready
@@ -1919,9 +1753,8 @@ Rectangle {
                         Rectangle {
                             id: threadVoicePill
                             objectName: "threadVoicePill"
-                            // NEVER touch app.voiceRecorder while idle: the
-                            // getter constructs the recorder (and the audio
-                            // backend) on first access.
+                            // Never touch app.voiceRecorder while idle: its
+                            // getter constructs the recorder and audio backend.
                             readonly property var rec:
                                 panel.voiceActive ? app.voiceRecorder : null
                             visible: panel.voiceActive
@@ -1939,8 +1772,7 @@ Rectangle {
                                 Rectangle {
                                     id: threadVoiceDot
                                     width: 7; height: 7; radius: 3.5
-                                    // A solid dot is a FILL — `danger` is an
-                                    // ink-only role since 2026-08-21.
+                                    // A fill: `danger` is an ink-only role.
                                     color: AppTheme.dangerFill
                                     property real t: 0
                                     opacity: (threadVoicePill.rec
@@ -1969,10 +1801,8 @@ Rectangle {
                                         AppTheme.scaled(AppTheme.textMeta)
                                     font.weight: AppTheme.weightStrong
                                 }
-                                // Pause / resume and Done — the same three
-                                // controls the room composer gained in the
-                                // 2026-08-18 round; a thread recording must
-                                // not be a lesser one.
+                                // Pause/resume and Done, as in the room
+                                // composer.
                                 IconButton {
                                     objectName: "threadVoicePauseButton"
                                     implicitWidth: 22; implicitHeight: 22
@@ -2039,7 +1869,7 @@ Rectangle {
                                     ToolTip.visible: hovered
                                     ToolTip.delay: 500
                                     // stop() finalizes and derives the
-                                    // waveform; the ready() handler sends.
+                                    // waveform; ready() sends.
                                     onClicked: app.voiceRecorder.stop()
                                 }
                             }
@@ -2061,8 +1891,7 @@ Rectangle {
                             onDiscardRequested: panel.discardPendingVoice()
                         }
 
-                        // Accent-fill thread send: 28×28 on the control
-                        // radius, 16px icon.
+                        // Accent-fill thread send: 28×28, 16px icon.
                         IconButton {
                             objectName: "threadSendButton"
                             implicitWidth: 28; implicitHeight: 28
@@ -2070,9 +1899,8 @@ Rectangle {
                             fill: true
                             iconName: "send"
                             iconSize: 16
-                            // app.thread.text is the markdown mirror in
-                            // both modes, so one condition serves both
-                            // editors.
+                            // app.thread.text is the markdown mirror in both
+                            // modes.
                             enabled: app.thread.state === ThreadController.Ready
                                      && (app.thread.text.trim().length > 0
                                          || app.thread.hasAttachments)
@@ -2114,15 +1942,11 @@ Rectangle {
         }
     }
 
-    // v0.7 thread parity: this panel owns the shared recorder. DERIVED from
-    // app.voiceOwner rather than a local flag — see MessageComposerBar's
-    // matching property and AppController::voiceOwner for why two
-    // independent flags would let one recording be sent twice.
+    // This panel owns the shared recorder. Derived from app.voiceOwner, never a
+    // local flag (see MessageComposerBar and AppController::voiceOwner).
     readonly property bool voiceActive: app.voiceOwner === "thread"
-    // A recording targets the thread it was started in. Leaving that thread
-    // — closing the panel, opening another thread, or switching rooms —
-    // discards it rather than sending it into the wrong conversation, the
-    // same rule the room composer applies on a room change.
+    // A recording belongs to the thread it started in; leaving the thread
+    // discards it.
     Connections {
         target: app.thread
         function onStateChanged() {
@@ -2130,8 +1954,7 @@ Rectangle {
                 return
             if (panel.voiceActive)
                 app.cancelVoiceRecording()
-            // A finished-but-unsent recording belongs to the thread it was
-            // made in; leaving deletes its file rather than stranding it.
+            // A finished, unsent recording is deleted on leaving.
             panel.voiceWantsPreview = false
             panel.discardPendingVoice()
         }
@@ -2145,19 +1968,17 @@ Rectangle {
             panel.discardPendingVoice()
         }
     }
-    // Recorder results. target uses the lazy getter only while this panel
-    // owns a recording, so binding this block never constructs the recorder.
+    // Recorder results. Only targets the recorder while this panel owns a
+    // recording, so it never constructs it.
     Connections {
         target: panel.voiceActive ? app.voiceRecorder : null
         function onReady(filePath, mime, durationMs, waveform) {
-            // Release ownership FIRST: the send is this panel's, and a
-            // re-entrant signal must not find us still armed.
+            // Release ownership first, so a re-entrant signal finds us
+            // disarmed.
             app.endVoiceRecording()
             if (panel.voiceWantsPreview) {
                 panel.voiceWantsPreview = false
-                // A preview that was never answered is replaced, not
-                // stacked: its file is deleted before the new one takes the
-                // slot, or it would sit in the temp dir until sign-out.
+                // An unanswered preview is replaced and its file deleted.
                 panel.discardPendingVoice()
                 panel.pendingVoice = { filePath: filePath, mime: mime,
                                        durationMs: durationMs,
@@ -2174,8 +1995,8 @@ Rectangle {
         }
     }
 
-    // A finished recording awaiting review (see VoicePreviewBar). The file
-    // belongs to this panel until it is sent or deleted.
+    // A finished recording awaiting review (see VoicePreviewBar); owned by this
+    // panel until sent or deleted.
     property var pendingVoice: null
     property bool voiceWantsPreview: false
     function sendPendingVoice() {
@@ -2197,10 +2018,8 @@ Rectangle {
     EmojiPicker {
         id: threadEmojiPicker
         mode: "composer"
-        // review L4: same sticky behaviour as the room composer — several
-        // emoji per open; close with Escape / the button / clicking
-        // outside. The handler never steals focus, so the picker keeps its
-        // keyboard path across picks.
+        // Sticky like the room composer's picker; the handler never steals
+        // focus.
         closeAfterSelection: false
         onEmojiChosen: (emoji) => {
             threadComposerInput.insert(threadComposerInput.cursorPosition,
@@ -2209,22 +2028,19 @@ Rectangle {
         onClosed: Qt.callLater(threadComposerInput.forceActiveFocus)
     }
 
-    // v0.7 outgoing @-mentions in the thread composer. Same behaviour as the
-    // room composer: current-room members only, the input keeps focus.
+    // Outgoing @-mentions, as in the room composer: current-room members, input
+    // keeps focus.
     property int threadMentionTokenStart: -1
     MentionPopup {
         id: threadMentionPopup
         suggestions: app.mentionSuggestions
         onChosen: (userId, displayName) =>
             panel.insertThreadMention(userId, displayName)
-        // Closing (Escape included) must drop the synthetic in-progress
-        // range without re-running updateThreadMentionState — see
-        // refreshThreadMentionHighlight's loop rationale.
+        // Closing must drop the synthetic in-progress range without rescanning.
         onVisibleChanged: panel.refreshThreadMentionHighlight()
     }
-    // Same rescan guard as the room composer: format-only rehighlights
-    // re-emit textChanged with an unchanged value and cursor; only genuine
-    // edits or cursor moves rescan (loop + Escape-reopen protection).
+    // Same rescan guard as the room composer: only genuine edits or cursor
+    // moves rescan.
     property string lastThreadMentionScanText: ""
     property int lastThreadMentionScanCursor: -1
     function updateThreadMentionState() {
@@ -2248,8 +2064,8 @@ Rectangle {
             app.mentionSuggestions.roomId = app.thread.roomId
             app.mentionSuggestions.query = tok.query
             threadMentionPopup.query = tok.query
-            // Viewport anchor, not the (reparented, unclamped) TextArea —
-            // mirrors the room composer (review M1).
+            // Viewport anchor, not the reparented TextArea (as in the room
+            // composer).
             var p = threadInputFlick.mapToItem(Overlay.overlay, 0, 0)
             threadMentionPopup.anchorInputTop = Qt.point(p.x, p.y)
             threadMentionPopup.anchorWidth = threadInputFlick.width
@@ -2261,20 +2077,11 @@ Rectangle {
         }
         panel.refreshThreadMentionHighlight()
     }
-    // v0.6.5 composer echo (mirrors MessageComposerBar.qml): the in-progress
-    // "@token" chip. Concatenates app.thread.mentionRanges with ONE
-    // synthetic presentation-only range covering the currently-typed token,
-    // ONLY while threadMentionPopup is open — never written back to
-    // app.thread.mentionRanges, so the thread composer's send-time payload
-    // logic stays untouched. Explicit assignment, never a declarative
-    // binding — rehighlighting nudges the input's layout/cursor signals and
-    // a cursorPosition-reading binding would loop (and reopen the popup
-    // Escape just closed); same rationale as the room composer.
-    // Copied out of the C++ property, never stored as read: on Qt 6.8 a
-    // stored QVariantList stays a live reference to the property, so the
-    // comparison below always saw the new value and the previous message's
-    // mention stayed inked. See MessageComposerBar.qml's
-    // refreshMentionHighlight.
+    // The in-progress "@token" chip: app.thread.mentionRanges plus one
+    // presentation-only range while the popup is open, never written back.
+    // Assigned explicitly (a binding on cursor signals would loop), and copied
+    // rather than stored as read (on Qt 6.8 a stored QVariantList stays live).
+    // See MessageComposerBar's refreshMentionHighlight.
     property var threadMentionHighlightRanges: []
     function refreshThreadMentionHighlight() {
         var ranges = []
@@ -2288,8 +2095,7 @@ Rectangle {
                 ranges = ranges.concat([{ start: panel.threadMentionTokenStart,
                                           length: len }])
         }
-        // Assign only on a semantic change — an identical list would still
-        // notify (fresh JS array) and rehighlight for nothing.
+        // Assign only on a real change.
         var current = panel.threadMentionHighlightRanges
         if (current.length === ranges.length) {
             var same = true
@@ -2312,12 +2118,8 @@ Rectangle {
         }
     }
 
-    // ---- Spell checking, identical to the room composer -----------------
-    //
-    // The thread composer has historically lagged the room one; it does not
-    // here. The rationale for drawing rectangles instead of using
-    // QTextCharFormat::SpellCheckUnderline is written out once, in
-    // MessageComposerBar.qml — read it there before changing either copy.
+    // Spell checking, identical to the room composer; the rationale for drawing
+    // rectangles is in MessageComposerBar.qml.
     readonly property bool threadSpellActive: app.spell !== null
                                               && app.spell !== undefined
                                               && app.spell.available
@@ -2328,11 +2130,10 @@ Rectangle {
     property int threadSpellMenuLength: 0
     property var threadSpellMenuSuggestions: []
 
-    // Rich-mode underlines keep their own geometry; the editors never show
-    // at once. See the room composer for the mechanism and the reasons.
+    // Rich-mode underlines with their own geometry.
     property var threadRichSpellUnderlines: []
-    // See the room composer: `length` is characters, and an empty list item
-    // has none while still drawing its marker over the placeholder.
+    // See the room composer: `length` counts characters, and an empty list item
+    // has none while drawing its marker.
     property bool threadRichBlank: true
     function refreshThreadRichBlank() {
         panel.threadRichBlank =
@@ -2348,10 +2149,8 @@ Rectangle {
                               : threadComposerInput.text
     }
     function threadSpellSkipRanges() {
-        // Rich mode: document-derived ranges ONLY. The composer's
-        // mentionRanges are offsets into the Markdown MIRROR, which differ
-        // from the document's whenever formatting is present; rich mention
-        // pills are anchors the document scan already covers.
+        // Rich mode uses document-derived ranges only: mentionRanges index the
+        // markdown mirror.
         if (panel.richMode)
             return app.richComposer.spellSkipRanges(threadRichInput.textDocument)
         return app.thread.mentionRanges
@@ -2492,8 +2291,7 @@ Rectangle {
         function onTextChanged() {
             if (threadComposerInput.text !== app.thread.text)
                 threadComposerInput.text = app.thread.text
-            // Rich mode follows a C++-side rewrite (draft restore, clear
-            // after send) unless this is the echo of its own push.
+            // Follow a C++-side rewrite unless it is the echo of our own push.
             if (!panel.richMode || panel.richSyncing)
                 return
             var current = app.richComposer.toMarkdown(threadRichInput.textDocument)
@@ -2506,8 +2304,8 @@ Rectangle {
         }
     }
 
-    // v0.7: one reaction picker + one profile popover for every thread row
-    // (never a per-row popup). Closed with the thread/room context.
+    // One reaction picker and one profile popover for all thread rows, closed
+    // with the thread/room context.
     EmojiPicker {
         id: threadReactionPicker
         mode: "reaction"
@@ -2518,28 +2316,21 @@ Rectangle {
         }
         onClosed: {
             replyList.emojiPickerOpen = false
-            // Release the tone level FIRST: when the picker closes while the
-            // tone popup is up the owner is "tone", and
-            // releaseTransientInteraction early-returns unless the owner
-            // matches — so releasing only "picker" left the owner latched at
-            // "tone" and no thread row could show its action bar until the
-            // room changed. Identical to TimelinePane's wiring, which is the
-            // contract both copies implement.
+            // Release the tone level first: while the tone popup is up the
+            // owner is "tone", and releasing only "picker" would leave it
+            // latched. Same wiring as TimelinePane.
             replyList.releaseTransientInteraction("tone", "")
             replyList.releaseTransientInteraction("picker", "")
             targetEventId = ""
         }
-        // The nested skin-tone popup owns interaction while it is up and
-        // hands it back to the picker, not to the rows (see the room
-        // timeline's identical wiring).
+        // The skin-tone popup owns interaction while up and hands it back to
+        // the picker.
         onToneOpened: replyList.claimTransientInteraction("tone")
         onToneClosed: replyList.releaseTransientInteraction("tone", "picker")
         onEmojiChosen: (emoji) => {
-            // Through the THREAD model, never app.composer: that is the room
-            // composer, whose live timeline is built with hide_threaded_events
-            // and cannot find a thread reply, so a reaction addressed there
-            // was a silent no-op. The model passes its own (composite) id and
-            // the client decomposes it into room + thread root before the FFI.
+            // Through the thread model, never app.composer: the room timeline
+            // hides threaded events, so the reaction would be a no-op there.
+            // The model passes its composite id, decomposed before the FFI.
             if (targetEventId !== "")
                 app.thread.model.toggleReaction(targetEventId, emoji)
         }
@@ -2555,19 +2346,14 @@ Rectangle {
             threadReactionPicker.close()
             threadSenderProfile.close()
             threadMentionPopup.close()
-            // One reset point, matching closeRowAnchoredSurfaces() in the room
-            // timeline: a surface destroyed under the pointer would otherwise
-            // leave this pane permanently unable to show an action bar.
+            // One reset point, as closeRowAnchoredSurfaces() in the room
+            // timeline.
             replyList.transientInteractionOwner = ""
         }
     }
 
-    // ── Composer buttons the user switched off, and the merged picker ────
-    //
-    // Both mirror MessageComposerBar.qml, because the two composers are peers
-    // and a setting that only reached one of them would be a worse answer than
-    // no setting. See that file for why the list holds what is HIDDEN and why
-    // composerButtonShown() is read through a property.
+    // Hidden composer buttons and the merged picker, mirroring
+    // MessageComposerBar.qml.
     readonly property var hiddenComposerButtons:
         app.settings ? app.settings.hiddenComposerButtons : []
     function composerButtonShown(key) {
@@ -2614,9 +2400,8 @@ Rectangle {
         onClosed: Qt.callLater(threadComposerInput.forceActiveFocus)
     }
 
-    // Download → validate → send into THIS thread (captured room + root) so a
-    // room/thread switch cannot reroute it; the SDK produces a real m.thread
-    // reply, never an ordinary room message.
+    // Download, validate and send into this thread (captured room + root); the
+    // SDK produces a real m.thread reply.
     function onThreadGifPicked(result) {
         app.gifSend.sendToThread(app.thread.roomId, app.thread.rootEventId,
                                  result)
@@ -2631,25 +2416,16 @@ Rectangle {
         onClosed: Qt.callLater(threadComposerInput.forceActiveFocus)
     }
 
-    // Send the chosen pack sticker into THIS thread (captured room + root).
-    // There is deliberately NO room-send fallback: a thread sticker that
-    // cannot reach its thread must fail rather than land in the main
-    // timeline (CLAUDE.md §8). The SDK attaches the m.thread relation.
+    // Send the chosen pack sticker into this thread. No room-send fallback
+    // (CLAUDE.md §8); the SDK attaches the m.thread relation.
     function onThreadStickerPicked(image) {
         app.stickers.sendToThread(app.thread.roomId, app.thread.rootEventId,
                                   image)
     }
 
-    // Markdown formatting in the THREAD composer. Before this the thread box
-    // handled no editor shortcut at all, so Ctrl+B here was not "Bold" — it
-    // fell through to the window and toggled the conversation list while the
-    // user was typing a reply. The room composer had claimed its overrides
-    // since the design shell landed; this box never did.
-    //
-    // MessageComposer::toggleFormat is a PURE text transform (declared const,
-    // documented as such, writes no member), so calling it with the thread's
-    // own text and selection is correct and is the reason there is no second
-    // implementation of the markdown rules here. Do not copy them.
+    // Markdown formatting in the thread composer. MessageComposer::toggleFormat
+    // is a pure text transform, so it serves this text and selection too; do
+    // not duplicate the markdown rules.
     function applyThreadFormat(format) {
         if (panel.richMode) {
             panel.applyThreadRichFormat(format)
@@ -2662,33 +2438,28 @@ Rectangle {
                                                threadComposerInput.selectionStart,
                                                threadComposerInput.selectionEnd)
         threadComposerInput.text = result.text
-        // The two-way sync above only fires for a CHANGE, and the assignment
-        // has already made them equal, so app.thread.text is set explicitly
-        // rather than left to onTextChanged.
+        // The two-way sync only fires on change, and the values are already
+        // equal.
         app.thread.text = result.text
         threadComposerInput.select(result.selectionStart, result.selectionEnd)
         threadComposerInput.forceActiveFocus()
     }
 
-    // v0.9 composer modes in the thread panel — the same two-editor design
-    // as MessageComposerBar (see its richMode comment): app.thread.text is
-    // the MARKDOWN MIRROR in both modes, the rich editor pushes toMarkdown()
-    // per edit, and the wire bodies come from RichComposition over the live
-    // document via app.richComposer.sendDocumentToThread.
+    // Composer modes, the same two-editor design as MessageComposerBar:
+    // app.thread.text is the markdown mirror in both modes, and wire bodies
+    // come from app.richComposer.sendDocumentToThread.
     readonly property bool richMode: app.settings
                                      && app.settings.composerMode === "rich"
     property bool richSyncing: false
-    // A standing command refusal: the FIRST send refused and kept the
-    // draft; a second send of the SAME text posts it literally. The tooltip
-    // on the field says so, which is what makes the second press a choice
-    // rather than hidden state.
+    // A standing command refusal: the first send is refused and keeps the
+    // draft; sending the same text again posts it literally, as the tooltip
+    // says.
     property string commandErrorText: ""
     onRichModeChanged: {
         panel.threadSpellUnderlines = []
         panel.threadRichSpellUnderlines = []
         panel.refreshThreadRichBlank()
-        // The Markdown field's text is a binding the rich mirror kept
-        // current, so switching back fires no textChanged: refresh here.
+        // Switching back fires no textChanged; refresh here.
         if (panel.richMode)
             threadRichSpellTimer.restart()
         else
@@ -2728,9 +2499,8 @@ Rectangle {
         var body = threadComposerInput.text.trim()
         if (body.length === 0 && !app.thread.hasAttachments)
             return
-        // sendText dispatches any queued attachments first, then the text —
-        // unless it is a refused slash command, in which case the draft
-        // stays and a second send of the same text posts it literally.
+        // sendText sends queued attachments, then the text, unless it is a
+        // refused slash command.
         if (app.thread.commandError.length > 0 && panel.commandErrorText === body)
             app.thread.sendTextBypassingCommands(body)
         else
@@ -2762,7 +2532,7 @@ Rectangle {
                                       threadRichInput.selectionEnd, format,
                                       argument)
         threadRichInput.forceActiveFocus()
-        // Structure changes what is DRAWN without changing a character.
+        // Structure changes what is drawn without changing characters.
         panel.refreshThreadRichBlank()
     }
     function updateThreadRichMentionState() {

@@ -3,20 +3,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.7.x: the session-verification flow, extracted verbatim from the card
-// that used to live inline at the bottom of Settings → Sessions.
-//
-// It moved because that is the wrong place for it: verification is a
-// two-device task where the user is looking back and forth between screens,
-// and burying it under a scrolled settings page meant the emojis could be
-// off-screen at the moment they matter. Element puts this in a focused
-// modal; VerificationDialog.qml is that modal, and this is its body — kept
-// as a plain layout so the ONE flow presentation can also be embedded
-// anywhere else without a second copy drifting out of step.
-//
-// Every state string, guard and objectName is unchanged from the inline
-// card. Nothing here promotes trust locally: each button is a request to
-// the SDK, and the states are AppController's cache of what the SDK said.
+// The session-verification flow body, hosted by VerificationDialog.qml (a
+// focused modal, as in Element: the user looks back and forth between two
+// devices). A plain layout so the one flow can be embedded elsewhere without a
+// second copy. Nothing here promotes trust locally: every button is a request
+// to the SDK, and the states are AppController's cache of what the SDK said.
 ColumnLayout {
     id: root
     spacing: AppTheme.spacing8
@@ -24,21 +15,14 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         spacing: AppTheme.spacing8
-        // v0.7.1: live progress feedback
-        // for the two post-"They match"
-        // states — the press is
-        // acknowledged immediately and
-        // the peer wait is named.
+        // Progress for the post-"They match" states: the press is acknowledged
+        // and the peer wait is named.
         AppBusyIndicator {
             color: AppTheme.bolt
             size: 18
             visible: running
-            // While a QR code is on
-            // screen the user is meant
-            // to act, not wait, so
-            // "ready" does not spin —
-            // but confirming the scan
-            // does.
+            // A displayed QR code asks the user to act, so "ready" does not
+            // spin; confirming the scan does.
             running: app.verificationState === "confirming"
                      || app.verificationState === "waiting_for_peer"
                      || app.verificationQrConfirming
@@ -57,12 +41,8 @@ ColumnLayout {
             Accessible.role: Accessible.StaticText
             Accessible.name: text
             text: {
-                // The show-QR leg owns
-                // the message while a
-                // code is displayed. It
-                // is cleared on every
-                // terminal state, so
-                // this can never mask
+                // The show-QR leg owns the message while a code is displayed.
+                // Cleared on every terminal state, so it never masks
                 // done/cancelled/failed.
                 if (app.verificationQrAvailable) {
                     if (app.verificationQrConfirming)
@@ -107,16 +87,8 @@ ColumnLayout {
                 if (app.verificationState === "cancelled")
                     return qsTr("Verification cancelled.")
                 if (app.verificationState.indexOf("failed") === 0) {
-                    // The reason is the
-                    // whole value of this
-                    // line: "no
-                    // cross-signing
-                    // identity" tells the
-                    // user what to do,
-                    // "Verification
-                    // failed." does not.
-                    // AppController stores
-                    // it as "failed:<msg>".
+                    // The reason is what tells the user what to do.
+                    // AppController stores it as "failed:<msg>".
                     var reason =
                         app.verificationState
                             .substring(7)
@@ -130,17 +102,10 @@ ColumnLayout {
             }
         }
     }
-    // ── Show-QR panel ───────────────
-    // Lightning DISPLAYS a code for the
-    // other device to scan; it never
-    // scans (no camera), so
-    // m.qr_code.scan.v1 is never
-    // advertised. Shown only while the
-    // SDK has a live code for THIS flow;
-    // AppController drops it on every
-    // terminal state, on cancel, and on
-    // logout, so a code cannot outlive
-    // its flow.
+    // Show-QR panel. Lightning displays a code for the other device to scan and
+    // never scans (no camera), so m.qr_code.scan.v1 is never advertised. Shown
+    // only while the SDK has a live code for this flow; AppController drops it
+    // on every terminal state, cancel and logout.
     ColumnLayout {
         objectName: "verificationQrPanel"
         Layout.fillWidth: true
@@ -148,19 +113,9 @@ ColumnLayout {
         visible: app.verificationQrAvailable
 
         Rectangle {
-            // Deliberately theme-INDEPENDENT.
-            // A QR code has to be dark
-            // modules on a light field
-            // with a quiet zone for a
-            // camera to read it; that is
-            // a physical constraint, not
-            // a styling choice, so this
-            // one surface stays white
-            // under every theme. The
-            // dark modules and the
-            // 4-module quiet zone are
-            // baked into the image by
-            // QrImageProvider.
+            // Theme-independent: a QR code needs dark modules on a light field
+            // with a quiet zone. The modules and 4-module quiet zone are baked
+            // in by QrImageProvider.
             color: "#FFFFFF"
             radius: AppTheme.radiusSm
             Layout.alignment: Qt.AlignHCenter
@@ -172,23 +127,13 @@ ColumnLayout {
                 objectName: "verificationQrImage"
                 anchors.centerIn: parent
                 source: app.verificationQrImage
-                // Ask for a size the
-                // provider can round DOWN
-                // to whole modules; it
-                // returns the exact
-                // whole-module bitmap and
-                // the item takes that
-                // natural size, so no
-                // resampling can blur a
-                // module edge.
+                // The provider rounds down to whole modules and returns that
+                // exact bitmap, so nothing resamples a module edge.
                 sourceSize: Qt.size(240, 240)
                 width: implicitWidth
                 height: implicitHeight
                 smooth: false
-                // A verification code is
-                // single-use and secret;
-                // it must never sit in
-                // the QML image cache.
+                // A verification code is single-use and secret; never cache it.
                 cache: false
                 Accessible.role: Accessible.Graphic
                 Accessible.name: qsTr(
@@ -208,19 +153,10 @@ ColumnLayout {
             color: AppTheme.stormTextMuted
             Accessible.role: Accessible.StaticText
             Accessible.name: text
-            // The honest fallback note.
-            // Starting emoji from THIS
-            // side would invalidate the
-            // code currently on screen,
-            // so while one is displayed
-            // the switch is left to the
-            // other device — and it also
-            // happens automatically if
-            // the code goes unscanned.
-            // An in-app "Use emoji
-            // instead" button is an
-            // accepted follow-up (it
-            // needs a new FFI).
+            // Starting emoji from this side would invalidate the displayed
+            // code, so the switch is left to the other device (it also happens
+            // automatically if the code goes unscanned). An in-app "Use emoji
+            // instead" needs a new FFI.
             text: app.verificationQrScanned
                 ? qsTr("Only confirm if the other device reports success.")
                 : qsTr(
@@ -232,13 +168,9 @@ ColumnLayout {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignHCenter
             spacing: AppTheme.spacing8
-            // Appears only once the SDK
-            // reports the peer actually
-            // scanned. Nothing is ever
-            // auto-confirmed, and this
-            // press is a request to the
-            // SDK — never a local trust
-            // promotion.
+            // Appears once the SDK reports the peer scanned. Nothing is
+            // auto-confirmed, and the press is a request to the SDK, never a
+            // local trust promotion.
             visible: app.verificationQrScanned
             AppButton {
                 storm: true
@@ -260,10 +192,8 @@ ColumnLayout {
     Flow {
         Layout.fillWidth: true
         spacing: AppTheme.spacing8
-        // Emoji stay on screen through
-        // confirming/waiting so users can
-        // keep comparing while the flow
-        // settles.
+        // Emoji stay visible through confirming/waiting for continued
+        // comparison.
         visible: app.verificationState === "sas_ready"
                  || app.verificationState === "confirming"
                  || app.verificationState === "waiting_for_peer"
@@ -276,13 +206,8 @@ ColumnLayout {
                 implicitWidth: 84
                 implicitHeight: 78
                 ColumnLayout {
-                    // Width-bound, not
-                    // centerIn: a long SAS
-                    // word ("Headphones")
-                    // otherwise widens the
-                    // layout past the 84px
-                    // tile and bleeds over
-                    // its neighbours.
+                    // Width-bound, not centerIn: a long SAS word would bleed
+                    // over its neighbours.
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.left: parent.left
                     anchors.right: parent.right
@@ -290,11 +215,8 @@ ColumnLayout {
                     spacing: 2
                     Label {
                         text: modelData.symbol || ""
-                        // The colour emoji face by NAME: Qt 6.8 (every
-                        // packaged build) picks a monochrome face for these
-                        // codepoints when left to per-character fallback,
-                        // which is how the AppImage showed black-and-white
-                        // and missing verification emoji (2026-09-05).
+                        // The colour emoji face by name: Qt 6.8 picks a
+                        // monochrome face otherwise.
                         font.family: app.emojiFontFamily || ""
                         font.pixelSize: 28
                         horizontalAlignment: Text.AlignHCenter
@@ -305,10 +227,8 @@ ColumnLayout {
                         font.pixelSize: AppTheme.textMeta
                         color: AppTheme.stormTextMuted
                         horizontalAlignment: Text.AlignHCenter
-                        // Wrap, never elide: the user is
-                        // asked to COMPARE this word across
-                        // devices — a truncated word is
-                        // worse than a two-line caption.
+                        // Wrap, never elide: the word is compared across
+                        // devices.
                         lineHeight: AppTheme.lineHeightBody
                         lineHeightMode: Text.ProportionalHeight
                         wrapMode: Text.Wrap
@@ -332,13 +252,9 @@ ColumnLayout {
         AppButton {
             storm: true
             text: qsTr("They match")
-            // v0.7.1: stays visible (but
-            // disabled) through the
-            // confirm/peer wait so the
-            // card does not jump; only
-            // sas_ready accepts the press
-            // (AppController enforces the
-            // same guard).
+            // Stays visible but disabled through the confirm/peer wait so the
+            // card does not jump; only sas_ready accepts the press
+            // (AppController guards too).
             visible: app.verificationState === "sas_ready"
                     || app.verificationState === "confirming"
                     || app.verificationState === "waiting_for_peer"
@@ -358,18 +274,9 @@ ColumnLayout {
         AppButton {
             storm: true
             text: qsTr("Cancel verification")
-            // Cancel must exist in EVERY
-            // non-terminal state. Listing
-            // states positively meant a
-            // newly added one ("ready")
-            // silently lost the only way
-            // out: that card shows a
-            // spinner and no buttons at
-            // all, so a peer that never
-            // advertised m.sas.v1 pinned
-            // the user to it. Inverted so
-            // the next added state cannot
-            // drop the escape hatch again.
+            // Cancel must exist in every non-terminal state, so the condition
+            // is inverted rather than listing states: a newly added state
+            // cannot lose the only way out.
             visible: app.verificationState !== ""
                     && app.verificationState !== "done"
                     && app.verificationState !== "cancelled"

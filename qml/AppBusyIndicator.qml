@@ -1,27 +1,19 @@
 import QtQuick
 import MatrixClient
 
-// Lightning loading spinner.
+// Lightning loading spinner. The Basic BusyIndicator inks palette.dark (the
+// body-text grey), so it never read as active and was barely visible over
+// scrims. `scrim: true` uses the scrim ink for those hosts.
 //
-// Roughly eighteen BusyIndicators shipped as the unstyled Basic control,
-// whose contentItem inks `palette.dark` — mapped in Main.qml to
-// textSecondary, the theme's body-TEXT grey. Loading therefore never read as
-// an active state anywhere in the app, and over the image viewer's 85%-black
-// scrim the grey spinner was barely perceptible. `scrim: true` switches to
-// the committed-light scrim ink for those hosts.
-//
-// Built from plain Rectangles on purpose: QtQuick.Shapes is not linked in
-// this application and Canvas paints nothing here (the same constraint
-// StormNode.qml, TrustCard.qml and PopupResizeGrip.qml record), so an arc is
-// not available. Eight dots on a circle with an opacity ramp, rotating as
-// one item, is the shape that survives that constraint and still reads as a
-// spinner rather than as decoration.
+// Built from plain Rectangles because Canvas paints nothing here (as noted
+// in StormNode.qml, TrustCard.qml and PopupResizeGrip.qml): eight dots on a
+// circle with an opacity ramp, rotating as one item.
 Item {
     id: root
 
     property bool running: true
     property int size: 32
-    // Contexts painting over media/scrim ink rather than a theme surface.
+    // For hosts painting over media/scrim rather than a theme surface.
     property bool scrim: false
     // Explicit ink for hosts that need one (a spinner on an accent fill).
     property color color: scrim ? AppTheme.scrimInkStrong : AppTheme.accent
@@ -31,16 +23,10 @@ Item {
 
     implicitWidth: size
     implicitHeight: size
-    // Visibility is deliberately NOT bound to `running`, which is what the
-    // stock BusyIndicator does too.
-    //
-    // `visible: running` looks tidy and is a trap: the stock idiom at a host
-    // is `running: visible`, and the two together are a cycle. QQuickItem's
-    // `visible` is EFFECTIVE visibility, so an indicator created while an
-    // ancestor is hidden reads false, writes running=false, and the pair
-    // latches dead with no warning and no way back — ThreadPanel is built
-    // exactly that way, and three of its spinners never turned again. Hosts
-    // own visibility; this owns the animation.
+    // Visibility is not bound to `running`, as with the stock BusyIndicator.
+    // Hosts commonly bind `running: visible`, and since `visible` is effective
+    // visibility, the pair would latch off for an indicator created under a
+    // hidden ancestor. Hosts own visibility; this owns the animation.
     Accessible.role: Accessible.Indicator
     Accessible.name: qsTr("Loading")
 
@@ -57,17 +43,16 @@ Item {
                 height: root._dot
                 radius: width / 2
                 color: root.color
-                // Ramp from nearly invisible to solid so the ring has a
-                // head and a tail; without it a rotating ring of equal dots
-                // looks stationary.
+                // Ramp from faint to solid so the ring has a head and a tail
+                // and visibly rotates.
                 opacity: 0.15 + 0.85 * (index / 7)
                 x: root.size / 2 - width / 2 + Math.cos(_angle) * root._orbit
                 y: root.size / 2 - height / 2 + Math.sin(_angle) * root._orbit
             }
         }
 
-        // Animation stops with `running` AND with visibility: an indicator
-        // parked inside a hidden pane must not keep the render loop awake.
+        // Stops with `running` and with visibility, so a spinner in a hidden
+        // pane doesn't keep the render loop awake.
         RotationAnimator on rotation {
             running: root.running && root.visible && !AppTheme.reducedMotion
             from: 0

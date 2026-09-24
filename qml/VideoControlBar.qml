@@ -4,20 +4,18 @@ import QtQuick.Layouts
 import QtMultimedia
 import MatrixClient
 
-// Shared adaptive video control bar — one implementation for the inline
-// card and the expanded overlay. Sits over the video on a bottom gradient
-// scrim, so its ink is scrim-constant (accentText on dark), not themed
-// surface ink. Width-adaptive: a tight card drops the SPEED button; play,
-// seek, time, volume and expand/exit stay visible at every width. Expanding
-// the player exposes the complete direct-control set, speed included.
+// Shared video control bar for the inline card and the expanded overlay, over
+// the video on a bottom scrim, so its inks are scrim-constant. A tight card
+// drops the speed button; play, seek, time, volume and expand stay at every
+// width. The expanded player shows the full set.
 FocusScope {
     id: bar
 
     required property MediaPlayer player
-    // The AudioOutput is not reachable through MediaPlayer from QML;
-    // callers pass it explicitly.
+    // The AudioOutput is not reachable through MediaPlayer from QML; passed
+    // explicitly.
     required property var audio
-    // Re-acquire the one-audible-owner slot when play is pressed here.
+    // Re-acquire the one-audible-owner slot on play.
     property string ownerKey: ""
     property bool showExpand: true
     property bool showClose: true
@@ -32,31 +30,10 @@ FocusScope {
 
     implicitHeight: 40
 
-    // ── A POSITION FLOORS, A TOTAL ROUNDS, AND THEY ARE NOT ONE CLOCK ──
-    //
-    // Two different quantities shared one formatter in every player here,
-    // which is why they could never be made consistent. They pull opposite
-    // ways:
-    //
-    //   * a POSITION is elapsed time. At 25.7 s you have not reached 0:26,
-    //     and a clock that says you have is claiming time that has not
-    //     passed. It would also hit the total a half-second before the
-    //     audio ends and sit there.
-    //   * a TOTAL is a length. 25.7 s of audio IS 26 seconds to the nearest
-    //     second, which is what `embedDurationText` on the collapsed
-    //     summary line has always said, and a total that floors reads a
-    //     second short of the clip.
-    //
-    // Rounding BOTH (which this file briefly did) fixed the summary-line
-    // disagreement and broke the position clock. Flooring both, the state
-    // before that, made the card disagree with the one-line summary that
-    // opens it. Naming them apart is the only thing that makes every
-    // surface agree, and the reason the old comment here was wrong on both
-    // counts: the video card does NOT round, and the recording counter
-    // floors on purpose.
-    //
-    // The two RECORDING counters stay floored and are not this rule's
-    // business: a counter running while you speak is a position.
+    // A position floors, a total rounds. At 25.7 s you have not reached 0:26,
+    // so an elapsed clock floors (rounding would reach the total early); 25.7 s
+    // of audio is 26 seconds long, matching embedDurationText. The recording
+    // counters are positions and stay floored.
     function formatPosition(ms) {
         if (!ms || ms < 0) ms = 0
         return bar.clockText(Math.floor(ms / 1000))
@@ -88,12 +65,8 @@ FocusScope {
         anchors.fill: parent
         gradient: Gradient {
             GradientStop { position: 0.0; color: "transparent" }
-            // Committed dark on every theme: the bar sits over
-            // arbitrary video. scrimSurface is the shared "chrome over
-            // media" value — this used to be one of three different black
-            // alphas invented across three media files (70/85/90%), which
-            // is why the control bar, the volume popup and the image
-            // viewer never matched each other.
+            // Dark on every theme: the bar sits over arbitrary video.
+            // scrimSurface is the shared chrome-over-media value.
             GradientStop { position: 1.0; color: AppTheme.scrimSurface }
         }
     }
@@ -129,8 +102,8 @@ FocusScope {
             value: pressed ? value : (bar.player ? bar.player.position : 0)
             Accessible.name: qsTr("Seek position")
             onMoved: if (bar.player) bar.player.position = value
-            // Scrim-styled compact track/handle (the Basic style track is
-            // surface-themed and vanishes over video).
+            // Scrim-styled track and handle; the Basic track vanishes over
+            // video.
             background: Rectangle {
                 x: seekSlider.leftPadding
                 y: seekSlider.topPadding + seekSlider.availableHeight / 2 - 2
@@ -169,27 +142,10 @@ FocusScope {
             Layout.rightMargin: 2
         }
 
-        // THE VOLUME CONTROL IS NEVER THE THING THAT DISAPPEARS, AND IT
-        // TAKES THE OVERFLOW BUTTON'S SLOT RATHER THAN A NEW ONE.
-        //
-        // Reported 2026-09-07: "i cant change volume on videos unless i
-        // fullscreen them". Tight cards hid this control and offered the
-        // overflow menu instead — but that menu carried only Mute and
-        // Speed, so the LEVEL was silently dropped rather than moved. On an
-        // inline card the only volume choice was on or off, and the slider
-        // appeared solely once the player was expanded.
-        //
-        // Volume is the most-reached control after play and seek, so it now
-        // stays at every width and SPEED is what a tight card gives up.
-        //
-        // MEASURED, not assumed: keeping the overflow button as well pushed
-        // the close button outside a 260px card and
-        // portraitVideoControlsRemainReachable failed on it. So this is a
-        // straight swap of one 30px button for another. The overflow menu
-        // held nothing else once volume left it, so it is gone rather than
-        // kept for a single entry, and speed is reached by expanding the
-        // player, which is where a 260px card sends anyone who wants finer
-        // control anyway.
+        // Volume stays at every width, taking the old overflow button's slot;
+        // speed is what a tight card gives up (reachable by expanding). Keeping
+        // both pushed the close button out of a 260px card
+        // (portraitVideoControlsRemainReachable).
         MediaVolumeControl {
             id: volumeControl
             objectName: "videoMuteButton"
@@ -252,8 +208,7 @@ FocusScope {
         }
     }
 
-    // Speed state shared by both presentations. Session-scoped, never
-    // persisted; resets with the bar instance.
+    // Speed state for both presentations; session-scoped, never persisted.
     readonly property var _rates: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
     property int _rateIndex: 2
     readonly property string _rateLabel: "" + _rates[_rateIndex]

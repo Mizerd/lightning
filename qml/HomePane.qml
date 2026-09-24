@@ -3,13 +3,10 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.7.1: Home / no-room surface. Shown in the timeline region when no room
-// is selected (app.currentRoomId === ""), replacing the bare
-// "Select a room from the left" placeholder; TimelinePane hides the composer
-// in this state. Deliberately uncluttered (design language, current theme
-// and fonts): a welcome, the primary create/find actions, and a short
-// "jump back in" list of recent conversations. Keyboard accessible; the
-// actions route up to the room list's shared new-conversation dialog.
+// Home / no-room surface, shown in the timeline region when no room is
+// selected; TimelinePane hides the composer here. A welcome, the primary
+// create/find actions and a short list of recent conversations. The actions
+// route to the room list's shared new-conversation dialog.
 Item {
     id: root
     objectName: "homePane"
@@ -19,46 +16,24 @@ Item {
     signal createRoomRequested()
     signal createSpaceRequested()
 
-    // `account()` is a Q_INVOKABLE, so a binding on it depends on the id it
-    // is given and on NOTHING ELSE: renaming the account, or setting an
-    // avatar, left this pane greeting the user by their old name — or by
-    // their localpart — until the active account changed. Same record-and-
-    // refresh shape the rail's own account tile uses.
-    //
-    // AND `activeUserId` IS RECORDED THE SAME WAY, which it was not, and the
-    // difference was a binding loop on every launch. It used to be a BINDING
-    // on `app.accounts.activeUserId` with an `onActiveUserIdChanged` handler
-    // writing `activeAccount`. A QML binding is evaluated LAZILY, on its
-    // first READ — and the first read of this one happened INSIDE
-    // `displayName`'s own evaluation, which reads it for the localpart
-    // fallback. So the id moved from "" to the real one mid-binding, the
-    // change handler ran synchronously, and it wrote `activeAccount` — a
-    // dependency `displayName` had already captured. Qt abandoned the
-    // evaluation and printed
-    // `QML HomePane: Binding loop detected for property "displayName"`.
-    //
-    // One function writes both fields now, driven by the manager's own
-    // signals exactly as the rail's account tile and the Settings identity
-    // card already were, so nothing a binding depends on moves while that
-    // binding is being read. GENERALISE: a change handler on a LOCAL binding
-    // runs during that binding's first read, which is whenever some other
-    // binding happened to reach it first — so what it writes is written
-    // inside a stranger's evaluation.
+    // `account()` is a Q_INVOKABLE, so a binding on it would miss renames and
+    // avatar changes. Both fields are refreshed by one function driven by the
+    // manager's signals (as the rail's account tile and Settings identity card
+    // do). A local binding with a change handler would run that handler inside
+    // `displayName`'s first evaluation and cause a binding loop.
     property string activeUserId: ""
     property var activeAccount: null
     function refreshActiveAccount() {
         var uid = app.accounts ? app.accounts.activeUserId : ""
-        // The account first: the greeting prefers its display name, so the
-        // one intermediate state a reader can observe between these two
-        // writes already carries the right answer.
+        // The account first, so the one intermediate state between these writes
+        // already greets correctly.
         root.activeAccount = (app.accounts && uid.length > 0)
             ? app.accounts.account(uid) : null
         root.activeUserId = uid
     }
     Connections {
         target: app.accounts
-        // Both halves: the SELECTION moving to another account, and the
-        // active account's own record changing under a fixed id.
+        // Both the selection moving and the active record changing.
         function onAccountsChanged() { root.refreshActiveAccount() }
         function onActiveUserIdChanged() { root.refreshActiveAccount() }
     }
@@ -77,26 +52,22 @@ Item {
         return colon > 0 ? id.substring(0, colon) : id
     }
 
-    // Recent conversations are recomputed from the model rather than bound
-    // through a Repeater over the whole room list, so hidden rows never spin
-    // up avatar fetches.
+    // Recomputed from the model rather than a Repeater over the whole room
+    // list, so hidden rows never fetch avatars.
     property var recentModel: []
     property var spacesModel: []
     function refreshRecent() {
         recentModel = app.roomList ? app.roomList.recentRooms(6) : []
         spacesModel = app.roomList ? app.roomList.spacesSummary(8) : []
     }
-    // ONE `Component.onCompleted` per object — a second declaration is a
-    // "Property value set multiple times" LOAD error that takes the whole
-    // pane down, not an addition.
+    // Only one Component.onCompleted per object; a second is a load error.
     Component.onCompleted: {
         root.refreshActiveAccount()
         refreshRecent()
     }
     onVisibleChanged: if (visible) refreshRecent()
-    // Coalesce bursty room-list updates: rebuilding the section arrays per
-    // dataChanged would churn up to ~14 delegates (and their avatars) on
-    // every sync tick of a busy account.
+    // Coalesce bursty room-list updates so each sync tick doesn't rebuild the
+    // sections and their avatars.
     Timer {
         id: refreshCoalesce
         interval: 250
@@ -119,16 +90,9 @@ Item {
         var now = new Date()
         var days = Math.floor((now - when) / 86400000)
         if (when.toDateString() === now.toDateString())
-            // ONE clock format for the whole application (Settings ->
-            // Appearance): 24-hour, 12-hour, or the system's. The setting
-            // resolves to a Qt format string on the C++ side, so nothing
-            // here has to know what "12-hour" spells. Read as a PROPERTY —
-            // a settings HELPER call would create no dependency anywhere.
-            //
-            // Honest limitation: this label is produced by a function, so
-            // it re-renders when its caller's binding next does rather than
-            // the instant the format changes. That is exactly what the
-            // locale read it replaces already did.
+            // The app-wide clock setting, as a Qt format string from C++. Read
+            // as a property so bindings depend on it; this label re-renders
+            // when its caller's binding next does.
             return Qt.formatTime(when, app.settings.clockTimeFormat)
         if (days < 2) return qsTr("Yesterday")
         if (days < 7) return Qt.formatDate(when, "ddd")
@@ -201,16 +165,15 @@ Item {
                 lineHeightMode: Text.ProportionalHeight
             }
 
-            // Offline notice — informational only; cached rooms stay
-            // reachable and the global status bar carries the detail.
+            // Offline notice, informational only: cached rooms stay reachable
+            // and the status bar carries the detail.
             Rectangle {
                 objectName: "homeOfflineNotice"
                 visible: root.offline
                 Layout.fillWidth: true
                 radius: AppTheme.radiusMd
-                // The chip family, so the card's fill, border and icon all
-                // derive from ONE ink instead of a neutral card wearing a
-                // status-coloured outline (which read as an error box).
+                // The warning chip family, so fill, border and icon share one
+                // ink.
                 color: AppTheme.chipWarningFill
                 border.color: AppTheme.chipWarningBorder
                 border.width: 1
@@ -225,13 +188,8 @@ Item {
                         Layout.fillWidth: true
                         text: qsTr("You appear to be offline. Reconnecting — "
                                    + "your rooms stay available.")
-                        // textPrimary, not textSecondary: these cards moved
-                        // from an opaque cardElevated to a 14% status tint,
-                        // and secondary ink on that wash measures 3.89:1 on
-                        // Lightning Light and 3.94 on Warm — below AA, on the
-                        // two cards in the app whose entire job is to be
-                        // noticed. Primary ink clears every theme (10.51 and
-                        // 7.76 on those two).
+                        // textPrimary: secondary ink on the 14% status tint is
+                        // below AA on the light themes.
                         color: AppTheme.textPrimary
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         wrapMode: Text.WordWrap
@@ -241,8 +199,7 @@ Item {
                 }
             }
 
-            // Actionable security state ONLY — silence when everything is
-            // fine. Routed straight to Privacy & security.
+            // Actionable security state only; silent when all is fine.
             Rectangle {
                 objectName: "homeSecurityCard"
                 visible: app.cryptoBootstrap
@@ -264,8 +221,7 @@ Item {
                         text: app.cryptoBootstrap
                               ? app.cryptoBootstrap.statusMessage : ""
                         textFormat: Text.PlainText
-                        // Same reason as the offline card above: secondary
-                        // ink on accentSoft is 3.80:1 on Lightning Light.
+                        // As above: secondary ink on accentSoft is below AA.
                         color: AppTheme.textPrimary
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         wrapMode: Text.WordWrap
@@ -274,26 +230,11 @@ Item {
                     }
                     AppButton {
                         objectName: "homeSecurityButton"
-                        // "Set up backup", to SESSIONS. This said "Open
-                        // security" and opened Privacy & security, which has
-                        // no key-backup control at all — the "Set up recovery
-                        // and backup" button lives under Sessions. Reported
-                        // as "when I click open it just shows me settings and
-                        // I have no clue what to do here". A call to action
-                        // has to land on the action.
-                        // AND THE DESTINATION DEPENDS ON THE PHASE, because
-                        // `needsRecoveryKey` is true for three of them and
-                        // they do not want the same pane. NoBackupAvailable
-                        // genuinely wants Sessions -- there is nothing to
-                        // restore from, so the action is to CREATE a backup.
-                        // ManualRecoveryRequired and IdentityIncomplete say
-                        // "Enter your recovery key or passphrase to restore
-                        // encrypted history", and that field is in Privacy &
-                        // security, not Sessions. Routing all three to
-                        // Sessions fixed one phase and broke the other two
-                        // into the same "no clue what to do here" the note
-                        // above was written about. Found in the 2026-09-13
-                        // pre-release audit.
+                        // The destination depends on the phase:
+                        // NoBackupAvailable needs to create a backup
+                        // (Sessions); ManualRecoveryRequired and
+                        // IdentityIncomplete need the recovery key field
+                        // (Privacy & security).
                         readonly property bool wantsRecoveryInput:
                             app.cryptoBootstrap
                             && (app.cryptoBootstrap.phase
@@ -348,18 +289,15 @@ Item {
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.textMeta
                 }
-                // The shared keycap chip, not a hand-rolled 5px-radius box:
-                // this is the same hint the room-list search field carries,
-                // and the two were drawn twice with different corners, ink
-                // and padding. `storm: false` for the same reason it does —
-                // this surface renders the user's theme.
+                // The shared keycap chip, as in the room-list search field.
+                // `storm: false`: this surface uses the user's theme.
                 MenuKeycap {
                     keys: "Ctrl+K"
                     storm: false
                 }
             }
 
-            // Jump back in — recent conversations.
+            // Jump back in: recent conversations.
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.topMargin: AppTheme.spacingS
@@ -375,13 +313,7 @@ Item {
                 }
                 Repeater {
                     model: root.recentModel
-                    // AbstractButton, not a Rectangle with a HoverHandler:
-                    // these rows claimed Accessible.role: Button while being
-                    // unreachable by keyboard and acknowledging no press —
-                    // on the surface a user lands on whenever no room is
-                    // open. AbstractButton supplies down / hovered /
-                    // visualFocus / focusPolicy for free, so the states are
-                    // real rather than re-derived per delegate.
+                    // AbstractButton for real keyboard focus and press states.
                     delegate: AbstractButton {
                         id: recentRow
                         required property var modelData
@@ -446,13 +378,8 @@ Item {
                                 font.family: AppTheme.uiFont
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             }
-                            // Mention badge — distinct from plain unread, and
-                            // painted with the SAME two tokens the room list
-                            // uses (mentionBadge / unreadBadge). It used to
-                            // reach for `danger` and `accent`, which are an
-                            // INK role and the reserved brand accent
-                            // respectively: two surfaces showing one room
-                            // disagreed on its colour.
+                            // Mention badge, with the same tokens as the room
+                            // list (mentionBadge / unreadBadge).
                             Rectangle {
                                 visible: (recentRow.modelData.highlightCount || 0) > 0
                                 radius: height / 2
@@ -498,7 +425,7 @@ Item {
                 }
             }
 
-            // Spaces shortcut strip (rail stays authoritative navigation).
+            // Spaces shortcut strip (the rail stays the main navigation).
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.topMargin: AppTheme.spacingS
@@ -517,8 +444,7 @@ Item {
                     spacing: AppTheme.spacingXS
                     Repeater {
                         model: root.spacesModel
-                        // Same reasoning as the recent rows above: a pill
-                        // that claims to be a button has to behave like one.
+                        // A real button, as with the recent rows.
                         delegate: AbstractButton {
                             id: spacePill
                             required property var modelData
@@ -534,14 +460,9 @@ Item {
                             Accessible.role: Accessible.Button
                             Accessible.name: qsTr("Open Space %1")
                                 .arg(modelData.name || "")
-                            // SELECT IT *AND SHOW IT*. Setting the active
-                            // Space alone changed nothing a reader could see
-                            // when the Space was nested: the rail draws a row
-                            // for a subspace only while its whole ancestor
-                            // chain is expanded, so picking "deep level 6"
-                            // from here selected a Space that had no tile.
-                            // `revealSpace` opens the chain, opens the Space
-                            // itself, and asks the rail to scroll to it.
+                            // Select and reveal: a nested Space has no rail row
+                            // unless its ancestors are expanded, so revealSpace
+                            // opens the chain and scrolls the rail to it.
                             onClicked: {
                                 if (!modelData.roomId)
                                     return
@@ -554,9 +475,7 @@ Item {
 
                             background: Rectangle {
                                 radius: AppTheme.radiusPill
-                                // The pill for the Space you are already in
-                                // says so — it was previously identical to
-                                // the seven beside it.
+                                // Marks the Space you're already in.
                                 color: spacePill.current
                                        ? AppTheme.accentSoft
                                      : spacePill.down
@@ -602,9 +521,7 @@ Item {
                 }
             }
 
-            // Empty-account onboarding: no joined conversations yet. The
-            // primary actions above stay the entry points; this explains
-            // them without cluttering a populated Home.
+            // Empty-account onboarding, explaining the primary actions above.
             Rectangle {
                 objectName: "homeOnboarding"
                 visible: root.recentModel.length === 0
@@ -630,9 +547,8 @@ Item {
                     }
                     Label {
                         Layout.fillWidth: true
-                        // No join-by-address flow exists yet — the copy must
-                        // not promise one (invitations still arrive in the
-                        // room list as normal).
+                        // No join-by-address flow exists, so the copy mustn't
+                        // promise one.
                         text: qsTr("Start a direct message to talk to someone, "
                                    + "create a room for a group, or organise "
                                    + "rooms into a Space. Invitations you "

@@ -3,60 +3,37 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// ONE LINE WHERE AN EMBED WAS.
+// One line in place of an embed, when "Collapse media and link embeds" is on
+// (pictures, video, audio, files, stickers and link previews). It renders text
+// and one icon glyph and never asks MediaBridge, LinkPreviewController or the
+// network for anything; while collapsed the media component isn't
+// instantiated at all, so collapsing removes fetches rather than deferring
+// them.
 //
-// Settings → Appearance → Timeline → "Collapse media and link embeds" turns
-// every picture, video, audio card, file card, sticker and loaded link
-// preview in the timeline into this row. It is the disclosure control for
-// that embed and nothing else: it renders text and one icon-font glyph, and
-// it never asks MediaBridge, LinkPreviewController or the network for
-// anything. That is not incidental — while a row is collapsed the media
-// component is not INSTANTIATED at all, so collapsing strictly removes
-// fetches rather than moving them.
+// The affordance is a visible disclosure chevron on a clickable, focusable
+// row: hover is invisible at rest and unreachable by keyboard/touch, and the
+// timeline has no "current message" for a shortcut.
 //
-// WHY A VISIBLE CHEVRON AND NOT HOVER OR A KEY. The maintainer named three
-// possible affordances and picked none. Hover is invisible at rest, so a
-// reader who does not already know the row is expandable never finds out,
-// and it is unreachable by keyboard and by touch. A keyboard shortcut needs
-// a "current message" the room timeline does not have (its rows are not a
-// focus ring and nothing owns a selection outside forwarding mode). A
-// disclosure chevron on a row that is itself the click target is visible at
-// rest, is what Element and Discord both use for a collapsed embed, and is
-// reachable by Tab because this item takes focus. The other two are then
-// additions rather than the only way in.
-//
-// WHAT THE LINE MUST STILL SAY. A collapsed embed that reads "Attachment"
-// has replaced clutter with a mystery. The host supplies the kind and
-// whatever that surface already knows — a filename, a host, a duration, a
-// pixel size — and both halves are in the accessible name too, because a
-// screen reader gets no benefit from a glyph.
-//
-// Behind a Loader in its host, so a timeline with the setting off pays
-// nothing at all for it.
+// The line still says what the embed is (kind plus filename, host, duration
+// or size), in the accessible name too. Hosted behind a Loader, so the
+// setting costs nothing when off.
 Item {
     id: root
 
     /// What the embed is: "Image", "Video", "Voice message", "Link"…
     property string kindLabel: ""
-    /// What it is OF: a filename, a host, "1920×1080", "0:42". May be empty
-    /// when the surface genuinely knows nothing else about itself.
+    /// What it is of: a filename, a host, "1920×1080", "0:42". May be empty.
     property string detailText: ""
-    /// An Icon.qml name. Icon answers an unknown name with an EMPTY STRING
-    /// rather than tofu, so a typo here is a silently blank glyph — every
-    /// name this file can be given is in the map at the top of Icon.qml.
+    /// An Icon.qml name. Unknown names render blank, not tofu, so use names in
+    /// Icon.qml's map.
     property string iconName: "attach_file"
-    /// Whether the embed below is currently showing. Drives the chevron and
-    /// the wording; the row exists in both states so the expansion is
-    /// reversible. A one-way expand would mean the setting silently stopped
-    /// applying to every row the reader had ever opened.
+    /// Whether the embed is showing. The row exists in both states so expanding
+    /// is reversible.
     property bool expanded: false
-    /// The column this row may not exceed. 0 means "not known yet" (the
-    /// bubble has no width during the first binding pass), and is treated as
-    /// unbounded rather than as zero — clamping to 0 would collapse the row
-    /// to nothing and never recover.
+    /// Maximum width. 0 means not known yet (no bubble width on the first
+    /// pass) and is treated as unbounded, since clamping to 0 never recovers.
     property real maximumWidth: 0
-    /// False while the row must not react — multi-select mode, where every
-    /// other surface in the delegate is suspended too.
+    /// False while the row must not react (multi-select mode).
     property bool interactive: true
 
     signal toggleRequested()
@@ -75,11 +52,8 @@ Item {
                    : Math.max(1, naturalWidth)
     implicitHeight: contentRow.implicitHeight + AppTheme.spacing4 * 2
 
-    // A quiet plate that only appears under the pointer. At rest the row is
-    // a line of muted text, which is the entire point of the setting: a
-    // permanent bordered card per embed would be clutter of a different
-    // shape. The focus ring below is drawn in every state, because a
-    // keyboard user has no pointer to reveal anything with.
+    // A plate only under the pointer; at rest the row is muted text. The focus
+    // ring below draws in every state.
     Rectangle {
         anchors.fill: parent
         radius: AppTheme.radiusSm
@@ -97,11 +71,8 @@ Item {
         anchors.rightMargin: AppTheme.spacing8
         spacing: AppTheme.spacing6
 
-        // A SQUARE PLATE, and that is not a detail. `expand_more`'s ink is
-        // 12×6 device px and `chevron_right`'s is 7×12 — transposes of each
-        // other — so a plate that hugged either glyph would change size when
-        // the row toggled and shift everything after it. Place the ink, not
-        // the box (§16).
+        // A square plate: `expand_more` and `chevron_right` have transposed ink
+        // boxes, so a hugging plate would resize on toggle and shift the row.
         Item {
             objectName: "collapsedEmbedChevronPlate"
             Layout.preferredWidth: 16
@@ -130,13 +101,13 @@ Item {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             Layout.alignment: Qt.AlignVCenter
-            // The sender chose the filename and the link host. Never markup.
+            // The sender chose the filename and link host. Never markup.
             textFormat: Text.PlainText
             text: root.summaryText
             color: AppTheme.textMuted
             font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-            // ElideMiddle, matching the file card: the tail of a filename
-            // (".tar.gz", "-final-v3.png") is the half that distinguishes it.
+            // ElideMiddle, as on the file card: a filename's tail distinguishes
+            // it.
             elide: Label.ElideMiddle
             maximumLineCount: 1
         }
@@ -150,19 +121,15 @@ Item {
     TapHandler {
         objectName: "collapsedEmbedTap"
         enabled: root.interactive
-        // WithinBounds, not the default DragThreshold. On the default a
-        // TapHandler takes only a PASSIVE grab and the ancestor's handler
-        // fires on the same press — which here is the row's own tap, so a
-        // click meant to expand a picture would also toggle a selection or
-        // open the message. §16 records the same fix on the image viewer's
-        // thumbnail strip.
+        // WithinBounds: the default DragThreshold only grabs passively, so the
+        // ancestor row's tap would also fire (toggling a selection or opening
+        // the message).
         gesturePolicy: TapHandler.WithinBounds
         onTapped: root.toggleRequested()
     }
 
-    // Keyboard reach. This row is the ONLY way to the embed while the
-    // setting is on, so it has to be operable without a pointer — the same
-    // argument MediaHiddenPlaceholder makes for "Show image".
+    // The only way to the embed while the setting is on, so it must work
+    // without a pointer.
     activeFocusOnTab: root.interactive
     Accessible.role: Accessible.Button
     Accessible.name: root.expanded
@@ -184,10 +151,8 @@ Item {
             event.accepted = true
             return
         }
-        // Right/left as well, because this is a disclosure control and that
-        // is what a disclosure control answers to everywhere else. They are
-        // directional rather than toggling on purpose: pressing Right twice
-        // must not close what the first press opened.
+        // Right/Left as for any disclosure control; directional, so pressing
+        // Right twice doesn't close it again.
         if (event.key === Qt.Key_Right && !root.expanded) {
             root.toggleRequested()
             event.accepted = true

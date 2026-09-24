@@ -2,51 +2,31 @@ import QtQuick
 import QtQuick.Layouts
 import MatrixClient
 
-// A miniature, entirely FAKE Lightning window, used as the live preview in the
-// custom-theme editor: pick a colour on the left, watch this repaint.
-//
-// It is NOT a real room and must never become one. Every name, message and
-// count below is a literal in this file — no `app.` anything, no models, no
-// controllers, no media. That is what lets it render in the Settings screen
-// while signed out, and what stops a theme preview from leaking a real
-// conversation into a screenshot.
-//
-// Colours come from `palette`, a role -> colour object produced by
-// AppTheme.paletteForTheme(id) — NOT from the live AppTheme singleton. That is
-// the whole reason this preview can show a theme the application is not
-// currently running: the editor is usable before the theme is applied, and the
-// editor's own chrome stays on the invariant brand navy while the palette
-// under construction is confined to this rectangle. Non-colour tokens
-// (spacing, radii, type) still come from AppTheme — those are not themed.
-//
-// Every region is clickable and reports the role it paints, so a person can
-// point at the thing they want to recolour instead of hunting a list. That was
-// the original request: "each spot like room list the menu with spaces on the
-// left and top part and all else should have a option to select any color".
+// A miniature, entirely fake Lightning window: the live preview in the custom
+// theme editor. Every name, message and count is a literal here (no `app.`,
+// models, controllers or media), so it renders while signed out and can never
+// leak a real conversation into a screenshot. Colours come from `pal`
+// (AppTheme.paletteForTheme(id)), not the live AppTheme, so it can show a theme
+// that is not applied; non-colour tokens still come from AppTheme. Every region
+// is clickable and reports the role it paints, so a user can point at what to
+// recolour.
 Item {
     id: root
 
-    // role -> colour. Assign AppTheme.paletteForTheme(id).
-    // NOT named `palette`: QQuickItem carries a `palette` property of its own
-    // in Qt 6, and shadowing it silently gives every child a broken one.
+    // role -> colour, from AppTheme.paletteForTheme(id). Not named `palette`,
+    // which would shadow QQuickItem's own property.
     required property var pal
-    // Which navigation layout the room-list column shows. The editor binds this
-    // to the user's own choice, because a preview of a column they do not use
-    // is a preview of the wrong thing: the Channels column has different rows,
-    // different weights and a folder header the Classic one does not, and the
-    // whole point of watching the preview is to see where a colour lands.
+    // Which navigation layout the room-list column shows, bound to the user's
+    // own choice so the preview shows where colours actually land.
     property bool channels: false
-    // The role currently open in the picker; outlined here so the list and
-    // the preview agree about what is being edited.
+    // The role open in the picker, outlined here.
     property string highlightRole: ""
 
-    // A region was clicked. The editor opens that role in the picker.
+    // A region was clicked; the editor opens that role.
     signal regionActivated(string role)
 
-    // Natural size. The editor scales this to fit and never upscales past
-    // 1.0 — Item.scale renders at the ORIGINAL resolution and then stretches,
-    // so an upscaled preview is a blurry preview. Sized so a maximised window
-    // shows it at 1:1.
+    // Natural size. The editor scales down to fit, never up (Item.scale would
+    // blur).
     implicitWidth: 880
     implicitHeight: 560
     clip: true
@@ -58,9 +38,7 @@ Item {
         return p && p[fallback] !== undefined ? p[fallback] : "transparent"
     }
 
-    // Fixture rows. `state` drives which row renders selected vs hovered, so
-    // both states are on screen at once with no interaction — the user is
-    // editing those colours and has to see them.
+    // Fixture rows. `state` shows selected and hovered rows at once.
     readonly property var fakeRooms: [
         { name: qsTr("Design"),    preview: qsTr("Shipped the new palette"), badge: 0, state: "normal" },
         { name: qsTr("Lightning"), preview: qsTr("Storm looks good now"),    badge: 0, state: "selected" },
@@ -68,8 +46,8 @@ Item {
         { name: qsTr("Releases"),  preview: qsTr("v0.7.4 is out"),           badge: 0, state: "normal" }
     ]
 
-    // The Channels shape: two navigation rows, a group, and a Space folder
-    // holding rooms. Literals like everything else here — no models, no `app.`.
+    // The Channels shape: navigation rows, a group, and a Space folder with
+    // rooms. Literals only.
     readonly property var fakeChannelRows: [
         { kind: "nav",    name: qsTr("Lobby"),          state: "selected" },
         { kind: "nav",    name: qsTr("Message Search"), state: "normal" },
@@ -84,15 +62,10 @@ Item {
         qsTr("Sam"), qsTr("Alex"), qsTr("Robin"), qsTr("Kim")
     ]
 
-    // One reusable click target + edit outline per region. Declared as a
-    // component so a region is three lines at the call site and every region
-    // behaves identically.
-    // A MouseArea and deliberately NOT a TapHandler: pointer handlers are
-    // non-exclusive across subtrees (the lesson this codebase has re-learned
-    // four times), so a click on a room row would fire the row's region AND
-    // the room list's region behind it. A MouseArea accepts the press and
-    // stops there. Container regions are therefore declared FIRST, beneath
-    // their content, and leaf regions inside it win by being on top.
+    // One click target and edit outline per region. A MouseArea, not a
+    // TapHandler: pointer handlers are non-exclusive across subtrees, so a row
+    // click would also hit the container behind it. Containers are declared
+    // first, beneath their content, so leaf regions win.
     component Region: MouseArea {
         id: region
         required property string role
@@ -115,7 +88,7 @@ Item {
         anchors.fill: parent
         spacing: 0
 
-        // ── Spaces rail ──────────────────────────────────────────────────
+        // Spaces rail
         Rectangle {
             Layout.preferredWidth: 60
             Layout.fillHeight: true
@@ -146,8 +119,7 @@ Item {
 
                 Item { Layout.fillHeight: true }
 
-                // Account avatar: a circle, because people are circles in
-                // this shell and rooms are rounded squares.
+                // Account avatar: a circle, as people are in this shell.
                 Rectangle {
                     Layout.alignment: Qt.AlignHCenter
                     implicitWidth: 30
@@ -159,7 +131,7 @@ Item {
 
         }
 
-        // ── Room list ────────────────────────────────────────────────────
+        // Room list
         Rectangle {
             Layout.preferredWidth: 236
             Layout.fillHeight: true
@@ -182,8 +154,7 @@ Item {
                     Layout.fillWidth: true
                 }
 
-                // Search field: the input surface, where a person expects to
-                // find it.
+                // Search field: the input surface.
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 28
@@ -212,10 +183,7 @@ Item {
                     Layout.fillWidth: true
                 }
 
-                // ── The Channels shape ────────────────────────────────────
-                // Same roles, different rows. A folder header, then indented
-                // rooms with an avatar and a name — which is what the user
-                // sees if that is the layout they chose.
+                // The Channels shape: a folder header, then indented rooms.
                 Repeater {
                     model: root.channels ? root.fakeChannelRows : []
                     delegate: Rectangle {
@@ -306,7 +274,7 @@ Item {
                                     Layout.fillWidth: true
                                 }
                                 Text {
-                                    // Remote or externally chosen text: never markup.
+                                    // Untrusted text: never markup.
                                     textFormat: Text.PlainText
                                     text: fakeRoomRow.modelData.preview
                                     color: fakeRoomRow.isSelected
@@ -350,7 +318,7 @@ Item {
 
         }
 
-        // ── Timeline + composer ──────────────────────────────────────────
+        // Timeline + composer
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -447,9 +415,8 @@ Item {
                         Region { role: "ownBubble" }
                     }
 
-                    // Incoming carrying a link, a mention, a raised chip and a
-                    // reaction pill — four editable roles that appear nowhere
-                    // else in this preview.
+                    // Incoming, carrying a link, a mention, a raised chip and a
+                    // reaction pill: roles shown nowhere else in the preview.
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.maximumWidth: 360
@@ -489,8 +456,7 @@ Item {
                                 }
                             }
 
-                            // Code: the one surface a message can carry that
-                            // is neither a bubble nor a chip.
+                            // Code, a surface that is neither bubble nor chip.
                             Rectangle {
                                 Layout.fillWidth: true
                                 implicitHeight: 26
@@ -539,8 +505,7 @@ Item {
                                 Text {
                                     anchors.centerIn: parent
                                     // Not an emoji: emoji literals are banned
-                                    // in row delegates here, and a count with
-                                    // a glyph name shows the same colours.
+                                    // in row delegates here.
                                     text: qsTr("+2")
                                     color: root.c("reactionInk", "textSecondary")
                                     font.family: AppTheme.uiFont
@@ -601,10 +566,7 @@ Item {
 
         }
 
-        // ── Member list ──────────────────────────────────────────────────
-        // The fourth pane. It is the one place a plain PANEL surface is shown
-        // next to the timeline ground, which is how a person tells the two
-        // apart while editing them.
+        // Member list: shows a plain panel surface next to the timeline ground.
         Rectangle {
             Layout.preferredWidth: 168
             Layout.fillHeight: true
@@ -652,7 +614,7 @@ Item {
 
                 Item { Layout.fillHeight: true }
 
-                // A disabled control, so the disabled ink is visible somewhere.
+                // A disabled control, so the disabled ink is visible.
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 30

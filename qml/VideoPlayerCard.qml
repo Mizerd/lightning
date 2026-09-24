@@ -4,31 +4,25 @@ import QtQuick.Layouts
 import QtMultimedia
 import MatrixClient
 
-// v0.7: inline video player surface. Created on explicit user intent (the
-// delegate swaps its thumbnail cover for this card on Play), fetches the
-// decrypted payload through MediaBridge's validated playable
-// materialization, and plays the resulting session-scoped temp file with
-// the in-process QMediaPlayer. Audibility is coordinated through
-// app.playback (one audible card at a time; room/account switches force a
-// stop). Geometry is owned by the parent — this item fills whatever the
-// cover reserved, so starting playback never reflows the timeline.
+// Inline video player, created when the user presses Play on the cover. It
+// fetches the decrypted payload through MediaBridge's validated playable
+// materialization and plays the session-scoped temp file with QMediaPlayer.
+// Audibility goes through app.playback (one audible card at a time; room or
+// account switches force a stop). Fills the geometry the cover reserved, so
+// playback never reflows the timeline.
 Item {
     id: root
     objectName: "videoPlayerCard"
 
-    // Stable identity + metadata from the delegate (model-bound).
+    // Stable identity and metadata from the delegate.
     property string mediaKey: ""
     property string ownerKey: ""
     property string filename: ""
     property bool rowOnScreen: true
-    // The card only exists because the user pressed Play on the cover, so
-    // inline video starts AUDIBLE at a moderate volume — this is play-on-
-    // explicit-intent, not autoplay. Callers that want a silent start (none
-    // today) can set startMuted.
+    // Starts audible: the card exists only because the user pressed Play.
     property bool startMuted: false
-    // The media key whose materialized file this card has PINNED against
-    // LRU eviction; recorded at pin time so delegate reuse unpins the
-    // right key (mediaKey changes before resetPlayback runs).
+    // The media key this card pinned against LRU eviction, recorded so reuse
+    // unpins the right key (mediaKey changes before resetPlayback runs).
     property string pinnedKey: ""
 
     signal closeRequested()
@@ -40,12 +34,11 @@ Item {
         || (fetchState === "fetching")
     property string fetchState: "idle" // idle / fetching / failed
 
-    // Stable failure identity: MediaBridge marks/signals by this cache key.
+    // MediaBridge marks and signals failures by this cache key.
     readonly property string fetchCacheKey: "full:" + mediaKey
 
-    // The media key with a bridge fetch outstanding on this card's behalf;
-    // recorded so reset/destruction can cancel the backend download (an
-    // abandoned fetch used to keep downloading, starving later media).
+    // The key with a fetch outstanding for this card, so reset/destruction can
+    // cancel the download.
     property string fetchingKey: ""
 
     function start() {
@@ -69,8 +62,7 @@ Item {
         fetchingKey = ""
     }
     function pinFile() {
-        // The player holds the materialized temp file open; the LRU must
-        // not delete it underneath (seek or overlay reopen would fail).
+        // The player holds the temp file open; the LRU must not delete it.
         if (pinnedKey === mediaKey)
             return
         unpinFile()
@@ -83,17 +75,16 @@ Item {
         app.mediaBridge.unpinPlayable(pinnedKey)
         pinnedKey = ""
     }
-    // Explicit user retry must clear the (possibly permanent) failure mark
-    // first — playableSource is otherwise blocked by it and the card would
-    // wait forever for a dispatch that never happened.
+    // An explicit retry clears the failure mark first, or playableSource stays
+    // blocked.
     function retryFetch() {
         app.mediaBridge.retry(fetchCacheKey)
         fetchState = "idle"
         start()
     }
     function resetPlayback() {
-        // A forced reset invalidates the expanded view too — it borrows
-        // this card's player and must never outlive its source.
+        // A forced reset also closes the expanded view, which borrows this
+        // player.
         if (videoOverlay.opened)
             videoOverlay.close()
         player.stop()
@@ -103,8 +94,8 @@ Item {
         fetchState = "idle"
         app.playback.release(root.ownerKey)
     }
-    // Delegate reuse: a recycled card for another event must never keep
-    // the previous event's position, source, or audibility.
+    // Delegate reuse: never keep the previous event's position, source or
+    // audibility.
     onMediaKeyChanged: resetPlayback()
     onRowOnScreenChanged: {
         if (!rowOnScreen && player.playbackState === MediaPlayer.PlayingState)
@@ -116,18 +107,13 @@ Item {
         cancelFetch()
         app.playback.release(root.ownerKey)
     }
-    // Offscreen resource release: a video paused by scrolling away used to
-    // keep its QMediaPlayer, decoder, GPU surfaces and open temp-file
-    // handle alive for the rest of the room session — N started videos
-    // meant N live decoders. After a grace period the card closes itself
-    // exactly like the control bar's close button; the cover (poster +
-    // play) returns and a fresh Play reuses the still-materialized file.
+    // After a grace period off screen, close like the control bar's close
+    // button so the decoder, GPU surfaces and file handle are released. The
+    // cover returns; Play reuses the materialized file.
     Timer {
         interval: 90000
-        // review L2: never while the expanded overlay is open — the
-        // underlying ROW can leave the viewport (bottom-pinned appends)
-        // while the user is watching full-screen, and reclaiming then
-        // would close the overlay under them.
+        // Never while the expanded overlay is open: the row can leave the
+        // viewport while the user watches full-screen.
         running: !root.rowOnScreen && !videoOverlay.opened
                  && player.playbackState !== MediaPlayer.PlayingState
         onTriggered: {
@@ -138,8 +124,7 @@ Item {
 
     Connections {
         target: app.mediaBridge
-        // Both handlers filter on THIS card's cache key — an unrelated
-        // avatar/thumbnail failure elsewhere must not flip this fetch.
+        // Filter on this card's cache key only.
         function onPlayableMediaReady(cacheKey) {
             if (cacheKey === root.fetchCacheKey
                 && root.fetchState === "fetching")
@@ -153,8 +138,8 @@ Item {
             }
         }
     }
-    // One toggle, so the tap handler, the control bar and the Space key all
-    // do the same thing (and all of them go through the audibility claim).
+    // One toggle for tap, control bar and Space key, all through the audibility
+    // claim.
     function togglePlayPause() {
         if (player.playbackState === MediaPlayer.PlayingState) {
             player.pause()
@@ -171,19 +156,15 @@ Item {
                 && player.playbackState === MediaPlayer.PlayingState)
                 player.pause()
         }
-        // 2026-08-18: Space toggles whatever is audible. A video card holds
-        // audibility exactly like an audio card does, so it has to answer
-        // this too — without it the key would be swallowed by a player that
-        // never reacts.
+        // Space toggles whatever is audible, which includes video cards.
         function onTogglePlayPauseRequested(ownerKey) {
             if (ownerKey !== root.ownerKey || !root.ready)
                 return
             root.togglePlayPause()
         }
     }
-    // A forced stop (room/account switch, sign-out) must drop the source —
-    // the decrypted temp file is about to be wiped; a paused player holding
-    // an open handle would outlive it.
+    // A forced stop (room/account switch, sign-out) drops the source: the temp
+    // file is about to be wiped.
     readonly property int stopGen: app.playback.stopGeneration
     onStopGenChanged: resetPlayback()
 
@@ -194,19 +175,9 @@ Item {
             id: audioOut
             muted: root.startMuted && !userUnmuted
             property bool userUnmuted: false
-            // THE REMEMBERED LEVEL, not a fixed 0.8 every time — the same
-            // binding AudioPlayerCard.qml and VoicePreviewBar.qml carry. The
-            // 2026-08-18 tester report ("neatsimena audio preferencu uzdeda
-            // default visada") was fixed on the audio card and the video card
-            // was missed, so this one WROTE the stored level — the control
-            // bar's slider calls MediaVolumeControl.rememberVolume() — and
-            // never READ it. Invisible at factory settings, because
-            // mediaVolume defaults to the same 0.8 this literal was.
-            //
-            // A live binding, so changing the volume on one card moves every
-            // other card with it; the slider's own direct write
-            // (`root.audio.volume = value`) breaks the binding on THAT card
-            // only, to the same value it just stored.
+            // The remembered level (as AudioPlayerCard and VoicePreviewBar). A
+            // live binding, so all cards follow; the slider's own write breaks
+            // it only on this card, to the value it just stored.
             volume: app.settings.mediaVolume
         }
         onErrorOccurred: root.fetchState = "failed"
@@ -214,45 +185,24 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        // Black, not a theme surface: the VideoOutput aspect-FITS inside a
-        // card whose width is floored by the control bar, so a portrait
-        // video leaves side gutters — on a themed fill those read as
-        // colored stripes glued to the video (maintainer screenshot,
-        // 2026-08-12). Black is the universal letterbox and makes the
-        // gutters read as part of the player, exactly like the expanded
-        // overlay's scrim. This is one of the SANCTIONED literals: a
-        // letterbox is not a themed surface and has no token, by design.
+        // Black, not a theme surface: the universal letterbox, so aspect-fit
+        // gutters read as part of the player. A sanctioned literal with no
+        // token.
         color: "#000000"
         radius: AppTheme.radiusSm
         border.color: AppTheme.border
         border.width: 1
         clip: true
 
-        // The video owns the whole card; controls overlay its lower edge
-        // on a gradient scrim instead of consuming card height.
+        // The video fills the card; controls overlay its lower edge on a scrim.
         VideoOutput {
             id: output
             anchors.fill: parent
-            // Match the cover's edge-to-edge presentation: the card's width
-            // is floored by the control bar, so a plain aspect-FIT leaves
-            // visible letterbox bars for any small card/video mismatch
-            // (maintainer screenshot, 2026-08-12) while the poster before it
-            // filled by cropping. Fill by cropping whenever the shapes are
-            // close (≤20% mismatch — a sliver off the edges, exactly what
-            // the cover already cropped); genuinely different shapes (a
-            // portrait video in a metadata-less 16:9 card) keep the honest
-            // fit + black letterbox rather than amputating real content.
-            // The expanded overlay always shows the uncropped frame.
-            // ROTATION-TOLERANT: sourceRect reports the CODED frame size,
-            // not the displayed one — a phone video encoded 1280x720 with a
-            // 90-degree display matrix reports landscape while rendering
-            // portrait (measured live on the maintainer's timeline), which
-            // made the plain ratio comparison letterbox a video that
-            // actually matched its card. The card's shape always comes from
-            // display-truthful sources (Matrix thumbnail, extracted poster,
-            // declared dimensions), so accept EITHER orientation of the
-            // coded ratio; a genuine cross-shape still exceeds the bound in
-            // both orientations and letterboxes honestly.
+            // Crop to fill when the card and video shapes are within 20% (as
+            // the cover did); otherwise fit with a black letterbox rather than
+            // cut real content. sourceRect reports the coded frame size, which
+            // ignores rotation metadata, so accept either orientation of the
+            // ratio. The expanded overlay always shows the uncropped frame.
             readonly property real videoRatio:
                 sourceRect.height > 0 && sourceRect.width > 0
                 ? sourceRect.width / sourceRect.height : 0
@@ -272,13 +222,9 @@ Item {
 
         HoverHandler { id: cardHover }
 
-        // Tap toggles play/pause IMMEDIATELY; double-tap expands. NOT
-        // exclusive signals: exclusivity makes Qt sit out the whole
-        // double-click interval (~500 ms) before committing to the single
-        // tap, which read as "pause is laggy" in live use (maintainer
-        // feedback 2026-08-12). With plain taps the toggle is instant; a
-        // double-tap toggles twice — net no state change — and then
-        // expands, costing only a one-frame flicker.
+        // Tap toggles immediately; double-tap expands. Not exclusive:
+        // exclusivity makes Qt wait the double-click interval before the single
+        // tap. A double tap toggles twice (no net change) and then expands.
         TapHandler {
             id: videoTap
             enabled: root.ready && root.fetchState !== "failed"
@@ -286,8 +232,7 @@ Item {
             onDoubleTapped: videoOverlay.openFor(player, output)
         }
 
-        // Basic's BusyIndicator inks palette.dark (the theme's secondary
-        // TEXT colour), which on a black letterbox is barely visible.
+        // Basic's BusyIndicator uses a text colour barely visible on black.
         Item {
             id: cardSpinner
             anchors.centerIn: output
@@ -327,9 +272,7 @@ Item {
             spacing: AppTheme.spacing8
             Label {
                 text: qsTr("This video cannot be played")
-                // On the black letterbox, not on a theme surface: a light
-                // theme's textMuted is a mid grey that all but disappears
-                // here.
+                // On the black letterbox, not a theme surface.
                 color: AppTheme.scrimInkMuted
                 font.pixelSize: AppTheme.textMeta
                 Layout.alignment: Qt.AlignHCenter
@@ -341,9 +284,8 @@ Item {
             }
         }
 
-        // Adaptive control bar over the video's lower edge. Visible while
-        // paused/idle/failed, on hover, or with keyboard focus inside it;
-        // auto-hides during undisturbed playback.
+        // Control bar over the lower edge: visible while paused/idle/failed, on
+        // hover, or with focus inside; hides during undisturbed playback.
         VideoControlBar {
             id: controls
             objectName: "videoControlBar"

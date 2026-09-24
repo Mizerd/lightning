@@ -3,64 +3,44 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// One account ROW in the account switcher.
+// One account row in the account switcher.
 //
-// 2026-09-19 (reported: "scrolling in it feels kind of dumb since you can
-// even scroll about with one account since it doesn't fit"). This used to be
-// a ~180 px CARD, and the ACTIVE variant a ~235 px one carrying a meta line,
-// an E2EE badge and a trust meter. Three accounts overflowed a popover that
-// was sized from an off-layout PROBE of this component — and the probe
-// carried neither the trust meter nor the E2EE badge, so it under-measured
-// the real active card by exactly 23 px (measured: short 113, tall probe
-// 136, real active 159, at the 296 px content width). That 23 px is why one
-// single account could scroll.
+// A fixed-height row whose height is handed in by the list (`rowHeight`), so
+// the list's viewport and content always agree. Per-account crypto state is
+// only known for the active account, so it lives in AccountMenu's status
+// strip, not here.
 //
-// The cure is structural, not arithmetic: this is now a FIXED-HEIGHT row
-// whose height is handed in by the list (`rowHeight`), with no optional row
-// that can grow it. Everything the row cannot carry for every account moved
-// to AccountMenu's one status strip — per-row crypto state was only ever
-// available for the ACTIVE account anyway, so it is a property of one row,
-// never a column.
+// Density follows MentionPopup's person row: 28 px avatar, name, mono id
+// beneath. Selection uses the room list's idiom: a rounded `selected` chip in
+// a 4 px gutter plus a 3 px bolt left edge.
 //
-// Density is the product's existing person-row ladder (MentionPopup's
-// suggestion row): 28 px avatar, textBody name, mono fontMonoXS id beneath
-// it. Selection is the room list's existing "this is the current one"
-// vocabulary: a rounded `selected` chip inset in a 4 px gutter plus a 3 px
-// bolt left edge.
-//
-// No access token, device secret, or local path is ever displayed.
+// No access token, device secret or local path is ever displayed.
 Item {
     id: root
     objectName: "identityCard"
 
-    // NO property named `name` (IconChromeTest repo-wide scan / R16).
+    // No property named `name` (IconChromeTest's repo-wide scan).
     property bool active: false
     property string displayName: ""
     property string userId: ""
     property string avatarMxc: ""
-    // No real per-account unread source exists today; callers leave this at
-    // its default 0 rather than fabricate a count. It costs no height — the
-    // chip rides in the row's right-hand slot.
+    // No per-account unread source exists yet; callers leave this at 0 rather
+    // than fabricate a count.
     property int unreadCount: 0
     property bool needsSignIn: false
     property bool healthWarning: false
 
-    // THE row height, handed in by the list that lays these out so the
-    // viewport and the content can never disagree by construction. Nothing
-    // inside this component may grow it; the content is centred and elided
-    // inside it instead.
+    // The row height, set by the list so viewport and content can't disagree.
+    // Nothing inside may grow it; content is centred and elided.
     property int rowHeight: AppTheme.scaled(44)
 
     signal activated()
     signal removeRequested()
 
-    // The pointer is "within" the row while it is over the row OR over a
-    // control on it. MouseArea.containsMouse alone is not that: a
-    // hover-enabled control above the MouseArea takes the hover the moment
-    // the pointer reaches it, and an affordance revealed by containsMouse
-    // then hides under the pointer that came for it. A HoverHandler does
-    // not compete with children, and the remove button's own `hovered`
-    // covers the button whatever the delivery order.
+    // The pointer is "within" the row when over it or over a control on it.
+    // MouseArea.containsMouse alone loses hover to a control above it, which
+    // would hide the affordance the pointer came for; a HoverHandler doesn't
+    // compete with children.
     readonly property bool pointerWithin: cardHover.hovered
                                           || cardMouse.containsMouse
                                           || removeButton.hovered
@@ -75,16 +55,14 @@ Item {
     readonly property string visibleName:
         root.displayName.length > 0 ? root.displayName : root.localpart
 
-    // Two accounts can share a display name on different homeservers (the
-    // reported case: two "Mizerd"s), so the id under the name is the only
-    // thing telling them apart. Exposed so a test can assert it is not
-    // truncated at the popover's width.
+    // Accounts can share a display name across homeservers, so the id is what
+    // tells them apart. Exposed so a test can check it isn't truncated.
     readonly property alias identityLabel: idLabel
 
     implicitWidth: 280
     implicitHeight: rowHeight
-    // The text column is measured against the row so a scale the ladder
-    // cannot carry is visible to a test rather than silently clipped.
+    // Exposed so a test can see a scale the row can't carry, rather than it
+    // being silently clipped.
     readonly property real textColumnHeight: textColumn.implicitHeight
 
     Accessible.role: Accessible.Button
@@ -102,23 +80,18 @@ Item {
     Keys.onEnterPressed: root.activated()
     Keys.onSpacePressed: root.activated()
 
-    // The surface this row is dropped on. AccountMenu paints its popover in
-    // `stormCanvas`; it is a property rather than a constant because the row
-    // fill below is composited onto it, and a host that painted something
-    // else would silently get an ink derived for a ground it does not have.
+    // The surface this row sits on (AccountMenu paints `stormCanvas`). The row
+    // fill is composited onto it to derive text inks.
     property color hostSurface: AppTheme.stormCanvas
 
-    // The pixels actually under this row's text: the selection chip over the
-    // host surface, with the chip's OWN alpha — `hover` is translucent in
-    // some palettes, so the chip's colour property is not the fill.
+    // The pixels actually under the text: the chip over the host surface, with
+    // the chip's own alpha (`hover` is translucent in some palettes).
     readonly property color rowFill: AppTheme.flatten(rowChip.color,
                                                       root.hostSurface)
 
-    // ── Selection / hover chip — the room list's own idiom (RoomDelegate):
-    // a rounded chip inset in a 4 px gutter, never a full-bleed square.
-    // `selected` / `selectedHover` / `hover` are three distinct values in
-    // every palette, so a hovered inactive row can never be mistaken for
-    // the active one.
+    // ── Selection / hover chip (RoomDelegate's idiom): a rounded chip inset in
+    // a 4 px gutter. selected / selectedHover / hover are distinct in every
+    // palette, so a hovered row never looks active.
     Rectangle {
         id: rowChip
         objectName: "identityCardRowChip"
@@ -132,8 +105,7 @@ Item {
                : (root.pointerWithin ? AppTheme.hover : "transparent")
     }
 
-    // Active marker 1 of 3 — the room list's bolt edge bar, in the 4 px
-    // gutter the chip above already leaves.
+    // Active marker 1 of 3: the bolt edge bar in the chip's gutter.
     Rectangle {
         objectName: "identityCardActiveEdge"
         visible: root.active
@@ -184,21 +156,17 @@ Item {
                 circle: true
                 name: root.visibleName
                 mxc: root.avatarMxc
-                // THE ONLY PLACE IN THE APPLICATION THAT SETS THIS, and the
-                // reason it exists: MediaBridge fetches through whichever
-                // client is ACTIVE, so an inactive account's avatar cannot
-                // be fetched here at all — its bytes are on that account's
-                // homeserver. Every row but one showed initials for ever.
-                // `avatarUrlFor` returns "" when nothing was ever stored,
-                // which leaves the honest initials behind.
+                // The only place that sets this: MediaBridge fetches through
+                // the active client, so an inactive account's avatar can't be
+                // fetched here. `avatarUrlFor` returns "" when nothing was
+                // stored, leaving initials.
                 fallbackSource: (typeof app !== "undefined" && app
                                  && app.accountAvatars && root.userId.length > 0)
                                 ? app.accountAvatars.avatarUrlFor(root.userId)
                                 : ""
                 colorKey: root.userId
             }
-            // Active marker 2 of 3 — Storm §3.5's yellow-ring identity
-            // marker, tightened to a 2 px gap for the row ladder.
+            // Active marker 2 of 3: the bolt avatar ring.
             Rectangle {
                 objectName: "identityCardAvatarRing"
                 visible: root.active
@@ -223,28 +191,12 @@ Item {
                 textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: root.visibleName
-                // MEASURED across all eleven palettes, not chosen. The
-                // inactive name used to ink `stormTextSecondary`, which in
-                // the LIGHT palettes is all but the same colour as the id's
-                // `stormTextMuted` beneath it — Lightning Light #4c5661 vs
-                // #525c68, 5.63:1 against 5.12:1 on the popover canvas, a
-                // ratio of 1.10, where Storm reads 11.00 against 6.75. The
-                // two lines stopped being a hierarchy and read as one block
-                // of grey. With `stormText` the name/id ratio is >= 1.85 on
-                // every palette (worst: Nordic 1.85) and the id is
-                // untouched. The active row is not told apart by this ink —
-                // it never was; it has the selected chip, the bolt edge,
-                // the avatar ring, the tick and the heavier weight.
-                //
-                // AND THE TOP OF THE INK LADDER IS NOT AUTOMATICALLY SAFE.
-                // Measured 2026-09-20 on real hovered rows: `stormText` on
-                // the HOVERED ACTIVE row is 4.31:1 on Nordic — below AA —
-                // because that palette's `selectedHover` flattens to
-                // #587197, a mid slate that its near-white ink does not
-                // clear. Every other palette and every other state clears
-                // with room, so the derivation returns `stormText` itself
-                // there and this line is unchanged; on Nordic it steps the
-                // same near-white a shade further and reaches 4.96.
+                // stormText so the name/id pair stays a clear hierarchy on
+                // every palette (the secondary ink is nearly the id's colour on
+                // light themes). The active row is distinguished by chip, edge,
+                // ring, tick and weight, not ink. Derived against the actual
+                // row fill, which only changes it where needed (hovered active
+                // row on Nordic).
                 color: AppTheme.legibleInkOn(AppTheme.stormText, root.rowFill)
                 font.family: AppTheme.menuFont
                 font.pixelSize: AppTheme.scaled(AppTheme.textBody)
@@ -259,42 +211,18 @@ Item {
                 textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: root.userId
-                // MEASURED, not chosen. `stormTextFaint` under the row
-                // (the old card's ink) resolves to `textDisabled` in the
-                // light palette: #A8B3C4 on the popover's #D3E1F2 is
-                // 1.60:1, and this line is the ONLY thing separating two
-                // accounts that share a display name. These are
-                // MentionPopup's own MXID inks and they measure 5.05:1
-                // light / 6.80:1 Storm inactive, and 4.81:1 / 7.14:1 on the
-                // active row's fill.
-                //
-                // AND THAT MEASUREMENT WAS OF ONE STATE OUT OF FOUR. A row
-                // paints `stormCanvas`, `hover`, `selected` or
-                // `selectedHover` depending on what the pointer is doing,
-                // and the two loud ones are where this line failed:
-                // measured 2026-09-20 on real hovered rows, the HOVERED
-                // INACTIVE row is below 4.5:1 AA on six palettes (Graphite
-                // 3.09, Indigo Night 3.44, Deep Teal 3.45, Nordic 3.46,
-                // Midnight 3.58, Lightning Dark 3.61), the ACTIVE row on
-                // four (Indigo Night 4.12, Graphite 4.16, Lightning Dark
-                // 4.33, Warm 4.40) — and the HOVERED ACTIVE row, which
-                // nobody had measured at all, on NINE, worst Graphite 3.37.
-                // The resting inactive row clears everywhere (floor 4.59),
-                // which is exactly why measuring it alone found nothing.
-                //
-                // So the ink is derived against the fill THIS ROW IS
-                // PAINTING, not against a nominal canvas and not against
-                // the worst of the four: deriving one ink for all four
-                // grounds clears AA and collapses the name/id hierarchy to
-                // 0.93 on Nordic — the id brighter than the name — and is
-                // refuted in AppTheme beside `legibleInkOn`. Where the
-                // token already clears its own fill the derivation returns
-                // it unchanged, so the resting row is untouched.
+                // Derived against the fill this row is actually painting (rest,
+                // hover, selected or selectedHover), since the loud fills fail
+                // AA with the plain token on several palettes. A single ink for
+                // all four states would invert the name/id hierarchy (see
+                // legibleInkOn in AppTheme). A token that already clears its
+                // fill is returned unchanged. This line is the only thing
+                // separating accounts that share a display name.
                 color: AppTheme.legibleInkOn(root.active
                                              ? AppTheme.stormTextSecondary
                                              : AppTheme.stormTextMuted,
                                              root.rowFill)
-                // Mono is right for a Matrix ID.
+                // Mono for a Matrix ID.
                 font.family: AppTheme.monoFont
                 font.pixelSize: AppTheme.scaled(AppTheme.fontMonoXS)
                 elide: Label.ElideMiddle
@@ -310,7 +238,7 @@ Item {
             Layout.alignment: Qt.AlignVCenter
             Accessible.ignored: true
         }
-        // Storm §3.7: unread badges are bolt-on-dark, replacing red.
+        // Unread badges are bolt-on-dark.
         StatusChip {
             visible: !root.active && !root.pointerWithin
                      && root.unreadCount > 0
@@ -319,8 +247,8 @@ Item {
             tone: "bolt"
             label: root.unreadCount > 99 ? "99+" : String(root.unreadCount)
         }
-        // Active marker 3 of 3 — the "you are here" tick. A chip reading
-        // ACTIVE cost more width than the id beneath the name can spare.
+        // Active marker 3 of 3: the tick (an "ACTIVE" chip would cost the id
+        // width).
         Icon {
             objectName: "identityCardActiveTick"
             visible: root.active
@@ -333,37 +261,23 @@ Item {
         ToolButton {
             id: removeButton
             objectName: "identityCardRemoveButton"
-            // Keyboard parity with hover: the affordance reveals when the
-            // row OR the button itself holds focus, and the button is a
-            // real tab stop while revealed.
+            // Revealed on hover or when the row or button has focus; a real tab
+            // stop while revealed.
             readonly property bool revealed:
                 !root.active && (root.pointerWithin || root.activeFocus
                                  || removeButton.activeFocus)
-            // THE SLOT IS HELD ON EVERY INACTIVE ROW, AND FADING IS WHY.
-            // This is a real RowLayout child, so revealing it with
-            // `visible` took 30 px + 8 px of spacing out of the text column
-            // the moment the pointer arrived, and the id beneath the name
-            // re-elided under the cursor: measured, `@dave:chat.very…
-            // ame.example.net` at rest became `@dave:chat.v….example.net`
-            // on hover. Five characters of the one string that tells two
-            // accounts sharing a display name apart, removed at exactly the
-            // moment someone is reading it. The row now reserves the slot
-            // whenever it could ever show the button, and only the paint
-            // changes — same lesson as AppMenuItem's constant content
-            // inset: nothing under the pointer may move because the pointer
-            // arrived.
+            // The slot is held on every inactive row and only the opacity
+            // changes, so revealing the button doesn't re-elide the id under
+            // the cursor.
             visible: !root.active
             opacity: revealed ? 1 : 0
-            // Not merely invisible: a transparent button that still took
-            // clicks would remove an account nobody aimed at, and a
-            // transparent tab stop would be a focus trap with nothing on
-            // screen.
+            // Disabled while hidden, so an invisible button can't remove an
+            // account or trap focus.
             enabled: revealed
             activeFocusOnTab: !root.active
             Accessible.ignored: !revealed
             Layout.alignment: Qt.AlignVCenter
-            // 30 px, not 22: "make the x hitbox bigger" (2026-09-06). The
-            // row is 44 px tall, so this costs no height.
+            // A 30 px hit target; fits the 44 px row.
             implicitWidth: 30
             implicitHeight: 30
             Accessible.name: qsTr("Remove account %1").arg(root.userId)

@@ -3,14 +3,13 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.9 (phase 7): a message's edit history — the original and every
-// m.replace the SDK holds or could fetch, in order, with the current one
-// marked. What Lightning does not have is not invented: a revision the SDK
-// could not decrypt says so, a redacted one says so, and a fetch failure
-// is a sentence rather than an empty list pretending to be complete.
+// A message's edit history: the original and every m.replace the SDK holds
+// or can fetch, in order, with the current one marked. Nothing is invented:
+// undecryptable and redacted revisions say so, and a fetch failure is stated
+// rather than shown as a complete-looking list.
 //
-// The revisions are plaintext in an encrypted room: they live in this
-// dialog's property while it is open and are dropped on close.
+// Revisions are plaintext in an encrypted room: held in this dialog's
+// property while open and dropped on close.
 Dialog {
     id: root
     objectName: "editHistoryDialog"
@@ -31,10 +30,9 @@ Dialog {
     property var revisions: []
     property bool loading: false
     property bool failed: false
-    // The server could not be reached (the cache answered) or had more
-    // revisions than one page. Shown, never swallowed: the rows that are
-    // missing are the OLDEST, so a truncated list looks like a shorter
-    // editing history rather than an incomplete one.
+    // The server was unreachable (cache answered) or had more revisions than
+    // one page. Shown, since the missing rows are the oldest and a truncated
+    // list would look complete.
     property bool partial: false
 
     function openFor(model, id) {
@@ -164,9 +162,8 @@ Dialog {
                             tone: "neutral"
                         }
                     }
-                    // The body is rendered through the same sanitizer as
-                    // the timeline (formatted) or as plain text — never as
-                    // raw HTML.
+                    // Rendered through the timeline's sanitizer (formatted) or
+                    // as plain text; never raw HTML.
                     Label {
                         Layout.fillWidth: true
                         wrapMode: Text.Wrap

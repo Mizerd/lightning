@@ -3,33 +3,14 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Choose what to share, on the platforms that have no portal.
-//
-// WHY THIS MOSTLY EXISTS OFF LINUX. The xdg desktop portal owns the picker
-// there: it shows its own dialog, the user chooses in it, and Lightning
-// receives a PipeWire node for exactly what was chosen — which is what makes
-// sharing safe on Wayland, and why ScreenCastPortal never enumerates anything
-// itself. Windows and macOS have no such broker, so the capture element takes
-// a display index or a window handle and nothing was asking the user which
-// one: a share silently took whichever display the app happened to be on.
-//
-// On Linux the portal normally owns the picker, so this stays closed — two
-// dialogs for one gesture would be worse than none. It DOES open on a Linux
-// desktop with no portal at all, where `SfuCallController::linuxShareRoute`
-// falls back to listing displays itself; on Wayland without a portal there is
-// no capture path and the controller refuses instead of opening this. There
-// is deliberately NO Linux branch anywhere below: an empty list already
-// produces no dialog.
-//
-// A GRID, NOT A LIST (2026-08-27), because the list could not answer the
-// question it was asked. Reported: "with brave it listed my tab name but
-// didnt even say brave anywhere and from small preview hard to tell what that
-// was". Two separate faults in one sentence — a 64px preview is not enough to
-// recognise a window by sight, and a Chromium caption is the TAB's title and
-// names no browser at all. So the preview is now the tile, the two kinds get
-// a tab each instead of a header inside one list, and the resolution is gone
-// from the face of the dialog entirely (it survives in Accessible.name, where
-// it costs no space and still answers "which monitor is the 4K one?").
+// Choose what to share on platforms without a portal. On Linux the xdg portal
+// shows its own picker and hands back a PipeWire node, so this stays closed; it
+// opens on a Linux desktop without a portal (SfuCallController::
+// linuxShareRoute lists displays itself). Windows and macOS have no broker, so
+// the capture element needs a display index or window handle chosen here. A
+// grid of preview tiles, with Screens and Applications as tabs. Captions lead
+// with the application, since a browser caption is the tab's title. The
+// resolution appears only in the accessible name.
 AppDialog {
     id: root
 
@@ -40,32 +21,21 @@ AppDialog {
     anchors.centerIn: parent
     standardButtons: Dialog.NoButton
     closePolicy: Popup.CloseOnEscape
-    // A ceiling, not a width: three 16:9 tiles need room, and the min() is
-    // what keeps the dialog inside a small window. Nothing inside is sized in
-    // absolute terms — every label elides or wraps — so a different font or a
-    // 125% device pixel ratio changes the text, never the frame.
+    // A ceiling that keeps the dialog inside a small window; everything inside
+    // elides or wraps.
     width: Math.min(920, parent ? parent.width - 64 : 920)
 
-    /// The rows to offer. Bound to the live call, and NOT readonly — the
-    /// binding is the production path, and a test that cannot put rows in it
-    /// cannot press one. That gap is not theoretical: the grouped-list rework
-    /// shipped with its rows unclickable, and every check that existed passed
-    /// because none of them had a row to click.
+    /// Bound to the live call and not readonly, so tests can supply rows to
+    /// press.
     property var sources: app.groupCall ? app.groupCall.screenShareSources : []
 
-    /// THE INDEX INTO `sources`, and it must stay that.
-    ///
-    /// `SfuCallController::chooseScreenShareSource(index)` indexes into the
-    /// UNFILTERED list it built, so a tab that shows a subset must map its
-    /// delegate index back to the original one. Sharing the wrong thing is
-    /// the worst outcome this dialog has, so the mapping is carried in the
-    /// model itself (`sourceIndex` on every entry, see rowsForTab) rather
-    /// than recomputed by arithmetic at the point of use.
+    /// An index into `sources`, which chooseScreenShareSource(index) indexes
+    /// unfiltered. Each tab entry carries its `sourceIndex` (see rowsForTab), so
+    /// the mapping is never recomputed at the point of use.
     property int selected: 0
 
-    // Split for the two tabs. A row is a WINDOW when it carries a non-zero
-    // handle — the same fact the controller keys the capture off, so the
-    // picker and the pipeline cannot disagree about what a row means.
+    // A row is a window when it has a non-zero handle, the same fact the
+    // controller keys capture off.
     function isWindowRow(row) {
         return row !== undefined && row !== null
             && row.windowHandle !== undefined && row.windowHandle !== 0;
@@ -79,17 +49,13 @@ AppDialog {
     }
     readonly property int windowCount: sources.length - screenCount
 
-    // ---- tabs -------------------------------------------------------------
-    //
-    // Both tabs are ALWAYS offered, including an empty one, which then says so
-    // in its own words. A tab that appears and disappears with the machine's
-    // state is worse than an empty one: the user cannot learn where a thing
-    // lives if the place moves.
+    // Tabs. Both are always offered; an empty one says so, so things do not
+    // move around with the machine's state.
     readonly property string tabApplications: "applications"
     readonly property string tabScreens: "screens"
     property string tab: tabScreens
 
-    /// The rows of one tab, each carrying the index it has in `sources`.
+    /// The rows of one tab, each carrying its index in `sources`.
     function rowsForTab(which) {
         var out = [];
         for (var i = 0; i < sources.length; ++i) {
@@ -99,25 +65,15 @@ AppDialog {
         return out;
     }
     readonly property var shownRows: root.rowsForTab(root.tab)
-    /// Whether this build can list windows AT ALL — a different question from
-    /// whether any are open, and the one the empty state needs in order not to
-    /// claim a fact about the user's desktop that Lightning cannot know.
+    /// Whether this build can list windows at all, distinct from whether any are
+    /// open.
     readonly property bool windowCaptureSupported:
         app.groupCall ? app.groupCall.windowCaptureSupported : false
 
-    /// Where `sources[idx]` sits in the visible tab, or -1 if it is elsewhere.
-    ///
-    /// COMPUTED, never read from `shownRows`, and the difference is a real
-    /// defect rather than a style preference. `shownRows` is a BINDING on
-    /// `root.tab`, and a change handler for `tab` can run BEFORE the bindings
-    /// that depend on it have caught up. Measured: switching to Applications
-    /// with a display selected ran `selectionIntoView()` against the still-
-    /// stale SCREENS rows, so the rescue moved the highlight to the first
-    /// screen — the dialog then showed two window tiles with nothing
-    /// highlighted, and Share sent a display the user could not see chosen.
-    /// Every imperative reader below therefore asks `rowsForTab` directly;
-    /// only the GridView's model, which is the thing being updated, reads the
-    /// binding.
+    /// Where `sources[idx]` sits in the visible tab, or -1. Computed via
+    /// rowsForTab rather than read from `shownRows`: a `tab` change handler can
+    /// run before that binding updates, which would highlight the wrong row and
+    /// share something not shown as selected.
     function viewIndexOf(idx) {
         var rows = root.rowsForTab(root.tab);
         for (var i = 0; i < rows.length; ++i)
@@ -126,20 +82,9 @@ AppDialog {
         return -1;
     }
 
-    // ---- labelling --------------------------------------------------------
-    //
-    // TWO LINES, application first, and the caption on its own line below.
-    //
-    // The single-line alternative ("Brave Browser — Anthropic Console") also
-    // leads with the application and also survives elision, but it spends the
-    // tile's one line on both facts and truncates the caption after a couple
-    // of words. Splitting them gives the caption the whole tile width, which
-    // is the half the user actually distinguishes two Brave windows by. The
-    // second line only exists when it carries something new: a caption that
-    // already names its application ("Windows Explorer") renders as ONE line,
-    // so the common case stays as quiet as Discord's.
-    //
-    // NEVER the geometry. It is in accessibleLabel() and nowhere else.
+    // Labelling: application first, caption on its own line (only when it adds
+    // something), so the caption gets the full tile width. Never the geometry,
+    // which is only in accessibleLabel().
     function primaryLabel(row) {
         if (row === undefined || row === null)
             return "";
@@ -149,16 +94,14 @@ AppDialog {
         if (!root.isWindowRow(row))
             return caption.length > 0
                 ? caption
-                // A display with no platform name still has to be nameable:
-                // an unlabelled tile is a control the user cannot describe.
+                // A display with no platform name still needs a name.
                 : qsTr("Display %1").arg((row.index !== undefined
                                           ? row.index : 0) + 1);
         if (appName.length === 0)
             return caption.length > 0 ? caption : qsTr("Untitled window");
         if (caption.length === 0)
             return appName;
-        // The caption already says which application it belongs to; repeating
-        // it would be noise, so that window keeps one line.
+        // The caption already names its application; keep one line.
         if (caption.toLowerCase().indexOf(appName.toLowerCase()) >= 0)
             return caption;
         return appName;
@@ -171,17 +114,15 @@ AppDialog {
             return (caption.length > 0 && root.primaryLabel(row) !== caption)
                 ? caption : "";
         }
-        // Which screen this is, which is the only thing about a display the
-        // preview cannot show you. Two facts, one line: the display the app is
-        // on is the more useful of the two, so it wins.
+        // Whether this is the display the app is on; the preview cannot show
+        // that.
         if (row.current === true)
             return qsTr("This screen");
         if (row.primary === true)
             return qsTr("Primary");
         return "";
     }
-    /// Everything the tile says, PLUS the resolution — the one place it still
-    /// belongs, because a screen reader has no preview to look at.
+    /// Everything the tile says, plus the resolution, for screen readers.
     function accessibleLabel(row) {
         var parts = [];
         var p = root.primaryLabel(row);
@@ -197,14 +138,14 @@ AppDialog {
         return parts.join(", ");
     }
 
-    // ---- selection --------------------------------------------------------
+    // Selection
 
     function selectSource(idx) {
         if (idx < 0 || idx >= root.sources.length)
             return;
         root.selected = idx;
     }
-    /// Move the highlight to a row of the VISIBLE tab, by view index.
+    /// Move the highlight to a row of the visible tab, by view index.
     function moveToView(view) {
         var rows = root.rowsForTab(root.tab);
         if (view < 0 || view >= rows.length)
@@ -221,20 +162,15 @@ AppDialog {
                         : Math.max(0, Math.min(rows.length - 1, view + delta));
         root.moveToView(view);
     }
-    /// The highlighted tile must always be the one Share would send, so a
-    /// selection that is not in this tab moves to the first row that is.
+    /// The highlighted tile must be what Share would send.
     function selectionIntoView() {
         var rows = root.rowsForTab(root.tab);
         if (rows.length === 0 || root.viewIndexOf(root.selected) >= 0)
             return;
         root.selected = rows[0].sourceIndex;
     }
-    /// Bring the tab and the selection into agreement after the list changes.
-    ///
-    /// The TAB FOLLOWS THE SELECTION rather than the other way round: the
-    /// preselected row is the display the app is on, and opening on a tab
-    /// where nothing is highlighted would leave Share sending something the
-    /// user cannot see chosen.
+    /// Bring tab and selection into agreement after the list changes. The tab
+    /// follows the selection, which starts on the display the app is on.
     function normalize() {
         if (!root.sources || root.sources.length === 0)
             return;
@@ -247,17 +183,13 @@ AppDialog {
 
     onTabChanged: root.selectionIntoView()
 
-    // Opened by the controller, never by the button: the button asks for a
-    // share and the CONTROLLER decides whether a choice is needed — it starts
-    // straight away when there is only one display, because a dialog to
-    // confirm the only possible answer is a click that tells the user nothing.
+    // Opened by the controller, which starts immediately when there is only one
+    // display.
     Connections {
         target: app.groupCall
         function onScreenShareSourcesAvailable() {
             root.selected = 0;
-            // Preselect the display the app is on: it is what the user meant
-            // often enough to be the right default, and it is what the
-            // pre-picker behaviour did.
+            // Preselect the display the app is on.
             for (var i = 0; i < root.sources.length; ++i) {
                 if (root.sources[i].current) {
                     root.selected = i;
@@ -268,9 +200,8 @@ AppDialog {
             root.open();
         }
     }
-    // The controller clears the list when the share starts or is abandoned,
-    // so a dialog left open by any other path closes with it rather than
-    // sitting over a call it can no longer act on.
+    // The controller clears the list when the share starts or is abandoned;
+    // close with it.
     onSourcesChanged: {
         if (root.visible && root.sources.length === 0) {
             root.close();
@@ -279,18 +210,12 @@ AppDialog {
         root.normalize();
     }
 
-    /// Set for the one frame between pressing Share and the controller
-    /// clearing the list.
-    ///
-    /// Without it `onClosed` fires while the sources are still populated,
-    /// cancels the selection, and the `chooseScreenShareSource` call that
-    /// follows finds an empty list and returns — a Share button that closes
-    /// the dialog and shares nothing.
+    /// Set for the frame between pressing Share and the controller clearing the
+    /// list; otherwise onClosed would cancel first and Share would share
+    /// nothing.
     property bool accepting: false
-    /// One confirmation per opening. Return reaches confirmShare() twice —
-    /// once through the grid's own handler and once through QQuickDialog's
-    /// accept() — and the second call would index into a list the controller
-    /// has already cleared.
+    /// One confirmation per opening: Return reaches confirmShare() twice (the
+    /// grid's handler and QQuickDialog's accept()).
     property bool confirmed: false
 
     function confirmShare() {
@@ -298,8 +223,7 @@ AppDialog {
             return;
         if (root.selected < 0 || root.selected >= root.sources.length)
             return;
-        // The same gate as the button, because Return reaches here without
-        // passing through it.
+        // Same gate as the button; Return bypasses it.
         if (root.viewIndexOf(root.selected) < 0)
             return;
         var chosen = root.selected;
@@ -313,8 +237,7 @@ AppDialog {
     onAboutToShow: {
         root.accepting = false;
         root.confirmed = false;
-        // A stale Accepted from the previous opening would suppress the
-        // cancel below on this one.
+        // Clear a stale Accepted from the previous opening.
         root.result = Dialog.Rejected;
     }
     onOpened: grid.forceActiveFocus()
@@ -324,22 +247,17 @@ AppDialog {
             app.groupCall.cancelScreenShareSelection();
     }
     onClosed: {
-        // `result` covers QQuickDialog's OWN accept path: Return makes it call
-        // accept(), which CLOSES before it emits accepted(), so `accepting` is
-        // still false here and the cancel would clear the very list
-        // confirmShare() is about to read.
+        // `result` covers QQuickDialog's own accept path: Return closes before
+        // accepted() is emitted, so `accepting` is still false here.
         if (!root.accepting && root.result !== Dialog.Accepted
                 && root.sources.length > 0 && app.groupCall)
             app.groupCall.cancelScreenShareSelection();
         root.accepting = false;
     }
 
-    // ---- tile geometry ----------------------------------------------------
-    //
-    // Derived, never literal, so a 140% text scale grows the tiles with the
-    // labels instead of squeezing them. Every value below reads the GRID's
-    // width, which comes from the dialog's own fixed width — nothing here
-    // reads a size this layout computes from its children.
+    // Tile geometry, derived from the grid's width (fixed by the dialog), so
+    // text scaling grows tiles with their labels and nothing reads a
+    // child-computed size.
     readonly property int tileGap: AppTheme.spacing8
     readonly property int minTileWidth: AppTheme.scaled(200)
     readonly property int gridColumns:
@@ -352,40 +270,30 @@ AppDialog {
                        : root.minTileWidth
     readonly property int previewW: Math.max(1, root.cellW - 2 * root.tileGap)
     readonly property int previewH: Math.round(root.previewW * 9 / 16)
-    /// The button's own padding (top and bottom), the 16:9 picture, the three
-    /// gaps its content column leaves between four children, and one line
-    /// each of the two labels. Written out rather than rounded up to a
-    /// literal: a cell that is a few pixels short does not clip visibly, it
-    /// makes the LAYOUT shrink the caption, which reads as a font bug.
+    /// Button padding, the 16:9 picture, three gaps and one line of each label.
+    /// Written out: a short cell makes the layout shrink the caption.
     readonly property int cellH:
         2 * root.tileGap + root.previewH + 3 * AppTheme.spacing4
         + Math.ceil(titleMetrics.height) + Math.ceil(metaMetrics.height)
-    /// Twice the tile, so the grab still looks like the window at a 125-200%
-    /// device pixel ratio. Quantised to 64px steps because `sourceSize` is
-    /// part of the image's identity: without it, dragging the window edge
-    /// would re-grab every desktop in the grid on every pixel of the resize.
-    /// The provider caps at 640 on the long edge regardless.
+    /// Twice the tile for high-DPI, quantised to 64px because sourceSize is part
+    /// of the image's identity (otherwise every resize pixel would re-grab every
+    /// desktop). The provider caps at 640.
     readonly property int previewPixelWidth:
         Math.min(640, Math.max(128, Math.ceil(root.previewW * 2 / 64) * 64))
     readonly property int gridRows:
         Math.max(1, Math.ceil(root.shownRows.length / root.gridColumns))
     readonly property int maxGridHeight: {
         var available = root.parent ? root.parent.height : 800;
-        // Room for the title, the hint, the tabs and the buttons.
+        // Room for the title, hint, tabs and buttons.
         return Math.max(root.cellH, available - AppTheme.scaled(260));
     }
 
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
 
-        // Non-visual, so the layout never sees them: the tile height has to be
-        // known before a delegate exists, and it must come from the FONT
-        // rather than from a guessed line height, or a different UI face
-        // clips the caption.
-        // FontMetrics, not TextMetrics: the question is the FONT's line
-        // height, and TextMetrics can only answer it by being handed a sample
-        // string — which is then a `text:` property holding untranslated
-        // words, and the localization scan is right to refuse one.
+        // FontMetrics (non-visual, font-derived) for the tile height, which
+        // must be known before any delegate exists. TextMetrics would need an
+        // untranslated sample string.
         FontMetrics {
             id: titleMetrics
             font.family: AppTheme.uiFont
@@ -405,9 +313,7 @@ AppDialog {
             lineHeightMode: Text.ProportionalHeight
             color: AppTheme.stormTextMuted
             font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-            // Says what each choice actually shares, because "share my screen"
-            // and "share this window" have different consequences and the
-            // difference is the whole reason to offer both.
+            // Says what each choice shares.
             text: root.windowCount === 0
                 ? qsTr("Everyone in the call sees the whole display you pick.")
                 : qsTr("A screen shares everything on it. A window shares only that window, even if something is in front of it.")
@@ -419,23 +325,20 @@ AppDialog {
             Layout.fillWidth: true
             storm: root.storm
             current: root.tab
-            // An empty tab stays offered and says so in its own words — see
-            // the note on the tab properties above.
+            // An empty tab stays offered and says so.
             model: [
                 { label: qsTr("Applications"), value: root.tabApplications },
                 { label: qsTr("Screens"), value: root.tabScreens }
             ]
             onActivated: (value) => {
                 root.tab = value;
-                // Keep the arrows working after a tab is clicked: the segment
-                // takes focus, and the grid is what reads them.
+                // Keep the arrow keys working after a tab click.
                 grid.forceActiveFocus();
             }
         }
 
-        // The grid sits in a plain Item so the empty-tab message can be
-        // centred over it WITHOUT becoming a child of the Flickable's content
-        // (where it would scroll away from the middle).
+        // A plain Item so the empty-tab message is centred over the grid rather
+        // than scrolling inside it.
         Item {
             Layout.fillWidth: true
             Layout.preferredHeight:
@@ -443,9 +346,7 @@ AppDialog {
 
             GridView {
                 id: grid
-                // Named so a test can find the grid and press a real tile; the
-                // grouped-list rework shipped with its rows unclickable
-                // precisely because nothing could reach one.
+                // Named so a test can press a real tile.
                 objectName: "sourceGrid"
                 anchors.fill: parent
                 clip: true
@@ -455,11 +356,10 @@ AppDialog {
                 cacheBuffer: root.cellH * 2
                 boundsBehavior: Flickable.StopAtBounds
                 activeFocusOnTab: true
-                // The HIGHLIGHT IS `root.selected`, not currentIndex. A JS
-                // array model resets whenever the tab changes, and an item
-                // view clamps its own currentIndex across a reset — which
-                // would move the selection to a row nobody chose. Arrow keys
-                // are handled here instead, against the visible tab's rows.
+                // The highlight is `root.selected`, not currentIndex: the JS
+                // array model resets on tab change and the view would clamp
+                // currentIndex to a row nobody chose. Arrow keys are handled
+                // here.
                 keyNavigationEnabled: false
                 ScrollBar.vertical: AppScrollBar {
                     policy: ScrollBar.AsNeeded
@@ -501,8 +401,7 @@ AppDialog {
                     required property var modelData
                     required property int index
 
-                    // The entry's OWN index in the unfiltered `sources`,
-                    // carried by the model rather than derived from `index`.
+                    // The entry's own index in the unfiltered `sources`.
                     readonly property var row: modelData.source
                     readonly property int sourceIndex: modelData.sourceIndex
                     readonly property bool chosen:
@@ -512,8 +411,8 @@ AppDialog {
                     height: grid.cellHeight
                     padding: root.tileGap
                     hoverEnabled: true
-                    // The GRID owns keyboard focus for the whole tab; a tile
-                    // that could take it would break arrow navigation.
+                    // The grid owns keyboard focus; a focusable tile would
+                    // break arrow keys.
                     focusPolicy: Qt.NoFocus
                     Accessible.role: Accessible.RadioButton
                     Accessible.checkable: true
@@ -535,16 +434,14 @@ AppDialog {
                     contentItem: ColumnLayout {
                         spacing: AppTheme.spacing4
 
-                        // THE PREVIEW, which is now the tile. The accent frame
-                        // is on the picture rather than the whole cell so the
-                        // selection reads at a glance in a grid of pictures.
+                        // The preview is the tile; the accent frame is on the
+                        // picture.
                         Rectangle {
                             Layout.fillWidth: true
                             Layout.preferredHeight: root.previewH
                             radius: AppTheme.radiusMd
-                            // A dark plate, so a window that is not 16:9
-                            // letterboxes instead of being stretched into
-                            // something the user cannot recognise.
+                            // A dark plate, so a non-16:9 window letterboxes
+                            // instead of stretching.
                             color: AppTheme.stormInset
                             border.width: tile.chosen ? 2 : 1
                             border.color: tile.chosen ? AppTheme.accent
@@ -553,10 +450,8 @@ AppDialog {
 
                             Icon {
                                 anchors.centerIn: parent
-                                // BOTH names checked against Icon.qml's map.
-                                // The bundled font is a SUBSET and an unmapped
-                                // name renders as tofu; `web_asset`, the
-                                // obvious glyph for a window, is not in it.
+                                // Both names exist in Icon.qml's map; the icon
+                                // font is a subset.
                                 name: root.isWindowRow(tile.row)
                                     ? "fit_screen" : "screen_share"
                                 size: AppTheme.scaled(28)
@@ -572,52 +467,42 @@ AppDialog {
                                 asynchronous: true
                                 cache: false   // a live grab; a cached one lies
                                 sourceSize.width: root.previewPixelWidth
-                                // The id carries WHICH thing, in the same
-                                // terms the controller uses to start the
-                                // capture — a window handle or the row's
-                                // display index — so a tile cannot preview
-                                // something other than what pressing Share
-                                // would send.
+                                // The id names the thing in the controller's
+                                // own terms (window handle or display index),
+                                // so the preview matches what Share would send.
                                 source: root.isWindowRow(tile.row)
                                     ? "image://lightning-sharesource/w"
                                       + tile.row.windowHandle
                                     : "image://lightning-sharesource/s"
                                       + (tile.row.index !== undefined
                                          ? tile.row.index : 0)
-                                // Null image (a window that closed between
-                                // being listed and being drawn, or any
-                                // platform without previews) leaves the glyph
-                                // showing. That is a legitimate answer, not a
-                                // failure.
+                                // A null image (window closed, or no previews
+                                // on this platform) leaves the glyph showing.
                                 visible: status === Image.Ready
                             }
                         }
 
                         Label {
-                            // Remote or externally chosen text: never markup.
+                            // Untrusted text: never markup.
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             horizontalAlignment: Text.AlignHCenter
                             elide: Text.ElideRight
                             maximumLineCount: 1
-                            // Never empty: primaryLabel() names an unnamed row
-                            // rather than returning "", which also keeps this
-                            // out of the never-laid-out empty-Text hazard.
+                            // Never empty: primaryLabel() names unnamed rows.
                             text: root.primaryLabel(tile.row)
                             color: tile.chosen ? AppTheme.stormText
                                                : AppTheme.stormTextSecondary
                             font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                             font.weight: AppTheme.weightStrong
                         }
-                        // A Loader, not a Label with an empty string: a
-                        // never-laid-out Text keeps ItemObservesViewport for
-                        // the life of the delegate, and this one lives in a
-                        // scrolling view (see CLAUDE.md §16).
+                        // A Loader: an empty Text never laid out stays a
+                        // viewport observer.
                         Loader {
                             Layout.fillWidth: true
                             active: root.secondaryLabel(tile.row).length > 0
                             sourceComponent: Label {
-                                // Remote or externally chosen text: never markup.
+                                // Untrusted text: never markup.
                                 textFormat: Text.PlainText
                                 horizontalAlignment: Text.AlignHCenter
                                 elide: Text.ElideRight
@@ -628,8 +513,8 @@ AppDialog {
                                     AppTheme.scaled(AppTheme.textMeta)
                             }
                         }
-                        // Soaks up the rounding slack in the fixed cell height
-                        // so the picture and its label stay packed to the top.
+                        // Takes up rounding slack so content stays packed to
+                        // the top.
                         Item {
                             Layout.fillHeight: true
                             Layout.preferredHeight: 0
@@ -646,11 +531,9 @@ AppDialog {
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.scaled(AppTheme.textBody)
-                // A STATEMENT ABOUT LIGHTNING, NOT ABOUT THE DESKTOP, when
-                // Lightning is the reason the list is empty. Window
-                // enumeration is Windows-only, so on macOS "No open windows
-                // to share" is simply false in front of a user with three
-                // apps running.
+                // When Lightning is why the list is empty (window enumeration
+                // is Windows-only), say that rather than claiming there are no
+                // windows.
                 text: root.tab !== root.tabApplications
                     ? qsTr("No screens were found.")
                     : (root.windowCaptureSupported
@@ -663,18 +546,11 @@ AppDialog {
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
-            // ABSENT, NOT DISABLED, where the platform cannot capture what
-            // the computer is playing. A greyed switch invites the question
-            // "why can I not turn this on"; nothing at all is the honest
-            // answer on a build with no loopback element, and the property
-            // is answered by GStreamer at runtime rather than by a platform
-            // macro, because which capture plugin a package ships is a
-            // packaging fact.
-            // Quality, where Discord puts it: in the dialog you are about to
-            // share from. Both feed the encoder's cost directly — the share
-            // is a 4K capture downscaled on the CPU and encoded by four VP8
-            // threads competing with whatever is being shared, so a game at
-            // 1440p60 and one at 720p30 are not the same machine.
+            // Share audio is absent, not disabled, where the build cannot
+            // capture playback (answered by GStreamer at runtime, since the
+            // plugins shipped are a packaging fact). Quality settings live
+            // here, where you share: both drive encoder cost (CPU downscale
+            // plus VP8 encode competing with what is being shared).
             Label {
                 text: qsTr("Quality")
                 color: AppTheme.stormTextSecondary
@@ -694,14 +570,9 @@ AppDialog {
                     { label: qsTr("4K"), value: 2160 }
                 ]
                 Accessible.name: qsTr("Screen share resolution")
-                // NEVER bind currentIndex: indexOfValue() is -1 at creation
-                // time, and clamping that to 0 makes the control lie about
-                // the stored value.
-                // The model's labels come from qsTr(), so a language change
-                // re-evaluates it and AppComboBox re-syncs to its LAST synced
-                // value — which `onActivated` alone never updates, so the
-                // control would silently revert to the old choice while the
-                // setting behind it was correct. Same shape and same fix as
+                // Never bind currentIndex: indexOfValue() is -1 at creation.
+                // The model's labels are qsTr(), so a language change re-syncs
+                // AppComboBox to its last synced value; same fix as
                 // wheelSpeedCombo in SettingsScreen.
                 Component.onCompleted: syncToValue(app.settings.shareMaxHeight)
                 onActivated: {
@@ -756,36 +627,22 @@ AppDialog {
                 onToggled: {
                     if (app.groupCall)
                         app.groupCall.shareAudioEnabled = checked;
-                    // RESTORE THE BINDING. A CheckBox writes its own
-                    // `checked` when the user clicks it, and an imperative
-                    // write destroys the declarative binding — so after one
-                    // click this box stopped following the controller and
-                    // would disagree with the call bar's menu, which is
-                    // exactly the "both menus should be synced" case.
+                    // Restore the binding: a click writes `checked` and
+                    // destroys it, and this must stay in sync with the call
+                    // bar's menu.
                     checked = Qt.binding(function () {
                         return app.groupCall ? app.groupCall.shareAudioEnabled
                                              : false;
                     });
                 }
                 ToolTip.visible: hovered
-                // SAY WHAT IT ACTUALLY CAPTURES, and the two answers differ.
-                //
-                // Where the share can capture each playing application on its
-                // own (Linux with PipeWire), Lightning's own playback is left
-                // out and the far end no longer hears itself — that is the
-                // 2026-09-06 fix.
-                //
-                // PHRASED AS AN INTENT, deliberately. This property is a
-                // process-wide probe answered once; the capture is chosen
-                // per share, and a daemon that has restarted since can still
-                // send the share down the monitor fallback. Promising "your
-                // audio is left out" would then be a promise the log
-                // contradicts and the user never reads. Where it can only take the output MONITOR,
-                // which is the post-mix signal, this call's audio is part of
-                // that mix and cannot be subtracted from it (see
-                // docs/voice-calls.md); the only thing that helps there is
-                // putting Lightning's audio on a different output device,
-                // which the system's own volume mixer can do.
+                // Says what is actually captured. With per-application capture
+                // (Linux with PipeWire) Lightning's own playback is excluded;
+                // phrased as intent because a daemon restart can still send the
+                // share down the monitor fallback. With only the output monitor
+                // (post-mix), the call's audio cannot be subtracted (see
+                // docs/voice-calls.md); routing Lightning to another output
+                // device is the workaround.
                 ToolTip.text: (app.groupCall
                                && app.groupCall.shareAudioExcludesOwnPlayback)
                     ? qsTr("Send what this computer is playing, alongside "
@@ -809,13 +666,9 @@ AppDialog {
                 storm: root.storm
                 kind: "primary"
                 text: qsTr("Share")
-                // IN THE VISIBLE TAB, not merely in the array. A tab with
-                // no rows leaves `selected` pointing into the OTHER tab, so
-                // bounds-checking the array alone offers Share over an empty
-                // grid with nothing highlighted — and pressing it sends
-                // whatever the other tab had chosen. That is the ordinary
-                // macOS path, not a corner case: window enumeration is
-                // Windows-only, so Applications is permanently empty there.
+                // In the visible tab, not merely in the array: an empty tab
+                // leaves `selected` pointing into the other one (Applications
+                // is always empty on macOS).
                 enabled: root.viewIndexOf(root.selected) >= 0
                 onClicked: root.confirmShare()
             }

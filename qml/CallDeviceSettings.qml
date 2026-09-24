@@ -5,24 +5,20 @@ import MatrixClient
 
 // Microphone / output / camera pickers for Settings.
 //
-// A separate component rather than another inline block in SettingsScreen.qml,
-// which is already one of the largest files in the tree.
-//
-// The lists are populated LAZILY: reading them initialises Qt Multimedia,
-// which costs real time on a PipeWire desktop, so nothing is enumerated until
-// this section is actually shown.
+// Lists are populated lazily: reading them initialises Qt Multimedia, which
+// is slow on a PipeWire desktop, so nothing is enumerated until the section
+// is shown.
 ColumnLayout {
     id: root
 
     spacing: AppTheme.spacing8
 
-    /// Set by the host when this section becomes visible. Enumeration is
-    /// deliberately not triggered by mere construction.
+    /// Set by the host when this section becomes visible; construction alone
+    /// doesn't enumerate.
     property bool activated: false
 
-    // Bumped when the device list or selection changes; every binding that
-    // calls into the controller reads it, because Qt cannot observe a C++
-    // function call as a dependency.
+    // Bumped on device/selection changes. Bindings that call the controller
+    // read it, since Qt can't observe a C++ call as a dependency.
     property int refreshTick: 0
     Connections {
         target: app.callDevices
@@ -58,9 +54,8 @@ ColumnLayout {
             objectName: "callDevice_" + picker.kind
             Layout.fillWidth: true
             enabled: picker.entries.length > 0
-            // "System default" is index 0 and is a real choice: it keeps
-            // following the system default as it changes, rather than
-            // pinning whichever device happens to be default today.
+            // "System default" (index 0) follows the system default as it
+            // changes, rather than pinning today's default device.
             model: {
                 var names = [qsTr("System default")];
                 for (var i = 0; i < picker.entries.length; ++i) {
@@ -90,8 +85,7 @@ ColumnLayout {
             }
         }
 
-        // Only when the machine genuinely has none of this device class, so
-        // it does not become permanent furniture.
+        // Only when the machine has no device of this class.
         Loader {
             active: picker.entries.length === 0 && picker.emptyText.length > 0
             visible: active
@@ -119,9 +113,8 @@ ColumnLayout {
         emptyText: qsTr("No microphone was found. You can still join a call " + "and listen.")
     }
 
-    // Shown only when the chosen device is genuinely absent — the choice is
-    // KEPT, so reconnecting the device restores it rather than having
-    // silently lost it.
+    // Only when the chosen device is absent. The choice is kept, so
+    // reconnecting the device restores it.
     Loader {
         active: root.activated && app.callDevices.preferredMicrophoneMissing
         visible: active
@@ -134,17 +127,11 @@ ColumnLayout {
         }
     }
 
-    // ── Microphone gain ──────────────────────────────────────────────────
-    //
-    // What OTHERS hear, not what this device plays. It belongs beside the
-    // microphone picker because it is a property of this computer's
-    // microphone — some capture devices are simply quiet — and NOT beside the
-    // per-person volumes on the call stage, which are the opposite direction
-    // and are per person.
-    //
-    // Two-way bound to `app.settings.microphoneGain`, a Q_PROPERTY with a
-    // NOTIFY. No QSettings is touched from QML: SettingsManager owns the key,
-    // the clamp and the account scoping, and it is the only writer.
+    // ── Microphone gain ──
+    // What others hear, a property of this computer's microphone (unlike the
+    // per-person playback volumes on the call stage). Bound to
+    // `app.settings.microphoneGain`; SettingsManager owns the key, clamp and
+    // account scoping and is the only writer. QML never touches QSettings.
     ColumnLayout {
         Layout.fillWidth: true
         Layout.topMargin: AppTheme.spacing4
@@ -155,12 +142,9 @@ ColumnLayout {
             spacing: AppTheme.spacing8
 
             Icon {
-                // `graphic_eq` reads as LEVEL, which is what this control
-                // changes. `mic`/`mic_off` are the mute button's icons and
-                // reusing one here would say "microphone", not "how loud".
-                // The bundled Material Symbols font is a SUBSET — only names
-                // mapped in Icon.qml render, anything else is tofu — and of
-                // what is mapped this is the only amplitude glyph.
+                // `graphic_eq` for level (mic/mic_off are the mute button's);
+                // the only amplitude glyph mapped in Icon.qml (the bundled font
+                // is a subset).
                 name: micGainSlider.value > 100 ? "graphic_eq" : "mic"
                 size: 18
                 color: micGainSlider.value > 100 ? AppTheme.accent : AppTheme.stormTextSecondary
@@ -189,16 +173,12 @@ ColumnLayout {
             to: 200
             stepSize: 1
             snapMode: Slider.SnapAlways
-            // A plain binding, so a change made anywhere else — another
-            // window, another surface, a reset — is reflected here. Qt breaks
-            // it on the first user drag, which is the desired behaviour and
-            // the same arrangement the Settings text-scale slider uses.
+            // A plain binding, so changes from elsewhere show here; the first
+            // user drag breaks it, as intended.
             value: app.settings.microphoneGain
             Accessible.name: qsTr("Microphone volume")
-            // `onMoved`, not `onValueChanged`: `onValueChanged` also fires
-            // when the BINDING above delivers a value that came from the
-            // store, which would write it straight back — a store write per
-            // account switch, and a loop waiting for a rounding difference.
+            // `onMoved`, not `onValueChanged`, which also fires for values from
+            // the store and would write them straight back.
             onMoved: app.settings.microphoneGain = Math.round(value)
 
             background: Rectangle {
@@ -216,9 +196,8 @@ ColumnLayout {
                     color: AppTheme.bolt
                 }
 
-                // The neutral point. Same mark, same reason, as the
-                // per-person slider on the call stage: 100 is the one value
-                // that changes nothing, and it must be findable by eye.
+                // The neutral point (100%), marked as on the call stage's
+                // slider.
                 Rectangle {
                     objectName: "microphoneGainNeutralMark"
                     x: Math.round(parent.width / 2) - 1
@@ -235,8 +214,7 @@ ColumnLayout {
                 width: 16
                 height: 16
                 radius: 8
-                // White: the thumb rides the fill boundary, so a dark disc
-                // reads as disabled past half range.
+                // White: a dark thumb on the fill boundary reads as disabled.
                 color: "#FFFFFF"
                 border.width: micGainSlider.visualFocus ? 2 : 0
                 border.color: AppTheme.bolt
@@ -249,19 +227,14 @@ ColumnLayout {
 
             Label {
                 Layout.fillWidth: true
-                // 1 px preferred, filling: a wrapping paragraph reports the
-                // whole unwrapped sentence as its preferred width, and a
-                // RowLayout too narrow for its children shrinks them in
-                // proportion to that — so this sentence was taking the Reset
-                // button's width away from it, and a squeezed AppButton
-                // draws its label out over its neighbour. Same fix, same
-                // reason, as the per-person volume popup on the call stage.
+                // Preferred width 1 + fillWidth: a wrapping paragraph reports
+                // its unwrapped width as preferred and would squeeze the Reset
+                // button.
                 Layout.preferredWidth: 1
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textMeta
-                // Always shown. A consequence disclosed only once the user is
-                // already past the line is not a disclosure.
+                // Always shown, so the consequence is disclosed up front.
                 text: qsTr("Above 100% amplifies and can clip. 200% applies the maximum the audio stage can reach.")
             }
 
@@ -273,9 +246,8 @@ ColumnLayout {
                     storm: true
                     kind: "ghost"
                     text: qsTr("Reset")
-                    // Written explicitly: assigning `value` is not a user
-                    // gesture, so `onMoved` never fires and a reset that only
-                    // moved the thumb would change nothing at all.
+                    // Written explicitly: a programmatic `value` change doesn't
+                    // fire onMoved.
                     onClicked: app.settings.microphoneGain = 100
                 }
             }
@@ -306,15 +278,14 @@ ColumnLayout {
             var _ = root.refreshTick;
             return app.callDevices.activeCameraId;
         }
-        // Inside a Flatpak nothing can be listed, and nothing needs to be:
-        // the desktop's camera portal hands the call a camera when it is
-        // turned on. Saying "No camera was found." there was false.
+        // In a Flatpak nothing can be listed: the camera portal supplies a
+        // camera when it's turned on.
         emptyText: app.callDevices.camerasChosenByDesktop
                    ? qsTr("Your desktop chooses the camera when you turn it on in a call.")
                    : qsTr("No camera was found.")
     }
 
-    // v0.9.0: the floating call window.
+    // The floating call window.
     CheckBox {
         objectName: "callPictureInPictureCheck"
         palette.windowText: AppTheme.stormText
@@ -343,20 +314,9 @@ ColumnLayout {
         lineHeightMode: Text.ProportionalHeight
         color: AppTheme.stormTextMuted
         font.pixelSize: AppTheme.textMeta
-        // Honest about when a change takes effect, rather than letting the
-        // user wonder why a mid-call switch did nothing.
-        //
-        // AND HONEST ABOUT SCOPE, WHICH IT WAS NOT. This card holds two
-        // different kinds of setting and this sentence used to say "these
-        // devices belong to this computer, not to your account" while sitting
-        // directly under the microphone LEVEL, which is account-scoped
-        // (`SettingsManager::setMicrophoneGain` -> `setAppearanceValue`, an
-        // account key with a global fallback). The device ids are plain
-        // global keys (`calls/microphoneId`). Verified live 2026-09-12 by
-        // switching accounts: the level read 151% for one account and 60% for
-        // the other while the global fallback held 60. A reader takes "these"
-        // to cover the card, so the sentence was actively wrong about one of
-        // the two things above it.
+        // Says when changes take effect, and which settings are per computer
+        // (device ids, global keys) versus per account (the microphone level,
+        // SettingsManager::setMicrophoneGain -> setAppearanceValue).
         text: qsTr("Devices belong to this computer, not to your account. "
                    + "The microphone level belongs to your account. "
                    + "A change applies to your next call; during a call you "

@@ -3,35 +3,22 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The Space Home LOBBY (2026-09-23): the list of what a Space contains.
-//
-// Sectioned the way Sable's lobby is, on a tester's report comparing the two
-// ("you cant tell which rooms belong to each space"): the Space's own rooms
-// first, then ONE collapsible section per joined subspace listing that
-// subspace's rooms, every row carrying the room's topic as a second line.
-// The flat list it replaced read SpaceManager::childRoomsDetailed(), which is
-// TRANSITIVE, so every subspace's rooms ran together with the Space's own.
-//
-// PRESENTATION ONLY. The sections are built in C++
-// (SpaceManager::lobbySections: grouping, m.space.child order, search, the
-// collapsed state) and arrive here as `sections`; this file draws them and
-// reports what the user asked for through signals, which TimelinePane's Space
-// Home turns into app calls. A section that is folded or filtered away is
-// absent from the DATA — never a delegate hidden with `visible:` — because a
-// setting that removes rows is a model state (CLAUDE.md §16).
-//
-// Moved strings keep the "TimelinePane" translation context through
-// qsTranslate, so the catalogs' existing translations still apply.
-//
-// Both Repeaters take a COUNT, not the array: every sync hands this a new
-// array, and an array model rebuilds every delegate — closing an open menu
-// and dropping focus. With a count, delegates survive and rebind by index.
+// The Space Home lobby: the Space's own rooms, then one collapsible section per
+// joined subspace, each row with the room's topic. Presentation only. Sections
+// are built in C++ (SpaceManager::lobbySections: grouping, m.space.child order,
+// search, collapsed state); this file draws them and emits signals that
+// TimelinePane's Space Home turns into app calls. A folded or filtered section
+// is absent from the data, never hidden with `visible`. Moved strings keep the
+// "TimelinePane" translation context through qsTranslate, so existing
+// translations apply. Both Repeaters take a count, not the array: every sync
+// delivers a new array, which would rebuild every delegate (closing menus,
+// dropping focus).
 ColumnLayout {
     id: root
     objectName: "spaceLobby"
     spacing: AppTheme.spacingS
 
-    // ---- inputs -------------------------------------------------------------
+    // ---- inputs ----
     /// SpaceManager::lobbySections() output.
     property var sections: []
     /// Whether the account may send m.space.child in the Home Space.
@@ -46,7 +33,7 @@ ColumnLayout {
     property bool homeLoading: false
     property var loadingIds: ({})
 
-    // ---- outputs ------------------------------------------------------------
+    // ---- outputs ----
     signal filterEdited(string text)
     signal openRoomRequested(string roomId)
     signal openSpaceRequested(string spaceId)
@@ -59,7 +46,7 @@ ColumnLayout {
 
     readonly property int selectedCount: Object.keys(selectedIds).length
 
-    // Keyboard focus to hand back to a header after a rebuild, by id.
+    // Keyboard focus to restore to a header after a rebuild, by id.
     property string focusSectionId: ""
     property bool restoreFocus: false
 
@@ -70,8 +57,7 @@ ColumnLayout {
         }
         return null
     }
-    // Called when the Home switches Space: a menu aimed at the old Space's
-    // section must not survive into the new one.
+    // On a Space switch, a menu aimed at the old Space's section closes.
     function closeMenus() { sectionMenu.close() }
     function restoreHeaderFocus() {
         if (!restoreFocus)
@@ -104,8 +90,8 @@ ColumnLayout {
         return n
     }
 
-    // Every selectable entry currently known, by id: root rows and subspace
-    // HEADERS (a subspace is itself a direct child of the Home Space).
+    // Every selectable entry by id: root rows and subspace headers (a subspace
+    // is itself a direct child of the Home Space).
     function selectableById() {
         var out = {}
         for (var i = 0; i < sections.length; ++i) {
@@ -120,8 +106,7 @@ ColumnLayout {
         }
         return out
     }
-    // The suggest toggle mirrors Element: one button whose action follows the
-    // selection — all-suggested flips off, otherwise on.
+    // One suggest toggle whose action follows the selection, as in Element.
     function selectedAllSuggested() {
         var known = selectableById()
         var any = false
@@ -136,14 +121,14 @@ ColumnLayout {
         return any
     }
 
-    // ---- toolbar: selection actions and search -----------------------------
+    // ---- toolbar: selection actions and search ----
     RowLayout {
         Layout.fillWidth: true
         Layout.topMargin: AppTheme.spacingS
         spacing: AppTheme.spacing8
         Label {
-            // Pinned by SpaceSettingsContractTest and ElementParityContract-
-            // Test; the casing is legacy, the size and weight are on scale.
+            // Pinned by SpaceSettingsContractTest and
+            // ElementParityContractTest.
             text: qsTranslate("TimelinePane", "ROOMS AND SPACES")
             color: AppTheme.textSecondary
             font.family: AppTheme.uiFont
@@ -195,8 +180,7 @@ ColumnLayout {
         }
     }
 
-    // A filter with no matches says so — a silently blank list reads as
-    // stuck (2026-08-19 audit).
+    // A filter with no matches says so.
     Label {
         objectName: "spaceLobbyNoMatches"
         visible: root.sections.length === 0 && root.filterText !== ""
@@ -252,7 +236,7 @@ ColumnLayout {
         }
     }
 
-    // ---- the sections --------------------------------------------------------
+    // ---- the sections ----
     Repeater {
         id: sectionRepeater
         model: root.sections.length
@@ -274,9 +258,9 @@ ColumnLayout {
                                                    : AppTheme.spacingXS
             spacing: AppTheme.spacingXS
 
-            // Section header: chevron, avatar (subspaces), name, count, and
-            // for a subspace its menu and — for a manager — its selection
-            // box. A tap anywhere else on the header folds the section.
+            // Section header: chevron, avatar (subspaces), name, count, and for
+            // a subspace its menu and (for a manager) a selection box. Tapping
+            // elsewhere folds the section.
             Item {
                 id: sectionHeader
                 objectName: "spaceLobbySectionHeader"
@@ -310,9 +294,8 @@ ColumnLayout {
                            ? AppTheme.hover : "transparent"
                 }
                 TapHandler {
-                    // The menu button and the selection box are EXCLUDED:
-                    // TapHandlers are non-exclusive across subtrees, so a tap
-                    // meant for either would otherwise also fold the section.
+                    // Exclude the menu button and selection box: TapHandlers
+                    // are non-exclusive across subtrees.
                     onTapped: (eventPoint) => {
                         var bands = [sectionMenuButton, sectionSelectBox]
                         for (var i = 0; i < bands.length; ++i) {
@@ -359,9 +342,8 @@ ColumnLayout {
                         font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                         font.weight: AppTheme.weightStrong
                         elide: Label.ElideRight
-                        // Against the HEADER, never this layout's own width
-                        // (a cap read from the arranged width is an input
-                        // the layout produces: "recursive rearrange").
+                        // Against the header, never this layout's own arranged
+                        // width.
                         Layout.maximumWidth: sectionHeader.width * 0.5
                     }
                     Label {
@@ -377,8 +359,7 @@ ColumnLayout {
                         visible: !sectionItem.isRoot
                                  && sectionItem.modelData.suggested === true
                     }
-                    // A folded section must not mute its rooms: it carries
-                    // their activity (the Channels header's rule).
+                    // A folded section still shows its rooms' activity.
                     Rectangle {
                         objectName: "spaceLobbyFoldedUnread"
                         visible: sectionItem.collapsed
@@ -417,16 +398,14 @@ ColumnLayout {
                                    === sectionItem.modelData.sectionId
                         Accessible.name: qsTr("More actions for %1")
                                              .arg(sectionItem.title)
-                        // Plain text app-wide: Main.qml's sharedToolTipGuard.
+                        // Plain text app-wide (Main.qml's sharedToolTipGuard).
                         ToolTip.text: Accessible.name
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         onClicked: {
                             sectionMenu.target = sectionItem.modelData
-                            // Anchored to the LOBBY, not this button: a
-                            // rebuild that changes the section count
-                            // destroys the button, and a popup whose parent
-                            // item goes away closes with it.
+                            // Anchored to the lobby, not the button, which a
+                            // rebuild can destroy.
                             var p = sectionMenuButton.mapToItem(
                                 root, 0,
                                 sectionMenuButton.height + AppTheme.spacing4)
@@ -445,8 +424,7 @@ ColumnLayout {
                 }
             }
 
-            // The section's rooms, in one card. Absent when folded: the model
-            // hands a folded section no rows.
+            // The section's rooms in one card; a folded section has no rows.
             Rectangle {
                 objectName: "spaceLobbySectionCard"
                 visible: !sectionItem.collapsed
@@ -479,13 +457,11 @@ ColumnLayout {
                     }
                     Repeater {
                         model: (sectionItem.modelData.rows || []).length
-                        // One room (or nested Space) in a section: avatar, name, badges, and the
-                        // room's TOPIC as a second line — plain text always, it is server text
-                        // anyone with state access may set (§6). Joined rows open on a tap;
-                        // unjoined ones act only through their Join button. There is no "Joined"
-                        // chip: the row's action already says it (Join vs the open arrow), and a
-                        // chip beside every room read as the user's ROLE — Portuguese renders it
-                        // "Membro" (tester report, 2026-09-23).
+                        // One room (or nested Space): avatar, name, badges and
+                        // the topic as a second line, always plain text (§6).
+                        // Joined rows open on tap; unjoined ones act only
+                        // through Join. No "Joined" chip: the row's action
+                        // already says it.
                         delegate: Rectangle {
                             id: row
                             required property int index
@@ -511,8 +487,7 @@ ColumnLayout {
                             color: rowHover.hovered && row.joined ? AppTheme.hover : "transparent"
                             HoverHandler { id: rowHover }
                             TapHandler {
-                                // The selection box's band is excluded: a select tap must not
-                                // ALSO open the row.
+                                // Exclude the selection box's band.
                                 onTapped: (eventPoint) => {
                                     if (selectBox.visible) {
                                         var sp = row.mapToItem(selectBox, eventPoint.position.x,
@@ -566,7 +541,8 @@ ColumnLayout {
                                                          ? AppTheme.weightBold
                                                          : AppTheme.weightMedium
                                             elide: Label.ElideRight
-                                            // Measured against the ROW, never this layout.
+                                            // Measured against the row, never this
+                                            // layout.
                                             Layout.maximumWidth: row.width * 0.55
                                         }
                                         SuggestedChip {
@@ -603,7 +579,8 @@ ColumnLayout {
                                         visible: row.topic.length > 0
                                         Layout.fillWidth: true
                                         text: row.topic
-                                        // Unsanitized server text; NEVER AutoText or StyledText.
+                                        // Unsanitized server text; never AutoText
+                                        // or StyledText.
                                         textFormat: Text.PlainText
                                         color: AppTheme.textSecondary
                                         font.family: AppTheme.uiFont
@@ -682,8 +659,7 @@ ColumnLayout {
                                                                row.isSpace)
                                     }
                                 }
-                                // The open affordance. Decoration only: the whole row is the
-                                // button, so a second handler here would open the room twice.
+                                // Decoration only: the whole row is the button.
                                 Rectangle {
                                     objectName: "spaceLobbyOpenGlyph"
                                     visible: row.joined
@@ -724,9 +700,8 @@ ColumnLayout {
         wrapMode: Text.Wrap
     }
 
-    // ONE menu for every subspace header. It lives here, not in a delegate,
-    // so a rebuild while it is open cannot destroy it; `target` is the
-    // section's DATA, re-read by id in onSectionsChanged.
+    // One menu for every subspace header, outside the delegates so a rebuild
+    // cannot destroy it; `target` is re-read by id in onSectionsChanged.
     AppMenu {
         id: sectionMenu
         objectName: "spaceLobbySectionMenu"
@@ -756,10 +731,10 @@ ColumnLayout {
         }
     }
 
-    // ---- building blocks ----------------------------------------------------
+    // ---- building blocks ----
 
-    // "Suggested" is the Space owner's recommendation, a different KIND of
-    // fact from membership, so it keeps its own chip family.
+    // "Suggested" is the owner's recommendation, a different kind of fact from
+    // membership, so it has its own chip.
     component SuggestedChip: Label {
         text: qsTranslate("TimelinePane", "Suggested")
         color: AppTheme.chipAccentInk
@@ -778,9 +753,9 @@ ColumnLayout {
         }
     }
 
-    // Element's selection UI: a checkbox, shown only where the account can
-    // actually send m.space.child. WithinBounds takes the EXCLUSIVE grab, so
-    // an ancestor's TapHandler does not also fire on the same press.
+    // Selection checkbox, shown only where the account may send m.space.child.
+    // WithinBounds takes the exclusive grab so an ancestor's TapHandler does
+    // not also fire.
     component SelectBox: Item {
         id: box
         objectName: "spaceChildSelectBox"

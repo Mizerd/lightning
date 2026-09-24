@@ -3,14 +3,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// One square in the media browser's grid.
-//
-// Thumbnails resolve through the authenticated media bridge exactly as the
-// timeline's do — an encrypted attachment is fetched and decrypted by the
-// same path, and a raw mxc never reaches an Image source. The bridge answers
-// ASYNCHRONOUSLY: a miss returns "" and starts a fetch, so the binding reads
-// `resolveTick`, which the mediaCached signal bumps. Without that the tile
-// would stay empty forever on the first view of every image.
+// One square in the media browser's grid. Thumbnails go through the
+// authenticated media bridge like the timeline's (encrypted attachments are
+// fetched and decrypted there; a raw mxc never reaches an Image). A miss
+// returns "" and starts a fetch, so the binding reads `resolveTick`, bumped by
+// mediaCached.
 Item {
     id: tile
 
@@ -30,19 +27,16 @@ Item {
 
     property int resolveTick: 0
     readonly property bool visual: kind === "image" || kind === "video"
-    // Prefer the server's thumbnail. Asking for a thumbnail of something that
-    // has none falls back to the FULL attachment, which is how a media list
-    // once downloaded whole videos to fill 42px tiles.
+    // Prefer the server's thumbnail; a thumbnail request for something without
+    // one falls back to the full attachment.
     readonly property string source: {
         var _ = tile.resolveTick
         if (!visual || !app.mediaBridge.supported)
             return ""
-        // Through the media REGISTRY, keyed like a timeline row, whenever the
-        // scanner registered one: that is the only path that can decrypt an
-        // encrypted attachment's thumbnail. Asking the server for a thumbnail
-        // of an encrypted mxc is impossible, and every tile in an encrypted
-        // room failed with "network" (reported with a screenshot). The mxc
-        // path below stays for a row the scanner could not register.
+        // Through the media registry, keyed like a timeline row, when the
+        // scanner registered one: the only path that can decrypt an encrypted
+        // thumbnail. The mxc path below is for rows the scanner could not
+        // register.
         if (tile.mediaKey.length > 0)
             return app.mediaBridge.mediaSource(tile.mediaKey, "list_thumb")
         var uri = tile.thumbnailMxc.length > 0 ? tile.thumbnailMxc
@@ -68,18 +62,9 @@ Item {
             id: preview
             anchors.fill: parent
             source: tile.source
-            // CROP WHAT IS NEARLY SQUARE, FIT WHAT IS NOT.
-            //
-            // A square tile that always crops to fill looks tidy and quietly
-            // throws away the part of a picture that identifies it: a tall
-            // screenshot or a wide panorama keeps only its middle band, which
-            // is the one thing a thumbnail exists to avoid. Reported
-            // 2026-09-08: "it currently shows a square that fits in the
-            // image, which for some images isn't working well". B016.
-            //
-            // The threshold is a judgement, not a measurement: within half to
-            // double, cropping loses nothing worth seeing and the grid stays
-            // even. Past it the whole picture is shown, letterboxed.
+            // Crop what is nearly square (between half and double), fit what is
+            // not, so tall or wide pictures keep what identifies them. The
+            // threshold is a judgement.
             readonly property real aspect:
                 (implicitWidth > 0 && implicitHeight > 0)
                 ? implicitWidth / implicitHeight : 1
@@ -87,16 +72,14 @@ Item {
                       ? Image.PreserveAspectCrop : Image.PreserveAspectFit
             asynchronous: true
             cache: true
-            // A width-only sourceSize keeps the aspect; the provider honours
-            // it (see MediaImageProvider — a width-only request used to read
-            // as "no size asked for" and decoded at full resolution).
+            // A width-only sourceSize keeps the aspect; MediaImageProvider
+            // honours it.
             sourceSize.width: 256
             visible: status === Image.Ready
         }
 
-        // The fallback is a LABEL, not a broken image: a video with no
-        // thumbnail, an undecryptable attachment or a deleted file all land
-        // here, and an empty grey square tells the reader nothing.
+        // A label fallback (no thumbnail, undecryptable, deleted), not an empty
+        // square.
         ColumnLayout {
             anchors.centerIn: parent
             width: parent.width - AppTheme.spacing8
@@ -124,8 +107,7 @@ Item {
             }
         }
 
-        // A video is not an image, and a grid that does not say so invites a
-        // click that opens the wrong thing.
+        // Marks videos, so a click does not open the wrong thing.
         Rectangle {
             visible: tile.kind === "video"
             anchors.centerIn: parent
@@ -135,8 +117,7 @@ Item {
                    color: "#FFFFFF" }
         }
 
-        // Encrypted is worth showing: it is why a thumbnail may take longer,
-        // and it is the reassurance that the browser did not fetch plaintext.
+        // Encrypted is worth showing: it explains slower thumbnails.
         Icon {
             visible: tile.encrypted
             anchors.right: parent.right
