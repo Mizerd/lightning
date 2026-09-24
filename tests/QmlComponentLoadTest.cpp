@@ -66,6 +66,8 @@ constexpr const char *kComponents[] = {
     "CollapsedEmbedRow",
     // Space Home lobby; every input has an empty default and it reads no `app`.
     "SpaceLobby",
+    // Space kick/ban confirmation; renders app.spaceModeration.
+    "SpaceMemberActionDialog",
 };
 
 // Deliberately NOT loaded standalone, each with the reason. Kept here rather

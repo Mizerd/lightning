@@ -118,6 +118,12 @@ public:
     /// Every ancestor of `spaceId`, nearest first. Bounded by the hierarchy
     /// depth limit, so a parent cycle cannot spin.
     Q_INVOKABLE QStringList ancestorSpaceIds(const QString &spaceId) const;
+    /// What a Space-level moderation action may cascade to: the Space
+    /// itself first, then every joined subspace and room beneath it, in
+    /// m.space.child order, each once. Cycle-safe and depth-bounded like the
+    /// hierarchy walk. Empty for a pseudo id or an unknown Space.
+    Q_INVOKABLE QStringList moderationScopeRoomIds(
+        const QString &spaceId) const;
     // Whether `roomId` is a direct child of any joined Space. The Channels
     // "Rooms" group is the complement. Direct, since subspaces are folders
     // of their own in that layout.

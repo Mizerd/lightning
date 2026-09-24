@@ -65,6 +65,7 @@ AppDialog {
         if (app.roomInfo)
             app.roomInfo.roomId = targetSpaceId
         section = 0
+        memberError = ""
         memberFilter.text = ""
         membershipCombo.currentIndex = 0
         sortCombo.currentIndex = 0
@@ -1003,6 +1004,19 @@ AppDialog {
                             }
                         }
 
+                        // A refused role change, from the member menu.
+                        Label {
+                            objectName: "spaceSettingsMemberError"
+                            Layout.fillWidth: true
+                            visible: root.memberError.length > 0
+                            wrapMode: Text.WordWrap
+                            textFormat: Text.PlainText
+                            text: root.memberError
+                            color: AppTheme.stormDanger
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                        }
+
                         // Grouped by role; buckets come from C++
                         // (memberRoleGroups), so a custom level gets its own
                         // group.
@@ -1054,6 +1068,19 @@ AppDialog {
                                         readonly property string server:
                                             _colon > 0 ? uid.substring(_colon + 1)
                                                        : ""
+                                        readonly property bool menuOpenHere:
+                                            memberMenu.opened
+                                            && memberMenu.targetUserId === uid
+
+                                        // Right-click anywhere on the row opens the
+                                        // same menu as the button.
+                                        TapHandler {
+                                            acceptedButtons: Qt.RightButton
+                                            onTapped: (eventPoint) => root.openMemberMenu(
+                                                memberRow.modelData, memberRow,
+                                                eventPoint.position.x,
+                                                eventPoint.position.y)
+                                        }
 
                                         RowLayout {
                                             anchors.fill: parent
@@ -1076,6 +1103,22 @@ AppDialog {
                                                 color: AppTheme.stormText
                                                 font.family: AppTheme.uiFont
                                                 font.pixelSize: AppTheme.textBody
+                                            }
+                                            // Role chip for anyone above the default
+                                            // level, from the member's real level.
+                                            StatusChip {
+                                                objectName: "spaceMemberRoleChip"
+                                                readonly property var level:
+                                                    memberRow.modelData.powerLevel
+                                                visible: root.infoIsOurs
+                                                         && level !== undefined
+                                                         && level > app.roomInfo.usersDefaultPowerLevel
+                                                storm: true
+                                                tone: level >= 100 ? "accent" : "info"
+                                                label: level !== undefined
+                                                       ? memberRow.modelData.roleLabel
+                                                         || app.roomInfo.roleLabelForLevel(level)
+                                                       : ""
                                             }
                                             // Invited and banned rows are listed (a
                                             // hidden ban cannot be lifted) and marked.
@@ -1117,6 +1160,25 @@ AppDialog {
                                                     font.family: AppTheme.monoFont
                                                     font.pixelSize: AppTheme.textMicro
                                                 }
+                                            }
+                                            // Kept in the layout while hidden so rows
+                                            // do not shift under the pointer.
+                                            IconButton {
+                                                id: memberMenuButton
+                                                objectName: "spaceMemberMenuButton"
+                                                iconName: "more_horiz"
+                                                size: "sm"
+                                                storm: true
+                                                opacity: memberHover.hovered
+                                                         || memberRow.menuOpenHere
+                                                         || activeFocus ? 1 : 0
+                                                Accessible.name: qsTr("Actions for %1")
+                                                    .arg(memberRow.modelData.displayName
+                                                         || memberRow.uid)
+                                                onClicked: root.openMemberMenu(
+                                                    memberRow.modelData,
+                                                    memberMenuButton, 0,
+                                                    memberMenuButton.height + 2)
                                             }
                                         }
                                     }
@@ -1594,6 +1656,188 @@ AppDialog {
                 }
             }
         }
+    }
+
+    // ── Member actions ──
+    //
+    // One menu for every row, from the ⋯ button or a right-click. What it
+    // offers is captured at open from app.roomInfo, which is this Space's
+    // roster while infoIsOurs; the controllers re-check at dispatch.
+    property string memberError: ""
+    Connections {
+        target: app.roomInfo
+        function onPowerLevelActionFinished(roomId, userId, level, ok, message) {
+            if (roomId === root.spaceId)
+                root.memberError = ok ? "" : message
+        }
+    }
+
+    function openMemberMenu(member, anchor, x, y) {
+        if (!root.infoIsOurs || !member || !member.userId)
+            return
+        root.memberError = ""
+        var uid = member.userId
+        memberMenu.targetUserId = uid
+        memberMenu.targetName = member.displayName || uid
+        memberMenu.canKick = app.roomInfo.canModerate(uid, "kick")
+        memberMenu.canBan = app.roomInfo.canModerate(uid, "ban")
+        memberMenu.canUnban = app.roomInfo.canModerate(uid, "unban")
+        var current = app.roomInfo.powerLevelFor(uid)
+        var candidates = [100, 50, app.roomInfo.usersDefaultPowerLevel]
+        var seen = {}
+        var options = []
+        for (var i = 0; i < candidates.length; ++i) {
+            var level = candidates[i]
+            if (seen[level] === true)
+                continue
+            seen[level] = true
+            // canSetPowerLevel refuses the current level; list it anyway,
+            // marked, so the menu shows where they stand.
+            var settable = app.roomInfo.canSetPowerLevel(uid, level)
+            if (!settable && level !== current)
+                continue
+            options.push({ level: level,
+                           label: app.roomInfo.roleLabelForLevel(level),
+                           current: level === current,
+                           settable: settable })
+        }
+        // Only the current level and nothing to change it to is no choice.
+        memberMenu.roleOptions = options.length > 1 ? options : []
+        memberMenu.popup(anchor, x, y)
+    }
+
+    AppMenu {
+        id: memberMenu
+        objectName: "spaceMemberMenu"
+        menuWidth: 220
+        property string targetUserId: ""
+        property string targetName: ""
+        property bool canKick: false
+        property bool canBan: false
+        property bool canUnban: false
+        property var roleOptions: []
+        readonly property bool anyModeration: canKick || canBan || canUnban
+        contextLabel: targetName
+
+        Loader {
+            active: memberMenu.roleOptions.length > 0
+            visible: active
+            sourceComponent: MenuSectionLabel {
+                leftPadding: AppTheme.menuItemPadding + 6
+                rightPadding: AppTheme.menuItemPadding
+                text: qsTr("Role in this space")
+            }
+        }
+        Repeater {
+            model: memberMenu.roleOptions
+            delegate: AppMenuItem {
+                required property var modelData
+                objectName: "spaceMemberRole_" + modelData.level
+                text: modelData.label
+                radio: true
+                radioSelected: modelData.current
+                enabled: modelData.settable && !app.roomInfo.powerLevelPending
+                onTriggered: roleConfirm.openFor(memberMenu.targetUserId,
+                                                 memberMenu.targetName,
+                                                 modelData.level,
+                                                 modelData.label)
+            }
+        }
+        AppMenuSeparator {
+            visible: memberMenu.roleOptions.length > 0
+                     && memberMenu.anyModeration
+        }
+        AppMenuItem {
+            objectName: "spaceMemberKick"
+            visible: memberMenu.canKick
+            danger: true
+            iconName: "person_remove"
+            text: qsTr("Kick from space…")
+            onTriggered: memberAction.openFor(root.spaceId, root.info.name || "",
+                                              memberMenu.targetUserId,
+                                              memberMenu.targetName, "kick")
+        }
+        AppMenuItem {
+            objectName: "spaceMemberBan"
+            visible: memberMenu.canBan
+            danger: true
+            iconName: "block"
+            text: qsTr("Ban from space…")
+            onTriggered: memberAction.openFor(root.spaceId, root.info.name || "",
+                                              memberMenu.targetUserId,
+                                              memberMenu.targetName, "ban")
+        }
+        AppMenuItem {
+            objectName: "spaceMemberUnban"
+            visible: memberMenu.canUnban
+            iconName: "undo"
+            text: qsTr("Unban…")
+            onTriggered: memberAction.openFor(root.spaceId, root.info.name || "",
+                                              memberMenu.targetUserId,
+                                              memberMenu.targetName, "unban")
+        }
+        // Says why the menu is empty rather than showing nothing.
+        AppMenuItem {
+            objectName: "spaceMemberNoActions"
+            visible: memberMenu.roleOptions.length === 0
+                     && !memberMenu.anyModeration
+            enabled: false
+            text: qsTr("You can't change this member")
+        }
+    }
+
+    AppDialog {
+        id: roleConfirm
+        objectName: "spaceMemberRoleConfirm"
+        parent: Overlay.overlay
+        width: Math.min(420, parent ? parent.width - 64 : 420)
+        title: qsTr("Change role?")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        property string userId: ""
+        property string name: ""
+        property int level: 0
+        property string label: ""
+        // A grant at or above your own level cannot be taken back.
+        readonly property bool irreversible:
+            root.infoIsOurs && level >= app.roomInfo.ownPowerLevel
+        function openFor(uid, displayName, newLevel, newLabel) {
+            userId = uid
+            name = displayName
+            level = newLevel
+            label = newLabel
+            open()
+        }
+        onAccepted: {
+            if (root.infoIsOurs)
+                app.roomInfo.setMemberPowerLevel(userId, level)
+        }
+        ColumnLayout {
+            width: parent ? parent.width : 0
+            spacing: AppTheme.spacing8
+            Label {
+                Layout.fillWidth: true
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                text: qsTr("Set %1 to %2 in this space? Roles in the space's "
+                           + "rooms are set in each room.")
+                          .arg(roleConfirm.name).arg(roleConfirm.label)
+                color: AppTheme.stormText
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: roleConfirm.irreversible
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                text: qsTr("This gives them your own level or higher. You "
+                           + "will not be able to change it back.")
+                color: AppTheme.stormDanger
+                font.pixelSize: AppTheme.textMeta
+            }
+        }
+    }
+
+    SpaceMemberActionDialog {
+        id: memberAction
     }
 
     /// The host owns the invite dialog, like the clipboard proxy and the leave

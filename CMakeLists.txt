@@ -624,6 +624,8 @@ set(APP_SOURCES
     src/app/PolicyListController.cpp
     src/spaces/SpaceManager.h
     src/spaces/SpaceManager.cpp
+    src/spaces/SpaceModerationController.h
+    src/spaces/SpaceModerationController.cpp
     src/threads/ThreadManager.h
     src/threads/ThreadManager.cpp
     src/threads/ThreadController.h
@@ -756,6 +758,7 @@ set(APP_QML_FILES
     qml/ChannelNavRow.qml
     # A Space IS a Matrix room: this is the room-settings backend behind a
     # Space-shaped surface, reached from the rail's menu.
+    qml/SpaceMemberActionDialog.qml
     qml/SpaceSettingsDialog.qml
     qml/UnreadBadge.qml
     # Room-row call indicator, shared by both layouts. It must never ask
@@ -2980,6 +2983,18 @@ if(BUILD_TESTING)
     target_include_directories(call-sound-policy-test PRIVATE src)
     target_link_libraries(call-sound-policy-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME call-sound-policy COMMAND call-sound-policy-test)
+
+    # Space moderation: the per-room plan, the cascade and its result reporting.
+    qt_add_executable(space-moderation-controller-test
+        tests/SpaceModerationControllerTest.cpp
+        src/spaces/SpaceModerationController.h
+        src/spaces/SpaceModerationController.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(space-moderation-controller-test PRIVATE src)
+    target_link_libraries(space-moderation-controller-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME space-moderation-controller COMMAND space-moderation-controller-test)
 
     # Call sounds wired to AppController / SfuCallController / CallController
     # through a recording sink; never opens an audio device.

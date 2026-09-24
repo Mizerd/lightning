@@ -801,6 +801,14 @@ public:
     virtual quint64 unbanUser(const QString &roomId, const QString &userId,
                               const QString &reason)
     { Q_UNUSED(roomId); Q_UNUSED(userId); Q_UNUSED(reason); return 0; }
+    // For each of `roomIds`, whether kick / ban / unban (`op`) of `userId`
+    // would be offered there, from the SDK's view of both members' levels and
+    // the room's thresholds. Sends nothing. Answers on moderationPlanReceived;
+    // 0 = unsupported on this backend.
+    virtual quint64 requestModerationPlan(const QStringList &roomIds,
+                                          const QString &userId,
+                                          const QString &op)
+    { Q_UNUSED(roomIds); Q_UNUSED(userId); Q_UNUSED(op); return 0; }
     // Set one member's power level; the SDK preserves every other level.
     // Answers on powerLevelChangeFinished. The server enforces permission.
     virtual quint64 setMemberPowerLevel(const QString &roomId,
@@ -1774,6 +1782,13 @@ Q_SIGNALS:
     void moderationFinished(quint64 opId, const QString &roomId,
                             const QString &userId, const QString &op,
                             bool ok, const QString &category);
+    // Answer to requestModerationPlan. Each row is { roomId, name, isSpace,
+    // membership, ownLevel, targetLevel, reason }; an empty reason means the
+    // action is offered in that room. `truncated`: rooms past the backend's
+    // cap were not assessed.
+    void moderationPlanReceived(quint64 opId, const QString &userId,
+                                const QString &op, bool truncated,
+                                const QVariantList &rooms);
     // One member's power-level write completed. `level` echoes the request; the
     // authoritative value comes from the roster refresh that follows.
     void powerLevelChangeFinished(quint64 opId, const QString &roomId,

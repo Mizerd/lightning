@@ -6668,6 +6668,26 @@ pub unsafe extern "C" fn mx_rust_moderate_user(
     })
 }
 
+/// Moderation plan: for each room in `room_ids_json` (a JSON array), whether
+/// kick / ban / unban (`op` as above) of `user_id` would be offered there,
+/// and why not otherwise. Sends nothing. Result event: moderation_plan.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_moderation_plan(
+    ptr: *mut c_void,
+    room_ids_json: *const c_char,
+    user_id: *const c_char,
+    op: u8,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_ids = unsafe { cstr_arg(room_ids_json) }?;
+        let user_id = unsafe { cstr_arg(user_id) }?;
+        rooms::moderation_plan(bridge, room_ids, user_id, op, op_id)
+            .map(|_| String::new())
+    })
+}
+
 /// Set one member's power level via `Room::update_power_levels`, which
 /// preserves every other level. Result event: room_power_level_result.
 #[no_mangle]

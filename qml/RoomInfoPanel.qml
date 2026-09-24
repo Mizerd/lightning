@@ -135,6 +135,65 @@ Rectangle {
         anchors.centerIn: parent
     }
 
+    // The People list's context menu. What it offers is read from the
+    // controller at open (canModerate is a method, so a binding would not
+    // follow the roster); the popover's confirm step re-checks and sends.
+    function openMemberMenu(member, anchor, x, y) {
+        if (!member || !member.userId || !app.roomInfo)
+            return
+        memberMenu.member = member
+        memberMenu.canKick = app.roomInfo.canModerate(member.userId, "kick")
+        memberMenu.canBan = app.roomInfo.canModerate(member.userId, "ban")
+        memberMenu.canUnban = app.roomInfo.canModerate(member.userId, "unban")
+        memberMenu.popup(anchor, x, y)
+    }
+
+    AppMenu {
+        id: memberMenu
+        objectName: "roomMemberMenu"
+        menuWidth: 210
+        property var member: ({})
+        property bool canKick: false
+        property bool canBan: false
+        property bool canUnban: false
+        contextLabel: member && member.userId
+                      ? (member.displayName || member.userId) : ""
+
+        AppMenuItem {
+            objectName: "roomMemberMenuProfile"
+            iconName: "person"
+            text: qsTr("View profile")
+            onTriggered: memberProfile.openFor(memberMenu.member)
+        }
+        AppMenuSeparator {
+            visible: memberMenu.canKick || memberMenu.canBan
+                     || memberMenu.canUnban
+        }
+        AppMenuItem {
+            objectName: "roomMemberMenuKick"
+            visible: memberMenu.canKick
+            danger: true
+            iconName: "person_remove"
+            text: qsTr("Remove from room…")
+            onTriggered: memberProfile.openForAction(memberMenu.member, "kick")
+        }
+        AppMenuItem {
+            objectName: "roomMemberMenuBan"
+            visible: memberMenu.canBan
+            danger: true
+            iconName: "block"
+            text: qsTr("Ban from room…")
+            onTriggered: memberProfile.openForAction(memberMenu.member, "ban")
+        }
+        AppMenuItem {
+            objectName: "roomMemberMenuUnban"
+            visible: memberMenu.canUnban
+            iconName: "undo"
+            text: qsTr("Unban…")
+            onTriggered: memberProfile.openForAction(memberMenu.member, "unban")
+        }
+    }
+
     // Development-only: find a descendant by objectName through children and
     // the default data list.
     function findDemoDescendant(obj, name) {
@@ -1782,6 +1841,14 @@ Rectangle {
                                                    .arg(member.roleLabel)
                                              : member.userId
                             onClicked: memberProfile.openFor(member)
+                            // Right-click: the moderation actions without
+                            // opening the profile first.
+                            TapHandler {
+                                acceptedButtons: Qt.RightButton
+                                onTapped: (eventPoint) => root.openMemberMenu(
+                                    member, parent, eventPoint.position.x,
+                                    eventPoint.position.y)
+                            }
                             background: Rectangle {
                                 anchors.fill: parent
                                 anchors.leftMargin: AppTheme.spacing8

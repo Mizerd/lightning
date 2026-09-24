@@ -1583,3 +1583,23 @@ ruma parses no geo URIs (`LocationContent::new` takes a `String`), so
 `rust/src/location.rs` owns the parser.
 
 Live validation: **NOT TESTED**.
+
+### Space moderation (kick, ban, unban from a Space)
+
+- From a Space's Members tab, Room Information's People list or a member's
+  profile card. The dialog states the consequence, takes an optional reason
+  and offers to cascade to the Space's rooms: the Space first, then joined
+  subspaces and rooms depth-first (`SpaceManager::moderationScopeRoomIds`,
+  cycle-safe, depth 64).
+- The plan comes from Rust (`rooms::moderation_plan`), which SENDS NOTHING:
+  store-first member reads, one bounded fetch per unsynced room (15 s), at
+  most 100 rooms. A room is offered only when the action can succeed
+  (`moderation_verdict`: kick needs join or invite, ban needs not banned,
+  unban needs banned; the SDK's own `can_kick`/`can_ban`/`can_do(Unban)`; the
+  target strictly below the viewer). Others are listed with their reason.
+- `SpaceModerationController` dispatches ONLY plan-offered rooms, one at a
+  time through the existing room kick/ban/unban path, and reports each room's
+  own outcome. A failed step does not stop the rest, and "done" never hides a
+  failure.
+- A display name with no visible character (fillers, zero-width, format or
+  tag characters) falls back to the localpart on the profile card.

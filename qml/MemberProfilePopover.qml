@@ -107,12 +107,24 @@ Popup {
         roleOptions = out
     }
 
-    // The same member profile the list row shows.
+    // The same member profile the list row shows. A display name with no
+    // visible character (spaces, format characters, Hangul or Braille
+    // fillers, variation selectors, tag characters) would draw an empty title,
+    // so it falls back to the localpart like an absent one.
     readonly property string visibleName:
-        displayName.length > 0
+        hasVisibleText(displayName)
         ? displayName
         : (userId.length > 1
            ? userId.slice(1).split(":")[0] : userId)
+
+    function hasVisibleText(text) {
+        if (!text || text.length === 0)
+            return false
+        var stripped = text
+            .replace(/[\s\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB]/g, "")
+            .replace(/\uDB40[\uDC00-\uDDEF]/g, "")
+        return stripped.length > 0
+    }
 
     // Accessible attaches to the contentItem: Popup is not an Item.
 
@@ -200,6 +212,16 @@ Popup {
         _refreshModeration()
         _refreshIgnored()
         open()
+    }
+
+    // Opens straight onto the confirm step for `op` ("kick", "ban" or
+    // "unban") when the viewer may do it; otherwise the plain card, whose
+    // controls say what is possible.
+    function openForAction(member, op) {
+        openFor(member)
+        if ((op === "kick" && showKick) || (op === "ban" && showBan)
+                || (op === "unban" && showUnban))
+            modAction = op
     }
 
     // Policy lists: whether a list this account follows covers the person,

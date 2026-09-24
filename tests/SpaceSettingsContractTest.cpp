@@ -753,6 +753,70 @@ private Q_SLOTS:
                                    false).isEmpty());
     }
 
+    // Each Space member action is offered on its own canModerate gate, read at
+    // menu open against this Space's roster, and every one goes through the
+    // confirmation dialog rather than straight to the backend.
+    void memberActionsAreGatedAndConfirmed()
+    {
+        const QString dialog =
+            readQml(QStringLiteral("SpaceSettingsDialog.qml"));
+        QVERIFY(!dialog.isEmpty());
+        const int at = dialog.indexOf(QStringLiteral("function openMemberMenu("));
+        QVERIFY2(at > 0, "the member menu opener was not found");
+        const int end = dialog.indexOf(QStringLiteral("memberMenu.popup("), at);
+        QVERIFY2(end > at, "the opener's end anchor was not found");
+        const QString opener = dialog.mid(at, end - at);
+        QVERIFY2(opener.contains(QStringLiteral("!root.infoIsOurs")),
+                 "the menu can open against another room's roster");
+        for (const QString &op : { QStringLiteral("kick"), QStringLiteral("ban"),
+                                   QStringLiteral("unban") }) {
+            QVERIFY2(opener.contains(
+                         QStringLiteral("canModerate(uid, \"%1\")").arg(op)),
+                     qPrintable(op));
+        }
+        QVERIFY(opener.contains(QStringLiteral("canSetPowerLevel(uid, level)")));
+
+        // The menu items: shown on their gate, and routed to the dialog.
+        for (const QString &op : { QStringLiteral("Kick"), QStringLiteral("Ban"),
+                                   QStringLiteral("Unban") }) {
+            const int item = dialog.indexOf(
+                QStringLiteral("objectName: \"spaceMember%1\"").arg(op));
+            QVERIFY2(item > 0, qPrintable(op));
+            const QString block = dialog.mid(item, 520);
+            QVERIFY2(block.contains(
+                         QStringLiteral("visible: memberMenu.can%1").arg(op)),
+                     qPrintable(op));
+            QVERIFY2(block.contains(QStringLiteral("memberAction.openFor(")),
+                     qPrintable(op));
+            QVERIFY2(!block.contains(QStringLiteral("kickMember("))
+                         && !block.contains(QStringLiteral("banMember(")),
+                     "a menu item acts without confirmation");
+        }
+        QVERIFY(dialog.contains(QStringLiteral("SpaceMemberActionDialog {")));
+        // Right-click reaches the same menu.
+        QVERIFY(dialog.contains(QStringLiteral("acceptedButtons: Qt.RightButton")));
+    }
+
+    // The confirmation renders the controller's own text and outcome, so the
+    // strings the controller test pins are the ones on screen.
+    void theActionDialogRendersTheControllersText()
+    {
+        const QString dialog =
+            readQml(QStringLiteral("SpaceMemberActionDialog.qml"));
+        QVERIFY(!dialog.isEmpty());
+        QVERIFY(dialog.contains(QStringLiteral("app.spaceModeration")));
+        QVERIFY(dialog.contains(QStringLiteral("root.ctl.consequenceText")));
+        QVERIFY(dialog.contains(QStringLiteral("root.ctl.cascadeLabel")));
+        QVERIFY(dialog.contains(QStringLiteral("root.ctl.statusText")));
+        QVERIFY(dialog.contains(QStringLiteral("root.ctl.confirm(")));
+        QVERIFY(dialog.contains(QStringLiteral("enabled: root.ctl && root.ctl.canConfirm")));
+        // Not closable while steps are still answering.
+        QVERIFY(dialog.contains(QStringLiteral("Popup.NoAutoClose")));
+        // Names and room names are remote text.
+        QVERIFY(!dialog.contains(QStringLiteral("Text.StyledText")));
+        QVERIFY(!dialog.contains(QStringLiteral("Text.RichText")));
+    }
+
     // Sign-out and a Space switch clear the matrix; an empty map is the
     // unknown state.
     void switchingSpaceClearsTheMatrix()

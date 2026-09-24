@@ -1862,6 +1862,212 @@ pub(crate) fn moderate_member(
     Ok(())
 }
 
+/// Rooms one moderation plan may cover: the Space plus its rooms. A larger
+/// Space is truncated and the event says so.
+const MODERATION_PLAN_CAP: usize = 100;
+
+/// Bound on reading one room's member list for a plan, so one slow room
+/// cannot hold the dialog.
+const MODERATION_PLAN_MEMBER_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(15);
+
+/// Whether `op` (0 kick, 1 ban, 2 unban) against a target is worth
+/// offering in one room: "" when it is, otherwise the reason it is not.
+///
+/// Mirrors Element's space-member filters: the target must have a membership
+/// the action applies to, the viewer must hold the room's own threshold for
+/// it (`can_act`, from the SDK), and the target must be strictly below the
+/// viewer. The server enforces regardless. Pure and unit-tested.
+fn moderation_verdict(
+    op: u8,
+    target: Option<&matrix_sdk::ruma::events::room::member::MembershipState>,
+    can_act: bool,
+    own_level: i64,
+    target_level: i64,
+) -> &'static str {
+    use matrix_sdk::ruma::events::room::member::MembershipState;
+    let Some(membership) = target else {
+        return "not_a_member";
+    };
+    let banned = *membership == MembershipState::Ban;
+    match op {
+        0 => {
+            if banned {
+                return "already_banned";
+            }
+            if !matches!(membership, MembershipState::Join | MembershipState::Invite) {
+                return "not_a_member";
+            }
+        }
+        1 => {
+            if banned {
+                return "already_banned";
+            }
+        }
+        2 => {
+            if !banned {
+                return "not_banned";
+            }
+        }
+        _ => return "invalid",
+    }
+    if !can_act {
+        return "no_permission";
+    }
+    if target_level >= own_level {
+        return "outranked";
+    }
+    ""
+}
+
+fn membership_label(
+    membership: &matrix_sdk::ruma::events::room::member::MembershipState,
+) -> &'static str {
+    use matrix_sdk::ruma::events::room::member::MembershipState;
+    match membership {
+        MembershipState::Join => "joined",
+        MembershipState::Invite => "invited",
+        MembershipState::Ban => "banned",
+        MembershipState::Leave => "left",
+        MembershipState::Knock => "knocking",
+        _ => "other",
+    }
+}
+
+// For each room in `room_ids_json` (a JSON array, the Space first), whether a
+// kick / ban / unban (`op` as in moderate_member) of `user_id` is worth
+// offering there, and why not otherwise. Reads the store first; a room whose
+// member list was never loaded is fetched once, bounded. Sends nothing.
+// Result event: moderation_plan { op_id, user_id, op, truncated, rooms: [
+// { room_id, name, is_space, membership, own_level, target_level, reason } ] }
+// where an empty reason means the action is offered.
+pub(crate) fn moderation_plan(
+    bridge: &RustClient,
+    room_ids_json: String,
+    user_id: String,
+    op: u8,
+    op_id: u64,
+) -> Result<(), String> {
+    let op_name = match op {
+        0 => "kick",
+        1 => "ban",
+        2 => "unban",
+        _ => return Err("invalid moderation op".to_owned()),
+    };
+    let client = require_client(bridge)?;
+    let uid = UserId::parse(&user_id).map_err(|_| "invalid user id".to_owned())?;
+    let own_id = client
+        .user_id()
+        .map(|u| u.to_owned())
+        .ok_or_else(|| "no active Matrix session".to_owned())?;
+    let requested: Vec<String> = serde_json::from_str(&room_ids_json)
+        .map_err(|_| "invalid room list".to_owned())?;
+    let mut room_ids: Vec<String> = Vec::new();
+    for id in requested {
+        if !room_ids.contains(&id) {
+            room_ids.push(id);
+        }
+    }
+    let truncated = room_ids.len() > MODERATION_PLAN_CAP;
+    room_ids.truncate(MODERATION_PLAN_CAP);
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let mut rows: Vec<serde_json::Value> = Vec::new();
+        for room_id in room_ids {
+            if !timelines.lifecycle_current(lifecycle) {
+                return;
+            }
+            let room = RoomId::parse(&room_id)
+                .ok()
+                .and_then(|id| client.get_room(&id))
+                .filter(|room| room.state() == RoomState::Joined);
+            let Some(room) = room else {
+                rows.push(json!({
+                    "room_id": room_id,
+                    "name": "",
+                    "is_space": false,
+                    "membership": "unknown",
+                    "reason": "not_joined",
+                }));
+                continue;
+            };
+            let name = room
+                .cached_display_name()
+                .map(|n| n.to_string())
+                .unwrap_or_default();
+            let own = room.get_member_no_sync(&own_id).await.ok().flatten();
+            // The store first; a room whose members were never loaded is
+            // fetched once (get_member syncs only when not synced yet).
+            let target = match room.get_member_no_sync(&uid).await {
+                Ok(Some(member)) => Ok(Some(member)),
+                _ => match tokio::time::timeout(
+                    MODERATION_PLAN_MEMBER_TIMEOUT,
+                    room.get_member(&uid),
+                )
+                .await
+                {
+                    Ok(Ok(member)) => Ok(member),
+                    _ => Err(()),
+                },
+            };
+            let (reason, membership, own_level, target_level) = match (&own, &target) {
+                (None, _) | (_, Err(())) => ("unknown", "unknown", 0, 0),
+                (Some(own), Ok(target)) => {
+                    let can_act = match op {
+                        0 => own.can_kick(),
+                        1 => own.can_ban(),
+                        _ => own.can_do(PowerLevelAction::Unban),
+                    };
+                    let own_level = power_level_int(own.power_level());
+                    let target_level = target
+                        .as_ref()
+                        .map(|m| power_level_int(m.power_level()))
+                        .unwrap_or(0);
+                    (
+                        moderation_verdict(
+                            op,
+                            target.as_ref().map(|m| m.membership()),
+                            can_act,
+                            own_level,
+                            target_level,
+                        ),
+                        target
+                            .as_ref()
+                            .map(|m| membership_label(m.membership()))
+                            .unwrap_or("none"),
+                        own_level,
+                        target_level,
+                    )
+                }
+            };
+            rows.push(json!({
+                "room_id": room_id,
+                "name": name,
+                "is_space": room.is_space(),
+                "membership": membership,
+                "own_level": own_level,
+                "target_level": target_level,
+                "reason": reason,
+            }));
+        }
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        enqueue(&events, json!({
+            "type": "moderation_plan",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "user_id": user_id,
+            "op": op_name,
+            "truncated": truncated,
+            "rooms": rows,
+        }));
+    });
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Room administration: member power levels, join rule, alias
 // ---------------------------------------------------------------------------
@@ -4470,6 +4676,45 @@ mod tests {
             ..Default::default()
         };
         assert!(build_create_room_request(&opts).is_err());
+    }
+
+    // A Space cascade offers a room only where the membership fits the action,
+    // the viewer holds that room's threshold, and the target is below them.
+    #[test]
+    fn moderation_plan_offers_only_actions_that_can_succeed() {
+        use matrix_sdk::ruma::events::room::member::MembershipState as M;
+        let join = M::Join;
+        let invite = M::Invite;
+        let ban = M::Ban;
+        let leave = M::Leave;
+
+        // Kick: joined or invited targets only.
+        assert_eq!(moderation_verdict(0, Some(&join), true, 50, 0), "");
+        assert_eq!(moderation_verdict(0, Some(&invite), true, 50, 0), "");
+        assert_eq!(moderation_verdict(0, Some(&leave), true, 50, 0), "not_a_member");
+        assert_eq!(moderation_verdict(0, Some(&ban), true, 50, 0), "already_banned");
+        assert_eq!(moderation_verdict(0, None, true, 50, 0), "not_a_member");
+
+        // Ban: anyone with a membership record who is not already banned.
+        assert_eq!(moderation_verdict(1, Some(&leave), true, 50, 0), "");
+        assert_eq!(moderation_verdict(1, Some(&ban), true, 50, 0), "already_banned");
+
+        // Unban: banned targets only.
+        assert_eq!(moderation_verdict(2, Some(&ban), true, 50, 0), "");
+        assert_eq!(moderation_verdict(2, Some(&join), true, 50, 0), "not_banned");
+
+        // The room's own threshold, from the SDK.
+        assert_eq!(moderation_verdict(0, Some(&join), false, 100, 0), "no_permission");
+
+        // Strictly below the viewer: an equal level is refused, as the server
+        // would refuse it.
+        assert_eq!(moderation_verdict(1, Some(&join), true, 50, 50), "outranked");
+        assert_eq!(moderation_verdict(1, Some(&join), true, 50, 100), "outranked");
+        assert_eq!(moderation_verdict(1, Some(&join), true, 50, 49), "");
+        // Negative levels are real (Element's "Restricted" is -1).
+        assert_eq!(moderation_verdict(0, Some(&join), true, 0, -1), "");
+
+        assert_eq!(moderation_verdict(9, Some(&join), true, 100, 0), "invalid");
     }
 }
 

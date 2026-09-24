@@ -6166,6 +6166,33 @@ quint64 RustSdkMatrixClient::moderateUser(const QString &roomId,
     return result.isEmpty() ? opId : 0;
 }
 
+quint64 RustSdkMatrixClient::requestModerationPlan(const QStringList &roomIds,
+                                                   const QString &userId,
+                                                   const QString &op)
+{
+    if (!m_rustHandle || roomIds.isEmpty() || userId.isEmpty())
+        return 0;
+    // The same op encoding as moderateUser(); anything else is refused
+    // rather than defaulted.
+    int code = -1;
+    if (op == QLatin1String("kick"))
+        code = 0;
+    else if (op == QLatin1String("ban"))
+        code = 1;
+    else if (op == QLatin1String("unban"))
+        code = 2;
+    if (code < 0)
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray rooms = QJsonDocument(QJsonArray::fromStringList(roomIds))
+                                 .toJson(QJsonDocument::Compact);
+    const QByteArray user = userId.toUtf8();
+    const QString result = takeRustString(mx_rust_moderation_plan(
+        m_rustHandle, rooms.constData(), user.constData(),
+        static_cast<unsigned char>(code), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::setMemberPowerLevel(const QString &roomId,
                                                  const QString &userId,
                                                  qlonglong level)
@@ -9225,6 +9252,37 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("op")).toString(),
             event.value(QStringLiteral("ok")).toBool(),
             event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("moderation_plan")) {
+        QVariantList rooms;
+        const QJsonArray arr = event.value(QStringLiteral("rooms")).toArray();
+        for (const QJsonValue &v : arr) {
+            const QJsonObject o = v.toObject();
+            QVariantMap row;
+            row.insert(QStringLiteral("roomId"),
+                       o.value(QStringLiteral("room_id")).toString());
+            row.insert(QStringLiteral("name"),
+                       o.value(QStringLiteral("name")).toString());
+            row.insert(QStringLiteral("isSpace"),
+                       o.value(QStringLiteral("is_space")).toBool(false));
+            row.insert(QStringLiteral("membership"),
+                       o.value(QStringLiteral("membership")).toString());
+            row.insert(QStringLiteral("ownLevel"),
+                       static_cast<qlonglong>(
+                           o.value(QStringLiteral("own_level")).toDouble()));
+            row.insert(QStringLiteral("targetLevel"),
+                       static_cast<qlonglong>(
+                           o.value(QStringLiteral("target_level")).toDouble()));
+            row.insert(QStringLiteral("reason"),
+                       o.value(QStringLiteral("reason")).toString());
+            rooms.append(row);
+        }
+        Q_EMIT moderationPlanReceived(
+            opId(), event.value(QStringLiteral("user_id")).toString(),
+            event.value(QStringLiteral("op")).toString(),
+            event.value(QStringLiteral("truncated")).toBool(), rooms);
         return true;
     }
 

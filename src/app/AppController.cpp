@@ -315,6 +315,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_moderation = std::make_unique<ModerationController>(this);
     m_forward      = std::make_unique<ForwardController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
+    m_spaceModeration = std::make_unique<SpaceModerationController>(this);
+    m_spaceModeration->setScopeResolver([this](const QString &spaceId) {
+        return m_spaces ? m_spaces->moderationScopeRoomIds(spaceId)
+                        : QStringList{};
+    });
     m_mediaBridge  = std::make_unique<MediaBridge>(this);
     m_accountAvatars = std::make_unique<AccountAvatarStore>(this);
     // Persist the active account's own avatar when its bytes pass through
@@ -1162,6 +1167,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_forward->setClient(m_client.get());
     m_forward->setMediaBridge(m_mediaBridge.get());
     m_roomInfo->setClient(m_client.get());
+    m_spaceModeration->setClient(m_client.get());
     m_mediaBridge->setClient(m_client.get());
     m_pagination->setClient(m_client.get());
     m_pagination->setTimelineModel(m_timeline.get());

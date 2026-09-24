@@ -441,6 +441,9 @@ public:
                     const QString &reason) override;
     quint64 unbanUser(const QString &roomId, const QString &userId,
                       const QString &reason) override;
+    quint64 requestModerationPlan(const QStringList &roomIds,
+                                  const QString &userId,
+                                  const QString &op) override;
     // Room administration and pinned messages.
     quint64 setMemberPowerLevel(const QString &roomId, const QString &userId,
                                 qlonglong level) override;

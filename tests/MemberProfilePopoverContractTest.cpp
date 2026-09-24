@@ -645,6 +645,81 @@ private slots:
         QVERIFY2(src.contains(QStringLiteral("requestMutualRooms")),
                  "the overflow never asks for the rooms it means to list");
     }
+
+    // A display name made only of invisible characters is a real name on the
+    // wire, and drew an empty title line: the card falls back to the
+    // localpart as for an absent name, and the rendered label says so.
+    void anInvisibleDisplayNameFallsBackToTheLocalpart()
+    {
+        auto *popover = find(QStringLiteral("popover"));
+        QVERIFY(popover);
+        const QStringList invisible{
+            QStringLiteral("ㅤ"),               // Hangul filler
+            QStringLiteral("⠀⠀"),         // Braille blank
+            QStringLiteral(" ​‍️ "), // spaces and format chars
+            QString::fromUcs4(U"\U000E0020\U000E0041"), // tag characters
+        };
+        for (const QString &name : invisible) {
+            QMetaObject::invokeMethod(
+                m_root, "openFor",
+                Q_ARG(QVariant, QStringLiteral("@bram:mock.local")),
+                Q_ARG(QVariant, name), Q_ARG(QVariant, QStringLiteral("join")),
+                Q_ARG(QVariant, QString{}), Q_ARG(QVariant, false));
+            QTRY_VERIFY(popover->property("opened").toBool());
+            QCOMPARE(popover->property("visibleName").toString(),
+                     QStringLiteral("bram"));
+            auto *label = find(QStringLiteral("profileDisplayName"));
+            QVERIFY(label);
+            QCOMPARE(label->property("text").toString(), QStringLiteral("bram"));
+            popover->setProperty("visible", false);
+            QTRY_VERIFY(!popover->property("opened").toBool());
+        }
+
+        // A name with any visible character is kept as written.
+        QMetaObject::invokeMethod(
+            m_root, "openFor",
+            Q_ARG(QVariant, QStringLiteral("@bram:mock.local")),
+            Q_ARG(QVariant, QStringLiteral("ㅤBram")),
+            Q_ARG(QVariant, QStringLiteral("join")),
+            Q_ARG(QVariant, QString{}), Q_ARG(QVariant, false));
+        QTRY_VERIFY(popover->property("opened").toBool());
+        QCOMPARE(popover->property("visibleName").toString(),
+                 QStringLiteral("ㅤBram"));
+        popover->setProperty("visible", false);
+    }
+
+    // The People list's right-click menu reaches the card's own confirm step,
+    // so a room kick is two clicks from the list and still confirmed.
+    void openForActionLandsOnTheConfirmStepOnlyWhenAllowed()
+    {
+        auto *popover = find(QStringLiteral("popover"));
+        QVERIFY(popover);
+        QVariantMap member{
+            { QStringLiteral("userId"), QStringLiteral("@carol:mock.local") },
+            { QStringLiteral("displayName"), QStringLiteral("Carol") },
+        };
+        // The mock roster reports no moderation power, so the card opens
+        // without the confirm step rather than offering a doomed action.
+        QMetaObject::invokeMethod(popover, "openForAction",
+                                  Q_ARG(QVariant, member),
+                                  Q_ARG(QVariant, QStringLiteral("ban")));
+        QTRY_VERIFY(popover->property("opened").toBool());
+        QCOMPARE(popover->property("showBan").toBool(), false);
+        QCOMPARE(popover->property("modAction").toString(), QString());
+        popover->setProperty("visible", false);
+        QTRY_VERIFY(!popover->property("opened").toBool());
+
+        QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString src = QString::fromUtf8(file.readAll());
+        const int at = src.indexOf(QStringLiteral("function openForAction("));
+        QVERIFY2(at > 0, "openForAction was not found");
+        const QString body = src.mid(at, src.indexOf(QLatin1Char('}'), at) - at);
+        // Each op is gated on its own offer flag.
+        QVERIFY(body.contains(QStringLiteral("op === \"kick\" && showKick")));
+        QVERIFY(body.contains(QStringLiteral("op === \"ban\" && showBan")));
+        QVERIFY(body.contains(QStringLiteral("op === \"unban\" && showUnban")));
+    }
 };
 
 int main(int argc, char *argv[])

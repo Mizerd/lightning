@@ -1064,6 +1064,16 @@ char *mx_rust_moderate_user(void *client,
                             const char *reason,
                             unsigned char op,
                             unsigned long long op_id);
+/* Moderation plan: for each room in `room_ids_json` (a JSON array), whether
+ * kick / ban / unban (`op` as above) of `user_id` would be offered there.
+ * Sends nothing. Result: moderation_plan { op_id, user_id, op, truncated,
+ * rooms: [{ room_id, name, is_space, membership, own_level, target_level,
+ * reason }] }, an empty reason meaning offered. */
+char *mx_rust_moderation_plan(void *client,
+                              const char *room_ids_json,
+                              const char *user_id,
+                              unsigned char op,
+                              unsigned long long op_id);
 /* v0.7.x room administration. Set one member's power level; every other
  * user's level (including arbitrary custom numbers) is preserved by the
  * SDK. Result: room_power_level_result

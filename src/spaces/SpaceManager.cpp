@@ -697,6 +697,48 @@ QStringList SpaceManager::childSpaceIds(const QString &spaceId) const
     return {};
 }
 
+QStringList SpaceManager::moderationScopeRoomIds(const QString &spaceId) const
+{
+    if (!m_client || !isRealSpaceId(spaceId))
+        return {};
+    const QList<RoomInfo> rooms = m_client->rooms();
+    QHash<QString, RoomInfo> byId;
+    byId.reserve(rooms.size());
+    for (const RoomInfo &room : rooms)
+        byId.insert(room.id, room);
+    const auto root = byId.constFind(spaceId);
+    if (root == byId.constEnd() || !root->isSpace
+        || root->membership != RoomInfo::Joined) {
+        return {};
+    }
+    // Depth-first so a subspace is followed by its own rooms, as a reader of
+    // the Space sees them. Same visited set and depth cap as rebuild().
+    QStringList out{ spaceId };
+    QSet<QString> visited{ spaceId };
+    QList<QPair<QString, int>> stack;
+    for (auto it = root->childRoomIds.crbegin();
+         it != root->childRoomIds.crend(); ++it) {
+        stack.append({ *it, 1 });
+    }
+    while (!stack.isEmpty()) {
+        const auto [childId, depth] = stack.takeLast();
+        if (depth > 64 || visited.contains(childId))
+            continue;
+        visited.insert(childId);
+        const auto it = byId.constFind(childId);
+        if (it == byId.constEnd() || it->membership != RoomInfo::Joined)
+            continue;
+        out.append(childId);
+        if (!it->isSpace)
+            continue;
+        for (auto nested = it->childRoomIds.crbegin();
+             nested != it->childRoomIds.crend(); ++nested) {
+            stack.append({ *nested, depth + 1 });
+        }
+    }
+    return out;
+}
+
 bool SpaceManager::roomInAnySpace(const QString &roomId) const
 {
     return m_spaceChildRoomIds.contains(roomId);
