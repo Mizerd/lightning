@@ -1,5 +1,44 @@
 # Round history
 
+## 2026-09-23 (night) — call sounds, a crash in QSoundEffect, and LiveKit's injected frames
+
+Tested on the Fedora laptop: two native instances on a private Xvfb, an
+encrypted room, accounts `lightningtest3`/`lightningtest4`.
+
+- **Stopping the ring crashed the app (`af10c156`).** Qt 6.11's QSoundEffect
+  engine (`QRtAudioEngine`) moves itself to the application thread when
+  created elsewhere, but its eventfd notifier stays registered with the
+  creating thread's GLib loop; tearing the engine down left that loop polling
+  a closed fd through a dangling notifier (`Invalid socket 104` x ~30k, then
+  SIGSEGV in `QSocketNotifier::setEnabled`). Reproduced twice, once with no
+  call joined. Fixed by owning the effects on the GUI thread. Live: 0
+  warnings, no core.
+- **LiveKit server-injected frames.** On mute or leave the SFU sends
+  unencrypted blank frames ending in the room's `sif_trailer`. We never read
+  the trailer, so each failed as `bad-iv-length` with the trailer's last
+  character as "key index" — the `keyIndex 82` seen from a Firefox peer. Now
+  recognised (exact match, base62, 16–64 bytes), dropped, and kept out of
+  the undecryptable badge. Live: `sifTrailerLen= 44`, `badIv= 0` on leave.
+- **Key indices above 15 were discarded** in both `rtc.rs` and
+  `SfuCallController`, while matrix-js-sdk rotates modulo 256. A long call
+  with Element would stop decrypting after 16 rotations. Ring widened to 256
+  (at most 32 retained per ring).
+- **Sable galleries** (`dm.filament.gallery`, MSC4274) were dropped by our
+  timeline filter; empty-body images had no name. Both render now.
+- **Rate limits masquerade as network errors.** 120 seeded messages kept an
+  account 429-limited for ten minutes; `call.member` publishes then timed out
+  at 15 s as category "network". Check the Synapse access log before
+  suspecting the client.
+
+- **A call after a crash did not ring anyone.** The announcement is sent
+  only into an empty room, and the room still held this device's own stale
+  membership from the killed session (no MSC4140 on this server). Our own
+  device no longer counts.
+- **Two reviewers flagged tooltips as a rich-text sink; they are not.**
+  `Main.qml`'s `sharedToolTipGuard` makes the one shared ToolTip plain text
+  app-wide. A "fix" escaping names would have shown `&lt;` literally. Look
+  for an app-wide guard before fixing a reported sink.
+
 ## 2026-09-23 — the first live test of the Flatpak camera, and a grant lost in 0.4 ms
 
 Lightning went live on Flathub and Rokas installed it on a Fedora 44 / KDE
