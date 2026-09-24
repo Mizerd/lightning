@@ -398,10 +398,11 @@ build-flatpak:
     # `appstreamcli compose` needs to rasterise the scalable app icon.
     # --no-install-recommends leaves it out; without it compose fails with
     # `file-read-error` / `filters-but-no-output`. build-flatpak.sh checks for it.
+    # xz-utils: flatpak-builder unpacks the gst-ximagesrc .tar.xz on the host.
     - >-
       apt-get install -y --no-install-recommends
       ca-certificates curl elfutils flatpak flatpak-builder git jq
-      librsvg2-common python3 zstd
+      librsvg2-common python3 xz-utils zstd
   script:
     - ./packaging-ci/scripts/prepare-pinned-source.sh
     - ./packaging-ci/scripts/build-flatpak.sh
