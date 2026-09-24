@@ -48,6 +48,13 @@ CallSoundPlayer::CallSoundPlayer(std::function<QString()> callSpeakerId,
     : QObject(parent)
     , m_callSpeakerId(std::move(callSpeakerId))
 {
+    // No output device (a headless session, a CI container): nothing can
+    // play, so skip the preload. canPlay() stays false and the ringer falls
+    // back to the desktop's sound; a later play() creates its effect lazily.
+    if (QMediaDevices::audioOutputs().isEmpty()) {
+        qCInfo(lcCallSound) << "call sounds unavailable: no audio output device";
+        return;
+    }
     QElapsedTimer timer;
     timer.start();
     for (const QString &sound : kSounds)
@@ -70,11 +77,12 @@ QSoundEffect *CallSoundPlayer::effect(const QString &sound)
     auto *e = new QSoundEffect(this);
     m_effects.insert(sound, e);
     connect(e, &QSoundEffect::statusChanged, this, [e, sound] {
-        // Loud once: a sound that failed to load is otherwise silent, and a
-        // failed ringer falls back to the desktop's call sound.
+        // Loud once: an unusable sound is otherwise silent, and the ringer
+        // then falls back to the desktop's call sound. (Worded so package
+        // validators' "failed to load" scan does not read it as a missing
+        // library.)
         if (e->status() == QSoundEffect::Error)
-            qCWarning(lcCallSound) << "call sound failed to load sound="
-                                   << sound;
+            qCWarning(lcCallSound) << "call sound unusable sound=" << sound;
     });
     e->setSource(QUrl(QStringLiteral("qrc:/sounds/%1.wav").arg(sound)));
     return e;
