@@ -1121,8 +1121,11 @@ async fn add_space_child(
         .map_err(|err| classify_room_error(&err.to_string()).to_owned())
 }
 
-/// MSC1772 child removal: an m.space.child state event whose `via` list is
-/// empty means "not a child" — the room itself is never left or deleted.
+/// Child removal: an `m.space.child` with content `{}`, which is what
+/// matrix-sdk-ui's own remove_child sends. `{"via": []}` is "not a child" by
+/// the spec too, but the SDK's space graph still counts it as an edge: seen
+/// live 2026-09-24, a child removed that way stayed listed. The room itself
+/// is never left or deleted.
 async fn remove_space_child(
     client: &matrix_sdk::Client,
     space_id: &str,
@@ -1133,11 +1136,9 @@ async fn remove_space_child(
         .and_then(|id| client.get_room(&id))
         .filter(|room| room.state() == RoomState::Joined)
         .ok_or_else(|| "unknown space".to_owned())?;
+    let child = RoomId::parse(child_room_id).map_err(|_| "invalid room id".to_owned())?;
     space
-        .send_state_event_for_key(
-            &RoomId::parse(child_room_id).map_err(|_| "invalid room id".to_owned())?,
-            SpaceChildEventContent::new(Vec::new()),
-        )
+        .send_state_event_raw("m.space.child", child.as_str(), json!({}))
         .await
         .map(|_| ())
         .map_err(|err| classify_room_error(&err.to_string()).to_owned())

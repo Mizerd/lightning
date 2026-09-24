@@ -84,16 +84,21 @@ private Q_SLOTS:
             QStringLiteral("app.roomInfo.canInvite")));
         QVERIFY(inviteScope.contains(QStringLiteral(
             "app.roomInfo.roomId === spaceHome.spaceId")));
-        // Nested subspaces (2026-08-19: now rows of the unified
-        // "Rooms and spaces" list): joined sub-space rows drill in, the
-        // unjoined offer names itself a Space, and a successful
-        // sub-space join drills in.
-        QVERIFY(pane.contains(
+        // Nested subspaces (2026-09-23: a SECTION each in the lobby, built
+        // by SpaceManager::lobbySections): a nested sub-space row drills in,
+        // the unjoined offer names itself a Space, and a successful sub-space
+        // join drills in.
+        const QString lobby = normalized(
+            read(QStringLiteral(QML_DIR "/SpaceLobby.qml")));
+        QVERIFY(lobby.contains(
             QStringLiteral("objectName: \"spaceUnifiedChildRow\"")));
         QVERIFY(pane.contains(
-            QStringLiteral("app.spaces.childSpacesDetailed(spaceId)")));
-        QVERIFY(pane.contains(QStringLiteral("function onSpaceJoined(")));
+            QStringLiteral("app.spaces.lobbySubspaceIds(spaceId)")));
         QVERIFY(pane.contains(
+            QStringLiteral("onOpenSpaceRequested: (roomId) => "
+                           "app.spaces.activeSpaceId = roomId")));
+        QVERIFY(pane.contains(QStringLiteral("function onSpaceJoined(")));
+        QVERIFY(lobby.contains(
             QStringLiteral("Space · %n room(s) inside")));
     }
 

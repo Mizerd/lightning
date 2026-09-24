@@ -206,6 +206,53 @@ backend capability checks and honest live-test status.
   backends were right, which is exactly why no test caught it.
   `enqueue_spaces` now emits `children` read from each Space's own state,
   ordered by the spec's comparator; `descendants` remains a fallback.
+- **Space Home's lobby is SECTIONED (2026-09-23, Sable's shape)**, replacing
+  the 2026-08-19 flat "Rooms and spaces" list, which read the TRANSITIVE
+  `childRoomsDetailed()` so a subspace's rooms ran together with the Space's
+  own ("you can't tell which rooms belong to each space"). The Space's own
+  DIRECT rooms come first ("Rooms"), then ONE collapsible section per joined
+  direct child Space listing THAT Space's direct children. ONE level of
+  sections: a grandchild Space is a ROW in its parent's section and drills
+  into its own Home; its rooms are never flattened into the section. An
+  UNJOINED child Space is a row with Join in the section of its parent.
+  Every row shows the room's topic as a second line (plain text, one elided
+  line; an unjoined room's topic comes from `/hierarchy`, which is also the
+  only source of member counts and `suggested`). Order inside a section is
+  the parent's own `m.space.child` order (`RoomInfo::childRoomIds`), then any
+  row only `/hierarchy` knows, in the SDK's spec order. The grouping, order,
+  search (names AND topics; a subspace whose own name matches keeps all its
+  rows; empty filtered sections are dropped; a search overrides folding) and
+  the folded state are `SpaceManager::lobbySections()` — the view
+  (`SpaceLobby.qml`) draws data and never hides rows with `visible:`. Folded
+  sections are SESSION state per Space, cleared on sign-out: persisting them
+  would write Matrix room ids into settings and need the account-removal
+  sweep. `/hierarchy` is asked once per section Space (the SDK's listing is
+  max_depth 1; `RoomDiscoveryController` is single-flight per Space).
+  Kept from the flat list: search, the Suggested badge, Join / Ask to join /
+  Request pending, the unread and mention badges, and the manager's
+  multi-select Remove / Mark as suggested — now offered ONLY on the Home's
+  DIRECT children (its rooms and its subspace sections, the latter also via
+  the section's ⋮ menu), because those are the only children its
+  m.space.child events can change. `removeRoomFromSpace` checks the DIRECT
+  child list too: its old transitive pre-check sent an empty-via
+  m.space.child into the Home for a subspace's room and reported "removed",
+  and reported child Spaces and unjoined children "removed" without sending
+  anything. **Removal sends `{}`, not `{"via": []}`** (2026-09-24, measured live
+  on a throwaway Space): the spec calls both "not a child", but matrix-sdk-ui's
+  space graph keeps an edge for `via: []` (it drops only content that fails to
+  parse), so a removed child stayed in the Space's rooms, rail and room list.
+  `enqueue_spaces` also filters children a Space's own state unlinked (empty
+  via, unparsable, or redacted), which covers Spaces removed from the old way
+  and a child SPACE whose own `m.space.parent` still points back (an
+  event unparsable for any other reason keeps its link unless its `via` is
+  missing or empty); and an empty
+  `children` list is an answer, never a reason to fall back to the SDK's
+  `descendants`. A JOINED room or subspace the parent's synced state no
+  longer lists is never drawn from a cached `/hierarchy` answer. While `/hierarchy` has not
+  answered, a section says "Loading rooms…", not "No rooms yet". The **"Joined" chip is gone** from rows: beside every room it
+  read as the user's ROLE (Portuguese renders it "Membro"), and the row's
+  action — Join, or the open arrow — already says it; the accessible name
+  carries "not joined".
 - Quick switching across rooms, direct messages, Spaces, invites, threads
 - Activity ordering, unread state/navigation, first-unread and latest jumps,
   threaded receipts, and local marked-unread behavior

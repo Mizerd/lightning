@@ -83,6 +83,9 @@ constexpr const char *kComponents[] = {
     // 2026-09-19: the collapsed-embed summary row. Loads standalone — no
     // required properties, and it reads only AppTheme and Icon.
     "CollapsedEmbedRow",
+    // 2026-09-23: the Space Home lobby. Loads standalone — every input is a
+    // plain property with an empty default, and it reads no `app`.
+    "SpaceLobby",
 };
 
 // Deliberately NOT loaded standalone, each with the reason. Kept here rather

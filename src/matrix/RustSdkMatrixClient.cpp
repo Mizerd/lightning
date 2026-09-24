@@ -5416,15 +5416,15 @@ void RustSdkMatrixClient::handleSpacesEvent(const QJsonArray &spaces)
         // whole tree and listed subspace rooms twice. SpaceManager::rebuild
         // walks these to derive the transitive membership it needs.
         //
-        // `descendants` is still the fallback: an older/other producer that
-        // does not send `children` keeps working, degraded rather than empty.
+        // `descendants` is still the fallback, but ONLY for a producer that
+        // sends no `children` key at all. An EMPTY `children` is an answer —
+        // a Space whose last child was removed — and falling back there
+        // resurrected the removed child from the SDK graph's descendants.
         room.childRoomIds.clear();
-        const QJsonArray directChildren =
-            object.value(QStringLiteral("children")).toArray();
         const QJsonArray childSource =
-            directChildren.isEmpty()
-                ? object.value(QStringLiteral("descendants")).toArray()
-                : directChildren;
+            object.contains(QStringLiteral("children"))
+                ? object.value(QStringLiteral("children")).toArray()
+                : object.value(QStringLiteral("descendants")).toArray();
         for (const auto &child : childSource) {
             const QString childId = child.toString();
             if (!childId.isEmpty() && childId != id && !room.childRoomIds.contains(childId))

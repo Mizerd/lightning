@@ -843,6 +843,7 @@ set(APP_QML_FILES
     qml/UpdateAvailableDialog.qml
     qml/MainScreen.qml
     qml/HomePane.qml
+    qml/SpaceLobby.qml
     qml/SpacesRail.qml
     qml/FolderTile.qml
     qml/RoomsPanel.qml

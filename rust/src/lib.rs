@@ -12128,6 +12128,55 @@ async fn direct_children_of(room: &Room) -> Vec<String> {
     entries.into_iter().map(|(_, id)| id).collect()
 }
 
+/// Children a Space's own state UNLINKED: an `m.space.child` whose `via` is
+/// empty or missing (`{}` is what matrix-sdk-ui's own remove_child sends),
+/// or that was redacted. None of those is a child, but
+/// matrix-sdk-ui's graph still links a child SPACE through its own
+/// `m.space.parent`, and links `via: []` outright — so a removed child kept
+/// coming back. Measured live 2026-09-24.
+async fn unlinked_children_of(room: &Room) -> BTreeSet<String> {
+    use matrix_sdk::deserialized_responses::RawSyncOrStrippedState;
+    let Ok(events) = room
+        .get_state_events_static::<SpaceChildEventContent>()
+        .await
+    else {
+        return BTreeSet::new();
+    };
+    let mut out = BTreeSet::new();
+    for raw in events {
+        let RawSyncOrStrippedState::Sync(raw) = raw else { continue };
+        let unlinked_key = match raw.deserialize() {
+            Ok(SyncStateEvent::Original(original)) => {
+                original.content.via.is_empty().then(|| original.state_key.to_string())
+            }
+            Ok(SyncStateEvent::Redacted(redacted)) => Some(redacted.state_key.to_string()),
+            // Unparsable for another reason (a bad `suggested`, one bad
+            // server name) is not a removal: only a missing, non-array or
+            // empty `via` is.
+            Err(_) => {
+                let via = raw
+                    .get_field::<serde_json::Value>("content")
+                    .ok()
+                    .flatten()
+                    .and_then(|content| content.get("via").cloned());
+                let linked = via
+                    .as_ref()
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|servers| !servers.is_empty());
+                if linked {
+                    None
+                } else {
+                    raw.get_field::<String>("state_key").ok().flatten()
+                }
+            }
+        };
+        if let Some(key) = unlinked_key {
+            out.insert(key);
+        }
+    }
+    out
+}
+
 async fn enqueue_spaces(
     events: &Arc<Mutex<VecDeque<String>>>,
     service: &SpaceService,
@@ -12144,6 +12193,13 @@ async fn enqueue_spaces(
     // filter is every descendant recursively — right for computing the
     // transitive closure, wrong as a fallback for "this Space's own children".
     let mut direct_by_parent = HashMap::<String, BTreeSet<String>>::new();
+    let mut unlinked = HashMap::<String, BTreeSet<String>>::new();
+    for space in &joined_spaces {
+        let gone = unlinked_children_of(space).await;
+        if !gone.is_empty() {
+            unlinked.insert(space.room_id().to_string(), gone);
+        }
+    }
 
     // Ask SpaceService's cycle-pruned graph for every known joined room's
     // parents. This extends its two presentation-level filters into a full
@@ -12151,7 +12207,11 @@ async fn enqueue_spaces(
     for room in client.joined_rooms() {
         let child_id = room.room_id().to_string();
         let parents: Vec<String> = service.joined_parents_of_child(room.room_id()).await
-            .into_iter().map(|parent| parent.room_id.to_string()).collect();
+            .into_iter().map(|parent| parent.room_id.to_string())
+            .filter(|parent| {
+                !unlinked.get(parent).is_some_and(|gone| gone.contains(&child_id))
+            })
+            .collect();
         for parent in &parents {
             children_by_parent.entry(parent.clone()).or_default().insert(child_id.clone());
             direct_by_parent.entry(parent.clone()).or_default().insert(child_id.clone());
@@ -12162,8 +12222,10 @@ async fn enqueue_spaces(
     // SpaceFilter even though they cannot become visible room rows.
     for filter in &filters {
         let parent = filter.space_room.room_id.to_string();
-        children_by_parent.entry(parent).or_default()
-            .extend(filter.descendants.iter().map(ToString::to_string));
+        let gone = unlinked.get(&parent);
+        children_by_parent.entry(parent.clone()).or_default()
+            .extend(filter.descendants.iter().map(ToString::to_string)
+                .filter(|id| !gone.is_some_and(|gone| gone.contains(id))));
     }
 
     let mut ordered_ids: Vec<String> = filters.iter()

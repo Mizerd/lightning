@@ -184,7 +184,9 @@ class SpaceSettingsContractTest : public QObject
         const int start = pane.indexOf(QStringLiteral("id: settingsCol"));
         if (start < 0)
             return {};
-        const int end = pane.indexOf(QStringLiteral("ROOMS AND SPACES"), start);
+        // The lobby that follows the card moved into SpaceLobby.qml on
+        // 2026-09-23; its instance is the end marker now.
+        const int end = pane.indexOf(QStringLiteral("SpaceLobby {"), start);
         if (end < 0)
             return {};
         return pane.mid(start, end - start);

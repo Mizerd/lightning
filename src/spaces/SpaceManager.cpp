@@ -31,6 +31,7 @@ void SpaceManager::setClient(MatrixClient *client)
             m_pendingChildAdds.clear(); // account isolation
             m_pendingChildRemovals.clear();
             m_pendingChildSuggests.clear();
+            m_lobbyCollapsed.clear();
             dropSpaceRosters();
             rebuild();
         });
@@ -69,6 +70,8 @@ void SpaceManager::setClient(MatrixClient *client)
     m_pendingChildAdds.clear();
     m_pendingChildRemovals.clear();
     m_pendingChildSuggests.clear();
+    // Folded lobby sections name one account's Spaces.
+    m_lobbyCollapsed.clear();
     // A roster is an ANSWER ABOUT ONE ACCOUNT. Carrying one across a client
     // swap would scope the next account's People list by the previous
     // account's Space membership.
@@ -968,7 +971,22 @@ void SpaceManager::removeRoomFromSpace(const QString &spaceId,
 {
     if (!m_client || spaceId.isEmpty() || roomId.isEmpty())
         return;
-    if (!includesRoom(spaceId, roomId)) {
+    // The pre-check asks whether the room is a DIRECT child — the only thing
+    // an m.space.child event in THIS Space can undo. It used to ask
+    // includesRoom(), which is TRANSITIVE and covers joined non-Space rooms
+    // only, so it was wrong both ways: a room of a SUBSPACE passed, and an
+    // empty-via m.space.child was sent into a Space it was never a child of
+    // (reported "removed", changed nothing); a child SPACE or an UNJOINED
+    // child failed, and was reported "removed" without any request at all.
+    // The Space Home lobby lets a manager select both of those.
+    bool direct = false;
+    for (const SpaceEntry &entry : m_spaces) {
+        if (entry.info.id == spaceId) {
+            direct = entry.info.childRoomIds.contains(roomId);
+            break;
+        }
+    }
+    if (!direct) {
         Q_EMIT childRemoveFinished(spaceId, roomId, true); // already gone
         return;
     }
@@ -997,4 +1015,398 @@ void SpaceManager::setSpaceChildSuggested(const QString &spaceId,
         return;
     }
     m_pendingChildSuggests.insert(opId, { spaceId, roomId });
+}
+
+// ---- The Space Home lobby --------------------------------------------------
+
+namespace {
+
+QHash<QString, QVariantMap> hierarchyIndex(const QVariantList &rows)
+{
+    QHash<QString, QVariantMap> out;
+    for (const QVariant &value : rows) {
+        const QVariantMap row = value.toMap();
+        const QString id = row.value(QStringLiteral("roomId")).toString();
+        if (!id.isEmpty() && !out.contains(id))
+            out.insert(id, row);
+    }
+    return out;
+}
+
+// A parent's children in the order the lobby shows them: its own
+// m.space.child order first, then any /hierarchy row that order does not
+// know yet (a child whose state event has not synced, or a backend that
+// reports the edge only through /hierarchy), in the SDK's own order.
+QStringList lobbyChildOrder(const QString &parentId,
+                            const QHash<QString, RoomInfo> &byId,
+                            const QVariantList &hierarchyRows)
+{
+    QStringList out;
+    QSet<QString> seen;
+    const auto parent = byId.constFind(parentId);
+    if (parent != byId.constEnd()) {
+        for (const QString &id : parent->childRoomIds) {
+            if (id.isEmpty() || id == parentId || seen.contains(id))
+                continue;
+            seen.insert(id);
+            out.append(id);
+        }
+    }
+    for (const QVariant &value : hierarchyRows) {
+        const QString id =
+            value.toMap().value(QStringLiteral("roomId")).toString();
+        if (id.isEmpty() || id == parentId || seen.contains(id))
+            continue;
+        seen.insert(id);
+        out.append(id);
+    }
+    return out;
+}
+
+bool isJoinedSpace(const QHash<QString, RoomInfo> &byId, const QString &id)
+{
+    const auto it = byId.constFind(id);
+    return it != byId.constEnd() && it->membership == RoomInfo::Joined
+           && it->isSpace;
+}
+
+// Joined direct non-Space children of a Space: the "N rooms" a nested Space
+// row claims. Direct, like everything else in the lobby.
+int joinedDirectRoomCount(const QString &spaceId,
+                          const QHash<QString, RoomInfo> &byId)
+{
+    const auto parent = byId.constFind(spaceId);
+    if (parent == byId.constEnd())
+        return 0;
+    int count = 0;
+    QSet<QString> seen;
+    for (const QString &id : parent->childRoomIds) {
+        if (seen.contains(id))
+            continue;
+        seen.insert(id);
+        const auto it = byId.constFind(id);
+        if (it != byId.constEnd() && !it->isSpace
+            && it->membership == RoomInfo::Joined)
+            ++count;
+    }
+    return count;
+}
+
+bool lobbyMatches(const QString &needle, const QString &name,
+                  const QString &topic)
+{
+    return needle.isEmpty() || name.contains(needle, Qt::CaseInsensitive)
+           || topic.contains(needle, Qt::CaseInsensitive);
+}
+
+// One row, or an invalid map when the child cannot be shown honestly: an id
+// neither sync nor /hierarchy knows anything about is never drawn as a
+// placeholder.
+QVariantMap lobbyRow(const QString &id, const QString &parentId,
+                     const QString &homeId,
+                     const QHash<QString, RoomInfo> &byId,
+                     const QHash<QString, QVariantMap> &meta)
+{
+    // Selectable only where the Home's own m.space.child names it: a row
+    // only /hierarchy knows has no event here that Remove could change.
+    const auto home = byId.constFind(homeId);
+    const bool selectable = parentId == homeId && home != byId.constEnd()
+                            && home->childRoomIds.contains(id);
+    const QVariantMap h = meta.value(id);
+    const bool known = meta.contains(id);
+    const bool suggestedKnown = known && h.contains(QStringLiteral("suggested"));
+    const auto it = byId.constFind(id);
+    const auto parent = byId.constFind(parentId);
+    const bool declared = parent != byId.constEnd()
+                          && parent->childRoomIds.contains(id);
+    // A JOINED room the parent's synced state does not list is not its
+    // child, whatever a cached /hierarchy answer says: that cache is how a
+    // just-removed child came back (seen live 2026-09-24).
+    if (!declared && parent != byId.constEnd() && it != byId.constEnd()
+        && it->membership == RoomInfo::Joined)
+        return {};
+    if (it != byId.constEnd() && it->membership == RoomInfo::Joined) {
+        // Sync is authoritative for a joined room; /hierarchy only fills in
+        // what sync does not carry (member count, suggested) or has not
+        // carried yet (a topic).
+        const QString topic = it->topic.isEmpty()
+            ? h.value(QStringLiteral("topic")).toString() : it->topic;
+        return QVariantMap{
+            { QStringLiteral("roomId"), id },
+            { QStringLiteral("parentId"), parentId },
+            { QStringLiteral("name"), it->name.isEmpty()
+                  ? h.value(QStringLiteral("name")).toString() : it->name },
+            { QStringLiteral("avatarUrl"), it->avatarUrl },
+            { QStringLiteral("identityColorKey"), identityColorKey(*it) },
+            { QStringLiteral("topic"), topic },
+            { QStringLiteral("isSpace"), it->isSpace },
+            { QStringLiteral("joined"), true },
+            { QStringLiteral("isDirect"), it->isDirect },
+            { QStringLiteral("suggested"),
+              h.value(QStringLiteral("suggested")).toBool() },
+            { QStringLiteral("suggestedKnown"), suggestedKnown },
+            { QStringLiteral("members"),
+              h.value(QStringLiteral("members")).toLongLong() },
+            { QStringLiteral("childCount"),
+              it->isSpace ? joinedDirectRoomCount(id, byId) : 0 },
+            { QStringLiteral("childrenCount"),
+              h.value(QStringLiteral("childrenCount")).toLongLong() },
+            // ONE unread rule for the row badge and the section total.
+            { QStringLiteral("hasUnread"),
+              it->hasUnreadMessages || it->unreadCount > 0 },
+            { QStringLiteral("unreadCount"), it->unreadCount },
+            { QStringLiteral("highlightCount"), it->highlightCount },
+            { QStringLiteral("membership"), QStringLiteral("joined") },
+            { QStringLiteral("joinRule"), QString() },
+            { QStringLiteral("via"), QStringList() },
+            { QStringLiteral("selectable"), selectable },
+        };
+    }
+    if (!known)
+        return {};
+    // /hierarchy says joined but sync has not delivered the room yet:
+    // opening it would fail and joining it again is wrong, so it waits for
+    // sync (the flat list's rule, kept).
+    if (h.value(QStringLiteral("membership")).toString()
+        == QLatin1String("joined"))
+        return {};
+    return QVariantMap{
+        { QStringLiteral("roomId"), id },
+        { QStringLiteral("parentId"), parentId },
+        { QStringLiteral("name"), h.value(QStringLiteral("name")).toString() },
+        { QStringLiteral("avatarUrl"),
+          h.value(QStringLiteral("avatarUrl")).toString() },
+        { QStringLiteral("identityColorKey"), QString() },
+        { QStringLiteral("topic"), h.value(QStringLiteral("topic")).toString() },
+        { QStringLiteral("isSpace"), h.value(QStringLiteral("isSpace")).toBool() },
+        { QStringLiteral("joined"), false },
+        { QStringLiteral("isDirect"), false },
+        { QStringLiteral("suggested"),
+          h.value(QStringLiteral("suggested")).toBool() },
+        { QStringLiteral("suggestedKnown"), suggestedKnown },
+        { QStringLiteral("members"),
+          h.value(QStringLiteral("members")).toLongLong() },
+        { QStringLiteral("childCount"), 0 },
+        { QStringLiteral("childrenCount"),
+          h.value(QStringLiteral("childrenCount")).toLongLong() },
+        { QStringLiteral("hasUnread"), false },
+        { QStringLiteral("unreadCount"), 0 },
+        { QStringLiteral("highlightCount"), 0 },
+        { QStringLiteral("membership"),
+          h.value(QStringLiteral("membership")).toString() },
+        { QStringLiteral("joinRule"),
+          h.value(QStringLiteral("joinRule")).toString() },
+        { QStringLiteral("via"), h.value(QStringLiteral("via")).toStringList() },
+        { QStringLiteral("selectable"), selectable },
+    };
+}
+
+} // namespace
+
+QVariantList SpaceManager::buildLobbySections(
+    const QString &spaceId, const QHash<QString, RoomInfo> &byId,
+    const QVariantMap &hierarchyBySpace, const QString &filter,
+    const QSet<QString> &collapsedSections)
+{
+    QVariantList out;
+    if (spaceId.isEmpty())
+        return out;
+    const QString needle = filter.trimmed();
+    const bool searching = !needle.isEmpty();
+
+    const QVariantList homeRows =
+        hierarchyBySpace.value(spaceId).toList();
+    const QHash<QString, QVariantMap> homeMeta = hierarchyIndex(homeRows);
+    const QStringList homeOrder = lobbyChildOrder(spaceId, byId, homeRows);
+
+    // Builds one section: `sectionSpaceId`'s children, `header` being the
+    // section's own identity fields.
+    const auto section = [&](const QString &sectionSpaceId, bool isRoot,
+                             QVariantMap header, const QStringList &order,
+                             const QHash<QString, QVariantMap> &meta)
+        -> QVariantMap {
+        QVariantList all;
+        int roomCount = 0;
+        int spaceCount = 0;
+        int unreadTotal = 0;
+        int highlightTotal = 0;
+        bool anyUnread = false;
+        for (const QString &id : order) {
+            if (id == spaceId || id == sectionSpaceId)
+                continue; // a malformed or cyclic hierarchy
+            // On the ROOT, a joined child Space is a section of its own and
+            // never also a row.
+            if (isRoot && isJoinedSpace(byId, id))
+                continue;
+            const QVariantMap row =
+                lobbyRow(id, sectionSpaceId, spaceId, byId, meta);
+            if (row.isEmpty())
+                continue;
+            if (row.value(QStringLiteral("isSpace")).toBool())
+                ++spaceCount;
+            else
+                ++roomCount;
+            unreadTotal += row.value(QStringLiteral("unreadCount")).toInt();
+            anyUnread = anyUnread
+                        || row.value(QStringLiteral("hasUnread")).toBool();
+            highlightTotal +=
+                row.value(QStringLiteral("highlightCount")).toInt();
+            all.append(row);
+        }
+        const bool headerMatches = !isRoot && searching
+            && lobbyMatches(needle,
+                            header.value(QStringLiteral("name")).toString(),
+                            header.value(QStringLiteral("topic")).toString());
+        QVariantList shown;
+        for (const QVariant &value : all) {
+            const QVariantMap row = value.toMap();
+            if (!searching || headerMatches
+                || lobbyMatches(needle,
+                                row.value(QStringLiteral("name")).toString(),
+                                row.value(QStringLiteral("topic")).toString()))
+                shown.append(row);
+        }
+        const bool collapsed =
+            !searching && collapsedSections.contains(sectionSpaceId);
+        header.insert(QStringLiteral("sectionId"), sectionSpaceId);
+        header.insert(QStringLiteral("isRoot"), isRoot);
+        header.insert(QStringLiteral("roomCount"), roomCount);
+        header.insert(QStringLiteral("spaceCount"), spaceCount);
+        header.insert(QStringLiteral("unreadTotal"), unreadTotal);
+        header.insert(QStringLiteral("highlightTotal"), highlightTotal);
+        header.insert(QStringLiteral("hasUnread"), anyUnread);
+        header.insert(QStringLiteral("matchCount"), shown.size());
+        header.insert(QStringLiteral("collapsed"), collapsed);
+        header.insert(QStringLiteral("rows"),
+                      collapsed ? QVariantList() : shown);
+        // Whether the section is drawn at all.
+        const bool visible = searching
+            ? (headerMatches || !shown.isEmpty())
+            : (!isRoot || !all.isEmpty());
+        header.insert(QStringLiteral("__visible"), visible);
+        return header;
+    };
+
+    // The root: the Space's own direct rooms (and its UNJOINED child Spaces,
+    // which cannot be opened as a section until they are joined).
+    {
+        const QVariantMap root = section(
+            spaceId, true,
+            QVariantMap{
+                { QStringLiteral("roomId"), spaceId },
+                { QStringLiteral("name"), QString() },
+                { QStringLiteral("avatarUrl"), QString() },
+                { QStringLiteral("identityColorKey"), QString() },
+                { QStringLiteral("topic"), QString() },
+                { QStringLiteral("suggested"), false },
+                { QStringLiteral("suggestedKnown"), false },
+                { QStringLiteral("selectable"), false },
+            },
+            homeOrder, homeMeta);
+        if (root.value(QStringLiteral("__visible")).toBool()) {
+            QVariantMap copy = root;
+            copy.remove(QStringLiteral("__visible"));
+            out.append(copy);
+        }
+    }
+
+    // One section per JOINED direct child Space, in the Home's order.
+    const auto homeIt = byId.constFind(spaceId);
+    const QStringList declared =
+        homeIt != byId.constEnd() ? homeIt->childRoomIds : QStringList();
+    for (const QString &childId : homeOrder) {
+        if (childId == spaceId || !isJoinedSpace(byId, childId))
+            continue;
+        // Only a subspace the Home's synced state still lists: a cached
+        // /hierarchy answer would keep a just-removed one as a section, with
+        // Remove offered on something that is no longer a child.
+        if (!declared.contains(childId))
+            continue;
+        const RoomInfo &info = *byId.constFind(childId);
+        const QVariantMap h = homeMeta.value(childId);
+        const QVariantList rows = hierarchyBySpace.value(childId).toList();
+        const QVariantMap sec = section(
+            childId, false,
+            QVariantMap{
+                { QStringLiteral("roomId"), childId },
+                { QStringLiteral("name"), info.name.isEmpty()
+                      ? h.value(QStringLiteral("name")).toString()
+                      : info.name },
+                { QStringLiteral("avatarUrl"), info.avatarUrl },
+                { QStringLiteral("identityColorKey"), identityColorKey(info) },
+                { QStringLiteral("topic"), info.topic.isEmpty()
+                      ? h.value(QStringLiteral("topic")).toString()
+                      : info.topic },
+                { QStringLiteral("suggested"),
+                  h.value(QStringLiteral("suggested")).toBool() },
+                { QStringLiteral("suggestedKnown"),
+                  h.contains(QStringLiteral("suggested")) },
+                // The subspace IS a direct child of the Home Space, so the
+                // Home's Remove / Mark as suggested apply to it.
+                { QStringLiteral("selectable"), true },
+            },
+            lobbyChildOrder(childId, byId, rows), hierarchyIndex(rows));
+        if (sec.value(QStringLiteral("__visible")).toBool()) {
+            QVariantMap copy = sec;
+            copy.remove(QStringLiteral("__visible"));
+            out.append(copy);
+        }
+    }
+    return out;
+}
+
+QVariantList SpaceManager::lobbySections(const QString &spaceId,
+                                         const QVariantMap &hierarchyBySpace,
+                                         const QString &filter) const
+{
+    if (!m_client || spaceId.isEmpty())
+        return {};
+    QHash<QString, RoomInfo> byId;
+    const auto rooms = m_client->rooms();
+    byId.reserve(rooms.size());
+    for (const RoomInfo &room : rooms)
+        byId.insert(room.id, room);
+    return buildLobbySections(spaceId, byId, hierarchyBySpace, filter,
+                              m_lobbyCollapsed.value(spaceId));
+}
+
+QStringList SpaceManager::lobbySubspaceIds(const QString &spaceId) const
+{
+    QStringList out;
+    if (!m_client || spaceId.isEmpty())
+        return out;
+    QHash<QString, RoomInfo> byId;
+    const auto rooms = m_client->rooms();
+    byId.reserve(rooms.size());
+    for (const RoomInfo &room : rooms)
+        byId.insert(room.id, room);
+    for (const QString &id : lobbyChildOrder(spaceId, byId, {})) {
+        if (isJoinedSpace(byId, id))
+            out.append(id);
+    }
+    return out;
+}
+
+void SpaceManager::setLobbySectionCollapsed(const QString &spaceId,
+                                            const QString &sectionId,
+                                            bool collapsed)
+{
+    if (spaceId.isEmpty() || sectionId.isEmpty())
+        return;
+    if (lobbySectionCollapsed(spaceId, sectionId) == collapsed)
+        return;
+    QSet<QString> &set = m_lobbyCollapsed[spaceId];
+    if (collapsed)
+        set.insert(sectionId);
+    else
+        set.remove(sectionId);
+    if (set.isEmpty())
+        m_lobbyCollapsed.remove(spaceId);
+    Q_EMIT lobbyCollapseChanged(spaceId);
+}
+
+bool SpaceManager::lobbySectionCollapsed(const QString &spaceId,
+                                         const QString &sectionId) const
+{
+    return m_lobbyCollapsed.value(spaceId).contains(sectionId);
 }

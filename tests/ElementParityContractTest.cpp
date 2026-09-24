@@ -29,39 +29,53 @@ private:
 private Q_SLOTS:
     void unifiedListShowsMembershipAndSelection()
     {
+        // 2026-09-23: the list moved into SpaceLobby.qml and became Sable's
+        // sectioned lobby (SpaceManager::lobbySections). What the flat list
+        // could do, the lobby still does — pinned here against the new home.
+        const QString lobby = normalized(
+            read(QStringLiteral(QML_DIR "/SpaceLobby.qml")));
         const QString pane = normalized(
             read(QStringLiteral(QML_DIR "/TimelinePane.qml")));
+        QVERIFY(!lobby.isEmpty());
         QVERIFY(!pane.isEmpty());
-        // ONE list; each row states its own membership.
-        QVERIFY(pane.contains(QStringLiteral("ROOMS AND SPACES")));
-        QVERIFY(pane.contains(
+        QVERIFY(lobby.contains(QStringLiteral("ROOMS AND SPACES")));
+        QVERIFY(lobby.contains(
             QStringLiteral("objectName: \"spaceUnifiedChildRow\"")));
-        const int row = pane.indexOf(
+        const int row = lobby.indexOf(
             QStringLiteral("objectName: \"spaceUnifiedChildRow\""));
         QVERIFY(row >= 0);
-        QVERIFY(pane.indexOf(QStringLiteral("qsTr(\"Joined\")"), row) > row);
-        QVERIFY(pane.indexOf(QStringLiteral("qsTr(\"Suggested\")"), row)
-                > row);
+        // Suggested is still a badge on the row. "Joined" is NOT any more:
+        // beside every room it read as the user's ROLE (Portuguese renders it
+        // "Membro"), and the row's own action — Join, or the open arrow —
+        // already says which it is. The accessible name carries it instead.
+        QVERIFY(lobby.indexOf(QStringLiteral("SuggestedChip {"), row) > row);
+        QVERIFY(!lobby.contains(QStringLiteral("\"Joined\")")));
+        QVERIFY(lobby.contains(QStringLiteral("qsTr(\"%1, not joined\")")));
         // Selection UI gated on the REAL m.space.child capability, never
         // offered optimistically.
-        QVERIFY(pane.contains(
+        QVERIFY(lobby.contains(
             QStringLiteral("objectName: \"spaceChildSelectBox\"")));
         QVERIFY(pane.contains(
             QStringLiteral("app.roomInfo.canManageSpaceChildren")));
         QVERIFY(pane.contains(
+            QStringLiteral("canManage: spaceHome.canManageChildren")));
+        QVERIFY(lobby.contains(
             QStringLiteral("objectName: \"spaceChildRemoveSelectedButton\"")));
-        QVERIFY(pane.contains(
+        QVERIFY(lobby.contains(
             QStringLiteral("objectName: \"spaceChildSuggestToggleButton\"")));
         QVERIFY(pane.contains(
             QStringLiteral("app.spaces.setSpaceChildSuggested(")));
-        // Search over names and descriptions.
-        QVERIFY(pane.contains(
+        // Search over names and descriptions, and the grouping, ordering and
+        // dedup live in C++ (SpaceChildSuggestTest proves them).
+        QVERIFY(lobby.contains(
             QStringLiteral("objectName: \"spaceChildFilterField\"")));
-        // Dedup by room id: right after a Join succeeds, sync marks the
-        // room joined while the /hierarchy refetch is still in flight —
-        // the stale offer row must not render next to the Joined row.
-        QVERIFY(pane.contains(
-            QStringLiteral("if (seen[uo.roomId] === true) continue")));
+        QVERIFY(pane.contains(QStringLiteral("app.spaces.lobbySections(")));
+        // A topic is server text: plain, always.
+        const int topic = lobby.indexOf(
+            QStringLiteral("objectName: \"spaceLobbyRowTopic\""));
+        QVERIFY(topic > 0);
+        QVERIFY(lobby.mid(topic, 600).contains(
+            QStringLiteral("textFormat: Text.PlainText")));
     }
 
     // The banner's view controls must drive something that EXISTS.
@@ -126,14 +140,20 @@ private Q_SLOTS:
         // TapHandlers are non-exclusive across subtrees: a select tap
         // must not ALSO open the row (the same class as the emoji-picker
         // and facepile fixes).
-        const QString pane = normalized(
-            read(QStringLiteral(QML_DIR "/TimelinePane.qml")));
-        const int row = pane.indexOf(
+        const QString lobby = normalized(
+            read(QStringLiteral(QML_DIR "/SpaceLobby.qml")));
+        const int row = lobby.indexOf(
             QStringLiteral("objectName: \"spaceUnifiedChildRow\""));
         QVERIFY(row >= 0);
-        const QString scope = pane.mid(row, 2500);
-        QVERIFY(scope.contains(
-            QStringLiteral("unifiedRow.mapToItem( selectBox,")));
+        const QString scope = lobby.mid(row, 2500);
+        QVERIFY(scope.contains(QStringLiteral("row.mapToItem(selectBox,")));
+        // And the box itself takes the exclusive grab.
+        QVERIFY(lobby.contains(
+            QStringLiteral("gesturePolicy: TapHandler.WithinBounds")));
+        // Same rule on the section header: its menu and box are excluded.
+        QVERIFY(lobby.contains(
+            QStringLiteral("var bands = [sectionMenuButton, sectionSelectBox]")));
+        // ChannelRowGeometryQmlTest::lobbyTapsReachTheRightTarget clicks it.
     }
 
     void railExpandsSpacesInline()

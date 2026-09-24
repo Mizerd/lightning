@@ -201,6 +201,68 @@ public:
     Q_INVOKABLE QVariantList addableRooms(const QString &spaceId,
                                           const QString &filter) const;
 
+    // ---- The Space Home LOBBY (2026-09-23) --------------------------------
+    //
+    // Sectioned the way Sable's lobby is: the Space's own DIRECT rooms first,
+    // then ONE section per direct child Space listing THAT subspace's direct
+    // children. It replaced a single flat list built from
+    // childRoomsDetailed() — which is TRANSITIVE — so every subspace's rooms
+    // ran together with the Space's own and "you can't tell which rooms
+    // belong to each space" (tester report, 2026-09-23).
+    //
+    // One level of sections, on purpose. A grandchild Space is a ROW inside
+    // its parent's section (it drills into its own Home, like every Space
+    // row always has); its rooms are NOT flattened into that section,
+    // because flattening is exactly the defect this replaced.
+    //
+    // Each section is { sectionId, isRoot, roomId, name, avatarUrl,
+    // identityColorKey, topic, suggested, suggestedKnown, selectable,
+    // roomCount, spaceCount, unreadTotal, highlightTotal, hasUnread,
+    // matchCount, collapsed, rows }. A row's `hasUnread` is
+    // hasUnreadMessages OR unreadCount > 0, and a section's is any row's.
+    // Each row is { roomId, parentId, name, avatarUrl, identityColorKey,
+    // topic, isSpace, joined, isDirect, suggested, suggestedKnown, members,
+    // childCount, childrenCount, hasUnread, unreadCount, highlightCount,
+    // membership, joinRule, via, selectable }.
+    //
+    // ORDER inside a section is the parent's own `m.space.child` order
+    // (RoomInfo::childRoomIds: `order` key, then room id), then any
+    // /hierarchy row that order does not know yet, in the SDK's (spec) order.
+    // `selectable` is true only for the Home Space's DIRECT children: those
+    // are the only rows its Remove / Mark as suggested can act on. (The flat
+    // list offered them on subspace rooms too, where Remove sent an empty-via
+    // m.space.child into the WRONG Space and reported success.)
+    //
+    // `hierarchyBySpace` maps a space id to its RoomDiscoveryController
+    // /hierarchy rows (the only source of topics, member counts, suggested
+    // flags and UNJOINED children). The filter matches names and topics,
+    // case-insensitively; a subspace whose own name or topic matches keeps
+    // all of its rows; a filtered section with nothing left is dropped, and
+    // a search overrides collapse so a match is never hidden in a folded
+    // section.
+    Q_INVOKABLE QVariantList lobbySections(
+        const QString &spaceId, const QVariantMap &hierarchyBySpace,
+        const QString &filter) const;
+    /// The pure half of lobbySections(), for tests.
+    static QVariantList buildLobbySections(
+        const QString &spaceId, const QHash<QString, RoomInfo> &byId,
+        const QVariantMap &hierarchyBySpace, const QString &filter,
+        const QSet<QString> &collapsedSections);
+    /// The joined direct child Spaces a lobby will draw a section for, so
+    /// the view can ask /hierarchy about each of them. Every joined child
+    /// Space, not only those whose PRIMARY parent this is: the rail must
+    /// draw a two-parent Space once, a lobby lists what its admin placed.
+    Q_INVOKABLE QStringList lobbySubspaceIds(const QString &spaceId) const;
+    /// Which lobby sections are folded, per Space. SESSION state, on purpose:
+    /// persisting it would write Matrix room ids into settings, which then
+    /// need the per-account storage and the account-removal sweep that
+    /// kChannelCollapsedKey has. Cleared on sign-out and client swap.
+    Q_INVOKABLE void setLobbySectionCollapsed(const QString &spaceId,
+                                              const QString &sectionId,
+                                              bool collapsed);
+    Q_INVOKABLE bool lobbySectionCollapsed(const QString &spaceId,
+                                           const QString &sectionId) const;
+
     // ---- The Space's PEOPLE ------------------------------------------------
     //
     // "Who is in this Space" is one question with no cheap local answer. A
@@ -271,6 +333,8 @@ Q_SIGNALS:
     /// change). Both room-list models re-filter on it; nothing else should
     /// need it.
     void spaceRosterChanged(const QString &spaceId);
+    /// A lobby section of `spaceId` was folded or unfolded.
+    void lobbyCollapseChanged(const QString &spaceId);
 
 private Q_SLOTS:
     void rebuild();
@@ -330,6 +394,9 @@ private:
     void recomputeOrphans();
 
     MatrixClient *m_client = nullptr;
+
+    // Folded lobby sections: Home space id -> section ids. Session only.
+    QHash<QString, QSet<QString>> m_lobbyCollapsed;
 
     QList<SpaceEntry> m_spaces;             // Rows: [All rooms] [orphans?] [space1] [space2] ...
     QHash<QString, QSet<QString>> m_membership;    // spaceId → set(roomId)
