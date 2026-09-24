@@ -394,6 +394,8 @@ private:
 private slots:
     void theStagedHelperLandsOutsideTheInstallationWithItsLibraries();
     void everyInstallTypeBuildsArgumentsTheHelperAccepts();
+    void windowsInstallersHandTheHelperTheirInstallScope();
+    void declinedElevationIsExplainedNotCalledARefusal();
     void initTestCase();
     void init();
 
@@ -2072,6 +2074,84 @@ void UpdateManagerStateTest::everyInstallTypeBuildsArgumentsTheHelperAccepts()
         QVERIFY(!parsed.args.artifactPath.isEmpty());
         QVERIFY(parsed.args.pid > 1);
     }
+}
+
+// ISSUE #14. A per-machine ("for all users") MSI or setup installation must be
+// upgraded per-machine and elevated, and a per-user one exactly as before. The
+// application is the only side that knows which (the scope marker beside the
+// executable), so the scope has to cross into the helper's argument vector --
+// and the helper must accept what the application actually builds. Same seam,
+// same method as the case above: drive the real startInstall, parse the real
+// vector.
+void UpdateManagerStateTest::windowsInstallersHandTheHelperTheirInstallScope()
+{
+    using lightning::update::InstallScope;
+    for (const InstallType type : {InstallType::WindowsMsi, InstallType::WindowsSetup}) {
+        for (const InstallScope scope : {InstallScope::User, InstallScope::Machine}) {
+            const bool machine = scope == InstallScope::Machine;
+            const auto manager = makeManager(type, QStringLiteral("0.7.0"));
+            InstallDetection detection = detectionFor(type);
+            detection.scope = scope;
+            manager->setInstallDetectionForTest(detection);
+            QCOMPARE(manager->installNeedsAdministrator(), machine);
+
+            manager->setProcessLauncherForTest(
+                [](const QString &, const QStringList &) { return true; });
+            manager->setStagedArtifactForTest(m_artifactPath);
+            manager->installAndRestart();
+
+            const QStringList arguments = manager->lastLaunchArgumentsForTest();
+            const int at = arguments.indexOf(QStringLiteral("--install-scope"));
+            QVERIFY2(at >= 0 && at + 1 < arguments.size(),
+                     "a Windows installer upgrade must always state its scope");
+            QCOMPARE(arguments.at(at + 1),
+                     machine ? QStringLiteral("machine") : QStringLiteral("user"));
+
+            const updater::ArgsParseResult parsed = updater::parseUpdaterArgs(arguments);
+            QVERIFY2(parsed.ok(), qPrintable(updater::parseErrorName(parsed.error)));
+            QCOMPARE(parsed.args.installScope,
+                     machine ? updater::InstallScope::Machine : updater::InstallScope::User);
+
+            // The person is told, before Windows asks, why it is asking.
+            QCOMPARE(manager->handoffSummary().contains(QStringLiteral("administrator")),
+                     machine);
+        }
+    }
+
+    // Every other installable type never carries the option -- the helper
+    // would refuse it -- even if a detection claimed Machine.
+    for (const InstallType type : {InstallType::WindowsPortable, InstallType::LinuxAppImage,
+                                   InstallType::LinuxDeb, InstallType::LinuxRpm}) {
+        const auto manager = makeManager(type, QStringLiteral("0.7.0"));
+        InstallDetection detection = detectionFor(type);
+        detection.scope = InstallScope::Machine;
+        manager->setInstallDetectionForTest(detection);
+        QVERIFY(!manager->installNeedsAdministrator());
+        manager->setProcessLauncherForTest(
+            [](const QString &, const QStringList &) { return true; });
+        manager->setStagedArtifactForTest(m_artifactPath);
+        manager->installAndRestart();
+        const QStringList arguments = manager->lastLaunchArgumentsForTest();
+        QVERIFY(!arguments.isEmpty());
+        QVERIFY(!arguments.contains(QStringLiteral("--install-scope")));
+        QVERIFY(updater::parseUpdaterArgs(arguments).ok());
+    }
+}
+
+void UpdateManagerStateTest::declinedElevationIsExplainedNotCalledARefusal()
+{
+    // Declining the UAC prompt -- the helper's own (elevation-declined) or the
+    // one the setup EXE raises for itself (exit 1223, ERROR_CANCELLED) -- is
+    // not the installer refusing the update, and the generic installer-exit
+    // wording says exactly that. Both must get the administrator explanation.
+    const QString declined = UpdateManager::explainInstallError(QStringLiteral("elevation-declined"));
+    const QString cancelled = UpdateManager::explainInstallError(QStringLiteral("installer-exit-1223"));
+    const QString refused = UpdateManager::explainInstallError(QStringLiteral("installer-exit-1603"));
+    QVERIFY(!declined.isEmpty());
+    QCOMPARE(cancelled, declined);
+    QVERIFY(declined.contains(QStringLiteral("administrator")));
+    QVERIFY(declined != refused);
+    QVERIFY(refused.contains(QStringLiteral("1603")));
 }
 
 void UpdateManagerStateTest::theStagedHelperLandsOutsideTheInstallationWithItsLibraries()

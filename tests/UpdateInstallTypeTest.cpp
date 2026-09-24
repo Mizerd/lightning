@@ -24,11 +24,14 @@ using lightning::update::detectInstall;
 using lightning::update::fileLooksLikeAppImage;
 using lightning::update::InstallDetection;
 using lightning::update::InstallEnvironment;
+using lightning::update::InstallScope;
+using lightning::update::installScopeId;
 using lightning::update::InstallType;
 using lightning::update::installTypeFromId;
 using lightning::update::installTypeId;
 using lightning::update::installTypeLabel;
 using lightning::update::isPackageManaged;
+using lightning::update::sameInstallDirectory;
 
 namespace {
 
@@ -107,6 +110,11 @@ private slots:
     void installMarkerIsIgnoredOffWindows_data();
     void installMarkerIsIgnoredOffWindows();
     void installMarkerNeverNamesANonWindowsType();
+    void scopeMarkerMakesAWindowsInstallerCopyPerMachine_data();
+    void scopeMarkerMakesAWindowsInstallerCopyPerMachine();
+    void scopeIdsMatchTheHelperOption();
+    void registeredDirectoryComparisonIgnoresOnlyTheInsignificant_data();
+    void registeredDirectoryComparisonIgnoresOnlyTheInsignificant();
     void automaticInstallAgreesWithTheUpdaterHelper();
     void appImageClaimNeedsTheAppImageMagic();
     void appImageMagicIsReadFromTheFile();
@@ -456,6 +464,150 @@ void UpdateInstallTypeTest::installMarkerNeverNamesANonWindowsType()
     const InstallDetection empty = detectInstall(
         makeMarkerEnvironment(QString(), QStringLiteral("windows-setup"), true));
     QCOMPARE(empty.type, InstallType::WindowsSetup);
+}
+
+// ISSUE #14. A per-machine MSI or setup installation must be upgraded in the
+// per-machine context, elevated; anything else leaves a second copy beside it.
+// The scope marker is the only thing that knows, so every way it could be
+// misread is pinned here: only the two installer types, only on Windows, and
+// only the exact word "machine" -- a missing marker (every installation made
+// by 0.9.9 or older) must stay per-user, or those users would be handed a UAC
+// prompt for an update that never needed one.
+void UpdateInstallTypeTest::scopeMarkerMakesAWindowsInstallerCopyPerMachine_data()
+{
+    // The COMPILE-TIME id is the type marker too, so every row lands on the
+    // type it names on EVERY platform. That matters for the off-Windows rows:
+    // off Windows the type marker is ignored, and with a compiled-in
+    // windows-portable those rows used to land on portable -- where the scope
+    // branch never runs, guard or no guard, so they could not see the Windows
+    // guard at all (mutation m3 survived them). Now they reach an MSI / setup
+    // type whose "machine" marker WOULD be honoured if the guard were missing.
+    //
+    // `registered` is what HKLM names as a per-machine directory. "machine" is
+    // believed only when it names THIS directory: the marker alone is
+    // user-writable in a per-user installation.
+    QTest::addColumn<QString>("typeMarker");
+    QTest::addColumn<QString>("scopeMarker");
+    QTest::addColumn<QString>("registered");
+    QTest::addColumn<bool>("windowsPlatform");
+    QTest::addColumn<bool>("portableMarker");
+    QTest::addColumn<int>("expectedType");
+    QTest::addColumn<int>("expectedScope");
+
+    const int user = int(InstallScope::User);
+    const int machine = int(InstallScope::Machine);
+    const int msi = int(InstallType::WindowsMsi);
+    const int setup = int(InstallType::WindowsSetup);
+    const int portable = int(InstallType::WindowsPortable);
+    const QString here = QStringLiteral("C:\\Program Files\\Lightning");
+    const QString msiHere = QStringLiteral("C:\\Program Files\\Lightning\\");
+    QTest::newRow("msi-machine")
+        << "windows-msi" << "machine" << msiHere << true << false << msi << machine;
+    QTest::newRow("setup-machine")
+        << "windows-setup" << "machine" << here << true << false << setup << machine;
+    QTest::newRow("setup-machine-crlf-trimmed")
+        << "windows-setup" << "machine\r\n" << here << true << false << setup << machine;
+    // The spoof: a per-user install whose own marker says "machine". Nothing
+    // in HKLM names it, so it stays per-user and no UAC prompt is raised.
+    QTest::newRow("machine-marker-without-hklm-registration-is-user")
+        << "windows-setup" << "machine" << QString() << true << false << setup << user;
+    QTest::newRow("machine-marker-registered-elsewhere-is-user")
+        << "windows-msi" << "machine" << QStringLiteral("D:\\Apps\\Lightning") << true
+        << false << msi << user;
+    QTest::newRow("msi-user") << "windows-msi" << "user" << here << true << false << msi << user;
+    QTest::newRow("setup-no-marker-is-an-old-per-user-install")
+        << "windows-setup" << QString() << here << true << false << setup << user;
+    QTest::newRow("setup-garbage-is-user")
+        << "windows-setup" << "MACHINE" << here << true << false << setup << user;
+    QTest::newRow("setup-prefix-is-not-machine")
+        << "windows-setup" << "machines" << here << true << false << setup << user;
+    // Portable has no installer to own a context: the word means nothing there.
+    QTest::newRow("portable-ignores-it")
+        << "windows-portable" << "machine" << here << true << true << portable << user;
+    // Off Windows the file is a stray, exactly like the type marker -- even
+    // beside a build whose compile-time type IS an MSI or setup, and even with
+    // a matching registration.
+    QTest::newRow("off-windows-setup-ignores-it")
+        << "windows-setup" << "machine" << here << false << false << setup << user;
+    QTest::newRow("off-windows-msi-ignores-it")
+        << "windows-msi" << "machine" << msiHere << false << false << msi << user;
+}
+
+void UpdateInstallTypeTest::scopeMarkerMakesAWindowsInstallerCopyPerMachine()
+{
+    QFETCH(QString, typeMarker);
+    QFETCH(QString, scopeMarker);
+    QFETCH(QString, registered);
+    QFETCH(bool, windowsPlatform);
+    QFETCH(bool, portableMarker);
+    QFETCH(int, expectedType);
+    QFETCH(int, expectedScope);
+
+    InstallEnvironment environment = makeMarkerEnvironment(
+        typeMarker, typeMarker, windowsPlatform, portableMarker);
+    int reads = 0;
+    environment.readInstallScopeMarker = [scopeMarker, &reads]() {
+        ++reads;
+        return scopeMarker;
+    };
+    environment.applicationDir = QStringLiteral("C:/Program Files/Lightning");
+    environment.readMachineInstallDirs = [registered]() {
+        return registered.isEmpty() ? QStringList() : QStringList{registered};
+    };
+    const InstallDetection detection = detectInstall(environment);
+    // The row reached the type it is about; otherwise the scope assertion
+    // below would be testing a branch that never runs.
+    QCOMPARE(int(detection.type), expectedType);
+    QCOMPARE(int(detection.scope), expectedScope);
+    // The scope never changes WHAT is installed, only in which context.
+    QVERIFY(detection.automaticInstallAllowed);
+    if (!windowsPlatform) {
+        // Off Windows the marker is not even consulted.
+        QCOMPARE(reads, 0);
+    } else if (typeMarker != QLatin1String("windows-portable")) {
+        // And where it can decide, the hook really was the thing deciding.
+        QVERIFY(reads > 0);
+    }
+}
+
+void UpdateInstallTypeTest::registeredDirectoryComparisonIgnoresOnlyTheInsignificant_data()
+{
+    QTest::addColumn<QString>("registered");
+    QTest::addColumn<QString>("applicationDir");
+    QTest::addColumn<bool>("same");
+    const QString app = QStringLiteral("C:/Program Files/Lightning");
+    QTest::newRow("nsis-form") << "C:\\Program Files\\Lightning" << app << true;
+    QTest::newRow("msi-trailing-backslash") << "C:\\Program Files\\Lightning\\" << app << true;
+    QTest::newRow("case") << "c:\\PROGRAM FILES\\lightning" << app << true;
+    QTest::newRow("empty-never-matches") << "" << app << false;
+    QTest::newRow("whitespace-never-matches") << "  " << app << false;
+    QTest::newRow("prefix-is-not-the-same") << "C:\\Program Files\\Light" << app << false;
+    QTest::newRow("longer-is-not-the-same") << "C:\\Program Files\\Lightning2" << app << false;
+    QTest::newRow("per-user-dir")
+        << "C:\\Users\\x\\AppData\\Local\\Programs\\Lightning" << app << false;
+    QTest::newRow("no-application-dir") << "C:\\Program Files\\Lightning" << "" << false;
+}
+
+void UpdateInstallTypeTest::registeredDirectoryComparisonIgnoresOnlyTheInsignificant()
+{
+    QFETCH(QString, registered);
+    QFETCH(QString, applicationDir);
+    QFETCH(bool, same);
+    QCOMPARE(sameInstallDirectory(registered, applicationDir), same);
+}
+
+void UpdateInstallTypeTest::scopeIdsMatchTheHelperOption()
+{
+    // The application writes installScopeId() into --install-scope and the
+    // helper maps it back with its own copy of the two words.
+    QCOMPARE(installScopeId(InstallScope::User),
+             updater::installScopeToString(updater::InstallScope::User));
+    QCOMPARE(installScopeId(InstallScope::Machine),
+             updater::installScopeToString(updater::InstallScope::Machine));
+    QCOMPARE(installScopeId(InstallScope::Machine), QStringLiteral("machine"));
+    // A default-constructed detection is per-user: nothing asks for elevation
+    // unless a marker said so.
+    QCOMPARE(int(InstallDetection().scope), int(InstallScope::User));
 }
 
 void UpdateInstallTypeTest::automaticInstallAgreesWithTheUpdaterHelper()

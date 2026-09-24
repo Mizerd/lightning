@@ -72,6 +72,11 @@ class UpdateManager : public QObject
     Q_PROPERTY(QString installTypeLabel READ installTypeLabel NOTIFY installTypeChanged)
     Q_PROPERTY(bool canInstallAutomatically READ canInstallAutomatically NOTIFY installTypeChanged)
     Q_PROPERTY(bool packageManaged READ packageManaged NOTIFY installTypeChanged)
+    // True for a Windows MSI / setup installation made "for all users": its
+    // update needs administrator approval, which Windows asks for when the
+    // update is installed. The UI can say so before the person clicks.
+    Q_PROPERTY(bool installNeedsAdministrator READ installNeedsAdministrator
+                   NOTIFY installTypeChanged)
     Q_PROPERTY(bool automaticChecksEnabled READ automaticChecksEnabled WRITE
                    setAutomaticChecksEnabled NOTIFY automaticChecksEnabledChanged)
     Q_PROPERTY(QDateTime lastCheckTime READ lastCheckTime NOTIFY lastCheckTimeChanged)
@@ -147,6 +152,7 @@ public:
     QString installTypeLabel() const;
     bool canInstallAutomatically() const { return m_detection.automaticInstallAllowed; }
     bool packageManaged() const { return isPackageManaged(m_detection.type); }
+    bool installNeedsAdministrator() const;
     bool automaticChecksEnabled() const { return m_automaticChecksEnabled; }
     void setAutomaticChecksEnabled(bool enabled);
     QDateTime lastCheckTime() const { return m_lastCheckTime; }

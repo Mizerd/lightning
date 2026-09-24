@@ -96,6 +96,7 @@ QString parseErrorName(ArgsError error)
     case ArgsError::StatusParentMissing: return QStringLiteral("status-parent-missing");
     case ArgsError::InvalidPid: return QStringLiteral("invalid-pid");
     case ArgsError::InvalidDigest: return QStringLiteral("invalid-digest");
+    case ArgsError::InvalidInstallScope: return QStringLiteral("invalid-install-scope");
     }
     return QStringLiteral("unknown");
 }
@@ -134,10 +135,11 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
         QStringLiteral("--mode"),   QStringLiteral("--artifact"),
         QStringLiteral("--pid"),    QStringLiteral("--target"),
         QStringLiteral("--relaunch"), QStringLiteral("--status"),
-        QStringLiteral("--sha256"),
+        QStringLiteral("--sha256"), QStringLiteral("--install-scope"),
     };
-    // --relaunch is the only optional option: absent means "do not relaunch".
-    // Everything else must be supplied exactly once.
+    // --relaunch and --install-scope are the only optional options: absent
+    // means "do not relaunch" and "user". Everything else must be supplied
+    // exactly once.
     static const QStringList kRequiredOptions = {
         QStringLiteral("--mode"),   QStringLiteral("--artifact"),
         QStringLiteral("--pid"),    QStringLiteral("--target"),
@@ -167,7 +169,8 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
 
         // A value that itself looks like an option is always a mistake here:
         // every value in this contract is an absolute path, a decimal
-        // integer or a hex digest, and none of them can start with "--".
+        // integer, a hex digest or a scope word, and none of them can start
+        // with "--".
         if (value.startsWith(QLatin1String("--")))
             return fail(ArgsError::MissingValue,
                         QStringLiteral("option value looks like another option"),
@@ -359,6 +362,27 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
         return fail(ArgsError::InvalidDigest,
                     QStringLiteral("sha256 must be exactly 64 lowercase hex characters"),
                     QStringLiteral("--sha256"));
+
+    // --install-scope: OPTIONAL, and only where a package can be installed in
+    // two contexts. On any other mode it is a caller bug, so it is refused
+    // rather than ignored -- ignoring it would let a mistaken "machine" pass
+    // silently into a code path that never elevates.
+    if (values.contains(QStringLiteral("--install-scope"))) {
+        const QString scope = values.value(QStringLiteral("--install-scope"));
+        if (args.mode != UpdaterMode::WindowsMsi && args.mode != UpdaterMode::WindowsSetup)
+            return fail(ArgsError::InvalidInstallScope,
+                        QStringLiteral("install scope applies only to the Windows "
+                                       "MSI and setup installers"),
+                        QStringLiteral("--install-scope"));
+        if (scope == QLatin1String("user"))
+            args.installScope = InstallScope::User;
+        else if (scope == QLatin1String("machine"))
+            args.installScope = InstallScope::Machine;
+        else
+            return fail(ArgsError::InvalidInstallScope,
+                        QStringLiteral("install scope must be \"user\" or \"machine\""),
+                        QStringLiteral("--install-scope"));
+    }
 
     ArgsParseResult result;
     result.args = args;

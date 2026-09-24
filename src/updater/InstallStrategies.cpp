@@ -3,11 +3,21 @@
 #include <QDir>
 #include <QFileInfo>
 
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace updater {
 
 // NSIS MUI2. See the header for why this is "/S", why it must be first, and
 // why "/D=" is deliberately omitted.
 const QStringList kNsisSilentSwitches = {QStringLiteral("/S")};
+const QString kNsisPerUserSwitch = QStringLiteral("/CURRENTUSER");
+const QString kNsisPerMachineSwitch = QStringLiteral("/ALLUSERS");
+const QString kMsiPerMachineProperty = QStringLiteral("ALLUSERS=1");
 
 namespace {
 
@@ -139,6 +149,13 @@ QString windowsNativePath(const QString &path)
 
 QString windowsSystemExecutable(const QString &executableName)
 {
+#ifdef Q_OS_WIN
+    wchar_t system[MAX_PATH];
+    const UINT length = GetSystemDirectoryW(system, MAX_PATH);
+    if (length > 0 && length < MAX_PATH)
+        return QString::fromWCharArray(system, int(length)) + QLatin1Char('\\')
+            + executableName;
+#endif
     QString root = qEnvironmentVariable("SystemRoot");
     if (root.isEmpty())
         root = qEnvironmentVariable("windir");
@@ -147,6 +164,94 @@ QString windowsSystemExecutable(const QString &executableName)
     while (root.endsWith(QLatin1Char('\\')) || root.endsWith(QLatin1Char('/')))
         root.chop(1);
     return root + QStringLiteral("\\System32\\") + executableName;
+}
+
+QString windowsCommandLine(const QStringList &arguments, bool *ok)
+{
+    if (ok)
+        *ok = false;
+    QStringList quoted;
+    for (const QString &argument : arguments) {
+        for (const QChar c : argument) {
+            if (c == QLatin1Char('"') || c.unicode() < 0x20 || c.unicode() == 0x7f)
+                return QString();
+        }
+        // Tabs never get here: they are control characters, refused above.
+        const bool needsQuotes = argument.isEmpty() || argument.contains(QLatin1Char(' '));
+        if (!needsQuotes) {
+            quoted << argument;
+            continue;
+        }
+        // Inside quotes, backslashes are literal EXCEPT a run immediately
+        // before the closing quote, which CommandLineToArgvW halves. Double
+        // only that trailing run, so `C:\dir with space\` survives.
+        QString element = argument;
+        int trailing = 0;
+        while (trailing < element.size()
+               && element.at(element.size() - 1 - trailing) == QLatin1Char('\\'))
+            ++trailing;
+        element.append(QString(trailing, QLatin1Char('\\')));
+        quoted << QLatin1Char('"') + element + QLatin1Char('"');
+    }
+    if (ok)
+        *ok = true;
+    return quoted.join(QLatin1Char(' '));
+}
+
+QString launchablePathFromFinal(const QString &finalPath)
+{
+    static const QString kUnc = QStringLiteral("\\\\?\\UNC\\");
+    static const QString kLocal = QStringLiteral("\\\\?\\");
+    QString path;
+    if (finalPath.startsWith(kUnc, Qt::CaseInsensitive))
+        path = QStringLiteral("\\\\") + finalPath.mid(kUnc.size());
+    else if (finalPath.startsWith(kLocal))
+        path = finalPath.mid(kLocal.size());
+    else
+        path = finalPath;
+    // What is left must be a drive path ("C:\...") or a UNC path with a
+    // server and a share ("\\server\share\..."); never a device or volume
+    // path, and never something that still starts with "\\?\" or "\\.\".
+    const bool drive = path.size() >= 4 && path.at(0).isLetter()
+        && path.at(1) == QLatin1Char(':') && path.at(2) == QLatin1Char('\\');
+    const QStringList uncParts = path.mid(2).split(QLatin1Char('\\'));
+    const bool unc = path.startsWith(QStringLiteral("\\\\"))
+        && !path.startsWith(QStringLiteral("\\\\?"))
+        && !path.startsWith(QStringLiteral("\\\\."))
+        && uncParts.size() >= 3 && !uncParts.at(0).isEmpty() && !uncParts.at(1).isEmpty();
+    if (!drive && !unc)
+        return QString();
+    if (path.contains(QLatin1Char('"')) || path.contains(QLatin1Char('/')))
+        return QString();
+    return path;
+}
+
+bool retargetPlanToLockedFile(InstallPlan &plan, const QString &launchablePath)
+{
+    if (plan.lockedArtifact.isEmpty() || launchablePath.isEmpty())
+        return false;
+    InstallPlan rewritten = plan;
+    bool found = false;
+    if (rewritten.program == plan.lockedArtifact) {
+        rewritten.program = launchablePath;
+        // The parent directory, kept a directory: "C:\x.exe" -> "C:\".
+        QString parent = launchablePath.left(launchablePath.lastIndexOf(QLatin1Char('\\')));
+        if (parent.size() == 2 && parent.at(1) == QLatin1Char(':'))
+            parent += QLatin1Char('\\');
+        rewritten.workingDirectory = parent;
+        found = true;
+    }
+    for (QString &argument : rewritten.arguments) {
+        if (argument == plan.lockedArtifact) {
+            argument = launchablePath;
+            found = true;
+        }
+    }
+    if (!found)
+        return false;
+    rewritten.lockedArtifact = launchablePath;
+    plan = rewritten;
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,11 +269,17 @@ StrategyResult planWindowsMsi(const UpdaterArguments &args)
     // silent — the user asked for this and should see it happening),
     // REINSTALLMODE=vomus forces every file to be re-cached from the new
     // package, which is what makes a same-version repair actually replace
-    // files. The MSI is perUser, so no elevation is requested or needed.
+    // files. A per-user installation needs no elevation and gets exactly the
+    // vector every earlier release used; see the header for per-machine.
     result.plan.arguments = {QStringLiteral("/i"),
                              windowsNativePath(args.artifactPath),
                              QStringLiteral("/qb"),
                              QStringLiteral("REINSTALLMODE=vomus")};
+    if (args.installScope == InstallScope::Machine) {
+        result.plan.arguments << kMsiPerMachineProperty;
+        result.plan.elevateOnWindows = true;
+        result.plan.lockedArtifact = windowsNativePath(args.artifactPath);
+    }
     return result;
 }
 
@@ -187,6 +298,19 @@ StrategyResult planWindowsSetup(const UpdaterArguments &args)
     // because an NSIS installer does its own path handling once running.
     result.plan.program = windowsNativePath(args.artifactPath);
     result.plan.arguments = kNsisSilentSwitches; // "/S" must come first
+    // Always explicit, never left to the installer's own guess: it would
+    // follow whichever copy it finds first, and when a person has both a
+    // per-user and a per-machine copy only this helper knows which one is
+    // being upgraded.
+    if (args.installScope == InstallScope::Machine) {
+        result.plan.arguments << kNsisPerMachineSwitch;
+        result.plan.elevateOnWindows = true;
+        // The program IS the artifact here, so the locked file is the one
+        // Windows will map and run elevated.
+        result.plan.lockedArtifact = result.plan.program;
+    } else {
+        result.plan.arguments << kNsisPerUserSwitch;
+    }
     result.plan.workingDirectory =
         windowsNativePath(QFileInfo(args.artifactPath).absolutePath());
     return result;

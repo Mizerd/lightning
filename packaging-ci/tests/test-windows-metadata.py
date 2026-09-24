@@ -299,17 +299,32 @@ def check_uninstall_contract() -> None:
     nsi = (HERE.parent / "packaging" / "windows" / "installer.nsi").read_text()
 
     check("RequestExecutionLevel user" in nsi,
-          "installs per-user, without administrator rights")
+          "never asks for administrator rights up front")
     check("WriteUninstaller" in nsi, "an uninstaller is written")
+
+    # SCOPE (GitHub issue #14). Per-user stays the default; "for all users" is
+    # opt-in (page, /ALLUSERS) and is the ONLY way anything reaches HKLM: every
+    # registration goes through SHCTX, which is HKCU unless
+    # `SetShellVarContext all` was called for a per-machine install.
+    check('StrCpy $InstallScope "user"' in nsi,
+          "the install scope starts out per-user")
+    check('"/ALLUSERS"' in nsi and '"/CURRENTUSER"' in nsi,
+          "the silent scope switches /ALLUSERS and /CURRENTUSER are understood")
+    check("SetShellVarContext all" in nsi and "SetShellVarContext current" in nsi,
+          "the shell-folder context follows the chosen scope")
+    check("${SCOPE_MARKER}" in nsi and '!define SCOPE_MARKER ".lightning-install-scope"' in nsi,
+          "the scope is recorded for the uninstaller and the updater")
 
     uninstall_key = ("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
                      "\\Lightning")
+    check(f'!define REG_UNINSTALL "{uninstall_key}"' in nsi,
+          "the uninstall entry lives at the standard Uninstall\\Lightning key")
     for value in ("DisplayName", "DisplayVersion", "Publisher", "DisplayIcon",
-                  "UninstallString", "InstallLocation"):
-        check(f'"{uninstall_key}" "{value}"' in nsi,
-              f"the uninstall entry declares {value}")
-    check(f'DeleteRegKey HKCU "{uninstall_key}"' in nsi,
-          "uninstalling removes the uninstall entry")
+                  "UninstallString", "QuietUninstallString", "InstallLocation"):
+        check(f'WriteRegStr SHCTX "${{REG_UNINSTALL}}" "{value}"' in nsi,
+              f"the uninstall entry declares {value} in the chosen scope")
+    check('DeleteRegKey SHCTX "${REG_UNINSTALL}"' in nsi,
+          "uninstalling removes the uninstall entry from the scope it was in")
     check('Delete "$SMPROGRAMS\\Lightning\\Lightning.lnk"' in nsi,
           "uninstalling removes the Start-menu shortcut")
     check('RMDir /r "$INSTDIR"' in nsi, "uninstalling removes the install tree")
@@ -329,7 +344,12 @@ def check_uninstall_contract() -> None:
         ("SetEnvironmentVariable", "environment variables"),
         ("EnVar::", "PATH modification"),
         ('WriteRegStr HKCR', "file associations / URL protocols"),
-        ("HKLM", "machine-wide registry keys"),
+        # HKLM is READ (to find an existing per-machine copy) and written only
+        # through SHCTX in the per-machine scope a person or deployment tool
+        # explicitly chose. Never a direct machine-wide write.
+        ("WriteRegStr HKLM", "direct machine-wide registry writes"),
+        ("WriteRegDWORD HKLM", "direct machine-wide registry writes"),
+        ("DeleteRegKey HKLM", "direct machine-wide registry deletes"),
         ("$SMSTARTUP", "autostart entries"),
         ("nsExec::Exec", "arbitrary command execution"),
     ):

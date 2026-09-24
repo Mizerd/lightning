@@ -66,11 +66,27 @@ def parse_msi_names(table: str) -> list[str]:
     return sorted(line for line in result.stdout.splitlines() if line)
 
 
+# The markers the MSI carries and the ZIP does not: the install type, and the
+# install scope (issue #14, two File rows of one name under opposite component
+# conditions). Asserted against the validator's own exemption list below, so
+# this mirror cannot drift from it.
+MSI_ONLY_MARKERS = {".lightning-install-type", ".lightning-install-scope"}
+
+
+def validator_msi_exemptions() -> set[str]:
+    source = SCRIPT.read_text(encoding="utf-8")
+    match = re.search(r'msi_only="\$\(LC_ALL=C comm -23[^)]*\| grep -Fxv ((?:-e \'[^\']+\' ?)+)',
+                      source)
+    if not match:
+        raise AssertionError("could not find the MSI-only exemption list in the validator")
+    return set(re.findall(r"-e '([^']+)'", match.group(1)))
+
+
 def compare(msi: list[str], zip_names: list[str]) -> tuple[list[str], list[str]]:
     """The validator's comparison: the two deliberate markers are exempt."""
     msi_set, zip_set = set(msi), set(zip_names)
     zip_only = sorted(zip_set - msi_set - {"portable.marker"})
-    msi_only = sorted(msi_set - zip_set - {".lightning-install-type"})
+    msi_only = sorted(msi_set - zip_set - MSI_ONLY_MARKERS)
     return zip_only, msi_only
 
 
@@ -86,8 +102,13 @@ names = parse_msi_names(idt([
 check(names == [".lightning-install-type", "Lightning.exe", "qschannelbackend.dll"],
       "the File table parse takes the LONG name from a SHORT|Long pair")
 
-# A healthy pair differs by exactly the two markers.
-msi = [".lightning-install-type", "Lightning.exe", "Qt6Core.dll", "qwebp.dll"]
+check(validator_msi_exemptions() == MSI_ONLY_MARKERS,
+      "the validator exempts exactly the MSI-only markers this test mirrors")
+
+# A healthy pair differs by exactly the deliberate markers (the scope marker
+# appears twice in the File table and once, deduplicated, here).
+msi = [".lightning-install-scope", ".lightning-install-type", "Lightning.exe",
+       "Qt6Core.dll", "qwebp.dll"]
 zips = ["Lightning.exe", "Qt6Core.dll", "portable.marker", "qwebp.dll"]
 zip_only, msi_only = compare(msi, zips)
 check(not zip_only and not msi_only,

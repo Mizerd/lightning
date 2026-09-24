@@ -7,10 +7,15 @@ multimedia package omits the `QtMultimedia` QML plugin, so the image builds only
 that missing module from the official Qt 6.11.1 source tarball after verifying
 its SHA-256 checksum. The target remains `x86_64-pc-windows-gnu` throughout.
 
-`installer.nsi` creates a per-user setup executable. The MSI generator uses a
-stable UpgradeCode, a ProductCode derived from application version plus source
-commit, and component GUIDs derived from normalized staged paths. Both
-installers preserve application user data during uninstall.
+`installer.nsi` creates a setup executable that installs per-user by default
+and per-machine on request (install-mode page, or `/ALLUSERS`; see
+`docs/windows-packaging.md`, "Install scope"). It never asks for elevation up
+front (`RequestExecutionLevel user`) and relaunches itself through UAC only for
+an all-users install. The MSI generator uses a stable UpgradeCode, a ProductCode
+derived from application version plus source commit, and component GUIDs derived
+from normalized staged paths; it is per-user by default and per-machine with
+`ALLUSERS=1`. Both installers write `.lightning-install-scope` for the updater
+and preserve application user data during uninstall.
 
 The runtime stager copies the target Qt QML tree, selected runtime plugins,
 and then closes the DLL import graph recursively. It does not copy the Qt SDK.

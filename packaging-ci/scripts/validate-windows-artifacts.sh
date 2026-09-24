@@ -363,9 +363,12 @@ awk -F'\t' 'NR > 3 { split($3, n, "|"); print (n[2] != "" ? n[2] : n[1]) }' \
 # records names rather than full paths.
 unzip -Z1 "$portable" | sed 's:.*/::' | grep -v '^$' | LC_ALL=C sort >"$zip_payload"
 
-# The two deliberate differences, removed from both sides before comparing.
+# The deliberate differences, removed from both sides before comparing. The
+# MSI carries two markers the ZIP does not: the install type, and the install
+# SCOPE (issue #14), which appears as two File rows of one name under opposite
+# component conditions -- exactly one of them is installed.
 msi_only="$(LC_ALL=C comm -23 "$msi_payload" "$zip_payload" \
-    | grep -Fxv '.lightning-install-type' || true)"
+    | grep -Fxv -e '.lightning-install-type' -e '.lightning-install-scope' || true)"
 zip_only="$(LC_ALL=C comm -13 "$msi_payload" "$zip_payload" \
     | grep -Fxv 'portable.marker' || true)"
 if [[ -n "$zip_only" ]]; then
@@ -388,6 +391,47 @@ for plugin in "${gst_plugins[@]}"; do
 done
 
 grep -Fq 'StartMenuShortcut' "$REPORTS/msi-Shortcut.idt" || die "MSI shortcut is missing"
+
+# --- INSTALL SCOPE (GitHub issue #14) ----------------------------------------
+#
+# Per-user must stay the DEFAULT: a double-click and the in-app updater of every
+# existing per-user copy install with no properties, so the package may carry no
+# ALLUSERS value of its own, and bit 3 of the summary Word Count ("elevated
+# privileges are not required") must stay set or Windows raises a UAC prompt
+# for an install that needs none. msiinfo labels PID_WORDCOUNT "Source".
+if grep -Eq $'^ALLUSERS\t' "$REPORTS/msi-Property.idt"; then
+    die "MSI sets ALLUSERS itself; a plain install would no longer be per-user"
+fi
+word_count="$(sed -n 's/^Source: \([0-9][0-9]*\).*/\1/p' "$REPORTS/msi-summary.txt")"
+[[ -n "$word_count" ]] || die "MSI summary information has no Word Count"
+(( word_count & 8 )) || die "MSI Word Count $word_count lacks bit 3; a per-user install would ask for elevation"
+# ALLUSERS=1 selects per-machine: a property-setting action re-points the
+# Programs directory at Program Files before CostFinalize, in both sequences.
+for table in CustomAction InstallExecuteSequence InstallUISequence Component; do
+    msiinfo export "$msi" "$table" >"$REPORTS/msi-${table}.idt"
+done
+grep -Fxq $'LightningPerMachineProgramsDir\t51\tProgramsDir\t[ProgramFiles64Folder]\t' \
+    "$REPORTS/msi-CustomAction.idt" || \
+    die "MSI has no per-machine directory action; ALLUSERS=1 would install per-machine into a per-user path"
+for table in InstallExecuteSequence InstallUISequence; do
+    grep -Eq $'^LightningPerMachineProgramsDir\tALLUSERS=1\t' "$REPORTS/msi-${table}.idt" || \
+        die "MSI $table does not run the per-machine directory action under ALLUSERS=1"
+done
+# The scope marker the in-app updater reads (src/update/InstallType.cpp), one
+# component per scope under opposite conditions, and the Start-menu shortcut
+# keyed to HKCU per-user and HKLM per-machine the same way.
+for pair in 'InstallScopeMarker_user:NOT ALLUSERS=1' 'InstallScopeMarker_machine:ALLUSERS=1' \
+            'StartMenuShortcutComponent:NOT ALLUSERS=1' 'StartMenuShortcutMachineComponent:ALLUSERS=1'; do
+    component="${pair%%:*}"; condition="${pair#*:}"
+    awk -F'\t' -v c="$component" -v k="$condition" '$1 == c && $5 == k {found=1} END {exit !found}' \
+        "$REPORTS/msi-Component.idt" || die "MSI component $component is missing or not conditioned on '$condition'"
+done
+[[ "$(grep -c $'\t.lightning-install-scope\t' "$REPORTS/msi-File.idt" || true)" -eq 2 ]] || \
+    die "MSI must carry exactly two .lightning-install-scope files (one per scope)"
+# The updater believes a "machine" marker only when HKLM names the directory
+# (the marker is user-writable in a per-user install). Root 2 = HKLM.
+awk -F'\t' '$2 == 2 && $4 == "MsiInstallDir" && $5 == "[INSTALLFOLDER]" && $6 == "StartMenuShortcutMachineComponent" {found=1} END {exit !found}' \
+    "$REPORTS/msi-Registry.idt" || die "MSI does not record its per-machine directory as HKLM MsiInstallDir"
 upgrade_code="$(jq -er '.upgrade_code' "$REPORTS/msi-identity.json")"
 grep -Fq "$upgrade_code" "$REPORTS/msi-Upgrade.idt" || die "MSI UpgradeCode mismatch"
 

@@ -193,6 +193,127 @@ asserts the MSI and NSIS installs deliver the whole plugin directory. A Wine
 pass is not native Windows acceptance and not a completed call: it proves the
 plugins load and register against the bundled runtime.
 
+## Install scope: just me, or all users (GitHub issue #14)
+
+Both installers install **per-user by default**, exactly as every release up to
+0.9.9 did: `%LOCALAPPDATA%\Programs\Lightning`, registration under `HKCU`, a
+Start-menu entry for that user, and **no UAC prompt**. Both can also install
+**per-machine** ("for all users"): `C:\Program Files\Lightning`, registration
+under `HKLM`, the all-users Start menu. That is what enterprise policies which
+only allow binaries from trusted locations, and deployment through Intune,
+SCCM/ConfigMgr, WAPT or GPO, need.
+
+| | Per-user (default) | Per-machine |
+|---|---|---|
+| Setup EXE, interactive | "Just for me" (preselected) | "For all users" on the *Installation type* page; the installer relaunches itself elevated (one UAC prompt) |
+| Setup EXE, silent | `Lightning-…-setup.exe /S` or `/S /CURRENTUSER` | `Lightning-…-setup.exe /S /ALLUSERS` |
+| MSI | `msiexec /i Lightning-….msi /qn` | `msiexec /i Lightning-….msi ALLUSERS=1 /qn` (elevated) |
+| Custom directory | Setup: `/D=C:\path` (must be LAST, unquoted); MSI: `INSTALLFOLDER=C:\path\` | same |
+| Uninstall, silent | `"…\Uninstall.exe" /S` / `msiexec /x {ProductCode} /qn` | same, elevated; the ARP entry carries `QuietUninstallString` for the setup EXE |
+
+`Uninstall.exe /S` **returns before the uninstall has finished**: like every
+NSIS uninstaller it copies itself to `%TEMP%`, starts that copy and exits. A
+deployment tool that must wait should run
+`"…\Uninstall.exe" /S _?=C:\Program Files\Lightning` (the `_?=` form runs in
+place and waits; it cannot delete its own `Uninstall.exe`, so remove the
+folder afterwards) or wait for the Settings → Apps entry to disappear.
+
+Switches are case-insensitive (`/AllUsers`, `/CurrentUser` also work);
+`/ALLUSERS` together with `/CURRENTUSER` is refused with exit code 87. A setup
+EXE started unelevated with `/ALLUSERS` relaunches itself through a UAC prompt
+and returns the elevated copy's exit code, or **1223** if the prompt was
+declined; deployment tools that already run as SYSTEM or an administrator never
+see a prompt. The MSI declares that it needs no elevation (that is what keeps
+the per-user default prompt-free), so run `ALLUSERS=1` from an elevated context.
+
+**Without a scope switch, a silent setup follows the installation that already
+exists** — the per-user one if this user has it, else the per-machine one —
+and only then defaults to per-user. That is what keeps a 0.9.9 client's own
+updater (which runs `setup.exe /S` and nothing else) upgrading the copy it has.
+
+**Two scopes can coexist, and it is confusing, so the installer says so.**
+Choosing the other scope on the page while a copy already exists asks before
+adding a second one (two Start-menu entries, two Settings → Apps entries, and
+updating one does not update the other). A silent install does not ask: it does
+what its switches say.
+
+**Scope marker.** Both installers leave `.lightning-install-scope` (`user` or
+`machine`) beside `Lightning.exe`. The NSIS script writes it at install time;
+the MSI carries both variants in components conditioned on `ALLUSERS=1` /
+`NOT ALLUSERS=1`, so exactly one lands. The uninstaller reads it to pick the
+registry hive and to elevate; the in-app updater reads it
+(`src/update/InstallType.cpp`) and a missing marker — every install made by
+0.9.9 or older — means per-user. **The updater believes `machine` only when
+`HKLM\Software\Mizerd\Lightning` names that same directory** (`InstallDir`
+from the setup EXE, `MsiInstallDir` from the MSI): in a per-user install the
+marker is writable by the user and by anything running as them, and a spoofed
+`machine` would put a UAC prompt, at a moment of malware's choosing, in front
+of someone primed to approve it. HKLM is writable only by an administrator.
+
+**In-app updates.** A per-user copy updates exactly as before, with no prompt.
+A per-machine copy hands the helper `--install-scope machine`: the MSI is run
+with `ALLUSERS=1` and the setup EXE with `/S /ALLUSERS`, both started through
+ShellExecuteEx "runas", so Windows shows **one** UAC prompt for the update the
+person just asked for. Declining it installs nothing and Lightning explains that
+an administrator has to approve or install the update. Without `ALLUSERS=1` a
+per-machine MSI upgrade would not even find the old version (Windows Installer
+searches only the per-user context) and would install a second copy — which is
+why the scope is always explicit, never guessed.
+
+The verified download sits in the user's own (writable) staging directory, and
+a UAC prompt can wait for minutes — an administrator may be typing credentials
+into it. So before the elevated launch the helper opens the file with **read
+sharing only** (no write, no delete, and therefore no rename of its folder),
+re-hashes it through that handle and holds the handle until the elevated
+installer exits: the bytes the administrator approves are the signed ones. The
+installer is then launched by the locked handle's **final path**
+(`GetFinalPathNameByHandleW`), never by the string that found the file: a
+junction in a parent directory could otherwise be re-pointed after the lock,
+and the elevated installer would open a different file by the same name. A
+final path that is not a plain drive or UNC path is refused
+(`unsafe-artifact-path`). The
+helper resolves `msiexec.exe` through `GetSystemDirectoryW()`, never through
+`%SystemRoot%`/`%windir%`, which a user can override in `HKCU\Environment`.
+Lightning calls `AllowSetForegroundWindow` before it quits so the prompt can
+come to the front instead of only flashing in the taskbar.
+
+**Another user's running Lightning blocks a per-machine upgrade.** Everyone on
+the machine runs the same files in Program Files. The setup EXE then fails
+with exit code 2 ("files in use") and changes nothing; the MSI schedules the
+locked files for replacement at the next restart and returns 3010, which
+Lightning reports as success although the new version only appears after that
+restart. Upgrade when nobody else is signed in with Lightning open — for a
+managed fleet, the deployment tool's own "close applications" option.
+
+**Nothing is written into the install directory at runtime**, so a read-only
+Program Files installation works: settings live in `HKCU\Software\MatrixClient`,
+the session in Credential Manager, stores and caches under `%APPDATA%` /
+`%LOCALAPPDATA%` of each user. Only the portable ZIP (with `portable.marker`)
+keeps data beside the executable. Lightning registers no URL protocol, file
+association, autostart entry, service or PATH change in either scope, so there
+is no `HKCU`-vs-`HKLM` question for any of those.
+
+**Why not the stock `MultiUser.nsh`:** offering All Users there needs
+`RequestExecutionLevel highest`, which puts a UAC prompt in front of every
+administrator's double-click — most home users — for an install that needs no
+rights. **Why not Microsoft's dual-purpose MSI recipe** (`ALLUSERS=2` +
+`MSIINSTALLPERUSER=1`, tree under `ProgramFiles64Folder`): Wine does not
+implement `MSIINSTALLPERUSER` and installs that package per-machine on a plain
+double-click, so the only automated MSI install this project runs would stop
+describing the default. Measured with wixl 0.106 and Wine 11. The MSI instead
+keeps its per-user tree and re-points its `Programs` directory at Program Files
+with a property-setting action when `ALLUSERS=1`.
+
+**Validation status.** Structural checks (`validate-windows-artifacts.sh`) and
+Wine installs of both scopes (`smoke-windows-wine.sh`) run on every Windows
+build. Wine's `IsUserAnAdmin()` is always true, so it cannot exercise the UAC
+relaunch, and it is not Windows. Native per-machine install, uninstall, standard
+user launch from Program Files, and the per-machine in-app update are **NOT
+TESTED** until they are run on the Windows guest. A per-machine MSI uninstalled
+from Settings → Apps must remove `C:\Program Files\Lightning`: Wine cannot show
+it (it does not keep ALLUSERS=1 for a maintenance run), so that is a hard gate
+for the native test.
+
 ## Security decision
 
 The Docker socket is required by the runner manager's Docker executor and is

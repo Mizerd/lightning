@@ -24,6 +24,7 @@
 #include "updater/UpdaterArgs.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -34,6 +35,14 @@
 #include <QSaveFile>
 #include <QTemporaryDir>
 #include <QTextStream>
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <shellapi.h>
+#endif
 
 namespace {
 
@@ -103,8 +112,154 @@ void writeStatus(const QString &statusPath, bool ok, const QString &mode,
         writeStderr(QStringLiteral("lightning-updater: cannot commit the status file"));
 }
 
-int runExternalInstaller(const updater::InstallPlan &plan)
+// runExternalInstaller's own negative codes. Anything >= 0 is the installer's
+// exit code.
+constexpr int kInstallerDidNotStart = -1;
+constexpr int kInstallerTimedOut = -2;
+constexpr int kInstallerCrashed = -3;
+// The UAC prompt for a per-machine upgrade was declined (or could not be
+// answered: a standard account with no administrator to type a password).
+constexpr int kElevationDeclined = -4;
+// The artifact could not be locked, or its bytes read through the lock no
+// longer match the signed digest. Nothing was launched.
+constexpr int kLockedArtifactMismatch = -5;
+// The locked file's final path could not be resolved into one the installer
+// can be launched with. Nothing was launched.
+constexpr int kLockedArtifactPathUnresolved = -6;
+
+#ifdef Q_OS_WIN
+// A PER-MACHINE upgrade, and nothing else, comes through here. CreateProcess
+// (what QProcess uses) cannot raise a UAC prompt; ShellExecuteEx with "runas"
+// is the documented way to start a program elevated, and it is the ONE place
+// in this helper where the argument vector has to become a single string --
+// built by windowsCommandLine(), which refuses rather than escapes anything a
+// path cannot contain.
+//
+// COM is deliberately not initialised: it is needed when ShellExecuteEx may
+// hand the verb to a shell extension or DDE, and neither applies to "runas" on
+// an .exe (msiexec or the NSIS setup).
+
+// Opens `path` so that nobody can write, delete or rename it while the handle
+// lives (FILE_SHARE_READ only), and hashes it THROUGH that handle. Returns the
+// handle only when the digest matches; INVALID_HANDLE_VALUE otherwise. While
+// the file is open its directory cannot be renamed either, so the path keeps
+// naming these bytes. The elevated reader (msiexec, or the loader mapping the
+// setup EXE) opens it for reading with read sharing, which this permits.
+HANDLE lockVerifiedArtifact(const QString &path, const QString &expectedSha256)
 {
+    const std::wstring native = path.toStdWString();
+    HANDLE file = CreateFileW(native.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
+                              nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return INVALID_HANDLE_VALUE;
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    QByteArray chunk(1024 * 1024, Qt::Uninitialized);
+    for (;;) {
+        DWORD got = 0;
+        if (!ReadFile(file, chunk.data(), DWORD(chunk.size()), &got, nullptr)) {
+            CloseHandle(file);
+            return INVALID_HANDLE_VALUE;
+        }
+        if (got == 0)
+            break;
+        hash.addData(QByteArrayView(chunk.constData(), qsizetype(got)));
+    }
+    if (QString::fromLatin1(hash.result().toHex()) != expectedSha256) {
+        CloseHandle(file);
+        return INVALID_HANDLE_VALUE;
+    }
+    return file;
+}
+
+int launchElevatedAndWait(const updater::InstallPlan &plan)
+{
+    bool ok = false;
+    const QString parameters = updater::windowsCommandLine(plan.arguments, &ok);
+    if (!ok)
+        return kInstallerDidNotStart;
+    const std::wstring file = plan.program.toStdWString();
+    const std::wstring params = parameters.toStdWString();
+    const std::wstring directory = plan.workingDirectory.toStdWString();
+
+    SHELLEXECUTEINFOW info = {};
+    info.cbSize = sizeof(info);
+    info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+    info.lpVerb = L"runas";
+    info.lpFile = file.c_str();
+    info.lpParameters = params.c_str();
+    info.lpDirectory = directory.empty() ? nullptr : directory.c_str();
+    info.nShow = SW_SHOWNORMAL;
+    if (!ShellExecuteExW(&info)) {
+        return GetLastError() == ERROR_CANCELLED ? kElevationDeclined
+                                                 : kInstallerDidNotStart;
+    }
+    if (!info.hProcess)
+        return kInstallerDidNotStart;
+    const DWORD waited = WaitForSingleObject(info.hProcess, DWORD(kInstallerTimeoutMs));
+    if (waited != WAIT_OBJECT_0) {
+        // An elevated process cannot be terminated from this unelevated one,
+        // so a timeout here only stops WAITING; it is reported as a failure
+        // exactly like the unelevated path's timeout.
+        CloseHandle(info.hProcess);
+        return kInstallerTimedOut;
+    }
+    DWORD exitCode = 0;
+    const BOOL gotCode = GetExitCodeProcess(info.hProcess, &exitCode);
+    CloseHandle(info.hProcess);
+    // An NTSTATUS crash code (0xC0000005 &c.) does not fit a positive int and
+    // must not read as one of the negative codes above.
+    if (!gotCode || exitCode > 0x7fffffffUL)
+        return kInstallerCrashed;
+    return int(exitCode);
+}
+
+// The path of the object `file` is open on, with every junction and link on
+// the way resolved. Empty on failure.
+QString finalPathOf(HANDLE file)
+{
+    const DWORD flags = FILE_NAME_NORMALIZED | VOLUME_NAME_DOS;
+    std::wstring buffer(MAX_PATH, L'\0');
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        const DWORD length = GetFinalPathNameByHandleW(file, buffer.data(),
+                                                       DWORD(buffer.size()), flags);
+        if (length == 0)
+            return QString();
+        if (length < buffer.size())
+            return QString::fromWCharArray(buffer.data(), int(length));
+        buffer.assign(length + 1, L'\0');   // too small: `length` is what it needs
+    }
+    return QString();
+}
+
+int runElevatedWindowsInstaller(const updater::InstallPlan &plan,
+                                const QString &expectedSha256)
+{
+    // Held from BEFORE the UAC prompt until the elevated process has exited.
+    const HANDLE locked = lockVerifiedArtifact(plan.lockedArtifact, expectedSha256);
+    if (locked == INVALID_HANDLE_VALUE)
+        return kLockedArtifactMismatch;
+    // Launch the file that is LOCKED, not the string that found it: a junction
+    // in a parent directory can be re-pointed after the lock is taken, and the
+    // elevated installer would open whatever the string names by then.
+    updater::InstallPlan retargeted = plan;
+    const QString launchable = updater::launchablePathFromFinal(finalPathOf(locked));
+    int result = kLockedArtifactPathUnresolved;
+    if (updater::retargetPlanToLockedFile(retargeted, launchable))
+        result = launchElevatedAndWait(retargeted);
+    CloseHandle(locked);
+    return result;
+}
+#endif
+
+int runExternalInstaller(const updater::InstallPlan &plan, const QString &expectedSha256)
+{
+#ifdef Q_OS_WIN
+    if (plan.elevateOnWindows)
+        return runElevatedWindowsInstaller(plan, expectedSha256);
+#else
+    Q_UNUSED(expectedSha256);
+#endif
     QProcess process;
     process.setProgram(plan.program);
     process.setArguments(plan.arguments);   // argument VECTOR, never a string
@@ -115,14 +270,14 @@ int runExternalInstaller(const updater::InstallPlan &plan)
 
     process.start();
     if (!process.waitForStarted(30000))
-        return -1;
+        return kInstallerDidNotStart;
     if (!process.waitForFinished(kInstallerTimeoutMs)) {
         process.kill();
         process.waitForFinished(5000);
-        return -2;
+        return kInstallerTimedOut;
     }
     if (process.exitStatus() != QProcess::NormalExit)
-        return -3;
+        return kInstallerCrashed;
     return process.exitCode();
 }
 
@@ -298,7 +453,7 @@ int main(int argc, char *argv[])
     QString failureCode;
 
     if (strategy.plan.requiresExternalProcess) {
-        const int installerExit = runExternalInstaller(strategy.plan);
+        const int installerExit = runExternalInstaller(strategy.plan, args.expectedSha256);
         // 3010 and 1641 are SUCCESSES that ask for a restart, and 1602 is the
     // user cancelling. Treating every non-zero code as a refusal told people
     // the installer had rejected an update it had in fact applied, then
@@ -307,9 +462,27 @@ int main(int argc, char *argv[])
         installerExit == 3010 || installerExit == 1641;
     if (installerExit != 0 && !installerRebootPending) {
             failureExit = ExitInstallerFailed;
-            failureCode = installerExit < 0
-                              ? QStringLiteral("installer-did-not-run")
-                              : QStringLiteral("installer-exit-%1").arg(installerExit);
+            // A declined UAC prompt is its own outcome: nothing is broken and
+            // nothing was changed, and the person can act on it -- approve
+            // the prompt next time, or ask an administrator. The setup EXE
+            // reports the same thing as 1223 (ERROR_CANCELLED) when it had to
+            // elevate itself, so both read the same to the application.
+            if (installerExit == kElevationDeclined) {
+                failureCode = QStringLiteral("elevation-declined");
+            } else if (installerExit == kLockedArtifactPathUnresolved) {
+                // A safety refusal ("unsafe-" is explained as one): the
+                // locked file's real location is not one to launch.
+                failureCode = QStringLiteral("unsafe-artifact-path");
+            } else if (installerExit == kLockedArtifactMismatch) {
+                // Same refusal, and same token, as the path-based re-hash
+                // above: the bytes are not the signed ones (or could not be
+                // held still to prove it). Nothing ran.
+                failureExit = ExitArtifactDigestMismatch;
+                failureCode = kDigestMismatchStatus;
+            } else
+                failureCode = installerExit < 0
+                                  ? QStringLiteral("installer-did-not-run")
+                                  : QStringLiteral("installer-exit-%1").arg(installerExit);
         }
     } else if (args.mode == updater::UpdaterMode::WindowsPortable) {
         QString archiveError;

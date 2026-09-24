@@ -232,8 +232,8 @@ packaged installation.
 
 | Format | What Lightning does |
 |---|---|
-| Windows MSI | Downloads and verifies the MSI, then the helper runs Windows Installer against it. The MSI is per-user with a stable UpgradeCode, so this is an ordinary major upgrade and needs no elevation. |
-| Windows Setup EXE | Downloads and verifies the NSIS installer, then the helper runs it in the installer's documented silent mode. Per-user, so no elevation prompt. |
+| Windows MSI | Downloads and verifies the MSI, then the helper runs Windows Installer against it: an ordinary major upgrade (stable UpgradeCode). A per-user copy needs no elevation. A copy installed **for all users** is upgraded with `ALLUSERS=1`, started elevated, so Windows shows one UAC prompt; declining it changes nothing. |
+| Windows Setup EXE | Downloads and verifies the NSIS installer, then the helper runs it silently with the installation's own scope (`/S /CURRENTUSER`, or `/S /ALLUSERS` started elevated for an all-users copy — one UAC prompt). A per-user copy gets no prompt. |
 | Windows portable ZIP | Downloads and verifies the ZIP, extracts it to a staging directory with strict path checks, validates that the result really is a Lightning layout, then swaps directories and rolls back on any failure. |
 | Linux AppImage | Downloads and verifies the new AppImage, preserves the executable bit, and atomically replaces the running AppImage, restoring the previous file if the replacement fails. |
 | Linux DEB | Downloads and verifies the `.deb`, then hands it to the system package manager through PolicyKit. dpkg/APT stays the owner of every installed file. |
@@ -390,9 +390,10 @@ three different code paths and passing one says nothing about the others.
 1. Settings -> Updates -> *Check for updates*. It should report 0.7.2.
    If it reports nothing, the manifest is the first thing to look at, not
    the client: fetch it yourself and check its `version`.
-2. Install. For the MSI and Setup EXE this needs no elevation prompt —
-   **if Windows asks for administrator rights, that is a defect**, not a
-   normal step, because both are per-user installs.
+2. Install. For a per-user MSI or Setup EXE installation this needs no
+   elevation prompt — **if Windows asks for administrator rights there, that
+   is a defect**. An installation made *for all users* (Program Files) is the
+   one case where exactly one UAC prompt is expected.
 3. After the restart, confirm all of:
    - `--version` reports 0.7.2;
    - you are **still signed in** — a re-login prompt means the session or

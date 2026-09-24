@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 #include <QStringView>
 
 #include <functional>
@@ -48,6 +49,24 @@ enum class InstallType {
     Unknown,
 };
 
+// Who a Windows MSI / setup-EXE installation belongs to. Every other install
+// type is User: the question only has two answers where Windows Installer or
+// the NSIS installer can place the same package in two contexts.
+//
+// It matters to the updater and to nothing else. A Machine installation lives
+// in Program Files with its registration under HKLM, so its upgrade must run
+// ELEVATED and in the SAME context -- an unelevated per-user upgrade of it is
+// not an upgrade at all, it installs a second copy beside the first (an MSI's
+// FindRelatedProducts only sees its own context).
+enum class InstallScope {
+    User,
+    Machine,
+};
+
+// "user" / "machine": the value the installers write into the scope marker
+// and the value of the helper's --install-scope option.
+QString installScopeId(InstallScope scope);
+
 // Canonical wire ids (spec §5). These are the artifact keys in the manifest.
 QString installTypeId(InstallType type);
 // Human-readable label for the UI. Never used as a wire value.
@@ -91,6 +110,29 @@ struct InstallEnvironment {
     // travel -- one copied into an AppImage's directory must never turn it
     // into a .deb install and raise a PolicyKit prompt for the wrong package.
     std::function<QString()> readInstallMarker;
+    // Contents of the SCOPE marker (`.lightning-install-scope`) beside the
+    // executable, or a null QString when there is none. Written by the NSIS
+    // installer at install time and carried by the MSI as one of two
+    // conditioned components. Consulted only on Windows and only for the MSI
+    // and setup-EXE types; anything but exactly "machine" -- including no
+    // marker at all, which is every installation made by 0.9.9 or older --
+    // means User.
+    //
+    // The marker ALONE is not trusted with "machine". In a per-user
+    // installation the user (and anything running as them) can write it, and
+    // a spoofed "machine" would make every update raise a UAC prompt the
+    // person is primed to approve -- for a program malware chose the moment
+    // of -- and upgrade into a second, per-machine copy. So "machine" also
+    // needs readMachineInstallDirs() to name THIS directory, and HKLM is
+    // writable only by an administrator.
+    std::function<QString()> readInstallScopeMarker;
+    // The per-machine installation directories recorded under
+    // HKLM\Software\Mizerd\Lightning: "InstallDir" (setup EXE) and
+    // "MsiInstallDir" (MSI). Empty when there are none, and always empty off
+    // Windows. A hand-built environment that leaves this unset has none.
+    std::function<QStringList()> readMachineInstallDirs;
+    // The directory the running executable is in, compared against the above.
+    QString applicationDir;
     // True when the file at `path` carries the AppImage magic (an ELF whose
     // bytes 8..10 read "AI" followed by type 1 or 2). $APPIMAGE is an
     // environment variable, and the AppImage strategy chmods and REPLACES
@@ -126,8 +168,17 @@ bool fileLooksLikeAppImage(const QString &path);
 // File name of that marker, written by the Windows installers into the
 // installation directory. One line, one canonical install-type id.
 inline constexpr char kInstallMarkerFileName[] = ".lightning-install-type";
+// The scope marker's file name. The NSIS script and the WiX generator in
+// packaging-ci write exactly this name.
+inline constexpr char kInstallScopeMarkerFileName[] = ".lightning-install-scope";
 
 InstallEnvironment defaultInstallEnvironment();
+
+// True when a directory recorded in the registry names `applicationDir`.
+// Separators, a trailing separator and letter case are not significant (the
+// MSI records "[INSTALLFOLDER]" with a trailing backslash, Qt reports '/').
+// An empty value never matches.
+bool sameInstallDirectory(const QString &registered, const QString &applicationDir);
 
 struct InstallDetection {
     InstallType type = InstallType::Unknown;
@@ -138,6 +189,10 @@ struct InstallDetection {
     bool automaticInstallAllowed = false;
     // A development build may only CHECK when the opt-in env var is set.
     bool developmentCheckAllowed = false;
+    // Machine only for a Windows MSI or setup-EXE installation whose scope
+    // marker says so AND whose directory is registered under HKLM. See
+    // InstallScope and InstallEnvironment::readInstallScopeMarker.
+    InstallScope scope = InstallScope::User;
 };
 
 InstallDetection detectInstall(const InstallEnvironment &environment);

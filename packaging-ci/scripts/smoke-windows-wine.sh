@@ -119,6 +119,26 @@ assert_gstreamer_installed() {
         die "$kind Wine install did not deliver gstreamer-1.0/libgstwebrtc.dll"
 }
 
+# The scope marker the in-app updater reads (src/update/InstallType.cpp) to
+# decide whether an upgrade must run per-machine and elevated. A per-user
+# install that said "machine" would raise a UAC prompt for every update; a
+# per-machine one that said "user" would be upgraded into a SECOND copy.
+assert_install_scope() {
+    local root="$1" expected="$2" kind="$3" actual
+    actual="$(tr -d '\r\n' <"$root/.lightning-install-scope" 2>/dev/null || true)"
+    [[ "$actual" == "$expected" ]] || \
+        die "$kind Wine install wrote install scope '${actual:-<missing>}', expected '$expected'"
+}
+
+# A per-user copy must not exist beside a per-machine one the smoke just made.
+assert_no_per_user_copy() {
+    local kind="$1"
+    if find "$WINEPREFIX/drive_c/users" -type f -path '*/AppData/Local/Programs/Lightning/Lightning.exe' \
+        -print -quit | grep -q .; then
+        die "$kind all-users install ALSO created a per-user copy"
+    fi
+}
+
 # Prove the packaged binary defaults to the Rust (E2EE) backend and the native
 # Windows secret store — the two production-critical properties. Wine can read a
 # GUI-subsystem PE's redirected stdout, so --build-info is capturable here.
@@ -171,12 +191,25 @@ run_queue_selftest() {
     assert_queue_selftest "Windows (wine)" "$log" "$status"
 }
 
+# THE CALL SOUNDS, asked of the shipped exe. WARN-ONLY, and under Wine in a
+# container with no sound server the answer is expected to be UNMEASURED:
+# QSoundEffect needs an output device to reach Ready. The transcript is still
+# worth having -- it names the output Wine offered and whether the Qt
+# Multimedia backend loaded at all. See assert_call_sounds_status in lib.sh.
+run_call_sounds_status() {
+    local exe="$1" log="$2" status=0
+    timeout 60s wine64 "$exe" --call-sounds-status >"$log" 2>&1 || status=$?
+    assert_call_sounds_status "Windows (wine)" "$log" "$status"
+}
+
 new_prefix
 run_version "$STAGE/Lightning.exe" "$REPORTS/wine-portable-version.log"
 run_call_media_status "$STAGE/Lightning.exe" \
     "$REPORTS/wine-portable-call-media-status.log"
 run_queue_selftest "$STAGE/Lightning.exe" \
     "$REPORTS/wine-portable-queue-selftest.log"
+run_call_sounds_status "$STAGE/Lightning.exe" \
+    "$REPORTS/wine-portable-call-sounds-status.log"
 run_image_format_status "$STAGE/Lightning.exe" \
     "$REPORTS/wine-portable-image-format-status.log"
 run_build_info "$STAGE/Lightning.exe" "$REPORTS/wine-portable-build-info.log"
@@ -200,6 +233,7 @@ msi_exe="$(find "$WINEPREFIX/drive_c/users" -type f -path '*/AppData/Local/Progr
 [[ -f "$(dirname "$msi_exe")/lightning-updater.exe" ]] || \
     die "MSI Wine install did not create lightning-updater.exe"
 assert_gstreamer_installed "$(dirname "$msi_exe")" MSI
+assert_install_scope "$(dirname "$msi_exe")" user MSI
 run_version "$msi_exe" "$REPORTS/wine-msi-version.log"
 run_build_info "$msi_exe" "$REPORTS/wine-msi-build-info.log"
 timeout 120s wine64 msiexec /x "$msi_windows" /qn /norestart \
@@ -220,6 +254,7 @@ nsis_exe="$(find "$WINEPREFIX/drive_c/users" -type f -path '*/AppData/Local/Prog
 [[ -f "$(dirname "$nsis_exe")/lightning-updater.exe" ]] || \
     die "NSIS Wine install did not create lightning-updater.exe"
 assert_gstreamer_installed "$(dirname "$nsis_exe")" NSIS
+assert_install_scope "$(dirname "$nsis_exe")" user NSIS
 run_version "$nsis_exe" "$REPORTS/wine-nsis-version.log"
 uninstaller="$(find "$(dirname "$nsis_exe")" -maxdepth 1 -type f -iname 'Uninstall.exe' -print -quit)"
 [[ -n "$uninstaller" ]] || die "NSIS uninstaller is missing"
@@ -227,6 +262,68 @@ timeout 120s wine64 "$uninstaller" /S >"$REPORTS/wine-nsis-uninstall.log" 2>&1
 wineserver -w
 [[ ! -e "$nsis_exe" ]] || die "NSIS Wine uninstall left Lightning.exe behind"
 [[ -f "$marker" ]] || die "NSIS uninstall removed simulated user data"
+finish_prefix
+
+# --- ALL USERS (GitHub issue #14) -------------------------------------------
+#
+# The same two installers, per-machine: Program Files, HKLM, the scope marker
+# saying "machine", and a clean uninstall. WINE IS NOT WINDOWS, and here it
+# differs in three known ways, so this proves the payload and the registration
+# and NOT the Windows behaviour around them: IsUserAnAdmin() is always true, so
+# the setup's UAC relaunch never runs; Wine resolves the Start menu per-user
+# even for ALLUSERS=1; and Wine does not restore ALLUSERS=1 when an installed
+# product is maintained, so the MSI uninstall below passes it explicitly (real
+# Windows keeps a product in the context it was installed in).
+machine_key='HKLM\Software\Mizerd\Lightning'
+machine_arp='HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightning'
+reg_value() { # $1 key, $2 value name -> the data, or nothing
+    wine64 reg query "$1" /v "$2" 2>/dev/null | tr -d '\r' | \
+        awk -v n="$2" '$1 == n { sub(/^[ \t]+/, ""); sub(/^[^ \t]+[ \t]+[^ \t]+[ \t]+/, ""); print }'
+}
+
+new_prefix
+machine_root="$WINEPREFIX/drive_c/Program Files/Lightning"
+timeout 180s wine64 "$setup" /S /ALLUSERS >"$REPORTS/wine-nsis-allusers-install.log" 2>&1
+wineserver -w
+[[ -f "$machine_root/Lightning.exe" ]] || die "NSIS /S /ALLUSERS did not install into Program Files"
+[[ -f "$machine_root/lightning-updater.exe" ]] || \
+    die "NSIS /S /ALLUSERS did not install lightning-updater.exe"
+assert_no_per_user_copy NSIS
+assert_gstreamer_installed "$machine_root" "NSIS all-users"
+assert_install_scope "$machine_root" machine "NSIS all-users"
+[[ "$(reg_value "$machine_key" InstallDir)" == 'C:\Program Files\Lightning' ]] || \
+    die "NSIS all-users install did not record its directory under HKLM"
+[[ "$(reg_value "$machine_arp" DisplayVersion)" == "$version" ]] || \
+    die "NSIS all-users install has no HKLM uninstall entry for $version"
+run_version "$machine_root/Lightning.exe" "$REPORTS/wine-nsis-allusers-version.log"
+timeout 120s wine64 "$machine_root/Uninstall.exe" /S >"$REPORTS/wine-nsis-allusers-uninstall.log" 2>&1
+wineserver -w
+[[ ! -e "$machine_root/Lightning.exe" ]] || die "NSIS all-users uninstall left Lightning.exe behind"
+[[ -z "$(reg_value "$machine_arp" DisplayName)" ]] || \
+    die "NSIS all-users uninstall left its HKLM uninstall entry behind"
+finish_prefix
+
+new_prefix
+machine_root="$WINEPREFIX/drive_c/Program Files/Lightning"
+msi_windows="$(winepath -w "$msi")"
+timeout 120s wine64 msiexec /i "$msi_windows" ALLUSERS=1 /qn /norestart \
+    >"$REPORTS/wine-msi-allusers-install.log" 2>&1
+wineserver -w
+[[ -f "$machine_root/Lightning.exe" ]] || die "MSI ALLUSERS=1 did not install into Program Files"
+[[ -f "$machine_root/lightning-updater.exe" ]] || \
+    die "MSI ALLUSERS=1 did not install lightning-updater.exe"
+assert_no_per_user_copy MSI
+assert_gstreamer_installed "$machine_root" "MSI all-users"
+assert_install_scope "$machine_root" machine "MSI all-users"
+[[ "$(reg_value "$machine_key" installed)" == 0x1 ]] || \
+    die "MSI ALLUSERS=1 did not install its per-machine (HKLM) shortcut component"
+[[ "$(reg_value "$machine_key" MsiInstallDir)" == 'C:\Program Files\Lightning\' ]] || \
+    die "MSI ALLUSERS=1 did not record HKLM MsiInstallDir; the updater would treat it as per-user"
+run_version "$machine_root/Lightning.exe" "$REPORTS/wine-msi-allusers-version.log"
+timeout 120s wine64 msiexec /x "$msi_windows" ALLUSERS=1 /qn /norestart \
+    >"$REPORTS/wine-msi-allusers-uninstall.log" 2>&1
+wineserver -w
+[[ ! -e "$machine_root/Lightning.exe" ]] || die "MSI all-users uninstall left Lightning.exe behind"
 finish_prefix
 
 jq -n \
@@ -241,5 +338,8 @@ jq -n \
       update_helper_installed_by_msi_and_nsis:true,
       application_version:$version, portable_version:true,
       msi_install_version_uninstall:true, nsis_install_version_uninstall:true,
-      simulated_user_data_preserved:true}' >"$REPORTS/wine-smoke.json"
-printf 'Wine supplemental smoke passed (portable, MSI, NSIS; --build-info rust+wincred); native Windows NOT TESTED\n'
+      simulated_user_data_preserved:true,
+      install_scope_marker_user:true,
+      nsis_all_users_install_uninstall:true, msi_all_users_install_uninstall:true,
+      all_users_uac_relaunch_tested:false}' >"$REPORTS/wine-smoke.json"
+printf 'Wine supplemental smoke passed (portable, MSI, NSIS, both installers per-user and all-users; --build-info rust+wincred); native Windows NOT TESTED\n'

@@ -10,7 +10,7 @@
 //
 //   lightning-updater --mode <install-type> --artifact <path> --pid <n>
 //                     --target <path> --status <path> --sha256 <64 hex>
-//                     [--relaunch <path>]
+//                     [--relaunch <path>] [--install-scope user|machine]
 //
 // Every option may appear at most once, every value is validated, and any
 // unrecognised option, positional argument, duplicate, or malformed value is
@@ -35,6 +35,14 @@
 // The parser only validates the SHAPE of the value here; the comparison
 // happens in main.cpp after the application has exited, which is the last
 // moment before the bytes are consumed.
+//
+// `--install-scope` is optional too, and valid ONLY for windows-msi and
+// windows-setup: those are the two packages Windows can install either for
+// one user or for the whole machine. `machine` makes the upgrade run in the
+// per-machine context and elevated (see InstallStrategies.h); absent means
+// `user`, exactly what every helper before it did. Omission is again the safe
+// direction: it can only fail to ask for elevation, never ask for it
+// unprompted. Any other value, or the option on another mode, is refused.
 //
 // Every path option refuses a symbolic link. Lightning hands the helper
 // fully resolved paths, and a link would redirect a chmod, a replace, or a
@@ -132,6 +140,23 @@ inline bool isSelfInstallable(UpdaterMode mode)
 // external installer.
 bool isInProcessMode(UpdaterMode mode);
 
+// Who the installation being upgraded belongs to. Mirrors
+// lightning::update::InstallScope; the helper links none of the application,
+// so it carries its own copy of the two values.
+enum class InstallScope {
+    User,     // "user"    -- the default, and every installation up to 0.9.9
+    Machine,  // "machine" -- Program Files / HKLM; upgraded elevated
+};
+
+// Inline, like modeFromString above, so the application-side install-type test
+// can compare it with lightning::update::installScopeId() without linking the
+// helper's sources.
+inline QString installScopeToString(InstallScope scope)
+{
+    return scope == InstallScope::Machine ? QStringLiteral("machine")
+                                          : QStringLiteral("user");
+}
+
 enum class ArgsError {
     None = 0,
     EmptyArguments,
@@ -154,6 +179,7 @@ enum class ArgsError {
     StatusParentMissing,
     InvalidPid,
     InvalidDigest,    // --sha256 is not exactly 64 lowercase hex characters
+    InvalidInstallScope, // not "user"/"machine", or given for a mode it does not apply to
 };
 
 struct UpdaterArguments {
@@ -169,6 +195,8 @@ struct UpdaterArguments {
     // The manifest's SHA-256 for the artifact, 64 lowercase hex characters.
     // Shape-validated here; compared against the file in main.cpp.
     QString expectedSha256;
+    // User unless --install-scope machine was supplied (MSI / setup only).
+    InstallScope installScope = InstallScope::User;
 
     // The helper relaunches ONLY when Lightning explicitly asked it to.
     bool relaunchRequested() const { return !relaunchPath.isEmpty(); }

@@ -1337,12 +1337,14 @@ for fmt in sorted(FORMAT_SELECTOR):
 # The Windows lane (smoke-windows-wine.sh) is NOT wired yet: that script is
 # owned by the per-machine-install work (issue #14) while it is in flight, and
 # the hunk that wires it waits for that. Add it to this tuple when it lands.
-for script in ("validate-macos-artifacts.sh",):
+for script in ("smoke-windows-wine.sh", "validate-macos-artifacts.sh"):
     src = _strip_shell_comments(_read("scripts", script))
     check("--call-sounds-status" in src,
           f"{script} asks the shipped artifact whether its call sounds load")
     check("assert_call_sounds_status" in src,
           f"{script} judges the call-sounds transcript through the shared helper")
+check("timeout 60s wine64 \"$exe\" --call-sounds-status" in _read("scripts", "smoke-windows-wine.sh"),
+      "the Windows call-sounds probe is bounded in time")
 check("run_bounded 60 \"$CONTENTS/MacOS/$APP_NAME\" --call-sounds-status" in _macos_src,
       "the macOS call-sounds probe is bounded without GNU timeout")
 check("assert_call_sounds_status()" in lib_src,
@@ -1815,13 +1817,17 @@ check("UPDATE_ALLOW_LATEST_ROLLBACK" in _publish_update
       and "refusing to move the latest slot backwards" in _publish_update,
       "publish-update-manifest refuses a backwards latest promotion by default")
 
-# 14. The NSIS installer VALIDATES the HKCU install directory (user-writable,
-#     and there is no directory page) before trusting it.
+# 14. The NSIS installer validates both remembered install directories
+#     (HKCU per-user, HKLM all-users) before trusting them.
 _nsi = _read("packaging", "windows", "installer.nsi")
 check(re.search(r"^\s*Function \.onInit", _nsi, re.M) is not None
-      and 'IfFileExists "$INSTDIR\\Lightning.exe"' in _nsi
-      and 'ReadRegStr $0 HKCU "Software\\Mizerd\\Lightning" "InstallDir"' in _nsi,
-      "installer.nsi validates the registry install directory in .onInit")
+      and re.search(r"^\s*Call DetectExistingInstalls", _nsi, re.M) is not None
+      and '!define REG_APP "Software\\Mizerd\\Lightning"' in _nsi
+      and 'ReadRegStr $ExistingUserDir HKCU "${REG_APP}" "InstallDir"' in _nsi
+      and '${AndIfNot} ${FileExists} "$ExistingUserDir\\Lightning.exe"' in _nsi
+      and 'ReadRegStr $ExistingMachineDir HKLM "${REG_APP}" "InstallDir"' in _nsi
+      and '${AndIfNot} ${FileExists} "$ExistingMachineDir\\Lightning.exe"' in _nsi,
+      "installer.nsi validates both registry install directories in .onInit")
 # The silent install must be ABLE to fail. `File /r` fails with a sharing
 # violation on any mapped file (Lightning running, or a DLL the update helper
 # holds), and without these three the failure could not reach an exit code:

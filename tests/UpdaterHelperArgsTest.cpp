@@ -95,6 +95,21 @@ private slots:
     void msiPlanIsExactArgv();
     void setupPlanUsesNsisSilentSwitchFirst();
     void inProcessModesRequireNoExternalProcess();
+    void perMachineMsiPlanAddsAllUsersAndElevates();
+    void perMachineSetupPlanPassesAllUsersAndElevates();
+    void installScopeIsOptionalAndDefaultsToUser();
+    void installScopeParsesForTheTwoWindowsInstallers();
+    void installScopeIsRefusedForEveryOtherMode_data();
+    void installScopeIsRefusedForEveryOtherMode();
+    void installScopeRefusesAnythingButUserOrMachine_data();
+    void installScopeRefusesAnythingButUserOrMachine();
+    void windowsCommandLineRoundTripsThroughCommandLineToArgv_data();
+    void windowsCommandLineRoundTripsThroughCommandLineToArgv();
+    void windowsCommandLineRefusesQuotesAndControlCharacters();
+    void finalPathBecomesALaunchablePath_data();
+    void finalPathBecomesALaunchablePath();
+    void elevatedPlansAreRetargetedToTheLockedFile();
+    void retargetRefusesAPlanThatDoesNotNameTheLockedFile();
     void debPrefersAptGetThenDpkg();
     void debWithoutPkexecFails();
     void rpmProbeOrderIsDnf5DnfRpmOstreeRpm();
@@ -685,8 +700,10 @@ void UpdaterHelperArgsTest::msiPlanIsExactArgv()
     QVERIFY(!result.plan.arguments.at(1).contains(QLatin1Char('/')));
     QCOMPARE(result.plan.arguments.at(2), QStringLiteral("/qb"));
     QCOMPARE(result.plan.arguments.at(3), QStringLiteral("REINSTALLMODE=vomus"));
-    // The MSI is per-user; the helper must never try to elevate for it.
+    // A per-user MSI -- the default, and every install before issue #14 --
+    // keeps exactly this vector, and the helper must never elevate for it.
     QVERIFY(!result.plan.elevates);
+    QVERIFY(!result.plan.elevateOnWindows);
 }
 
 void UpdaterHelperArgsTest::setupPlanUsesNsisSilentSwitchFirst()
@@ -709,14 +726,362 @@ void UpdaterHelperArgsTest::setupPlanUsesNsisSilentSwitchFirst()
              QStringLiteral("\\staging\\Lightning-0.8.0-abc1234-windows-x86_64-setup.exe"));
     QCOMPARE(result.plan.workingDirectory, QStringLiteral("\\staging"));
     QVERIFY(!result.plan.program.contains(QLatin1Char('/')));
-    QCOMPARE(result.plan.arguments, kNsisSilentSwitches);
+    // "/S" first, then the scope -- explicit, so the installer never has to
+    // guess which of two copies a person with both is upgrading.
+    QCOMPARE(result.plan.arguments,
+             QStringList(kNsisSilentSwitches) << QStringLiteral("/CURRENTUSER"));
     // NSIS parses its switches positionally: /S must be first.
     QCOMPARE(result.plan.arguments.first(), QStringLiteral("/S"));
-    // Per-user installer: no elevation.
+    // Per-user installer: no elevation of either kind.
     QVERIFY(!result.plan.elevates);
+    QVERIFY(!result.plan.elevateOnWindows);
+    QVERIFY(result.plan.lockedArtifact.isEmpty());
     // We deliberately do not force an install directory.
     for (const QString &argument : result.plan.arguments)
         QVERIFY(!argument.startsWith(QStringLiteral("/D")));
+}
+
+// ISSUE #14: a per-machine ("all users") MSI must be upgraded in the
+// per-machine context. Without ALLUSERS=1 Windows Installer searches only the
+// per-user context for the old version, finds none, and installs a SECOND copy
+// in %LOCALAPPDATA% beside the one in Program Files.
+void UpdaterHelperArgsTest::perMachineMsiPlanAddsAllUsersAndElevates()
+{
+    UpdaterArguments args;
+    args.mode = UpdaterMode::WindowsMsi;
+    args.installScope = updater::InstallScope::Machine;
+    args.artifactPath = QStringLiteral("C:/Users/x/AppData/Local/updates/Lightning.msi");
+
+    const StrategyResult result = planWindowsMsi(args);
+    QVERIFY(result.ok());
+    QCOMPARE(result.plan.arguments,
+             (QStringList{QStringLiteral("/i"),
+                          QStringLiteral("C:\\Users\\x\\AppData\\Local\\updates\\Lightning.msi"),
+                          QStringLiteral("/qb"), QStringLiteral("REINSTALLMODE=vomus"),
+                          QStringLiteral("ALLUSERS=1")}));
+    // Started through ShellExecuteEx "runas": one UAC prompt for an update
+    // the person asked for. Never pkexec, which is the Linux meaning.
+    QVERIFY(result.plan.elevateOnWindows);
+    QVERIFY(!result.plan.elevates);
+    // And the package msiexec will read is held open, read-shared only, and
+    // re-hashed through that handle for as long as the prompt and the install
+    // take -- it sits in a user-writable directory.
+    QCOMPARE(result.plan.lockedArtifact,
+             QStringLiteral("C:\\Users\\x\\AppData\\Local\\updates\\Lightning.msi"));
+}
+
+void UpdaterHelperArgsTest::perMachineSetupPlanPassesAllUsersAndElevates()
+{
+    UpdaterArguments args;
+    args.mode = UpdaterMode::WindowsSetup;
+    args.installScope = updater::InstallScope::Machine;
+    args.artifactPath = QStringLiteral("/staging/Lightning-setup.exe");
+
+    const StrategyResult result = planWindowsSetup(args);
+    QVERIFY(result.ok());
+    QCOMPARE(result.plan.arguments,
+             (QStringList{QStringLiteral("/S"), QStringLiteral("/ALLUSERS")}));
+    QVERIFY(result.plan.elevateOnWindows);
+    QVERIFY(!result.plan.elevates);
+    // The setup IS the artifact: the locked file is the one that runs elevated.
+    QCOMPARE(result.plan.lockedArtifact, result.plan.program);
+    QVERIFY(!result.plan.lockedArtifact.isEmpty());
+    for (const QString &argument : result.plan.arguments)
+        QVERIFY(!argument.startsWith(QStringLiteral("/D")));
+}
+
+void UpdaterHelperArgsTest::installScopeIsOptionalAndDefaultsToUser()
+{
+    // What every helper before the option received, and still receives from
+    // a caller that omits it: per-user, never elevated.
+    for (const char *mode : {"windows-msi", "windows-setup"}) {
+        const ArgsParseResult parsed =
+            parseUpdaterArgs(baseArgs(QString::fromLatin1(mode), m_targetFile));
+        QVERIFY2(parsed.ok(), mode);
+        QCOMPARE(int(parsed.args.installScope), int(updater::InstallScope::User));
+        QVERIFY(!planForMode(parsed.args).plan.elevateOnWindows);
+    }
+}
+
+void UpdaterHelperArgsTest::installScopeParsesForTheTwoWindowsInstallers()
+{
+    for (const char *mode : {"windows-msi", "windows-setup"}) {
+        for (const char *scope : {"user", "machine"}) {
+            QStringList arguments = baseArgs(QString::fromLatin1(mode), m_targetFile);
+            arguments << QStringLiteral("--install-scope") << QString::fromLatin1(scope);
+            const ArgsParseResult parsed = parseUpdaterArgs(arguments);
+            QVERIFY2(parsed.ok(), qPrintable(QStringLiteral("%1 %2: %3")
+                                                 .arg(QLatin1String(mode), QLatin1String(scope),
+                                                      parseErrorName(parsed.error))));
+            const bool machine = QLatin1String(scope) == QLatin1String("machine");
+            QCOMPARE(parsed.args.installScope,
+                     machine ? updater::InstallScope::Machine : updater::InstallScope::User);
+            QCOMPARE(updater::installScopeToString(parsed.args.installScope),
+                     QString::fromLatin1(scope));
+            // And the parsed value is what decides the elevation, end to end,
+            // with the artifact lock always travelling with it: an elevated
+            // plan that does not lock is exactly the TOCTOU the lock closes.
+            const InstallPlan plan = planForMode(parsed.args).plan;
+            QCOMPARE(plan.elevateOnWindows, machine);
+            QCOMPARE(!plan.lockedArtifact.isEmpty(), machine);
+        }
+    }
+    // Still at most once, like every option.
+    QStringList twice = baseArgs(QStringLiteral("windows-msi"), m_targetFile);
+    twice << QStringLiteral("--install-scope") << QStringLiteral("user")
+          << QStringLiteral("--install-scope") << QStringLiteral("machine");
+    QCOMPARE(parseUpdaterArgs(twice).error, ArgsError::DuplicateOption);
+}
+
+void UpdaterHelperArgsTest::installScopeIsRefusedForEveryOtherMode_data()
+{
+    QTest::addColumn<QString>("mode");
+    QTest::addColumn<bool>("directoryTarget");
+    QTest::newRow("portable") << "windows-portable" << true;
+    QTest::newRow("appimage") << "linux-appimage" << false;
+    QTest::newRow("deb") << "linux-deb" << false;
+    QTest::newRow("rpm") << "linux-rpm" << false;
+}
+
+void UpdaterHelperArgsTest::installScopeIsRefusedForEveryOtherMode()
+{
+    // Refused, not ignored: a mistaken "machine" must never slide silently
+    // into a path that cannot honour it.
+    QFETCH(QString, mode);
+    QFETCH(bool, directoryTarget);
+    for (const char *scope : {"user", "machine"}) {
+        QStringList arguments = baseArgs(mode, directoryTarget ? m_targetDir : m_targetFile);
+        arguments << QStringLiteral("--install-scope") << QString::fromLatin1(scope);
+        const ArgsParseResult parsed = parseUpdaterArgs(arguments);
+        QCOMPARE(parsed.error, ArgsError::InvalidInstallScope);
+        QCOMPARE(parsed.offendingOption, QStringLiteral("--install-scope"));
+        QCOMPARE(parseErrorName(parsed.error), QStringLiteral("invalid-install-scope"));
+    }
+}
+
+void UpdaterHelperArgsTest::installScopeRefusesAnythingButUserOrMachine_data()
+{
+    QTest::addColumn<QString>("value");
+    QTest::newRow("capitalised") << "Machine";
+    QTest::newRow("allusers-spelling") << "allusers";
+    QTest::newRow("trailing-space") << "machine ";
+    QTest::newRow("prefix") << "machines";
+    QTest::newRow("numeric") << "1";
+}
+
+void UpdaterHelperArgsTest::installScopeRefusesAnythingButUserOrMachine()
+{
+    QFETCH(QString, value);
+    QStringList arguments = baseArgs(QStringLiteral("windows-setup"), m_targetFile);
+    arguments << QStringLiteral("--install-scope") << value;
+    QCOMPARE(parseUpdaterArgs(arguments).error, ArgsError::InvalidInstallScope);
+}
+
+namespace {
+
+// CommandLineToArgvW's documented rules, the convention the elevated path's
+// quoting follows. msiexec and NSIS have parsers of their own; what the plans
+// produce (switches, properties, double-quoted paths) reads the same in all
+// three, and the native Windows test is what proves it for msiexec. Whitespace
+// separates outside quotes; 2n backslashes + quote -> n backslashes and a
+// quote toggle; 2n+1 backslashes + quote -> n backslashes and a literal
+// quote; backslashes not followed by a quote are literal.
+QStringList commandLineToArgv(const QString &line)
+{
+    QStringList out;
+    QString current;
+    bool inQuotes = false;
+    bool haveToken = false;
+    int i = 0;
+    while (i < line.size()) {
+        const QChar c = line.at(i);
+        if (c == QLatin1Char('\\')) {
+            int run = 0;
+            while (i < line.size() && line.at(i) == QLatin1Char('\\')) {
+                ++run;
+                ++i;
+            }
+            if (i < line.size() && line.at(i) == QLatin1Char('"')) {
+                current += QString(run / 2, QLatin1Char('\\'));
+                if (run % 2) {
+                    current += QLatin1Char('"');
+                    ++i;
+                }
+            } else {
+                current += QString(run, QLatin1Char('\\'));
+            }
+            haveToken = true;
+            continue;
+        }
+        if (c == QLatin1Char('"')) {
+            inQuotes = !inQuotes;
+            haveToken = true;
+            ++i;
+            continue;
+        }
+        if (!inQuotes && (c == QLatin1Char(' ') || c == QLatin1Char('\t'))) {
+            if (haveToken)
+                out << current;
+            current.clear();
+            haveToken = false;
+            ++i;
+            continue;
+        }
+        current += c;
+        haveToken = true;
+        ++i;
+    }
+    if (haveToken)
+        out << current;
+    return out;
+}
+
+} // namespace
+
+void UpdaterHelperArgsTest::windowsCommandLineRoundTripsThroughCommandLineToArgv_data()
+{
+    QTest::addColumn<QStringList>("arguments");
+    QTest::newRow("msi-machine-plain") << QStringList{
+        QStringLiteral("/i"), QStringLiteral("C:\\Users\\x\\Lightning.msi"),
+        QStringLiteral("/qb"), QStringLiteral("REINSTALLMODE=vomus"),
+        QStringLiteral("ALLUSERS=1")};
+    // The staging directory lives under the profile, and profiles have spaces.
+    QTest::newRow("path-with-spaces") << QStringList{
+        QStringLiteral("/i"),
+        QStringLiteral("C:\\Users\\Jane Doe\\AppData\\Local\\MatrixClient\\updates\\Lightning 1.msi"),
+        QStringLiteral("/qb")};
+    QTest::newRow("trailing-backslash-inside-quotes") << QStringList{
+        QStringLiteral("C:\\dir with space\\"), QStringLiteral("x")};
+    QTest::newRow("trailing-backslash-unquoted") << QStringList{
+        QStringLiteral("C:\\plain\\"), QStringLiteral("y")};
+    QTest::newRow("empty-element") << QStringList{QStringLiteral("/S"), QString(),
+                                                  QStringLiteral("/ALLUSERS")};
+    QTest::newRow("unicode-and-space") << QStringList{
+        QStringLiteral("C:\\Users\\Ūla Ž\\setup.exe"), QStringLiteral("/S")};
+    QTest::newRow("setup-machine") << QStringList{QStringLiteral("/S"),
+                                                  QStringLiteral("/ALLUSERS")};
+}
+
+void UpdaterHelperArgsTest::windowsCommandLineRoundTripsThroughCommandLineToArgv()
+{
+    QFETCH(QStringList, arguments);
+    bool ok = false;
+    const QString line = updater::windowsCommandLine(arguments, &ok);
+    QVERIFY(ok);
+    QCOMPARE(commandLineToArgv(line), arguments);
+}
+
+void UpdaterHelperArgsTest::windowsCommandLineRefusesQuotesAndControlCharacters()
+{
+    bool ok = true;
+    QVERIFY(updater::windowsCommandLine({QStringLiteral("a\"b")}, &ok).isEmpty());
+    QVERIFY(!ok);
+    ok = true;
+    QVERIFY(updater::windowsCommandLine({QStringLiteral("line\nbreak")}, &ok).isEmpty());
+    QVERIFY(!ok);
+    // No Windows file name can hold a control character, tab included.
+    ok = true;
+    QVERIFY(updater::windowsCommandLine({QStringLiteral("tab\there")}, &ok).isEmpty());
+    QVERIFY(!ok);
+    ok = false;
+    updater::windowsCommandLine({QStringLiteral("/S")}, &ok);
+    QVERIFY(ok);
+}
+
+// A JUNCTION in a parent directory can be re-pointed after the helper locked
+// the artifact, and the elevated installer opens its argument by PATH. So the
+// plan is rewritten to the locked handle's final path before launch; these two
+// functions are the testable half of that (GetFinalPathNameByHandleW is the
+// Windows half).
+void UpdaterHelperArgsTest::finalPathBecomesALaunchablePath_data()
+{
+    QTest::addColumn<QString>("finalPath");
+    QTest::addColumn<QString>("launchable");
+    QTest::newRow("local") << "\\\\?\\C:\\Users\\x\\u\\L.msi" << "C:\\Users\\x\\u\\L.msi";
+    QTest::newRow("unc") << "\\\\?\\UNC\\srv\\share\\u\\L.msi" << "\\\\srv\\share\\u\\L.msi";
+    QTest::newRow("unc-prefix-any-case") << "\\\\?\\unc\\srv\\share\\L.msi"
+                                         << "\\\\srv\\share\\L.msi";
+    QTest::newRow("already-plain") << "D:\\u\\L.msi" << "D:\\u\\L.msi";
+    QTest::newRow("spaces-and-parentheses")
+        << "\\\\?\\C:\\Users\\Jane Doe\\setup (1).exe" << "C:\\Users\\Jane Doe\\setup (1).exe";
+    // Refused: nothing msiexec or the loader could be handed safely.
+    QTest::newRow("volume-guid") << "\\\\?\\Volume{0a1b2c3d-0000-0000-0000-000000000000}\\L.msi" << "";
+    QTest::newRow("device") << "\\\\.\\C:\\L.msi" << "";
+    QTest::newRow("unc-without-share") << "\\\\?\\UNC\\srv" << "";
+    QTest::newRow("unc-empty-server") << "\\\\?\\UNC\\\\share\\L.msi" << "";
+    QTest::newRow("empty") << "" << "";
+    QTest::newRow("relative") << "u\\L.msi" << "";
+    QTest::newRow("drive-relative") << "C:L.msi" << "";
+    QTest::newRow("forward-slashes") << "\\\\?\\C:\\u/L.msi" << "";
+}
+
+void UpdaterHelperArgsTest::finalPathBecomesALaunchablePath()
+{
+    QFETCH(QString, finalPath);
+    QFETCH(QString, launchable);
+    QCOMPARE(launchablePathFromFinal(finalPath), launchable);
+}
+
+void UpdaterHelperArgsTest::elevatedPlansAreRetargetedToTheLockedFile()
+{
+    const QString real = QStringLiteral("D:\\A\\Lightning.msi");
+
+    UpdaterArguments msiArgs;
+    msiArgs.mode = UpdaterMode::WindowsMsi;
+    msiArgs.installScope = updater::InstallScope::Machine;
+    msiArgs.artifactPath = QStringLiteral("C:/Users/x/cache/updates/Lightning.msi");
+    InstallPlan msi = planWindowsMsi(msiArgs).plan;
+    QVERIFY(retargetPlanToLockedFile(msi, real));
+    // msiexec reads the /i argument: it is the locked object now, and nothing
+    // in the plan still names the path the junction could re-point.
+    QCOMPARE(msi.arguments.at(1), real);
+    QCOMPARE(msi.lockedArtifact, real);
+    QVERIFY(!msi.arguments.join(QLatin1Char(' ')).contains(QStringLiteral("updates")));
+    QVERIFY(msi.program.endsWith(QStringLiteral("msiexec.exe")));
+
+    UpdaterArguments setupArgs;
+    setupArgs.mode = UpdaterMode::WindowsSetup;
+    setupArgs.installScope = updater::InstallScope::Machine;
+    setupArgs.artifactPath = QStringLiteral("/cache/updates/Lightning-setup.exe");
+    InstallPlan setup = planWindowsSetup(setupArgs).plan;
+    const QString realSetup = QStringLiteral("D:\\A\\Lightning-setup.exe");
+    QVERIFY(retargetPlanToLockedFile(setup, realSetup));
+    // The loader maps lpFile: the program IS the locked file, and it starts in
+    // the locked file's own directory.
+    QCOMPARE(setup.program, realSetup);
+    QCOMPARE(setup.workingDirectory, QStringLiteral("D:\\A"));
+    QCOMPARE(setup.arguments, (QStringList{QStringLiteral("/S"), QStringLiteral("/ALLUSERS")}));
+
+    // A file in a drive's root keeps a directory for a working directory.
+    InstallPlan root = planWindowsSetup(setupArgs).plan;
+    QVERIFY(retargetPlanToLockedFile(root, QStringLiteral("E:\\setup.exe")));
+    QCOMPARE(root.workingDirectory, QStringLiteral("E:\\"));
+}
+
+void UpdaterHelperArgsTest::retargetRefusesAPlanThatDoesNotNameTheLockedFile()
+{
+    // A per-user plan locks nothing, so there is nothing to retarget.
+    UpdaterArguments userArgs;
+    userArgs.mode = UpdaterMode::WindowsMsi;
+    userArgs.artifactPath = QStringLiteral("C:/u/L.msi");
+    InstallPlan user = planWindowsMsi(userArgs).plan;
+    const InstallPlan before = user;
+    QVERIFY(!retargetPlanToLockedFile(user, QStringLiteral("D:\\A\\L.msi")));
+    QCOMPARE(user.arguments, before.arguments);
+
+    // An unresolvable final path (empty) is refused, never launched as "".
+    UpdaterArguments machineArgs = userArgs;
+    machineArgs.installScope = updater::InstallScope::Machine;
+    InstallPlan machine = planWindowsMsi(machineArgs).plan;
+    const InstallPlan untouched = machine;
+    QVERIFY(!retargetPlanToLockedFile(machine, QString()));
+    QCOMPARE(machine.arguments, untouched.arguments);
+    QCOMPARE(machine.lockedArtifact, untouched.lockedArtifact);
+
+    // A plan whose locked name appears nowhere is refused and left alone.
+    machine.lockedArtifact = QStringLiteral("C:\\elsewhere\\L.msi");
+    QVERIFY(!retargetPlanToLockedFile(machine, QStringLiteral("D:\\A\\L.msi")));
+    QCOMPARE(machine.arguments, untouched.arguments);
 }
 
 void UpdaterHelperArgsTest::inProcessModesRequireNoExternalProcess()

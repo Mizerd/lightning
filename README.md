@@ -238,12 +238,26 @@ Optionally, the flake also provides a `homeManagerModules` output with settings
 
 ### Windows (x86-64, Windows 10 or later)
 
-Three formats — **MSI**, **Setup EXE** and a **portable ZIP** — all per-user. None
-needs administrator rights, and none modifies `PATH`, file associations, URL
-protocols, services, scheduled tasks, firewall rules or autostart. MSI and Setup
-EXE install to `%LOCALAPPDATA%\Programs\Lightning` with a Start-menu shortcut and
-uninstall from Settings → Apps; the portable ZIP writes no registry keys, so
-deleting the folder removes it.
+Three formats — **MSI**, **Setup EXE** and a **portable ZIP**. By default all
+three are per-user and need no administrator rights; none modifies `PATH`, file
+associations, URL protocols, services, scheduled tasks, firewall rules or
+autostart. MSI and Setup EXE install to `%LOCALAPPDATA%\Programs\Lightning` with
+a Start-menu shortcut and uninstall from Settings → Apps; the portable ZIP writes
+no registry keys, so deleting the folder removes it.
+
+**For all users** (Program Files, e.g. where policy only allows programs from
+trusted locations): choose *For all users* in the Setup EXE, or deploy silently
+from an elevated context — Intune, SCCM, WAPT and GPO all qualify:
+
+```bat
+Lightning-<version>-<sha>-windows-x86_64-setup.exe /S /ALLUSERS
+msiexec /i Lightning-<version>-<sha>-windows-x86_64.msi ALLUSERS=1 /qn
+```
+
+Each person's settings and account stay in their own profile. An all-users copy
+still updates itself, but Windows asks for administrator approval each time.
+Details, uninstall switches and exit codes:
+[Windows packaging](packaging-ci/docs/windows-packaging.md#install-scope-just-me-or-all-users-github-issue-14).
 
 Windows packages are **not code-signed**, so Windows shows an "unknown publisher"
 SmartScreen warning. Check the hash first

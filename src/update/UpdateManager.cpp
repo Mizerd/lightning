@@ -20,6 +20,16 @@
 #include <QStandardPaths>
 #include <QTemporaryFile>
 
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 #ifndef APP_VERSION
 #define APP_VERSION "0.0.0"
 #endif
@@ -1123,6 +1133,21 @@ QString UpdateManager::explainInstallError(const QString &token)
     if (key.isEmpty())
         return QString();
 
+    // A per-machine ("for all users") installation, and Windows was not given
+    // administrator approval: the helper's own UAC prompt was declined
+    // (elevation-declined), or the setup EXE had to elevate itself and that
+    // prompt was declined (its exit code 1223, ERROR_CANCELLED). Nothing is
+    // wrong and nothing was changed; this has to come before the generic
+    // installer-exit wording, which would call it a refusal.
+    if (key == QLatin1String("elevation-declined")
+        || key == QLatin1String("installer-exit-1223")) {
+        return tr("Lightning is installed for all users of this computer, so "
+                  "installing an update needs administrator approval, and "
+                  "Windows did not get it. Nothing was changed. Approve the "
+                  "prompt next time, or ask an administrator to install the "
+                  "update.");
+    }
+
     // The installer ran and refused. Its exit code is the only detail worth
     // carrying, and it is the thing to quote in a report.
     if (key.startsWith(QLatin1String("installer-exit-"))) {
@@ -1398,6 +1423,28 @@ QString UpdateManager::stageHelperOutsideInstallation(const QString &helperPath,
     return stagedHelper;
 }
 
+namespace {
+
+// A per-machine upgrade raises a UAC prompt from the update helper, a
+// windowless process started as Lightning quits. Windows gives the foreground
+// only to a process the foreground one allowed, so without this the prompt may
+// only flash in the taskbar. Lightning is still the foreground process here.
+void allowTheHelperToTakeTheForeground()
+{
+#ifdef Q_OS_WIN
+    AllowSetForegroundWindow(ASFW_ANY);
+#endif
+}
+
+} // namespace
+
+bool UpdateManager::installNeedsAdministrator() const
+{
+    return m_detection.scope == InstallScope::Machine
+        && (m_detection.type == InstallType::WindowsMsi
+            || m_detection.type == InstallType::WindowsSetup);
+}
+
 QString UpdateManager::installTargetPath() const
 {
     switch (m_detection.type) {
@@ -1527,6 +1574,16 @@ void UpdateManager::startInstall(bool restartAfterwards)
     if (restartAfterwards) {
         arguments << QStringLiteral("--relaunch") << resolved(relaunchProgramPath());
     }
+    // The two Windows installers can own an installation in either scope,
+    // and the upgrade must run in the SAME one: a per-machine MSI upgraded
+    // without ALLUSERS=1 does not find the old version and installs a second
+    // copy, and a per-machine setup run unelevated cannot write Program Files.
+    // Always explicit for these two modes -- the helper refuses the option
+    // for every other one.
+    if (m_detection.type == InstallType::WindowsMsi
+        || m_detection.type == InstallType::WindowsSetup) {
+        arguments << QStringLiteral("--install-scope") << installScopeId(m_detection.scope);
+    }
 
     setState(Installing);
     m_lastLaunchProgram = program;
@@ -1543,6 +1600,8 @@ void UpdateManager::startInstall(bool restartAfterwards)
     // immediately. "Install without restarting" defers the launch to
     // aboutToQuit, which is exactly when the wait can succeed.
     if (restartAfterwards) {
+        if (installNeedsAdministrator())
+            allowTheHelperToTakeTheForeground();
         if (!m_launcher || !m_launcher(program, arguments)) {
             failWith(QStringLiteral("The updater helper could not be started."));
             return;
@@ -1572,6 +1631,11 @@ void UpdateManager::startInstall(bool restartAfterwards)
                          "start again. Nothing has been installed yet.")
         : QStringLiteral("The update will be applied when you quit Lightning, however "
                          "long that is. Nothing has been installed yet.");
+    if (installNeedsAdministrator()) {
+        m_handoffSummary += QStringLiteral(
+            " Lightning is installed for all users, so Windows will ask for "
+            "administrator approval before the update is installed.");
+    }
     setStatusDetail(m_handoffSummary);
     setState(RestartRequired);
     if (restartAfterwards)
@@ -1606,6 +1670,8 @@ void UpdateManager::launchDeferredInstall()
     // A failure to start leaves the verified artifact in place and the
     // status file absent, so the next launch simply shows no result rather
     // than a false success.
+    if (installNeedsAdministrator())
+        allowTheHelperToTakeTheForeground();
     m_launcher(m_lastLaunchProgram, m_lastLaunchArguments);
 }
 

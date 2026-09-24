@@ -2,9 +2,21 @@
 #include "storage/PortableMode.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QLatin1String>
+#include <QSettings>
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 #ifndef LIGHTNING_INSTALL_TYPE
 // Nothing was baked in: this is a source/development build.
@@ -66,6 +78,24 @@ QString envValue(const InstallEnvironment &environment, const char *name)
     return environment.readEnv(name);
 }
 
+// The long form of an existing path, so an 8.3 short name ("PROGRA~1") on
+// either side of the HKLM comparison cannot make a genuine per-machine copy
+// read as per-user. Unchanged when it cannot be resolved or off Windows.
+QString longPathName(const QString &path)
+{
+#ifdef Q_OS_WIN
+    const std::wstring in = QDir::toNativeSeparators(path).toStdWString();
+    const DWORD needed = GetLongPathNameW(in.c_str(), nullptr, 0);
+    if (needed > 0) {
+        std::wstring out(needed, L'\0');
+        const DWORD written = GetLongPathNameW(in.c_str(), out.data(), needed);
+        if (written > 0 && written < needed)
+            return QString::fromWCharArray(out.data(), int(written));
+    }
+#endif
+    return path;
+}
+
 bool envIsSet(const InstallEnvironment &environment, const char *name)
 {
     const QString value = envValue(environment, name);
@@ -73,6 +103,12 @@ bool envIsSet(const InstallEnvironment &environment, const char *name)
 }
 
 } // namespace
+
+QString installScopeId(InstallScope scope)
+{
+    return scope == InstallScope::Machine ? QStringLiteral("machine")
+                                          : QStringLiteral("user");
+}
 
 QString installTypeId(InstallType type)
 {
@@ -169,12 +205,50 @@ InstallEnvironment defaultInstallEnvironment()
         // A canonical id is short; refuse to read an arbitrarily large file.
         return QString::fromLatin1(marker.read(64)).trimmed();
     };
+    environment.readInstallScopeMarker = []() -> QString {
+        const QString path = QCoreApplication::applicationDirPath()
+                + QLatin1Char('/') + QLatin1String(kInstallScopeMarkerFileName);
+        QFile marker(path);
+        if (!marker.open(QIODevice::ReadOnly | QIODevice::Text))
+            return {};
+        return QString::fromLatin1(marker.read(64)).trimmed();
+    };
+    environment.applicationDir = longPathName(QCoreApplication::applicationDirPath());
+    environment.readMachineInstallDirs = []() -> QStringList {
+        QStringList dirs;
+#ifdef Q_OS_WIN
+        // The 64-bit view explicitly: both installers are x64 and write there.
+        const QSettings machine(QStringLiteral("HKEY_LOCAL_MACHINE\\Software\\Mizerd\\Lightning"),
+                                QSettings::Registry64Format);
+        for (const char *name : {"InstallDir", "MsiInstallDir"}) {
+            const QString dir = machine.value(QLatin1String(name)).toString();
+            if (!dir.isEmpty())
+                dirs << longPathName(dir);
+        }
+#endif
+        return dirs;
+    };
 #ifdef Q_OS_WIN
     environment.windowsPlatform = true;
 #else
     environment.windowsPlatform = false;
 #endif
     return environment;
+}
+
+bool sameInstallDirectory(const QString &registered, const QString &applicationDir)
+{
+    const auto normalise = [](QString path) {
+        path.replace(QLatin1Char('\\'), QLatin1Char('/'));
+        path = QDir::cleanPath(path);
+        while (path.size() > 1 && path.endsWith(QLatin1Char('/')))
+            path.chop(1);
+        return path;
+    };
+    if (registered.trimmed().isEmpty() || applicationDir.isEmpty())
+        return false;
+    return normalise(registered.trimmed()).compare(normalise(applicationDir),
+                                                   Qt::CaseInsensitive) == 0;
 }
 
 InstallDetection detectInstall(const InstallEnvironment &environment)
@@ -273,6 +347,24 @@ InstallDetection detectInstall(const InstallEnvironment &environment)
         && environment.portableMarkerPresent
         && !environment.portableMarkerPresent()) {
         detection.type = InstallType::Unknown;
+    }
+
+    // THE SCOPE, for the two installer-owned Windows types only. Portable has
+    // no installer to own a context, and on any other platform the marker is
+    // a stray file (the same reasoning as the install-type marker above).
+    // "machine" must be backed by HKLM naming this directory: the marker is
+    // user-writable in a per-user installation (see InstallType.h).
+    if (environment.windowsPlatform && environment.readInstallScopeMarker
+        && (detection.type == InstallType::WindowsMsi
+            || detection.type == InstallType::WindowsSetup)
+        && environment.readInstallScopeMarker().trimmed() == QLatin1String("machine")
+        && environment.readMachineInstallDirs) {
+        for (const QString &registered : environment.readMachineInstallDirs()) {
+            if (sameInstallDirectory(registered, environment.applicationDir)) {
+                detection.scope = InstallScope::Machine;
+                break;
+            }
+        }
     }
 
     detection.automaticInstallAllowed =
