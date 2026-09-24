@@ -1125,8 +1125,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 // blip per 5 s re-post of the card, at the desktop's event
                 // volume, and on Windows and macOS nothing at all. Never
                 // both at once — the card goes silent when ours rings.
+                // SILENCED STAYS SILENCED. The user pressed Silence for THIS
+                // call (card or in-app prompt): a re-announcement of it rings
+                // neither ringer and offers no second Silence. A new call id
+                // is not silenced and rings normally.
+                const bool ringing =
+                    sound && !m_callSounds->isRingSilenced(callId);
                 const bool ownRinger =
-                    sound && m_callSounds->ringerAvailable();
+                    ringing && m_callSounds->ringerAvailable();
                 m_announcedCallId = callId;
                 // Whether the card offers an answer is decided HERE, from the
                 // same sources IncomingCallPrompt reads, and passed down —
@@ -1147,12 +1153,25 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 const bool acceptOffered = callAcceptOffered(roomId, rtcLane);
                 m_notifications->showIncomingCall(
                     roomId, callId, tr("Incoming call"), body,
-                    sound && !ownRinger,
+                    ringing && !ownRinger,
                     static_cast<int>(qBound<qint64>(
                         qint64(5), remainingMs / 1000, qint64(300))),
-                    acceptOffered, rtcLane);
+                    acceptOffered, rtcLane, /*silenceOffered=*/ringing);
                 if (ownRinger)
                     m_callSounds->startIncomingRing(callId);
+            });
+    // SILENCE, ONE ENTRY POINT. The card's Silence action and the in-app
+    // prompt's both land in CallSoundController::silenceRing, which alone
+    // decides whether the id is still the ringing call; when it agrees, the
+    // card drops its themed sound (the fallback ringer) and its button.
+    connect(m_notifications.get(),
+            &NotificationManager::callSilenceRequested, this,
+            [this](const QString &callId) {
+                m_callSounds->silenceRing(callId);
+            });
+    connect(m_callSounds.get(), &CallSoundController::ringSilenced, this,
+            [this](const QString &callId) {
+                m_notifications->silenceIncomingCall(callId);
             });
     connect(m_calls.get(), &CallController::incomingCallEnded, this,
             [this](const QString &roomId, const QString &callId,

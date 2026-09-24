@@ -871,6 +871,19 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
         }
         return;
     }
+    // Silence: the same id check, and deliberately NOT stopIncomingCall —
+    // silencing is not an answer, the card must stay answerable. Nor does it
+    // quieten the card itself: the request goes to CallSoundController,
+    // which alone knows whether this is still the ringing call, and the card
+    // is quietened by silenceIncomingCall() when it agrees. The call id sent
+    // is the one THIS class holds for the card, never text from the daemon.
+    if (action == QLatin1String("silence")) {
+        if (id != 0 && id == m_activeCallNotificationId
+            && !m_activeCallId.isEmpty() && m_activeCallSilenceOffered) {
+            Q_EMIT callSilenceRequested(m_activeCallId);
+        }
+        return;
+    }
     if (action == QLatin1String("mark-read")) {
         const QVariantMap payload = m_pendingPayloads.value(id);
         forgetPayload(id);
@@ -944,7 +957,8 @@ void NotificationManager::onNotificationClosed(quint32 id, quint32 reason)
     forgetPayload(id);
 }
 
-QStringList NotificationManager::callActions(bool acceptOffered, bool rtcLane)
+QStringList NotificationManager::callActions(bool acceptOffered, bool rtcLane,
+                                             bool silenceOffered)
 {
     QStringList actions{ QStringLiteral("default"), tr("Open") };
     if (acceptOffered) {
@@ -956,6 +970,10 @@ QStringList NotificationManager::callActions(bool acceptOffered, bool rtcLane)
         actions << QStringLiteral("accept")
                 << (rtcLane ? tr("Join") : tr("Answer"));
     }
+    // Silence goes before Decline, which stays last (below). It is the
+    // harmless action, so it is also the better neighbour for Decline.
+    if (silenceOffered)
+        actions << QStringLiteral("silence") << tr("Silence");
     // Decline stays LAST. The destructive action is the one a mis-aimed click
     // must be least likely to hit, and on every daemon these render left to
     // right in the order given.
@@ -984,7 +1002,8 @@ void NotificationManager::showIncomingCall(const QString &roomId,
                                            const QString &title,
                                            const QString &safeBody,
                                            bool sound, int ringSeconds,
-                                           bool acceptOffered, bool rtcLane)
+                                           bool acceptOffered, bool rtcLane,
+                                           bool silenceOffered)
 {
     if (callId.isEmpty())
         return;
@@ -998,6 +1017,7 @@ void NotificationManager::showIncomingCall(const QString &roomId,
     m_activeCallSound = sound;
     m_activeCallAcceptOffered = acceptOffered;
     m_activeCallRtcLane = rtcLane;
+    m_activeCallSilenceOffered = silenceOffered;
     m_callRingDeadlineMs = QDateTime::currentMSecsSinceEpoch()
         + qint64(qBound(5, ringSeconds, 300)) * 1000;
     // A new call gets its own balloon. Cleared in stopIncomingCall() too,
@@ -1006,6 +1026,27 @@ void NotificationManager::showIncomingCall(const QString &roomId,
     deliverCallNotification();
     if (sound)
         m_callRingTimer.start();
+}
+
+void NotificationManager::silenceIncomingCall(const QString &callId)
+{
+    if (callId.isEmpty() || m_activeCallId != callId)
+        return;
+    if (!m_activeCallSound && !m_activeCallSilenceOffered)
+        return;
+    // The themed sound IS the re-post: stopping the timer is what stops the
+    // desktop's ring. A card raised silent from the start never ran it
+    // either, so the card now behaves exactly like one — and, like one, it
+    // is retired by the call ending (stopIncomingCall), not by this timer.
+    m_activeCallSound = false;
+    m_activeCallSilenceOffered = false;
+    m_callRingTimer.stop();
+    // Redraw so the card loses its Silence button — but only a card that is
+    // still showing. Id 0 means the user (or daemon) closed it, and
+    // re-delivering then would resurrect a card the user dismissed. The
+    // tray balloon is latched once per call, so this adds no second one.
+    if (m_activeCallNotificationId != 0)
+        deliverCallNotification();
 }
 
 void NotificationManager::stopIncomingCall(const QString &callId)
@@ -1033,6 +1074,7 @@ void NotificationManager::stopIncomingCall(const QString &callId)
     // away from being wrong.
     m_activeCallAcceptOffered = false;
     m_activeCallRtcLane = false;
+    m_activeCallSilenceOffered = false;
     m_activeCallTrayDelivered = false;
     m_activeCallId.clear();
     m_activeCallRoomId.clear();
@@ -1054,7 +1096,8 @@ void NotificationManager::deliverCallNotification()
         return;
     }
     const QStringList actions = callActions(m_activeCallAcceptOffered,
-                                            m_activeCallRtcLane);
+                                            m_activeCallRtcLane,
+                                            m_activeCallSilenceOffered);
     const NotificationIdentity identity = notificationIdentity();
     QVariantMap hints{
         { QStringLiteral("desktop-entry"), identity.desktopEntry },

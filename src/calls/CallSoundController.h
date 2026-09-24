@@ -18,6 +18,14 @@
 // its own, the moment CallController is no longer ringing that call, so no
 // path that ends a ring (answer, decline, answered elsewhere, expiry, a
 // newer call) can leave it playing.
+//
+// SILENCE IS PER CALL. silenceRing() stops the ringer for the call that is
+// ringing NOW and remembers that call's id, so a re-announcement of the SAME
+// call cannot start it again (startIncomingRing refuses it, and AppController
+// asks isRingSilenced() before it re-raises the notification card with a
+// themed sound). A different call id rings normally: the memory is one id,
+// and a new call is by definition not it. It never touches the call itself —
+// the card stays up and can still be answered or declined.
 #pragma once
 
 #include <QElapsedTimer>
@@ -57,6 +65,12 @@ class CallSoundController : public QObject
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("CallSoundController is exposed via app.callSounds")
+    /// The call Lightning's OWN ringer is sounding for ("" when it is not
+    /// ringing — including when the desktop's themed sound is the ringer, and
+    /// after the call was silenced). IncomingCallPrompt offers Silence only
+    /// while this names the ringing call.
+    Q_PROPERTY(QString ringingCallId READ ringingCallId NOTIFY
+                   ringingCallIdChanged)
 
 public:
     explicit CallSoundController(QObject *parent = nullptr);
@@ -77,6 +91,19 @@ public:
     void startIncomingRing(const QString &callId);
     void stopIncomingRing();
     QString ringingCallId() const { return m_ringCallId; }
+    /// Silence the ring for `callId` only. A no-op (false) unless `callId`
+    /// is the call ringing right now — a stale card, a crafted id or an
+    /// already-ended call must not silence the NEXT call. Works whichever
+    /// ringer is sounding: ours stops here, and the ringSilenced signal
+    /// tells the notification card to drop its themed sound. The call keeps
+    /// ringing visually and can still be answered or declined.
+    Q_INVOKABLE bool silenceRing(const QString &callId);
+    /// Whether `callId` was silenced. AppController reads it before
+    /// (re-)announcing a call, so a re-post of the same call stays silent.
+    bool isRingSilenced(const QString &callId) const
+    {
+        return !callId.isEmpty() && callId == m_silencedCallId;
+    }
 
     /// Settings "Test" buttons: "ring" plays one bar of the ringer at the
     /// ringer volume, anything else one cue at the call-sound volume. Plays
@@ -87,7 +114,14 @@ public:
     void setClockForTest(std::function<qint64()> clock);
     const callsound::Policy &policy() const { return m_policy; }
 
+Q_SIGNALS:
+    void ringingCallIdChanged();
+    /// A ring was silenced by the user. Emitted AFTER the state is recorded,
+    /// so a handler that asks isRingSilenced() already gets true.
+    void ringSilenced(const QString &callId);
+
 private:
+    void setRingCallId(const QString &callId);
     void onGroupState();
     void onGroupMedia();
     void scheduleRoster();
@@ -109,6 +143,8 @@ private:
     callsound::Policy m_policy;
     callsound::Loop m_loop = callsound::Loop::None;
     QString m_ringCallId;
+    /// The one call the user silenced (see the header comment).
+    QString m_silencedCallId;
     /// A group call that has reached Connected once: a later Connecting is a
     /// RECONNECT, not a fresh join.
     bool m_groupWasConnected = false;

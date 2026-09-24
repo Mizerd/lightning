@@ -115,6 +115,22 @@ Rectangle {
     readonly property bool legacyAcceptOffered:
         root.ringing && !root.rtcRing && app.calls.mediaBackendAvailable
 
+    // ── Silence (2026-09-23) ─────────────────────────────────────────────
+    //
+    // Stops Lightning's ringer for THIS call only; the card stays and can
+    // still answer or decline, and the next call rings normally. Offered
+    // only while OUR ringer is sounding for the ringing call —
+    // `ringingCallId` goes empty once silenced, and is empty from the start
+    // when the desktop's themed sound is the ringer (the notification card
+    // carries Silence for that case). Named, not inlined, for the same
+    // reason as legacyAcceptOffered above.
+    readonly property bool callSoundsReachable:
+        typeof app !== "undefined" && app && app.callSounds ? true : false
+    readonly property bool silenceOffered:
+        root.ringing && root.callSoundsReachable
+        && app.callSounds.ringingCallId.length > 0
+        && app.callSounds.ringingCallId === app.calls.activeCallId
+
     /// Human wording for `joinBlockReason`. Closed set from
     /// RtcController::joinBlockReason — a raw server string is never shown.
     /// Kept in step with RoomCallBanner.blockText and
@@ -277,6 +293,24 @@ Rectangle {
                 font.pixelSize: AppTheme.textBody
                 font.weight: AppTheme.weightBold
                 elide: Label.ElideRight
+            }
+            // In the title row, not the action row: it is not a decision
+            // about the call, and the action row is already three buttons
+            // wide while ringing.
+            IconButton {
+                objectName: "incomingCallPromptSilence"
+                visible: root.silenceOffered
+                storm: true
+                size: "sm"
+                iconName: "volume_off"
+                Layout.alignment: Qt.AlignVCenter
+                Accessible.name: qsTr("Silence ringer")
+                ToolTip.text: qsTr("Silence the ringer for this call")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                // The id is read at the press, so it can only name the call
+                // this card is showing; silenceRing refuses any other.
+                onClicked: app.callSounds.silenceRing(app.calls.activeCallId)
             }
         }
 

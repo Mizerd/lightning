@@ -296,6 +296,14 @@ void CallSoundController::onLegacyAudio()
                                         m_calls->deafened()));
 }
 
+void CallSoundController::setRingCallId(const QString &callId)
+{
+    if (m_ringCallId == callId)
+        return;
+    m_ringCallId = callId;
+    Q_EMIT ringingCallIdChanged();
+}
+
 void CallSoundController::startIncomingRing(const QString &callId)
 {
     if (callId.isEmpty())
@@ -305,10 +313,16 @@ void CallSoundController::startIncomingRing(const QString &callId)
     if (m_calls
         && (!m_calls->ringing() || m_calls->activeCallId() != callId))
         return;
-    m_ringCallId = callId;
+    // The user already silenced THIS call. A re-announcement of it (the
+    // announcing path can run again for the same call) must not undo that.
+    if (isRingSilenced(callId))
+        return;
     m_policy.setIncomingRing(true);
     m_ringCap.start();
     applyLoop();
+    // Last, so a QML binding reading ringingCallId sees the loop already
+    // asserted rather than a ring that is announced and not yet playing.
+    setRingCallId(callId);
 }
 
 void CallSoundController::stopIncomingRing()
@@ -316,9 +330,40 @@ void CallSoundController::stopIncomingRing()
     m_ringCap.stop();
     if (m_ringCallId.isEmpty() && !m_policy.incomingRing())
         return;
-    m_ringCallId.clear();
     m_policy.setIncomingRing(false);
     applyLoop();
+    setRingCallId(QString());
+}
+
+bool CallSoundController::silenceRing(const QString &callId)
+{
+    if (callId.isEmpty())
+        return false;
+    // ONLY the call ringing now. With the legacy lane attached that is
+    // CallController's own answer — which also covers the fallback case,
+    // where the desktop's themed sound rings and our loop never started, so
+    // m_ringCallId is empty. Without it (no call lane at all) our own ring
+    // is the only thing that can be silenced.
+    const bool current = m_calls
+        ? (m_calls->ringing() && m_calls->activeCallId() == callId)
+        : callId == m_ringCallId;
+    if (!current) {
+        qCInfo(lcCallSound) << "call ring silence refused: not the ringing "
+                               "call";
+        return false;
+    }
+    if (isRingSilenced(callId))
+        return true;
+    // Recorded BEFORE anything is emitted: stopIncomingRing() and the
+    // signal below both run their handlers synchronously, and any of them
+    // that re-announces this call must already find it silenced.
+    m_silencedCallId = callId;
+    qCInfo(lcCallSound) << "call ring silenced by the user ours="
+                        << (m_ringCallId == callId ? "yes" : "no");
+    if (m_ringCallId == callId)
+        stopIncomingRing();
+    Q_EMIT ringSilenced(callId);
+    return true;
 }
 
 qreal CallSoundController::cueVolume() const

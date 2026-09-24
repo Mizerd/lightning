@@ -162,10 +162,18 @@ public:
     // joinable is exactly the drift those two already guard against". A
     // notification that computed its own would be the fourth opinion. The
     // caller that already knows passes the answer down.
+    //
+    // `silenceOffered` (2026-09-23): the card carries a Silence action,
+    // offered while SOME ringer is sounding for this call — Lightning's own
+    // (then `sound` is false and the card is silent anyway) or the desktop's
+    // themed one. Pressing it emits callSilenceRequested; it does not end
+    // or decline anything. Also an input, for the same reason as the two
+    // above: the caller knows which ringer rings.
     void showIncomingCall(const QString &roomId, const QString &callId,
                           const QString &title, const QString &safeBody,
                           bool sound, int ringSeconds,
-                          bool acceptOffered = false, bool rtcLane = false);
+                          bool acceptOffered = false, bool rtcLane = false,
+                          bool silenceOffered = false);
 
     /// The action list the freedesktop card is delivered with.
     ///
@@ -176,7 +184,8 @@ public:
     /// is how a call notification with no way to answer survived from
     /// 2026-08-18 to 2026-09-17 with a registered, passing notification
     /// suite. Pin the WHOLE list, not the presence of one key.
-    static QStringList callActions(bool acceptOffered, bool rtcLane);
+    static QStringList callActions(bool acceptOffered, bool rtcLane,
+                                   bool silenceOffered = false);
     /// Update whether the showing call card offers an answer, and redraw it.
     ///
     /// THE GATE IS NOT KNOWN WHEN THE CARD IS FIRST RAISED, and that is not a
@@ -195,6 +204,13 @@ public:
     void setCallAcceptOffered(const QString &callId, bool offered,
                               bool rtcLane);
 
+    /// The user silenced this call's ring (from the card or in the app).
+    /// The card stays: the themed sound and its 5 s re-post stop, and the
+    /// Silence action is dropped from a card that is still showing. A
+    /// mismatched or absent call id is a no-op, and so is a second call.
+    /// Like setCallAcceptOffered it never touches the ring deadline.
+    void silenceIncomingCall(const QString &callId);
+
     // Retire the incoming-call notification (call ended or was handled on
     // another device). Safe to call when nothing is showing.
     void stopIncomingCall(const QString &callId);
@@ -209,6 +225,13 @@ public:
     { recordPayload(id, payload); }
     int pendingPayloadCountForTest() const { return m_pendingPayloads.size(); }
     bool callRingActiveForTest() const { return m_callRingTimer.isActive(); }
+    /// Whether the showing card would be (re)delivered with the themed call
+    /// sound, and with a Silence action. The repeat timer alone cannot say
+    /// the first: setCallAcceptOffered redraws with m_activeCallSound
+    /// whether or not the timer runs.
+    bool callSoundActiveForTest() const { return m_activeCallSound; }
+    bool callSilenceOfferedForTest() const
+    { return m_activeCallSilenceOffered; }
     QString activeCallIdForTest() const { return m_activeCallId; }
     // The DBus daemon is absent under offscreen tests: this stands in for
     // the Notify() reply so the id-matched decline/closed branches can be
@@ -272,6 +295,11 @@ Q_SIGNALS:
     /// raises them does not. Keeping them outside the guard is what stops
     /// this header becoming the next `QDBusReply does not name a type`.
     void callAcceptRequested(const QString &callId);
+    /// The user pressed Silence on the incoming-call notification. Only a
+    /// REQUEST: CallSoundController::silenceRing decides whether that call
+    /// is still the ringing one, and the card is quietened through
+    /// silenceIncomingCall() when it agrees.
+    void callSilenceRequested(const QString &callId);
     // v0.9.0 notification actions. Both carry the ACCOUNT the notification
     // was raised for, because a desktop notification outlives the account
     // that produced it: the user can switch accounts, or sign out entirely,
@@ -384,6 +412,7 @@ private:
     // Passed in by the raise site, never derived here — see showIncomingCall.
     bool m_activeCallAcceptOffered = false;
     bool m_activeCallRtcLane = false;
+    bool m_activeCallSilenceOffered = false;
     quint32 m_activeCallNotificationId = 0;
     // Whether this call has already been announced through the tray balloon.
     // Reset on every raise AND on every stop.

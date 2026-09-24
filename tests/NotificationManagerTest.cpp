@@ -536,15 +536,111 @@ private Q_SLOTS:
                  (QStringList{ QStringLiteral("default"), QObject::tr("Open"),
                                QStringLiteral("decline"),
                                QObject::tr("Decline") }));
+        // Silence (2026-09-23) goes before Decline, and only when offered.
+        QCOMPARE(NotificationManager::callActions(true, /*rtcLane=*/false,
+                                                  /*silenceOffered=*/true),
+                 (QStringList{ QStringLiteral("default"), QObject::tr("Open"),
+                               QStringLiteral("accept"),
+                               QObject::tr("Answer"),
+                               QStringLiteral("silence"),
+                               QObject::tr("Silence"),
+                               QStringLiteral("decline"),
+                               QObject::tr("Decline") }));
         // Decline is LAST in every shape: the destructive action is the one
         // a mis-aimed click must be least likely to reach.
+        int shapes = 0;
         for (bool offered : { true, false }) {
             for (bool rtc : { true, false }) {
-                const QStringList a =
-                    NotificationManager::callActions(offered, rtc);
-                QCOMPARE(a.at(a.size() - 2), QStringLiteral("decline"));
+                for (bool silence : { true, false }) {
+                    const QStringList a = NotificationManager::callActions(
+                        offered, rtc, silence);
+                    QCOMPARE(a.at(a.size() - 2), QStringLiteral("decline"));
+                    QCOMPARE(a.contains(QStringLiteral("silence")), silence);
+                    ++shapes;
+                }
             }
         }
+        QCOMPARE(shapes, 8);
+    }
+
+    // SILENCE IS A REQUEST, NOT AN ANSWER. The action is id-matched and
+    // exact like accept/decline, it retires nothing, and it is honoured only
+    // on a card that offered it.
+    void silenceActionMatchesTheDeliveredIdAndEndsNothing()
+    {
+        NotificationManager manager;
+        QSignalSpy silenced(&manager,
+                            &NotificationManager::callSilenceRequested);
+        QSignalSpy declined(&manager,
+                            &NotificationManager::callDeclineRequested);
+        manager.showIncomingCall(QStringLiteral("!r:x"),
+                                 QStringLiteral("call-1"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("body"), true, 60,
+                                 false, false, /*silenceOffered=*/true);
+        manager.setActiveCallNotificationIdForTest(42);
+        for (const QString &crafted :
+             { QStringLiteral("Silence"), QStringLiteral("silence "),
+               QStringLiteral("silencecall-1"), QStringLiteral("") }) {
+            QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                      Q_ARG(quint32, 42u),
+                                      Q_ARG(QString, crafted));
+        }
+        QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                  Q_ARG(quint32, 7u),
+                                  Q_ARG(QString, QStringLiteral("silence")));
+        QCOMPARE(silenced.count(), 0);
+        QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                  Q_ARG(quint32, 42u),
+                                  Q_ARG(QString, QStringLiteral("silence")));
+        QCOMPARE(silenced.count(), 1);
+        QCOMPARE(silenced.first().at(0).toString(), QStringLiteral("call-1"));
+        // Nothing ended and nothing was declined; the card is still up.
+        QCOMPARE(declined.count(), 0);
+        QCOMPARE(manager.activeCallIdForTest(), QStringLiteral("call-1"));
+
+        // A card that did not offer Silence does not honour one.
+        manager.showIncomingCall(QStringLiteral("!r:x"),
+                                 QStringLiteral("call-2"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("body"), false, 60);
+        manager.setActiveCallNotificationIdForTest(43);
+        QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                  Q_ARG(quint32, 43u),
+                                  Q_ARG(QString, QStringLiteral("silence")));
+        QCOMPARE(silenced.count(), 1);
+        manager.stopIncomingCall(QString());
+    }
+
+    // The card side of Silence: the themed sound and its 5 s re-post stop,
+    // the card stays, and nothing later brings the sound back.
+    void silenceIncomingCallQuietensTheCardAndKeepsIt()
+    {
+        NotificationManager manager;
+        manager.showIncomingCall(QStringLiteral("!r:x"),
+                                 QStringLiteral("call-1"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("body"), true, 60,
+                                 true, false, /*silenceOffered=*/true);
+        QVERIFY(manager.callRingActiveForTest());
+        QVERIFY(manager.callSoundActiveForTest());
+        // Another call's id is not this card's.
+        manager.silenceIncomingCall(QStringLiteral("call-0"));
+        manager.silenceIncomingCall(QString());
+        QVERIFY(manager.callRingActiveForTest());
+        QVERIFY(manager.callSoundActiveForTest());
+
+        manager.silenceIncomingCall(QStringLiteral("call-1"));
+        QVERIFY(!manager.callRingActiveForTest());
+        QVERIFY(!manager.callSoundActiveForTest());
+        QVERIFY(!manager.callSilenceOfferedForTest());
+        QCOMPARE(manager.activeCallIdForTest(), QStringLiteral("call-1"));
+        // A redraw for the join gate must not resurrect the sound.
+        manager.setCallAcceptOffered(QStringLiteral("call-1"), false, false);
+        QVERIFY(!manager.callSoundActiveForTest());
+        QVERIFY(!manager.callRingActiveForTest());
+        manager.stopIncomingCall(QString());
+        QVERIFY(!manager.callSilenceOfferedForTest());
     }
 
     // Mirrors declineActionMatchesTheDeliveredId exactly, because the two
