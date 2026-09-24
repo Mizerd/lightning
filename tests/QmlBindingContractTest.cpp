@@ -1455,7 +1455,7 @@ private Q_SLOTS:
         const QString pane = read(QStringLiteral("TimelinePane.qml"));
 
         const int pixelBranch =
-            pane.indexOf(QStringLiteral("if (event.pixelDelta.y !== 0)"));
+            pane.indexOf(QStringLiteral("if (event.pixelDelta.y !== 0"));
         QVERIFY(pixelBranch >= 0);
         const int angleBranch = pane.indexOf(
             QStringLiteral("else if (event.angleDelta.y !== 0)"), pixelBranch);
