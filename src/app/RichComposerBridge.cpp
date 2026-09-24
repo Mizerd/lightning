@@ -33,32 +33,21 @@ void RichComposerBridge::sendDocument(QQuickTextDocument *document)
     const RichComposition::Composed composed = RichComposition::compose(*doc);
     const QString plain = composed.plainBody.trimmed();
     if (plain.isEmpty() && composed.html.isEmpty()) {
-        // An empty box with queued attachments is a REAL send, and the Send
-        // button is enabled for it. Returning here dropped the whole thing
-        // silently: the click was accepted and nothing left the client. The
-        // markdown lane has always dispatched attachments before its own
-        // empty-body check; this is that path.
+        // Empty text with queued attachments is a real send.
         if (m_composer->hasAttachments())
             m_composer->send();
         return;
     }
-    // A COMMAND IS A COMMAND WHATEVER IT IS WEARING, and this test must come
-    // before the formatting one. It used to sit inside the unformatted
-    // branch, so bolding one word of "/spoiler the ending is X" published the
-    // sentence to the room as ordinary formatted text — the exact opposite of
-    // what the user asked for, and the same shape turned "/kick" into a
-    // public message and skipped the unknown-command refusal entirely.
-    // Formatting is dropped rather than honoured: a command's argument has no
-    // formatted form, and refusing to run it would be worse.
+    // Commands are checked before formatting, so a formatted "/spoiler" or
+    // "/kick" is never published as text. Formatting is dropped.
     if (plain.startsWith(QLatin1Char('/')) && !plain.startsWith(QLatin1String("//"))) {
         m_composer->setText(plain);
         m_composer->send();
         return;
     }
     if (composed.html.isEmpty()) {
-        // No formatting. "//" is the escape, as in markdown mode. Anything
-        // else travels the PLAIN lane verbatim — a WYSIWYG editor showing
-        // "*not bold*" must send exactly that, never re-read as markdown.
+        // "//" escapes a slash, as in markdown mode. Everything else is sent
+        // verbatim, never re-read as markdown.
         const QString verbatim = plain.startsWith(QLatin1String("//")) ? plain.mid(1)
                                                                           : plain;
         m_composer->sendPrepared(verbatim, QString(), composed.mentionUserIds);
@@ -80,8 +69,7 @@ void RichComposerBridge::sendDocumentToThread(QQuickTextDocument *document)
             m_thread->sendText(QString());
         return;
     }
-    // Before the formatting test, for the reason given in sendDocument: a
-    // formatted "/spoiler" must not be published as ordinary text.
+    // Before the formatting test; see sendDocument.
     if (plain.startsWith(QLatin1Char('/')) && !plain.startsWith(QLatin1String("//"))) {
         m_thread->setText(plain);
         m_thread->sendText(plain);

@@ -5,17 +5,11 @@
 #include <QLatin1String>
 #include <QString>
 
-// Backend selection helpers, extracted from main() so the compiled default and
-// the --backend=NAME parsing can be unit-tested without a QGuiApplication.
+// Backend selection, extracted from main() for unit testing.
 //
-// The DEFAULT backend for a launch that passes no --backend flag is decided at
-// COMPILE TIME. Official desktop builds compile the Matrix Rust SDK backend and
-// must default to it so a packaged launcher (which passes no flag — unlike the
-// Linux .desktop entry and run-dev.sh, which pass --backend=rust explicitly)
-// gets SDK-owned end-to-end encryption instead of the non-E2EE HTTP development
-// backend. Builds without the Rust SDK (mock/http CI configurations) keep the
-// HTTP default. There is no silent runtime Rust->HTTP fallback: an explicit
-// --backend=http is the only way to select HTTP in a Rust-enabled build.
+// The default backend is fixed at compile time: Rust SDK builds default to the
+// Rust backend (so launchers passing no flag get E2EE), others to HTTP. There is
+// no runtime Rust->HTTP fallback; only an explicit --backend=http selects it.
 
 namespace lightning {
 
@@ -30,9 +24,7 @@ constexpr AppController::Backend defaultBackend()
 }
 
 #ifdef LIGHTNING_RUST_ONLY
-// A Rust-only release build must have the Rust backend as its compiled default
-// (the CMake guard already requires ENABLE_RUST_SDK_BACKEND). Assert it so a
-// misconfiguration fails at compile time, not at a user's first launch.
+// Fail a misconfigured Rust-only release build at compile time.
 static_assert(defaultBackend() == AppController::RustBackend,
     "LIGHTNING_RUST_ONLY requires the Rust backend to be the compiled default");
 #endif

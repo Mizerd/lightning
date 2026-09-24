@@ -28,8 +28,7 @@ void ProfileBannerManager::setClient(MatrixClient *client)
             &ProfileBannerManager::handleRoomReceived);
     connect(m_client, &MatrixClient::roomBannerSet, this,
             &ProfileBannerManager::handleRoomSet);
-    // A banner belongs to the account that fetched it. The next account's
-    // profile cards must not inherit the previous one's answers.
+    // Answers belong to the account that fetched them.
     connect(m_client, &MatrixClient::loggedOut, this,
             &ProfileBannerManager::clearSession);
     Q_EMIT availableChanged();
@@ -61,8 +60,7 @@ void ProfileBannerManager::request(const QString &userId)
 {
     if (!available() || userId.isEmpty() || !m_supported)
         return;
-    // Once per user per session, and once per user in flight: a profile
-    // popover that opens, closes and opens again must not cost two requests.
+    // Once per user per session, and once in flight.
     if (m_asked.contains(userId))
         return;
     if (m_cache.size() >= kMaxCached)
@@ -73,25 +71,16 @@ void ProfileBannerManager::request(const QString &userId)
     m_client->fetchProfileBanner(userId, opId);
 }
 
-// A file the user picked reaches QML as a URL, and stripping "file://" by
-// hand is wrong on Windows: file:///C:/x.png becomes /C:/x.png, a path with a
-// leading slash before the drive letter. QUrl knows the platform rule;
-// AttachmentQueueModel::addFile has always used it, and this is the same
-// conversion in the same place — at the C++ edge, so no caller can get it
-// wrong. A value that is already a plain path passes through untouched.
+// Converts a picked file URL to a path via QUrl: stripping "file://" by hand
+// turns file:///C:/x.png into /C:/x.png on Windows. Plain paths pass through.
 static QString localPathFrom(const QString &pathOrUrl)
 {
     if (pathOrUrl.startsWith(QLatin1String("file:"), Qt::CaseInsensitive)) {
         const QUrl url(pathOrUrl);
         return url.isLocalFile() ? url.toLocalFile() : QString();
     }
-    // Any OTHER scheme is refused rather than passed on as though it were a
-    // path — an uploader handed "https://…" would report a missing file, and
-    // the reason would look like the user's fault.
-    //
-    // Matched on "scheme://" and NOT with QUrl::scheme(), because a Windows
-    // drive path is a URL with a scheme: QUrl("C:/x.png").scheme() is "c".
-    // The authority slashes are what separate the two.
+    // Refuse other schemes rather than treat them as paths. Matched on
+    // "scheme://", not QUrl::scheme(): QUrl("C:/x.png").scheme() is "c".
     static const QRegularExpression scheme(
         QStringLiteral("^[A-Za-z][A-Za-z0-9+.-]*://"));
     if (scheme.match(pathOrUrl).hasMatch())
@@ -117,7 +106,7 @@ void ProfileBannerManager::clearOwnBanner()
     setLastError({});
     m_pendingWrite = m_nextOpId++;
     Q_EMIT busyChanged();
-    // An empty path IS the clear; the Rust side deletes both field names.
+    // An empty path clears; Rust deletes both field names.
     m_client->setProfileBanner(QString(), m_pendingWrite);
 }
 
@@ -130,9 +119,7 @@ void ProfileBannerManager::handleReceived(quint64 opId, const QString &userId,
     m_inFlight.erase(it);
 
     if (!supported && m_supported) {
-        // Latched for the session: the server has said it does not know the
-        // endpoint, so every further request would ask the same question and
-        // get the same answer. It clears with the session.
+        // Latched for the session: the server does not know the endpoint.
         m_supported = false;
         Q_EMIT supportedChanged();
     }
@@ -153,11 +140,8 @@ void ProfileBannerManager::handleSet(quint64 opId, bool ok, const QString &mxc,
     Q_EMIT busyChanged();
     if (!ok) {
         setLastError(category.isEmpty() ? QStringLiteral("failed") : category);
-        // A write that came back unrecognised settles the same question the
-        // read settles, and settles it more definitively — the endpoint is
-        // not there. Without this the account could be invited to fail at
-        // the same upload indefinitely, because nothing else on this surface
-        // ever asks. It clears with the session, like the read's latch.
+        // An unrecognised write settles the same question; latch it too, or the
+        // account could retry a failing upload forever.
         if (category == QLatin1String("unsupported") && m_supported) {
             m_supported = false;
             Q_EMIT supportedChanged();
@@ -167,10 +151,8 @@ void ProfileBannerManager::handleSet(quint64 opId, bool ok, const QString &mxc,
     setLastError({});
     if (!m_client)
         return;
-    // Nothing is applied optimistically anywhere else in this application and
-    // nothing is here either — but the server has now ACKNOWLEDGED the write,
-    // so the local answer for our own user is authoritative and does not need
-    // a round trip to re-read.
+    // Not optimistic: the server acknowledged the write, so our own answer is
+    // now authoritative without a re-read.
     const QString self = m_client->currentUserId();
     if (self.isEmpty())
         return;
@@ -201,11 +183,9 @@ void ProfileBannerManager::refreshRoom(const QString &roomId)
 {
     if (!roomBannersAvailable() || roomId.isEmpty())
         return;
-    // The cap bounds GROWTH. A room already in the cache is not growth, and
-    // refusing to re-read one would freeze that Space's banner for the rest
-    // of the session — which is the whole point of refreshRoom(), since
-    // sliding sync never delivers this state type and a refresh is the only
-    // way a remote change can ever arrive.
+    // The cap bounds growth only; re-reading a cached room must stay possible,
+    // since sliding sync never delivers this state and refreshRoom() is the
+    // only way a remote change arrives.
     if (!m_roomCache.contains(roomId) && m_roomCache.size() >= kMaxCached)
         return;
     m_roomAsked.insert(roomId);
@@ -234,7 +214,7 @@ void ProfileBannerManager::clearRoomBanner(const QString &roomId)
     setLastError({});
     m_pendingWrite = m_nextOpId++;
     Q_EMIT busyChanged();
-    // An empty path IS the clear; Rust sends an empty content object.
+    // An empty path clears; Rust sends an empty content object.
     m_client->setRoomBanner(roomId, QString(), m_pendingWrite);
 }
 
@@ -273,8 +253,7 @@ void ProfileBannerManager::handleRoomSet(quint64 opId, const QString &roomId,
         return;
     }
     setLastError({});
-    // The server ACKNOWLEDGED the state event, so this answer is
-    // authoritative for the room and needs no round trip to re-read.
+    // The server acknowledged the state event; no re-read needed.
     m_roomCache.insert(roomId, mxc);
     m_roomAsked.insert(roomId);
     ++m_revision;
@@ -292,8 +271,8 @@ void ProfileBannerManager::clearSession()
     m_roomInFlight.clear();
     m_pendingWrite = 0;
     setLastError({});
-    // A different account may be on a server that DOES implement extended
-    // profiles; the latch is per session.
+    // Another account may be on a server that supports it; the latch is per
+    // session.
     if (!m_supported) {
         m_supported = true;
         Q_EMIT supportedChanged();

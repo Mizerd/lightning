@@ -12,15 +12,9 @@
 
 class MatrixClient;
 
-// v0.7.x: orchestrates the Discover / Join Room experience — identifier
-// resolution + preview, joining, knocking, knock withdrawal, and the
-// Space-children listing (joined AND unjoined rows).
-//
-// All operations are identified by backend operation ids and safe against
-// sign-out: MatrixClient::loggedOut clears every pending id and cache, so a
-// stale completion can never navigate or populate another account's state.
-// Join/knock protocol behaviour is entirely the SDK's; this class only
-// sequences requests and shapes results for QML.
+// Discover / Join Room: identifier resolution and preview, join, knock, knock
+// withdrawal, and Space children (joined and unjoined). Operations are keyed by
+// op id and sign-out clears them all. Protocol behaviour is the SDK's.
 class RoomDiscoveryController : public QObject
 {
     Q_OBJECT
@@ -50,9 +44,8 @@ public:
     Q_INVOKABLE void resolve(const QString &input);
     Q_INVOKABLE void clearResolved();
 
-    // Join by id or alias (via = routing servers, may be empty). On success
-    // waits (bounded) for the room to appear in the authoritative list,
-    // then emits roomJoined / spaceJoined.
+    // Join by id or alias (via may be empty). On success waits, bounded, for
+    // the room to appear in the list, then emits roomJoined / spaceJoined.
     Q_INVOKABLE void join(const QString &target, const QStringList &via,
                           bool isSpace);
     // Knock with an optional reason. Success emits knockSent.
@@ -75,15 +68,12 @@ Q_SIGNALS:
     void busyChanged();
     void errorMessageChanged();
     void resolveChanged();
-    // The joined room is present in the authoritative list (or the bounded
-    // wait elapsed): open it.
+    // The joined room is listed (or the wait elapsed): open it.
     void roomJoined(const QString &roomId);
     // A joined m.space room must be selected in the rail, never given a
     // message timeline.
     void spaceJoined(const QString &spaceId);
-    // A join FAILED, naming the target it was for. errorMessage carries the
-    // same text, but only this says which request it belonged to — knock
-    // and knock-withdrawal failures write that shared property too.
+    // Unlike the shared errorMessage, names the join target that failed.
     void joinFailed(const QString &target, const QString &message);
     void knockSent(const QString &roomId);
     void knockCancelled(const QString &roomId);
@@ -107,8 +97,7 @@ private:
     void setError(const QString &message);
     void beginWaitForRoom(const QString &roomId, bool isSpace);
     void finishWaitForRoom();
-    // Join/knock failure categories → honest user-facing strings. Public
-    // Matrix conditions only; never raw server text. Static for unit tests.
+    // Failure category to user-facing text; never raw server text.
 public:
     static QString describeJoinCategory(const QString &category);
 

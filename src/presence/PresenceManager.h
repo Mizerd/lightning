@@ -13,70 +13,43 @@
 
 class SettingsManager;
 
-// v0.7.x Matrix presence (design-handoff follow-up).
+// Matrix presence. Sliding Sync delivers no presence events, so presence is
+// a bounded polling loop over the users some visible surface has watch()ed,
+// with a short debounced burst for newly watched users, and a latch that
+// stops polling a server that refuses presence for everyone.
 //
-// Sliding Sync delivers NO presence events, so presence is a bounded
-// polling loop, and this class owns the entire policy: WHO is polled
-// (exactly the users some visible surface has watch()ed — DM rows, the
-// open People list, an open profile popover), HOW OFTEN (one bounded batch
-// per round, plus a short debounced burst when a new unknown user appears),
-// and WHEN TO STOP (a homeserver that answers forbidden for everyone has
-// presence disabled; polling it forever would be noise).
+// Unknown renders as nothing: a failed or pending lookup, an unsupported
+// backend and a presence-disabled server never become a fabricated
+// "offline". A transient failure keeps the last known state.
+// stateFor()/infoFor() are pure reads, safe in QML bindings; re-read on
+// revisionChanged.
 //
-// Honesty rules, matching the receipt/facepile precedents:
-//   - Unknown is rendered as NOTHING. A failed lookup, a not-yet-looked-up
-//     user, an unsupported backend and a presence-disabled server are all
-//     indistinguishable "no indicator" — never fabricated offline.
-//   - A transient network failure keeps the last known state rather than
-//     erasing it; only an authoritative answer replaces an answer.
-//   - stateFor()/infoFor() are pure reads, safe in QML bindings; re-read
-//     on revisionChanged.
-//
-// Own-presence publication is the other half: a periodic keep-alive PUT
-// (servers expire presence quickly) of online — or unavailable once the
-// application has been in the background for a while — gated by the
-// application-wide "share presence" privacy setting (global like the
-// link-preview switches, not per-account). Disabling the setting
-// publishes one final offline so the account does not linger online.
+// Own presence is published by a periodic keep-alive PUT (online, or
+// unavailable after a while in the background), gated by the global "share
+// presence" setting. Disabling it publishes one final offline.
 class PresenceManager : public QObject
 {
     Q_OBJECT
 
-    // Backend capability alone: true whenever the client CAN do presence.
-    // This is what gates the Settings publication card — the card must
-    // never disappear while publication can still run (review M1), so it
-    // deliberately ignores the read-side refusal latch below.
+    // Backend capability only. Gates the Settings publication card, so it
+    // ignores the read-side refusal latch: publication may still run.
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
-    // supported AND the server has not refused presence reads; QML uses it
-    // only to skip watch() bookkeeping — an inactive manager already
-    // answers "" for every user.
+    // supported AND the server has not refused presence reads.
     Q_PROPERTY(bool active READ active NOTIFY activeChanged)
-    // Bumped whenever any cached presence changes. Bindings reference it to
-    // re-evaluate stateFor()/infoFor().
+    // Bumped whenever any cached presence changes.
     Q_PROPERTY(int revision READ revision NOTIFY revisionChanged)
-    // Bumped when a session ends (sign-out / account switch). PresenceDot
-    // re-registers its watch on this edge, because clearSession() drops
-    // the watched set (review M2: one account's watch list must never be
-    // polled against the next account's homeserver).
+    // Bumped when a session ends. PresenceDot re-registers its watch on this
+    // edge, because clearSession() drops the watched set so one account's
+    // list is never polled against the next account's homeserver.
     Q_PROPERTY(int sessionEpoch READ sessionEpoch NOTIFY sessionEpochChanged)
-    // The ONLY two conditions under which the client actually KNOWS that
-    // presence will not be answered: the backend cannot do presence at
-    // all, or this session's server refused it for every user (the latch
-    // below). Everything else — an unanswered lookup, a user we have not
-    // polled yet, a transient failure — stays UNKNOWN, and unknown must
-    // keep rendering nothing. This property exists so the profile popover
-    // can say "Presence unavailable" for the two honest cases without
-    // QML having to infer them from `supported && !active`, which reads
-    // like a coincidence and would silently acquire a third meaning the
-    // day either property gains a condition.
+    // True only when presence is known not to be answered: the backend
+    // cannot do it, or this server refused it for every user. Everything
+    // else stays unknown and renders nothing. Kept explicit rather than
+    // derived in QML from `supported && !active`.
     Q_PROPERTY(bool unavailable READ unavailable NOTIFY unavailableChanged)
-    // v0.9 (phase 10): the account's own status. `ownStatusText` is what is
-    // published as the spec presence status_msg (emoji first, as ordinary
-    // characters, so every client sees it); `ownStatusExpiresAtMs` is 0 for
-    // no expiry, else a wall-clock ms timestamp after which the status is
-    // cleared — on the timer while running, on the next start otherwise.
-    // Expiry is a LIGHTNING convenience (it does not federate): the
-    // published text simply disappears when the deadline passes.
+    // The account's own status. `ownStatusText` is published as the
+    // status_msg (emoji first). `ownStatusExpiresAtMs` is 0 for no expiry,
+    // else a wall-clock ms deadline; expiry is local and does not federate.
     Q_PROPERTY(QString ownStatusText READ ownStatusText NOTIFY ownStatusChanged)
     Q_PROPERTY(QString ownStatusEmoji READ ownStatusEmoji NOTIFY ownStatusChanged)
     Q_PROPERTY(qint64 ownStatusExpiresAtMs READ ownStatusExpiresAtMs
@@ -94,37 +67,23 @@ public:
     int revision() const { return m_revision; }
     int sessionEpoch() const { return m_sessionEpoch; }
 
-    // Ref-counted visibility: a delegate watches on creation and unwatches
-    // on destruction. Watching is idempotent per caller and cheap; only
-    // watched users are ever polled.
+    // Ref-counted: a delegate watches on creation and unwatches on
+    // destruction. Only watched users are polled.
     Q_INVOKABLE void watch(const QString &userId);
     Q_INVOKABLE void unwatch(const QString &userId);
-    // A newly received remote event is a freshness hint, never a presence
-    // assertion. Re-poll a watched sender promptly; only the server answer
-    // may change the rendered state.
+    // A new remote event is a freshness hint: re-poll a watched sender
+    // promptly. Only the server answer changes the rendered state.
     void noteActivity(const QString &userId);
-    // A live typing notification about a WATCHED user. It is the one
-    // present-tense, server-forwarded fact this client receives about
-    // somebody else, and it CONTRADICTS a cached "offline": a homeserver
-    // with presence switched off answers 200 with "offline" for everybody
-    // rather than refusing, so the refusal latch never fires and the dot is
-    // confidently wrong forever (the same defect ownPublishedState() already
-    // records for the local user, which reached nobody else).
-    //
-    // The contradicted claim is WITHDRAWN, never replaced. The state becomes
-    // unknown, and unknown renders nothing — promoting it to "online" would
-    // be the same fabrication in the other direction, since typing proves
-    // activity and presence is a state the server owns. Only "offline" is
-    // withdrawn: "unavailable" is a soft idle heuristic and someone typing
-    // while marked away is ordinary, not a contradiction.
+    // Live typing from a watched user contradicts a cached "offline" (a
+    // server with presence off answers "offline" for everyone rather than
+    // refusing). The claim is withdrawn to unknown, never promoted to
+    // "online". "unavailable" is not withdrawn: typing while away is normal.
     void noteTyping(const QString &userId);
 
     // "online" / "unavailable" / "offline", or "" when unknown.
     Q_INVOKABLE QString stateFor(const QString &userId) const;
     // { state, currentlyActive, lastActiveAgoMs } with the age adjusted to
-    // NOW (the server age plus time since the answer arrived), so QML can
-    // format "last active …" without its own clock bookkeeping.
-    // lastActiveAgoMs is -1 when the server sent none. Empty map when
+    // now. lastActiveAgoMs is -1 when the server sent none. Empty when
     // unknown.
     Q_INVOKABLE QVariantMap infoFor(const QString &userId) const;
     // A peer's status text as the last poll reported it ("" = none/unknown).
@@ -136,12 +95,10 @@ public:
                                   qint64 expiresAtMs);
     Q_INVOKABLE void clearOwnStatus();
 
-    // Test/embedding seam; the ctor also tracks QGuiApplication state when
-    // one exists.
+    // Test/embedding seam; the ctor also tracks QGuiApplication state.
     void setApplicationActive(bool active);
-    // Test seams: the real idle threshold is minutes and the real
-    // keep-alive interval is 4 minutes — the idle/publish contracts are
-    // untestable at those scales (review L7).
+    // Test seams: the real idle threshold and keep-alive interval are too
+    // long for a test.
     void setIdleThresholdForTest(qint64 ms) { m_idleAfterMs = ms; }
     void setPublishIntervalForTest(int ms)
     {
@@ -149,43 +106,19 @@ public:
         m_publishTimer.setInterval(ms);
     }
     void setMinPublishGapForTest(int ms) { m_minPublishGapMs = ms; }
-    /// How many own-presence PUTs were sent and how many the server
-    /// rejected, SINCE THE PROCESS STARTED — deliberately monotonic and
-    /// deliberately NOT reset by `clearSession()`, a sign-out or an account
-    /// switch. A rate is a difference between two readings, and a counter
-    /// that resets destroys the history the reading is for.
-    ///
-    /// Read them together with the fact that they span sessions; an earlier
-    /// draft of this comment said "since this session started", which
-    /// nothing in the implementation has ever made true.
-    ///
-    /// They exist because "is presence working" was unanswerable of a live
-    /// session: the rejection RATE is the thing that matters and it was
-    /// visible only by counting log lines by hand after the fact. The
-    /// ATTEMPT count matters just as much — see the note at
-    /// `kRetryAfterFloorMs` about the offered rate, which is the number
-    /// that would settle what is actually driving the rejections.
+    /// Own-presence PUTs sent and rejected since process start. Monotonic
+    /// and deliberately not reset by clearSession(), so a rate can be taken
+    /// as the difference of two readings across sessions.
     Q_INVOKABLE qint64 publishAttempts() const { return m_publishAttempts; }
     Q_INVOKABLE qint64 publishRejections() const { return m_publishRejections; }
-    /// How many retries deep the current rejection chain is, 0 when none is
-    /// armed. A COUNT, not a duration — the first version of this comment
-    /// said milliseconds, which is a different member's sentence.
-    ///
-    /// It exists because the chain is otherwise observable only through
-    /// TIMING, and timing is what made three assertions in this suite
-    /// vacuous: `m_publishRetryTimer` is one single-shot timer and
-    /// `start()` RESTARTS it, so at most one retry is ever pending and the
-    /// publish count in any window is insensitive to the cap. Assert the
-    /// chain, not the consequence.
+    /// Retry depth of the current rejection chain, 0 when none is armed.
+    /// Exposed because the single restartable retry timer makes the chain
+    /// unobservable through publish counts.
     int retryChainForTest() const { return m_retryChain; }
-    /// The cap the chain plateaus at. Readable so the suite asserts the
-    /// REAL bound instead of mirroring a literal that would quietly go
-    /// stale the day somebody tunes it — the value is the contract, and a
-    /// test carrying its own copy is a test that stops testing.
+    /// The cap the retry chain plateaus at, so tests assert the real bound.
     static constexpr int maxRetryChain() { return kMaxRetryChain; }
-    // The real typing-evidence window is 35 s; that it EXPIRES is untestable
-    // at that scale. Deliberately not reset by clearSession() — it is a
-    // harness value, not session state.
+    // The real typing-evidence window is 35 s. Not reset by clearSession():
+    // it is a harness value, not session state.
     void setTypingEvidenceWindowForTest(qint64 ms) { m_typingWindowMs = ms; }
 
 Q_SIGNALS:
@@ -205,203 +138,84 @@ private:
         QString statusMsg;
     };
 
-    // One polling round every 30 s keeps a visible dot honest without
-    // meaningfully loading the server (each round is at most
-    // kBatchCap GETs for users that are actually on screen).
+    // One round every 30 s, at most kBatchCap GETs for on-screen users.
     static constexpr int kPollIntervalMs = 30000;
-    // Newly watched unknown users are answered quickly (a popover should
-    // not wait half a minute), but debounced so a People list materializing
-    // 30 delegates asks once, not 30 times.
+    // Newly watched unknown users are answered quickly but debounced, so a
+    // list materializing many delegates asks once.
     static constexpr int kBurstDelayMs = 400;
     static constexpr qint64 kFreshWatchMs = 10000;
     // Mirrors PRESENCE_BATCH_CAP in rust/src/presence.rs.
     static constexpr int kBatchCap = 40;
-    // MEASURED, and the number this replaced was assumed. The comment here
-    // used to read "servers expire presence after a few minutes without
-    // activity" and set the keep-alive to four minutes on that basis. An
-    // interop audit on 2026-09-19 measured the real figure against this
-    // project's own Synapse: a published "online" survives between 33 and
-    // 63 seconds, which is Synapse's `SYNC_ONLINE_TIMEOUT` (30 s after the
-    // last sync activity) plus its activity granularity. So the keep-alive
-    // was FOUR TIMES SLOWER than the expiry, and the account read OFFLINE to
-    // everybody else for about three quarters of every live session —
-    // measured from a second account querying the server, not inferred.
-    //
-    // AND THE PUT IS THE ONLY LEVER WE HAVE. A client normally stays online
-    // because its /sync carries `set_presence`; Lightning syncs through
-    // simplified sliding sync, which has no such parameter, so nothing about
-    // syncing tells this server we are here. Verified in `rust/src/presence.rs`
-    // — `set_presence::v3` is the only call that touches presence.
-    //
-    // 25 s therefore, strictly inside the 30 s floor. That is one small PUT
-    // per 25 s for a live session, which is the cost of the protocol here;
-    // Synapse's `rc_presence` default (0.1/s sustained) allows it with room
-    // to spare.
+    // Synapse expires a published "online" 33-63 s after the last activity
+    // (SYNC_ONLINE_TIMEOUT plus granularity), and simplified sliding sync
+    // has no `set_presence` parameter, so this PUT is the only thing keeping
+    // the account online. Must stay under 30 s.
     static constexpr int kPublishIntervalMs = 25 * 1000;
-    // NO TWO IDENTICAL PUBLISHES INSIDE THIS WINDOW. `handleConnectionState`
-    // forces a publish on every edge into Syncing, and a session start flaps
-    // `starting -> offline -> retrying -> starting -> running`, so two PUTs
-    // went out within ~3 s of launch; Synapse's `rc_presence` burst is 1, it
-    // rejected the second, and the Rust side sends with `.disable_retry()` —
-    // so the reported `own-presence publish failed: "rate_limited"` cost the
-    // whole first keep-alive window. Only an UNCHANGED state is dropped: a
-    // real state change still publishes immediately.
+    // Drop an unchanged-state publish inside this window. A session start
+    // flaps through several connection states and each Syncing edge forces a
+    // publish; Synapse's `rc_presence` burst of 1 rejects the duplicate.
+    // A real state change still publishes immediately.
     static constexpr int kMinPublishGapMs = 10 * 1000;
-    // How far EARLIER than the interval a KEEP-ALIVE tick may land, so the
-    // effective period is 21-25 s and the 33 s floor the interval was
-    // measured against is never approached from below. The RETRY path adds
-    // it instead of subtracting, because there the point is to spread
-    // several rejected devices apart rather than to stay under a floor;
-    // this sentence used to read "subtracted, never added" and stopped
-    // being true of one of its two users.
+    // Keep-alive ticks land up to this much early (21-25 s effective); the
+    // retry path adds it instead, to spread rejected devices apart.
     static constexpr int kPublishJitterMs = 4 * 1000;
-    // ── A REJECTED PUBLISH IS NOT A PUBLISH, AND WAITING A FULL PERIOD
-    //    AFTER ONE IS HOW AN ACCOUNT GOES DARK ────────────────────────────
+    // `rc_presence` is per user (default 0.1/s, burst 1). Jitter spreads a
+    // user's devices apart but does not lower their aggregate rate, so with
+    // several devices signed in many ticks are rejected, and a device that
+    // waits a full period after each rejection can be starved indefinitely.
+    // A rejection therefore arms a short one-shot retry, using the server's
+    // hint when given, clamped so a hint of 0 cannot busy-loop and a huge one
+    // cannot park the keep-alive.
     //
-    // `rc_presence` is per USER and Synapse's default is one accepted PUT
-    // per ten seconds with a burst of ONE. Jitter spreads a user's devices
-    // apart but does NOT reduce their aggregate rate, and the aggregate is
-    // what the limiter counts — so with several devices signed in, most
-    // ticks are rejected. Measured live against this project's own Synapse:
-    // 62% of publishes rejected over 33 minutes, and a run of TWENTY-NINE
-    // consecutive rejections — about ELEVEN MINUTES in which the account
-    // read offline to everyone while the process was running and healthy,
-    // against a server expiry of 33 to 63 seconds.
-    //
-    // The old handler logged the category and returned, under a comment
-    // saying "the next keep-alive tick retries anyway". That is only true
-    // if the next tick is not ALSO rejected, and for 29 ticks it was.
-    //
-    // So a rejection arms a SHORT one-shot retry instead of ceding the
-    // period. The server usually says when it will accept; the hint is
-    // bounded here because a homeserver is free to answer with a number
-    // that would park the keep-alive for an hour, and because a hint of 0
-    // must not become a busy loop.
-    // **AND THE MEASUREMENT IS NOT FULLY EXPLAINED — do not record this as
-    // the whole cause.** One device at 25 s offers 0.04 PUT/s against a
-    // 0.1/s limit, 2.5x UNDER. Four devices offer 0.16/s, which predicts
-    // ~37% rejection, not 62%. That number needs either six or seven
-    // concurrent publishers or an offered rate well above one per 25 s from
-    // a single client — and there IS such a path: the Syncing-edge publish
-    // is gap-limited to one per 10 s, which is exactly the limiter's own
-    // rate, so a flapping connection alone can sustain ~50% rejection with
-    // one device. If that is what was happening, this retry treats a
-    // symptom and multiplies a flap's traffic by five.
-    //
-    // **NARROWED 2026-09-19, and it is the many-devices arm.** Two
-    // measurements, taken minutes apart on the same machine:
-    //
-    //   * a single client on a fixture account, with the publish trace on:
-    //     8 attempts over 165 s, steady intervals of 23/24/24 s, 2.91
-    //     attempts/min converging on ~2.6 — and **ZERO rejections**. So the
-    //     period does what it says and one well-behaved client is 2.3x under
-    //     the limit.
-    //   * the client on the account that was FAILING, over the same window:
-    //     rejections at 24, 24, 25, 25 and 23 s — **every tick, 100%** — from
-    //     ONE process offering that same ~0.042 PUT/s.
-    //
-    // A client 2.4x under the limit cannot be rejected by its own traffic, so
-    // the budget was being spent by OTHER publishers on that account. That is
-    // the deduction the ratio could not support and these two readings do.
-    //
-    // It also says what the failure SHAPE is: with several devices the ones
-    // that lose the race are starved indefinitely, because ceding a whole
-    // period after a rejection means never competing for the next token —
-    // which is the 29-consecutive-rejection run, and exactly what the retry
-    // below is for. The flap arm is NOT ruled out as a second cause; it is
-    // no longer needed to explain what was seen.
-    //
-    // `publishAttempts()` and the `presence-publish` trace line are what made
-    // this answerable; use them rather than the rejection ratio, which cannot
-    // tell the two causes apart.
-    //
-    // ── AND THE OUTCOME IS MEASURED PER ACCOUNT, NOT PER CLIENT ──────────
-    //
-    // THREE clients on one fixture account, live against this homeserver:
-    // 12.2 publishes offered per minute, 5.25 accepted, 57% rejected — and
-    // the gap between ANY accepted publish peaked at **14 s against the 33 s
-    // expiry floor, with ZERO of 21 windows breaching it**. The account
-    // stayed continuously live.
-    //
-    // Individual clients in that run went 78 s between their OWN accepted
-    // publishes. That does not reach the user: presence is per USER, so a
-    // starved client is invisible while a sibling is getting through. A
-    // per-client gap is the wrong quantity and reading it as the outcome
-    // raised a false alarm during this very measurement.
-    //
-    // **WHAT THIS DOES NOT EXPLAIN, and it is the reported fault:** the
-    // account that was failing showed OFFLINE for 29 minutes. Contention
-    // alone cannot produce that — under contention the account stays live,
-    // as just measured. So something on that account was stopping EVERY
-    // publisher rather than making them compete, and this round has not
-    // found it. Do not read the retry as a fix for the report; it is a fix
-    // for a real defect that was found on the way to it.
+    // What matters is the gap between accepted publishes per account, not
+    // per client: presence is per user, so a starved client is invisible
+    // while a sibling gets through. publishAttempts() and the
+    // `presence-publish` trace measure the offered rate; the rejection ratio
+    // alone cannot distinguish many publishers from a flapping connection.
+    // See docs/round-history.md (2026-09-19).
     static constexpr int kRetryAfterFloorMs = 1500;
-    // Plus up to kPublishJitterMs, because the jitter is added AFTER this
-    // clamp — the effective ceiling is 24 s, still well inside the 33 s
-    // expiry floor. And the ceiling's real job is not a hostile server: it
-    // is CLIENT CLOCK SKEW. A `RetryAfter::DateTime` hint is converted
-    // against our own clock, and this project has already lost a round to a
-    // guest whose clock was seven hours ahead — without this bound that
-    // machine would park its keep-alive for seven hours.
+    // The jitter is added after this clamp, so the effective ceiling is
+    // 24 s, still inside the expiry floor. The bound mainly guards against
+    // client clock skew when converting a RetryAfter::DateTime hint.
     static constexpr int kRetryAfterCeilingMs = 20 * 1000;
-    // What to wait when the server rejected us without saying when. Under
-    // the floor of the expiry window, so a blind retry still lands inside
-    // the life of the last accepted publish.
+    // Wait used when a rejection carries no hint; stays inside the life of
+    // the last accepted publish.
     static constexpr int kRetryAfterUnknownMs = 4 * 1000;
-    // Bounded so a server that rejects everything cannot turn the
-    // keep-alive into a tight loop: after this many retries in a row the
-    // chain gives up and waits for the ordinary tick.
-    //
-    // The chain ALSO multiplies the wait, but only when the server gave no
-    // hint — see `onPublishRejected`. A hint that is already escalating
-    // must not be multiplied again.
+    // After this many consecutive retries the chain gives up and waits for
+    // the ordinary tick. The chain also multiplies the wait, but only when
+    // the server gave no hint (see onPublishRejected).
     static constexpr int kMaxRetryChain = 4;
-    // The app being CONTINUOUSLY in the background this long reads as
-    // "idle" — measured from the moment focus was lost (review H2: an
-    // earlier draft measured from the moment focus was GAINED, so any
-    // session focused longer than this published Away the instant the
-    // user switched windows).
+    // Continuously in the background this long reads as idle, measured from
+    // when focus was lost.
     static constexpr qint64 kIdleAfterMs = 10 * 60 * 1000;
-    // Two consecutive all-forbidden batches latch "this server has
-    // presence disabled" for the rest of the session. A batch only counts
-    // when it carries at least this many distinct users (review L1: a
-    // single user's 403 — a federation edge, an invited-not-joined member
-    // — must not blind presence for everyone).
+    // Two consecutive all-forbidden batches latch "presence disabled" for
+    // the session. A batch counts only with at least this many distinct
+    // users, so one user's 403 cannot blind presence for everyone.
     static constexpr int kForbiddenLatchThreshold = 2;
     static constexpr int kForbiddenLatchMinBatch = 2;
-    // How long one typing notification keeps contradicting a cached
-    // "offline". Long enough to cover a poll round (30 s) plus its answer,
-    // short enough that a stale contradiction cannot outlive the typing it
-    // came from by much. Withholding is the conservative direction — it
-    // renders nothing — so erring slightly long costs an absent dot, never
-    // a wrong one.
+    // How long one typing notification contradicts a cached "offline":
+    // a poll round plus its answer. Erring long only withholds a dot.
     static constexpr qint64 kTypingEvidenceMs = 35000;
 
     void pollRound(const char *kind, const QStringList &userIds);
-    // Opt-in diagnostic (env LIGHTNING_PRESENCE_TRACE, read ONCE at
-    // construction — the LIGHTNING_SCROLL_TRACE pattern). One bounded line
-    // per polling round decision; applyBatch emits the matching answer
-    // line itself. Counts and literal tags only: never a user id, never a
-    // display name, never a list. `reason` is always a string literal.
+    // Opt-in trace (LIGHTNING_PRESENCE_TRACE, read once at construction):
+    // one line per polling decision. Counts and literal tags only, never a
+    // user id or display name.
     void traceRound(const char *kind, const char *reason, int batch,
                     quint64 opId) const;
     void scheduledPollRound();
     void burstRound();
     void applyBatch(quint64 opId, const QVariantList &entries);
-    // `afterRejection` skips the kMinPublishGapMs window, and that is the
-    // whole point of the flag: that window exists to stop a DUPLICATE PUT
-    // of a state the server already accepted, and after a rejection the
-    // server accepted nothing. Without the bypass every retry inside ten
-    // seconds would be dropped by the guard that was written for the
-    // opposite situation.
+    // `afterRejection` bypasses kMinPublishGapMs: that window suppresses a
+    // duplicate of an accepted state, and after a rejection nothing was
+    // accepted.
     void publishTick(bool force, bool afterRejection = false);
     void onPublishRejected(const QString &category, qint64 retryAfterMs);
     void handleConnectionState(MatrixClient::ConnectionState state);
     void clearSession();
     int desiredOwnState() const;
     bool publishEnabled() const;
-    // v0.9 own status.
+    // Own status.
     void loadOwnStatusIfNeeded();
     void persistOwnStatus();
     void armStatusExpiry();
@@ -412,17 +226,14 @@ private:
     qint64 m_ownStatusExpiresAtMs = 0;
     QTimer m_statusExpiryTimer;
     // "online" / "unavailable" / "offline" for the local user, or "" when
-    // this client is not publishing and therefore does not know.
+    // this client is not publishing.
     QString ownPublishedState() const;
     bool isOwnUser(const QString &userId) const;
-    // True while live typing evidence contradicts what the cache holds for
-    // this user. Pure read: stateFor()/infoFor() are QML-binding safe.
+    // True while live typing evidence contradicts the cache. Pure read.
     bool typingContradicts(const QString &userId) const;
-    // Drops expired evidence and ANNOUNCES it. applyBatch only bumps the
-    // revision when a polled VALUE changes, and on a presence-disabled
-    // server the cached value is "offline" throughout — so without this the
-    // withheld dot would never come back until an unrelated update happened
-    // along.
+    // Drops expired evidence and bumps the revision; applyBatch only does so
+    // when a polled value changes, which on a presence-disabled server never
+    // happens.
     void pruneTypingEvidence();
 
     MatrixClient *m_client = nullptr;
@@ -435,43 +246,27 @@ private:
     QStringList m_pollOrder;
     int m_pollCursor = 0;
 
-    // userId -> m_clock time of the most recent typing notification.
-    // Bounded by the WATCHED set (nothing else is ever recorded), which is
-    // bounded by what is on screen.
+    // userId -> m_clock time of the latest typing notification. Bounded by
+    // the watched set.
     QHash<QString, qint64> m_typingSince;
 
     QTimer m_pollTimer;
     QTimer m_burstTimer;
     QTimer m_publishTimer;
-    // One-shot, armed only by a rejection. Separate from m_publishTimer so
-    // the ordinary cadence is never disturbed by a retry.
+    // One-shot, armed only by a rejection, so retries never disturb the
+    // ordinary cadence.
     QTimer m_publishRetryTimer;
     int m_retryChain = 0;
-    // Diagnostics, because "is presence working" was unanswerable of a live
-    // session: the rejection RATE is the thing that matters and it was
-    // visible only by counting log lines by hand after the fact.
     qint64 m_publishAttempts = 0;
     qint64 m_publishRejections = 0;
     QTimer m_typingTimer;
     QElapsedTimer m_clock;
-    // m_clock time of the last PUT we actually sent, for kMinPublishGapMs.
+    // m_clock time of the last PUT sent, for kMinPublishGapMs.
     qint64 m_lastPublishAtMs = -1;
     int m_minPublishGapMs = kMinPublishGapMs;
-    // TWO CLIENTS OF ONE ACCOUNT MUST NOT KEEP ALIGNING. Every running client
-    // publishes on the same 25 s period, so a user with a desktop and a
-    // laptop puts ~4.8 PUT/min on one account and Synapse's `rc_presence`
-    // (burst 1) starts answering 429 — measured at the time as 3 of 38 PUTs
-    // on an account with four sessions open. Spreading each client's next
-    // tick over a window makes a collision transient instead of periodic.
-    //
-    // **AND THAT 8% WAS NOT THE WHOLE STORY.** A later live audit measured
-    // 62% rejected over 33 minutes on the same homeserver, with a run of 29
-    // consecutive rejections. Jitter fixes collisions when the account's
-    // AGGREGATE rate is under the limit — burst 1 means simultaneous
-    // arrivals collide even at a legal rate — and does nothing at all when
-    // the aggregate is over it, because the limiter counts per USER. See
-    // `kRetryAfterFloorMs` for what was done about that, and for the part
-    // of the measurement that is still unexplained.
+    // Randomize each tick so several clients of one account do not stay
+    // aligned and collide against the burst-1 limiter. This fixes collisions
+    // only; it cannot help when the aggregate rate exceeds the per-user limit.
     bool m_publishJitter = true;
 
     quint64 m_nextOpId = 1;
@@ -479,18 +274,17 @@ private:
     int m_sessionEpoch = 0;
     int m_forbiddenBatches = 0;
     bool m_serverRefused = false;
-    // Read once at construction so a test can enable the trace per
-    // instance; a function-static would freeze the first value for the
-    // whole process.
+    // Per instance so a test can enable the trace; a function-static would
+    // freeze the first value for the whole process.
     bool m_traceEnabled = false;
     bool m_appActive = true;
-    // When focus was LOST (only meaningful while m_appActive is false).
+    // When focus was lost (only meaningful while m_appActive is false).
     qint64 m_inactiveSinceMs = 0;
     qint64 m_idleAfterMs = kIdleAfterMs;
     qint64 m_typingWindowMs = kTypingEvidenceMs;
     int m_lastPublished = -1;
-    // The user disabled sharing while the session was not live; the final
-    // offline is owed and flushed on the next Syncing edge (review M3).
+    // Sharing was disabled while not live; the final offline is flushed on
+    // the next Syncing edge.
     bool m_pendingFinalOffline = false;
     bool m_syncing = false;
 };

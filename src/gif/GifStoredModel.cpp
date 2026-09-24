@@ -6,9 +6,8 @@
 #include <QSettings>
 
 namespace {
-// Only https provider-CDN URLs are ever stored/reloaded, so a corrupted or
-// hostile persisted entry can never smuggle a non-provider or non-https URL
-// back into the picker.
+// Only https provider-CDN URLs are stored or reloaded, so a corrupted or
+// hostile entry cannot inject another URL into the picker.
 bool safeHttps(const QString &url)
 {
     return url.isEmpty() || url.startsWith(QLatin1String("https://"));
@@ -28,18 +27,11 @@ QJsonObject toJson(const gif::GifResult &r)
     o.insert(QStringLiteral("h"), r.gifHeight);
     o.insert(QStringLiteral("pw"), r.previewWidth);
     o.insert(QStringLiteral("ph"), r.previewHeight);
-    // qint64 -> QJsonValue(double) is exact here: gifBytes is bounded by
-    // gif::kMaxGifBytes (25 MiB), far inside double's 2^53 exact-integer range.
+    // Exact as a double: gifBytes is bounded by kMaxGifBytes (25 MiB).
     o.insert(QStringLiteral("bytes"), static_cast<double>(r.gifBytes));
-    // 2026-08 media round: only ever set for a local-saved row (see GifResult::localExt),
-    // and only WRITTEN when non-empty — a favorites/recents entry (always
-    // empty) round-trips through this exact same toJson()/fromJson() pair
-    // unchanged, gaining no new key. A row saved before this field existed
-    // simply has no "ext" key; fromJson() below leaves localExt "" for that
-    // case, and GifStarredStore is what interprets an empty local-row
-    // localExt as "gif" (the only format that could ever have been saved
-    // before this generalization) — kept as a store-level convention, not
-    // baked into this format-agnostic model/JSON layer.
+    // Only local saved rows carry "ext", and only when non-empty, so provider
+    // rows round-trip unchanged. GifStarredStore treats an empty local ext as
+    // "gif".
     if (!r.localExt.isEmpty())
         o.insert(QStringLiteral("ext"), r.localExt);
     return o;
@@ -60,18 +52,11 @@ gif::GifResult fromJson(const QJsonObject &o)
     r.previewWidth = o.value(QStringLiteral("pw")).toInt();
     r.previewHeight = o.value(QStringLiteral("ph")).toInt();
     r.gifBytes = static_cast<qint64>(o.value(QStringLiteral("bytes")).toDouble());
-    // Missing/absent -> "" — GifStarredStore treats an empty localExt on a
-    // local row as "gif" (see the class comment); a provider row never has
-    // this key at all, so it stays "" there too, which is simply unused.
-    //
-    // review M1: the persisted value participates in FILE PATH construction
-    // downstream (GifStarredStore::filePath -> unstar()'s QFile::remove,
-    // readBytes(), source()'s file:// URL), so it is held to the same
-    // hostile-index posture as the URL fields above: only the closed set of
-    // suffixes the store can ever have written is accepted, and anything
-    // else — including a traversal-shaped "png/../../x" from a corrupted or
-    // hand-edited index.ini — collapses to "" (legacy-GIF semantics; the
-    // stale-prune in openFor() then drops the row if no <hash>.gif exists).
+    // Missing means "" (legacy GIF for local rows). The value later builds file
+    // paths (filePath, remove, readBytes, source), so only the closed set of
+    // suffixes is accepted; anything else, including traversal like
+    // "png/../../x", collapses to "", and openFor() drops the row if no
+    // <hash>.gif exists.
     const QString ext = o.value(QStringLiteral("ext")).toString();
     if (ext == QLatin1String("gif") || ext == QLatin1String("png")
         || ext == QLatin1String("jpg") || ext == QLatin1String("webp"))
@@ -125,15 +110,9 @@ QVariant GifStoredModel::data(const QModelIndex &index, int role) const
         return (w > 0 && h > 0) ? static_cast<double>(w) / h : 1.0;
     }
     case GifResultModel::RatingRole:        return r.rating;
-    // A CONSTANT, not a lookup. It is honest for GifFavoritesModel (every row
-    // in it IS a favorite) and for GifStarredModel (every row IS saved
-    // locally), but it is a LIE for GifRecentModel, whose rows are merely
-    // recently sent. Do NOT use this role as a "is this saved" oracle for a
-    // stored model — ask the collection itself (GifFavoritesModel::isFavorite).
-    // v0.6.7 review (H1): reading it drove the picker's star state, so every
-    // tile on the Recent tab rendered as saved, announced "Remove from saved
-    // GIFs", and then INSERTED on activation. GifPicker.qml's isSaved() now
-    // queries the store instead.
+    // A constant: true for favorites and locally saved rows, but false in
+    // meaning for Recents. Never use it as an "is saved" oracle; ask the
+    // collection (GifPicker.qml's isSaved() does).
     case GifResultModel::FavoriteRole:      return true;
     case GifResultModel::BytesRole:         return r.gifBytes;
     default:                                return {};
@@ -201,7 +180,7 @@ void GifStoredModel::insertFront(const gif::GifResult &r)
         return;
     const int existing = indexOf(r.provider, r.id);
     if (existing == 0) {
-        // Already newest — refresh metadata in place and persist.
+        // Already newest: refresh metadata in place and persist.
         m_rows[0] = r;
         Q_EMIT dataChanged(index(0), index(0));
         save();
@@ -215,7 +194,7 @@ void GifStoredModel::insertFront(const gif::GifResult &r)
     beginInsertRows({}, 0, 0);
     m_rows.prepend(r);
     endInsertRows();
-    // Enforce the cap from the tail (oldest).
+    // Enforce the cap from the oldest end.
     while (m_rows.size() > m_maxRows) {
         const int last = m_rows.size() - 1;
         beginRemoveRows({}, last, last);
@@ -252,14 +231,9 @@ void GifStoredModel::clearAll()
 
 void GifStoredModel::reopen(QSettings *settings)
 {
-    // Drop in-memory rows WITHOUT persisting anything: load() below early-
-    // returns when the new settings object has no value yet for this key,
-    // which must never leave the PREVIOUS settings object's rows visible
-    // under the new one. Explicitly not save()-ing here also matters the
-    // other way around: `settings` may be the SAME account's store being
-    // reopened (e.g. logout followed by the same user logging back in), and
-    // persisting an empty array before load() re-reads it would destroy
-    // that account's real data instead of restoring it.
+    // Drop rows without persisting: load() returns early when the new settings
+    // have no value, which must not leave the previous account's rows visible,
+    // and saving here could overwrite the same account's real data on re-login.
     if (!m_rows.isEmpty()) {
         beginResetModel();
         m_rows.clear();

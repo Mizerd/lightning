@@ -10,86 +10,46 @@ class SettingsManager;
 
 /// Every rebindable keyboard shortcut in Lightning, in one place.
 ///
-/// WHY THIS EXISTS AT ALL. Before this, all 20 `Shortcut` declarations in
-/// qml/ carried hard-coded literal sequences and there was no rebinding
-/// infrastructure of any kind — no registry, no QSettings key, no
-/// QKeySequence anywhere in C++. That was survivable while Lightning chose
-/// every key itself. It stopped being survivable the moment we compared the
-/// set against another client's: Ctrl+B is the near-universal editor
-/// convention for Bold AND Lightning's own "toggle the room list", and
-/// Ctrl+Shift+B is "open bookmarks" elsewhere and "toggle the Spaces rail"
-/// here. Two people can both be right about one key, which is precisely the
-/// problem a registry solves and a longer list of literals does not.
+/// Two Qt behaviours shape the rules below:
 ///
-/// TWO QT FACTS SHAPE EVERY DECISION BELOW. Neither is theoretical; both
-/// have already cost this codebase something.
+///  1. A `Shortcut` is consumed before the focused item sees the key. So each
+///     entry carries a context, and a Global entry must carry Ctrl, Alt or
+///     Meta: a bare letter bound globally would be taken from every text
+///     field, including the one needed to undo the binding.
 ///
-///  1. A `Shortcut` is consumed BEFORE the focused item ever sees the key.
-///     Commit 4c2317f's message records a window-level "Space pauses media"
-///     Shortcut silently killing timeline paging, the emoji grid and the GIF
-///     grid; qml/SettingsScreen.qml restates the mechanism for its Escape.
-///     Space paging in qml/TimelinePane.qml is STILL a `Keys.onPressed` case
-///     rather than a Shortcut for exactly this reason. Consequence here: a
-///     registry entry carries a CONTEXT, and a Global entry may not be bound
-///     to a sequence with no Ctrl/Alt/Meta modifier — a bare letter bound
-///     globally would take that letter away from every text field in the
-///     application, and the person who did it would have no way to type the
-///     rebinding that undoes it.
+///  2. Two enabled `Shortcut`s on one sequence are ambiguous and Qt fires
+///     neither. So `setBinding` refuses a conflicting sequence instead of
+///     storing it, and the reserved list covers the hard-coded sequences
+///     that have no row of their own.
 ///
-///  2. Two ENABLED `Shortcut`s on one sequence make Qt report an ambiguous
-///     overload and fire NEITHER. qml/TimelinePane.qml documents this at its
-///     Escape handler, which is why its exclusion of MiddleClickScroller is
-///     explicit rather than order-dependent. Consequence here: conflict
-///     detection is not cosmetic decoration on a settings page — an
-///     undetected duplicate binding silently kills BOTH actions, and the
-///     symptom ("two things stopped working") points nowhere near the cause.
-///     So `setBinding` REFUSES a conflicting sequence rather than storing it
-///     and rendering a warning next to it, and the reserved list below
-///     carries the sequences that stay hard-coded and are therefore invisible
-///     to the model's own rows.
+/// Global vs Editor on the same sequence is a shadow, not a conflict: the
+/// composer accepts ShortcutOverride before shortcut dispatch, so the Editor
+/// action wins while it has focus and the Global action works elsewhere
+/// (Ctrl+B is Bold while typing, "toggle the room list" otherwise). Rows
+/// describe this via `shadowedBy` / `shadows`.
 ///
-/// GLOBAL vs EDITOR IS NOT A CONFLICT, IT IS A SHADOW. An Editor action is
-/// delivered by the composer accepting Qt's ShortcutOverride event, which
-/// happens BEFORE shortcut dispatch — so while the message box has focus the
-/// Editor action wins, and everywhere else the Global action still works.
-/// That is the honest resolution of the Ctrl+B collision: Ctrl+B is Bold
-/// while you are typing a message and "toggle the room list" while you are
-/// not, and NEITHER existing binding had to be silently taken away. The two
-/// rows still say so (`shadowedBy` / `shadows`), because a key that does two
-/// things deserves to be described rather than discovered.
-///
-/// PERSISTENCE is per account with a global fallback, the same rule theme,
-/// message layout and text scale already use (SettingsManager::
-/// appearanceValue): someone whose work account is a Space-heavy workspace
-/// and whose personal account is a handful of DMs may reasonably want
-/// different keys, and the global value is the logged-out default.
-/// Sequences are stored as QKeySequence::PortableText so they round-trip
-/// across platforms and locales, and an unparseable stored value is IGNORED
-/// (the default applies) rather than being handed to QML, which would
-/// produce a `Shortcut` bound to nothing with no way to notice.
+/// Persistence is per account with a global fallback, like other appearance
+/// settings (SettingsManager::appearanceValue). Sequences are stored as
+/// QKeySequence::PortableText; an unparseable stored value is ignored and the
+/// default applies.
 class ShortcutRegistry : public QAbstractListModel
 {
     Q_OBJECT
-    /// How many rows currently report a hard conflict. Should always be 0 —
-    /// setBinding refuses to create one — but a settings file edited by hand
-    /// or written by a newer build can still produce one, and the page says
-    /// so rather than pretending.
+    /// Rows reporting a hard conflict. setBinding never creates one, but a
+    /// hand-edited or newer-build settings file can.
     Q_PROPERTY(int conflictCount READ conflictCount NOTIFY conflictCountChanged)
-    /// True when at least one action is not on its default sequence, so the
-    /// page can enable/disable "Reset all" honestly.
+    /// True when any action is off its default sequence ("Reset all").
     Q_PROPERTY(bool anyCustomised READ anyCustomised NOTIFY anyCustomisedChanged)
 
 public:
-    /// WHERE an action is dispatched from, which decides what a legal
-    /// sequence is (see fact 1 above).
+    /// Where an action is dispatched from; decides which sequences are legal.
     enum ActionContext {
         /// A window/application `Shortcut`. Pre-empts the focused item, so
-        /// it MUST carry Ctrl, Alt or Meta.
+        /// it must carry Ctrl, Alt or Meta.
         GlobalContext = 0,
-        /// Delivered by the message composer accepting a ShortcutOverride
-        /// while it has focus. Modifier-less is still refused (a bare letter
-        /// would be unreachable — typing it would insert it), but these do
-        /// not fight Global entries; they shadow them.
+        /// Delivered by the composer accepting ShortcutOverride while it has
+        /// focus. Modifier-less is still refused (typing would insert it);
+        /// these shadow Global entries rather than conflict with them.
         EditorContext = 1,
     };
     Q_ENUM(ActionContext)
@@ -102,11 +62,11 @@ public:
         CurrentSequenceRole,
         IsDefaultRole,
         ContextRole,
-        /// Human-readable description of the action this row collides with,
-        /// or empty. Non-empty means BOTH actions are dead (fact 2).
+        /// Description of the action this row collides with, or empty.
+        /// Non-empty means both actions are dead.
         ConflictsWithRole,
-        /// Human-readable note when the same sequence is also bound in the
-        /// other context. Informational: both actions still work.
+        /// Note when the same sequence is bound in the other context.
+        /// Informational: both actions still work.
         ShadowNoteRole,
     };
 
@@ -121,88 +81,63 @@ public:
     bool anyCustomised() const;
 
     /// The sequence QML should bind a `Shortcut` to, in PortableText.
-    /// Returns an empty string for an unknown id — a `Shortcut` with an
-    /// empty sequence is inert, which is the correct failure for a typo in
-    /// a binding rather than an assert in a running client.
+    /// Empty for an unknown id, which leaves the `Shortcut` inert.
     Q_INVOKABLE QString sequenceFor(const QString &actionId) const;
     Q_INVOKABLE QString defaultSequenceFor(const QString &actionId) const;
     Q_INVOKABLE QString descriptionFor(const QString &actionId) const;
 
-    /// Why `sequence` may not be bound to `actionId`, or an empty string if
-    /// it may. Pure: changes nothing. The page calls this while the user is
-    /// still holding the keys down, so it must be cheap and side-effect free.
+    /// Why `sequence` may not be bound to `actionId`, or empty if it may.
+    /// Side-effect free; called while the user is still holding the keys.
     Q_INVOKABLE QString validationError(const QString &actionId,
                                         const QString &sequence) const;
 
-    /// Binds if `validationError` is empty. Returns that same reason on
-    /// refusal, so a caller may use the single call and never see a
-    /// half-applied state. NOTHING is stored on refusal.
+    /// Binds if `validationError` is empty, otherwise returns that reason.
+    /// Nothing is stored on refusal.
     Q_INVOKABLE QString setBinding(const QString &actionId,
                                    const QString &sequence);
 
     Q_INVOKABLE void resetToDefault(const QString &actionId);
     Q_INVOKABLE void resetAll();
 
-    /// True when `sequence` belongs to one of the deliberately hard-coded
-    /// keys the model cannot show as a row (Escape, Alt+V, the message
-    /// menu's accelerators). Exposed so the capture control can explain the
-    /// refusal in the same words the model would.
+    /// True when `sequence` belongs to a hard-coded key with no row (Escape,
+    /// Alt+V, the message menu's accelerators).
     Q_INVOKABLE bool isReserved(const QString &sequence) const;
     Q_INVOKABLE QString reservedOwner(const QString &sequence) const;
 
-    /// Turns one live key press into a storable sequence. QML cannot do this
-    /// itself: a KeyEvent carries `key` and `modifiers` as integers and there
-    /// is no QML-side mapping from Qt.Key_B to the string "B", so the capture
-    /// control hands the raw pair here and QKeySequence does the naming.
-    /// Returns an empty string while the user is still holding only
-    /// modifiers, which is the state a capture control is in for most of the
-    /// time it is open.
+    /// Turns one key press into a storable sequence. QML has no mapping from
+    /// Qt.Key_B to "B", so the capture control hands the raw pair here.
+    /// Returns empty while only modifiers are held.
     Q_INVOKABLE QString sequenceFromKeyEvent(int key, int modifiers) const;
 
     /// The EditorContext action id this key press resolves to, or empty.
     ///
-    /// This lives here rather than in each composer because the registry is
-    /// what KNOWS which actions are editor-context — it carries the flag.
-    /// Both composers previously would have had to repeat a hand-written
-    /// list of ids, and a seventh editor shortcut added to the table would
-    /// then work in whichever composer someone remembered to update. One
-    /// derivation, exactly like the sequence lookup above.
-    ///
-    /// A composer uses this for TWO things and must use it for both: to
-    /// decide whether to accept the ShortcutOverride (claiming only what it
-    /// really handles, so Ctrl+K and Ctrl+Q still reach the window), and
-    /// then to apply the format on the ordinary key press that follows.
+    /// Composers use it both to decide whether to accept ShortcutOverride
+    /// (claiming only what they handle, so Ctrl+K and Ctrl+Q still reach the
+    /// window) and to apply the format on the key press that follows.
     Q_INVOKABLE QString editorActionForKey(int key, int modifiers) const;
 
-    /// PortableText round-trip. Returns an empty string when Qt cannot parse
-    /// the input at all, which is the caller's signal to refuse rather than
-    /// to store something that reads back as nothing.
+    /// PortableText round-trip. Empty when Qt cannot parse the input, which
+    /// the caller must treat as a refusal.
     Q_INVOKABLE static QString normalize(const QString &sequence);
 
-    /// Re-reads every stored override. Called when the active account
-    /// changes: bindings are per account, so the account switch has to be
-    /// announced or the new account keeps the old one's keys until restart.
+    /// Re-reads every stored override. Called on account switch, since
+    /// bindings are per account.
     Q_INVOKABLE void reload();
 
     /// The distinct category labels, in the order the rows use them.
     Q_INVOKABLE QStringList categories() const;
 
 Q_SIGNALS:
-    /// One or more bindings changed. QML binds `Shortcut.sequences` through
-    /// sequenceFor(), which is a plain function call and therefore NOT a
-    /// dependency Qt can track — so a rebind is only visible if something
-    /// re-evaluates. Every QML site pairs the call with a counter read
-    /// (`bindingRevision`) for exactly this reason; see qml/ShortcutRow.qml
-    /// and the handoff notes.
+    /// One or more bindings changed. sequenceFor() is a plain call, which QML
+    /// cannot track as a dependency, so every QML site also reads
+    /// `bindingRevision` (see qml/ShortcutRow.qml).
     void bindingsChanged();
     void conflictCountChanged();
     void anyCustomisedChanged();
 
 public:
-    /// Bumped on every change. QML reads it inside the sequence binding so
-    /// the binding has a real dependency to re-evaluate on — the same
-    /// "resolveTick" pattern the media-cache handlers use, and for the same
-    /// reason (a bare function call creates no dependency).
+    /// Bumped on every change; QML reads it inside the sequence binding to
+    /// get a real dependency.
     Q_PROPERTY(int bindingRevision READ bindingRevision NOTIFY bindingsChanged)
     int bindingRevision() const { return m_revision; }
 
@@ -231,9 +166,8 @@ private:
     SettingsManager *m_settings = nullptr; // not owned; lifetime = process
     QVector<Action> m_actions;
     QVector<Reserved> m_reserved;
-    /// Resolved sequence per row, refreshed by reload()/setBinding(). Cached
-    /// because data() is called once per role per row on every repaint and
-    /// each miss would otherwise be a QSettings read.
+    /// Resolved sequence per row. Cached because data() runs per role per row
+    /// on every repaint and a miss would be a QSettings read.
     QVector<QString> m_resolved;
     int m_conflicts = 0;
     bool m_anyCustomised = false;

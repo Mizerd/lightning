@@ -8,18 +8,13 @@
 class MatrixClient;
 class SettingsManager;
 
-// v0.7.x composer drafts, scoped (account, room[, thread root]).
+// Composer drafts, scoped to (account, room[, thread root]).
 //
-// POLICY (confirmed by the maintainer, 2026-08-15): drafts in UNENCRYPTED
-// rooms persist locally (account-scoped QSettings, bounded LRU); drafts in
-// ENCRYPTED rooms are memory-only — they survive room/thread/Settings
-// switches within the session but never restart, because encrypted-room
-// plaintext is not written to CacheStore or any other persistent C++
-// storage. A room whose encryption state is UNKNOWN (not yet synced) is
-// treated as encrypted: fail closed, never persist by accident.
-//
-// Draft payloads carry text, mention refs and the reply target — never
-// credentials, never attachments, never edit state. Nothing here is logged.
+// Drafts in unencrypted rooms persist (account-scoped QSettings, bounded LRU).
+// Drafts in encrypted rooms are memory-only, because encrypted-room plaintext
+// is never persisted; a room whose encryption state is unknown counts as
+// encrypted. Drafts hold text, mentions and the reply target only, and are
+// never logged.
 class DraftStore : public QObject
 {
     Q_OBJECT
@@ -30,18 +25,16 @@ public:
     void setSettings(SettingsManager *settings) { m_settings = settings; }
     void setClient(MatrixClient *client);
 
-    // `draftKey` identifies the composer surface (room id, or the internal
-    // thread-timeline composite); `realRoomId` is the actual Matrix room,
-    // used only for the encryption policy decision. An effectively empty
-    // draft clears the entry.
+    // `draftKey` identifies the composer surface (room id or thread composite);
+    // `realRoomId` is used only for the encryption decision. An empty draft
+    // clears the entry.
     void save(const QString &draftKey, const QString &realRoomId,
               const QVariantMap &draft);
     QVariantMap load(const QString &draftKey) const;
     void clear(const QString &draftKey);
 
-    // Account switch / sign-out: encrypted-room drafts (memory) must never
-    // survive into another account's session. Persisted drafts live under
-    // the account's own settings group and are wiped with it.
+    // On account switch or sign-out. Persisted drafts are account-scoped and
+    // wiped with the account.
     void clearMemoryDrafts() { m_memory.clear(); }
 
     static bool draftIsEmpty(const QVariantMap &draft);

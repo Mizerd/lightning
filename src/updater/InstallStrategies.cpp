@@ -12,8 +12,7 @@
 
 namespace updater {
 
-// NSIS MUI2. See the header for why this is "/S", why it must be first, and
-// why "/D=" is deliberately omitted.
+// NSIS MUI2. See the header for "/S" ordering and the omitted "/D=".
 const QStringList kNsisSilentSwitches = {QStringLiteral("/S")};
 const QString kNsisPerUserSwitch = QStringLiteral("/CURRENTUSER");
 const QString kNsisPerMachineSwitch = QStringLiteral("/ALLUSERS");
@@ -63,10 +62,8 @@ ExecutableProbe defaultExecutableProbe()
 
 QStringList pkexecCandidates()
 {
-    // Absolute paths only — never PATH. The NixOS wrapper directory is listed
-    // because that is where a setuid pkexec actually lives on the maintainer's
-    // own system, and a missing entry there would silently disable deb/rpm
-    // installs on exactly the platform Lightning targets first.
+    // Absolute paths only, never PATH. The NixOS wrapper directory is where a
+    // setuid pkexec lives there.
     return {
         QStringLiteral("/usr/bin/pkexec"),
         QStringLiteral("/run/wrappers/bin/pkexec"),
@@ -102,14 +99,13 @@ QStringList packageManagerArguments(const QString &managerPath,
     const QString tool = QFileInfo(managerPath).fileName();
 
     if (tool == QLatin1String("apt-get")) {
-        // A local .deb is installed by giving apt-get the path. It resolves
-        // dependencies from the configured repositories, which dpkg cannot do.
+        // apt-get installs a local .deb by path and resolves its dependencies,
+        // which dpkg cannot.
         return {managerPath, QStringLiteral("install"), QStringLiteral("-y"),
                 QStringLiteral("--only-upgrade"), artifactPath};
     }
     if (tool == QLatin1String("dpkg")) {
-        // No --force-* of any kind: if dpkg refuses the package, that refusal
-        // is information, not an obstacle.
+        // No --force-*: a dpkg refusal is information.
         return {managerPath, QStringLiteral("-i"), artifactPath};
     }
     if (tool == QLatin1String("dnf5") || tool == QLatin1String("dnf")) {
@@ -117,8 +113,7 @@ QStringList packageManagerArguments(const QString &managerPath,
                 artifactPath};
     }
     if (tool == QLatin1String("rpm-ostree")) {
-        // rpm-ostree layers the package into the next deployment; it never
-        // mutates the running root, and it takes no -y.
+        // rpm-ostree layers into the next deployment and takes no -y.
         return {managerPath, QStringLiteral("install"), artifactPath};
     }
     if (tool == QLatin1String("rpm")) {
@@ -128,18 +123,10 @@ QStringList packageManagerArguments(const QString &managerPath,
     return QStringList();
 }
 
-// Qt hands out '/' separators on every platform, including Windows, and
-// msiexec.exe does NOT accept them: its own argument parser reads '/' as the
-// start of a switch, so `/i C:/Users/.../Lightning.msi` fails to open the
-// package and returns 1619 (ERROR_INSTALL_PACKAGE_OPEN_FAILED). That is
-// exactly what every MSI update did in the field before 2026-08-17;
-// confirmed by running the two forms by hand against the same file, where
-// the forward-slash one errored and the backslash one installed normally.
-//
-// Converted unconditionally rather than under Q_OS_WIN: these plans describe
-// a Windows command line and are only ever EXECUTED on Windows, so a Windows
-// path is the right output everywhere — and that keeps it testable on Linux,
-// which is where the suite that would have caught this actually runs.
+// msiexec reads '/' as the start of a switch, so a Qt-style
+// `/i C:/Users/.../Lightning.msi` fails with 1619
+// (ERROR_INSTALL_PACKAGE_OPEN_FAILED). Converted unconditionally: these plans
+// only run on Windows, and this keeps them testable on Linux.
 QString windowsNativePath(const QString &path)
 {
     QString native = path;
@@ -176,15 +163,14 @@ QString windowsCommandLine(const QStringList &arguments, bool *ok)
             if (c == QLatin1Char('"') || c.unicode() < 0x20 || c.unicode() == 0x7f)
                 return QString();
         }
-        // Tabs never get here: they are control characters, refused above.
+        // Tabs are control characters, refused above.
         const bool needsQuotes = argument.isEmpty() || argument.contains(QLatin1Char(' '));
         if (!needsQuotes) {
             quoted << argument;
             continue;
         }
-        // Inside quotes, backslashes are literal EXCEPT a run immediately
-        // before the closing quote, which CommandLineToArgvW halves. Double
-        // only that trailing run, so `C:\dir with space\` survives.
+        // Inside quotes, only a backslash run right before the closing quote is
+        // halved by CommandLineToArgvW; double just that run.
         QString element = argument;
         int trailing = 0;
         while (trailing < element.size()
@@ -209,9 +195,9 @@ QString launchablePathFromFinal(const QString &finalPath)
         path = finalPath.mid(kLocal.size());
     else
         path = finalPath;
-    // What is left must be a drive path ("C:\...") or a UNC path with a
-    // server and a share ("\\server\share\..."); never a device or volume
-    // path, and never something that still starts with "\\?\" or "\\.\".
+    // Must be a drive path ("C:\...") or a UNC path with server and share;
+    // never a device or volume path, nor anything still prefixed "\\?\" or
+    // "\\.\".
     const bool drive = path.size() >= 4 && path.at(0).isLetter()
         && path.at(1) == QLatin1Char(':') && path.at(2) == QLatin1Char('\\');
     const QStringList uncParts = path.mid(2).split(QLatin1Char('\\'));
@@ -234,7 +220,7 @@ bool retargetPlanToLockedFile(InstallPlan &plan, const QString &launchablePath)
     bool found = false;
     if (rewritten.program == plan.lockedArtifact) {
         rewritten.program = launchablePath;
-        // The parent directory, kept a directory: "C:\x.exe" -> "C:\".
+        // The parent, still a directory: "C:\x.exe" -> "C:\".
         QString parent = launchablePath.left(launchablePath.lastIndexOf(QLatin1Char('\\')));
         if (parent.size() == 2 && parent.at(1) == QLatin1Char(':'))
             parent += QLatin1Char('\\');
@@ -265,12 +251,9 @@ StrategyResult planWindowsMsi(const UpdaterArguments &args)
     StrategyResult result;
     result.plan.requiresExternalProcess = true;
     result.plan.program = windowsSystemExecutable(QStringLiteral("msiexec.exe"));
-    // /i install-or-upgrade, /qb basic UI with a progress bar (never fully
-    // silent — the user asked for this and should see it happening),
-    // REINSTALLMODE=vomus forces every file to be re-cached from the new
-    // package, which is what makes a same-version repair actually replace
-    // files. A per-user installation needs no elevation and gets exactly the
-    // vector every earlier release used; see the header for per-machine.
+    // /i installs or upgrades; /qb shows a basic progress UI (the user asked
+    // for this and should see it); REINSTALLMODE=vomus re-caches every file so
+    // a same-version repair replaces files. Per-machine: see the header.
     result.plan.arguments = {QStringLiteral("/i"),
                              windowsNativePath(args.artifactPath),
                              QStringLiteral("/qb"),
@@ -291,22 +274,16 @@ StrategyResult planWindowsSetup(const UpdaterArguments &args)
 
     StrategyResult result;
     result.plan.requiresExternalProcess = true;
-    // The verified artifact IS the program here. It is an absolute path that
-    // the argv validator already proved exists and is a regular file.
-    // CreateProcess itself accepts '/' separators, so unlike the MSI above
-    // this was not observed failing — it is made native for consistency, and
-    // because an NSIS installer does its own path handling once running.
+    // The artifact is the program: an absolute path the argv validator proved
+    // is a regular file. Made native for consistency with the MSI plan.
     result.plan.program = windowsNativePath(args.artifactPath);
     result.plan.arguments = kNsisSilentSwitches; // "/S" must come first
-    // Always explicit, never left to the installer's own guess: it would
-    // follow whichever copy it finds first, and when a person has both a
-    // per-user and a per-machine copy only this helper knows which one is
-    // being upgraded.
+    // Always explicit: with both a per-user and a per-machine copy present,
+    // only the helper knows which is being upgraded.
     if (args.installScope == InstallScope::Machine) {
         result.plan.arguments << kNsisPerMachineSwitch;
         result.plan.elevateOnWindows = true;
-        // The program IS the artifact here, so the locked file is the one
-        // Windows will map and run elevated.
+        // The program is the artifact, so the locked file is what Windows runs.
         result.plan.lockedArtifact = result.plan.program;
     } else {
         result.plan.arguments << kNsisPerUserSwitch;
@@ -318,8 +295,8 @@ StrategyResult planWindowsSetup(const UpdaterArguments &args)
 
 StrategyResult planWindowsPortable(const UpdaterArguments &)
 {
-    // Handled in-process: extract the verified ZIP into a private staging
-    // directory, validate the layout, then swap directories with rollback.
+    // In-process: extract into private staging, validate the layout, then swap
+    // directories with rollback.
     StrategyResult result;
     result.plan.requiresExternalProcess = false;
     return result;
@@ -327,8 +304,8 @@ StrategyResult planWindowsPortable(const UpdaterArguments &)
 
 StrategyResult planLinuxAppImage(const UpdaterArguments &)
 {
-    // Handled in-process: chmod +x the staged AppImage, then atomically
-    // replace the target path with rollback.
+    // In-process: chmod +x the staged AppImage, then replace atomically with
+    // rollback.
     StrategyResult result;
     result.plan.requiresExternalProcess = false;
     return result;
@@ -354,8 +331,7 @@ StrategyResult planLinuxDeb(const UpdaterArguments &args,
     result.plan.requiresExternalProcess = true;
     result.plan.elevates = true;
     result.plan.program = pkexec;
-    // pkexec's own argv: the program to run followed by its arguments. Never
-    // sudo, never a shell, never a single command string.
+    // pkexec's argv: the program and its arguments. Never sudo or a shell.
     result.plan.arguments = packageManagerArguments(manager, args.artifactPath);
     if (result.plan.arguments.isEmpty())
         return strategyFail(StrategyError::NoPackageManagerFound,

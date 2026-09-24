@@ -11,11 +11,9 @@
 #include <QLoggingCategory>
 #include <QSaveFile>
 
-// Only libcrypto, exactly as SignatureVerifier.cpp uses it. crypto.h is named
-// explicitly for OPENSSL_cleanse rather than relied upon transitively through
-// evp.h — the packaged builds compile against a different OpenSSL 3 minor than
-// the dev shell, and an implicit include is precisely the kind of difference
-// that shows up only in a CI job.
+// Only libcrypto, as in SignatureVerifier.cpp. crypto.h is included explicitly
+// for OPENSSL_cleanse: packaged builds use a different OpenSSL 3 minor than the
+// dev shell, and a transitive include may not hold there.
 #include <openssl/crypto.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
@@ -42,11 +40,9 @@ constexpr int kFormatVersion = 1;
 constexpr qint64 kMaxKeyFileBytes = 4 * 1024;
 constexpr qint64 kMaxDataFileBytes = 4 * 1024 * 1024;
 
-// Additional authenticated data. Fixed, versioned, and deliberately free of
-// any path or machine identifier: binding to either would defeat the entire
-// point of a portable folder, which is that it can be renamed, moved to a
-// different drive letter, and opened on a different PC. It exists only so the
-// sealed blob cannot be substituted for some other Lightning file.
+// Fixed, versioned AAD with no path or machine identifier, so the folder can
+// be moved, renamed and opened on another PC. It only prevents substituting
+// another Lightning file for the sealed blob.
 constexpr char kAad[] = "lightning-portable-secret-store-v1";
 
 struct EvpCipherCtxDeleter {
@@ -58,10 +54,8 @@ struct EvpCipherCtxDeleter {
 };
 using CipherCtxPtr = std::unique_ptr<EVP_CIPHER_CTX, EvpCipherCtxDeleter>;
 
-// Best-effort hygiene, honestly labelled: it wipes the buffer we own. It says
-// nothing about copies Qt's implicit sharing, the JSON parser, or the
-// allocator may already have made. The same honesty applies here as to the
-// UIA password scrubbing — transit hygiene, never a guarantee.
+// Best-effort: wipes the buffer we own, not copies Qt, the JSON parser or the
+// allocator may have made.
 void cleanse(QByteArray &bytes)
 {
     if (bytes.isEmpty())
@@ -84,8 +78,7 @@ std::optional<QByteArray> randomBytes(int count)
     QByteArray out(count, Qt::Uninitialized);
     ERR_clear_error();
     if (RAND_bytes(reinterpret_cast<unsigned char *>(out.data()), count) != 1) {
-        // No fallback to a non-cryptographic generator. A nonce or key from a
-        // predictable source is worse than refusing to write at all.
+        // No fallback to a non-cryptographic generator.
         ERR_clear_error();
         cleanse(out);
         return std::nullopt;
@@ -93,23 +86,13 @@ std::optional<QByteArray> randomBytes(int count)
     return out;
 }
 
-// Reads a whole small file, refusing anything over `limit`.
-//
-// THREE outcomes, and keeping them apart is the whole point of the signature:
-//   * nullopt          — the file is there and could not be read. A failure.
-//   * *absent == true  — no such file. An ordinary answer (a freshly extracted
-//                        portable folder has neither of our two files).
-//   * a QByteArray     — the bytes, which MAY be empty when the file itself is
-//                        zero bytes long. That is NOT the same as absent: a
-//                        zero-byte secrets.dat or secrets.key is a truncation,
-//                        and the callers must treat it as damage. Collapsing
-//                        the two — which the first draft of this function did
-//                        by returning an empty QByteArray for a missing file —
-//                        made a truncated key file look like "no key yet", and
-//                        the mint path would then have written a NEW key over
-//                        the only one that could open an existing secrets.dat.
-//                        That is irreversible loss of the saved session and
-//                        device, so the distinction is load-bearing, not tidy.
+// Reads a whole small file, refusing anything over `limit`. Three outcomes:
+//   * nullopt          - the file exists and could not be read;
+//   * *absent == true  - no such file (a fresh portable folder has neither);
+//   * a QByteArray     - the bytes, possibly empty. A zero-byte secrets.dat
+//                        or secrets.key is truncation, not absence: treating
+//                        it as "no key yet" would mint a new key over the only
+//                        one that opens an existing secrets.dat.
 std::optional<QByteArray> readBoundedFile(const QString &path, qint64 limit,
                                           bool *absent, QString *error)
 {
@@ -137,11 +120,8 @@ std::optional<QByteArray> readBoundedFile(const QString &path, qint64 limit,
     return file.readAll();
 }
 
-// Owner-only where the filesystem has the concept at all. Deliberately not
-// checked for success: FAT32/exFAT removable media — a completely normal home
-// for a portable install — have no permission bits, and failing a sign-in
-// because a USB stick cannot express file ownership would be absurd. The
-// header states plainly that this is not enforceable everywhere.
+// Owner-only where supported. Not checked: FAT32/exFAT removable media have no
+// permission bits, and a sign-in must not fail over that.
 void restrictToOwner(const QString &path)
 {
     QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
@@ -170,9 +150,8 @@ bool writeFileAtomically(const QString &path, const QByteArray &bytes,
                          .arg(QFileInfo(path).fileName(), file.errorString());
         return false;
     }
-    // After commit, because QSaveFile writes through a temporary name and
-    // renames on top. The window between rename and chmod is real but tiny,
-    // and the containing directory is itself owner-only.
+    // After commit, because QSaveFile renames on top. The window before chmod
+    // is small and the directory is owner-only.
     restrictToOwner(path);
     return true;
 }
@@ -236,9 +215,8 @@ std::optional<QByteArray> sealGcm(const QByteArray &key, const QByteArray &nonce
     return out;
 }
 
-// AES-256-GCM open. Returns nullopt when the tag does not authenticate, which
-// is the case that matters: a single flipped byte anywhere in the ciphertext,
-// the nonce, or the AAD lands here rather than producing plausible garbage.
+// AES-256-GCM open. Returns nullopt when the tag does not authenticate, so any
+// flipped byte in ciphertext, nonce or AAD is refused.
 std::optional<QByteArray> openGcm(const QByteArray &key, const QByteArray &nonce,
                                   const QByteArray &ciphertext, const QByteArray &tag)
 {
@@ -349,8 +327,8 @@ PortableSecretStore::~PortableSecretStore()
 
 QString PortableSecretStore::backendName() const
 {
-    // Shown verbatim in Settings → Privacy & security. It must not read as a
-    // reassurance: the key being in the folder is the headline fact.
+    // Shown verbatim in Settings. Must not read as a reassurance: the key is in
+    // the folder.
     return QStringLiteral(
         "portable file (AES-256-GCM, key stored in the same folder — "
         "anyone with the folder has the session)");
@@ -391,24 +369,19 @@ void PortableSecretStore::load()
         return;
     }
     if (dataAbsent) {
-        // No document yet. A freshly extracted portable folder looks exactly
-        // like this, and it is a real answer, not a failure. The key file is
-        // read (if one exists) so a later write reuses it rather than minting
-        // a second one; it is NOT minted here, so merely constructing the
-        // store on a read-only medium does not fail.
+        // No document yet, as in a fresh portable folder: a real answer. An
+        // existing key file is read so a later write reuses it; nothing is
+        // minted here, so construction succeeds on read-only media.
         if (QFile::exists(keyPath) && !ensureKey()) {
             m_state = State::Failed;
-            // ensureKey() already set the reason.
             return;
         }
         return;
     }
     if (dataBytes->isEmpty()) {
-        // Present and zero bytes. Something truncated it — an interrupted copy
-        // of the folder, a full disk, a filesystem that lost the tail. It is
-        // NOT "nothing stored yet", and treating it as such would let the next
-        // sign-in write a fresh document over the wreckage and destroy any
-        // chance of recovering the old device from a backup of the folder.
+        // Present and zero bytes: truncated (interrupted copy, full disk). Not
+        // "nothing stored"; writing a fresh document would destroy any chance
+        // of recovery.
         m_state = State::Failed;
         setError(QStringLiteral(
             "%1 is empty — it was truncated. It has been left untouched; "
@@ -419,10 +392,9 @@ void PortableSecretStore::load()
     }
 
     if (!QFile::exists(keyPath)) {
-        // The one case that must never be mistaken for "no account": there IS
-        // a saved session here, and its key is gone. Refusing keeps the
-        // ciphertext intact for whoever can restore the key file; starting
-        // over would overwrite the only copy on the next sign-in.
+        // A saved session exists but its key is gone. Refuse, keeping the
+        // ciphertext for whoever can restore the key; starting over would
+        // overwrite it.
         m_state = State::Failed;
         setError(QStringLiteral(
             "the saved sign-in exists but its key file (%1) is missing — "
@@ -447,20 +419,17 @@ void PortableSecretStore::load()
     if (object.value(QLatin1String("version")).toInt() != kFormatVersion
         || object.value(QLatin1String("alg")).toString()
                != QLatin1String("aes-256-gcm")) {
-        // No format agility: exactly one version and one algorithm are
-        // accepted, so a rewritten header cannot negotiate anything weaker.
+        // Exactly one version and algorithm, so nothing weaker can be
+        // negotiated.
         m_state = State::Failed;
         setError(QStringLiteral("%1 was written by an unsupported version")
                      .arg(dataFileName()));
         return;
     }
 
-    // The three sealed fields must be present, be strings, decode strictly,
-    // and carry EXACTLY the sizes this format defines. Checking the sizes here
-    // rather than leaving them to openGcm() is what makes a mangled envelope
-    // report itself as malformed instead of as an authentication failure —
-    // both refuse, but only one of the two messages tells the user the truth
-    // about what happened to their folder.
+    // The sealed fields must be strings that decode strictly to exactly this
+    // format's sizes, so a mangled envelope reports as malformed rather than as
+    // an authentication failure.
     const QJsonValue nonceValue = object.value(QLatin1String("nonce"));
     const QJsonValue ctValue = object.value(QLatin1String("ct"));
     const QJsonValue tagValue = object.value(QLatin1String("tag"));
@@ -536,9 +505,7 @@ bool PortableSecretStore::ensureKey()
 
     if (!keyAbsent) {
         if (raw->isEmpty()) {
-            // Present and zero bytes. Refuse — see readBoundedFile. Minting
-            // here would overwrite the only key that can open an existing
-            // secrets.dat, which is unrecoverable.
+            // Present and zero bytes: refuse (see readBoundedFile).
             setError(QStringLiteral(
                 "%1 is empty — it was truncated. It has been left untouched; "
                 "restore it from a backup of this folder.")
@@ -571,10 +538,8 @@ bool PortableSecretStore::ensureKey()
         return true;
     }
 
-    // No key FILE AT ALL — mint one. Reachable only when the key file is
-    // genuinely absent (a present-but-unreadable one returned false above),
-    // and load() refuses outright when a sealed document exists without its
-    // key, so this can never write over a key an existing session depends on.
+    // No key file at all: mint one. load() refuses a sealed document without
+    // its key, so this never overwrites a key an existing session depends on.
     std::optional<QByteArray> minted = randomBytes(kKeyBytes);
     if (!minted) {
         setError(QStringLiteral(
@@ -587,8 +552,8 @@ bool PortableSecretStore::ensureKey()
     object.insert(QLatin1String("alg"), QLatin1String("aes-256-gcm"));
     object.insert(QLatin1String("key"),
                   QString::fromLatin1(minted->toBase64()));
-    // A note to whoever opens this file wondering what it is. It says what it
-    // protects and what it does not; it must never claim more.
+    // Explains the file to anyone who opens it; must never claim more than it
+    // provides.
     object.insert(QLatin1String("note"),
                   QLatin1String("Lightning portable secret key. It decrypts "
                                 "secrets.dat in this same folder: anyone with "
@@ -613,10 +578,7 @@ bool PortableSecretStore::ensureKey()
 bool PortableSecretStore::persist()
 {
     if (m_state != State::Ok) {
-        // Refuse rather than start a fresh document over a damaged one. See
-        // the failure semantics in the header: this is data preservation, and
-        // it is why a corrupt store surfaces as a hard error instead of a
-        // silent new login.
+        // Refuse rather than write a fresh document over a damaged one.
         return false;
     }
     if (!ensureKey())
@@ -639,9 +601,8 @@ bool PortableSecretStore::persist()
 
     QByteArray plaintext = QJsonDocument(inner).toJson(QJsonDocument::Compact);
 
-    // A FRESH nonce on every single write. Reusing one under the same key is
-    // the one mistake that breaks GCM outright, so it is generated here and
-    // never derived from a counter, a timestamp, or the file contents.
+    // A fresh random nonce on every write: nonce reuse under one key breaks
+    // GCM.
     const std::optional<QByteArray> nonce = randomBytes(kNonceBytes);
     if (!nonce) {
         cleanse(plaintext);
@@ -693,9 +654,7 @@ bool PortableSecretStore::storeSecret(const QString &userId, const QString &key,
     const bool existed = m_secrets.contains(mapped);
     m_secrets.insert(mapped, value);
     if (!persist()) {
-        // Roll the in-memory view back so it never claims something the disk
-        // does not hold. A caller that saw true from a failed write would
-        // believe the session survives a restart when it does not.
+        // Roll back the in-memory view so it never claims what the disk lacks.
         if (existed)
             m_secrets.insert(mapped, previous);
         else
@@ -709,9 +668,8 @@ QString PortableSecretStore::readSecret(const QString &userId,
                                         const QString &key) const
 {
     if (m_state != State::Ok) {
-        // Empty AND flagged. §6: an unreadable secret is not an absent one,
-        // and this flag is what stops SettingsManager reading the empty
-        // string as "this account has no saved sign-in".
+        // Empty and flagged: an unreadable secret is not an absent one, so
+        // SettingsManager must not read it as "no saved sign-in".
         m_lastReadFailed = true;
         return {};
     }
@@ -729,13 +687,8 @@ bool PortableSecretStore::deleteSecret(const QString &userId, const QString &key
     }
     const QString mapped = mapKey(userId, key);
     if (!m_secrets.contains(mapped)) {
-        // Absent target. Report honestly rather than claiming a removal that
-        // did not happen — "target absent" and "removed" are different
-        // outcomes, and conflating them hides a no-op behind a success. The
-        // reason is stated too, so a caller logging lastError() on the false
-        // does not print an empty string and read it as an unexplained
-        // backend failure. Matches InMemorySecretStore, which likewise
-        // returns whether anything was actually removed.
+        // Target absent: report it as such rather than as a removal, with a
+        // reason so lastError() is not empty.
         setError(QStringLiteral(
             "no secret was stored under that key — nothing was deleted"));
         return false;
@@ -765,8 +718,7 @@ bool PortableSecretStore::clearAccountSecrets(const QString &userId)
             ++it;
     }
     if (m_secrets.size() == snapshot.size()) {
-        // Nothing was bound to this account. Sign-out still succeeds, but the
-        // rewrite is pointless, so skip it and say so honestly.
+        // Nothing was bound to this account; skip the pointless rewrite.
         m_lastError.clear();
         return true;
     }

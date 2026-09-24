@@ -4,22 +4,17 @@
 
 namespace {
 
-// THE TABLE. Adding a badge is a row here and nothing else.
-//
-// Matrix user ids are case-sensitive in their localpart, so these are compared
-// exactly as written; no normalisation is attempted, because guessing at
-// equivalence between two ids is how the wrong person gets somebody else's
-// badge.
+// The table: adding a badge is one row. User ids are compared exactly as
+// written (localparts are case-sensitive); guessing at equivalence could give
+// someone else's badge away.
 const QVector<ProfileBadges::Badge> &table()
 {
     static const QVector<ProfileBadges::Badge> kBadges = {
         {
             QStringLiteral("@romanticanimegerl:cutefunny.art"),
             QStringLiteral("idea master"),
-            // Spelled out because a decorative tag beside a name is exactly
-            // the kind of thing a reader assumes is a permission or a
-            // verification state. It is neither, and the accessible name says
-            // so instead of relying on the visual treatment to imply it.
+            // Spelled out because readers may assume a tag is a permission or
+            // verification state; it is neither.
             QCoreApplication::translate(
                 "ProfileBadges",
                 "idea master — a thank-you badge for helping develop "

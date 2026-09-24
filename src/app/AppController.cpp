@@ -53,8 +53,7 @@
 #include "matrix/RustSdkMatrixClient.h"
 #endif
 
-// Pure failure classification, no Rust dependency: compiled into every
-// configuration so the repair policy answers the same way in all of them.
+// Pure failure classification with no Rust dependency; compiled everywhere.
 #include "matrix/RustSessionPolicy.h"
 
 #include "matrix/MatrixClient.h"
@@ -82,19 +81,10 @@
 Q_LOGGING_CATEGORY(lcApp, "matrix.app")
 
 namespace {
-// How long after startup the optional automatic update check may run. The
-// privacy documentation states nothing is contacted in the first 30 seconds,
-// and startup must never wait on the network; the rate limit itself lives in
-// UpdateManager::maybeCheckAutomatically().
-//
-// DERIVED from the manager's own quiet period, with a margin, and not simply
-// written as 30s again. maybeCheckAutomatically() refuses while the process is
-// younger than kStartupQuietPeriodMs, and QTimer::singleShot uses a coarse
-// timer at this scale, which is allowed to fire EARLY. With the two values
-// equal, one early millisecond made this one-shot a no-op and the user's
-// enabled preference did nothing for the whole session -- silently, since a
-// refusal is not an error. The margin also keeps the two from drifting apart
-// if the quiet period is ever changed.
+// Delay before the optional automatic update check. Derived from
+// UpdateManager's startup quiet period plus a margin: QTimer::singleShot may
+// fire early at this scale, and with equal values the check would be refused
+// for the whole session.
 constexpr int kAutomaticUpdateCheckDelayMs =
     int(lightning::update::UpdateManager::kStartupQuietPeriodMs) + 5 * 1000;
 } // namespace
@@ -105,9 +95,7 @@ bool AppController::isBackendCompiled(Backend backend)
     case MockBackend:
     case HttpBackend:
 #ifdef LIGHTNING_RUST_ONLY
-        // Rust-only release: mock/http are not compiled in, so preflight
-        // (main.cpp) rejects --backend=mock/http/--mock with the standard
-        // "backend not compiled into this build" error.
+        // Not compiled into a Rust-only release; preflight rejects these.
         return false;
 #else
         return true;
@@ -127,8 +115,7 @@ std::unique_ptr<MatrixClient> AppController::makeClient(Backend backend,
                                                         QObject *parent)
 {
 #ifdef LIGHTNING_RUST_ONLY
-    // Rust-only release build: the HTTP/mock backends are not compiled in and
-    // preflight (main.cpp) rejects any non-Rust --backend before construction.
+    // Rust-only release: preflight rejects any non-Rust backend.
     Q_UNUSED(backend);
     return std::make_unique<RustSdkMatrixClient>(settings, parent);
 #else
@@ -142,9 +129,7 @@ std::unique_ptr<MatrixClient> AppController::makeClient(Backend backend,
 #ifdef ENABLE_RUST_SDK_BACKEND
         return std::make_unique<RustSdkMatrixClient>(settings, parent);
 #else
-        // Construction should be rejected upstream (main.cpp checks
-        // isBackendCompiled). Fall back to HTTP defensively so the app does
-        // not crash if we ever reach this path.
+        // Rejected upstream by main.cpp; fall back to HTTP defensively.
         qCCritical(lcApp)
             << "RustBackend selected but not compiled in; falling back to HTTP";
         return std::make_unique<CppHttpMatrixClient>(settings, parent);
@@ -161,10 +146,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     : QObject(parent)
     , m_backend(backend)
     , m_screenshotDemo(screenshotDemo)
-    // Screenshot-demo mode must never construct a production secure store: a
-    // libsecret/keychain store's constructor probes the real Secret Service and
-    // is not isolated by the demo applicationName. An in-memory store touches no
-    // libsecret, no keychain, and no file (see beginScreenshotDemo's assertion).
+    // Screenshot-demo mode must never construct a production secure store,
+    // whose constructor probes the real Secret Service.
     , m_secretStore(screenshotDemo
                         ? std::unique_ptr<SecretStore>(
                               std::make_unique<InMemorySecretStore>(this))
@@ -172,42 +155,34 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     , m_settings(std::make_unique<SettingsManager>(this))
 {
 #ifdef LIGHTNING_RUST_ONLY
-    // Fail closed: a release binary must never run a non-Rust backend. Preflight
-    // already rejects non-Rust --backend values (they are not compiled in), so
-    // this only fires if that invariant is ever bypassed.
+    // Fail closed: a release binary must never run a non-Rust backend.
     if (backend != RustBackend)
         qFatal("LIGHTNING_RUST_ONLY: refusing to start a non-Rust backend");
 #endif
-    // Wire the SecretStore before anything reads accessToken(). Migrates any
-    // legacy plaintext token into the SecretStore on first entry.
+    // Wire the SecretStore before anything reads accessToken(); this also
+    // migrates a legacy plaintext token.
     m_settings->setSecretStore(m_secretStore.get());
 
-    // Built here rather than in main.cpp so QML reaches it as app.localization
-    // alongside every other controller. It installs no catalog until
-    // applyStoredLanguage() runs — main.cpp does that before the QML engine
-    // loads, so the first frame is already in the user's language.
+    // Installs no catalog until main.cpp calls applyStoredLanguage() before
+    // the QML engine loads.
     m_localization = std::make_unique<LocalizationManager>(m_settings.get(), this);
     m_customTheme = std::make_unique<CustomThemeStore>(m_settings.get(), this);
-    // Constructed with the settings, before any QML exists: the first frame
-    // must already carry the user's bindings, not the defaults followed by
-    // a correction the eye can catch.
+    // Constructed before any QML exists so the first frame already carries
+    // the user's bindings.
     m_shortcuts = std::make_unique<ShortcutRegistry>(m_settings.get(), this);
     m_railLayout = std::make_unique<RailLayoutStore>(m_settings.get(), this);
     m_railEntries = std::make_unique<RailEntryModel>(this);
     m_mediaVisibility = std::make_unique<MediaVisibilityStore>(this);
-    // Persistence is account-scoped, so this also loads whatever the account
-    // that is active right now had hidden.
+    // Persistence is account-scoped; this loads the active account's list.
     m_mediaVisibility->setSettings(m_settings.get());
     m_banners = std::make_unique<ProfileBannerManager>(this);
     m_nameColors = std::make_unique<NameColorManager>(this);
     m_bio = std::make_unique<ProfileBioManager>(this);
     m_userProfiles = std::make_unique<UserProfileResolver>(this);
-    // A fixed local table, so it needs no client and no session: it is
-    // decoration, not Matrix state (see ProfileBadges).
+    // A fixed local table: decoration, not Matrix state.
     m_badges = std::make_unique<ProfileBadges>(this);
-    // The cropper stages its preview through the SAME in-memory token store
-    // the composer uses, so QML never points an Image at a user-chosen
-    // file:// path — which is what would let an .svg render (CLAUDE.md §6).
+    // The cropper previews through the in-memory staged-image store, so QML
+    // never loads a user-chosen file:// path (which could render an SVG).
     m_imageCrop.setStagedImages(&m_stagedImages);
 
     m_client       = makeClient(backend, m_settings.get(), this);
@@ -220,26 +195,19 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_timelineView = std::make_unique<ReverseListProxyModel>(this);
     m_timelineView->setSourceModel(m_timeline.get());
     m_composer     = std::make_unique<MessageComposer>(this);
-    // MSC4108. Given the SAME code store verification uses: both DISPLAY one
-    // code at a time, and a stale token renders nothing, so one slot is
-    // correct rather than merely convenient.
+    // MSC4108 QR login shares the verification code store: both show one
+    // code at a time and a stale token renders nothing.
     m_policy       = std::make_unique<PolicyListController>(this);
     m_qrLogin      = std::make_unique<QrLoginController>(this);
     m_qrLogin->setQrStore(&m_qrCodeStore);
     m_richComposer = std::make_unique<RichComposerBridge>(this);
     m_richComposer->setComposer(m_composer.get());
-    // Clipboard images never become files, so their bytes are registered
-    // here for the composer chip to preview. One store, both composers.
+    // Clipboard images never become files; one store serves both composers.
     m_composer->attachments()->setStagedImages(&m_stagedImages);
 
-    // The composer's spell checker, resolved against the user's spelling
-    // preference ("" = the SYSTEM locale rather than the UI language: a user
-    // reading Lightning in English still types Lithuanian, and it is the
-    // keyboard that decides which dictionary is the right one). Resolving
-    // costs one dlopen (Linux), one CoCreateInstance (Windows) or one AppKit
-    // singleton (macOS) and answers "unavailable" honestly when the machine
-    // has no dictionary; `--spell-status` prints what happened. Both knobs
-    // are application settings: Settings writes them, this pushes them in.
+    // Spell checking defaults to the system locale rather than the UI
+    // language, since the keyboard decides the dictionary. Reports
+    // "unavailable" when no dictionary exists; see `--spell-status`.
     m_spell.initialize(m_settings->spellCheckLanguage());
     m_spell.setEnabled(m_settings->spellCheckEnabled());
     connect(m_settings.get(), &SettingsManager::spellCheckEnabledChanged, this,
@@ -247,26 +215,21 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_settings.get(), &SettingsManager::spellCheckLanguageChanged, this,
             [this] { m_spell.setPreferredLanguage(m_settings->spellCheckLanguage()); });
 
-    // Privacy: the two settings that decide what this device DISCLOSES while
-    // the user is simply reading and typing. Pushed in the same shape as the
-    // spell knobs — Settings writes, this applies — and applied once here so
-    // a stored choice is in force from the first receipt, not from the first
-    // time the user reopens the settings page.
+    // Privacy settings (read receipts, typing) are applied once here so a
+    // stored choice holds from the first receipt, and again on change.
     applyPrivacyPreferences();
     connect(m_settings.get(), &SettingsManager::readReceiptModeChanged, this,
             [this] { applyPrivacyPreferences(); });
-    // MSC4153 is applied at CLIENT BUILD time, so it is pushed here — before
-    // any sign-in — and again whenever it changes, which affects the NEXT
-    // client. The UI says so; nothing here pretends it is live.
+    // MSC4153 is applied at client build time, so a change affects the next
+    // client only.
     connect(m_settings.get(), &SettingsManager::strictDeviceTrustChanged, this,
             [this] { applyStrictDeviceTrust(); });
     applyStrictDeviceTrust();
     connect(m_settings.get(), &SettingsManager::sendTypingNotificationsChanged,
             this, [this] { applyPrivacyPreferences(); });
 
-    // System tray. Created only while the user has asked for it — an icon in
-    // somebody's tray for a feature they never turned on is noise — and only
-    // where the platform actually has one.
+    // The tray icon exists only while the user asked for it and the platform
+    // has a tray.
     connect(&m_tray, &TrayIcon::showRequested,
             this, &AppController::trayShowRequested);
     connect(m_settings.get(), &SettingsManager::closeToTrayChanged,
@@ -275,16 +238,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             this, &AppController::refreshTrayState);
     refreshTrayState();
 
-    // Window geometry: settle the "can this still be restored?" question once,
-    // here, while the display layout is the one the window is about to open
-    // onto. SettingsManager already refused a size below the window's own
-    // minimum, so what is left is the position.
-    //
-    // The test is a BAND along the top of the frame — the part the user has to
-    // be able to grab. Requiring the whole rect to sit on one screen would
-    // refuse a window legitimately spanned across two monitors. No screens at
-    // all (a guiless run) is not an invitation to guess: the geometry is
-    // dropped and the window uses its own default placement.
+    // Decide once, against the current display layout, whether the stored
+    // position is still reachable (SettingsManager already enforced the
+    // minimum size). With no screens at all the geometry is dropped.
     if (const QRect stored = m_settings->initialWindowGeometry();
             !stored.isEmpty()) {
         if (windowGeometryIsReachable(stored))
@@ -292,8 +248,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         else
             qCInfo(lcApp, "stored window geometry ignored: off-screen");
     }
-    // v0.7.x drafts: one shared store (room + thread composers), policy in
-    // DraftStore — persisted only for unencrypted rooms.
+    // One shared draft store for the room and thread composers; drafts
+    // persist only for unencrypted rooms.
     m_draftStore   = std::make_unique<DraftStore>(this);
     m_draftStore->setSettings(m_settings.get());
     m_composer->setDraftStore(m_draftStore.get());
@@ -319,46 +275,30 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                            [this](const QVariantMap &state) {
                                m_settings->setActivityState(state);
                            } });
-    // Voice calls (2026-08-18 rounds 1-3): the signaling state machine,
-    // and — when the build carries the GStreamer webrtcbin engine AND its
-    // element factories resolve at runtime — the real media backend that
-    // makes placing/answering calls possible. Absent engine = the honest
-    // refusal path, exactly as before. LIGHTNING_DISABLE_WEBRTC=1 is the
-    // kill switch (diagnosis, or a machine whose plugins misbehave).
+    // Voice calls. The media backend is attached later, only when the build
+    // has the GStreamer engine and its elements resolve at runtime;
+    // LIGHTNING_DISABLE_WEBRTC=1 is the kill switch.
     m_calls        = std::make_unique<CallController>(this);
     m_rtc          = std::make_unique<RtcController>(this);
     m_groupCall    = std::make_unique<SfuCallController>(this);
     m_callDevices  = std::make_unique<CallDeviceController>(this);
     m_callSounds   = std::make_unique<CallSoundController>(this);
-    // Application updates. Constructed once and never rebuilt: it holds no
-    // Matrix state, is not account-scoped, and signing in, signing out or
-    // switching account must not disturb an update check or download.
+    // Application updates: not account-scoped, so sign-in, sign-out and
+    // account switches never disturb a check or download.
     m_updateManager = std::make_unique<lightning::update::UpdateManager>(this);
-    // The automatic check, if the user enabled it. Deliberately delayed: an
-    // update check must never sit between the user and a usable application,
-    // and the privacy documentation promises nothing happens in the first 30
-    // seconds. maybeCheckAutomatically() itself enforces the preference and
-    // the once-per-24h rate limit, so this is only the trigger -- and it is a
-    // ONE-SHOT, never re-armed on room or account changes.
+    // The automatic check is delayed so it never stands between the user and
+    // a usable app (the privacy notes promise nothing in the first 30 s).
+    // maybeCheckAutomatically() enforces the preference and the 24 h rate
+    // limit; this is a one-shot trigger.
     QTimer::singleShot(kAutomaticUpdateCheckDelayMs, m_updateManager.get(), [this] {
         m_updateManager->maybeCheckAutomatically();
     });
     connect(m_updateManager.get(), &lightning::update::UpdateManager::quitRequested,
             this, [this] {
-                // installAndRestart() has staged a verified artifact and handed
-                // it to the helper, which waits for this process to exit before
-                // touching anything. Quit through the event loop so normal
-                // shutdown still runs; the helper relaunches us afterwards.
-                //
-                // ANNOUNCE THE INTENT FIRST. Qt asks every top-level window to
-                // close as part of quitting, and close-to-tray REFUSES that
-                // close, which aborts the quit. The window then went to the
-                // tray, this process never exited, and the helper sat waiting
-                // until its two-minute timeout and wrote "timed-out" -- with
-                // the UI still saying Lightning would close to apply the
-                // update, and no way back to the button. Ctrl+Q has always
-                // announced itself for exactly this reason; the update path
-                // did not, and could not satisfy a rule it never knew about.
+                // The helper waits for this process to exit before installing.
+                // Announce the intent first: close-to-tray would otherwise
+                // refuse the window close and abort the quit, leaving the
+                // helper to time out.
                 Q_EMIT applicationQuitIntended();
                 QCoreApplication::quit();
             });
@@ -366,8 +306,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_roomUpgrade  = std::make_unique<RoomUpgradeController>(this);
     m_thread       = std::make_unique<ThreadController>(this);
     m_thread->attachments()->setStagedImages(&m_stagedImages);
-    // The rich composer bridge serves both composers; the thread one exists
-    // only from here on.
+    // The rich composer bridge serves both composers.
     m_richComposer->setThread(m_thread.get());
     m_conversations= std::make_unique<ConversationController>(this);
     m_discovery = std::make_unique<RoomDiscoveryController>(this);
@@ -378,18 +317,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
     m_mediaBridge  = std::make_unique<MediaBridge>(this);
     m_accountAvatars = std::make_unique<AccountAvatarStore>(this);
-    // ── KEEP THE ACTIVE ACCOUNT'S PICTURE WHEN WE HAVE ITS BYTES ────────
-    //
-    // This is the ONLY moment an account's avatar bytes exist in this
-    // process: `MediaBridge` fetches through whichever client is active, so
-    // account B's picture can never be fetched while account A is live —
-    // which is why the switcher shows initials for every other account and
-    // why a disk copy is the only thing that can draw them.
-    //
-    // Keyed on the mxc matching the ACTIVE account's recorded `avatarUrl`,
-    // so this stores a person's own picture and not every avatar that
-    // happens to scroll past. The store itself refuses anything that is not
-    // a raster image and anything over its cap.
+    // Persist the active account's own avatar when its bytes pass through
+    // MediaBridge: that is the only time they exist, since media is fetched
+    // through the active client, so the switcher needs a disk copy to draw
+    // other accounts. Only the mxc matching the recorded avatarUrl is stored;
+    // the store refuses non-raster data and oversized files.
     connect(m_mediaBridge.get(), &MediaBridge::mediaCached, this,
             [this](const QString &cacheKey) {
                 if (!m_settings || !m_accountAvatars)
@@ -406,9 +338,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 if (!bytes.isEmpty())
                     m_accountAvatars->store(uid, bytes);
             });
-    // The tray balloon is the notification delivery where there is no
-    // freedesktop daemon (Windows, macOS) — see refreshTrayState for why the
-    // icon shows there.
+    // The tray balloon is the delivery where there is no freedesktop daemon
+    // (Windows, macOS); see refreshTrayState.
     m_notifications->setFallbackTray(&m_tray);
     m_notifications->setAvatarProvider(
         [this](const QString &mxc, bool request) {
@@ -426,14 +357,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     m_notifications->avatarCacheChanged();
             });
 
-    // Inline custom emoji (MSC2545). The sanitizer keeps the `mxc:` form —
-    // deliberately, so an edited message cannot carry a local source back to
-    // the room — and this is what turns it into something the view can draw,
-    // through the SAME authenticated media path every attachment uses.
-    // 64px because an emoticon renders at 20 and a HiDPI screen doubles it.
-    // The composer's half of MSC2545: a `:shortcode:` the user has installed
-    // becomes an inline image on send, and stays literal text when it is not
-    // one of theirs.
+    // Inline custom emoji (MSC2545). The sanitizer keeps the `mxc:` form so an
+    // edit cannot carry a local source back to the room; the resolver maps it
+    // through the authenticated media path at 64 px (20 px rendered, doubled
+    // for HiDPI). The composer turns an installed `:shortcode:` into an inline
+    // image on send.
     m_composer->setEmoticonSearch(
         [this](const QString &prefix, int limit) {
             return m_stickers->findEmoticons(prefix, limit);
@@ -449,9 +377,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_mediaBridge.get(), &MediaBridge::mediaCached,
             m_timeline.get(),
             [this](const QString &) {
-                // An emoji resolves to "" until its bytes arrive; this is the
-                // re-read that replaces the shortcode with the image. It
-                // costs nothing in a timeline with no emoji in it.
+                // An emoji resolves to "" until its bytes arrive; re-read on
+                // arrival.
                 m_timeline->notifyInlineImagesChanged();
             });
     connect(m_mediaBridge.get(), &MediaBridge::mediaFetchFailed,
@@ -470,36 +397,21 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_gifSend      = std::make_unique<GifSendController>(this);
     m_stickers     = std::make_unique<StickerPackManager>(this);
     m_gifSend->setRecentModel(m_gif->recent());
-    // v0.6.6: a local-favorite send reads the stored bytes straight off
-    // disk by content hash — no network, no MatrixClient::gifDownload().
+    // A starred-GIF send reads the stored bytes from disk by content hash.
     m_gifSend->setLocalGifReader([this](const QString &hash) {
         return m_gif->starredStore()->readBytes(hash);
     });
-    // The star-fetch trigger (starChatGif) lives on MediaBridge and stays
-    // GIF-agnostic; this is the one place its result is routed into the
-    // local-starred store, keeping src/media/ and src/gif/ decoupled from
-    // each other.
+    // MediaBridge's star fetch stays GIF-agnostic; its result is routed into
+    // the starred store only here, keeping src/media/ and src/gif/ decoupled.
     connect(m_mediaBridge.get(), &MediaBridge::mediaBytesForStar, this,
             [this](const QString &mediaKey, bool ok, const QByteArray &bytes,
                    const QString &category) {
-        // ONLY keys this account actually asked to star. The fetch trigger
-        // is media-generic and now has a second caller (ForwardController),
-        // and an unconditional handler here would write the decrypted bytes
-        // of every forwarded image into the account's on-disk saved-media
-        // store — which §6 forbids and §7 permits only as an explicit
-        // export the user chose. Forwarding is not that choice: it would
-        // persist decrypted media nobody asked to keep, consume the store's
-        // 200-item budget, and render the row's star as filled.
-        // Copy-to-clipboard consumer (2026-08-18 tester report #2): a
-        // TRANSIENT export on explicit user action — nothing persists, so
-        // the saved-GIF store's deletion machinery does not apply; the
-        // pending-key discipline (the same one that keeps forwards out of
-        // the star store) still does.
-        // The bridge dedups in-flight fetches purely by key, so when a
-        // star and a copy race on the SAME image exactly ONE signal
-        // arrives — it must service BOTH claims, or the loser is left
-        // stuck pending with no result and no feedback (review find,
-        // 2026-08-18). Never an early return between the two branches.
+        // Only keys this account asked to star or copy. The fetch is shared
+        // with ForwardController, and writing every forwarded image into the
+        // on-disk saved-media store would persist decrypted media nobody
+        // chose to keep. The bridge dedups in-flight fetches by key, so one
+        // signal may have to service both a copy and a star claim: no early
+        // return between the two branches.
         const bool wasCopy = m_pendingCopyKeys.remove(mediaKey);
         const bool wasStar = m_pendingStarKeys.remove(mediaKey);
         if (wasCopy)
@@ -511,10 +423,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         else
             m_gif->starredStore()->reportFetchFailed(mediaKey, category);
     });
-    // v0.7: dimensions learned by the poster extractor persist per account,
-    // so a metadata-less video's card takes its true shape from the first
-    // render on every later visit (only the first-ever encounter can still
-    // start on the 16:9 guess). Dimensions only — never content.
+    // Learned video dimensions persist per account so a metadata-less card
+    // has its true shape on later visits. Dimensions only, never content.
     connect(m_mediaBridge.get(), &MediaBridge::videoDimensionsLearned, this,
             [this](const QString &mediaKey, int width, int height) {
         if (m_settings)
@@ -526,7 +436,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_settings->setKnownMediaSizeBytes(mediaKey, bytes);
     });
 
-    // GIF policy follows the persisted settings live.
+    // GIF policy follows settings live.
     m_gif->setRating(m_settings->gifSafeSearch());
     m_gif->setActiveProvider(m_settings->gifPreferredProvider());
     m_gif->recent()->setRecordingEnabled(m_settings->storeRecentGifs());
@@ -538,9 +448,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this] {
                 m_gif->recent()->setRecordingEnabled(m_settings->storeRecentGifs());
             });
-    // v0.7.x verification badges: the warning is a function of BOTH the
-    // trust state and the per-account dismissal, so it has to re-notify on
-    // either. securityStateChanged also drives it (see below).
+    // The verification warning depends on both trust state and the
+    // per-account dismissal, so it re-notifies on either.
     connect(m_settings.get(),
             &SettingsManager::verificationWarningDismissedChanged, this,
             [this] { Q_EMIT sessionVerificationWarningChanged(); });
@@ -551,11 +460,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
 
     m_crypto->setBackendName(backendName());
 
-    // A typing notification is the one live, present-tense fact the server
-    // forwards about somebody else, and it CONTRADICTS a cached "offline"
-    // (a homeserver with presence switched off answers 200 "offline" for
-    // everyone, so the refusal latch never fires). PresenceManager
-    // WITHDRAWS the contradicted claim; it never promotes anyone to online.
+    // A typing notification contradicts a cached "offline" (servers with
+    // presence disabled answer "offline" for everyone). PresenceManager only
+    // withdraws the contradicted claim; it never promotes anyone to online.
     connect(m_client.get(), &MatrixClient::typingChanged, this,
             [this](const QString &roomId) {
         if (!m_presence || MatrixClient::isThreadTimelineId(roomId))
@@ -565,117 +472,80 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_presence->noteTyping(userId);
     });
 
-    // v0.6.0 checkpoint 11: native notifications. Every appended remote
-    // event (any room, incl. thread-timeline copies which are filtered by
-    // their composite id) runs the pure decision; the manager delivers via
-    // freedesktop DBus. Bodies are never logged or persisted.
+    // Native notifications: every appended remote event runs the pure
+    // decision. Bodies are never logged or persisted.
     connect(m_client.get(), &MatrixClient::eventAppended, this,
             [this](const QString &composedRoomId, const TimelineEvent &event) {
-        // A THREAD COPY IS MAPPED, NOT DROPPED, and the comment that used to
-        // sit here — "the room copy of the same event already notifies" — was
-        // false on the Rust backend. The live room timeline is built with
-        // `hide_threaded_events: true`, so there IS no room copy of a thread
-        // reply; and the raw-sync mirror, the only other producer, early
-        // returns for the room that is currently OPEN. So for the open room a
-        // thread reply reached this handler from nowhere at all: someone
-        // @-mentioning you in a thread of the room on your screen produced no
-        // notification, no sound and no Activity Center row, while the same
-        // mention in a BACKGROUND room worked. Leaving a room open made you
-        // less likely to be told about a mention in it.
-        //
-        // The composite never leaves this scope (§8): everything downstream
-        // sees the real room id, and the payload's threadRootId still routes
-        // the click. Double notification is prevented by event id rather than
-        // by discarding the copy, which is what the old comment was reaching
-        // for.
+        // Map a thread copy to its real room rather than dropping it: the
+        // live room timeline hides threaded events, so for the open room the
+        // thread copy is the only producer. The composite id never leaves
+        // this scope; duplicates are prevented by event id.
         const bool fromThread = MatrixClient::isThreadTimelineId(composedRoomId);
         const QString roomId = fromThread
             ? MatrixClient::threadTimelineRoomId(composedRoomId)
             : composedRoomId;
         if (roomId.isEmpty())
             return;
-        // Dedup on BOTH branches. Checking only the thread copy made the
-        // claim half true: if a room copy of the same event ever arrives
-        // (a backend without hide_threaded_events, or the mock), it would
-        // still notify a second time. Any event carrying a thread root is a
-        // candidate for both producers, so both consult the same set.
+        // Dedup on both branches: any event with a thread root may arrive
+        // from both producers.
         if (fromThread || !event.threadRootId.isEmpty()) {
             if (event.eventId.isEmpty()
                 || m_notifiedThreadEventIds.contains(event.eventId))
                 return;
             m_notifiedThreadEventIds.insert(event.eventId);
-            // Bounded: this only has to outlive the moment two producers
-            // could both deliver one event, not the session.
+            // Only needs to outlive the window where two producers overlap.
             if (m_notifiedThreadEventIds.size() > 512)
                 m_notifiedThreadEventIds.clear();
         }
-        // Receiving activity is a reason to refresh a visible sender's
-        // presence promptly, but never evidence for fabricating "online".
-        // PresenceManager applies only the homeserver's subsequent answer.
+        // Activity prompts a presence refresh; it is never evidence of
+        // "online".
         if (m_presence && event.sender != m_client->currentUserId())
             m_presence->noteActivity(event.sender);
         NotificationManager::Context context;
         context.selfUserId = m_client->currentUserId();
-        // Targeted lookup — the previous rooms() call deep-copied the whole
-        // room list (every QString and member hash) once per appended event,
-        // which is O(events x rooms) across a sync burst.
+        // Targeted lookup; rooms() deep-copies the whole list per event.
         const RoomInfo info = m_client->roomInfo(roomId);
         context.roomName = info.name.isEmpty() ? roomId : info.name;
         context.roomIsDirect = info.isDirect;
         const QVariantMap notifyRoomRow = m_roomList->findRoom(roomId);
         context.avatarMxc =
             notifyRoomRow.value(QStringLiteral("avatarUrl")).toString();
-        // Drives the initials disc when there is no avatar to fetch. Taken
-        // from the same row the interface colours its own avatar from, so a
-        // notification and the room list never disagree about an identity.
+        // Initials colour and theme from the same row the room list uses, so
+        // the two never disagree about an identity.
         context.avatarColorKey =
             notifyRoomRow.value(QStringLiteral("identityColorKey")).toString();
-        // ...and the theme the disc is coloured from, for the same reason.
         context.themeId = int(m_settings->theme());
         context.roomMode = static_cast<NotificationManager::RoomMode>(
             m_settings->roomNotificationMode(roomId));
-        // An encrypted room may withhold more than the rest. The room row is
-        // the only place this layer knows the room's encryption from, and it
-        // carries `encryptionKnown` separately because "not known yet" is a
-        // real third state during hydration — see effectiveNotificationPreview.
+        // Encrypted rooms may withhold more. `encryptionKnown` is a real third
+        // state during hydration; see effectiveNotificationPreview.
         context.previewMode = static_cast<NotificationManager::PreviewMode>(
             m_settings->effectiveNotificationPreview(
                 notifyRoomRow.value(QStringLiteral("encrypted")).toBool(),
                 notifyRoomRow.value(QStringLiteral("encryptionKnown")).toBool()));
         context.notificationsEnabled = m_settings->notificationsEnabled();
-        // "ON SCREEN" IS THREAD-AWARE. A reply in a thread whose panel is not
-        // open is not visible just because the room behind it is: the room
-        // timeline hides threaded events, so there is nothing on screen for
-        // the user to have read. Suppressing on the room's visibility alone
-        // is what kept an @-mention in a thread of the OPEN room silent, and
-        // remapping the event to its real room id (above) did not by itself
-        // change that — it only restored the Activity Center row and the
-        // scrolled-away case.
+        // "On screen" is thread-aware: the room timeline hides threaded
+        // events, so a thread reply is visible only if its panel is open.
         const bool threadPanelShowingThis =
             fromThread && m_thread
             && m_thread->rootEventId() == event.threadRootId;
         context.roomVisibleAtLatest =
             roomId == m_currentRoomId && m_activeRoomAtLatest
             && (!fromThread || threadPanelShowingThis);
-        // The open room's own backlog arrives as live appends the moment
-        // sliding sync subscribes it, while its view is still hydrating and
-        // therefore not yet "at latest".
+        // The open room's backlog arrives as live appends while its view is
+        // still hydrating.
         context.roomHydrating =
             roomId == m_currentRoomId && m_activeRoomHydrating;
-        // Suppress the initial-sync backlog: those events are pre-existing
-        // history, not fresh activity, and must not re-notify on each launch.
+        // Initial-sync backlog is history and must not re-notify each launch.
         context.initialSyncComplete = m_client->initialSyncDone();
         context.soundMode = static_cast<NotificationManager::SoundMode>(
             m_settings->notificationSound());
-        // v0.7.x: belt-and-braces for the ignore race window — the server
-        // stops sending an ignored user's events, but ones already in
-        // flight must not notify.
+        // Events from an ignored user already in flight must not notify.
         context.senderIsIgnored =
             m_moderation && m_moderation->isIgnored(event.sender);
         m_notifications->processEvent(event, context);
-        // v0.9 (phase 2): the same event feeds the Activity Center — its
-        // classifier is independent of the notification decision (a muted
-        // room's mention is still activity).
+        // The Activity Center classifies independently (a muted room's
+        // mention is still activity).
         m_activity->ingest(event, context.roomName);
     });
     connect(m_notifications.get(), &NotificationManager::openRequested, this,
@@ -683,19 +553,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                    const QString &threadRootId) {
         routeNotificationOpen(roomId, eventId, threadRootId);
     });
-    // ── Notification actions, and the account check they both need ──────
-    //
-    // A notification card outlives the account that raised it. The user can
-    // switch accounts, or sign out, while it is still on screen — and the
-    // desktop will happily deliver the action minutes later. Acting on it
-    // under whichever account is current would mark ANOTHER account's room
-    // read, or worse, send a reply from the wrong identity into a room the
-    // current account may not even be in. Nothing would report it: the send
-    // would succeed.
-    //
-    // So both actions are refused on a mismatch and the user is told, rather
-    // than silently switching the account for them — a notification button
-    // is not an instruction to change who you are signed in as.
+    // A notification card outlives the account that raised it. Acting under
+    // whichever account is current could mark another account's room read
+    // or send a reply from the wrong identity, so both actions are refused on
+    // a mismatch and the user is told.
     connect(m_notifications.get(), &NotificationManager::markReadRequested,
             this, [this](const QString &accountUserId, const QString &roomId,
                          const QString &eventId) {
@@ -713,57 +574,37 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             return;
         if (!m_client || roomId.isEmpty() || text.isEmpty())
             return;
-        // A reply to a THREADED message belongs in that thread. Sending it
-        // to the room instead would be a visible mistake — §8's first
-        // invariant — and the payload has carried the root all along.
+        // A reply to a threaded message belongs in that thread.
         if (!threadRootId.isEmpty())
             m_client->sendThreadReply(roomId, threadRootId, text);
         else
             m_client->sendTextMessage(roomId, text);
-        // Replying IS reading. Leaving the room unread after the user has
-        // answered it is the kind of small wrongness that makes a feature
-        // feel broken.
+        // Replying is reading.
         if (m_roomList)
             m_roomList->markRoomRead(roomId);
         m_notifications->closeRoomNotifications(roomId);
         qCInfo(lcApp) << "notification reply sent"
                       << "thread=" << !threadRootId.isEmpty();
     });
-    // Server-reported per-room notification mode. ONLY an explicit
-    // user-defined room rule reconciles the device-local cache (server
-    // wins for real rules): a resolved account DEFAULT must never mutate
-    // persisted state — it would silently destroy a device-local choice an
-    // upgrading user made before server sync existed (and, resolved from
-    // an unloaded ruleset, could rewrite policy with a guess). The display
-    // consequence is accepted and deliberate: a room following an account
-    // default that differs from the local value keeps showing the local
-    // value in the pickers; reflecting defaults without persisting them is
-    // a follow-up. SettingsManager::setRoomNotificationMode is idempotent,
-    // and server writes are issued only from the UI entry point
-    // (AppController::setRoomNotificationMode), so an echo of our own
-    // write can never loop back into another server write.
-    // Stale-generation events are already rejected inside
-    // RustSdkMatrixClient, so a report from a previous account cannot
-    // reach the next account's settings.
+    // Server-reported per-room notification mode. Only an explicit
+    // user-defined rule reconciles the device-local cache; a resolved account
+    // default is never persisted, since it could overwrite a local choice with
+    // a guess. Server writes are issued only from setRoomNotificationMode(),
+    // so an echo cannot loop back into another write. Stale-generation events
+    // are already rejected in RustSdkMatrixClient.
     connect(m_client.get(), &MatrixClient::roomNotificationModeChanged, this,
             [this](const QString &roomId, int mode, bool userDefined) {
         if (!userDefined) {
             qCDebug(lcApp) << "room notification default report (not persisted)";
             return;
         }
-        // Defence-in-depth: the dispatcher range-guards too, but this
-        // handler is also reachable from tests/backends directly. Dropping
-        // is the conservative choice (SettingsManager would clamp to 0 —
-        // the LEAST conservative mode).
+        // Also reachable directly from tests/backends; drop rather than let
+        // SettingsManager clamp to the least conservative mode.
         if (mode < 0 || mode > 2)
             return;
-        // While a room carries kept-on-this-device failure state, the
-        // local value is authoritative: a failed write never reached the
-        // SDK's rules, so a poll can report the room's OLD explicit rule
-        // as user-defined. Applying it would silently revert the user's
-        // choice and erase the honest failure chip in the same stroke.
-        // Only a report that EQUALS the cached value is a real write
-        // acknowledgement; a differing one is dropped.
+        // While a room has a failed write pending, the local value is
+        // authoritative: a poll can still report the old rule. Only a report
+        // equal to the cached value acknowledges the write.
         if (m_notificationModeSyncFailures.contains(roomId)) {
             if (mode != m_settings->roomNotificationMode(roomId)) {
                 qCDebug(lcApp) << "room notification report differs while"
@@ -777,17 +618,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         }
         m_settings->setRoomNotificationMode(roomId, mode);
     });
-    // A successful rule REMOVAL. This is the only acknowledgement a
-    // "follow account default" choice can ever receive, so it must retire
-    // the room's kept-on-this-device state — otherwise a clear that failed
-    // once and then succeeded on retry would keep claiming it had failed,
-    // and Lightning would re-issue the deletion on every later reconnect.
+    // A successful rule removal is the only acknowledgement a "follow account
+    // default" choice can receive, so it retires the failure state.
     connect(m_client.get(), &MatrixClient::roomNotificationModeCleared, this,
             [this](const QString &roomId) {
-        // Only meaningful while the local value actually is "follow
-        // default": a clear acknowledged after the user has since chosen an
-        // explicit mode belongs to a superseded choice and must not retire
-        // that newer choice's pending state.
+        // Ignore a clear acknowledged after the user chose an explicit mode.
         if (m_settings->roomNotificationMode(roomId) != 3)
             return;
         if (!m_notificationModeSyncFailures.remove(roomId))
@@ -803,34 +638,18 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     });
     connect(m_client.get(), &MatrixClient::loggedOut, this,
             [this] {
-                // Close the local-starred-GIF store's live handle (if any)
-                // on EVERY session detach — a genuine sign-out, an
-                // account-removal-via-logout, AND a plain account SWITCH
-                // (MatrixClient::detachSession() also emits this). This
-                // matters most for the SWITCH case: AuthManager's own
-                // handler on this same signal runs first (registered
-                // earlier, in its own constructor) and synchronously
-                // triggers AppController::onLoggedOut(), which returns
-                // immediately while m_accountSwitching is true — WITHOUT
-                // touching the store — so without this line the store would
-                // keep showing the outgoing account's rows in the picker's
-                // Starred tab until the new account's login succeeds
-                // and calls openStarredStoreFor(). Idempotent/harmless to
-                // call again here for a genuine sign-out too, where
-                // onLoggedOut() (which ran just before this) already closed
-                // it as part of its own deletion. The actual on-disk
-                // deletion (sign-out/removal only, never a plain switch) is
-                // separate — see onLoggedOut() and removeAccount().
+                // Close the starred-GIF store on every session detach,
+                // including a plain switch: onLoggedOut() returns early while
+                // switching, so the picker would otherwise show the outgoing
+                // account's rows until the next login. Deletion is separate
+                // (onLoggedOut() and removeAccount()).
                 m_gif->closeStarredStore();
                 m_notifications->clearPending();
                 m_knownInvites.clear();
-                // Session-scoped sync-failure state must not leak into the
-                // next account. No per-room signals: the pickers re-query
-                // when they (re)open.
+                // Session-scoped failure state; the pickers re-query on open.
                 m_notificationModeSyncFailures.clear();
-                // A session rename in flight at sign-out must not lock
-                // renaming for the next account (its answer, if it ever
-                // comes, belongs to nobody now).
+                // A rename in flight must not lock renaming for the next
+                // account.
                 if (m_sessionDeviceRenameOp != 0
                     || !m_sessionDeviceRenameError.isEmpty()) {
                     m_sessionDeviceRenameOp = 0;
@@ -839,25 +658,17 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 }
                 m_activitySeeded = false;
             });
-    // Room-open roster hydration marks a room BEFORE its fetch resolves;
-    // a failed fetch must un-mark it or the room's mention chips and reply
-    // headers stay localparts for the whole session (review: a silent
-    // one-shot must not fail closed). The next open retries.
+    // Hydration marks a room before its fetch resolves; a failed fetch
+    // un-marks it so the next open retries.
     connect(m_client.get(), &MatrixClient::roomMembersReceived, this,
             [this](quint64, const QString &roomId, const QVariantMap &snapshot) {
                 if (!snapshot.value(QStringLiteral("ok")).toBool())
                     m_memberHydratedRooms.remove(roomId);
             });
-    // MSC2346: what a room's bridge says the room is. The list is turned
-    // into ONE badge here, because a chip has room for one word:
-    //
-    //   * an entry whose protocol id the curated table knows WINS, whatever
-    //     order the room state listed them in — that is the high-confidence
-    //     path, and it is the one that must not lose to attacker-chosen text;
-    //   * otherwise the first entry that could be named at all is used;
-    //   * no entry, or none nameable, records nothing, which leaves the
-    //     existing ghost-mxid/alias inference answering (a room that
-    //     advertises nothing is not a room we have learned is not bridged).
+    // MSC2346: reduce a room's advertised bridges to one badge. A protocol id
+    // in the curated table wins regardless of order (so it cannot lose to
+    // attacker-chosen text); otherwise the first nameable entry; otherwise
+    // nothing, leaving the ghost-mxid/alias inference in charge.
     connect(m_client.get(), &MatrixClient::roomBridgesReceived, this,
             [this](quint64, const QString &roomId, bool ok,
                    const QVariantList &bridges) {
@@ -887,26 +698,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 if (m_roomList)
                     m_roomList->setAdvertisedBridge(roomId, best.networkId,
                                                     best.label);
-                // B017: write the answer down, so the next launch paints this
-                // badge before any request exists. An EMPTY label is recorded
-                // too, and deliberately: "this room advertises no bridge" is
-                // a result, and it is the one that makes re-asking every room
-                // on every launch unnecessary. `ok` was already required
-                // above, so a FAILED read never reaches here and can never be
-                // remembered as a negative answer.
-                // "This room advertises no bridge" and "this room advertises
-                // one we could not name" are DIFFERENT facts, and recording
-                // the second as a negative would keep the room unbadged for
-                // the negative lifetime even after its protocol joined the
-                // curated table. Only an empty advertisement is a negative
-                // answer; an unnameable one is left unrecorded so the next
-                // launch asks again.
+                // Persist the answer so the next launch paints the badge
+                // without a request. An empty advertisement is recorded as a
+                // negative; an unnameable one is not, so it is asked again
+                // once its protocol may be in the curated table. Failed reads
+                // never reach here.
                 if (!best.label.isEmpty() || bridges.isEmpty())
                     m_bridgeLabels.remember(roomId, best.networkId, best.label);
             });
-    // Invites: notify once per newly seen invited room. Invites present
-    // before the initial sync completes are seeded silently (see
-    // shouldNotifyInvite) so a restart never re-announces existing invites.
+    // Notify once per newly seen invite; invites present before initial sync
+    // are seeded silently so a restart never re-announces them.
     connect(m_client.get(), &MatrixClient::roomsChanged, this, [this] {
         const auto rooms = m_client->rooms();
         QSet<QString> current;
@@ -937,10 +738,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 m_activity->inviteResolved(gone);
         m_knownInvites = current;
     });
-    // The tray badge follows the SAME TWO signals the room list does, so it
-    // can never disagree with what the window shows. Recomputing is a walk
-    // over a local snapshot with no I/O in it, and the icon is only
-    // rasterised when the displayed badge actually changes.
+    // The tray badge follows the same two signals the room list does. The
+    // walk is local and the icon is only re-rasterised when the badge changes.
     m_trayUnreadCoalesce.setSingleShot(true);
     m_trayUnreadCoalesce.setInterval(0);
     connect(&m_trayUnreadCoalesce, &QTimer::timeout, this,
@@ -953,8 +752,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_mediaHistory->setClient(m_client.get());
     m_qrLogin->setClient(m_client.get());
     m_policy->setClient(m_client.get());
-    // A fresh client starts with PUBLIC receipts, so the stored privacy
-    // choice has to be pushed at every attachment, not only when it changes.
+    // A fresh client starts with public receipts, so push the stored choice
+    // on every attachment.
     applyPrivacyPreferences();
     m_spaces->setClient(m_client.get());
     m_threads->setClient(m_client.get());
@@ -963,43 +762,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_rtc->setClient(m_client.get());
     m_groupCall->setClient(m_client.get());
     m_groupCall->setRtcController(m_rtc.get());
-    // WITHOUT THIS THE WHOLE VOLUME FEATURE IS INERT, and silently so.
-    // SfuCallController reads the stored microphone gain and every stored
-    // per-participant level through m_settings, and subscribes to their
-    // change signals through it too. It was never handed one — so the
-    // pointer stayed null, the connections were never made, applyAudioState()
-    // fell back to unity on every join, and nothing was ever persisted or
-    // restored. Reported as all three at once: "sound amplifier does
-    // nothing", "i cant make myself louder and i cant make other louder",
-    // "it doesnt remeber my volumnes set on user". One missing wire.
+    // SfuCallController reads the microphone gain and per-participant volumes
+    // through the settings; without this every volume control is inert.
     m_groupCall->setSettings(m_settings.get());
-    // ONE conversation, two doors. A ring arrives on the notification lane
-    // (CallController); the user can answer it by pressing Accept on the
-    // ring card, or by opening the room and pressing Join — which goes to
-    // the MatrixRTC lane and told the ringing lane nothing. So the ring card
-    // and its desktop notification stayed up over a call the user was
-    // already in, and had to be dismissed by hand.
+    // A refused join is reported in the status strip, and an empty reason is
+    // forwarded too: it withdraws a refusal once a retry succeeds.
     //
-    // Connected once here rather than called from inside join(): every path
-    // that makes a group call live passes through this state change, so a
-    // future entry point cannot forget it.
-    // A REFUSED JOIN IS SAID OUT LOUD. The controller has carried the reason
-    // ("You don't have permission to join this call.") since the MatrixRTC
-    // round and emitted callFailed with it, and nothing was connected to
-    // that signal — so a member without the power level for the membership
-    // state event pressed Join, the prompt vanished, and the banner went on
-    // offering Join with no explanation (seen on the 2026-09-06 GUI pass in
-    // a room whose state_default was 50). The status bar shows it, exactly
-    // like every other reported error.
-    // The EMPTY reason is a WITHDRAWAL, not a no-op, and it must be
-    // forwarded. `errorReported` reaches Main.qml's status strip as a
-    // one-shot copy that nothing ever takes back, so a refusal announced by
-    // one join attempt outlived the later attempt that succeeded: the strip
-    // went on saying the user had no permission while the call was up.
-    // SfuCallController::setState withdraws it once a retry reaches
-    // Authorizing or later, and dropping the empty string here is what made
-    // that withdrawal invisible. An empty errorReported is already how four
-    // other paths in this file clear the strip.
+    // A call answered by joining the room (the MatrixRTC lane) must also end
+    // the ring on the notification lane. Hooked to the state change so every
+    // entry point is covered.
     connect(m_groupCall.get(), &SfuCallController::callFailed, this,
             [this](const QString &reason) {
                 Q_EMIT errorReported(reason);
@@ -1010,15 +781,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     m_calls->noteAnsweredByOtherLane(m_groupCall->roomId());
             });
     m_callDevices->setSettings(m_settings.get());
-    // Call sounds watch both lanes and read their switches; the player is
-    // installed separately (enableCallSounds) so tests never open audio.
+    // Call sounds watch both lanes; the player is installed separately
+    // (enableCallSounds) so tests never open audio.
     m_callSounds->setSettings(m_settings.get());
     m_callSounds->setGroupCall(m_groupCall.get());
     m_callSounds->setLegacyCalls(m_calls.get());
-    // ── Voice-call ring policy, wired to its real owners (round 2) ──
-    // State truth stays in CallController; these close the policy gates
-    // shouldRing() consults. The functors capture `this` and read live
-    // state, so account switches need no rewiring.
+    // Ring policy: state stays in CallController, these close the gates
+    // shouldRing() consults. The functors read live state, so account
+    // switches need no rewiring.
     m_calls->setSenderIgnoredCheck([this](const QString &userId) {
         return m_moderation && m_moderation->isIgnored(userId);
     });
@@ -1026,32 +796,19 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         return m_settings->roomNotificationMode(roomId)
             == static_cast<int>(NotificationManager::Muted);
     });
-    // Cold-start backlog: never ring for history. Mirrors the
-    // initialSyncComplete gate NotificationManager applies to messages.
+    // Never ring for cold-start backlog, like messages.
     m_calls->setBacklogSuppressed(!m_client->initialSyncDone());
     connect(m_client.get(), &MatrixClient::initialSyncDoneChanged, this,
             [this] {
                 m_calls->setBacklogSuppressed(!m_client->initialSyncDone());
-                // MatrixRTC transport discovery is ACCOUNT-scoped and needs a
-                // live session, so it runs on the sync edge rather than at
-                // construction. Until it answers, the call banner honestly
-                // says it is still checking instead of claiming calling is
-                // unavailable.
+                // MatrixRTC transport discovery is account-scoped and needs a
+                // live session, so it runs on the sync edge.
                 if (m_client->initialSyncDone())
                     m_rtc->discover(m_currentRoomId);
             });
-    // Discovery used to run ONLY on the line above — once, for whatever room
-    // was open at the initial-sync edge, which is none. The account-scoped
-    // server transports were therefore never retried after a failure, and
-    // the per-room participant fallback was never fetched for any room the
-    // user actually opened.
-    //
-    // The room's own session now carries its focus (RtcController::
-    // sessionFocusFor), so this is no longer load-bearing for joining. It
-    // stays as the retry for the SERVER transports, which is what a room
-    // with no call yet needs in order to START one. Bounded by
-    // RtcController::discover itself, which refuses while one is in flight
-    // and does nothing once the server has answered.
+    // Retry server transport discovery on room change, so a room with no call
+    // yet can start one after an earlier failure. RtcController::discover
+    // refuses while one is in flight or once the server has answered.
     connect(this, &AppController::currentRoomIdChanged, this, [this] {
         if (!m_client || !m_client->initialSyncDone())
             return;
@@ -1060,10 +817,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         m_rtc->discover(m_currentRoomId);
     });
 
-    // A selection belongs to the room it was started in: leaving that room
-    // leaves the mode too (2026-09-05: "when i went into another room the
-    // message select was still active" — the circles followed the reader
-    // into a room whose messages were not the ones counted).
+    // A message selection belongs to the room it was started in.
     connect(this, &AppController::currentRoomIdChanged, this, [this] {
         if (m_forward && m_forward->selecting())
             m_forward->cancelSelecting();
@@ -1077,10 +831,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     return;
                 if (!m_calls->shouldRing())
                     return; // backlog, ignored sender, or muted room
-                // Per-sender cooldown: an untrusted room member must not
-                // be able to pump critical-urgency ring notifications by
-                // minting fresh call ids. State/banner are unaffected —
-                // this bounds only the OS-level announcement.
+                // Per-sender cooldown so a room member cannot pump
+                // critical-urgency notifications with fresh call ids. Only
+                // the OS announcement is bounded.
                 const qint64 now = QDateTime::currentMSecsSinceEpoch();
                 const qint64 lastRing = m_lastCallRingBySender.value(
                     senderId, 0);
@@ -1088,23 +841,18 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     return;
                 m_lastCallRingBySender.insert(senderId, now);
                 while (m_lastCallRingBySender.size() > 64) {
-                    // Bounded: drop an arbitrary entry (cooldown is a
-                    // heuristic, not bookkeeping worth an LRU).
+                    // Bounded; the cooldown is a heuristic, so any entry goes.
                     m_lastCallRingBySender.erase(
                         m_lastCallRingBySender.begin());
                 }
                 const bool privatePreview =
                     m_settings->notificationPreview() == 2;
                 const QVariantMap room = m_roomList->findRoom(roomId);
-                // NOT escaped here. NotificationManager escapes exactly once,
-                // at the D-Bus call, and only when the daemon advertises
-                // body-markup — it is the only layer that knows. Escaping
-                // here as well produced "Ben &amp; Jerry&#39;s" on GNOME and
-                // KDE.
+                // Not escaped here: NotificationManager escapes once, at the
+                // D-Bus call, only when the daemon advertises body-markup.
                 const QString roomName = room.value(QStringLiteral("name"))
                                              .toString();
-                // Localpart only — same restraint as the timeline's
-                // unresolved-profile fallback; never the bare full MXID.
+                // Localpart only, never the full MXID.
                 const QString caller = senderId.mid(1)
                                            .section(QLatin1Char(':'), 0, 0);
                 const QString body = privatePreview
@@ -1113,41 +861,26 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                            ? tr("%1 is calling").arg(caller)
                            : tr("%1 is calling in %2")
                                  .arg(caller, roomName));
-                // Ring exactly as long as the invite stays valid; the
-                // sound repeat is additionally gated on the user's
-                // switches.
+                // Ring as long as the invite stays valid; sound is gated on
+                // the user's switches.
                 const bool sound = m_settings->ringForCalls()
                     && m_settings->notificationSound()
                         != 0 /* SoundOff */;
-                // THE RINGER IS LIGHTNING'S OWN when it has loaded, and the
-                // desktop's themed call sound only when it has not. The
-                // themed sound was the whole ringer until 2026-09-23: one
-                // blip per 5 s re-post of the card, at the desktop's event
-                // volume, and on Windows and macOS nothing at all. Never
-                // both at once — the card goes silent when ours rings.
-                // SILENCED STAYS SILENCED. The user pressed Silence for THIS
-                // call (card or in-app prompt): a re-announcement of it rings
-                // neither ringer and offers no second Silence. A new call id
-                // is not silenced and rings normally.
+                // Lightning's own ringer when it has loaded, else the
+                // desktop's themed call sound, never both. A call the user
+                // silenced stays silenced on re-announcement; a new call id
+                // rings normally.
                 const bool ringing =
                     sound && !m_callSounds->isRingSilenced(callId);
                 const bool ownRinger =
                     ringing && m_callSounds->ringerAvailable();
                 m_announcedCallId = callId;
-                // Whether the card offers an answer is decided HERE, from the
-                // same sources IncomingCallPrompt reads, and passed down —
-                // the notification never forms its own opinion. A button
-                // labelled Answer that cannot answer is worse than no button.
+                // Whether the card offers Answer is decided here, from the
+                // same sources IncomingCallPrompt reads.
                 const bool rtcLane = m_calls->rtcRing();
-                // AND THE ANSWER IS USUALLY NOT KNOWN YET. An RTC ring names
-                // a room nothing has necessarily asked about, and the join
-                // gate needs a session read that is dispatched
-                // asynchronously — so at this instant it is normally closed.
-                // Kick the read the card would kick, and let the
-                // sessionChanged handler below open the button when it lands.
-                // Without this the Answer button would never appear in the
-                // one situation the feature exists for: app in the
-                // background, room not open.
+                // The RTC join gate is usually not known yet: kick the session
+                // read and let the sessionChanged handler below open the
+                // button.
                 if (rtcLane)
                     m_rtc->refresh(roomId);
                 const bool acceptOffered = callAcceptOffered(roomId, rtcLane);
@@ -1160,10 +893,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 if (ownRinger)
                     m_callSounds->startIncomingRing(callId);
             });
-    // SILENCE, ONE ENTRY POINT. The card's Silence action and the in-app
-    // prompt's both land in CallSoundController::silenceRing, which alone
-    // decides whether the id is still the ringing call; when it agrees, the
-    // card drops its themed sound (the fallback ringer) and its button.
+    // Silence has one entry point: CallSoundController::silenceRing decides
+    // whether the id is still ringing, then the card drops its sound and
+    // button.
     connect(m_notifications.get(),
             &NotificationManager::callSilenceRequested, this,
             [this](const QString &callId) {
@@ -1181,12 +913,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 const bool wasAnnounced = m_announcedCallId == callId;
                 if (m_announcedCallId == callId)
                     m_announcedCallId.clear();
-                // Missed-call notice: only for a call that (a) the
-                // controller classified missed from its pre-end state —
-                // an answered call the peer hung up is COMPLETED — and
-                // (b) was actually announced to the user; a ring the
-                // backlog/mute/ignore gates suppressed must not resurface
-                // as "missed" later (review round 2).
+                // Missed-call notice only for a call classified missed from
+                // its pre-end state and actually announced; a ring the gates
+                // suppressed must not resurface as missed.
                 if (!missed || !wasAnnounced)
                     return;
                 if (!m_settings->notificationsEnabled())
@@ -1194,7 +923,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 const bool privatePreview =
                     m_settings->notificationPreview() == 2;
                 const QVariantMap room = m_roomList->findRoom(roomId);
-                // See above: escaping belongs to NotificationManager alone.
+                // Escaping belongs to NotificationManager alone.
                 const QString roomName = room.value(QStringLiteral("name"))
                                              .toString();
                 m_notifications->showGeneric(
@@ -1213,13 +942,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 if (m_calls->activeCallId() == callId)
                     m_calls->rejectIncoming();
             });
-    // THE JOIN GATE OPENS LATE, SO THE CARD HAS TO BE TOLD.
-    //
-    // `refresh()` above dispatches a session read and returns; the answer
-    // arrives here. While the same call is still ringing, redraw the card
-    // with the gate as it now stands — `setCallAcceptOffered` replaces the
-    // notification in place and deliberately does NOT touch the ring
-    // deadline, so a late answer never extends the ring.
+    // The join gate opens late, so redraw the still-ringing card when the
+    // session read lands. setCallAcceptOffered never extends the ring
+    // deadline.
     connect(m_rtc.get(), &RtcController::sessionChanged, this,
             [this](const QString &roomId) {
                 const QString callId = m_calls->activeCallId();
@@ -1231,18 +956,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 m_notifications->setCallAcceptOffered(
                     callId, callAcceptOffered(roomId, rtcLane), rtcLane);
             });
-    // ANSWERING FROM THE NOTIFICATION, and it has to pick the lane.
-    //
-    // `incomingCallStarted` is emitted from two places — the legacy
-    // `m.call.invite` path and the MatrixRTC one — and they are answered by
-    // DIFFERENT code. `CallController::answer()` refuses an RTC ring outright
-    // with `rtc_unsupported`, so a naive accept -> answer() would do nothing
-    // for the common case, which is exactly the "this accept does nothing"
-    // report IncomingCallPrompt was written to kill.
-    //
-    // The room is opened BEFORE acting, deliberately: if the join is refused
-    // the user is already looking at the card that can say why, instead of
-    // pressing a button that fails silently somewhere they cannot see.
+    // Answering from the notification must pick the lane: answer() refuses
+    // an RTC ring with `rtc_unsupported`. The room opens first so a refusal
+    // is explained where the user is looking.
     connect(m_notifications.get(),
             &NotificationManager::callAcceptRequested, this,
             [this](const QString &callId) {
@@ -1250,17 +966,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     return;
                 const QString roomId = m_calls->activeRoomId();
                 routeNotificationOpen(roomId, QString(), QString());
-                // BOTH RETURNS ARE READ. IncomingCallPrompt's Accept reads
-                // answer()'s bool and says why: "discarding it is what made a
-                // refusal indistinguishable from a dead button". The same is
-                // true here and worse — the card has already been retired, so
-                // a silent refusal leaves the user in an open room with no
-                // ring, no explanation and nothing to press.
-                //
-                // `acceptOffered` being true does not promise success:
-                // `no_remote_offer` is a timing condition no predicate can
-                // see in advance, and the RTC join can still be refused by
-                // state that moved between the ring and the press.
+                // Read both results: the card is already retired, so a silent
+                // refusal would leave nothing to press. acceptOffered does not
+                // promise success (`no_remote_offer` is a timing condition).
                 const bool rtcLane = m_calls->rtcRing();
                 const bool ok = rtcLane
                     ? m_groupCall->join(roomId, /*withVideo=*/false)
@@ -1270,10 +978,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                                   << (rtcLane ? "matrixrtc" : "legacy")
                                   << "ok= true";
                 } else {
-                    // The room is already open, so the in-room surfaces are
-                    // what the user sees next. This line is what makes the
-                    // difference askable when they report "I pressed Answer
-                    // and nothing happened".
+                    // Logged so "I pressed Answer and nothing happened" can be
+                    // diagnosed.
                     qCWarning(lcApp) << "notification accept REFUSED lane="
                                      << (rtcLane ? "matrixrtc" : "legacy")
                                      << "refusal="
@@ -1285,21 +991,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_pinned->setClient(m_client.get());
     m_roomUpgrade->setClient(m_client.get());
     m_backup->setClient(m_client.get());
-    // A backup action invalidates the crypto-health snapshot the Sessions
-    // card renders, and that card gates two DESTRUCTIVE buttons on it. See
-    // BackupController::cryptoHealthStale for what a stale snapshot costs.
+    // A backup action invalidates the crypto-health snapshot that gates two
+    // destructive buttons; see BackupController::cryptoHealthStale.
     connect(m_backup.get(), &BackupController::cryptoHealthStale, this,
             &AppController::refreshCryptoHealth, Qt::UniqueConnection);
     m_scheduledSends->setClient(m_client.get());
     m_widgets->setClient(m_client.get());
-    // Theme and language are template variables a widget URL may carry, so a
-    // widget can match the client's look. Pushed in from the one place that
-    // owns both, exactly like the composer's caption setting.
+    // Theme and language are widget URL template variables.
     if (m_settings && m_localization) {
         const auto pushPresentation = [this] {
-            // The Qt enum key IS the stable name a widget would key on
-            // ("StormTheme"), and it never needs translating. Lower-cased and
-            // stripped of the suffix so a widget sees "storm", which is the
+            // The Qt enum key, lower-cased without the suffix ("storm"), the
             // shape Element's client_theme carries.
             QString name = QString::fromLatin1(
                 QMetaEnum::fromType<SettingsManager::Theme>()
@@ -1314,15 +1015,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         connect(m_settings.get(), &SettingsManager::themeChanged, this,
                 pushPresentation);
     }
-    // A widget list belongs to ONE room; re-reading on every room change is
-    // what keeps a stale list from being shown under a new room's name.
+    // A widget list belongs to one room.
     connect(this, &AppController::currentRoomIdChanged, this, [this] {
         m_widgets->setRoomId(m_currentRoomId);
     });
     m_activity->setClient(m_client.get());
-    // An Activity row click is exactly a notification click: same window
-    // raise, same room, same thread, same exact-event landing — and the same
-    // routing, which is why both go through routeNotificationOpen().
+    // An Activity row click routes exactly like a notification click.
     connect(m_activity.get(), &ActivityModel::openRequested, this,
             [this](const QString &roomId, const QString &eventId,
                    const QString &threadRootId) {
@@ -1346,8 +1044,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         const QString expected = m_pendingDateJumps.take(opId);
         if (expected.isEmpty())
             return;   // not ours, or already answered
-        // The room moved under the answer. Jumping now would drag whatever
-        // room is open to an event it does not contain.
+        // The room moved under the answer; do not drag another room.
         if (expected != roomId || roomId != m_currentRoomId) {
             Q_EMIT jumpToDateFinished(opId, false, QStringLiteral("stale"));
             return;
@@ -1356,8 +1053,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             Q_EMIT jumpToDateFinished(opId, false, category);
             return;
         }
-        // The same landing a reply jump uses: it paginates toward a target
-        // that is not loaded and holds it by stable id while it waits.
+        // Same landing a reply jump uses: paginates toward an unloaded target
+        // and holds it by stable id.
         if (m_pagination)
             m_pagination->jumpToEvent(eventId);
         Q_EMIT jumpToDateFinished(opId, true, QString());
@@ -1383,12 +1080,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_activitySeeded = true;
             m_client->requestActivitySeed(60);
         }
-        // THE INDEX HAS TO FILL ITSELF. A search feature whose index only
-        // grows when the user goes and asks for it is a search feature that
-        // returns nothing the first time anybody tries it — and nobody tries
-        // twice. The sweep is cheap by construction (one query per room to
-        // find what is already indexed, then writes only for what is not), so
-        // running it on a timer costs almost nothing on a quiet account.
+        // Keep the local search index filled automatically. The sweep only
+        // writes what is not already indexed, so it is cheap on a quiet
+        // account.
         if (state == MatrixClient::Syncing) {
             m_client->sweepSearchIndex();
             m_client->searchIndexStats();
@@ -1398,31 +1092,22 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_searchIndexTimer.stop();
         }
     });
-    // Five minutes: new messages become searchable within one interval, and
-    // the interval is long enough that a sweep is never competing with the
-    // user's own typing for the runtime.
+    // New messages become searchable within five minutes.
     m_searchIndexTimer.setInterval(5 * 60 * 1000);
     m_searchIndexTimer.setSingleShot(false);
     connect(&m_searchIndexTimer, &QTimer::timeout, this, [this] {
         if (m_client)
             m_client->sweepSearchIndex();
     });
-    // B011: THE BACKSTOP FOR A FAULT THAT APPEARS AFTER LOGIN.
-    //
-    // A device whose published identity key stops matching its local Olm
-    // account can never decrypt anything again, and the four event-driven
-    // checks all cluster around sign-in — so without this the app could go a
-    // whole session without asking. One single-device /keys/query every
-    // fifteen minutes; requestOwnDeviceKeyCheck() holds the rate limit, and
-    // the timer stops once the fault is latched.
+    // Backstop for an identity-key mismatch that appears after login (the
+    // event-driven checks cluster around sign-in). requestOwnDeviceKeyCheck()
+    // holds the rate limit; the timer stops once the fault is latched.
     m_ownDeviceKeyTimer.setInterval(
         static_cast<int>(matrix::crypto::OwnDeviceKeyWatch::kRecheckIntervalMs));
     m_ownDeviceKeyTimer.setSingleShot(false);
     connect(&m_ownDeviceKeyTimer, &QTimer::timeout, this,
             [this] { requestOwnDeviceKeyCheck(); });
-    // A redaction must reach the index, or a message somebody asked to be
-    // unsayable stays findable by its own text — the single worst thing a
-    // local index can do.
+    // A redacted message must not stay findable in the local index.
     connect(m_client.get(), &MatrixClient::eventRedacted, this,
             [this](const QString &roomId, const QString &eventId) {
         Q_UNUSED(roomId);
@@ -1434,23 +1119,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_draftStore->setClient(m_client.get());
     m_roomList->setClient(m_client.get());
     m_roomList->setSpaceManager(m_spaces.get());
-    // Deliberately NO setSpaceManager: this is the unfiltered list the
-    // forward pickers use. See the allRooms property.
+    // No setSpaceManager: this is the unfiltered list the forward pickers use.
     m_allRooms->setClient(m_client.get());
-    // The rail's rows: the user's arrangement applied to the hierarchy, with
-    // the transient drag preview living in the model rather than in QML.
+    // Rail rows: the user's arrangement over the hierarchy, with the drag
+    // preview in the model rather than QML.
     m_railEntries->setSources(m_spaces.get(), m_railLayout.get());
-    // ── CLASSIC RAIL: THE MODEL GOES FLAT, NOT THE PAINT ────────────────
-    //
-    // `spacesRailDepthStyle` 1 is the Classic rail — a plain top-level
-    // Space list, which is what this client drew before the hierarchy
-    // landed and what Element draws. The setting is C++'s and the row list
-    // is C++'s, so the wiring belongs here rather than in a QML binding
-    // that would have to hide rows the drag arithmetic still counts.
-    //
-    // Connected AND applied once: a setting read only on change is a
-    // setting that does nothing until the user toggles it, which is the
-    // shape of several defects this project has already paid for.
+    // Classic rail (depth style 1) flattens the model, not the paint, so the
+    // drag arithmetic never counts hidden rows. Connected and applied once.
     const auto applyRailStyle = [this] {
         m_railEntries->setFlat(m_settings->spacesRailDepthStyle()
                                == SettingsManager::kRailDepthClassic);
@@ -1458,15 +1133,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_settings.get(), &SettingsManager::spacesRailDepthStyleChanged,
             this, applyRailStyle);
     applyRailStyle();
-    // The arrangement is per-account storage behind a process-lifetime cache,
-    // so the store has to be TOLD about a sign-out / switch: without this the
-    // outgoing account's Space ids and folder names stay on screen under the
-    // incoming one. Same connection, same reason, as SpaceChannelModel's
-    // collapse set below.
+    // The rail arrangement is per-account behind a process-lifetime cache, so
+    // the store must be told about sign-out and switches.
     m_railLayout->setClient(m_client.get());
-    // The Channels layout is GLOBAL — every joined Space is a flat folder, so
-    // it needs the account's rooms and the rail's order, and nothing about
-    // which Space happens to be selected.
+    // The Channels layout is global: it needs the account's rooms and the
+    // rail order, not the selected Space.
     m_spaceChannels = std::make_unique<SpaceChannelModel>(this);
     m_spaceChannels->setSources(m_client.get(), m_spaces.get(),
                                 m_railLayout.get());
@@ -1495,42 +1166,24 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_pagination->setTimelineModel(m_timeline.get());
     m_readReceipts->setClient(m_client.get());
     m_readReceipts->setTimelineModel(m_timeline.get());
-    // READING A ROOM CLEARS ITS ROWS FROM THE BELL.
-    //
-    // The Activity Center keeps its own seen marker deliberately — a row you
-    // never looked at should survive a glance at the room list — but the
-    // marker was advanced by nothing except the panel's own "mark all seen"
-    // button. So reading the very message that produced a row left the bell
-    // showing a count for it, which is what a user reads as the badge being
-    // broken. Reported from real use on 0.8.4.
-    //
-    // The read RECEIPT is the right trigger rather than opening a room: it is
-    // the moment this client tells the server the user has read up to a
-    // specific event, which is precisely the claim being mirrored. It also
-    // makes the fix durable for free — the server marks those notifications
-    // read, and seed() takes seenMark from that flag on the next start.
+    // Reading a room clears its rows from the Activity Center bell. The read
+    // receipt is the trigger because it is the moment the client tells the
+    // server what was read; the server's read flag then seeds seenMark on the
+    // next start.
     connect(m_readReceipts.get(), &ReadReceiptCoordinator::receiptSent, this,
             [this](const QString &roomId, const QString &, qint64 timestampMs) {
         if (m_activity)
             m_activity->markRoomReadUpTo(roomId, timestampMs);
     });
 
-    // 2026-08-20 (C4): the models need to know whether routine activity is
-    // being SHOWN, because a date divider whose entire run is hidden must not
-    // render — that is the orphan-date-label defect. QML cannot answer it
-    // (a per-row scan of the model on every contentY change is exactly the
-    // cost this file has already paid twice), so the setting is pushed into
-    // both timeline models and kept live. Both, not just the room's: the
-    // thread panel renders the same delegate against its own model.
+    // Push the room-activity visibility into both timeline models (the thread
+    // panel uses the same delegate) so a date divider over a fully hidden run
+    // is not rendered; QML cannot answer that without a per-row scan.
     const auto applyRoomActivityVisibility = [this]() {
         const bool shown = m_settings->showRoomActivity();
         m_timeline->setShowRoomActivity(shown);
-        // The master switch has two sub-toggles since 2026-08-26: membership
-        // changes and profile changes are separate annotations and Sable lets
-        // them be hidden independently. Both halves have to be PUSHED — the
-        // model mirrors default to true, so without this only the QML row
-        // filter would honour them and the date dividers would keep counting
-        // rows nobody can see.
+        // The membership and profile sub-toggles must be pushed too, or the
+        // dividers keep counting rows nobody can see.
         const bool members = m_settings->showMembershipEvents();
         const bool profiles = m_settings->showProfileChangeEvents();
         m_timeline->setShowMembershipEvents(members);
@@ -1553,8 +1206,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_gifSend->setClient(m_client.get());
     m_stickers->setClient(m_client.get());
 
-    // Link-preview policy follows the persisted settings live. The
-    // encrypted-room setting defaults to OFF (privacy) in SettingsManager.
+    // Link-preview policy follows settings live; encrypted rooms default OFF.
     m_linkPreviews->setAutoLoadUnencrypted(m_settings->autoLoadLinkPreviews());
     m_linkPreviews->setAllowEncrypted(m_settings->loadPreviewsInEncryptedRooms());
     connect(m_settings.get(), &SettingsManager::autoLoadLinkPreviewsChanged,
@@ -1567,9 +1219,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_settings->loadPreviewsInEncryptedRooms());
     });
 
-    // v0.5.19: the timeline discrete-wheel speed follows the persisted setting
-    // live. Only discrete mouse-wheel distance is affected; touchpad pixel
-    // scrolling and all programmatic navigation are independent of it.
+    // Wheel speed affects discrete mouse-wheel distance only, not touchpad or
+    // programmatic scrolling.
     m_timelineScroll->setWheelSpeedValue(m_settings->timelineWheelSpeed());
     m_threadScroll->setWheelSpeedValue(m_settings->timelineWheelSpeed());
     connect(m_settings.get(), &SettingsManager::timelineWheelSpeedChanged,
@@ -1588,31 +1239,26 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 [this](Qt::ApplicationState state) {
             m_readReceipts->setWindowActive(state == Qt::ApplicationActive);
         });
-        // Orderly shutdown: stop media players and the sync loop while the
-        // window / event dispatcher are still valid, before the QML engine and
-        // windows are destroyed. Fires from inside app.exec().
+        // Orderly shutdown while the window and event dispatcher are still
+        // valid, before the QML engine is destroyed.
         connect(guiApp, &QGuiApplication::aboutToQuit, this,
                 &AppController::prepareForShutdown);
-        // v0.5.11: re-emit when the platform light/dark preference changes so
-        // the "System" theme repaints live.
+        // Repaint the "System" theme live when the platform preference
+        // changes.
         if (auto *hints = guiApp->styleHints()) {
             connect(hints, &QStyleHints::colorSchemeChanged, this,
                     [this](Qt::ColorScheme) { Q_EMIT systemDarkModeChanged(); });
         }
-        // Apply the persisted custom application icon (if any) over the
-        // packaged default main.cpp installed before construction.
+        // Apply the persisted custom icon over the default main.cpp installed.
         applyAppIcon();
     }
 
-    // v0.5.9: a created (or reused) conversation opens once the room is
-    // present in the authoritative room list. Leaving the open room closes
-    // its timeline and returns to the no-room state; the list entry is
-    // removed by the authoritative room-list update, not locally.
+    // A created or reused conversation opens once it is in the authoritative
+    // room list.
     connect(m_conversations.get(), &ConversationController::conversationReady,
             this, &AppController::openRoom);
-    // A created Space is SELECTED (rail + Space Home), never opened as a
-    // message timeline: an m.space room has no conversation of its own.
-    // Clearing the current room is what makes the Space Home surface show.
+    // A created Space is selected, never opened as a timeline; clearing the
+    // current room shows the Space Home.
     connect(m_conversations.get(), &ConversationController::spaceReady,
             this, [this](const QString &spaceId) {
         if (m_spaces)
@@ -1629,22 +1275,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         Q_EMIT errorReported(
             tr("The room was created, but setting its picture failed."));
     });
-    // v0.7.x sessions: any terminal sign-out outcome re-reads the
-    // authoritative device list — a tile disappears only when the server
-    // says so, and a failed attempt repaints the truth as well.
+    // Any terminal sign-out outcome re-reads the device list; a tile
+    // disappears only when the server says so.
     connect(m_uia.get(), &UiaController::signOutFinished, this,
             [this](bool, const QString &) { refreshSessionDevices(); });
-    // v0.7.x Discover / Join: a joined room opens once present in the
-    // authoritative list; a joined Space is selected in the rail exactly
-    // like a created one — never given a message timeline.
+    // A joined room opens once listed; a joined Space is selected like a
+    // created one.
     connect(m_discovery.get(), &RoomDiscoveryController::roomJoined,
             this, [this](const QString &roomId) {
-        // v0.7.x room upgrades: a join the upgrade banner started and the
-        // user then walked away from must not navigate them back. Pressing
-        // Continue is consent to switch rooms NOW, not whenever the join
-        // happens to settle — the wait is bounded but not instant, and
-        // being yanked out of a room you have since opened and started
-        // typing in is exactly the silent switch the feature avoids.
+        // A join started from the upgrade banner and then abandoned must not
+        // navigate the user back.
         if (m_roomUpgrade && m_roomUpgrade->consumeAbandonedJoin(roomId))
             return;
         openRoom(roomId);
@@ -1655,34 +1295,20 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_spaces->setActiveSpaceId(spaceId);
         setCurrentRoomId(QString());
     });
-    // v0.7.x room upgrades. The banner's join reuses Discover's machinery
-    // above — so a successful join navigates through the SAME settled
-    // roomJoined path, with the same error categories — and this connection
-    // covers the case where no join is needed because the user is already a
-    // member of the successor, plus the "Previous room" link.
-    //
-    // navigateRequested is emitted ONLY from a user action on the banner.
-    // Nothing observes a tombstone and moves the user by itself.
+    // The upgrade banner reuses Discover's join path; navigateRequested covers
+    // an existing successor membership and the "Previous room" link. It fires
+    // only from a user action; nothing moves the user on a tombstone alone.
     m_roomUpgrade->setDiscovery(m_discovery.get());
-    // v0.9: the upgrade flow re-parents the replacement into the same
-    // Spaces on request, through the Space manager's own child write.
+    // The upgrade flow can re-parent the replacement into the same Spaces.
     m_roomUpgrade->setSpaces(m_spaces.get());
     connect(m_roomUpgrade.get(), &RoomUpgradeController::navigateRequested,
             this, &AppController::openRoom);
-    // v0.7.x message forwarding: `forwarded` fires
-    // only once the send was actually dispatched, so the target room is
-    // never opened optimistically ahead of that.
+    // `forwarded` fires only once the send was dispatched.
     connect(m_forward.get(), &ForwardController::forwarded,
             this, &AppController::openRoom);
-    // THE JOIN GATE LEARNS WHETHER THE SERVER WOULD ACCEPT A MEMBERSHIP.
-    //
-    // The capability rides the member snapshot, which lands when a room's
-    // roster is fetched — so the Join button starts permitted (an unknown
-    // capability must never disable it) and turns into a specific refusal
-    // once the room's own power levels are known. Before this the user was
-    // offered an enabled button and learned only from the publish coming
-    // back refused, with wording that pointed at a permissions screen which
-    // cannot set `org.matrix.msc3401.call.member` at all.
+    // The join gate learns from the member snapshot whether the server would
+    // accept a call membership. It starts permitted (an unknown capability
+    // must not disable Join) and refuses once power levels are known.
     connect(m_roomInfo.get(), &RoomInfoController::membersChanged, this,
             [this] {
                 const QString roomId = m_roomInfo->roomId();
@@ -1691,41 +1317,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                         roomId, m_roomInfo->canPublishCallMembership());
                 }
             });
-    // THE CALL LANE ASKS THE ROOM LIST, rather than waiting to be told.
+    // canStartCall() is a Q_INVOKABLE reading asynchronous state, so the call
+    // button's binding needs a revision to re-evaluate.
     //
-    // `RtcController::roomEncrypted()` used to read a map whose only writers
-    // were startCall() and setCurrentRoomId() below — so it was filled only
-    // for a room the user had OPENED or called FROM. The global
-    // incoming-call card opens no room, and a join from it therefore found
-    // nothing and took the fail-closed "encrypted" default. Live
-    // 2026-09-18, in a room with no `m.room.encryption`: the answerer
-    // required encryption, the caller correctly sent in the clear, and the
-    // answerer dropped every frame of their audio while reporting a missing
-    // key.
-    //
-    // The tri-state is the point. `encryptionKnown` false is UNKNOWN, not
-    // "unencrypted": an unknown room must still fail closed, because a
-    // silent downgrade is what §6 forbids. What changes is that it no longer
-    // fails closed for a room the client knows perfectly well.
-    //
-    // Installed ONCE, here, and deliberately not cleared on logout: it
-    // captures `this`, which outlives every account, and RtcController's own
-    // reset clears the per-room record beside it. Clearing the resolver
-    // instead would re-open this defect for the next account.
-    //
-    // `roomInfo()` rather than the room list's `findRoom()`: the Rust
-    // backend indexes it (`m_rooms.value(roomId)`) where the generic path
-    // deep-copies the whole list, and it reads the two fields directly
-    // instead of round-tripping through a seventeen-entry map that also
-    // computes avatars and badges.
-    // THE CALL BUTTON'S GATE IS A Q_INVOKABLE, SO IT NEEDS A REVISION.
-    //
-    // `canStartCall()` reads transport discovery, the room's own observed
-    // session and the membership capability — all asynchronous, all with
-    // change signals here, and none of them visible to a QML binding that
-    // only calls the function. The binding gates `visible:`, not `enabled:`,
-    // so a stale "no" leaves the button ABSENT until the user navigates away
-    // and back.
+    // The encryption resolver lets the call lane ask about any room, not just
+    // one that was opened (the incoming-call card opens none). Unknown still
+    // fails closed. Installed once and never cleared: it captures `this`, and
+    // RtcController resets its own per-room record. roomInfo() is an indexed
+    // lookup, unlike findRoom().
     connect(m_rtc.get(), &RtcController::availabilityChanged, this,
             [this] {
                 ++m_callGateRevision;
@@ -1762,12 +1361,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             this, &AppController::onLoginSucceeded);
     connect(m_auth.get(), &AuthManager::loggedOut,
             this, &AppController::onLoggedOut);
-    // v0.7: a failed account-switch activation falls back to the previous
-    // account once; with no fallback it lands on the login screen. A failed
-    // ADD-ACCOUNT login restores the previous account in the background —
-    // the shared client's session was released when the attempt started, so
-    // without this the footer shows a false "Error/disconnected" state even
-    // though the active account is fine.
+    // A failed switch falls back to the previous account once, else the login
+    // screen. A failed add-account restores the previous account in the
+    // background, since the attempt released the shared client's session.
     connect(m_auth.get(), &AuthManager::loginFailed, this,
             [this](const QString &) {
         if (m_accountSwitching) {
@@ -1791,16 +1387,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             if (!m_client->restoreSession())
                 m_backgroundRestore = false;
         }
-        // v0.7: a failed STARTUP restoration is the genuine
-        // unauthenticated state — only now may the login form appear.
+        // A failed startup restore is the only case that shows the login form.
         if (m_currentScreen == BootScreen) {
             qCInfo(lcApp) << "startup restore failed — showing login";
             setCurrentScreen(LoginScreen);
             Q_EMIT loggedInChanged();
         }
     });
-    // v0.7: cache the signed-in account's own profile (display name and
-    // avatar) in its account record for the switcher UI.
+    // Cache the account's own profile for the switcher UI.
     connect(m_client.get(), &MatrixClient::userProfileFinished, this,
             [this](quint64, bool ok, const QString &userId,
                    const QString &displayName, const QString &avatarUrl,
@@ -1809,12 +1403,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             return;
         m_accounts->updateProfile(userId, displayName, avatarUrl);
     });
-    // v0.7.4: the terminal answer for one own-display-name write.
+    // Terminal answer for one own-avatar write.
     connect(m_client.get(), &MatrixClient::ownAvatarChanged, this,
             [this](quint64 opId, bool ok, const QString &error) {
-        // Same op-id guard as the display name: the payload carries no
-        // path, so the id is the only thing distinguishing this answer
-        // from a previous account's.
+        // The op id is the only thing distinguishing this answer from a
+        // previous account's.
         if (opId == 0 || opId != m_avatarOp)
             return;
         m_avatarOp = 0;
@@ -1827,9 +1420,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         }
         m_avatarError.clear();
         Q_EMIT ownAvatarStateChanged();
-        // Re-fetch rather than writing the new mxc locally: sync does not
-        // carry the account's own profile, and the SERVER is the authority
-        // on what it stored.
+        // Re-fetch rather than writing locally: sync does not carry the own
+        // profile and the server is the authority.
         const QString uid = m_client ? m_client->currentUserId() : QString{};
         if (!uid.isEmpty())
             m_client->fetchUserProfile(uid);
@@ -1838,19 +1430,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
 
     connect(m_client.get(), &MatrixClient::ownDisplayNameChanged, this,
             [this](quint64 opId, bool ok, const QString &error) {
-        // Drop anything that is not the write this controller is waiting
-        // for: a previous account's answer, or an attempt already retired
-        // by a sign-out. Matching by op id is the whole guard — nothing
-        // else distinguishes them, because the payload carries no name.
+        // Drop answers for a previous account or a retired attempt; the op id
+        // is the only guard.
         if (opId == 0 || opId != m_displayNameOp)
             return;
         m_displayNameOp = 0;
         if (!ok) {
-            // An empty `error` means the server said nothing usable (or
-            // there was no server answer at all — a timeout, a transport
-            // failure, a synchronous refusal). Supply our own wording
-            // rather than showing an empty red line, and never invent a
-            // server message.
+            // Empty `error`: no usable server message, so use our own wording.
             m_displayNameError = error.isEmpty()
                 ? tr("The display name could not be saved. Please try again.")
                 : error;
@@ -1859,33 +1445,21 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         }
         m_displayNameError.clear();
         Q_EMIT ownDisplayNameStateChanged();
-        // NOTHING else refreshes the cached name — sync does not carry the
-        // account's own profile, and the one fetch in the tree runs once
-        // per login. Re-issue it, and take the answer from the SERVER
-        // rather than writing the submitted string into the registry: the
-        // server is free to normalise or bound what it stored, and a local
-        // write would cache a value it never held.
+        // Re-fetch rather than caching the submitted string: the server may
+        // normalise or bound what it stored.
         const QString uid = m_client ? m_client->currentUserId() : QString{};
         if (!uid.isEmpty())
             m_client->fetchUserProfile(uid);
         Q_EMIT ownDisplayNameSaved();
     });
-    // A plain sign-out does not go through clearCrossAccountCaches(), so
-    // retire the write here too — detachSession() (the account switch)
-    // emits this signal as well, which makes the reset idempotent rather
-    // than duplicated.
+    // A plain sign-out bypasses clearCrossAccountCaches(), so retire the
+    // writes here; the switch emits this too, which is harmless.
     connect(m_client.get(), &MatrixClient::loggedOut, this,
             &AppController::retireOwnDisplayNameWrite);
     connect(m_client.get(), &MatrixClient::loggedOut, this,
             &AppController::retireOwnAvatarWrite);
-    // Hidden-image state is per ACCOUNT: what one account's reader hid says
-    // nothing about the next account's rooms, and detachSession() (the
-    // account switch) emits this too, which makes the reset idempotent
-    // rather than duplicated.
-    //
-    // resetForSession(), NOT clear(): the list is persisted now, and clear()
-    // writes. Using it here would erase the account's saved hidden images on
-    // its own sign-out — the opposite of what persisting them is for.
+    // Hidden images are per account. resetForSession(), not clear(): clear()
+    // writes and would erase the persisted list on sign-out.
     connect(m_client.get(), &MatrixClient::loggedOut, this, [this] {
         m_mediaVisibility->resetForSession();
     });
@@ -1903,16 +1477,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             setConnectionStatus(tr("Connecting…"));
             break;
         case MatrixClient::Syncing:
-            // v0.4.6: distinguish the initial-sync wait from steady-state
-            // long-poll so a user with no rooms yet loaded doesn't stare
-            // at "Syncing" and assume the app is frozen.
-            //
-            // v0.4.8: after initial sync completes, the long-poll is the
-            // normal healthy state; label it "Connected" instead of
-            // "Syncing" so users don't think Lightning is still catching
-            // up when it is just waiting for new events. Real ongoing
-            // work (initial catch-up, /messages backfill) has its own
-            // labels ("Loading rooms…", "Refreshing…").
+            // "Loading rooms…" until initial sync completes, then the healthy
+            // long-poll reads as "Connected" rather than "Syncing".
             setConnectionStatus(m_client->initialSyncDone()
                 ? tr("Connected")
                 : tr("Loading rooms…"));
@@ -1927,15 +1493,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     };
     connect(m_client.get(), &MatrixClient::connectionStateChanged,
             this, refreshConnectionStatus);
-    // v0.7: a rule write that failed while offline is retried on the EDGE
-    // into Syncing, not on every status change — the signal can re-announce
-    // the same state, and retrying each time would hammer the server for a
-    // room that keeps failing. One attempt per genuine reconnection.
-    //
-    // Reads the state from the SIGNAL rather than re-querying the client:
-    // the argument is the authoritative "what just changed to", and it
-    // keeps the edge observable without depending on when the client's
-    // internal getter settles.
+    // Retry failed rule writes once per reconnection, on the edge into
+    // Syncing: the signal can re-announce the same state. The state comes
+    // from the signal argument, not the client's getter.
     connect(m_client.get(), &MatrixClient::connectionStateChanged, this,
             [this](MatrixClient::ConnectionState state) {
                 if (state == MatrixClient::Syncing
@@ -1952,55 +1512,29 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             this, &AppController::syncModeChanged);
     setConnectionStatus(tr("Not connected"));
 
-    // v0.5.0-prep+10: recovery-key restore wiring. The Rust backend
-    // exposes keyBackupResult(state, message); we bridge it into
-    // AppController::recoveryStateChanged so QML can bind without
-    // caring which concrete backend is active. Also proxy the redacted
-    // device id so the Settings screen can show which Lightning
-    // session is running.
+    // Recovery-key restore results and the redacted device id, bridged so
+    // QML does not depend on the concrete backend.
 #ifdef ENABLE_RUST_SDK_BACKEND
     if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get())) {
         connect(rust, &RustSdkMatrixClient::keyBackupResult,
                 this, [this](const QString &state, const QString &message) {
             Q_EMIT recoveryStateChanged(state, message);
-            // RETRY DECRYPTION IN PLACE — DO NOT REBUILD THE ROOM.
-            //
-            // This used to call reloadCurrentRoomTimeline(30), which goes to
-            // openRoomTimeline() and rebuilds the room: new generation, fresh
-            // snapshot, full re-pagination, `clear_media()` so every image
-            // re-fetches, and `close_thread()` — so a successful recovery
-            // CLOSED the reader's open thread panel. A reopen is simply the
-            // wrong tool for "a key arrived, try again"; retryDecryption()
-            // keeps the subscription, retries the open thread timeline too,
-            // and its backup-download loop is uncapped where the reopen's
-            // fresh pass is capped at MAX_SESSIONS_PER_PASS.
-            //
-            // WHAT THIS IS *NOT*. An earlier version of this comment claimed
-            // the handler fired repeatedly on ordinary sync and caused a
-            // user-reported room-rebuild storm. THAT IS FALSE and review
-            // caught it: `keyBackupResult` is emitted only from
-            // `key_backup_status`, which Rust enqueues only inside
-            // `mx_rust_recover_from_backup`, whose sole caller in the tree is
-            // the Settings button that consumes a typed recovery key. It
-            // fires at most once per explicit user recovery. The
-            // `auto key recovery` lines in the report are a DIFFERENT event
-            // (`crypto_bootstrap`, kind `auto_key_recovery`) which returns
-            // without touching this path at all. The reopen sources that can
-            // repeat are `queue_overflow` and `DiffOutcome::Invalid` in
-            // RustSdkMatrixClient, and this change does not touch them —
-            // they reopen deliberately, to recover from detected damage.
+            // Retry decryption in place rather than rebuilding the room: a
+            // reopen clears media, closes the open thread panel and
+            // re-paginates, and its backup pass is capped where
+            // retryDecryption()'s is not. keyBackupResult fires only for an
+            // explicit user recovery.
             if (state == QLatin1String("ok") && !m_currentRoomId.isEmpty())
                 retryDecryptionInCurrentRoom();
         });
-        // The device id becomes available once login/restore
-        // completes; propagate on both. Also snapshot the SDK trust
-        // state so Settings can show the right label immediately.
+        // The device id becomes available after login/restore; also snapshot
+        // the SDK trust state so Settings shows the right label.
         connect(rust, &MatrixClient::loginSucceeded,
                 this, [this, rust](const QString &) {
             Q_EMIT rustDeviceIdChanged();
             rust->refreshOwnDeviceStatus();
-            // B011: ask once at sign-in, then keep the backstop running. The
-            // fault can appear AFTER login, so one check is not enough.
+            // Check once at sign-in and keep the backstop running: the fault
+            // can appear after login.
             requestOwnDeviceKeyCheck();
             if (!m_ownDeviceKeyTimer.isActive())
                 m_ownDeviceKeyTimer.start();
@@ -2010,20 +1544,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_cryptoQueryGeneration = m_cryptoHealth->generation();
             rust->queryCryptoHealth();
         });
-        // AND AGAIN ONCE SYNC HAS ACTUALLY RUN. `loginSucceeded` fires inside
-        // the login_ok handler, BEFORE sync starts and therefore before the
-        // first /keys/query — so on a first sign-in the crypto store has no
-        // own identity yet and `own_identity_available` comes back false.
-        // AppController latches that as "Cross-signing unavailable", which
-        // `sessionVerificationNeeded` deliberately does not prompt for, and
-        // nothing re-read it for the rest of the session: the only other
-        // callers are the verificationDone handler and a manual Refresh link.
-        //
-        // The result was that signing in to an account that DOES have
-        // cross-signing told the user there was nothing to verify against and
-        // never asked again — on exactly the session where verification
-        // matters most, since other devices withhold room keys from an
-        // unverified one.
+        // Re-read once sync has run: loginSucceeded fires before the first
+        // /keys/query, so on a first sign-in the own identity is not known
+        // yet and would latch as "Cross-signing unavailable", which never
+        // prompts for verification.
         connect(rust, &MatrixClient::initialSyncDoneChanged, this, [this, rust] {
             if (!rust->initialSyncDone())
                 return;
@@ -2032,21 +1556,18 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_cryptoQueryGeneration = m_cryptoHealth->generation();
             rust->queryCryptoHealth();
         });
-        // v0.6.0 checkpoint 7: sanitized health snapshots feed the read-only
-        // model; the generation stamp drops answers from a previous session,
-        // and any verification-state transition updates the pending counter.
+        // Sanitized health snapshots feed the read-only model; the generation
+        // stamp drops answers from a previous session.
         m_cryptoHealth->setSupported(true);
         connect(rust, &RustSdkMatrixClient::cryptoHealthUpdated,
                 this, [this](const QVariantMap &snapshot) {
-            // Compare against the generation captured at query DISPATCH, not
-            // the model's live generation, so a session change in flight
-            // rejects the stale answer.
+            // Compare against the generation captured at dispatch, so a
+            // session change in flight rejects the stale answer.
             m_cryptoHealth->applySnapshot(snapshot, m_cryptoQueryGeneration);
         });
-        // v0.7: verified-session bootstrap status. The bridge observer only
-        // reports the ACTIVE session handle; the model additionally resets
-        // on login/logout (which account switching passes through), so a
-        // previous account's bootstrap can never describe the current one.
+        // Verified-session bootstrap status. The model also resets on
+        // login/logout, so a previous account's bootstrap never describes
+        // the current one.
         connect(rust, &RustSdkMatrixClient::cryptoBootstrapEvent,
                 this, [this](const QString &kind, const QString &state,
                              quint64 count, quint64 inconclusive) {
@@ -2066,10 +1587,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_sessionDevicesFailed = false;
             Q_EMIT sessionDevicesChanged();
         });
-        // v0.6.0 checkpoint 9: device/session list — current session first,
-        // then most recently seen. Stale answers after logout are cleared by
-        // the reset above (the handle generation already drops post-destroy
-        // events).
+        // Device/session list: current session first, then most recently
+        // seen.
         connect(rust, &RustSdkMatrixClient::deviceListUpdated,
                 this, [this](bool ok, const QVariantList &devices) {
             QVariantList sorted = devices;
@@ -2107,9 +1626,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 this, [this] {
             m_cryptoHealth->setPendingVerificationCount(
                 verificationActive() ? 1 : 0);
-            // v0.6.0 checkpoint 11: surface INCOMING verification requests
-            // natively (identity only; a verification prompt never carries
-            // message content or SAS data).
+            // Surface incoming verification requests natively (identity only,
+            // never message content or SAS data).
             static QString lastNotifiedFlow;
             if (m_verificationState == QLatin1String("requested")
                 && !m_verificationFlowId.isEmpty()
@@ -2124,9 +1642,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         });
         connect(rust, &MatrixClient::loggedOut,
                 this, [this] {
-            // Clear the caches so the Login screen never inherits a
-            // stale verification / import result from a signed-out
-            // session.
+            // The login screen must not inherit a stale verification or
+            // import result.
             m_verificationFlowId.clear();
             m_verificationOtherUser.clear();
             m_verificationOtherDevice.clear();
@@ -2134,17 +1651,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_verificationState.clear();
             m_verificationEmojis.clear();
             m_verificationDecimals.clear();
-            // A displayed code must never survive a sign-out or an account
-            // switch: it belongs to the session that is going away.
+            // A displayed code belongs to the session that is going away.
             clearVerificationQr();
             Q_EMIT verificationStateChanged();
             m_sessionTrustState = QStringLiteral("Unknown");
             m_sessionDeviceId.clear();
             m_ownIdentityAvailable = false;
             m_crossSigningAvailable = false;
-            // B011: the fault belongs to the session that is going away.
-            // Signing out and in again IS the repair, so carrying it into
-            // the next session would keep accusing a device that is fine.
+            // Signing out and in again is the repair, so the fault does not
+            // carry over.
             m_ownDeviceKeyTimer.stop();
             const bool wasBroken = m_ownDeviceKeyWatch.broken();
             m_ownDeviceKeyWatch.reset();
@@ -2160,16 +1675,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             Q_EMIT securityStateChanged();
             Q_EMIT roomKeyImportStateChanged();
         });
-        // v0.5.0-prep+11: bubble timeline reload results.
         connect(rust, &RustSdkMatrixClient::roomTimelineReloaded,
                 this, [this](const QString &roomId, int t, int d, int u) {
             if (roomId == m_currentRoomId)
                 Q_EMIT currentRoomTimelineReloaded(t, d, u);
         });
-        // v0.5.0 SAS verification signal bridge. QML binds
-        // verificationStateChanged() and reads the seven derived
-        // properties. All state lives in AppController so QML doesn't
-        // reach into concrete backend types.
+        // SAS verification bridge: all state lives here so QML never reaches
+        // into backend types.
         connect(rust, &RustSdkMatrixClient::verificationRequestReceived,
                 this, [this](const QString &flowId, const QString &otherUser,
                              const QString &otherDevice, bool isSelf) {
@@ -2184,10 +1696,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             clearVerificationQr();
             Q_EMIT verificationStateChanged();
         });
-        // Both sides are Ready and the SAS handshake is in flight. This is
-        // strictly a progress report: it may only advance the pre-emoji
-        // states, so a late or duplicated ready can never pull a flow back
-        // out of sas_ready/confirming/done/cancelled/failed.
+        // Both sides are ready. Progress only: it may advance the pre-emoji
+        // states but never pull a flow back from a later one.
         connect(rust, &RustSdkMatrixClient::verificationReady,
                 this, [this](const QString &flowId) {
             if (flowId != m_verificationFlowId) return;
@@ -2209,11 +1719,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_verificationState = QStringLiteral("sas_ready");
             Q_EMIT verificationStateChanged();
         });
-        // v0.7.1: the SDK registered OUR "They match" (SasState::Confirmed).
-        // Done still needs the peer's confirmation — surface the honest
-        // intermediate state. Only the local "confirming" state advances so
-        // a stray/late Confirmed poll can never resurrect a flow that
-        // already finished, failed, or was cancelled.
+        // The SDK registered our "They match"; Done still needs the peer.
+        // Only "confirming" advances, so a late poll cannot resurrect a
+        // finished flow.
         connect(rust, &RustSdkMatrixClient::verificationSasConfirmed,
                 this, [this](const QString &flowId) {
             if (flowId != m_verificationFlowId) return;
@@ -2221,12 +1729,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_verificationState = QStringLiteral("waiting_for_peer");
             Q_EMIT verificationStateChanged();
         });
-        // Show-QR leg. Deliberately orthogonal to m_verificationState: the
-        // QR is an alternative presentation of the SAME flow, so none of
-        // these handlers moves the state machine. Every one of them is
-        // flow-scoped, and a code is never shown for a flow that already
-        // finished — a late grid must not repaint a completed verification
-        // as something still awaiting a scan.
+        // Show-QR leg, orthogonal to m_verificationState: the QR is another
+        // presentation of the same flow. All handlers are flow-scoped, and a
+        // late grid never repaints a finished verification.
         connect(rust, &RustSdkMatrixClient::verificationQrReady,
                 this, [this](const QString &flowId, int modules,
                              const QByteArray &bits) {
@@ -2239,8 +1744,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             const QString token =
                 QUuid::createUuid().toString(QUuid::WithoutBraces);
             if (!m_qrCodeStore.setCode(token, modules, bits)) {
-                // Geometry the renderer cannot honour. Show no QR rather
-                // than an unscannable picture; the flow continues on SAS.
+                // Unrenderable geometry: show no QR; the flow continues on SAS.
                 return;
             }
             m_verificationQrToken = token;
@@ -2259,8 +1763,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 this, [this](const QString &flowId) {
             if (flowId != m_verificationFlowId) return;
             if (m_verificationQrToken.isEmpty()) return;
-            // The SDK registered our confirmation. This is progress, NOT
-            // success: only verificationDone may report that.
+            // Progress, not success: only verificationDone reports that.
             m_verificationQrConfirming = true;
             Q_EMIT verificationStateChanged();
         });
@@ -2268,8 +1771,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 this, [this](const QString &flowId, const QString &) {
             if (flowId != m_verificationFlowId) return;
             if (m_verificationQrToken.isEmpty()) return;
-            // The peer chose emoji, or the display window elapsed. Drop the
-            // panel and let the card fall back to the SAS presentation.
+            // The peer chose emoji or the display window elapsed: fall back
+            // to SAS.
             clearVerificationQr();
             Q_EMIT verificationStateChanged();
         });
@@ -2279,46 +1782,26 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_verificationState = QStringLiteral("done");
             clearVerificationQr();
             Q_EMIT verificationStateChanged();
-            // v0.5.6: after a successful flow, re-query the SDK trust
-            // state so the Settings pane doesn't fall back to the local
-            // "confirmed" guess. Do NOT set the trust state from here —
-            // only the SDK snapshot may promote to "Verified".
+            // Re-query SDK trust; only the SDK snapshot may promote to
+            // "Verified".
             rust->refreshOwnDeviceStatus();
             requestOwnDeviceKeyCheck();
-            // v0.5.1: post-verification retry. matrix-sdk 0.18 does not
-            // expose an explicit per-event "request room key" API on
-            // Client — internal event_cache/redecryptor.rs re-runs
-            // automatically as keys arrive. Best surface action is a
-            // Room::messages reload; if verified peers have shared
-            // keys since we first saw the events, decryption succeeds
-            // this time. Idempotent by event_id.
+            // Keys shared by verified peers may now decrypt earlier events.
             if (!m_currentRoomId.isEmpty()) {
                 qCInfo(lcApp) << "verification=done; retrying decryption in"
                               << matrix::e2ee::redactId(m_currentRoomId);
-                // In place, for the reason at the keyBackupResult handler
-                // above: a reopen clears media, closes the reader's thread
-                // panel and re-paginates, none of which retrying decryption
-                // needs. Fires once per verification flow.
+                // In place, as in the keyBackupResult handler. Fires once per
+                // verification flow.
                 retryDecryptionInCurrentRoom();
             }
-            // v0.7: the security pane's backup/recovery snapshot must
-            // reflect the just-verified state without a manual refresh —
-            // the recovery supervisor's download pass reports through the
-            // bootstrap events, and this keeps the health card coherent
-            // with it.
+            // Keep the security pane's health card coherent with the
+            // just-verified state.
             refreshCryptoHealth();
         });
-        // A completed verification is FINAL for its flow. A late cancellation
-        // or failure carrying the same flow id must not repaint a successful
-        // verification as cancelled — the user confirmed matching emoji and
-        // the SDK reported Done, and telling them otherwise afterwards is
-        // simply false. Ordering happens to prevent this today (the Rust
-        // driver returns on SasState::Done, and cancelVerification() clears
-        // the flow id first), but relying on two remote invariants for a
-        // user-visible correctness property is how it silently breaks.
-        //
-        // Only `done` is sticky. Trust itself is never taken from this
-        // string — it comes from SDK state via refreshOwnDeviceStatus().
+        // A completed verification is final for its flow: a late cancel or
+        // failure with the same flow id must not repaint it. Current ordering
+        // prevents that already, but this does not rely on it. Trust itself
+        // always comes from SDK state, never from this string.
         connect(rust, &RustSdkMatrixClient::verificationCancelled,
                 this, [this](const QString &flowId, const QString &) {
             if (flowId != m_verificationFlowId) return;
@@ -2336,10 +1819,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             Q_EMIT verificationStateChanged();
         });
 
-        // v0.5.6 outbound-initiated verification: reuses the same UI
-        // state cache. `verification_request_started` mirrors the
-        // receive-first `verification_request_received` handler above
-        // but flips the direction flag.
+        // Outbound-initiated verification: same state cache as the
+        // receive-first handler, with the direction flag flipped.
         connect(rust, &RustSdkMatrixClient::verificationRequestStarted,
                 this, [this](const QString &flowId,
                              const QString &otherUser,
@@ -2355,22 +1836,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             Q_EMIT verificationStateChanged();
         });
 
-        // v0.5.6 Security & Recovery: aggregate cross-signing snapshot
-        // and room-key import lifecycle.
+        // Cross-signing snapshot and room-key import lifecycle.
         //
-        // THE LABEL READS `deviceCrossSigned`, AND A ROUND ON 2026-09-20
-        // BRIEFLY MADE IT READ `Device::is_verified()` INSTEAD. That was
-        // wrong and it shipped: matrix-sdk marks our OWN device locally
-        // trusted the moment it creates it (machine/mod.rs:350 — "since we
-        // are the owners of the private keys of this device we can safely
-        // mark the device as verified"), so is_verified() is a CONSTANT TRUE
-        // here. Measured live: a fresh, wholly unverified session reported
-        // "Verified", and because `sessionVerificationNeeded()` keys on this
-        // string being "Not verified", the verify-this-session prompt was
-        // suppressed at the same time.
-        //
-        // What the word means for our own session is that our own identity
-        // has cross-signed it — some session of ours vouched for this one.
+        // The label must read `deviceCrossSigned`, not Device::is_verified():
+        // matrix-sdk marks our own device locally trusted when it creates it,
+        // so is_verified() is always true here and would also suppress the
+        // verify-this-session prompt (sessionVerificationNeeded()).
         connect(rust, &RustSdkMatrixClient::ownDeviceStatusUpdated,
                 this, [this](const QString &deviceId,
                              bool ownIdentityAvailable,
@@ -2387,10 +1858,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 m_sessionTrustState = QStringLiteral("Cross-signing unavailable");
             } else if (deviceCrossSigned) {
                 m_sessionTrustState = QStringLiteral("Verified");
-                // v0.7.x: a dismissal answered "I know this session is
-                // unverified". Once it IS verified that answer is spent —
-                // clearing it here means a future unverified session warns
-                // again instead of inheriting silence from an old dismissal.
+                // A dismissal applied to an unverified session; reset it so
+                // a future unverified session warns again.
                 if (m_settings)
                     m_settings->setVerificationWarningDismissed(false);
             } else {
@@ -2399,13 +1868,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             Q_EMIT securityStateChanged();
             Q_EMIT rustDeviceIdChanged();
         });
-        // B011: A DEVICE THAT CAN NEVER DECRYPT ANYTHING NOW SAYS SO.
-        //
-        // Detection shipped in 0d4578d and stopped at one qCCritical into a
-        // log the user never reads: they still saw "Waiting for keys…" and
-        // nothing else — no explanation, no diagnosis, no suggested action.
-        // The latch lives in OwnDeviceKeyWatch so "could not be established"
-        // can never be presented as "your encryption is destroyed".
+        // Surface a device whose identity key cannot decrypt anything. The
+        // latch lives in OwnDeviceKeyWatch so "could not be established" is
+        // never presented as "your encryption is destroyed".
         connect(rust, &RustSdkMatrixClient::ownDeviceIdentityKeyChecked,
                 this, [this](bool established, bool matchesServer) {
             if (!established) {
@@ -2446,18 +1911,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_roomKeyImportState = QStringLiteral("done");
             Q_EMIT roomKeyImportStateChanged();
             Q_EMIT roomKeyImportCompleted(imported, total, affected);
-            // v0.5.7: no timeline reload needed here. Rust keeps the
-            // imported Megolm session IDs and immediately calls the SDK
-            // timeline's retry-decryption; already-visible undecryptable
-            // rows update in place via Set diffs. roomKeysApplied()
-            // below reports the retry back to the UI.
-            // Room-key import never affects verification/trust; do NOT
-            // touch m_sessionTrustState here.
+            // No reload needed: Rust retries decryption on the SDK timeline
+            // and rows update in place; roomKeysApplied() reports it. Import
+            // never affects trust state.
             Q_UNUSED(rust);
         });
-        // v0.5.7: post-import decryption retry completed on the open
-        // timeline. Surface a safe, honest status line — it claims the
-        // keys were applied, not that every event decrypted.
+        // Post-import retry finished on the open timeline. The message claims
+        // the keys were applied, not that every event decrypted.
         connect(rust, &RustSdkMatrixClient::roomKeysApplied,
                 this, [this](const QString &roomId, int sessionCount) {
             Q_UNUSED(sessionCount);
@@ -2471,7 +1931,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 this, [this](const QString &category, const QString &message) {
             m_roomKeyImportRunning = false;
             m_roomKeyImportState = QStringLiteral("failed");
-            // Categorized safe user message; never the raw passphrase.
+            // Categorized safe message; never the raw passphrase.
             if (category == QLatin1String("bad_passphrase")) {
                 m_roomKeyImportMessage = tr(
                     "The passphrase is incorrect or the key export is corrupted.");
@@ -2497,19 +1957,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         connect(rust, &RustSdkMatrixClient::localSessionResetRequired,
                 this, [this](const QString &reasonCode, const QString &userId,
                              const QString &homeserver) {
-            // Record WHICH account failed and WHY, then let QML choose the
-            // copy and the valid actions. Five distinct causes used to share
-            // one sentence, and the repair could not run at all because it
-            // was driven from a login form the user had not filled in.
+            // Record which account failed and why; QML chooses the copy and
+            // the valid actions.
             setLocalSessionFailure(reasonCode, userId, homeserver);
             setLocalRustResetRequired(true);
         });
-        // Same payload, but for conditions a local reset cannot repair: a
-        // missing store, a revoked token, contestable ownership. The repair
-        // card still explains what happened and offers the actions that are
-        // valid for that reason — it just never arms the destructive one,
-        // because deleting local data would not fix any of them and, for a
-        // revoked token, would throw away the only local copy of room keys.
+        // Same payload for conditions a local reset cannot repair (missing
+        // store, revoked token, contested ownership): the destructive action
+        // is never armed, since deleting local data would not help and could
+        // throw away the only copy of room keys.
         connect(rust, &RustSdkMatrixClient::localSessionBlocked,
                 this, [this](const QString &reasonCode, const QString &userId,
                              const QString &homeserver) {
@@ -2529,19 +1985,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     }
 #endif
 
-    // v0.7: startup with a saved account is an explicit restoration state,
-    // never an unauthenticated one — the login form must not render (or
-    // even instantiate) while the outcome is still unknown. Restore
-    // success lands on MainScreen via loginSucceeded; every restore
-    // failure path funnels through loginFailed, which routes BootScreen to
-    // the genuine login form. The mock backend restores from its account
-    // registry (it has no real tokens), so the startup lifecycle is the
-    // same on every backend and testable end to end.
-    // Screenshot-demo mode drives its own deterministic restore from
-    // beginScreenshotDemo (which first registers the fictional accounts and
-    // enables the rich scene); the normal startup restore must not fire first
-    // and race it — especially on a persisted isolated demo profile whose
-    // account records already exist from a previous launch.
+    // Startup with a saved account is a restoration state: the login form
+    // must not instantiate until the outcome is known. Success reaches
+    // MainScreen via loginSucceeded, every failure via loginFailed. The mock
+    // restores from its account registry. Screenshot-demo mode runs its own
+    // restore from beginScreenshotDemo, so this one must not race it.
     const bool hasRestorableSession = !m_screenshotDemo
         && (m_settings->hasSession()
             || (m_backend == MockBackend
@@ -2562,19 +2010,12 @@ bool AppController::notificationActionIsForCurrentAccount(
     const QString current = m_client ? m_client->currentUserId() : QString();
     if (!current.isEmpty() && accountUserId == current)
         return true;
-    // Deliberately NOT silent. A button the user pressed that does nothing
-    // is worse than one that explains itself, and this is the one case where
-    // the explanation genuinely matters: they believe they have replied.
-    //
-    // The notice names no room and no message — it is raised through the
-    // generic path, whose body must already be safe — because the whole
-    // point is that we are no longer signed in as the account that could
-    // legitimately see either.
+    // Not silent: the user believes they have replied. The notice names no
+    // room or message, since we are no longer signed in as the account that
+    // could see them.
     qCWarning(lcApp) << "notification action refused: account changed";
-    // Gated like every other generic notice: a user who has turned desktop
-    // notifications off in the meantime should not get one back, even to
-    // explain a refusal. The refusal still happens — this is only whether we
-    // say so on the desktop.
+    // Gated like every other generic notice; the refusal itself still
+    // happens.
     if (m_notifications && m_settings->notificationsEnabled()) {
         m_notifications->showGeneric(
             tr("Lightning"),
@@ -2587,18 +2028,16 @@ bool AppController::notificationActionIsForCurrentAccount(
 void AppController::applyStrictDeviceTrust()
 {
 #ifdef ENABLE_RUST_SDK_BACKEND
-    // Guarded: the symbol exists only in a Rust-enabled build, and an
-    // unguarded call is exactly what broke the non-Rust tree earlier in this
-    // round (§16's standing lesson).
+    // The symbol exists only in a Rust-enabled build.
     RustSdkMatrixClient::setStrictDeviceTrust(m_settings->strictDeviceTrust());
 #endif
 }
 
 void AppController::applyPrivacyPreferences()
 {
-    // Two settings, one place. Both are about what leaves this device while
-    // the user is only reading and typing, and both have to be applied on
-    // change AND on client attachment — a fresh bridge starts permissive.
+    // Both settings govern what leaves the device while reading and typing,
+    // and must be applied on change and on client attachment (a fresh bridge
+    // starts permissive).
     if (m_client)
         m_client->setReadReceiptPrivacy(m_settings->readReceiptMode());
     if (m_composer)
@@ -2613,38 +2052,22 @@ void AppController::prepareForShutdown()
     m_shuttingDown = true;
 
     // Stop the Qt Multimedia players first: on Windows their Media Foundation
-    // worker threads deliver state through queued signals, a prime candidate
-    // for the "Invalid window handle" wake-up if they run into teardown. This
-    // also happens before the QML engine destroys the per-card players.
+    // threads deliver state through queued signals that must not run into
+    // teardown.
     if (m_playback)
         m_playback->stopAll();
 
-    // LEAVE THE CALL BEFORE ANYTHING THAT CARRIES THE LEAVE IS TORN DOWN.
-    //
-    // This lane was missing entirely, and the cost was visible to everyone
-    // else in the room: closing Lightning left our `m.call.member` state
-    // event published and our SFU participant connected, so we sat in the
-    // call as a ghost — and every later join added another copy, each one
-    // labelled waiting for media because a stale publisher has no tracks.
-    //
-    // It must run BEFORE `stopSync()` below: the retraction is a state event
-    // and a Leave is an SFU command, and both need the client that stopSync()
-    // is about to quiesce. Relying on ~SfuCallController instead is not good
-    // enough — member destruction order would decide whether the send still
-    // had a client to reach, which is exactly the kind of dependency that
-    // silently inverts when a member is added.
-    //
-    // `leave()` is documented safe in any state including mid-join, so this
-    // is unconditional rather than gated on `active()`: a join still in
-    // flight is precisely the case that would otherwise strand a membership
-    // published moments earlier. The bounded Rust task join in the client's
-    // destructor is what gives the dispatched sends their window to land.
+    // Leave the call before stopSync(): the membership retraction and the SFU
+    // Leave both need the client, and otherwise we linger in the call as a
+    // ghost participant. Not left to ~SfuCallController, whose timing depends
+    // on member destruction order. leave() is safe in any state, including
+    // mid-join; the client's bounded Rust task join gives the sends time to
+    // land.
     if (m_groupCall)
         m_groupCall->leave();
 
-    // Stop the sync loop / poll timer so no further backend callback is
-    // scheduled onto the main loop during teardown. The client's own
-    // destructor still performs the bounded Rust task join.
+    // Stop the sync loop so no further backend callback is scheduled during
+    // teardown.
     if (m_client)
         m_client->stopSync();
 }
@@ -2671,20 +2094,17 @@ bool AppController::serverRoomNotificationModes() const
 
 void AppController::setRoomNotificationMode(const QString &roomId, int mode)
 {
-    // Defence-in-depth: the composite thread-timeline id must never reach
-    // settings keys or a protocol call (the pickers only ever pass real
-    // room ids; this guards against any future caller slipping one in).
+    // The composite thread-timeline id must never reach settings keys or a
+    // protocol call.
     if (roomId.isEmpty() || mode < 0 || mode > 3
         || MatrixClient::isThreadTimelineId(roomId))
         return;
-    // Device-local value first: NotificationManager reads it (see the
-    // eventAppended context wiring), so the choice takes effect instantly
-    // and keeps working offline. On server-capable backends it doubles as
-    // the cache of the account's push-rule mode.
+    // Device-local value first: NotificationManager reads it, so the choice
+    // applies instantly and offline. On server-capable backends it also
+    // caches the push-rule mode.
     m_settings->setRoomNotificationMode(roomId, mode);
     if (m_client && m_client->supportsServerNotificationModes()) {
-        // Mode 3 is a rule REMOVAL, not a rule with value 3 — Matrix has no
-        // follow-default rule, only the absence of a room override.
+        // Mode 3 removes the room override; Matrix has no follow-default rule.
         if (mode == 3)
             m_client->clearRoomNotificationMode(roomId);
         else
@@ -2697,19 +2117,10 @@ void AppController::retryFailedNotificationModes()
     if (!m_client || !m_client->supportsServerNotificationModes()
         || m_notificationModeSyncFailures.isEmpty())
         return;
-    // Re-issue the user's PERSISTED choice for every room whose write did
-    // not reach the server. The local value is authoritative here precisely
-    // because the write failed — nothing on the server has since contradicted
-    // it (a differing user-defined report is rejected while a room is in this
-    // set; see the roomNotificationModeChanged handler).
-    //
-    // The failure entries are deliberately NOT cleared here. A room leaves
-    // the set only when the server ACKNOWLEDGES the value, which happens in
-    // that same handler. Clearing on attempt would report success for a
-    // retry that is still in flight — or that fails again — which is exactly
-    // the "pretend the rule changed" outcome this whole path exists to
-    // avoid. A still-failing room simply stays disclosed as
-    // kept-on-this-device and is retried on the next reconnect.
+    // Re-issue the persisted choice for every room whose write failed; the
+    // local value is authoritative because nothing on the server has
+    // contradicted it. Entries are cleared only when the server acknowledges
+    // the value (roomNotificationModeChanged), never on attempt.
     const QList<QString> pending = m_notificationModeSyncFailures.values();
     for (const QString &roomId : pending) {
         const int mode = m_settings->roomNotificationMode(roomId);
@@ -2736,28 +2147,17 @@ void AppController::requestRoomBridgeInfo(const QString &roomId,
     if (roomId.isEmpty() || MatrixClient::isThreadTimelineId(roomId)
         || !m_client || !m_client->supportsRoomBridges())
         return;
-    // A REMEMBERED ANSWER IS AN ANSWER, AND NOT CONSULTING IT MADE THE STORE
-    // WRITE-ONLY. `m_bridgeReadRooms` below is only "have I asked in THIS
-    // session"; the store is "what came back", and it is the half that
-    // survives a restart. Without this line every launch re-read /state for
-    // every room the user opened, which is the entire cost the store exists
-    // to remove, while still paying to write the answer down. Caught in
-    // review; the header and the commit had claimed otherwise.
-    //
-    // `knows()` is true for a fresh row of EITHER sign, which is the point: a
-    // recorded "this room advertises no bridge" is exactly the answer that
-    // makes re-asking unnecessary, and it expires on its own shorter clock.
+    // A remembered answer of either sign is an answer: m_bridgeReadRooms only
+    // tracks this session, while the store survives restarts. A remembered
+    // "no bridge" expires on its own shorter clock.
     if (m_bridgeLabels.knows(roomId))
         return;
     const auto seen = m_bridgeReadRooms.constFind(roomId);
-    // Asked with the network already: the answer is as good as it gets.
-    // Asked without it: a caller that may pay for the request upgrades once.
+    // A network read is final; a store-only read upgrades once when a caller
+    // allows the network.
     if (seen != m_bridgeReadRooms.constEnd() && (*seen || !allowNetwork))
         return;
-    // Recorded only when the dispatch actually went out. A synchronous
-    // rejection (no SDK handle yet, unknown room) never answers, and marking
-    // the room here would fail closed for the whole session — the same trap
-    // the roster hydration above is written around.
+    // Record only a dispatched request: a synchronous rejection never answers.
     if (m_client->roomBridges(roomId, allowNetwork) != 0)
         m_bridgeReadRooms.insert(roomId, allowNetwork);
 }
@@ -2769,22 +2169,13 @@ bool AppController::roomNotificationModeSyncFailed(const QString &roomId) const
 
 bool AppController::startVoiceRecording(const QString &owner)
 {
-    // Only the two known composers may own the recorder. An unrecognised
-    // owner is refused rather than stored: ownership is a send authorisation,
-    // so an unknown value must never end up holding it.
+    // Only the two known composers may own the recorder; ownership is a send
+    // authorisation.
     if (owner != QLatin1String("room") && owner != QLatin1String("thread"))
         return false;
-    // Ownership is taken ONLY after a successful start, and never stolen
-    // from a live recording.
-    //
-    // VoiceRecorder::start() REFUSES while Recording or Processing and
-    // returns false WITHOUT emitting failed() (see VoiceRecorder::start).
-    // An earlier version of this function moved ownership first and cleared
-    // it when start() failed, which disowned the still-running recorder:
-    // the microphone stayed open with no pill, no cancel button and no
-    // owner to deliver ready() to — up to the recorder's 15-minute cap, and
-    // across sign-out. Refusing the transfer is what keeps the live
-    // recording reachable by the composer that actually owns it.
+    // Take ownership only after a successful start, and never from a live
+    // recording: start() refuses while busy without emitting failed(), so
+    // transferring first would orphan a running microphone.
     if (m_voiceRecorder
         && (m_voiceRecorder->recording() || m_voiceRecorder->processing()))
         return false;
@@ -2808,9 +2199,8 @@ void AppController::setVoiceRecorderForTest(VoiceRecorder *recorder)
 
 bool AppController::voiceRecordingBusy() const
 {
-    // True when a recording is in progress ANYWHERE — used by a composer to
-    // tell "no microphone available" apart from "the other composer is
-    // already recording", which are very different messages to show.
+    // True when a recording is in progress anywhere, so a composer can tell
+    // "no microphone" from "the other composer is recording".
     return !m_voiceOwner.isEmpty()
         || (m_voiceRecorder
             && (m_voiceRecorder->recording() || m_voiceRecorder->processing()));
@@ -2835,9 +2225,8 @@ bool AppController::discardPreparedVoice(const QString &localPath)
 
 void AppController::cancelVoiceRecording()
 {
-    // Never construct the recorder just to cancel: with no owner there is
-    // nothing recording, and touching the getter would spin up the audio
-    // backend for a session that never recorded.
+    // Do not construct the recorder just to cancel: that starts the audio
+    // backend.
     if (m_voiceOwner.isEmpty())
         return;
     if (m_voiceRecorder)
@@ -2869,8 +2258,8 @@ ProfileBadges *AppController::badges() const
 AuthManager *AppController::auth() const { return m_auth.get(); }
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-// Map a launcher/CLI account hint ("personal"/"work"/"community", a display
-// alias, or a full user id) onto one of the three fictional demo user ids.
+// Map an account hint (preset name, alias or user id) onto one of the three
+// fictional demo user ids.
 static QString resolveDemoAccountId(const QString &hint)
 {
     const QString h = hint.trimmed().toLower();
@@ -2890,35 +2279,28 @@ static QString resolveDemoAccountId(const QString &hint)
 void AppController::beginScreenshotDemo(const QString &initialAccount)
 {
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-    // Only ever runs on the in-memory mock backend (preflight forces it). Fail
-    // closed on any other backend so this can never touch a real session.
+    // Mock backend only; fail closed on anything else.
     if (m_backend != MockBackend) {
         qCWarning(lcApp)
             << "beginScreenshotDemo ignored: active backend is not the mock";
         return;
     }
-    // Hard safety assertion: the demo must NOT have initialized a production
-    // secure secret store. The constructor injects an in-memory store for the
-    // demo (isSecure() == false); if a libsecret/keychain store ever reached
-    // here, fail closed rather than risk touching the real keychain.
+    // The demo must never run on a production secure secret store.
     if (m_secretStore && m_secretStore->isSecure())
         qFatal("screenshot-demo: refusing to run on a production secure "
                "SecretStore (libsecret/keychain must not be initialized)");
     m_screenshotDemoActive = true;
 
-    // Enable the rich, deterministic three-account scene on the mock. Tests
-    // never call this, so the shared mock fixtures they assert on are unchanged.
+    // Tests never call this, so the shared mock fixtures stay unchanged.
     MockMatrixClient *mock = qobject_cast<MockMatrixClient *>(m_client.get());
     if (mock) {
         mock->setScreenshotDemoMode(true);
-        // The demo scenario / control-panel controller (app.demo), owned here.
         if (!m_demoController)
             m_demoController = new ScreenshotDemoController(this, mock, this);
     }
 
-    // Register the three fictional accounts as NON-SECRET metadata only — no
-    // token, no SecretStore write — under the isolated demo QSettings profile.
-    // clearDemoAccounts first so a persisted profile re-registers deterministically.
+    // Register the demo accounts as non-secret metadata only, under the
+    // isolated demo profile; clear first so registration is deterministic.
     m_settings->clearDemoAccounts();
     struct DemoAcct { const char *hs; const char *uid; const char *name; const char *avatar; };
     static const DemoAcct kAccounts[] = {
@@ -2936,20 +2318,16 @@ void AppController::beginScreenshotDemo(const QString &initialAccount)
             QString::fromLatin1(a.name), QString::fromLatin1(a.avatar), order++);
     }
 
-    // Select the requested initial account (default Alex).
     QString activeUid = resolveDemoAccountId(initialAccount);
     if (!m_settings->hasSavedAccount(activeUid))
         activeUid = QStringLiteral("@alex:lightning.example");
     m_settings->setActiveAccountUserId(activeUid);
 
-    // Restoration state, not an unauthenticated one: show the boot surface (not
-    // the login form) while the mock "restores", then land on MainScreen via
-    // the normal loginSucceeded path. No network; no real credentials. The mock
-    // restore reads the active account from settings and activates its scene.
+    // Show the boot surface while the mock restores, then reach MainScreen via
+    // the normal loginSucceeded path.
     setCurrentScreen(BootScreen);
     if (!m_client->restoreSession()) {
-        // Extremely unlikely (settings has an active account) — fall back to a
-        // direct mock login into the active account so the demo still boots.
+        // Fall back to a direct mock login so the demo still boots.
         const QVariantMap rec = m_settings->accountRecord(activeUid);
         m_auth->login(rec.value(QStringLiteral("homeserver")).toString(),
                       activeUid.section(QLatin1Char(':'), 0, 0).mid(1),
@@ -3003,13 +2381,11 @@ QString AppController::preferredCallLane(const QString &roomId) const
 {
     if (roomId.isEmpty())
         return QString();
-    // MatrixRTC first. It is what current Element speaks, it carries video
-    // and screen share, and it works in a group — the legacy lane does none
-    // of those.
+    // MatrixRTC first: it is what current Element speaks, and it carries
+    // video, screen share and groups.
     if (m_rtc && m_rtc->joinBlock(roomId) == RtcController::JoinBlock::None)
         return QStringLiteral("matrixrtc");
-    // Legacy fallback, and only where it is protocol-safe: a legacy
-    // m.call.invite rings EVERY member of a room, so it is 1:1 DMs only.
+    // Legacy fallback, 1:1 DMs only: m.call.invite rings every room member.
     if (m_calls && m_calls->mediaBackendAvailable()
         && !legacyCallPeer(roomId).isEmpty()) {
         return QStringLiteral("legacy");
@@ -3019,11 +2395,9 @@ QString AppController::preferredCallLane(const QString &roomId) const
 
 QString AppController::legacyCallPeer(const QString &roomId) const
 {
-    // `isDirect` is not "1:1": it is "m.direct lists at least one target",
-    // and a DM a third person was invited into is still direct. The legacy
-    // lane must name exactly one peer -- the invite carries them as
-    // `invitee` so only they ring, and every later signal on the session is
-    // bound to them -- so the room must map to exactly one direct target.
+    // `isDirect` only means m.direct lists a target; the legacy lane needs
+    // exactly one peer, since the invite and every later signal are bound to
+    // them.
     if (!m_roomList)
         return QString();
     const QVariantMap room = m_roomList->findRoom(roomId);
@@ -3043,31 +2417,12 @@ bool AppController::canStartCall(const QString &roomId) const
 
 bool AppController::startCall(const QString &roomId, bool withVideo)
 {
-    // RE-READ THE ROOM'S ENCRYPTION *NOW*, not at whatever moment this room
-    // was opened.
-    //
-    // setCurrentRoom() records this once on navigation, and the call then
-    // captured that value for its whole life. A snapshot taken minutes
-    // earlier -- or before the room's `m.room.encryption` had landed in a
-    // sync -- makes the call join CLEARTEXT in a room the user was told is
-    // encrypted. Measured live 2026-09-16: the same room logged
-    // `join begin encrypted= true` on one run and `encrypted= false` on the
-    // next, and on the false run every frame went out in the clear while the
-    // peer ran its decryptor over it -- audio that never arrived, and the
-    // peer's own UI reporting the sender as "not encrypted".
-    //
-    // The tri-state is unchanged and still fails CLOSED: not knowing means
-    // encrypted, because the honest failure is a refused call and never a
-    // silent downgrade (section 6).
+    // Re-read the room's encryption now rather than trusting the value
+    // recorded on navigation, which may predate `m.room.encryption` arriving
+    // and would let the call join in cleartext. Unknown still fails closed.
     if (!roomId.isEmpty() && m_rtc && m_roomList) {
         const QVariantMap room = m_roomList->findRoom(roomId);
-        // ONLY A KNOWN ANSWER IS RECORDED. This passed `!known || encrypted`,
-        // which fabricates a KNOWN "encrypted" out of an UNKNOWN room — and
-        // setRoomEncrypted's downgrade guard then refused the correct answer
-        // for the rest of the session, because a stored `true` cannot say
-        // which of the two it was. Not recording an unknown room is the same
-        // fail-closed outcome (roomEncrypted() treats an absent entry as
-        // encrypted) without the latch.
+        // Record only a known answer; see setCurrentRoomId().
         const bool known =
             room.value(QStringLiteral("encryptionKnown")).toBool();
         if (known) {
@@ -3076,9 +2431,7 @@ bool AppController::startCall(const QString &roomId, bool withVideo)
         }
     }
     const QString lane = preferredCallLane(roomId);
-    // The call path had NO logging at all, which is why "pressing call does
-    // nothing / the app goes away" could not be diagnosed from a user's
-    // console at all. Room ids are structural, not content.
+    // Room ids are structural, not content, and are safe to log.
     qCInfo(lcApp) << "call start requested lane=" << lane
                   << "video=" << withVideo
                   << "rtcBlock="
@@ -3091,8 +2444,7 @@ bool AppController::startCall(const QString &roomId, bool withVideo)
     }
     if (lane == QLatin1String("legacy")) {
         if (withVideo) {
-            // The legacy lane is audio-only by design. Saying so beats
-            // starting an audio call the user asked to be a video one.
+            // The legacy lane is audio-only.
             Q_EMIT callStartRefused(
                 tr("Video calls need a MatrixRTC service, which isn't "
                    "available here yet."));
@@ -3103,9 +2455,8 @@ bool AppController::startCall(const QString &roomId, bool withVideo)
         return ok;
     }
 
-    // Neither lane. The reason matters: "this homeserver has no calling" and
-    // "this room is encrypted and encrypted calls are not ready" are
-    // different problems with different answers.
+    // Neither lane: report the specific reason, since each has a different
+    // remedy.
     if (m_rtc) {
         const QString reason = m_rtc->joinBlockReason(roomId);
         if (reason == QLatin1String("media_encryption_unavailable")) {
@@ -3149,8 +2500,7 @@ void AppController::enableCallSounds()
 {
     if (m_callSounds->sink())
         return;
-    // The in-call cues follow the call's chosen speaker; read live, so a
-    // device picked mid-call is honoured on the next cue.
+    // Cues follow the call's chosen speaker, read live on every cue.
     QPointer<SettingsManager> settings = m_settings.get();
     m_callSounds->setSink(std::make_unique<CallSoundPlayer>([settings] {
         return settings ? settings->preferredSpeakerId() : QString();
@@ -3159,10 +2509,9 @@ void AppController::enableCallSounds()
 
 void AppController::enableCallMediaEngine()
 {
-    // Called from main.cpp for the REAL application run only — never from
-    // the AppController constructor, so the offscreen test fleet is not
-    // at the mercy of ambient GStreamer plugin availability (review round
-    // 3), and gst_init never runs under a test that didn't ask for it.
+    // Called from main.cpp for the real application only, never from the
+    // constructor, so tests never run gst_init or depend on plugin
+    // availability.
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (qEnvironmentVariableIsSet("LIGHTNING_DISABLE_WEBRTC")) {
         qCInfo(lcApp) << "voice-call media engine disabled by environment";
@@ -3172,33 +2521,17 @@ void AppController::enableCallMediaEngine()
     if (GstCallMediaBackend::runtimeAvailable(&whyNot)) {
         auto *engine = new GstCallMediaBackend(this);
         m_calls->setMediaBackend(engine);
-        // Apply the user's chosen capture/playback devices, and follow a
-        // hotplug that actually moves the ACTIVE device. Applied per session
-        // by the engine, so a change lands on the next call rather than
-        // relinking a live pipeline.
+        // Apply the chosen devices and follow hotplugs of the active device.
+        // The engine applies them per session, so a change lands on the next
+        // call.
         const auto applyDevices = [this, engine] {
             engine->setAudioDevices(m_callDevices->microphoneElement(),
                                     m_callDevices->speakerElement());
         };
-        // ONLY WHEN THERE IS A PREFERENCE TO APPLY, and that condition is the
-        // whole point of the call below.
-        //
-        // `CallDeviceController`'s constructor is deliberately empty because
-        // touching QMediaDevices — even to read a list — initialises the Qt
-        // Multimedia backend, which on a PipeWire desktop costs real startup
-        // time and prints a SPA parse error for every device on the system
-        // (its own comment says so, and §16 records the first QVideoSink in a
-        // process costing ~931 ms). Calling `applyDevices()` unconditionally
-        // here defeated that entirely: `microphoneElement()` opens with
-        // `ensureBackend()`, so every launch paid the init and every launch
-        // printed the noise — reported 2026-09-15 as a wall of
-        // `spaVisitChoice: parse error` before the first sync.
-        //
-        // The settings read is plain QSettings and touches no media stack. A
-        // user with no stored preference needs no call at all: the engine's
-        // empty strings already mean "the platform default", which is what
-        // they would have got. A user who HAS picked a device pays the init,
-        // which is the one case where it buys something.
+        // Only when a preference exists: microphoneElement() initialises Qt
+        // Multimedia, which costs startup time and logs a SPA parse error per
+        // device on PipeWire. Without a preference the engine's empty strings
+        // already mean the platform default.
         const bool hasDevicePreference =
             m_settings
             && (!m_settings->preferredMicrophoneId().isEmpty()
@@ -3210,21 +2543,14 @@ void AppController::enableCallMediaEngine()
                 applyDevices);
         qCInfo(lcApp) << "voice-call media engine active (webrtcbin)";
     }
-    // The SFU engine probes a WIDER element set (video and screen capture on
-    // top of audio), so it can legitimately be unavailable where the 1:1
-    // engine is fine. Probed separately for exactly that reason.
+    // The SFU engine probes a wider element set (video, screen capture), so
+    // it can be unavailable where the 1:1 engine is fine.
     QString sfuWhyNot;
     if (SfuMediaEngine::runtimeAvailable(&sfuWhyNot)) {
         auto *sfu = new SfuMediaEngine(this);
         m_groupCall->setMediaEngine(sfu);
-        // THE CHOSEN DEVICES REACH THE LANE THAT ACTUALLY CARRIES CALLS.
-        //
-        // Until now only the 1:1 engine above was told, so on the MatrixRTC
-        // path the settings picker chose nothing at all: the capture was
-        // built from a bare element name and opened whatever the platform
-        // called default. Camera selection was honoured by neither engine.
-        // Applied per publish by the engine, so a change lands on the next
-        // capture rather than relinking a live pipeline.
+        // Chosen camera, microphone and speaker for the MatrixRTC lane,
+        // applied per publish so a change lands on the next capture.
         const auto applySfuDevices = [this, sfu] {
             const auto camera = m_callDevices->cameraSelection();
             const auto microphone = m_callDevices->microphoneSelection();
@@ -3237,51 +2563,30 @@ void AppController::enableCallMediaEngine()
         connect(m_callDevices.get(),
                 &CallDeviceController::activeDevicesChanged, sfu,
                 applySfuDevices);
-        // SDP transport is opt-in at the Rust edge, and the SFU lane shares
-        // ONE flag with the legacy 1:1 lane — so until now the group call's
-        // ability to carry media depended on whether the OTHER lane's engine
-        // happened to register. It always did, because the SFU engine probes
-        // a strict superset of its elements, which is precisely why this
-        // never showed: the coupling is invisible while it holds and silent
-        // when it breaks. If it ever broke, every offer, answer and ICE
-        // candidate from the SFU would be discarded in Rust while
-        // participants, speakers and mute kept updating — a call that looks
-        // connected and can never carry a packet.
-        //
-        // Asserted here so this lane states its own requirement.
+        // SDP transport is opt-in at the Rust edge and shared with the 1:1
+        // lane. Set it here so this lane does not silently depend on the other
+        // engine registering: without it every SFU offer, answer and candidate
+        // would be discarded while the call looked connected.
         if (m_client)
             m_client->setCallMediaCapable(true);
-        // The join gate can now say "joinable": until an engine exists it
-        // reports NoMediaTransport, because publishing a membership nobody
-        // can connect to is worse than refusing.
+        // Until an engine exists the join gate reports NoMediaTransport.
         m_rtc->setMediaAvailable(true);
-        // Frame encryption exists in this engine (CallFrameCryptor on pad
-        // probes between the encoder and the RTP payloader, which is where
-        // LiveKit and Element Call encrypt), so an ENCRYPTED room is no
-        // longer refused. This flag says the capability is present; whether
-        // a given call is actually encrypting is SfuCallController's
-        // `mediaEncrypted`, which reads the engine rather than this.
+        // Frame encryption is available (CallFrameCryptor between encoder and
+        // payloader), so encrypted rooms are allowed. Whether a given call
+        // encrypts is SfuCallController's `mediaEncrypted`.
         m_rtc->setMediaEncryptionAvailable(true);
-        // Screen sharing goes through the desktop portal, so the picker is
-        // the compositor's and Lightning never enumerates windows itself.
-        // Registered only when a portal actually answers on this session
-        // bus; without one the control refuses honestly.
+        // Screen sharing goes through the desktop portal, so the compositor
+        // owns the picker. Registered only when a portal answers.
         if (ScreenCastPortal::available()) {
             m_groupCall->setScreenCastPortal(new ScreenCastPortal(this));
             qCInfo(lcApp) << "screen-share portal available";
         } else {
             qCInfo(lcApp) << "screen-share portal unavailable";
         }
-        // THE CAMERA PORTAL, and it is wired whenever it answers rather than
-        // only inside a sandbox.
-        //
-        // Which route a given publish takes is
-        // SfuCallController::linuxCameraRoute(), which prefers the DIRECT
-        // device whenever one is visible — so registering this on a desktop
-        // changes nothing there, and refusing to register it would mean a
-        // machine that grows a reason to need the portal has nothing to fall
-        // back to. Inside a Flatpak there is no `/dev/video*` at all and this
-        // is the only camera that can exist.
+        // The camera portal is registered whenever it answers.
+        // SfuCallController::linuxCameraRoute() prefers a visible direct
+        // device, so this changes nothing on a desktop; inside a Flatpak it is
+        // the only camera.
         if (CameraPortal::available()) {
             m_groupCall->setCameraPortal(new CameraPortal(this));
             qCInfo(lcApp) << "camera portal available present="
@@ -3304,9 +2609,8 @@ void AppController::enableCallMediaEngine()
 
 bool AppController::sessionVerificationNeeded() const
 {
-    // Exactly one actionable state. "Unknown" is not yet determined, and
-    // "Cross-signing unavailable" means there is no identity to verify
-    // against — prompting there would be advice the user cannot follow.
+    // Only "Not verified" is actionable: "Unknown" is undetermined, and
+    // without cross-signing there is nothing to verify against.
     return m_client && m_client->isLoggedIn()
         && m_cryptoHealth && m_cryptoHealth->cryptoSupported()
         && m_sessionTrustState == QLatin1String("Not verified");
@@ -3381,9 +2685,8 @@ void AppController::requestRecoverFromBackup(const QString &recoveryKey)
             tr("Rust backend not available."));
         return;
     }
-    // Emit "attempted" first so the button flips to "Running…" the
-    // moment the user clicks. matrix-sdk will subsequently emit its
-    // own attempted event over the FFI; the QML side is idempotent.
+    // Emit "attempted" immediately for button feedback; the SDK's own
+    // attempted event follows and QML handles it idempotently.
     Q_EMIT recoveryStateChanged(QStringLiteral("attempted"), QString());
     rust->recoverFromBackup(recoveryKey);
 #else
@@ -3398,51 +2701,30 @@ void AppController::setCurrentRoomId(const QString &roomId)
     if (m_currentRoomId == roomId)
         return;
     m_currentRoomId = roomId;
-    // A thread panel never survives into another room; close it BEFORE the
-    // room timeline switches so no stale thread work targets the new room.
+    // Close the thread panel before the timeline switches rooms.
     m_thread->handleCurrentRoomChanged(roomId);
-    // v0.7: inline media playback never survives a room switch either.
+    // Inline media playback never survives a room switch.
     m_playback->stopAll();
-    // Queued speculative fetches (full-GIF autoplay prefetch) belong to the
-    // delegates that just got destroyed with the room switch; dropping them
-    // stops a heavy GIF room from starving the next room's media. In-flight
-    // work is untouched and a revisit re-requests naturally.
+    // Queued speculative fetches belong to the destroyed delegates; dropping
+    // them keeps a heavy GIF room from starving the next room's media.
     m_mediaBridge->dropQueuedSpeculative();
     m_timeline->setRoomId(roomId);
     m_composer->setRoomId(roomId);
     m_pagination->setRoomId(roomId);
-    // v0.7.x pinned messages follow the ACTIVE room: the message-action menu
-    // needs the answer for the room the user is reading, and the previous
-    // room's list must not survive the switch.
+    // Pinned messages, stickers and upgrades follow the active room.
     m_pinned->setRoomId(roomId);
-    // MSC2545 packs: the ROOM's own packs belong in the snapshot, so the
-    // sticker picker has to know which room it is opening over. This MARKS
-    // the snapshot stale and issues NO request — a refresh costs a
-    // /state read per room pack, and CLAUDE.md §16's room-list lesson is
-    // that a surface which refreshes itself on navigation issues one
-    // request per room. The picker asks when it opens.
+    // Marks the sticker snapshot stale without a request; the picker
+    // refreshes when it opens, so navigation costs no /state reads.
     m_stickers->setActiveRoomId(roomId);
-    // v0.7.x room upgrades follow the ACTIVE room too: the banner sits above
-    // the open timeline, and a failed Continue from the previous room must
-    // not follow the user into this one.
     m_roomUpgrade->setRoomId(roomId);
-    // 2026-08-23 MatrixRTC: read the newly opened room's call session so the
-    // banner is right on arrival rather than only after the next membership
-    // change. A read is cheap (state store, no request) and coalesced.
+    // Read the room's call session so the banner is right on arrival.
     if (!roomId.isEmpty()) {
         m_rtc->refresh(roomId);
-        // Feed the room's REAL encryption state to the join gate. The
-        // tri-state matters: `encryptionKnown` false means we do not yet
-        // know, and an unknown room must fail CLOSED — treating it as
-        // unencrypted would be exactly the silent downgrade §6 forbids.
+        // Feed the room's encryption state to the join gate.
         const QVariantMap room = m_roomList->findRoom(roomId);
-        // ONLY A KNOWN ANSWER IS RECORDED. This passed `!known || encrypted`,
-        // which fabricates a KNOWN "encrypted" out of an UNKNOWN room — and
-        // setRoomEncrypted's downgrade guard then refused the correct answer
-        // for the rest of the session, because a stored `true` cannot say
-        // which of the two it was. Not recording an unknown room is the same
-        // fail-closed outcome (roomEncrypted() treats an absent entry as
-        // encrypted) without the latch.
+        // Record only a known answer. An unknown room already fails closed
+        // (an absent entry reads as encrypted); recording it as encrypted
+        // would latch and block the real answer via the downgrade guard.
         const bool known =
             room.value(QStringLiteral("encryptionKnown")).toBool();
         if (known) {
@@ -3450,55 +2732,28 @@ void AppController::setCurrentRoomId(const QString &roomId)
                 roomId, room.value(QStringLiteral("encrypted")).toBool());
         }
     }
-    // v0.7.x: drop QUEUED thread-participant fetches for the room we just
-    // left. Those summary cards are gone; letting their fetches run would
-    // make the new room's facepiles wait behind answers nothing will read.
+    // Drop queued thread-participant fetches for the room just left.
     m_threads->setActiveRoom(roomId);
-    // The Unreads list filter keeps the open room visible (reading it
-    // must not remove the row the selection sits on).
+    // Keep the open room visible under the Unreads filter.
     m_roomList->setPinnedRoomId(roomId);
-    // Mention suggestions arm on the room the user last typed "@" in and
-    // never disarmed on switch, leaving that room's roster refetching on
-    // every membership event indefinitely (review M2).
+    // Disarm mention suggestions, or the previous room's roster keeps
+    // refetching on every membership event.
     m_mentionSuggestions->setRoomId(QString());
-    // v0.6.5: hydrate the member roster on first open — mention chips,
-    // reply headers and thread summaries resolve display names through the
-    // roster-fed cache behind displayNameFor(), and before this the fetch
-    // only ever fired from the member panel or an @-composition, so plain
-    // reading kept bare localparts (live-feedback screenshot: the sender
-    // showed "Grok AI" while the mention chip showed "@brotato"). Once per
-    // room per session; the response merges into the cache and emits
-    // membersChanged, which refreshes every consumer. A FAILED fetch
-    // un-marks the room (see the roomMembersReceived connection) so the
-    // next open retries instead of failing closed for the whole session.
+    // Hydrate the member roster on first open so display names resolve in
+    // mentions, replies and thread summaries. Once per room per session; a
+    // failed fetch un-marks the room so the next open retries.
     if (!roomId.isEmpty() && m_client
         && !m_memberHydratedRooms.contains(roomId)) {
-        // Record the room only when the dispatch actually went out
-        // (MentionSuggestionModel precedent): a synchronous rejection —
-        // no SDK handle yet, room not (yet) joined — returns 0 WITHOUT
-        // ever emitting roomMembersReceived, and marking it here would
-        // fail closed for the whole session.
+        // Record only a dispatched request: a synchronous rejection returns 0
+        // without ever emitting roomMembersReceived.
         if (m_client->requestRoomMembers(roomId) != 0)
             m_memberHydratedRooms.insert(roomId);
     }
-    // MSC2346 bridge state, once per room per session, on a room the user
-    // actually opened. The room LIST must never trigger this: its badge is
-    // computed synchronously inside data(), for every visible row, and the
-    // answer needs a request (src/matrix/BridgeNetwork.h).
-    //
-    // THE CEILING, and it is a judgement rather than a measurement. A
-    // `/state` response is roughly linear in the room's membership — one
-    // `m.room.member` event each — so an eager read on a very large room is
-    // a large response bought for a one-word badge. At or below 500 loaded
-    // members the eager read may go to the network; above it the eager read
-    // is store-only (free, and empty today), and the room info panel remains
-    // the way to get the real answer, because opening it is an explicit
-    // action on ONE room. Note this counts the LOADED roster, which
-    // under-reports until member hydration lands a moment later, so the
-    // ceiling bounds the common case rather than guaranteeing anything.
-    //
-    // Spaces are skipped outright: a Space is not a conversation, shows no
-    // badge, and cannot be bridged.
+    // MSC2346 bridge state, once per room per session, only for a room the
+    // user opened (never from the room list, whose badge is computed in
+    // data()). /state grows with membership, so above 500 loaded members the
+    // eager read is store-only and the room info panel fetches on demand.
+    // Spaces are skipped: they cannot be bridged.
     if (!roomId.isEmpty() && m_client) {
         constexpr int kEagerBridgeMemberCeiling = 500;
         bool isSpace = false;
@@ -3520,18 +2775,13 @@ void AppController::setCurrentRoomId(const QString &roomId)
 
 void AppController::showLogin()
 {
-    // Entering the login screen while a session is active is the
-    // add-account flow; remember where to return so a failed attempt or
-    // Back never strands the user on a dead client.
+    // Entering login while signed in is the add-account flow; remember where
+    // to return if it fails or the user goes back.
     if (m_client->isLoggedIn())
         m_addAccountReturnTo = m_settings->activeAccountUserId();
-    // A LIVE CALL MUST BE LEFT WHILE ITS OWN CLIENT IS STILL ATTACHED.
-    // switchToAccount() does this for the same reason and records it: the
-    // retraction cannot be dispatched once the Rust client has been
-    // released, and an unretracted membership is a ghost participant every
-    // other client in the room sees until it expires. Here, rather than at
-    // the accountChanged branch in onLoginSucceeded(), because by the time a
-    // login has SUCCEEDED the outgoing client is already gone.
+    // Leave a live call while its client is still attached: the retraction
+    // cannot be sent once the client is released, which happens before
+    // onLoginSucceeded() runs.
     if (m_groupCall && m_client->isLoggedIn())
         m_groupCall->leave();
     m_composer->setRoomId({});
@@ -3539,9 +2789,8 @@ void AppController::showLogin()
 }
 void AppController::showMain()
 {
-    // Self-heal on return from add-account: a failed attempt released the
-    // shared client's session, so restore the active account and clear the
-    // spurious error before showing the shell again.
+    // Returning from add-account: a failed attempt released the shared
+    // client's session, so restore the active account first.
     if (!m_client->isLoggedIn() && !m_accountSwitching) {
         if (!m_addAccountReturnTo.isEmpty()
             && m_settings->hasSavedAccount(m_addAccountReturnTo)) {
@@ -3559,10 +2808,8 @@ void AppController::showMain()
 void AppController::showSettings()
 {
     m_composer->setRoomId({});
-    // The full-view Settings screen owns the whole content area: every
-    // transient room-side surface (thread, thread list — and the QML-side
-    // info/member panel, which reacts to the screen change) closes now and
-    // is NOT restored when Settings exits.
+    // Settings owns the whole content area: transient room-side surfaces
+    // close and are not restored when it exits.
     if (m_thread) {
         m_thread->close();
         m_thread->closeList();
@@ -3614,9 +2861,8 @@ void AppController::applyAppIcon()
                 return;
             }
         }
-        // Enabled but the normalized copy is unreadable (deleted app data,
-        // disk corruption): fall back visually without silently rewriting
-        // the user's stored preference.
+        // Unreadable copy: fall back visually without rewriting the stored
+        // preference.
         qCWarning(lcApp) << "custom app icon enabled but unreadable;"
                          << "showing the default icon";
     }
@@ -3634,8 +2880,7 @@ QString AppController::setCustomAppIconFromFile(const QUrl &fileUrl)
         return tr("The image could not be read.");
     if (in.size() > appicon::kMaxInputBytes)
         return tr("The image is too large — 32 MiB at most.");
-    // Bounded read even when size() lies (a FIFO reports 0): one byte past
-    // the cap proves the overrun without an unbounded readAll().
+    // Bounded read even when size() lies (a FIFO reports 0).
     const QByteArray bytes = in.read(appicon::kMaxInputBytes + 1);
     if (bytes.size() > appicon::kMaxInputBytes)
         return tr("The image is too large — 32 MiB at most.");
@@ -3674,9 +2919,8 @@ bool AppController::windowGeometryIsReachable(const QRect &geometry)
 {
     if (geometry.isEmpty())
         return false;
-    // The GRAB BAND along the top of the frame — the part the user has to be
-    // able to reach with a pointer. Requiring the whole rect to sit on one
-    // screen would refuse a window legitimately spanned across two monitors.
+    // Only the top grab band must be reachable, so a window spanning two
+    // monitors is still accepted.
     const QRect grabBand(geometry.x(), geometry.y(), geometry.width(), 32);
     for (const QScreen *screen : QGuiApplication::screens()) {
         if (screen && screen->availableGeometry().intersects(grabBand))
@@ -3685,33 +2929,11 @@ bool AppController::windowGeometryIsReachable(const QRect &geometry)
     return false;
 }
 
-// WHY THIS IS IN C++ AND WHY IT VALIDATES ITSELF.
-//
-// The QML this replaces centred against `Screen.desktopAvailableWidth`, which
-// is the width of the WHOLE VIRTUAL DESKTOP and not of the screen the window
-// is opening on. With two monitors that puts a fresh window at the middle of
-// the PAIR — the seam between them — and on this maintainer's layout it put
-// it past the right-hand edge entirely: measured
-//
-//   window placement "centred" applied=[6490,360 1100x720]
-//   screens="DP-3[3840,0 2560x1440] DP-1[0,0 2560x1440]"
-//
-// with the desktop ending at 6400. The window opened where it could not be
-// seen, and the only reason that was ever survivable is that most launches
-// restore a stored geometry instead.
-//
-// It compounds with a Qt quirk this repo has already recorded once (see the
-// screen-capture note in CLAUDE.md §16): under fractional scaling
-// `QScreen` reports an origin in NATIVE pixels and a size in LOGICAL ones —
-// DP-3 above is at 3840 = 2560 * 1.5 but 2560 wide. Any arithmetic mixing the
-// two is wrong, and a phantom gap appears between the monitors, which is also
-// why a perfectly good stored x=2560 was judged off-screen.
-//
-// So: centre inside ONE screen's availableGeometry — origin and size from the
-// SAME rect, which is the only combination that cannot mix spaces — and then
-// CHECK the answer against the real screens. When the check fails the caller
-// gets an empty rect and leaves the placement to the window manager, which is
-// better at this than we are and cannot put the window where it is invisible.
+// Centres inside one screen's availableGeometry, taking origin and size from
+// the same rect: under fractional scaling QScreen reports origins in native
+// pixels and sizes in logical ones, and Screen.desktopAvailableWidth spans the
+// whole virtual desktop. The result is checked against the real screens; an
+// empty rect leaves placement to the window manager.
 QRect AppController::centredWindowRect(int width, int height)
 {
     if (width <= 0 || height <= 0)
@@ -3802,55 +3024,18 @@ void AppController::applyControlPalette(const QVariantMap &roles)
     QGuiApplication::setPalette(pal);
 }
 
-// ── A NOTIFICATION CLICK MUST *OPEN* THE ROOM, NOT MERELY SELECT IT ──────
-//
-// This handler used to re-emit and nothing else, and `qml/Main.qml`'s
-// notification handler then did `app.currentRoomId = roomId` — the property
-// WRITE, i.e. setCurrentRoomId(). It was one of only two places in the whole
-// application that wrote currentRoomId directly (the other was the Voice
-// Connected bar's "return to call", RoomsPanel.qml, which had the identical
-// defect and now calls openRoom() too); every other navigation
-// (room list, quick switcher, search, links, the Spaces rail, Home) calls
-// app.openRoom(). And openRoom() is the only caller of
-// RustSdkMatrixClient::openRoomTimeline(), which is the only caller of
-// mx_rust_timeline_open.
-//
-// So a room entered from a notification never got a live SDK timeline. The
-// navigation SUCCEEDS — header, composer, room info all switch — and the
-// timeline shows only whatever the bounded background sync mirror happens to
-// hold, with `paginationReady()` false forever (timelineActiveFor() consults
-// the timeline tracker, which openRoomTimeline is what arms), so no history
-// can ever load and the jump to the notification's own event fails. Reported
-// from Windows, where the tray balloon is the only delivery and therefore the
-// only way most users ever met this path: "it sends me to the room and just
-// doesn't load anything".
-//
-// AND IT IS STICKY, which is the part that makes it look like a broken room
-// rather than a slow one: openRoom() skips the SDK open when
-// `m_currentRoomId == roomId` (its `alreadyOpen` guard, below), and this path
-// has already set that. So clicking the same room in the LIST afterwards
-// repairs nothing — the user has to open a different room and come back.
-//
-// Navigation is C++'s (CLAUDE.md §5), so the open belongs here rather than in
-// the QML handler: it then covers the Activity Center row as well, which
-// routes through the same signal, and the QML assignment that follows becomes
-// a no-op (same value, setCurrentRoomId early-returns).
 bool AppController::callAcceptOffered(const QString &roomId,
                                       bool rtcLane) const
 {
     if (roomId.isEmpty())
         return false;
     if (!rtcLane) {
-        // The legacy lane's gate, matching IncomingCallPrompt's
-        // `legacyAcceptOffered`. Note this is necessary and not sufficient:
-        // answer() can still refuse with `no_remote_offer`, which is a timing
-        // condition no predicate can see in advance.
+        // The legacy lane's gate, matching IncomingCallPrompt. Necessary but
+        // not sufficient: answer() can still refuse with `no_remote_offer`.
         return m_calls && m_calls->mediaBackendAvailable();
     }
-    // The MatrixRTC gate, matching the card's `canJoinRtc`: a transport must
-    // be reachable for that room, and this device must not already be in the
-    // call — joining one you are in is meaningless, and the controls are
-    // already up elsewhere.
+    // The MatrixRTC gate, matching the card's `canJoinRtc`: a reachable
+    // transport, and this device not already in the call.
     if (!m_rtc || !m_groupCall)
         return false;
     if (!m_rtc->joinBlockReason(roomId).isEmpty())
@@ -3862,27 +3047,14 @@ void AppController::routeNotificationOpen(const QString &roomId,
                                           const QString &eventId,
                                           const QString &threadRootId)
 {
-    // REDUCE A COMPOSITE, NEVER MERELY REFUSE IT.
+    // A notification click must open the room, not merely select it: only
+    // openRoom() starts the live SDK timeline, and openRoom() skips that once
+    // currentRoomId already matches.
     //
-    // Two callers reach here and only one of them arrives pre-reduced.
-    // NotificationManager normalises its payload before it emits, but the
-    // ACTIVITY CENTRE does not: AppController hands `ingest()` the unreduced
-    // event, ActivityModel stores that composite as the row's room, and the
-    // row emits it back here. Skipping the open and then emitting the
-    // composite anyway would leave §8 broken by a different door — QML
-    // assigns it to `currentRoomId`, and `setCurrentRoomId` calls
-    // `m_rtc->refresh()`, which falls back to a full `/state` for an idle
-    // room. That is a composite in a protocol call.
-    //
-    // Reducing here fixes the Activity Centre's thread rows as well, and it
-    // is what makes the guard testable end to end rather than only up to the
-    // signal.
-    //
-    // The open must not see a composite for a second reason:
-    // openRoomTimeline() has no guard of its own, and the Rust side CLOSES
-    // the previous room's timeline before it discovers the id will not parse
-    // — so opening one would tear down the live subscription of the room the
-    // reader is actually in.
+    // Reduce a thread composite id rather than refusing it: the Activity
+    // Centre emits unreduced composites, which must never reach a protocol
+    // call, and openRoomTimeline() closes the current timeline before it
+    // discovers an unparsable id.
     const bool composite = MatrixClient::isThreadTimelineId(roomId);
     const QString target =
         composite ? MatrixClient::threadTimelineRoomId(roomId) : roomId;
@@ -3897,22 +3069,16 @@ void AppController::routeNotificationOpen(const QString &roomId,
 
 void AppController::openRoom(const QString &roomId)
 {
-    // v0.5.8: skip reopening the room that is already open. Clicking the
-    // active room in the list previously stopped and restarted its SDK
-    // subscription, forcing an avoidable full timeline reset (a source of
-    // spurious DelegateModel churn on rapid clicks). An explicit refresh
-    // still goes through reloadCurrentRoomTimeline().
+    // Do not reopen the room that is already open: that restarts the SDK
+    // subscription and forces a full timeline reset. Explicit refresh goes
+    // through reloadCurrentRoomTimeline().
     const bool alreadyOpen = (m_currentRoomId == roomId);
     setCurrentRoomId(roomId);
-    // Opening a room from anywhere (room list, quick switcher, links) while
-    // the in-shell Settings view is showing returns to the chat view — the
-    // user asked for a room, not for Settings over it.
+    // Opening a room from anywhere returns from Settings to the chat view.
     if (m_currentScreen == SettingsScreen)
         setCurrentScreen(MainScreen);
-    // v0.5.7: the Rust backend opens a persistent matrix-sdk-ui timeline
-    // for the room. Rust cancels the previous room's subscription, sends
-    // one snapshot, and then streams incremental diffs — including
-    // in-place decryption updates after key import.
+    // The Rust backend opens a persistent SDK timeline for the room: one
+    // snapshot, then incremental diffs, including in-place decryption updates.
 #ifdef ENABLE_RUST_SDK_BACKEND
     if (m_backend == RustBackend && !roomId.isEmpty() && !alreadyOpen) {
         if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
@@ -3925,16 +3091,11 @@ void AppController::openRoom(const QString &roomId)
 
 void AppController::openSpaceHome(const QString &spaceId)
 {
-    // Teardown FIRST, activation LAST (2026-08-19): the Space Home
-    // loader instantiates SYNCHRONOUSLY the moment "no open room" and
-    // "real active space" both hold, and its own handlers point
-    // RoomInfoController at the space — the old order cleared roomInfo
-    // AFTER that, wiping the canInvite/canManageSpaceChildren gates the
-    // Home's controls read, so they rendered permission-less.
+    // Teardown first, activation last: the Space Home loader instantiates
+    // synchronously once there is no open room and a real active space, and
+    // clearing roomInfo after that would wipe the permission gates it reads.
     if (!m_currentRoomId.isEmpty()) {
-        // Mirror the roomLeft path: the Rust backend's SDK timeline for
-        // the open room is closed before the room selection clears, so
-        // no live subscription outlives the visible timeline.
+        // Close the SDK timeline before the selection clears, as roomLeft does.
 #ifdef ENABLE_RUST_SDK_BACKEND
         if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
             rust->closeRoomTimeline();
@@ -3951,9 +3112,7 @@ void AppController::setSpaceMuted(const QString &spaceId, bool mute)
 {
     if (!m_spaces || spaceId.isEmpty() || !spaceId.startsWith(QLatin1Char('!')))
         return;
-    // The Space's own membership, which SpaceManager already resolves
-    // transitively — muting a Space the user thinks of as one thing has to
-    // cover the rooms a subspace brought into it, or the mute is a half-mute.
+    // roomsInSpace() is transitive, so subspace rooms are muted too.
     const QStringList rooms = m_spaces->roomsInSpace(spaceId);
     if (rooms.isEmpty())
         return;
@@ -3997,10 +3156,8 @@ quint64 AppController::jumpToDate(qint64 timestampMs)
 {
     if (!m_client || m_currentRoomId.isEmpty() || timestampMs <= 0)
         return 0;
-    // Captured, so an answer that arrives after the user has moved on cannot
-    // yank a DIFFERENT room's timeline to a date they asked about in this
-    // one. The op id alone would not catch it: it is unique per request, not
-    // per room.
+    // Capture the room so a late answer cannot move a different room's
+    // timeline; the op id is unique per request, not per room.
     const QString roomId = m_currentRoomId;
     const quint64 opId = m_client->eventAtTimestamp(roomId, timestampMs);
     if (opId == 0)
@@ -4033,10 +3190,8 @@ roomexport::Options AppController::exportOptions() const
                                    : RoomInfo{};
     options.roomName = info.name;
     options.exportedBy = m_client ? m_client->currentUserId() : QString();
-    // An UNKNOWN encryption state fails CLOSED, exactly as the draft store
-    // does: treated as encrypted, so its text is withheld unless the user
-    // explicitly asked for it. Guessing "not encrypted" from a state the
-    // client has not learned yet would write plaintext on a hunch.
+    // Unknown encryption fails closed: treated as encrypted, so text is
+    // withheld unless the user explicitly asked for it.
     options.encrypted = !info.encryptionKnown || info.encrypted;
     options.use24HourClock =
         m_settings && m_settings->clockFormat() == 2;
@@ -4065,21 +3220,17 @@ QString AppController::exportCurrentRoom(const QUrl &fileUrl,
         m_timeline->events(), options, exportFormatFor(format));
 
     QFile file(fileUrl.toLocalFile());
-    // NewOnly is deliberately NOT used: the save dialog already asked about
-    // overwriting, and refusing here would contradict the answer the user
-    // just gave. Truncate is what "save as this file" means.
+    // Truncate, not NewOnly: the save dialog already asked about overwriting.
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
         return tr("Could not write that file.");
     const QByteArray bytes = text.toUtf8();
     const qint64 written = file.write(bytes);
-    // Close BEFORE judging: a buffered write can still fail at flush, and a
-    // file reported as saved that is short is worse than an honest failure.
+    // Close before judging: a buffered write can still fail at flush.
     file.close();
     if (written != bytes.size() || file.error() != QFileDevice::NoError)
         return tr("Could not finish writing that file.");
 
-    // Counts and flags only. Never the path (it can carry a real name), never
-    // the room name, never a body.
+    // Counts and flags only: never the path, room name or a body.
     qCInfo(lcApp) << "room exported messages="
                   << roomexport::exportableCount(m_timeline->events())
                   << "format="
@@ -4093,19 +3244,10 @@ QString AppController::exportCurrentRoom(const QUrl &fileUrl,
 
 void AppController::openLobby()
 {
-    // "Lobby" is the head of whatever the column is currently showing. With a
-    // Space selected that is THAT SPACE'S overview — its rooms and subspaces,
-    // its People, its settings — which is the page Sable's Lobby row opens and
-    // the page a single tap on the rail tile already opens. Clearing the
-    // selection instead made Lobby a "leave this Space" control wearing the
-    // wrong name: the column jumped back to the whole account and there was no
-    // way back to the Space's own overview from inside it.
-    //
-    // A pseudo rail selection ("" for Home, "@orphans" for the unparented
-    // rooms) is not a Space, so those still open the account's Home. Either
-    // way this is openSpaceHome's teardown, not a second copy of it: the
-    // ordering (close the timeline before the selection clears) matters, and
-    // reusing it is what keeps the two paths from drifting.
+    // Lobby is the head of whatever the column shows: with a Space selected,
+    // that Space's overview; for pseudo selections ("" Home, "@orphans"), the
+    // account Home. Reuses openSpaceHome's teardown ordering rather than
+    // copying it.
     const QString active = m_spaces ? m_spaces->activeSpaceId() : QString();
     openSpaceHome(active.startsWith(QLatin1Char('!')) ? active : QString());
 }
@@ -4113,8 +3255,7 @@ void AppController::openLobby()
 bool AppController::trimHistoryAndJumpToLive()
 {
 #ifdef ENABLE_RUST_SDK_BACKEND
-    // Gather the state; the POLICY lives in historyTrimAllowed() so each
-    // clause is testable on its own (see that predicate's note).
+    // The policy lives in historyTrimAllowed() so each clause is testable.
     if (!historyTrimAllowed(
             m_backend == RustBackend, m_client && !m_currentRoomId.isEmpty(),
             m_pagination && m_pagination->busy(),
@@ -4128,23 +3269,19 @@ bool AppController::trimHistoryAndJumpToLive()
         return false;
     qCInfo(lcApp) << "jump-to-live history trim rows="
                   << m_timeline->rowCount();
-    // Report what actually happened. A swallowed dispatch failure would
-    // leave the caller in "trim succeeded" state — follow-latest persisted
-    // and stickToBottom true — while no reset ever arrives, so the next
-    // live message would teleport a reader who is still mid-history
-    // (review finding, 2026-08-19).
+    // Report the real outcome: a swallowed dispatch failure would leave the
+    // caller in follow-latest mode with no reset coming, and the next live
+    // message would teleport a reader still mid-history.
     return rust->reloadRoomTimelineAtLive(m_currentRoomId);
 #else
     return false;
 #endif
 }
 
-// The surgical half of "a key arrived, try again". Unlike
-// reloadCurrentRoomTimeline() below it does NOT reopen the timeline, so the
-// subscription, the loaded history and every instantiated delegate survive —
-// the SDK updates the events that decrypt, in place. Every AUTOMATIC retry
-// trigger uses this; reloadCurrentRoomTimeline() is now only the explicit
-// user-invoked Refresh.
+// Retries decryption in place: unlike reloadCurrentRoomTimeline() it keeps the
+// subscription, loaded history and delegates, and the SDK updates the events
+// that decrypt. All automatic retries use this; the reload is only the
+// explicit user Refresh.
 void AppController::retryDecryptionInCurrentRoom()
 {
 #ifdef ENABLE_RUST_SDK_BACKEND
@@ -4160,10 +3297,8 @@ void AppController::reloadCurrentRoomTimeline(int limit)
 #ifdef ENABLE_RUST_SDK_BACKEND
     if (m_backend != RustBackend || !m_client || m_currentRoomId.isEmpty())
         return;
-    // v0.5.7: "Refresh current room" re-opens the SDK timeline (fresh
-    // snapshot + new subscription generation) instead of the old
-    // Room::messages snapshot path. `limit` is retained for API
-    // compatibility; the SDK snapshot covers the cached history.
+    // Re-opens the SDK timeline (fresh snapshot and subscription generation).
+    // `limit` is kept for API compatibility.
     Q_UNUSED(limit);
     if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
         rust->openRoomTimeline(m_currentRoomId);
@@ -4176,8 +3311,7 @@ void AppController::copyImageToClipboard(const QString &mediaKey)
 {
     if (mediaKey.isEmpty() || !m_mediaBridge)
         return;
-    // Claim BEFORE dispatching: the bridge answers synchronously from its
-    // RAM cache in the common already-rendered case.
+    // Claim before dispatching: the bridge may answer synchronously from RAM.
     m_pendingCopyKeys.insert(mediaKey);
     m_mediaBridge->fetchFullForStar(mediaKey);
 }
@@ -4193,9 +3327,8 @@ void AppController::copyImageBytesToClipboard(const QString &mediaKey,
                                             .arg(category));
         return;
     }
-    // Identify by MAGIC BYTES (never a claimed MIME — the forward path's
-    // rule): the same signatures rooms::sniff_image_mime accepts, so a
-    // mislabelled or SVG payload never reaches the clipboard as "image".
+    // Identify by magic bytes, never a claimed MIME, using the signatures
+    // rooms::sniff_image_mime accepts, so SVG never reaches the clipboard.
     const auto starts = [&bytes](const char *magic, int len) {
         return bytes.size() >= len
             && std::memcmp(bytes.constData(), magic, len) == 0;
@@ -4213,10 +3346,8 @@ void AppController::copyImageBytesToClipboard(const QString &mediaKey,
         identified = QStringLiteral("image/webp");
     else if (starts("BM", 2))
         identified = QStringLiteral("image/bmp");
-    // JPEG XL. The ISOBMFF CONTAINER is tested before the bare codestream:
-    // a container's own payload begins with the codestream signature, so the
-    // short test first would mis-report a container as a bare stream.
-    // Verified against real cjxl 0.12.0 output.
+    // JPEG XL: test the ISOBMFF container before the bare codestream, since a
+    // container's payload begins with the codestream signature.
     else if (starts("\x00\x00\x00\x0CJXL \r\n\x87\n", 12)
              || starts("\xff\x0a", 2))
         identified = QStringLiteral("image/jxl");
@@ -4229,9 +3360,9 @@ void AppController::copyImageBytesToClipboard(const QString &mediaKey,
         Q_EMIT copyImageFinished(false, tr("Couldn't decode the image."));
         return;
     }
-    // Both representations: a decoded raster (universal paste) AND the
-    // original bytes under their true MIME (byte-exact paste for targets
-    // that accept the format, e.g. an animated GIF stays animated).
+    // Both a decoded raster and the original bytes under their true MIME, so
+    // targets that accept the format get an exact copy (animated GIFs stay
+    // animated).
     auto *guiApp =
         qobject_cast<QGuiApplication *>(QCoreApplication::instance());
     if (!guiApp) {
@@ -4250,14 +3381,9 @@ void AppController::starChatGif(const QString &mediaKey)
 {
     if (mediaKey.isEmpty())
         return;
-    // A star fetch still in flight when the user signs out simply produces
-    // no starFinished()/banner: the QML Connections that would show it are
-    // gone with the rest of the UI, and MediaBridge::clear() (called from
-    // clearCrossAccountCaches on the next login) drops the in-flight
-    // request. Deliberate, not a bug — there is no surface left to report
-    // to by the time it would resolve.
-    // Claim this answer BEFORE dispatching: MediaBridge can answer
-    // synchronously from its RAM cache.
+    // A star fetch in flight at sign-out produces no result; there is no UI
+    // left to report to. Claim before dispatching: MediaBridge may answer
+    // synchronously from RAM.
     m_pendingStarKeys.insert(mediaKey);
     m_mediaBridge->fetchFullForStar(mediaKey);
 }
@@ -4269,18 +3395,11 @@ bool AppController::isChatGifStarred(const QString &mediaKey) const
     // Fast path: exact for a GIF starred earlier in this session.
     if (m_gif->starredStore()->isStarredThisSession(mediaKey))
         return true;
-    // v0.6.6 perf fix (review H1a): nothing to possibly match — skip the
-    // MediaBridge round trip (and the SHA-256 it would otherwise compute)
-    // entirely rather than hashing a row's bytes just to compare against an
-    // empty store. This removes 100% of the hashing cost for anyone who has
-    // never starred anything, which is most GIF-viewing traffic in the app.
+    // Nothing starred: skip the MediaBridge round trip and its SHA-256.
     if (!m_gif->starredStore()->isOpen() || m_gif->starredStore()->count() == 0)
         return false;
-    // Durable path: content-addressed, using only bytes MediaBridge's
-    // ordinary display cache already fetched for this row (never a fresh
-    // fetch just to answer this question, and memoized per cache key — see
-    // MediaBridge::cachedFullContentHash) — see GifStarredStore's class
-    // comment for the full rationale.
+    // Durable path: content-addressed, using only bytes the display cache
+    // already fetched (memoized per cache key), never a fresh fetch.
     const QString hash = m_mediaBridge->cachedFullContentHash(mediaKey);
     if (hash.isEmpty())
         return false;
@@ -4295,7 +3414,7 @@ void AppController::unstarChatGif(const QString &mediaKey)
         m_gif->starredStore()->unstarByMediaKey(mediaKey);
         return;
     }
-    // v0.6.6 perf fix (review H1a): see isChatGifStarred above.
+    // Nothing starred: see isChatGifStarred.
     if (!m_gif->starredStore()->isOpen() || m_gif->starredStore()->count() == 0)
         return;
     const QString hash = m_mediaBridge->cachedFullContentHash(mediaKey);
@@ -4318,15 +3437,11 @@ void AppController::confirmVerification()
 #ifdef ENABLE_RUST_SDK_BACKEND
     if (m_backend != RustBackend || !m_client || m_verificationFlowId.isEmpty())
         return;
-    // v0.7.1: confirming is only meaningful while the emoji list is on
-    // screen. Repeated clicks and stray invocations in any other state
-    // (confirming, waiting_for_peer, done, cancelled, failed…) are no-ops.
+    // Confirming only means something while the emoji list is on screen.
     if (m_verificationState != QLatin1String("sas_ready"))
         return;
-    // Flip to "confirming" SYNCHRONOUSLY so the button press always has
-    // immediate visible feedback; the SDK's SasState::Confirmed then moves
-    // it to "waiting_for_peer", and a synchronous FFI failure lands in the
-    // existing verificationFailed path ("failed:…").
+    // Flip to "confirming" synchronously for immediate feedback; the SDK then
+    // moves it to "waiting_for_peer", and FFI failures arrive as "failed:…".
     m_verificationState = QStringLiteral("confirming");
     Q_EMIT verificationStateChanged();
     if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
@@ -4349,12 +3464,9 @@ void AppController::cancelVerification()
 #ifdef ENABLE_RUST_SDK_BACKEND
     if (m_backend != RustBackend || !m_client)
         return;
-    // A failure raised BEFORE any flow id exists (no cross-signing identity,
-    // request send failed, not signed in) still puts the card into a
-    // "failed:…" state. Returning early on an empty flow id left Dismiss and
-    // Cancel doing nothing at all, so that card could never be closed. Only
-    // the SDK cancel needs a real flow; clearing local presentation state is
-    // always safe and is what lets the user start over.
+    // A failure raised before any flow id exists still shows a "failed:…"
+    // card, so local state is always cleared; only the SDK cancel needs a
+    // flow id.
     if (!m_verificationFlowId.isEmpty()) {
         if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
             rust->cancelVerification(m_verificationFlowId);
@@ -4365,26 +3477,22 @@ void AppController::cancelVerification()
     m_verificationState.clear();
     m_verificationEmojis.clear();
     m_verificationDecimals.clear();
-    // Closing the card must not leave a zombie code on screen. The wire
-    // cancel above already told the peer; this drops the picture and the
-    // grid bytes with it.
+    // Do not leave a stale code on screen once the card closes.
     clearVerificationQr();
     Q_EMIT verificationStateChanged();
 #endif
 }
 
-// The user confirmed the OTHER device reported a successful scan. This is
-// a request to the SDK, never a trust promotion: `confirming` is local
-// progress feedback, and only verificationDone (SDK QrVerificationState
-// ::Done) may report success.
+// The user confirmed the other device reported a successful scan. This is a
+// request to the SDK, never a trust promotion: only verificationDone may
+// report success.
 void AppController::confirmQrVerification()
 {
 #ifdef ENABLE_RUST_SDK_BACKEND
     if (m_backend != RustBackend || !m_client || m_verificationFlowId.isEmpty())
         return;
-    // Only meaningful once the SDK has actually reported the scan. Repeat
-    // clicks, and clicks before the peer scanned, are no-ops — the Rust FFI
-    // refuses the latter outright rather than letting it be swallowed.
+    // Only meaningful once the SDK has reported the scan; the FFI refuses an
+    // early confirm outright.
     if (!m_verificationQrScanned || m_verificationQrConfirming)
         return;
     m_verificationQrConfirming = true;
@@ -4394,10 +3502,8 @@ void AppController::confirmQrVerification()
 #endif
 }
 
-// Drop the displayed code and the grid backing it. Called from every path
-// that ends, replaces, or resets a flow, so a code can never outlive the
-// verification it belongs to or leak into the next account's UI. Does not
-// emit — the caller owns the notification.
+// Drop the displayed code and its grid. Called from every path that ends,
+// replaces or resets a flow. Does not emit; the caller does.
 void AppController::clearVerificationQr()
 {
     m_qrCodeStore.clear();
@@ -4447,12 +3553,8 @@ void AppController::refreshSessionTrustState()
 #endif
 }
 
-// B011. ONE GATE FOR EVERY CALLER.
-//
-// The check costs a /keys/query. The four event-driven callers (sign-in,
-// first sync, after a verification, an explicit refresh) can all fire within
-// a second of each other on a fresh sign-in, and the periodic backstop fires
-// on top of them — so the rate limit belongs here, not at each call site.
+// Single rate-limited gate for the /keys/query check: the event-driven
+// callers and the periodic backstop can all fire within a second of sign-in.
 void AppController::requestOwnDeviceKeyCheck()
 {
 #ifdef ENABLE_RUST_SDK_BACKEND
@@ -4469,26 +3571,20 @@ void AppController::requestOwnDeviceKeyCheck()
 #endif
 }
 
-// B011. Fold one answer in and announce only a real transition.
+// Fold one answer in and announce only a real transition.
 void AppController::applyOwnDeviceKeyAgreement(
     matrix::crypto::KeyAgreement agreement)
 {
     if (!m_ownDeviceKeyWatch.apply(agreement))
         return;
     if (m_ownDeviceKeyWatch.broken()) {
-        // The fault is permanent until this account signs in again, so the
-        // backstop has nothing left to learn. Event-driven callers still run
-        // and can clear it — a re-login on the same controller must not stay
-        // stuck on a stale fault.
+        // Permanent until the account signs in again, so the backstop stops;
+        // event-driven callers still run and can clear it.
         m_ownDeviceKeyTimer.stop();
     } else if (m_client && m_client->isLoggedIn()
                && !m_ownDeviceKeyTimer.isActive()) {
-        // ...AND IF ONE OF THOSE CALLERS DOES CLEAR IT, THE BACKSTOP COMES
-        // BACK. Stopping it above and only ever starting it from the
-        // sign-in handler left the timer dead for the rest of a session in
-        // which the fault had been cleared by a verification or a manual
-        // refresh, so a fault appearing later would go unnoticed until the
-        // next login. Raised in review.
+        // Cleared by a verification or refresh: restart the backstop so a
+        // later fault is still noticed this session.
         m_ownDeviceKeyTimer.start();
     }
     Q_EMIT encryptionIdentityBrokenChanged();
@@ -4503,8 +3599,7 @@ void AppController::requestEncryptionKeys()
         return;
     }
     if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get())) {
-        // Model first, so the UI honestly re-enters the waiting state the
-        // coordinator's events will refine (or re-escalate).
+        // Update the model first so the UI re-enters the waiting state.
         m_cryptoBootstrap->rearmAfterManualRequest();
         rust->requestMissingSecrets();
     }
@@ -4571,8 +3666,7 @@ void AppController::refreshCryptoHealth()
         }
     }
 #endif
-    // Non-Rust backends have no crypto machine; the model already reports
-    // unsupported.
+    // Non-Rust backends have no crypto machine; the model reports unsupported.
 }
 
 void AppController::importRoomKeys(const QUrl &fileUrl, const QString &passphrase)
@@ -4586,8 +3680,7 @@ void AppController::importRoomKeys(const QUrl &fileUrl, const QString &passphras
         Q_EMIT roomKeyImportStateChanged();
         return;
     }
-    // Only accept local files. Reject arbitrary URL schemes and
-    // directories at the boundary.
+    // Only local files are accepted.
     if (!fileUrl.isValid() || !fileUrl.isLocalFile() || fileUrl.isEmpty()) {
         m_roomKeyImportState = QStringLiteral("failed");
         m_roomKeyImportMessage = tr(
@@ -4607,8 +3700,7 @@ void AppController::importRoomKeys(const QUrl &fileUrl, const QString &passphras
     }
     if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
         rust->importRoomKeys(path, passphrase);
-    // Note: `passphrase` is passed by const-ref and goes out of scope on
-    // return. It is never copied to a member field.
+    // The passphrase is never copied to a member.
     Q_UNUSED(passphrase);
 #else
     Q_UNUSED(fileUrl);
@@ -4638,8 +3730,8 @@ void AppController::resetLocalRustStore()
     }
 
     if (m_client && m_client->isLoggedIn()) {
-        // The normal Rust sign-out lifecycle performs the same account-scoped
-        // deletion after server logout and handle release.
+        // The Rust sign-out lifecycle performs the same account-scoped
+        // deletion after server logout.
         m_resetResultPending = true;
         m_auth->logout();
     } else {
@@ -4673,11 +3765,9 @@ void AppController::resetLocalRustSession(const QString &homeserver,
     auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get());
     QString message;
     const bool ok = rust && rust->resetLocalSession(identity, &message);
-    // A failed reset re-arms the destructive action only when the backend
-    // still believes one would help. The "nothing matched, nothing deleted"
-    // outcome deliberately does NOT re-arm it — offering the same no-op
-    // again is how the old dead end kept the user in a loop — so let the
-    // backend's own signal drive the flag rather than inverting `ok` here.
+    // The backend's own signal re-arms the reset flag, and only when a reset
+    // could still help; a "nothing matched" outcome must not re-offer the
+    // same no-op, so do not derive the flag from `ok`.
     if (ok) {
         setLocalRustResetRequired(false);
         clearLocalSessionFailure();
@@ -4714,28 +3804,19 @@ void AppController::setLocalSessionFailure(const QString &reasonCode,
 
 bool AppController::localResetHelpsFor(const QString &reasonCode) const
 {
-    // Deliberately NOT gated on ENABLE_RUST_SDK_BACKEND. RustSessionPolicy is
-    // pure classification with no Rust dependency and is compiled into every
-    // configuration; gating it made the same reason code answer differently
-    // per build, so the repair UI silently lost all its actions on the
-    // non-Rust tree. Whether a local reset can repair a failure is a property
-    // of the failure, not of which backend is compiled in.
+    // Not gated on ENABLE_RUST_SDK_BACKEND: RustSessionPolicy is pure
+    // classification compiled into every configuration, and whether a reset
+    // can repair a failure does not depend on the backend.
     return matrix::rust_session::suggestsLocalResetForCode(reasonCode);
 }
 
 void AppController::repairLocalSession()
 {
 #ifdef ENABLE_RUST_SDK_BACKEND
-    // The account captured when the failure was DETECTED wins over anything
-    // derived from settings. During an add-account attempt the settings'
-    // active account is still the previously signed-in one, so a
-    // settings-derived repair would quarantine the wrong account's store.
-    // The invariant "no destructive local reset for a reason a reset cannot
-    // repair" lives HERE, not in a QML label binding. QML decides which
-    // actions to *show*; this decides what may actually run. Without it the
-    // guarantee depended on a per-reason list maintained by hand in QML, and
-    // on the dialog still describing the same failure it was opened for — a
-    // failure can change underneath an open confirmation.
+    // The account captured when the failure was detected wins over settings:
+    // during an add-account attempt the settings' active account is still the
+    // previous one. The refusal of a destructive reset that cannot help lives
+    // here, not in QML, because the failure can change under an open dialog.
     if (!m_localSessionFailureReason.isEmpty()
         && !matrix::rust_session::suggestsLocalResetForCode(
                m_localSessionFailureReason)) {
@@ -4835,12 +3916,9 @@ void AppController::copySessionDiagnostics()
 
 void AppController::setLocalRustResetRequired(bool required)
 {
-    // Deliberately does NOT clear the classified failure. The two are
-    // independent: `localSessionBlocked` reports a real failure whose remedy
-    // is NOT a local reset, so it sets a reason code while leaving this flag
-    // false. Coupling them meant that call cleared the very failure it had
-    // just recorded. Callers that genuinely resolve a failure clear it
-    // explicitly via clearLocalSessionFailure().
+    // Does not clear the classified failure: `localSessionBlocked` records a
+    // reason whose remedy is not a reset while leaving this flag false.
+    // Callers that resolve a failure call clearLocalSessionFailure().
     if (m_localRustResetRequired == required)
         return;
     m_localRustResetRequired = required;
@@ -4879,21 +3957,9 @@ void AppController::onLoginSucceeded()
     m_lastSessionUserId = uid;
     if (accountChanged) {
         clearCrossAccountCaches();
-        // ...AND THE FOUR THINGS A SWITCH ANNOUNCES THAT A CLEAR CANNOT
-        // DISCOVER. The comment above says "exactly like a switch"; it was
-        // not. switchToAccount() does all of these and this path did none,
-        // because add-account never signs the previous account out, so
-        // `loggedOut` never fires and nothing downstream learns anything
-        // changed.
-        //
-        // The consequences were not cosmetic. MediaVisibilityStore keeps the
-        // previous account's hidden-image list in memory, and the first hide
-        // under the new account persists the whole of it — writing account
-        // A's list into account B's record and losing B's. ModerationController
-        // keeps A's ignore list AND never loads B's, because its load guard
-        // is cleared only on sign-out; that list gates notification
-        // suppression and the incoming-call ring, so someone B ignored still
-        // rings and someone A ignored is silently suppressed for B.
+        // Add-account never signs the previous account out, so nothing
+        // downstream sees loggedOut; announce the per-account state a switch
+        // announces, or hidden images and ignore lists leak between accounts.
         setCurrentRoomId(QString{});
         if (m_roomInfo)
             m_roomInfo->setRoomId(QString{});
@@ -4904,29 +3970,18 @@ void AppController::onLoginSucceeded()
         if (m_moderation)
             m_moderation->resetForAccountChange();
     }
-    // Every notification raised from now on is stamped with THIS account, so
-    // a reply or mark-as-read taken after the next switch can be refused
-    // instead of acting under the wrong identity. Set after the cache clear,
-    // which drops the previous account's still-pending payloads.
+    // Stamp notifications with this account so actions taken after a later
+    // switch can be refused. Set after the cache clear.
     if (m_notifications)
         m_notifications->setAccountUserId(uid);
-    // v0.6.6: the local-starred-GIF store is account-scoped storage (see
-    // GifStarredStore's header) — point it at this account's own directory
-    // on every login, including the first one and a same-account restore
-    // (openFor() is cheap and idempotent; an empty root leaves it closed).
-    // Path from the ONE shared helper — the open path and both delete
-    // paths must never derive this independently (silent divergence here
-    // is how cleanup reports "absent" while decrypted bytes survive).
+    // Point the account-scoped starred-GIF store at this account on every
+    // login. The path comes from the shared helper the delete paths also use,
+    // so cleanup can never target a different directory.
     m_gif->openStarredStoreFor(matrix::app_data::starredGifsDir(uid));
-    // B017: the MSC2346 network badge, restored from disk. The read that
-    // produces it costs a raw /state (BridgeNetwork.h explains why the SDK
-    // store cannot answer), so it was only ever done for a room the user
-    // opened, once per SESSION — which is why a tester saw the tags "missing
-    // on some chats" and not persisting across a restart. Seeding here, from
-    // the same shared path helper the cleanup paths use, paints every badge
-    // this account has ever learned before the first request exists. The
-    // model keys these by room id in a hash that is independent of its rows,
-    // so seeding before the room list is populated is correct.
+    // Seed network badges from disk: the read that produces them costs a raw
+    // /state per room, so without this they only appear for rooms opened this
+    // session. The model keys them by room id, so seeding before the room list
+    // is populated is fine.
     m_bridgeLabels.openFor(matrix::app_data::bridgeLabelsFile(uid));
     if (m_roomList) {
         const auto remembered = m_bridgeLabels.positiveLabels();
@@ -4946,9 +4001,8 @@ void AppController::onLoginSucceeded()
     m_client->startSync();
     // Cache the account's own display name / avatar for the switcher UI.
     m_client->fetchUserProfile(uid);
-    // The background restore after a failed add-account attempt must not
-    // yank the user off the login screen: the footer regains the real
-    // connection state while the error/retry form stays visible.
+    // A background restore after a failed add-account keeps the user on the
+    // login screen with the error form visible.
     if (m_backgroundRestore && uid == m_addAccountReturnTo) {
         m_backgroundRestore = false;
         Q_EMIT loggedInChanged();
@@ -4963,13 +4017,9 @@ void AppController::onLoginSucceeded()
 
 void AppController::refreshTrayState()
 {
-    // WHERE THE TRAY CARRIES THE NOTIFICATIONS, IT SHOWS WHILE THEY ARE ON.
-    // A build without QtDBus (Windows, macOS) has no freedesktop daemon to
-    // talk to, and Qt's only other delivery is the tray icon's balloon —
-    // which needs a visible icon. Until 2026-09-05 those platforms showed
-    // no notification at all unless "keep running in the tray" happened to
-    // be on. So there the icon follows the notifications setting as well as
-    // the close-to-tray one; on a D-Bus desktop nothing changes.
+    // Without QtDBus (Windows, macOS) the tray balloon is the only notification
+    // delivery and it needs a visible icon, so the icon also follows the
+    // notifications setting there.
 #ifdef HAVE_QT_DBUS
     constexpr bool kTrayCarriesNotifications = false;
 #else
@@ -4989,27 +4039,16 @@ void AppController::refreshTrayState()
 
 void AppController::refreshTrayUnread()
 {
-    // NOT gated on the tray. This walk also withdraws the desktop
-    // notifications of every room that is no longer unread, and until
-    // 2026-09-06 the early return above the loop skipped it whenever the
-    // tray icon was off — which is the default — so a read room's KDE
-    // notification never went away ("if message is read, in client can you
-    // make kde notification go away too"). Only the badge write needs the
-    // icon.
+    // Not gated on the tray: this walk also withdraws notifications for rooms
+    // that are no longer unread. Only the badge write needs the icon.
     if (!m_client)
         return;
-    // ONE derivation, from the snapshot the client already holds. There is no
-    // account-wide unread total anywhere else in the application to reuse
-    // (RoomListModel exposes per-row values, SpaceManager sums a Space's own
-    // children), and the fields read here — RoomInfo::unreadCount,
-    // hasUnreadMessages, markedUnread — are the very fields every one of
-    // those surfaces reads. Nothing is fetched: rooms() is a local snapshot.
+    // Derived from the local rooms() snapshot, reading the same fields every
+    // other unread surface reads.
     int total = 0;
     bool anyUnread = false;
     for (const RoomInfo &room : m_client->rooms()) {
-        // Invites are not messages. They already have their own notification
-        // and their own row; counting one as an unread message would be a
-        // claim the state does not make.
+        // Invites have their own notification and are not unread messages.
         if (room.membership != RoomInfo::Joined)
             continue;
         total += qMax(0, room.unreadCount);
@@ -5017,18 +4056,10 @@ void AppController::refreshTrayUnread()
                                 || room.markedUnread;
         if (roomUnread)
             anyUnread = true;
-        // A ROOM THAT IS NO LONGER UNREAD WITHDRAWS ITS NOTIFICATIONS.
-        //
-        // Level-triggered on purpose: this runs on every room change, so it
-        // cannot miss the transition the way an edge-triggered "the user just
-        // read this" hook would — and the read may not have happened here at
-        // all. Reading the room in another client clears the unread through
-        // sync, and the desktop notification was still sitting there
-        // afterwards, asserting that something was waiting when nothing was.
-        //
-        // Costs nothing for the overwhelming majority of rooms: the payload
-        // map is small and bounded, and a room with no live notification
-        // returns immediately.
+        // A room that is no longer unread withdraws its notifications.
+        // Level-triggered so a read in another client (cleared via sync) is
+        // caught too; cheap, since rooms without a live notification return
+        // immediately.
         if (!roomUnread && m_notifications)
             m_notifications->closeRoomNotifications(room.id);
     }
@@ -5044,60 +4075,34 @@ void AppController::onLoggedOut()
     m_memberHydratedRooms.clear();
     // Same scope, same reason: the next account's rooms are not these rooms.
     m_bridgeReadRooms.clear();
-    // Closed on BOTH paths, switch included: a late answer must never write
-    // the outgoing account's room into the incoming account's file, and a
-    // closed store simply drops the write.
+    // Closed on both paths, switch included, so a late answer cannot write
+    // into the next account's file.
     m_bridgeLabels.close();
     m_playback->stopAll(); // no playback (or decrypted-media handle) survives
-    // Unsent clipboard images belong to the session that staged them. Both
-    // composers clear their queues on the way out, which releases each token
-    // individually; this is the belt-and-braces sweep, so a queue that failed
-    // to clear cannot leave image bytes in memory across a sign-out or an
-    // account switch.
+    // Unsent clipboard images belong to the session. The composers release
+    // them individually; this sweep catches anything left behind.
     m_stagedImages.clear();
-    // A cropped picture is derived from a file the OUTGOING account's user
-    // chose. Its temp copies go with the session, exactly like the staged
-    // bytes above.
+    // Cropped-image temp copies go with the session too.
     m_imageCrop.clearSession();
     Q_EMIT currentRoomIdChanged();
     if (m_accountSwitching) {
-        // The old session was detached locally as part of a switch; stay on
-        // the main screen while the target account activates. A plain
-        // switch never deletes the outgoing account's starred-GIF store —
-        // only a genuine sign-out (below) does.
-        //
-        // A pending removal cannot survive this either. removeAccount()
-        // refuses to arm one while a switch is running, so reaching here
-        // with one armed means the logout it was waiting for never came;
-        // carrying it forward would let a LATER, unrelated sign-out delete
-        // an account nobody asked about.
+        // Detached locally as part of a switch: stay on the main screen and
+        // keep the outgoing account's starred-GIF store. A pending removal is
+        // dropped: removeAccount() refuses to arm one during a switch, and
+        // carrying it forward could let a later sign-out delete it.
         m_pendingRemovalUserId.clear();
         m_pendingRemovalIdentity = {};
         m_pendingRemovalResolved = false;
         return;
     }
-    // v0.6.6: a genuine sign-out (never a switch — that returned above,
-    // never merely "removing the account record" as such, since removing
-    // the ACTIVE logged-in account (removeAccount()) delegates to
-    // AuthManager::logout() and lands here too). The local-starred-GIF
-    // store for the account that WAS active must not survive: real
-    // sign-out already deletes the Rust crypto store this same way
-    // (RustSdkMatrixClient::finishSignOut -> removeAccountRustState), and
-    // this app-level store follows the identical CLAUDE.md §6 rule ("never
-    // leave decrypted material behind after the user asked to sign out").
-    // Read m_lastSessionUserId BEFORE it is cleared just below — it is the
-    // identity that was actually active, never re-derived for a different
-    // account. This handler runs BEFORE m_client.get()'s own
-    // MatrixClient::loggedOut connection (registered LATER, so it fires
-    // later in the same dispatch — see that lambda's own comment), so the
-    // close happens explicitly here rather than being assumed already done.
+    // A genuine sign-out (including removal of the active account). The
+    // starred-GIF store of the account that was active must not survive, like
+    // the Rust crypto store. m_lastSessionUserId is read before it is cleared
+    // below, and this handler runs before the client's own loggedOut
+    // connection, so the store is closed explicitly here.
     if (!m_lastSessionUserId.isEmpty()) {
-        // B017: the remembered bridge badges go with the account. They hold
-        // no message content and no user ids (rust/src/bridges.rs never
-        // forwards `bridgebot` or `creator`), but they are a per-account
-        // record of which rooms this user is in, and sign-out means the
-        // account's local data is gone. Closed above, so nothing can rewrite
-        // the file between the delete and the next login.
+        // Bridge badges go with the account: no message content, but still a
+        // per-account record of which rooms the user is in.
         const QString bridgeFile =
             matrix::app_data::bridgeLabelsFile(m_lastSessionUserId);
         const bool bridgeExisted = !bridgeFile.isEmpty()
@@ -5117,8 +4122,7 @@ void AppController::onLoggedOut()
         const QString starredDir =
             matrix::app_data::starredGifsDir(m_lastSessionUserId);
         const auto outcome = matrix::app_data::removeAppDataDir(starredDir);
-        // A FAILED delete leaves decrypted material behind — warn, so it
-        // survives a normal log filter; deleted/absent stay informational.
+        // A failed delete leaves decrypted material behind, so it warns.
         if (outcome == matrix::app_data::DirRemoval::Failed) {
             qCWarning(lcApp)
                 << "starred-GIF store sign-out cleanup FAILED slug="
@@ -5133,12 +4137,9 @@ void AppController::onLoggedOut()
                                   : "absent");
         }
     }
-    // "Remove this account from this computer", aimed at the account that
-    // was signed in, finishes HERE — this is the second half of the branch
-    // in removeAccount() that had to delegate to a real server logout. It
-    // runs BEFORE clearActiveUser() and before the fallback loop below, so
-    // the account being removed can never be chosen as the account to
-    // continue with.
+    // Second half of removeAccount() for the active account. Runs before
+    // clearActiveUser() and the fallback loop, so the account being removed
+    // can never be chosen to continue with.
     if (!m_pendingRemovalUserId.isEmpty()) {
         const QString target = m_pendingRemovalUserId;
         const bool resolved = m_pendingRemovalResolved;
@@ -5147,12 +4148,9 @@ void AppController::onLoggedOut()
         m_pendingRemovalUserId.clear();
         m_pendingRemovalIdentity = {};
         m_pendingRemovalResolved = false;
-        // Only ever for the session that actually ended. m_lastSessionUserId
-        // is empty when this handler could not attribute the session at all
-        // (the starred-GIF block above skips for the same reason); the
-        // captured identity is still the one the user named, so the removal
-        // proceeds, but a session belonging to a DIFFERENT account is a
-        // contradiction and the removal is abandoned rather than guessed.
+        // Only for the session that actually ended. An unattributed session
+        // still proceeds with the captured identity; a session belonging to
+        // a different account abandons the removal.
         if (m_lastSessionUserId.isEmpty() || m_lastSessionUserId == target) {
             if (resolved)
                 removeAccountLocalState(identity);
@@ -5172,14 +4170,10 @@ void AppController::onLoggedOut()
     m_addAccountReturnTo.clear();
     m_backgroundRestore = false;
     Q_EMIT errorReported(QString{});
-    // v0.7: when other accounts remain signed in, continue with the most
-    // recently added one instead of dropping to the login screen.
+    // When other accounts remain, continue with the most recently added one.
     const QStringList remaining = m_settings->savedAccountUserIds();
-    // §6 again: an EMPTY token read is not evidence an account is gone. With
-    // a locked keyring every remaining account reads tokenless, and the old
-    // test excluded all of them — dropping the user to a login form for
-    // accounts that are perfectly intact, where a password login is then
-    // refused as ExistingStoreNeedsRestore.
+    // An empty token read is not evidence an account is gone: with a locked
+    // keyring every account reads tokenless.
     bool anyUnreadable = false;
     for (auto it = remaining.crbegin(); it != remaining.crend(); ++it) {
         switch (signInStateFor(*it)) {
@@ -5187,10 +4181,8 @@ void AppController::onLoggedOut()
             switchToAccount(*it);
             return;
         case SignInState::Unreadable:
-            // NOT skipped as signed-out, and deliberately not switched to
-            // either: restoreSession() needs the token that cannot be read,
-            // so every outcome here ends on the login screen. What changes is
-            // that the user is told which one this is.
+            // Not switched to: restoreSession() needs the unreadable token.
+            // The user is told why they are on the login screen instead.
             anyUnreadable = true;
             break;
         case SignInState::Gone:
@@ -5198,8 +4190,7 @@ void AppController::onLoggedOut()
         }
     }
     if (anyUnreadable) {
-        // Said once, after the blanket clear above, so it survives to the
-        // screen the user actually lands on.
+        // Emitted after the blanket clear so it reaches the login screen.
         Q_EMIT errorReported(
             tr("Lightning can't read this device's saved sign-ins right now — "
                "the system keyring is locked or unavailable. Your other "
@@ -5224,21 +4215,15 @@ void AppController::clearCrossAccountCaches()
     // player holds an open handle into the previous account's cache.
     m_playback->stopAll();
     m_mediaBridge->clear();
-    // MediaBridge::clear() drops in-flight requests with NO terminal
-    // emission, so a star fetch outstanding at sign-out would otherwise
-    // strand its key here for the process lifetime — and a later FORWARD of
-    // that same media would then have its answer claimed and written to the
-    // saved-media store, which is exactly what the claim set prevents.
+    // MediaBridge::clear() drops in-flight requests without a terminal
+    // emission, so the claim sets would otherwise strand their keys.
     m_pendingStarKeys.clear();
     m_pendingCopyKeys.clear();
     m_notifications->clearPending();
-    // No account: anything still on screen belongs to nobody, and an action
-    // on it must not be attributed to whoever signs in next.
+    // Anything still on screen must not be attributed to the next account.
     m_notifications->setAccountUserId(QString());
     m_knownInvites.clear();
-    // Encrypted-room drafts are memory-only and account-scoped; the next
-    // account must never see them. (Persisted drafts live under the
-    // previous account's own settings group.)
+    // Encrypted-room drafts are memory-only and account-scoped.
     if (m_draftStore)
         m_draftStore->clearMemoryDrafts();
     m_sessionDevices.clear();
@@ -5260,8 +4245,7 @@ void AppController::clearCrossAccountCaches()
     m_sessionDeviceId.clear();
     m_ownIdentityAvailable = false;
     m_crossSigningAvailable = false;
-    // B011: see the logout handler — an account switch must not carry the
-    // previous account's undecryptable-device fault into the next one.
+    // Do not carry the previous account's undecryptable-device fault over.
     m_ownDeviceKeyTimer.stop();
     const bool wasKeyFaultLatched = m_ownDeviceKeyWatch.broken();
     m_ownDeviceKeyWatch.reset();
@@ -5276,12 +4260,11 @@ void AppController::clearCrossAccountCaches()
     m_roomKeyImportAffectedRoomIds.clear();
     Q_EMIT securityStateChanged();
     Q_EMIT roomKeyImportStateChanged();
-    // Drop DM profile lookups resolved under the previous account's
-    // authority.
+    // Drop DM profile lookups resolved under the previous account.
     m_roomList->clearProfileCaches();
 }
 
-// ── v0.7.4 own display name ─────────────────────────────────────────────
+// ── Own display name ────────────────────────────────────────────────────
 
 bool AppController::canEditOwnDisplayName() const
 {
@@ -5291,13 +4274,8 @@ bool AppController::canEditOwnDisplayName() const
 
 int AppController::displayNameLength(const QString &name) const
 {
-    // Unicode code points, not UTF-16 code units. QString stores an emoji
-    // as a surrogate PAIR, so `name.size()` would count it twice and the
-    // editor would refuse a 200-emoji name the server accepts — and a
-    // truncation at 255 units could cut one in half. Combining marks and
-    // ZWJ joiners count as their own code points here, deliberately: that
-    // is the same unit the Rust bound and the server use, so the number
-    // the user is shown is the number that is enforced.
+    // Counts Unicode code points, the unit the Rust bound and the server use;
+    // QString::size() would count an emoji's surrogate pair twice.
     int points = 0;
     for (qsizetype i = 0; i < name.size();) {
         const bool pair = name.at(i).isHighSurrogate() && i + 1 < name.size()
@@ -5336,8 +4314,7 @@ bool AppController::canEditOwnAvatar() const
 
 bool AppController::submitOwnAvatar(const QUrl &fileUrl)
 {
-    // Single-flight, for the same reason the display name is: two writes
-    // racing for one control means the loser's answer lands last.
+    // Single-flight: two racing writes would let the loser's answer land last.
     if (m_avatarOp != 0)
         return false;
     if (!canEditOwnAvatar()) {
@@ -5345,9 +4322,7 @@ bool AppController::submitOwnAvatar(const QUrl &fileUrl)
         Q_EMIT ownAvatarStateChanged();
         return false;
     }
-    // A LOCAL file only. The crop dialog hands back a file:// URL; anything
-    // else (an http URL, an empty value) is refused here rather than handed
-    // to the FFI to interpret.
+    // Local files only; anything else is refused rather than passed to the FFI.
     const QString path = fileUrl.isLocalFile() ? fileUrl.toLocalFile()
                                                : QString{};
     if (path.isEmpty()) {
@@ -5388,10 +4363,8 @@ void AppController::dismissOwnAvatarError()
 
 bool AppController::dispatchOwnDisplayName(const QString &name)
 {
-    // The op id is claimed BEFORE the backend call: a backend is allowed
-    // to answer a synchronous refusal from inside setOwnDisplayName, and
-    // an answer for an id this controller has not stored yet would be
-    // dropped as stale — the editor would then spin forever.
+    // Claim the op id before the backend call: a synchronous refusal from
+    // inside setOwnDisplayName would otherwise be dropped as stale.
     m_displayNameOp = ++m_displayNameOpCounter;
     m_displayNameError.clear();
     Q_EMIT ownDisplayNameStateChanged();
@@ -5401,9 +4374,7 @@ bool AppController::dispatchOwnDisplayName(const QString &name)
 
 bool AppController::submitOwnDisplayName(const QString &name)
 {
-    // Single-flight: a second Save while one is in flight would leave two
-    // ops racing for one editor, and the loser's answer would be reported
-    // over the winner's.
+    // Single-flight: the loser of two racing ops would report over the winner.
     if (m_displayNameOp != 0)
         return false;
     const QString unavailable = ownDisplayNameUnavailableReason();
@@ -5412,32 +4383,25 @@ bool AppController::submitOwnDisplayName(const QString &name)
         Q_EMIT ownDisplayNameStateChanged();
         return false;
     }
-    // Trimmed for the comparison and for the wire — a name of spaces is
-    // not a name. The INTERIOR of the string is untouched: no case
-    // folding, no ASCII filter, no normalisation. Emoji, ZWJ sequences,
-    // combining marks and mixed scripts go out exactly as typed.
+    // Trimmed only; the interior is sent exactly as typed.
     const QString wanted = name.trimmed();
     if (wanted.isEmpty()) {
-        // Clearing is a separate, deliberate action. An editor emptied by
-        // a stray select-all must never silently erase the name.
+        // Clearing is a separate action, so a stray select-all cannot erase
+        // the name.
         m_displayNameError =
             tr("Enter a name, or use Clear to remove your display name.");
         Q_EMIT ownDisplayNameStateChanged();
         return false;
     }
     if (displayNameLength(wanted) > ownDisplayNameMaxLength()) {
-        // Refused rather than truncated: a silent cut would send something
-        // the user did not type and then report it as saved.
+        // Refused rather than truncated, which would send something untyped.
         m_displayNameError = tr("Display names are limited to %1 characters.")
                                  .arg(ownDisplayNameMaxLength());
         Q_EMIT ownDisplayNameStateChanged();
         return false;
     }
     if (wanted == cachedOwnDisplayName()) {
-        // Belt and braces — the editor disables Save in this state and
-        // never reaches here. No error: nothing went wrong, there is
-        // simply nothing to send, and claiming a save for a request that
-        // was never made is a claim we cannot support.
+        // The editor disables Save here; nothing to send and no error.
         if (!m_displayNameError.isEmpty()) {
             m_displayNameError.clear();
             Q_EMIT ownDisplayNameStateChanged();
@@ -5457,10 +4421,8 @@ bool AppController::clearOwnDisplayName()
         Q_EMIT ownDisplayNameStateChanged();
         return false;
     }
-    // Deliberately NOT refused when the cached name is already empty: the
-    // cache can be stale or simply never fetched, and asking the server to
-    // remove a field it does not have is harmless — whereas refusing here
-    // would leave a user who really does have a name stuck with it.
+    // Not refused when the cached name is empty: the cache may be stale, and
+    // clearing an absent field is harmless.
     return dispatchOwnDisplayName(QString{});
 }
 
@@ -5475,9 +4437,8 @@ void AppController::retireOwnDisplayNameWrite()
 
 void AppController::retireOwnAvatarWrite()
 {
-    // Retired alongside the display-name write for the same reason: an
-    // in-flight op that outlives its account would otherwise leave the next
-    // account's control disabled with nothing coming to re-enable it.
+    // An in-flight op outliving its account would leave the next account's
+    // control disabled.
     if (m_avatarOp == 0 && m_avatarError.isEmpty())
         return;
     m_avatarOp = 0;
@@ -5512,14 +4473,10 @@ void AppController::switchToAccount(const QString &userId)
             tr("That account's sign-in has expired. Sign in to it again."));
         return;
     case SignInState::Unreadable:
-        // REFUSED, but for the true reason and with the action that can
-        // actually work. Proceeding would be worse than useless: the switch
-        // detaches the running session first, and the restore that follows
-        // needs the very token that cannot be read — so an unlockable
-        // keyring would cost the user the session they already had. And
-        // "sign in to it again" is the one instruction that cannot help,
-        // because the password login it asks for is bounced straight back
-        // here as ExistingStoreNeedsRestore.
+        // Refuse with the real reason: switching would detach the current
+        // session and then fail to restore the new one without its token,
+        // and "sign in again" cannot help because a password login on an
+        // existing store is bounced back here as ExistingStoreNeedsRestore.
         Q_EMIT errorReported(
             tr("Lightning can't read this device's saved sign-ins right now — "
                "the system keyring is locked or unavailable. Unlock it and "
@@ -5535,29 +4492,10 @@ void AppController::switchToAccount(const QString &userId)
     m_switchFallbackUserId =
         m_client->isLoggedIn() ? m_settings->activeAccountUserId() : QString{};
 
-    // LEAVE THE CALL BEFORE THE SESSION GOES, for the same reason
-    // prepareForShutdown() does it: a membership RETRACTION is a Matrix send
-    // and a Leave is an SFU command, and both need the client that
-    // detachSession() is about to release.
-    //
-    // This path did not do it, and a live log said so exactly:
-    //
-    //   account switch begin from= … to= …
-    //   detaching local session …
-    //   rust client released …
-    //   teardown state= 6
-    //   retraction could not be dispatched — this device will remain in the
-    //   room's call membership until it expires
-    //
-    // The teardown ran AFTER the release, so rtcRetractMembership had no
-    // handle and returned 0. With no MSC4140 delayed retraction on this
-    // homeserver either, the membership then sat in the room until `expires`
-    // — a phantom participant every other client in the call had to see, and
-    // the exact failure the retraction retry machinery exists to prevent.
-    //
-    // Unconditional, and `leave()` is documented safe in any state including
-    // mid-join: a join still in flight is precisely the case that would
-    // otherwise strand a membership published moments earlier.
+    // Leave the call before detachSession() releases the client: the
+    // membership retraction and the SFU Leave both need it, otherwise the
+    // membership lingers in the room until it expires. leave() is safe in any
+    // state, including mid-join.
     if (m_groupCall)
         m_groupCall->leave();
 
@@ -5580,15 +4518,11 @@ void AppController::switchToAccount(const QString &userId)
 
     m_settings->setActiveAccountUserId(target);
     clearCrossAccountCaches();
-    // Shortcut bindings are per account. The registry caches the resolved
-    // sequences (data() runs once per role per row per repaint, so a
-    // QSettings read per miss would be a real cost), so the switch has to
-    // be ANNOUNCED — it cannot be discovered.
+    // Shortcut bindings are per account and cached by the registry, so the
+    // switch must be announced.
     if (m_shortcuts)
         m_shortcuts->reload();
-    // Hidden images are per account and cached in memory for the same reason
-    // shortcuts are, so the switch has to be ANNOUNCED here too — it cannot
-    // be discovered.
+    // Hidden images are per account and cached too.
     if (m_mediaVisibility)
         m_mediaVisibility->reloadForAccount();
     if (!m_client->restoreSession()) {
@@ -5609,35 +4543,17 @@ AppController::signInStateFor(const QString &userId) const
     // mock account as signed out.
     if (m_backend == MockBackend)
         return SignInState::Usable;
-    // A SUCCESSFUL READ IS THE ONLY EVIDENCE OF `Usable`, and it must be
-    // tested FIRST. Inferring it from "not signed out and the backend seems
-    // fine" would lock out an entire shipped configuration: a machine where a
-    // native backend is compiled in but unavailable, so SecretStore
-    // substitutes the insecure fallback — the no-session-bus Linux case §16
-    // records real users running, whose tokens read back perfectly from the
-    // fallback INI and who must not be told to unlock a keyring that does not
-    // exist.
-    //
-    // HISTORICAL NOTE, because this ordering was written against a bug that
-    // has since been fixed and the reason must not read as still-true: the
-    // fallback's lastReadFailed() USED to be
-    // `m_substitutedForNative || m_lastReadFailed`, permanently true in
-    // substituted mode. It answers in three states now (a hit is vouched for;
-    // a miss is a fact for an account it already holds; only a miss for a
-    // stranger is unknowable). The ordering here is still correct and still
-    // the one to keep — a read that succeeded is evidence and nothing else
-    // is — but it no longer depends on that defect.
+    // A successful read is the only evidence of Usable, and it is tested
+    // first: with the insecure fallback store substituted for an unavailable
+    // native backend, tokens read back fine and the user must not be told to
+    // unlock a keyring that does not exist.
     if (m_settings && !m_settings->accessTokenFor(userId).isEmpty())
         return SignInState::Usable;
-    // No token in hand. AccountManager::needsSignIn() is the ONE
-    // implementation of §6's ordering in this tree — it reads and only then
-    // asks whether the backend could answer, because secretBackendUnavailable()
-    // reports the outcome of the most recent read — so delegate the "is this
-    // account genuinely signed out?" half rather than keeping a second copy.
+    // No token in hand. AccountManager::needsSignIn() owns the read-then-ask
+    // ordering for "is this account genuinely signed out?"; do not duplicate it.
     if (m_accounts && m_accounts->needsSignIn(userId))
         return SignInState::Gone;
-    // Empty read AND the backend cannot vouch for it: this is the honest
-    // "cannot tell", which is the whole reason this enum has three states.
+    // Empty read and the backend cannot vouch for it: genuinely unknown.
     return SignInState::Unreadable;
 }
 
@@ -5666,16 +4582,12 @@ bool AppController::resolveRemovalIdentity(
     if (!identity)
         return false;
     *identity = {};
-    // Resolve from the SAVED record, which binds the store slug this account
-    // actually uses. Re-deriving the identity from the user id would delete
-    // the canonical path and leave a store written under a divergent slug
-    // sitting on disk — Megolm and device keys surviving an explicit
-    // "remove account", while the cleanup reports success.
+    // Resolve from the saved record, which binds the store slug this account
+    // actually uses; re-deriving it from the user id could miss a divergent
+    // store and leave keys on disk while reporting success.
     if (m_settings->resolveSavedIdentity(userId, identity))
         return true;
-    // Never leave everything behind because the record was unreadable:
-    // fall back to the canonical layout so a removal still removes
-    // something rather than silently succeeding.
+    // Fall back to the canonical layout so a removal still removes something.
     const QString hs = m_settings->accountRecord(userId)
                            .value(QStringLiteral("homeserver")).toString();
     return matrix::app_data::resolveAccountIdentity(hs, userId, identity);
@@ -5684,53 +4596,35 @@ bool AppController::resolveRemovalIdentity(
 void AppController::removeAccountLocalState(
     const matrix::app_data::AccountIdentity &identity)
 {
-    // Retiring a Rust client is asynchronous (RustSdkMatrixClient::
-    // releaseRustHandle), so the account being removed may still have an
-    // open SQLite store. Deleting the directory out from under it is the
-    // one race that leaves key material on disk while reporting success —
-    // exactly the data-at-rest defect §6 has a rule against. Wait for the
-    // close first; removal is a deliberate, rare action and can afford it.
+    // Retiring a Rust client is asynchronous, so its SQLite store may still be
+    // open. Wait for the close before deleting, or key material can survive a
+    // removal that reports success.
 #ifdef ENABLE_RUST_SDK_BACKEND
     RustSdkMatrixClient::waitForRustRetirement(
         RustSdkMatrixClient::kStoreCloseBudgetMs);
 #endif
     const auto removed = matrix::app_data::removeAccountRustState(identity);
-    // AND THE PICTURE GOES WITH IT. The avatar store is deliberately
-    // app-level rather than account-scoped — the whole point is reading
-    // account B's picture while A is the live session — so it is NOT
-    // swept by the account directory removal above and has to be told.
-    // §6: signing an account out must not leave its data on disk.
+    // The avatar store is app-level, not account-scoped, so the directory
+    // sweep below does not cover it.
     if (m_accountAvatars)
         m_accountAvatars->forget(identity.userId);
 
-    // v0.6.6: the local-starred-GIF store lives under the CANONICAL
-    // account root (matrix::app_data::accountRoot(userId) — see
-    // GifStarredStore's header), which can differ from
-    // identity.accountRoot for an account with a recorded divergent
-    // store slug — the roots-sweep loop below already handles that
-    // divergence for the Rust store/cache.sqlite, but this directory
-    // gets its own explicit, distinctly-reported deletion here rather
-    // than relying on being incidentally swept. Close it first if it
-    // happens to be the store this process currently has open (e.g.
-    // this was the last signed-in account before being fully signed
-    // out, and nothing has opened a different account's store since —
-    // MatrixClient::loggedOut's own close only fires on a session
-    // detach, which the background-removal path is not).
+    // The starred-GIF store lives under the canonical account root, which can
+    // differ from identity.accountRoot for a divergent store slug, so it gets
+    // its own explicit deletion. Close it first if this process has it open
+    // (the background-removal path does not trigger MatrixClient::loggedOut).
     const QString starredDir =
         matrix::app_data::starredGifsDir(identity.userId);
     if (m_gif->starredStore()->currentDirectory() == starredDir)
         m_gif->closeStarredStore();
-    // B017: the bridge badge file lives directly under the canonical
-    // account root and so is swept by the removeRecursively() below.
-    // What that sweep cannot do is stop a still-open store from writing
-    // the file back afterwards, which is what remember() does on every
-    // answer — so close it first when it is this account's.
+    // The bridge badge file is swept with the canonical root below, but an
+    // open store would write it back on its next answer, so close it first.
     const QString bridgeFile =
         matrix::app_data::bridgeLabelsFile(identity.userId);
     if (!bridgeFile.isEmpty() && m_bridgeLabels.filePath() == bridgeFile)
         m_bridgeLabels.close();
     const auto starredOutcome = matrix::app_data::removeAppDataDir(starredDir);
-    // FAILED leaves decrypted material behind — warn (normal filters).
+    // A failure leaves decrypted material behind, so it warns.
     if (starredOutcome == matrix::app_data::DirRemoval::Failed) {
         qCWarning(lcApp) << "removing account starred-GIF store FAILED"
                          << "slug=" << identity.slug;
@@ -5744,13 +4638,9 @@ void AppController::removeAccountLocalState(
                               : "absent");
     }
 
-    // A divergent store slug means this account owns TWO directories: the
-    // recorded one holding the SDK store, and the canonical one, which is
-    // where CacheStore::openFor() unconditionally puts cache.sqlite
-    // (derived from accountRoot(userId), never from the recording).
-    // Removing only one leaves the other behind — room ids, unencrypted
-    // bodies and display names surviving a removal that told the user
-    // its local data was deleted from this computer.
+    // A divergent store slug means two directories: the recorded one holding
+    // the SDK store and the canonical one where CacheStore::openFor() puts
+    // cache.sqlite. Both must go.
     QStringList roots{identity.accountRoot};
     const QString canonical = matrix::app_data::accountRoot(identity.userId);
     if (!canonical.isEmpty() && !roots.contains(canonical))
@@ -5766,10 +4656,8 @@ void AppController::removeAccountLocalState(
         else
             ++rootsFailed;
     }
-    // Three distinct outcomes, never folded together (§6, and
-    // RemovalSummary::removedAnything() for the SDK-store half): absent is
-    // roots_deleted=0 with roots_failed=0, and a FAILED delete leaves the
-    // account's local data on disk after the user asked for it to be gone.
+    // Absent, deleted and failed are distinct outcomes; a failure leaves the
+    // account's data on disk after the user asked for it to be gone.
     if (rootsFailed > 0) {
         qCWarning(lcApp) << "removing account local state FAILED for"
                          << rootsFailed << "root(s)"
@@ -5795,19 +4683,10 @@ void AppController::removeAccount(const QString &userId)
 
     const bool isActive = target == m_settings->activeAccountUserId();
     if (isActive && m_client->isLoggedIn()) {
-        // The active, signed-in account cannot be wiped from here: its store
-        // is open and a REAL server logout has to happen first. It used to
-        // simply delegate and return, which quietly turned "remove this
-        // account from this computer" into a sign-out — the account
-        // directory (whose name is the Matrix localpart), its cache.sqlite
-        // and any divergent second store root were all left standing, while
-        // the identical button on a BACKGROUND account deleted every one of
-        // them. One button, one stated intent, two outcomes.
-        //
-        // So record the intent and finish in onLoggedOut. The identity is
-        // resolved NOW, while the saved record still exists: the Rust
-        // sign-out removes it on its way out, and §6 requires the deletion
-        // to key on the record rather than re-derive a path afterwards.
+        // The active account's store is open and needs a real server logout
+        // first, so record the intent and finish in onLoggedOut. Resolve the
+        // identity now, while the saved record still exists: the sign-out
+        // removes it, and deletion must key on the record.
         matrix::app_data::AccountIdentity identity;
         m_pendingRemovalResolved = resolveRemovalIdentity(target, &identity);
         m_pendingRemovalIdentity = identity;
@@ -5834,43 +4713,21 @@ void AppController::removeAccount(const QString &userId)
         m_lastSessionUserId.clear();
 }
 
-// WHY THIS IS RESOLVED IN C++ RATHER THAN LEFT TO Qt'S FALLBACK.
-//
-// Qt's automatic per-character font fallback is VERSION-DEPENDENT, measured
-// with an identical QPainter probe, the same fonts and the same string: Qt
-// 6.8.2 (Debian's, which the Linux AppImage bundles) drew U+1F600 with
-// colouredPx=0 -- it prefers a MONOCHROME font that claims the codepoint --
-// while Qt 6.11.1 (the dev shell, and every from-source build here) drew
-// colouredPx=2580. Naming the family explicitly gave 4400 on BOTH. So emoji
-// looked correct in a local build and came out monochrome-or-tofu in the
-// packaged one, on the same machine with the same host fonts.
-//
-// It cannot be a QML token: the QML font value type exposes `family` (one
-// string) and NOT `families`, so assigning a list is a LOAD-TIME error -- the
-// first attempt at this fix did exactly that and took four QML suites down.
-// And picking the first family the host actually HAS beats a hard-coded name,
-// because the right face differs per platform and an absent one would degrade
-// silently to the behaviour being fixed.
+// Resolved in C++ because Qt's automatic per-character font fallback is
+// version-dependent: Qt 6.8 prefers a monochrome font that claims the emoji
+// codepoint, Qt 6.11 does not, while naming the family works on both. QML's
+// font type has `family` but no `families`, and the first family the host
+// actually has beats a hard-coded name.
 QString AppController::emojiFontFamily() const
 {
-    // One resolver for the whole process: FontManager::emojiFamily() is
-    // also what the application default font carries as its fallback face.
+    // One resolver for the whole process, shared with the default font fallback.
     return FontManager::emojiFamily();
 }
 
 // The composer's font: the UI face first, the colour emoji face behind it.
-//
-// setFamilies() is REAL Qt fallback — the shaper picks per character, so words
-// render in Manrope and emoji in the colour face, in one text run. That is what
-// QML cannot express: its font value type has `family` and no `families`, so a
-// mixed-text surface either names one face for everything or is left to Qt's
-// automatic fallback, which on Qt 6.8 prefers a MONOCHROME font that claims the
-// codepoint. Reported as "emojis look good in catalog but bad when in text box":
-// the picker is single-purpose and a plain family binding fixed it, the composer
-// is not.
-//
-// A QSyntaxHighlighter format was tried first and is kept for its mention ink,
-// but a presentation-only format run is the wrong lever for a FACE change.
+// setFamilies() gives real per-character fallback in one text run, which QML
+// cannot express (no `families`), and relying on Qt's automatic fallback gets
+// monochrome emoji on Qt 6.8.
 QFont AppController::textFontWithEmoji(const QString &family, int pixelSize,
                                        bool italic) const
 {
@@ -5878,14 +4735,12 @@ QFont AppController::textFontWithEmoji(const QString &family, int pixelSize,
     if (pixelSize > 0)
         font.setPixelSize(pixelSize);
     font.setItalic(italic);
-    // The base face comes from the CALLER, so the theme keeps deciding it --
-    // hardcoding one here would silently ignore a themed UI font.
+    // The base face comes from the caller so the theme keeps deciding it.
     QStringList families;
     if (!family.isEmpty())
         families << family;
     const QString emoji = emojiFontFamily();
-    // Empty when the host has no emoji font at all: then this is just the UI
-    // face and behaves exactly as before rather than naming something absent.
+    // Empty when the host has no emoji font: then this is just the UI face.
     if (!emoji.isEmpty())
         families << emoji;
     if (families.isEmpty())

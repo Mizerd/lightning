@@ -9,14 +9,11 @@
 
 class QSettings;
 
-// v0.6.1: base for the locally-persisted GIF collections (Favorites, Recents).
-// Holds gif::GifResult rows and exposes exactly the GifResultModel roles so the
-// same grid delegate renders them. Persists a minimal, safe subset to QSettings
-// — provider identity, provider item id, safe title, preview/still/gif URLs,
-// dimensions, rating and a timestamp. It NEVER stores a room id, thread root
-// id, event id, Matrix user id, search query, message body, temp path or any
-// credential. These are local application state and are not claimed to sync
-// between clients.
+// Base for the locally persisted GIF collections (Favorites, Recents). Exposes
+// the GifResultModel roles so the same delegate renders them. Persists only
+// provider, item id, safe title, preview/still/gif URLs, dimensions, rating
+// and a timestamp: never a room, thread, event or user id, search query,
+// message body, temp path or credential. Local state; not synced.
 class GifStoredModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -37,17 +34,10 @@ public:
     Q_INVOKABLE QVariantMap get(int row) const;
     Q_INVOKABLE void clearAll();
 
-    // v0.6.6: re-point persistence at `settings` (nullptr for "no backing
-    // store yet") and reload, replacing every current row. For a normal
-    // Favorites/Recent instance `settings` is fixed for the object's whole
-    // life and this is never called; GifStarredStore uses it to repoint one
-    // long-lived model instance at a fresh account-scoped file on login/
-    // switch/logout WITHOUT destroying and recreating the QObject — a
-    // stable QObject identity the picker's Saved tab (via GifSavedModel,
-    // bound to GifStarredStore's `model` Q_PROPERTY directly) depends on
-    // across account switches. A null `settings` clears every row (never
-    // leaves the previous account's rows visible) without attempting to
-    // persist the now-empty state anywhere.
+    // Repoints persistence at `settings` (nullptr = none yet) and reloads,
+    // replacing every row. Used by GifStarredStore to switch accounts without
+    // recreating the model, whose identity GifSavedModel depends on. A null
+    // `settings` clears all rows without persisting.
     void reopen(QSettings *settings);
 
     gif::GifResult resultAt(int row) const;

@@ -9,78 +9,42 @@
 
 class SettingsManager;
 
-// The UI and monospace typeface the application renders with, and the small
-// store of fonts the user has imported by hand.
+// Resolves the UI and monospace typefaces and manages user-imported fonts.
 //
-// WHY THIS IS A SEPARATE CLASS AND NOT MORE SettingsManager.
-// SettingsManager is linked against Qt6::Core ALONE by about twenty test
-// targets — that is why QScreen was kept out of it, and QFontDatabase is in
-// exactly the same position (Qt6::Gui). So the split is:
-//   * SettingsManager PERSISTS a family name. It validates the string
-//     syntactically and nothing else; it has no way to ask whether a font
-//     exists and must not pretend to.
-//   * FontManager RESOLVES that name against the fonts this host actually
-//     has, and answers what to render.
-// The consequence is the behaviour that matters: a family that disappears
-// between two launches (an uninstalled system font, an imported file the user
-// deleted) renders as the bundled default, and the STORED CHOICE IS LEFT
-// ALONE. Reinstall the font and it comes back. Rewriting the setting on the
-// user's behalf would silently destroy a preference because a font was
-// temporarily absent.
+// Kept out of SettingsManager, which many test targets link against Qt6::Core
+// alone. SettingsManager persists a family name; FontManager resolves it
+// against the host's fonts. A family that disappears renders as the bundled
+// default and the stored choice is left alone, so reinstalling it restores it.
 //
-// IMPORTING A FONT FILE — the security position, stated rather than implied.
-// A font file is parsed by FreeType, which is a real attack surface, so this
-// is deliberately the narrowest useful shape:
-//   * the ONLY entry point is importFontFile(), taking a local file: URL that
-//     the user picked in a file dialog. Nothing here reads a path out of a
-//     Matrix event, a URL, a setting written by anything but this class, or
-//     any other remote input, and this class holds no MatrixClient and no
-//     network object at all — the test target links neither;
-//   * the extension must be .ttf or .otf AND the first bytes must carry an
-//     sfnt signature. The name alone is never the decision, exactly as the
-//     custom-app-icon import sniffs magic instead of trusting a file name;
-//   * the file is bounded at kMaxFontFileBytes before a byte is read, and at
-//     most kMaxImportedFonts may be held;
-//   * QFontDatabase must ACTUALLY accept it and report at least one family.
-//     A file FreeType refuses is discarded, not recorded — an entry the user
-//     could select and never see applied is worse than a refusal;
-//   * the accepted bytes are COPIED into Lightning's own app-data directory
-//     and every later launch loads that private copy. The path the user
-//     picked is never stored and never read again, so an imported font can
-//     never be loaded from a network share, a removable disk, or a directory
-//     another user can write — which is the "never auto-load from a shared or
-//     network location" rule enforced by construction rather than by a
-//     blocklist of path shapes.
-// This is judged shippable, not waved through: a user who can be talked into
-// picking a hostile font file here could equally be talked into installing it
-// system-wide, where fontconfig hands the same bytes to the same FreeType.
-// The import adds no reach that a user-chosen font did not already have. What
-// it must never become is a path that something else can name.
+// Font import is the narrowest useful shape, since FreeType is attack surface:
+//   * the only entry point is importFontFile() with a user-picked local file;
+//     nothing reads a path from Matrix events, URLs or remote input;
+//   * .ttf/.otf extension AND an sfnt signature; the name alone never decides;
+//   * size- and count-bounded before anything is read;
+//   * QFontDatabase must accept it and report a family, or it is discarded;
+//   * the bytes are copied into Lightning's app-data directory and only that
+//     private copy is ever loaded, so an import can never be read from a
+//     network share or another user's directory.
+// A user who can be talked into picking a hostile font could equally install
+// it system-wide; the import must never become a path something else can name.
 class FontManager : public QObject
 {
     Q_OBJECT
-    // The families Lightning ships (data/fonts, loaded in main.cpp). Always
-    // present, so the picker always has a working answer.
+    // The families Lightning ships (data/fonts, loaded in main.cpp).
     Q_PROPERTY(QStringList bundledFamilies READ bundledFamilies CONSTANT)
-    // Everything selectable: the bundled set first, then every other family
-    // the host has, then the imported ones.
+    // Bundled families first, then the host's, then imported ones.
     Q_PROPERTY(QStringList uiFamilies READ uiFamilies NOTIFY familiesChanged)
-    // The fixed-pitch subset, for the code/monospace role.
     Q_PROPERTY(QStringList monospaceFamilies READ monospaceFamilies
                    NOTIFY familiesChanged)
-    // What to RENDER. Resolved: the stored choice when the host has it, the
-    // bundled default when it does not.
+    // What to render: the stored choice if usable, else the bundled default.
     Q_PROPERTY(QString uiFamily READ uiFamily NOTIFY selectionChanged)
     Q_PROPERTY(QString monospaceFamily READ monospaceFamily
                    NOTIFY selectionChanged)
-    // What the user CHOSE, installed or not. The picker reads this so a row
-    // stays selected while the font is missing, instead of appearing to have
-    // silently reset itself.
+    // What the user chose, installed or not, so the picker keeps it selected.
     Q_PROPERTY(QString storedUiFamily READ storedUiFamily NOTIFY selectionChanged)
     Q_PROPERTY(QString storedMonospaceFamily READ storedMonospaceFamily
                    NOTIFY selectionChanged)
-    // False when the stored choice is not on this host — the disclosure that
-    // keeps the fallback from being a silent lie.
+    // Discloses why the stored choice is not being rendered.
     Q_PROPERTY(QString uiFamilyUnavailableReason READ uiFamilyUnavailableReason
                    NOTIFY selectionChanged)
     Q_PROPERTY(QString monospaceFamilyUnavailableReason
@@ -93,48 +57,31 @@ class FontManager : public QObject
     Q_PROPERTY(QVariantList importedFonts READ importedFonts
                    NOTIFY importedFontsChanged)
     Q_PROPERTY(int importedFontLimit READ importedFontLimit CONSTANT)
-    // Machine-readable category for the last refused import, empty after a
-    // successful one. Never a path and never the picked file's name.
+    // Category of the last refused import; never a path or file name.
     Q_PROPERTY(QString lastImportError READ lastImportError
                    NOTIFY lastImportErrorChanged)
 
 public:
-    // 32 MiB is generous for a font (a full CJK face is ~20 MB) and small
-    // enough that a hostile file cannot be used to exhaust memory or the
-    // app-data directory. The same ceiling the icon import uses.
+    // Room for a full CJK face (~20 MB) while bounding memory and disk use.
     static constexpr qint64 kMaxFontFileBytes = 32LL * 1024 * 1024;
     static constexpr int kMaxImportedFonts = 16;
 
-    // The colour emoji face the host actually has ("" when none), resolved
-    // once. Named explicitly wherever emoji are drawn because Qt's automatic
-    // per-character fallback differs by Qt version (6.8 picks a monochrome
-    // face where 6.11 picks colour), and folded into the application default
-    // font's family list so surfaces that never name a face — tooltips,
-    // native menus — inherit it too.
+    // The host's colour emoji face ("" when none), resolved once. Named
+    // explicitly because Qt's automatic fallback differs by version (6.8
+    // prefers a monochrome face that claims the codepoint).
     static QString emojiFamily();
     // `family` first, the emoji face second (when there is one).
     static QFont withEmojiFallback(const QString &family, int pixelSize);
-    // Makes `family` the face Qt falls back to for characters of the Common
-    // script (where emoji live) that the requested font lacks. Returns false
+    // Makes `family` Qt's fallback for Common-script characters (where emoji
+    // live) the requested font lacks. This covers QML text that sets a single
+    // `font.family`, which replaces any per-surface family list. Returns false
     // when `family` is empty or Qt predates the API (6.8).
-    //
-    // Naming the emoji face per surface did not reach every surface: any QML
-    // text with `font.family: <one face>` replaces the whole families list,
-    // so on Qt 6.8 its emoji fell back to a MONOCHROME face that claims the
-    // codepoint. Measured on the 0.9.9 AppImage: room names, the room header
-    // and topic, sender names, thread summaries, reply quotes and the member
-    // list all drew emoji with zero coloured pixels while message bodies drew
-    // them in colour. Registering the face as Qt's own fallback fixes every
-    // such surface at once. Letters are unaffected: a character the requested
-    // font has never falls back.
     static bool installEmojiFallback(const QString &family);
 
     explicit FontManager(SettingsManager *settings, QObject *parent = nullptr);
 
-    // Registers every stored import with QFontDatabase. Call once, after
-    // QGuiApplication exists and the bundled faces are loaded, BEFORE the
-    // first frame — an imported family must be resolvable by the time the
-    // window font is applied.
+    // Registers every stored import. Call once after the bundled faces are
+    // loaded and before the window font is applied.
     void loadImportedFonts();
 
     QStringList bundledFamilies() const;
@@ -146,11 +93,8 @@ public:
     QString storedUiFamily() const;
     QString storedMonospaceFamily() const;
     bool uiFamilyAvailable() const;
-    // "" when the stored family is in use; "missing" when this computer does
-    // not have it; "unusable" when it is installed but is not a face this
-    // surface can be drawn in (an emoji or icon face). Settings needs the
-    // distinction: one is fixed by installing a font, the other by choosing
-    // a different one.
+    // "" when the stored family is in use, "missing" when not installed,
+    // "unusable" when installed but not a text face for this surface.
     QString uiFamilyUnavailableReason() const;
     QString monospaceFamilyUnavailableReason() const;
     bool monospaceFamilyAvailable() const;
@@ -159,51 +103,31 @@ public:
     int importedFontLimit() const { return kMaxImportedFonts; }
     QString lastImportError() const { return m_lastImportError; }
 
-    // Does this host have the family, under this exact name? Case-insensitive,
-    // because QFontDatabase reports a canonical case that a stored value from
-    // another platform need not match.
+    // Case-insensitive: a stored value from another platform may differ in
+    // case from QFontDatabase's canonical name.
     Q_INVOKABLE bool hasFamily(const QString &family) const;
 
-    // Persist a selection. The family is stored VERBATIM after a syntactic
-    // check; it does not have to be installed right now.
+    // Stored verbatim after a syntactic check; need not be installed now.
     Q_INVOKABLE void setUiFamily(const QString &family);
     Q_INVOKABLE void setMonospaceFamily(const QString &family);
 
-    // Import a font the user picked. Returns true when the file was accepted,
-    // copied, registered and recorded; false sets lastImportError.
+    // Returns false and sets lastImportError on refusal.
     Q_INVOKABLE bool importFontFile(const QUrl &fileUrl);
-    // Forget an imported font. The private copy is deleted. A selection that
-    // named one of its families is deliberately NOT rewritten — the same rule
-    // as an uninstalled system font: it falls back and can come back.
+    // Deletes the private copy. A selection naming it is not rewritten.
     Q_INVOKABLE bool removeImportedFont(const QString &fileName);
 
-    // ---- Pure validators, exposed so they can be tested without a font
-    // database, a settings store or a window. ----
+    // ---- Validators, public for tests ----
 
-    // An sfnt wrapper Qt/FreeType will recognise: 0x00010000 (TrueType),
-    // "true" (legacy Apple), or "OTTO" (CFF outlines). Deliberately REFUSES
-    // "ttcf" collections (one file, several faces — out of scope for a picker
-    // that names one family) and the "wOFF"/"wOF2" web wrappers, which are a
-    // transport format and not what a desktop font picker offers.
+    // 0x00010000 (TrueType), "true" (legacy Apple) or "OTTO" (CFF). Refuses
+    // "ttcf" collections and the "wOFF"/"wOF2" web wrappers.
     static bool looksLikeSfnt(const QByteArray &head);
-    // Can this FACE draw the alphabet and digits a monospace surface is for?
-    // Asked of the face itself (QRawFont with font merging OFF), never of
-    // Qt's writing-system table: `QFontDatabase::isFixedPitch()` is TRUE for
-    // an emoji face — every emoji is one advance wide — and "Noto Color
-    // Emoji" carries digit glyphs as keycap bases, so a user who picked it
-    // from the monospace list got emoji digits inside every timestamp, JSON
-    // dump and code span while letters fell back to another face. Measured
-    // 2026-09-02: isFixedPitch("Noto Color Emoji") = true,
-    // writingSystems = {Symbol}, and a text run split between Hack (letters)
-    // and Noto Color Emoji (digits).
-    //
-    // Deliberately NOT applied to the UI list: Lightning ships Arabic,
-    // Bengali and Hindi catalogs, and those faces carry no Latin at all.
+    // Whether the face itself (no font merging) draws Latin letters and
+    // digits. isFixedPitch() is true for emoji faces, which also carry digit
+    // glyphs as keycap bases. Used for the monospace list only: UI faces for
+    // non-Latin locales may carry no Latin at all.
     static bool facesLatinText(const QString &family);
-    // A colour-emoji or icon face: never a text face, on any surface.
     static bool isNonTextFace(const QString &family);
-    // .ttf / .otf only, case-insensitive. The extension is a necessary and
-    // never a sufficient condition — looksLikeSfnt() decides.
+    // Necessary, never sufficient: looksLikeSfnt() decides.
     static bool hasFontExtension(const QString &fileName);
 
 Q_SIGNALS:
@@ -214,17 +138,13 @@ Q_SIGNALS:
 
 private:
     struct Imported {
-        QString fileName;      // basename inside importedFontsDir(), never a
-                               // path the user typed or picked
-        QStringList families;  // what QFontDatabase reported for it
+        QString fileName;      // basename inside importedFontsDir()
+        QStringList families;
         bool available = false;
         int handle = -1;       // QFontDatabase application font id
     };
 
-    // <app data root>/fonts — Lightning's own directory, beside the branding
-    // directory the custom app icon uses. Created with the platform default
-    // for a user data directory (mkpath); the COPIES inside it are written
-    // owner-only. Nothing here is ever a path the user typed.
+    // <app data root>/fonts; copies inside are written owner-only.
     static QString importedFontsDir();
     void refreshFamilyCache();
     void setImportError(const QString &category);
@@ -233,16 +153,11 @@ private:
 
     SettingsManager *m_settings = nullptr;
     QList<Imported> m_imported;
-    // The two picker lists, built once per family-set change rather than per
-    // read. The mono list is the expensive one: QFontDatabase::isFixedPitch()
-    // resolves a QFont per family, and on a machine with several hundred
-    // installed faces that is a GUI-thread cost paid every time a binding
-    // re-evaluates. Both are read from a QML `model:` binding.
+    // Picker lists, rebuilt only when the family set changes: building the
+    // mono list resolves a font per family, too costly per binding read.
     QStringList m_uiFamilies;
     QStringList m_monoFamilies;
-    // Lower-cased family names present on this host, rebuilt whenever an
-    // application font is added or removed. QFontDatabase::families() is not
-    // cheap and this is read from a binding.
+    // Lower-cased installed families; QFontDatabase::families() is costly.
     QStringList m_familyCache;
     QString m_lastImportError;
 };

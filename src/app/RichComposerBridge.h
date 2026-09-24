@@ -9,21 +9,12 @@ class QQuickTextDocument;
 class QTextDocument;
 class ThreadController;
 
-// v0.9 rich composer: the QML-facing half of rich-text composing.
+// QML-facing half of rich-text composing. Keeps QQuickTextDocument out of
+// MessageComposer (whose tests link only Qt6::Core/Gui), delegates text-model
+// work to RichComposition, and sends through MessageComposer::sendPrepared.
 //
-// This class exists so QQuickTextDocument (a QtQuick type) stays OUT of
-// MessageComposer — several standalone test targets compile the composer
-// against Qt6::Core/Gui only, and the composer's own responsibilities
-// (context, drafts, commands, mentions) are editor-agnostic. The bridge
-// unwraps the QML document, delegates every text-model operation to
-// RichComposition (pure, unit-tested), and hands finished (plainBody, html,
-// mentionIds) triples to MessageComposer::sendPrepared, which owns the
-// thread/reply/edit routing exactly as for markdown sends.
-//
-// Mode-switch conversions (Qt's own setMarkdown/toMarkdown) live here too:
-// they are DRAFT-ONLY — cosmetic differences between Qt versions cannot
-// reach the protocol, because the wire bodies always come from
-// RichComposition::compose over the live document.
+// Markdown mode conversions are draft-only; wire bodies always come from
+// RichComposition::compose.
 class RichComposerBridge : public QObject
 {
     Q_OBJECT
@@ -35,21 +26,16 @@ public:
 
     MessageComposer *composer() const { return m_composer; }
     void setComposer(MessageComposer *composer);
-    // The thread panel's composer, which has its own send lane
-    // (ThreadController::sendPrepared / sendText).
+    // The thread panel's composer, which has its own send lane.
     void setThread(ThreadController *thread) { m_thread = thread; }
 
-    // Compose the document into (plainBody, html, mentionIds) and send it
-    // through the composer's current context. A document whose plain text
-    // begins with "/" and which carries NO formatting is routed through the
-    // composer's ordinary send instead, so slash commands work identically
-    // in rich mode.
+    // Compose into (plainBody, html, mentionIds) and send in the composer's
+    // current context. Slash commands go through the ordinary send.
     Q_INVOKABLE void sendDocument(QQuickTextDocument *document);
     // Same, through the thread panel's composer.
     Q_INVOKABLE void sendDocumentToThread(QQuickTextDocument *document);
-    // v0.9 scheduled send: the document composed WITHOUT sending —
-    // {body, html, mentionIds}; html empty when the document has no
-    // formatting.
+    // Compose without sending: {body, html, mentionIds}; html is empty when
+    // there is no formatting.
     Q_INVOKABLE QVariantMap composeDocument(QQuickTextDocument *document) const;
 
     // Toolbar operations; see RichComposition::toggleFormat/formatState.
@@ -67,12 +53,10 @@ public:
 
     Q_INVOKABLE bool isSafeLinkTarget(const QString &url) const;
 
-    // v0.9 spell checking in rich mode; see RichComposition::spellSkipRanges
-    // and ::replaceRange.
+    // See RichComposition::spellSkipRanges and ::replaceRange.
     Q_INVOKABLE QVariantList spellSkipRanges(QQuickTextDocument *document) const;
-    // Whether the rich editor is showing NOTHING — see
-    // RichComposition::documentIsBlank. The composers gate their placeholder
-    // on it, because an empty list item has no characters and still draws.
+    // Gates the placeholder: an empty list item has no characters but still
+    // draws. See RichComposition::documentIsBlank.
     Q_INVOKABLE bool documentIsBlank(QQuickTextDocument *document) const;
     Q_INVOKABLE void replaceRange(QQuickTextDocument *document, int start, int length,
                                   const QString &replacement);

@@ -16,19 +16,12 @@
 
 class MatrixClient;
 
-// v0.4.1: real space model. Rebuilt from the active MatrixClient every time
-// `roomsChanged` fires. Exposes:
-//   - a list model of Space rooms for QML (name, id, unread total, avatar);
-//   - `activeSpaceId` — selection state driving the RoomListModel filter;
-//   - `roomsInSpace(spaceId)` — hierarchy lookup;
-//   - `includesRoom(spaceId, roomId)` — filter helper for RoomListModel.
+// The Space model, rebuilt from the active MatrixClient on room changes.
+// Exposes a list model of Spaces for QML, the `activeSpaceId` selection that
+// drives the room-list filter, and hierarchy lookups.
 //
-// The pseudo-space id "" (empty string) means "All rooms" and matches every
-// room. The pseudo-space id "@orphans" matches every room that is not a
-// child of any Space.
-//
-// Space *editing* (creating a Space, adding a room to a Space, power-level
-// checks) is out of scope for v0.4.1 and documented as v0.5 work.
+// Pseudo-space ids: "" is "All rooms" (matches every room); "@orphans"
+// matches every room that is not a child of any Space.
 class SpaceManager : public QAbstractListModel
 {
     Q_OBJECT
@@ -36,11 +29,9 @@ class SpaceManager : public QAbstractListModel
     Q_PROPERTY(QString activeSpaceId READ activeSpaceId WRITE setActiveSpaceId NOTIFY activeSpaceIdChanged)
     Q_PROPERTY(int count READ rowCount NOTIFY spacesChanged)
     Q_PROPERTY(bool hasSpaces READ hasSpaces NOTIFY spacesChanged)
-    // v0.6.5: the number of REAL joined Spaces (excludes the "All rooms" and
-    // orphans pseudo-rows) — the account switcher's honest "N spaces" meta.
+    // Real joined Spaces only, excluding the pseudo rows.
     Q_PROPERTY(int spaceCount READ spaceCount NOTIFY spacesChanged)
-    // Bound from SpacesRail.qml to the same condition that decides whether
-    // the Direct Messages tile exists at all. See the setter's comment.
+    // Bound from SpacesRail.qml to whether the Direct Messages tile exists.
     Q_PROPERTY(bool directMessagesHaveOwnTile READ directMessagesHaveOwnTile
                    WRITE setDirectMessagesHaveOwnTile
                    NOTIFY directMessagesHaveOwnTileChanged)
@@ -55,61 +46,38 @@ public:
         UnreadTotalRole,
         HighlightTotalRole,
         LevelRole,
-        // The one PRIMARY parent Space this one is displayed under, or empty
-        // when it is a root. Matrix permits several parents and malformed
-        // state permits cycles; see rebuild() for how one is chosen and why
-        // it is stable.
+        // The primary parent this Space is displayed under, empty for a
+        // root. See resolveHierarchy() for how one is chosen.
         ParentSpaceIdRole,
-        // How many joined child SPACES this one has. Zero means "no
-        // subspaces", which is a different fact from "no rooms" — and
-        // treating the two as one is what made the rail's chevron
-        // unreachable on a Space whose children are all rooms.
+        // Joined child Spaces. Zero means "no subspaces", not "no rooms".
         ChildSpaceCountRole,
-        // How many DIRECT joined rooms this Space has of its own.
-        //
-        // The third count, and the only one that answers "would expanding
-        // this reveal anything": ChildCountRole is transitive (a Space whose
-        // rooms all live in subspaces has a big one and nothing of its own),
-        // ChildSpaceCountRole counts only subspaces. The rail's expander
-        // needs `ChildSpaceCountRole > 0 || DirectChildRoomCountRole > 0`.
+        // Direct joined rooms of this Space's own. ChildCountRole is
+        // transitive and ChildSpaceCountRole counts subspaces only; the rail
+        // expander needs both this and ChildSpaceCountRole.
         DirectChildRoomCountRole,
     };
 
-    // Well-known pseudo-space ids surfaced through the model as extra rows
-    // so QML can render them consistently with real Spaces.
+    // Pseudo-space ids surfaced as extra rows.
     static QString allRoomsId()   { return QStringLiteral(""); }
     static QString orphansId()    { return QStringLiteral("@orphans"); }
-    /// Direct Messages. A rail SELECTION, not a container: no room is "in"
-    /// it in the sense the other two are — `roomsInSpace` answers with every
-    /// DM so a consumer that scopes by id still gets the honest set, but a
-    /// DM's Space membership is unchanged and unchangeable (Matrix has no
-    /// way to make a DM a Space's child).
-    ///
-    /// The row is only OFFERED in the Channels layout, where DMs have a view
-    /// of their own; Classic keeps its People filter chip and never sees it.
+    /// Direct Messages: a rail selection, not a container. roomsInSpace()
+    /// answers with every DM, but a DM's Space membership is unchanged.
+    /// Offered only in the Channels layout.
     static QString peopleId()     { return QStringLiteral("@people"); }
 
     explicit SpaceManager(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
 
-    /// Whether direct messages have a rail tile of their own — true in the
-    /// Channels layout, false in Classic.
-    ///
-    /// A TILE'S BADGE MUST COUNT WHAT THAT TILE'S VIEW LISTS, and which rooms
-    /// Home lists is the one thing the two layouts disagree about. Classic
-    /// reaches DMs through a filter chip over one list, so its Home really is
-    /// where an unread DM is found and Home must keep counting it. Channels
-    /// gives DMs their own tile and Spaces their own tiles, and its Home view
-    /// lists neither — so counting them there points the user at a place the
-    /// message cannot be.
+    /// Whether DMs have their own rail tile (Channels) or not (Classic).
+    /// A tile's badge must count what its view lists: Classic's Home lists
+    /// DMs and counts them; Channels' Home does not.
     void setDirectMessagesHaveOwnTile(bool own);
     bool directMessagesHaveOwnTile() const
     { return m_directMessagesHaveOwnTile; }
 
-    /// Unread/highlight over every joined direct message. The Direct Messages
-    /// tile is synthesised by RailEntryModel rather than being a row here, so
-    /// it reads these instead of a role.
+    /// Unread/highlight over every joined DM, for the tile RailEntryModel
+    /// synthesises.
     int peopleUnreadTotal() const { return m_peopleUnreadTotal; }
     int peopleHighlightTotal() const { return m_peopleHighlightTotal; }
 
@@ -122,98 +90,58 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    // Hierarchy queries. Return the set of room ids that belong to
-    // `spaceId`. `allRoomsId()` returns every room; `orphansId()` returns
-    // rooms not referenced by any Space.
-    // Every row as a map, in model order, for a presentation layer that has
-    // to REORDER them (the rail's folders and drag ordering). A ListView
-    // cannot reorder a QAbstractListModel from QML, and this model's order is
-    // the hierarchy's, not the user's.
+    // Every row as a map, in model order, for a layer that reorders them
+    // (the rail's folders and drag). QML cannot reorder a list model.
     Q_INVOKABLE QVariantList allSpaces() const;
+    // Room ids in `spaceId`: every room for allRoomsId(), rooms in no Space
+    // for orphansId().
     Q_INVOKABLE QStringList roomsInSpace(const QString &spaceId) const;
     Q_INVOKABLE bool includesRoom(const QString &spaceId, const QString &roomId) const;
-    // v0.7 design shell: display name for the room-list workspace header.
+    // Display name for the room-list workspace header.
     Q_INVOKABLE QString spaceName(const QString &spaceId) const;
 
-    // v0.7 Space Home. Presentation snapshot of one Space (name, topic,
-    // avatar, child/unread totals) and its children in authoritative
+    // Space Home: a presentation snapshot of one Space, and its children in
     // m.space.child order with unread/mention state. `addableRooms` lists
-    // joined, non-Space rooms that are NOT yet children (name-filtered) for
-    // the "Add existing room" picker.
+    // joined non-Space rooms not yet children, for the "Add existing room"
+    // picker.
     Q_INVOKABLE QVariantMap spaceInfo(const QString &spaceId) const;
     Q_INVOKABLE QVariantList childRoomsDetailed(const QString &spaceId) const;
-    // 2026-08-18 tester report #2 ("Land of the Insane"): JOINED child
-    // sub-spaces of a space, in room-list order (the Rust spaces event's
-    // ordering — m.space.child order keys are NOT honored here). rebuild()
-    // deliberately flattens subspace ROOMS into the ancestor's membership;
-    // this surfaces the subspaces THEMSELVES so Space Home can nest them
-    // (unjoined subspaces come from /hierarchy via RoomDiscoveryController
-    // and are rendered as join offers).
+    // Joined child subspaces of a Space, in m.space.child order. Unjoined
+    // subspaces come from /hierarchy via RoomDiscoveryController.
     Q_INVOKABLE QVariantList childSpacesDetailed(const QString &spaceId) const;
-    // The joined child SPACES of `spaceId`, in the Space's own
-    // `m.space.child` order, restricted to the ones whose PRIMARY parent is
-    // this Space. Restricting to the primary parent is what makes the rail's
-    // tree a tree: a subspace with two joined parents is nested under
-    // exactly one of them, deterministically, instead of appearing twice.
+    // Joined child Spaces in m.space.child order, restricted to those whose
+    // primary parent is this Space, so a two-parent subspace appears once.
     Q_INVOKABLE QStringList childSpaceIds(const QString &spaceId) const;
-    /// The Space that owns `spaceId` in the rail's arrangement, or "" for a
-    /// root. This is the PRIMARY parent — the one the breadth-first walk in
-    /// `recomputeHierarchy()` assigned — so it is the parent the rail draws
-    /// this Space under, which is the only one a "show me this Space" request
-    /// can act on.
+    /// The primary parent of `spaceId` (as assigned in resolveHierarchy()),
+    /// or "" for a root.
     Q_INVOKABLE QString parentSpaceIdOf(const QString &spaceId) const;
-    /// Every ancestor of `spaceId`, nearest first. Empty for a root or an
-    /// unknown id. Bounded by the hierarchy walk's own depth limit, so a
-    /// parent cycle cannot spin here.
+    /// Every ancestor of `spaceId`, nearest first. Bounded by the hierarchy
+    /// depth limit, so a parent cycle cannot spin.
     Q_INVOKABLE QStringList ancestorSpaceIds(const QString &spaceId) const;
-    // Whether `roomId` is a DIRECT child of any joined Space. The Channels
-    // layout's "Rooms" group is the complement of this: every joined room
-    // that no Space folder will list. Direct rather than transitive because
-    // a subspace is itself a Space folder in that layout, so its own
-    // children are already reachable there.
+    // Whether `roomId` is a direct child of any joined Space. The Channels
+    // "Rooms" group is the complement. Direct, since subspaces are folders
+    // of their own in that layout.
     Q_INVOKABLE bool roomInAnySpace(const QString &roomId) const;
-    // 2026-08-23 Channels navigation layout: DIRECT child rooms only, in
-    // `m.space.child` state order.
-    //
-    // NOT the same thing as childRoomsDetailed, which is TRANSITIVE:
-    // rebuild() deliberately flattens a subspace's rooms into every
-    // ancestor's membership, so childRoomsDetailed on a Space with three
-    // subspaces returns every room in the tree as one undifferentiated run.
-    // That is right for "show me everything in this Space" and wrong for a
-    // channel list, where the whole point is the structure the Space's admin
-    // built. This reads the Space's OWN `childRoomIds` and keeps only joined
-    // non-Space children.
+    // Direct joined non-Space child rooms, in m.space.child order. Unlike
+    // childRoomsDetailed(), which is transitive, this keeps the structure the
+    // Space's admin built, for a channel list.
     Q_INVOKABLE QVariantList directChildRoomsDetailed(
         const QString &spaceId) const;
-    /// The same DIRECT children, as ids only, resolved against a room map the
-    /// caller already has.
-    ///
-    /// directChildRoomsDetailed() materialises the ENTIRE room list and builds
-    /// a fresh QHash on every call, so a caller that walks every Space paid
-    /// (1 + numSpaces) full room-list materialisations per pass — which is a
-    /// real cost on an account switch, where the model rebuilds repeatedly
-    /// against a room list the caller has already built once. Same order, same
-    /// skip rules (deduped, unknown / Space / non-Joined children dropped);
-    /// only the lookup is borrowed.
+    /// The same direct children as ids, resolved against a room map the
+    /// caller already has, to avoid rebuilding the whole room list per Space.
+    /// Same order and skip rules as directChildRoomsDetailed().
     QStringList directChildRoomIds(
         const QString &spaceId,
         const QHash<QString, RoomInfo> &byId) const;
     Q_INVOKABLE QVariantList addableRooms(const QString &spaceId,
                                           const QString &filter) const;
 
-    // ---- The Space Home LOBBY (2026-09-23) --------------------------------
+    // ---- Space Home lobby ------------------------------------------------
     //
-    // Sectioned the way Sable's lobby is: the Space's own DIRECT rooms first,
-    // then ONE section per direct child Space listing THAT subspace's direct
-    // children. It replaced a single flat list built from
-    // childRoomsDetailed() — which is TRANSITIVE — so every subspace's rooms
-    // ran together with the Space's own and "you can't tell which rooms
-    // belong to each space" (tester report, 2026-09-23).
-    //
-    // One level of sections, on purpose. A grandchild Space is a ROW inside
-    // its parent's section (it drills into its own Home, like every Space
-    // row always has); its rooms are NOT flattened into that section,
-    // because flattening is exactly the defect this replaced.
+    // The Space's own direct rooms first, then one section per direct child
+    // Space listing that subspace's direct children. One level of sections:
+    // a grandchild Space is a row in its parent's section, and its rooms are
+    // not flattened in.
     //
     // Each section is { sectionId, isRoot, roomId, name, avatarUrl,
     // identityColorKey, topic, suggested, suggestedKnown, selectable,
@@ -225,21 +153,15 @@ public:
     // childCount, childrenCount, hasUnread, unreadCount, highlightCount,
     // membership, joinRule, via, selectable }.
     //
-    // ORDER inside a section is the parent's own `m.space.child` order
-    // (RoomInfo::childRoomIds: `order` key, then room id), then any
-    // /hierarchy row that order does not know yet, in the SDK's (spec) order.
-    // `selectable` is true only for the Home Space's DIRECT children: those
-    // are the only rows its Remove / Mark as suggested can act on. (The flat
-    // list offered them on subspace rooms too, where Remove sent an empty-via
-    // m.space.child into the WRONG Space and reported success.)
+    // Order within a section is the parent's m.space.child order, then any
+    // /hierarchy row not yet known, in the SDK's order. `selectable` is true
+    // only for the Home Space's direct children, the only rows its Remove /
+    // Mark as suggested can act on.
     //
-    // `hierarchyBySpace` maps a space id to its RoomDiscoveryController
-    // /hierarchy rows (the only source of topics, member counts, suggested
-    // flags and UNJOINED children). The filter matches names and topics,
-    // case-insensitively; a subspace whose own name or topic matches keeps
-    // all of its rows; a filtered section with nothing left is dropped, and
-    // a search overrides collapse so a match is never hidden in a folded
-    // section.
+    // `hierarchyBySpace` maps a space id to its /hierarchy rows (topics,
+    // member counts, suggested flags, unjoined children). The filter matches
+    // names and topics case-insensitively; a subspace that matches keeps all
+    // its rows; an emptied section is dropped; a search overrides collapse.
     Q_INVOKABLE QVariantList lobbySections(
         const QString &spaceId, const QVariantMap &hierarchyBySpace,
         const QString &filter) const;
@@ -248,72 +170,55 @@ public:
         const QString &spaceId, const QHash<QString, RoomInfo> &byId,
         const QVariantMap &hierarchyBySpace, const QString &filter,
         const QSet<QString> &collapsedSections);
-    /// The joined direct child Spaces a lobby will draw a section for, so
-    /// the view can ask /hierarchy about each of them. Every joined child
-    /// Space, not only those whose PRIMARY parent this is: the rail must
-    /// draw a two-parent Space once, a lobby lists what its admin placed.
+    /// The joined direct child Spaces a lobby draws a section for, so the
+    /// view can query /hierarchy for each. Includes every joined child Space,
+    /// not only those whose primary parent this is.
     Q_INVOKABLE QStringList lobbySubspaceIds(const QString &spaceId) const;
-    /// Which lobby sections are folded, per Space. SESSION state, on purpose:
-    /// persisting it would write Matrix room ids into settings, which then
-    /// need the per-account storage and the account-removal sweep that
-    /// kChannelCollapsedKey has. Cleared on sign-out and client swap.
+    /// Folded lobby sections, per Space. Session state only, so no Matrix
+    /// room ids are written to settings. Cleared on sign-out and client swap.
     Q_INVOKABLE void setLobbySectionCollapsed(const QString &spaceId,
                                               const QString &sectionId,
                                               bool collapsed);
     Q_INVOKABLE bool lobbySectionCollapsed(const QString &spaceId,
                                            const QString &sectionId) const;
 
-    // ---- The Space's PEOPLE ------------------------------------------------
+    // ---- Space people ----------------------------------------------------
     //
-    // "Who is in this Space" is one question with no cheap local answer. A
-    // Space's rooms are known; their MEMBERS are not — RoomInfo::members is
-    // only populated for rooms whose roster was actually fetched, so deriving
-    // this from the child rooms would make the answer depend on which rooms
-    // the user happened to open, and asking every child room for its roster
-    // is one /members request per room (and CLAUDE.md records that a
-    // membership read falls back to a full /state for an idle room).
-    //
-    // So the roster is the SPACE ROOM's own joined-and-invited membership,
-    // which is Element's reading of the same question and costs ONE bounded
-    // request per Space per session, fired when the Space is selected. The
-    // honest limitation: somebody who is in a room inside the Space but has
-    // not joined the Space room itself is not "in the Space" by this rule.
+    // The roster is the Space room's own joined and invited membership: one
+    // bounded request per Space per session, fired on selection. Deriving it
+    // from child rooms would depend on which rosters happened to be fetched
+    // and cost a request per room. Someone in a child room who has not
+    // joined the Space room is not counted.
 
-    /// True once a COMPLETE roster for `spaceId` has arrived. False while one
-    /// is unfetched, in flight, failed, or truncated by the snapshot cap — a
-    /// partial roster is not a smaller truth, it is a different one, and a
-    /// caller that filtered on it would hide conversations at random.
+    /// True once a complete roster for `spaceId` has arrived. A truncated or
+    /// failed roster is never "known": filtering on a partial one would hide
+    /// conversations at random.
     Q_INVOKABLE bool spaceRosterKnown(const QString &spaceId) const;
     /// Whether `userId` is a joined or invited member of the Space room.
     /// Always false for an unknown roster; ask spaceRosterKnown() first.
     Q_INVOKABLE bool spaceHasMember(const QString &spaceId,
                                     const QString &userId) const;
-    /// The one place the People scope is decided, so the two layouts cannot
-    /// drift: 1 = this DM belongs to the Space's people, 0 = it does not,
-    /// -1 = UNKNOWN (no complete roster, or the DM names no peer at all).
-    /// The two callers choose their own fail direction for -1, because they
-    /// need opposite ones: Classic REMOVES DMs from a list that shows them,
-    /// Channels ADDS them to a view that has none.
+    /// The single People-scope decision for both layouts: 1 = the DM belongs
+    /// to the Space's people, 0 = it does not, -1 = unknown. Callers pick
+    /// their own direction for -1 (Classic removes, Channels adds).
     int directScope(const QString &spaceId, const QStringList &peerIds) const;
     /// Requests the roster for `spaceId` once per Space per client. A no-op
     /// for a pseudo id, a non-Space, an already-known or in-flight roster, or
     /// a backend that cannot answer.
     void ensureSpaceRoster(const QString &spaceId);
-    /// Whether `spaceId` is a real Space room id rather than a pseudo rail
-    /// selection ("", "@orphans", "@people"). Every People-scope rule keys on
-    /// this: a pseudo selection is a view of everything and scopes nothing.
+    /// Whether `spaceId` is a real Space room id rather than a pseudo
+    /// selection. A pseudo selection scopes nothing.
     static bool isRealSpaceId(const QString &spaceId);
-    // Sends the real m.space.child state event through the backend. The
-    // authoritative hierarchy update arrives via sync (roomsChanged →
-    // rebuild); childAddFinished only reports the send outcome.
+    // Sends a real m.space.child state event. The hierarchy update arrives
+    // via sync; childAddFinished reports only the send outcome.
     Q_INVOKABLE void addRoomToSpace(const QString &spaceId,
                                     const QString &roomId);
     // MSC1772 removal (empty-via m.space.child); the room itself is never
     // left or deleted. Permission failures surface as ok=false.
     Q_INVOKABLE void removeRoomFromSpace(const QString &spaceId,
                                          const QString &roomId);
-    // 2026-08-19: toggles the `suggested` flag on an existing child (via
-    // list and order preserved by the backend; a non-child is refused).
+    // Toggles `suggested` on an existing child (via list and order kept; a
+    // non-child is refused).
     Q_INVOKABLE void setSpaceChildSuggested(const QString &spaceId,
                                             const QString &roomId,
                                             bool suggested);
@@ -322,67 +227,47 @@ Q_SIGNALS:
     void activeSpaceIdChanged();
     void spacesChanged();
     void directMessagesHaveOwnTileChanged();
-    // v0.7: outcome of one addRoomToSpace call (send result, not sync).
+    // Outcome of one addRoomToSpace call (send result, not sync).
     void childAddFinished(const QString &spaceId, const QString &roomId,
                           bool ok);
     void childRemoveFinished(const QString &spaceId, const QString &roomId,
                              bool ok);
     void childSuggestedFinished(const QString &spaceId, const QString &roomId,
                                 bool suggested, bool ok);
-    /// A complete roster for `spaceId` arrived (or was dropped on an account
-    /// change). Both room-list models re-filter on it; nothing else should
-    /// need it.
+    /// A complete roster for `spaceId` arrived, or was dropped on an account
+    /// change. Both room-list models re-filter on it.
     void spaceRosterChanged(const QString &spaceId);
     /// A lobby section of `spaceId` was folded or unfolded.
     void lobbyCollapseChanged(const QString &spaceId);
 
 private Q_SLOTS:
     void rebuild();
-    /// One member snapshot. Ignores every op this manager did not issue, and
-    /// records only a COMPLETE, successful, non-truncated roster.
+    /// One member snapshot. Ignores ops this manager did not issue; records
+    /// only a complete, successful, non-truncated roster.
     void onRoomMembersReceived(quint64 opId, const QString &roomId,
                                const QVariantMap &snapshot);
 
 private:
-    /// ONE rebuild per event-loop turn, however many rooms moved in it.
-    ///
-    /// `rebuild()` is a full `beginResetModel()`, an O(all rooms) copy out of
-    /// the client, and a transitive walk of every joined Space — and it was
-    /// wired DIRECTLY to `roomUpdated`, while `RoomListModel` and the tray
-    /// unread counter had both already coalesced the same signal. That was
-    /// survivable only because every existing emitter fired once per
-    /// event-loop turn for one room. The room-activity backstop is the first
-    /// BATCH emitter, so N moved rooms became N full model resets back to
-    /// back on the GUI thread — each one tearing down and rebuilding every
-    /// delegate in the Spaces rail. Coalescing here fixes it for every
-    /// producer rather than for the one that exposed it.
+    /// One rebuild per event-loop turn. rebuild() is a full model reset plus
+    /// an O(all rooms) walk, and batch emitters of roomUpdated would
+    /// otherwise trigger one reset per room.
     QTimer m_rebuildCoalesce;
 
-    /// Forgets every roster and every in-flight request, and announces the
-    /// ones that were known so a filter built on them re-opens.
+    /// Forgets every roster and in-flight request, announcing the known ones
+    /// so filters built on them re-open.
     void dropSpaceRosters();
     struct SpaceEntry {
         RoomInfo info;              // The Space room itself.
-        QStringList childRoomIds;   // TRANSITIVE member rooms, ordered.
-        // Direct joined child SPACES whose primary parent is this one, in
+        QStringList childRoomIds;   // Transitive member rooms, ordered.
+        // Direct joined child Spaces whose primary parent is this one, in
         // m.space.child order.
         QStringList childSpaceIds;
-        // How many of `childRoomIds` are DIRECT joined non-space children.
-        //
-        // Separate from `childRoomIds.size()` (transitive) and from
-        // `childSpaceIds.size()` (subspaces only) because the rail needs the
-        // third question neither of those answers: does expanding this tile
-        // reveal ANYTHING? A Space whose rooms all live in subspaces has a
-        // large transitive count and nothing of its own to show, and a Space
-        // full of rooms with no subspaces has zero child spaces — the rail's
-        // chevron keyed on the latter and so never appeared on the second
-        // kind, which is every Discord-style category.
+        // Direct joined non-Space children: whether expanding reveals
+        // anything, which neither count above answers.
         int directChildRoomCount = 0;
         int unreadTotal = 0;        // Sum of children's unread counts.
         int highlightTotal = 0;
-        // Real depth in the hierarchy: 0 for a root, +1 per level. Was
-        // hardcoded to "0 or 1" — a two-level approximation that made a
-        // three-deep tree render as a flat pair of indents.
+        // Depth in the hierarchy: 0 for a root, +1 per level.
         int level = 0;
         // The primary parent, empty for a root.
         QString parentSpaceId;
@@ -401,7 +286,7 @@ private:
     QList<SpaceEntry> m_spaces;             // Rows: [All rooms] [orphans?] [space1] [space2] ...
     QHash<QString, QSet<QString>> m_membership;    // spaceId → set(roomId)
     QSet<QString> m_allRoomIds;             // Every non-space room id.
-    // Rooms that are a DIRECT child of at least one joined Space.
+    // Rooms that are a direct child of at least one joined Space.
     QSet<QString> m_spaceChildRoomIds;
     QSet<QString> m_orphanRoomIds;          // Rooms not in any Space.
     int m_homeUnreadTotal = 0;
@@ -409,18 +294,17 @@ private:
     // Joined direct messages.
     int m_peopleUnreadTotal = 0;
     int m_peopleHighlightTotal = 0;
-    // Joined, non-space, non-DM rooms that no Space's view lists — exactly
-    // what the Channels Home and "Other rooms" views render.
+    // Joined non-Space, non-DM rooms no Space lists: what Channels' Home and
+    // "Other rooms" render.
     int m_unparentedUnreadTotal = 0;
     int m_unparentedHighlightTotal = 0;
     bool m_directMessagesHaveOwnTile = false;
-    // The Space rosters (see the People block above). `m_spaceMembers` holds
-    // only COMPLETE ones — a truncated or failed snapshot is never recorded,
-    // so "known" and "usable" are the same fact. `m_rosterRequested` is the
-    // once-per-Space-per-client guard; both are cleared with the client.
+    // Space rosters. `m_spaceMembers` holds only complete ones, so "known"
+    // means "usable". `m_rosterRequested` is the once-per-Space-per-client
+    // guard. Both are cleared with the client.
     QHash<QString, QSet<QString>> m_spaceMembers;
     QSet<QString> m_rosterRequested;
-    // v0.7: pending m.space.child sends, opId → (spaceId, roomId).
+    // Pending m.space.child sends, opId -> (spaceId, roomId).
     QHash<quint64, QPair<QString, QString>> m_pendingChildAdds;
     QHash<quint64, QPair<QString, QString>> m_pendingChildRemovals;
     QHash<quint64, QPair<QString, QString>> m_pendingChildSuggests;

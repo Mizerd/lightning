@@ -78,8 +78,7 @@ void PolicyListController::setClient(MatrixClient *client)
                 &PolicyListController::onSubscriptions);
         connect(m_client, &MatrixClient::policyCheckFinished, this,
                 &PolicyListController::onCheck);
-        // Policy subscriptions are ACCOUNT data. One account's lists must
-        // never be shown under the next.
+        // Subscriptions are account data; never show them under another account.
         connect(m_client, &MatrixClient::loggedOut, this,
                 &PolicyListController::onLoggedOut);
     }
@@ -96,8 +95,7 @@ void PolicyListController::openRoom(const QString &roomId)
 {
     if (!available() || roomId.isEmpty())
         return;
-    // The previous room's rules go NOW, not when the answer arrives: leaving
-    // them up would show one room's ban list under another room's name.
+    // Clear now so one room's rules never show under another's name.
     m_rules.clear();
     m_roomId = roomId;
     m_canWrite = false;
@@ -117,12 +115,8 @@ void PolicyListController::addRule(const QString &kind, const QString &entity,
         return;
     m_lastError.clear();
     m_writeOp = m_nextOpId++;
-    // `m.ban` is the only recommendation the spec defines, and inventing a
-    // second one here would publish advice no other tool reads.
-    // An empty state key: the bridge derives `rule:<entity>`, which is the
-    // convention every other tool writes and therefore the right key for a
-    // NEW rule — it is what lets those tools replace this rule rather than
-    // add a second one beside it.
+    // `m.ban` is the only recommendation the spec defines. An empty state key
+    // lets the bridge derive the conventional `rule:<entity>`.
     m_client->writePolicyRule(m_roomId, kind, entity.trimmed(), QString(),
                               QStringLiteral("m.ban"), reason, m_writeOp);
     Q_EMIT stateChanged();
@@ -136,17 +130,13 @@ void PolicyListController::removeRule(const QString &kind,
         return;
     if (entity.trimmed().isEmpty())
         return;
-    // The rule's OWN key is required for a removal. Without it the bridge
-    // would derive `rule:<entity>`, and a rule another tool wrote under a
-    // different key would survive a "removal" that reported success — §6's
-    // "never report a cleanup as successful when it removed nothing".
+    // Removal needs the rule's own key; a derived one could miss a rule
+    // another tool wrote and still report success.
     if (stateKey.isEmpty())
         return;
     m_lastError.clear();
     m_writeOp = m_nextOpId++;
-    // An EMPTY recommendation is the removal: the bridge writes an empty
-    // state event, which is the Mjolnir convention and the only removal
-    // Matrix state has short of a redaction.
+    // An empty recommendation writes an empty state event (Mjolnir's removal).
     m_client->writePolicyRule(m_roomId, kind, entity.trimmed(), stateKey,
                               QString(), QString(), m_writeOp);
     Q_EMIT stateChanged();
@@ -187,10 +177,7 @@ void PolicyListController::onRules(quint64 opId, bool ok, const QString &roomId,
                                    bool canWrite, bool truncated,
                                    const QVariantList &rules)
 {
-    // ONLY the latest read is applied. A slow read of one room must not
-    // overwrite a faster read of the room the user has since moved to — and
-    // the room id is checked as well as the op, because the two disagreeing
-    // is the shape of that bug.
+    // Only the latest read for the current room is applied.
     if (opId == 0 || opId != m_rulesOp)
         return;
     m_rulesOp = 0;
@@ -219,8 +206,7 @@ void PolicyListController::onWritten(quint64 opId, bool ok,
             : tr("That rule could not be published.");
     } else {
         m_lastError.clear();
-        // Nothing is applied optimistically: re-read, so the list shows what
-        // the room actually holds rather than what we asked for.
+        // Not optimistic: re-read what the room actually holds.
         if (!m_roomId.isEmpty()) {
             m_rulesOp = m_nextOpId++;
             m_client->fetchPolicyRules(m_roomId, m_rulesOp);

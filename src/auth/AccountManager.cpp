@@ -11,12 +11,8 @@ AccountManager::AccountManager(SettingsManager *settings, QObject *parent)
                 this, &AccountManager::accountsChanged);
         connect(m_settings, &SettingsManager::sessionChanged,
                 this, &AccountManager::activeUserIdChanged);
-        // The accounts list derives each row's isActive flag from the
-        // active account, so an active-account change must also refresh
-        // the LIST. Without this, the switcher kept pre-switch flags: the
-        // previously active account's row still claimed isActive and its
-        // click guard silently returned — the "cannot switch back to
-        // account A" trap.
+        // Each row's isActive derives from the active account, so the list
+        // must refresh on a switch too.
         connect(m_settings, &SettingsManager::sessionChanged,
                 this, &AccountManager::accountsChanged);
     }
@@ -52,24 +48,14 @@ QVariantList AccountManager::accounts() const
 
 bool AccountManager::needsSignIn(const QString &userId) const
 {
-    // Derived on demand, never persisted: an account row is only "needs sign
-    // in" when there is nothing left that could restore it. Live crypto or
-    // verification health for an INACTIVE account is deliberately not
-    // reported — the SDK only exposes that for the account it is currently
-    // attached to, so anything else here would be a stale guess.
+    // Crypto health of inactive accounts is not reported: the SDK only knows
+    // it for the attached account.
     if (!m_settings)
         return false;
     if (!m_settings->hasSavedAccount(userId))
         return true;
-    // An unreadable secret backend is NOT evidence that an account lost its
-    // sign-in. A locked keyring or an unavailable session bus makes every
-    // lookup come back empty, which would otherwise paint every row in the
-    // switcher as broken — the same "no readable token means no account"
-    // conflation that let the login path delete a real crypto store. When
-    // the backend cannot answer, report nothing rather than a wrong answer.
-    // Read FIRST, then ask whether the backend could answer: the unavailable
-    // signal reflects the outcome of the most recent read, so checking it
-    // beforehand would test a stale result.
+    // A locked keyring or missing session bus is not a lost sign-in. Read
+    // first: the unavailable flag reflects the most recent read.
     const bool tokenEmpty = m_settings->accessTokenFor(userId).isEmpty();
     if (secretBackendUnavailable())
         return false;
@@ -78,9 +64,7 @@ bool AccountManager::needsSignIn(const QString &userId) const
 
 bool AccountManager::secretBackendUnavailable() const
 {
-    // Delegates rather than re-deriving: the login path keys destructive
-    // decisions on the same question, and two copies of "can the secret
-    // backend answer?" would eventually disagree.
+    // Delegated so this and the login path's destructive checks agree.
     return !m_settings || m_settings->secretBackendUnavailable();
 }
 

@@ -2,21 +2,16 @@
 
 #include "storage/SecretStore.h"
 
-// Windows Credential Manager backend for SecretStore, using the Win32
-// Credential Management API (CredWriteW / CredReadW / CredDeleteW /
-// CredEnumerateW via advapi32). The blob is DPAPI-protected per Windows user
-// by the OS, so access tokens are no longer written to QSettings in plaintext.
+// Windows Credential Manager backend (CredWriteW / CredReadW / CredDeleteW /
+// CredEnumerateW via advapi32). Blobs are DPAPI-protected per Windows user.
 //
-// Only compiled with a real implementation when HAVE_WINCRED is defined
-// (CMakeLists.txt sets it for WIN32 targets and links advapi32). On every
-// other platform this compiles as a no-op stub reporting unavailable, so the
-// factory falls through to libsecret / the insecure fallback exactly as before.
+// Implemented only with HAVE_WINCRED (set for WIN32 in CMakeLists.txt); other
+// platforms get a stub that reports unavailable.
 //
-// Credentials are stored as CRED_TYPE_GENERIC under a deterministic target
-// name "Lightning/secret/<userId>/<key>" (the Matrix user id is a public
-// identifier; the token lives only in the encrypted CredentialBlob, never in
-// the target name and never in a log). CredEnumerateW's trailing-wildcard
-// filter powers clearAccountSecrets() for a single account on logout.
+// Credentials are CRED_TYPE_GENERIC with target "Lightning/secret/<userId>/
+// <key>". The user id is public; the token lives only in the encrypted blob,
+// never in the target name or a log. CredEnumerateW's trailing wildcard
+// drives clearAccountSecrets().
 class WinCredStore final : public SecretStore
 {
     Q_OBJECT

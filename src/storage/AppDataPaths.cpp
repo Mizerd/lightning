@@ -17,10 +17,8 @@ namespace matrix::app_data {
 
 namespace {
 
-// Keep these in sync with QCoreApplication::setOrganizationName /
-// setApplicationName in src/main.cpp. Changing either constant WILL
-// silently orphan the previous store — bump `legacyRoots()` when that
-// happens so users get their old crypto-store cleaned up on reset.
+// Must match setOrganizationName/setApplicationName in src/main.cpp. Changing
+// either orphans existing stores; add the old root to legacyRoots() if so.
 constexpr QLatin1String kOrganizationName{"MatrixClient"};
 constexpr QLatin1String kApplicationName{"matrix-client"};
 constexpr QLatin1String kRustStoreName{"matrix-rust-sdk-store"};
@@ -32,12 +30,9 @@ QString envValue(const char *name)
     return (v && *v) ? QString::fromLocal8Bit(v) : QString();
 }
 
-// Resolve the app-data base from the current process environment. The actual
-// selection logic lives in the pure resolveAppDataBase() so it can be tested
-// on any host; this only reads getenv and the portable decision (which is why
-// it stays usable before a QCoreApplication exists, as --reset-crypto-store
-// requires — lightning::portable resolves the executable directory from the
-// platform API, not from Qt).
+// The app-data base from the process environment and the portable decision.
+// Usable before QCoreApplication exists (--reset-crypto-store); the selection
+// logic is the pure resolveAppDataBase().
 QString appDataBase()
 {
 #ifdef Q_OS_WIN
@@ -47,14 +42,10 @@ QString appDataBase()
 #endif
     const QString portableRoot = lightning::portable::dataRoot();
     if (lightning::portable::isPortable() && portableRoot.isEmpty()) {
-        // Portable, but the executable directory could not be resolved. That
-        // is "no root", NEVER a fall-through to the environment: quietly
-        // resolving to %LOCALAPPDATA% here would put the account's SDK store
-        // outside the folder the user copies, which is the exact defect
-        // portable mode exists to fix. Every caller already treats an empty
-        // root as "no app data root available" and refuses rather than
-        // guessing, and main.cpp exits non-zero on this before any of them
-        // run.
+        // Portable, but the executable directory is unknown: no root, never a
+        // fallback to the environment, which would put the SDK store outside
+        // the portable folder. Callers refuse an empty root, and main.cpp exits
+        // first.
         return {};
     }
     return resolveAppDataBase(kWindows,
@@ -65,19 +56,15 @@ QString appDataBase()
                               portableRoot);
 }
 
-// Whether the roots below are portable ones. Deliberately just asks
-// lightning::portable — that module owns the caching, and a second cache here
-// is how two answers start to disagree.
+// Asks lightning::portable, which owns the cached decision.
 bool portableActive()
 {
     return lightning::portable::isPortable();
 }
 
-// ASCII-only case-insensitive equality. Qt::CaseInsensitive applies full
-// Unicode case folding, which can equate slugs built from distinct Matrix
-// localparts (Turkish dotless i, Kelvin sign, and friends). Store adoption
-// must only ever recognise the a-z/A-Z divergence the old code actually
-// produced, so the comparison is restricted to exactly that.
+// ASCII-only case-insensitive equality. Full Unicode folding could equate
+// distinct localparts (dotless i, Kelvin sign); store adoption must match only
+// the a-z/A-Z divergence older builds produced.
 bool equalsIgnoringAsciiCase(const QString &a, const QString &b)
 {
     if (a.size() != b.size())
@@ -163,8 +150,8 @@ bool validServerName(const QString &serverName)
         return false;
     }
 
-    // QUrl provides a strict host parser, including bracketed IPv6 and an
-    // optional port, without accepting traversal or path components.
+    // QUrl's strict host parser handles bracketed IPv6 and a port and rejects
+    // path components.
     const QUrl probe(QLatin1String("https://") + serverName);
     return probe.isValid() && !probe.host().isEmpty()
         && (probe.path().isEmpty() || probe.path() == QLatin1String("/"));
@@ -199,8 +186,7 @@ QString resolveAppDataBase(bool windows,
                            const QString &home,
                            const QString &portableRoot)
 {
-    // Beats every environment source — see the header for why this is not a
-    // fallback but an override.
+    // An override, not a fallback; see the header.
     if (!portableRoot.isEmpty())
         return portableRoot;
     if (!xdgDataHome.isEmpty())
@@ -236,8 +222,7 @@ QString cacheRoot()
 {
     if (portableActive())
         return lightning::portable::cacheDir();
-    // Identical to what the call sites computed inline before this existed, so
-    // an installed build's cache location does not move.
+    // Unchanged for installed builds.
     return QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
 }
 
@@ -363,8 +348,7 @@ DirRemoval removeAppDataDir(const QString &dir)
     if (!info.exists() && !info.isSymLink())
         return DirRemoval::Absent;
     if (info.isSymLink()) {
-        // Never recurse through a symlink — remove only the link itself,
-        // exactly like removeAccountRustState's own symlink handling.
+        // Never recurse through a symlink; remove only the link.
         return QFile::remove(dir) ? DirRemoval::Deleted : DirRemoval::Failed;
     }
     return QDir(dir).removeRecursively() ? DirRemoval::Deleted
@@ -396,10 +380,9 @@ bool isSafeAccountIdentity(const AccountIdentity &identity)
     const QString session = QDir::cleanPath(
         QFileInfo(identity.rustSmokeSessionPath).absoluteFilePath());
     const QFileInfo rootInfo(root);
-    // The paths are built from the RECORDED store slug, which may legitimately
-    // differ from the canonical identity slug (see AccountIdentity::storeSlug).
-    // Both are still validated: the identity slug must match the user id, and
-    // the store slug must be a safe direct child of primaryRoot().
+    // Paths use the recorded store slug, which may differ from the identity
+    // slug. Both are validated: the identity slug against the user id, the
+    // store slug as a safe direct child of primaryRoot().
     const QString storeSlug = identity.effectiveStoreSlug();
 
     if (root.isEmpty() || !isSafePathComponent(identity.slug)
@@ -438,20 +421,15 @@ RemovalSummary removeAccountRustState(const AccountIdentity &identity)
     }
 
     removeFileOrLink(identity.rustSmokeSessionPath, &summary);
-    // Derived from the identity's own (possibly recorded) session path, NOT
-    // re-derived from the user id: with a divergent store slug that pointed
-    // at a file in a different account's directory, and deleting it counted
-    // as `deleted` — which feeds removedAnything() and would let a reset
-    // that touched only a foreign sidecar report itself as completed.
+    // From the identity's own recorded session path, not re-derived from the
+    // user id: with a divergent store slug that would delete another account's
+    // file and report the reset as completed.
     removeFileOrLink(identity.rustSmokeSessionPath + QLatin1String(".tmp"),
                      &summary);
 
-    // Quarantined stores are SIBLINGS of rustStorePath, so removing only that
-    // name leaves them behind. Each is a complete crypto store — Megolm
-    // sessions and the device's Olm identity — so a sign-out reporting
-    // success while they survived is exactly the data-at-rest defect this
-    // pass added a rule against. Every repair leaves one, so without this
-    // they also accumulate without bound.
+    // Quarantined stores are siblings of rustStorePath, each a complete crypto
+    // store. Remove them too, or sign-out leaves key material behind (and
+    // repairs accumulate them).
     const QFileInfo storePath(identity.rustStorePath);
     QDir accountDir(storePath.absolutePath());
     const QString quarantinePattern =
@@ -481,8 +459,7 @@ RemovalSummary quarantineAccountRustState(const AccountIdentity &identity)
     if (!storeInfo.exists() && !storeInfo.isSymLink()) {
         ++summary.missing;
     } else if (storeInfo.isSymLink()) {
-        // A symlink is not the store, it is a pointer at one. Removing the
-        // link destroys nothing.
+        // A symlink only points at a store; removing it destroys nothing.
         removeFileOrLink(identity.rustStorePath, &summary);
     } else if (storeInfo.isDir()) {
         if (quarantineRustStore(identity).isEmpty())
@@ -493,8 +470,7 @@ RemovalSummary quarantineAccountRustState(const AccountIdentity &identity)
         ++summary.failed;
     }
 
-    // Sidecars carry an access token, not room keys; a repair should not
-    // leave a stale credential behind.
+    // Sidecars carry an access token, not keys; do not leave it behind.
     removeFileOrLink(identity.rustSmokeSessionPath, &summary);
     removeFileOrLink(identity.rustSmokeSessionPath + QLatin1String(".tmp"),
                      &summary);
@@ -509,34 +485,23 @@ QString quarantineRustStore(const AccountIdentity &identity)
     if (!storeInfo.exists() || !storeInfo.isDir() || storeInfo.isSymLink())
         return {};
 
-    // A timestamped sibling inside the SAME account directory: still scoped by
-    // isSafeAccountIdentity, still trivially findable by the user, and it
-    // survives a wrong verdict. Deleting a store that turns out to have been
-    // someone's only copy of their room keys is not recoverable; this is.
+    // A timestamped sibling in the same account directory: still scoped, easy
+    // to find, and recoverable if the verdict was wrong.
     const QString stamp = QDateTime::currentDateTimeUtc()
                               .toString(QStringLiteral("yyyyMMdd-hhmmsszzz"));
     const QString target = identity.rustStorePath
         + QLatin1String(".orphaned-") + stamp;
     if (QFileInfo::exists(target))
         return {};
-    // Same directory, so this is one atomic rename(2) — on POSIX.
+    // Same directory: one atomic rename on POSIX.
     if (QDir().rename(identity.rustStorePath, target))
         return target;
 
-    // Windows refuses to rename a DIRECTORY while any file inside it is
-    // held, and a store directory is exactly that: matrix-sdk keeps the four
-    // sqlite files plus their -wal/-shm open, and an earlier login attempt in
-    // this same process may still own the handles. So the atomic rename fails
-    // and the user is dead-ended on "could not be moved aside. Check
-    // filesystem permissions" — which is a lie, because permissions were
-    // never the problem.
-    //
-    // Renaming the FILES is permitted on Windows (the same asymmetry
-    // AtomicReplace::moveDirectoryEntries exists for), so move the entries
-    // into a fresh sibling and leave the original directory standing empty.
-    // The caller re-checks existence, so an empty directory left behind must
-    // still count as "moved" — and it does, because a store with no sqlite
-    // files in it is not a store the SDK will adopt.
+    // Windows refuses to rename a directory while files in it are open, and
+    // matrix-sdk holds its sqlite files open. Renaming the files is allowed (as
+    // in AtomicReplace::moveDirectoryEntries), so move the entries into a fresh
+    // sibling. An empty original directory is no longer a store the SDK adopts,
+    // so it counts as moved.
     QDir parent(QFileInfo(identity.rustStorePath).absolutePath());
     if (!parent.mkpath(QFileInfo(target).fileName()))
         return {};
@@ -547,15 +512,12 @@ QString quarantineRustStore(const AccountIdentity &identity)
     for (const QString &name : names) {
         if (!QDir().rename(source.absoluteFilePath(name),
                            destination.absoluteFilePath(name))) {
-            // Partial move. Report failure rather than a half-quarantined
-            // store: the caller's honest error is better than a store split
-            // across two directories, and nothing has been DELETED either
-            // way.
+            // Partial move: fail rather than leave the store split across two
+            // directories. Nothing was deleted.
             return {};
         }
     }
-    // The now-empty original is removed only if it is genuinely empty, so a
-    // file that appeared mid-move is never destroyed.
+    // Removed only if still empty, so a file that appeared mid-move survives.
     parent.rmdir(QFileInfo(identity.rustStorePath).fileName());
     return target;
 }
@@ -563,19 +525,15 @@ QString quarantineRustStore(const AccountIdentity &identity)
 QStringList legacyRoots()
 {
     QStringList out;
-    // A portable tree has no history: it was created by this feature, so no
-    // earlier build ever wrote into it. Returning the "no org prefix" variant
-    // here would invent <dataRoot>/matrix-client, a directory that has never
-    // existed, and hand it to --reset-crypto-store's recursive scan.
+    // A portable tree has no legacy layout; do not hand a never-existing
+    // directory to --reset-crypto-store's scan.
     if (portableActive())
         return out;
     const QString base = appDataBase();
     if (base.isEmpty()) return out;
 
-    // v0.5.0-prep+3 and earlier resolved --reset-crypto-store to
-    // <XDG_DATA_HOME>/<applicationName>/, missing the OrganizationName
-    // segment. Interactive builds may have written stores under that
-    // path via ad-hoc XDG_DATA_HOME overrides or older code paths.
+    // Very old builds resolved --reset-crypto-store to
+    // <XDG_DATA_HOME>/<applicationName>/ without the organization segment.
     const QString legacyDirect = base + QLatin1Char('/') + kApplicationName;
     const QString primary = primaryRoot();
     if (!legacyDirect.isEmpty() && legacyDirect != primary)
@@ -610,21 +568,15 @@ QStringList findCaseVariantStoreSlugs(const AccountIdentity &identity)
     const auto accounts = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot,
                                         QDir::Name);
     for (const QString &slug : accounts) {
-        // Skip the directory the caller is ALREADY pointed at — that is the
-        // location being repaired, not a candidate for repairing it. Compare
-        // against the effective store slug rather than the canonical one: an
-        // identity can be bound to a recorded store, and excluding its
-        // canonical slug instead would exclude the divergent directory the
-        // caller is trying to find.
+        // Skip the directory the caller already uses (its effective store slug,
+        // not the canonical one, which may be the divergent directory being
+        // sought).
         if (slug == identity.effectiveStoreSlug())
             continue;
-        // NOTE: this comparison is deliberately case-insensitive while the
-        // QSettings account registry is NOT, on Linux. QSettings keys and
-        // groups are case-sensitive with the INI/conf backend but
-        // case-INSENSITIVE on Windows and macOS, so on those platforms the
-        // two slugs alias into one record instead of forming two. Either way
-        // the filesystem here keeps them apart, which is why the recovery
-        // set is computed from the directory listing and not from settings.
+        // Case-insensitive on purpose. QSettings keys are case-sensitive on
+        // Linux but not on Windows/macOS; the filesystem keeps the directories
+        // apart either way, so the recovery set comes from the listing, not
+        // from settings.
         if (!equalsIgnoringAsciiCase(slug, identity.slug))
             continue;
         if (!isSafePathComponent(slug))
@@ -649,8 +601,8 @@ QString delegatedHomeserverStoreSlug(const AccountIdentity &identity)
         return {};
     const QString localpart = userId.mid(1, colon - 1);
 
-    // Exactly the pairing resolveAccountIdentity() performs for a bare
-    // localpart: the URL host (with port), lowercased.
+    // The same pairing resolveAccountIdentity() uses for a bare localpart: the
+    // URL host (with port), lowercased.
     const QString urlServer = serverNameForUrl(identity.homeserver);
     if (urlServer.isEmpty() || !validServerName(urlServer)
         || !validLocalpart(localpart)) {
@@ -658,7 +610,7 @@ QString delegatedHomeserverStoreSlug(const AccountIdentity &identity)
     }
     const QString slug = safeUserSlug(
         QStringLiteral("@%1:%2").arg(localpart, urlServer));
-    // No delegation in play — the URL host already is the server name.
+    // No delegation: the URL host is the server name.
     return slug == identity.slug ? QString{} : slug;
 }
 
@@ -671,7 +623,7 @@ bool bindStoreSlug(AccountIdentity *identity, const QString &storeSlug)
     if (root.isEmpty())
         return false;
 
-    // Empty means "drop the recording and go back to the canonical layout".
+    // Empty drops the recording and returns to the canonical layout.
     const QString slug = storeSlug.trimmed().isEmpty() ? identity->slug
                                                        : storeSlug.trimmed();
     if (!isSafePathComponent(slug))
@@ -684,8 +636,7 @@ bool bindStoreSlug(AccountIdentity *identity, const QString &storeSlug)
         probe.accountRoot + QLatin1Char('/') + kRustStoreName;
     probe.rustSmokeSessionPath =
         probe.accountRoot + QLatin1Char('/') + kSmokeSessionName;
-    // Refuse rather than half-apply: an identity that failed validation must
-    // never end up with paths pointing outside the per-account layout.
+    // Refuse rather than half-apply; paths must stay inside the account layout.
     if (!isSafeAccountIdentity(probe))
         return false;
 

@@ -13,50 +13,35 @@ class SettingsManager;
 // How the Spaces rail is arranged: the order the user dragged their Spaces
 // into, and the folders they grouped them in.
 //
-// This is DEVICE-LOCAL and deliberately so. Matrix has no standard for
-// ordering or grouping Spaces — no state event, no account-data key that any
-// other client reads — so anything stored on the server would be a private
-// invention only Lightning could see, which is exactly what a client should
-// not put in someone's account. Ordering is a view preference, like a window
-// width; it stays here, and every other client keeps showing its own order.
+// Device-local by design: Matrix has no standard for ordering or grouping
+// Spaces, so storing it on the server would be a private invention in the
+// user's account. Other clients keep their own order.
 //
-// Everything is REFERENTIAL: a folder holds space ids, never a copy of a
-// Space. A Space that has been left simply stops appearing, and an id in the
-// stored layout that no longer resolves is ignored rather than cleaned up
-// eagerly — the account may just not have synced yet.
+// Everything is referential: a folder holds space ids, not copies. An id
+// that no longer resolves is ignored rather than cleaned up eagerly, since
+// the account may not have synced yet.
 class RailLayoutStore : public QObject
 {
     Q_OBJECT
 
     // [{ id, name, collapsed, spaceIds }] in rail order.
     Q_PROPERTY(QVariantList folders READ folders NOTIFY layoutChanged)
-    // The Spaces whose subspace hierarchy is expanded in the rail. Persisted,
-    // as Element persists its own Space-panel expansion: an expansion is a
-    // statement about how you want to navigate, not a transient glance, and
-    // losing it on every restart is what made the rail feel flat.
+    // Spaces whose subspace hierarchy is expanded. Persisted, like Element's
+    // Space-panel expansion.
     Q_PROPERTY(QStringList expandedSpaceIds READ expandedSpaceIds
                    NOTIFY layoutChanged)
-    // Explicit top-level order. Ids not listed sort after it, in the order the
-    // model supplies them, so a newly joined Space appears at the bottom
-    // rather than jumping into the middle of a hand-made arrangement.
+    // Explicit top-level order. Unlisted ids follow in model order, so a
+    // newly joined Space appears at the bottom.
     Q_PROPERTY(QStringList order READ order NOTIFY layoutChanged)
 
 public:
     explicit RailLayoutStore(SettingsManager *settings,
                              QObject *parent = nullptr);
 
-    // The arrangement is ACCOUNT-SCOPED storage, so a sign-out or an account
-    // switch must drop the in-memory copy and read whoever is next. Without
-    // this the cache (m_loaded/m_cache) is loaded once per process and one
-    // account's Space ids and folder names stay on screen under the next
-    // account — the exact rule SpaceChannelModel already follows for its
-    // collapse set. detachSession() (the switch) emits loggedOut too, so the
-    // invalidation is idempotent rather than duplicated.
-    //
-    // Optional: the constructor already listens to SettingsManager's
-    // sessionChanged, which is the connection that gets the FINAL state
-    // right (see the .cpp). This one makes the drop happen at the moment the
-    // session ends rather than one signal later.
+    // The arrangement is account-scoped, so sign-out and account switch must
+    // drop the in-memory cache. Optional: the constructor already listens to
+    // SettingsManager::sessionChanged; this makes the drop happen as soon as
+    // the session ends. Invalidation is idempotent.
     void setClient(MatrixClient *client);
 
     QVariantList folders() const;
@@ -65,28 +50,21 @@ public:
     Q_INVOKABLE bool spaceExpanded(const QString &spaceId) const;
     Q_INVOKABLE void setSpaceExpanded(const QString &spaceId, bool expanded);
     Q_INVOKABLE void toggleSpaceExpanded(const QString &spaceId);
-    // The members of one folder, in its own order. Empty for an unknown id —
-    // which is not the same answer as "an empty folder", so callers that need
-    // to tell them apart ask `folders()`.
+    // The members of one folder, in order. Empty for an unknown id, which
+    // folders() can distinguish from an empty folder.
     Q_INVOKABLE QStringList folderMembers(const QString &folderId) const;
 
     // Creates a folder and returns its id, or "" when the limit is reached.
     Q_INVOKABLE QString createFolder(const QString &name);
-    // The drag gesture's folder creation: one Space dropped onto another.
-    // Atomic on purpose — a create, two files and a reposition as four
-    // separate writes is four saves, four layoutChanged signals and four
-    // chances for the rail to re-arrange under the pointer mid-gesture.
-    // The folder takes `atIndex` in the top-level order (clamped; -1 appends)
-    // and `spaceIds` become its members in the given order. Returns the new
-    // folder id, or "" when the folder limit is reached or nothing valid was
-    // supplied.
+    // One Space dropped onto another: creates the folder at `atIndex` in the
+    // top-level order (clamped; -1 appends) with `spaceIds` as members, in a
+    // single write so the rail does not rearrange mid-gesture. Returns the
+    // new id, or "" when the limit is reached or nothing valid was supplied.
     Q_INVOKABLE QString createFolderWithSpaces(const QStringList &spaceIds,
                                                int atIndex,
                                                const QString &name);
-    // Files `spaceId` into `folderId` AT a position among its members
-    // (clamped; -1 appends). setSpaceFolder always appends, which is right
-    // for the context menu and wrong for a drag that landed between two
-    // members.
+    // Files `spaceId` into `folderId` at a member position (clamped; -1
+    // appends), for a drag that lands between members.
     Q_INVOKABLE void moveSpaceToFolder(const QString &spaceId,
                                        const QString &folderId, int index);
     Q_INVOKABLE void renameFolder(const QString &folderId, const QString &name);
@@ -98,78 +76,53 @@ public:
     // folder id. A Space is in at most one folder.
     Q_INVOKABLE void setSpaceFolder(const QString &spaceId,
                                     const QString &folderId);
-    // Reorders one entry within the TOP LEVEL. `entryId` is either a space id
-    // or a folder id — the rail interleaves both, so dragging has to move
-    // either. `toIndex` is clamped.
+    // Reorders one top-level entry (space id or folder id). `toIndex` is
+    // clamped.
     Q_INVOKABLE void moveEntry(const QString &entryId, int toIndex);
-    // Replaces the top-level order outright with the ids the rail is showing.
-    // The rail already knows the arrangement it is displaying, and pushing
-    // the whole list is what makes a drop land exactly where it was dropped:
-    // positioning against `order` alone is guesswork while entries that have
-    // never been dragged are still implicit. Pseudo ids and duplicates are
-    // dropped; ids belonging to a folder are ignored.
+    // Replaces the top-level order with the ids the rail is showing, so a
+    // drop lands exactly where it was made. Pseudo ids and duplicates are
+    // dropped; folder members are ignored.
     Q_INVOKABLE void setTopLevelOrder(const QStringList &entryIds);
 
-    /// `known` in the user's order: the stored arrangement first, then
-    /// anything it does not mention, in the order Matrix gave it. Identical
-    /// policy to `arrange()` at the top level — a Space that appears after
-    /// the user last dragged goes to the END of its run rather than jumping
-    /// into the middle of a hand-made arrangement.
+    /// `known` in the user's order: the stored arrangement first, then the
+    /// rest in Matrix's order, so a new Space goes to the end of its run.
     Q_INVOKABLE QStringList orderedChildren(const QString &parentId,
                                             const QStringList &known) const;
-    /// Records the order `parentId`'s subspaces are shown in. Ids not in
-    /// `known` at read time are simply never returned, so a child that leaves
-    /// the Space is ignored rather than cleaned up eagerly — the same rule
-    /// folder members follow, and for the same reason: a hierarchy that has
-    /// not finished loading is not a hierarchy that has changed.
+    /// Records the order of `parentId`'s subspaces. Ids no longer in `known`
+    /// are simply not returned, so a departed child is ignored rather than
+    /// cleaned up eagerly: an unfinished hierarchy load is not a change.
     Q_INVOKABLE void setChildOrder(const QString &parentId,
                                    const QStringList &childIds);
 
-    /// The same policy for a Space's revealed ROOMS. Anything the stored
-    /// arrangement does not mention keeps the order it arrived in — which for
-    /// rooms is most-recently-active first, so a Space nobody has arranged
-    /// behaves exactly as it always did.
+    /// The same policy for a Space's revealed rooms. Unarranged rooms keep
+    /// their arrival order (most recently active first).
     Q_INVOKABLE QStringList orderedRooms(const QString &spaceId,
                                          const QStringList &known) const;
     Q_INVOKABLE void setRoomOrder(const QString &spaceId,
                                   const QStringList &roomIds);
 
-    // ONE atomic write of the whole arrangement, which is what a finished
-    // drag actually produces: the rail knows every top-level entry it is
-    // showing and every member of every OPEN folder, so committing that
-    // picture in one call is both simpler and safer than a sequence of
-    // unfile / file / reorder writes whose intermediate states are each
-    // published to the rail.
+    // One atomic write of a finished drag's whole arrangement, instead of a
+    // sequence of writes whose intermediate states each reach the rail.
     //
-    // `topLevel` is the ordered list of top-level entry ids (space ids and
-    // folder ids). `folderMembers` maps folder id -> ordered member space
-    // ids, and must name ONLY folders whose members the caller actually
-    // rendered: a folder left out keeps its members (minus anything the call
-    // placed elsewhere), so a COLLAPSED folder cannot be emptied by a drag
-    // that never showed its contents.
+    // `topLevel` is the ordered top-level ids (spaces and folders).
+    // `folderMembers` maps folder id -> ordered member ids and must name only
+    // folders the caller rendered: an omitted folder keeps its members (minus
+    // any placed elsewhere), so a collapsed folder cannot be emptied.
     //
-    // Pseudo ids, unknown folder ids and duplicates are dropped. A space
-    // named as a folder member is removed from the top level even if
-    // `topLevel` also lists it, because a Space is in at most one place.
+    // Pseudo ids, unknown folder ids and duplicates are dropped. A Space
+    // named as a folder member is removed from the top level.
     Q_INVOKABLE void applyArrangement(const QStringList &topLevel,
                                       const QVariantMap &folderMembers);
 
-    // Every Space id in rail order — the user's order, with each folder's
-    // members inline where the folder sits, whether or not it is collapsed.
-    //
-    // This is the Channels layout's Space order. `arrange()` cannot answer
-    // it: that is a PRESENTATION list and deliberately hides a collapsed
-    // folder's members, which for an ordering question would silently drop
-    // Spaces.
+    // Every Space id in rail order, with each folder's members inline whether
+    // or not it is collapsed. The Channels layout's Space order; arrange()
+    // hides collapsed members and cannot answer this.
     Q_INVOKABLE QStringList orderedSpaceIds(const QVariantList &spaces) const;
 
-    // Presentation. Takes the model's Spaces (each a map carrying at least
-    // `spaceId`) and returns the rail's rows: pseudo rows first, exactly as
-    // given, then folders and Spaces in the user's order, with a folder's
-    // members following it when it is open.
-    //
-    // Pure, so the arrangement is testable without a rail, a model or a
-    // homeserver.
+    // Presentation: takes the model's Spaces (each carrying `spaceId`) and
+    // returns the rail's rows: pseudo rows first as given, then folders and
+    // Spaces in the user's order, with open folders' members after them.
+    // Pure, so it is testable without a rail or homeserver.
     Q_INVOKABLE QVariantList arrange(const QVariantList &spaces) const;
 
     Q_INVOKABLE QString folderOf(const QString &spaceId) const;
@@ -188,10 +141,8 @@ private:
         bool collapsed = false;
         QStringList spaceIds;
 
-        // Needed so a mutation can compare the whole layout it produced
-        // against the one it loaded and decline to write when nothing moved.
-        // A no-op save is a QSettings write plus a layoutChanged the rail
-        // rebuilds itself for.
+        // Lets a mutation skip the write (and layoutChanged) when nothing
+        // changed.
         bool operator==(const Folder &other) const
         {
             return id == other.id && name == other.name
@@ -205,32 +156,20 @@ private:
         QList<Folder> folders;
         QStringList order;   // top-level entry ids: space ids and folder ids
         QStringList expanded;   // space ids whose subspaces are revealed
-        /// Parent space id -> the order its SUBSPACES are shown in.
-        ///
-        /// Reported as "i can't rearrange subspaces and rooms in them as I can
-        /// with normal spaces, should behave the same", and the answer is that
-        /// they now do — by exactly the mechanism the top level already uses.
-        /// This is a LOCAL preference like `order` is: Matrix has a per-child
-        /// `order` field in `m.space.child`, but writing it needs power to
-        /// send state in someone else's Space and would reorder the Space for
-        /// every member. The rail has never claimed to be anyone else's view.
+        /// Parent space id -> local order of its subspaces. Local like
+        /// `order`: writing m.space.child `order` would need power in
+        /// someone else's Space and reorder it for every member.
         QHash<QString, QStringList> childOrder;
-        /// Space id -> the order its REVEALED ROOMS are shown in.
-        ///
-        /// Separate from `childOrder` because they are two lists under one
-        /// parent: a Space's subspaces are rail ROWS and its rooms are drawn
-        /// inside the owning row. Reported straight after the subspace work —
-        /// "I can't rearrange rooms inside subspaces, subspaces and spaces
-        /// work okay" — which is the same request one level down.
+        /// Space id -> order of its revealed rooms. Separate from
+        /// `childOrder`: subspaces are rail rows, rooms are drawn inside the
+        /// owning row.
         QHash<QString, QStringList> roomOrder;
     };
 
     const Layout &load() const;
     void save(const Layout &layout);
-    /// Removes every folder this write EMPTIED — one whose `spaceIds` is now
-    /// empty and was not empty in the layout that was loaded. Never touches a
-    /// folder that was created empty, and never judges emptiness by what the
-    /// rail managed to render (see the implementation for why both matter).
+    /// Removes every folder this write emptied (empty now, non-empty when
+    /// loaded). Never removes a folder created empty (see the .cpp).
     Layout dropEmptiedFolders(const Layout &layout) const;
     static QString makeFolderId(const Layout &layout);
 

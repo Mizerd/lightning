@@ -10,8 +10,6 @@
 namespace {
 Q_LOGGING_CATEGORY(lcOAuthCb, "matrix.oauth")
 
-// The path the redirect URI advertises. A request for anything else is not our
-// callback (browsers routinely ask for /favicon.ico on a rendered page).
 constexpr auto kCallbackPath = "/callback";
 } // namespace
 
@@ -20,8 +18,7 @@ OAuthCallbackServer::OAuthCallbackServer(QObject *parent)
 {
     m_timer.setSingleShot(true);
     connect(&m_timer, &QTimer::timeout, this, [this] {
-        // Resolve the wait rather than leaving the UI stuck. stop() first so a
-        // callback arriving during signal delivery cannot also be accepted.
+        // stop() first so a callback arriving during delivery is refused.
         stop();
         Q_EMIT timedOut();
     });
@@ -38,10 +35,8 @@ bool OAuthCallbackServer::listen()
         return m_server->isListening();
 
     m_server = new QTcpServer(this);
-    // Loopback ONLY. QHostAddress::LocalHost is 127.0.0.1: the endpoint is
-    // unreachable from any other host, which is what makes an unauthenticated
-    // HTTP listener acceptable here at all. Port 0 asks the OS for an
-    // ephemeral port.
+    // Loopback only: an unauthenticated HTTP listener must not be reachable
+    // from another host. Port 0 takes an ephemeral port.
     if (!m_server->listen(QHostAddress::LocalHost, 0)) {
         qCWarning(lcOAuthCb) << "could not bind a loopback port for the sign-in callback";
         delete m_server;
@@ -49,22 +44,12 @@ bool OAuthCallbackServer::listen()
         return false;
     }
 
-    // A PER-ATTEMPT SECRET IN THE PATH, because the SSO flow has no state of
-    // its own to bind the answer to.
-    //
-    // The OAuth branch is fine: the whole redirect URL goes to the SDK, which
-    // validates the `state` it generated. The legacy m.login.sso branch has
-    // no equivalent — the homeserver echoes back only `loginToken`, and this
-    // endpoint used to accept whatever landed on a FIXED path for the whole
-    // five-minute window. Any other local process (and, depending on the
-    // browser's private-network rules, a web page sweeping the ephemeral port
-    // range) could drop an attacker's loginToken here and sign the user into
-    // the ATTACKER'S account — after which everything they typed would go to
-    // an identity someone else controls. Classic login CSRF.
-    //
-    // 128 bits from the system CSPRNG, in the path rather than a query
-    // parameter so it survives a homeserver that reflects only the redirect
-    // URI it was given.
+    // Per-attempt secret in the path. OAuth is protected by the SDK's `state`
+    // check, but m.login.sso returns only `loginToken`, so without this any
+    // local process or port-sweeping web page could deliver an attacker's
+    // token and sign the user into the attacker's account (login CSRF).
+    // It lives in the path, not the query, so it survives a homeserver that
+    // reflects only the redirect URI.
     m_callbackNonce = QString::fromLatin1(
         QByteArray::number(QRandomGenerator::system()->generate64(), 16)
         + QByteArray::number(QRandomGenerator::system()->generate64(), 16));
@@ -75,8 +60,7 @@ bool OAuthCallbackServer::listen()
                         .arg(m_callbackPath);
     connect(m_server, &QTcpServer::newConnection, this, &OAuthCallbackServer::onConnection);
     m_timer.start(m_timeout);
-    // The port is not a secret, and it is useful when diagnosing a browser
-    // that never comes back. The callback CONTENTS are never logged.
+    // The port is not secret; callback contents are never logged.
     qCInfo(lcOAuthCb) << "sign-in callback listening on loopback port"
                       << m_server->serverPort();
     return true;
@@ -106,8 +90,7 @@ void OAuthCallbackServer::stop()
         m_server = nullptr;
     }
     m_redirectUri.clear();
-    // The secret dies with the attempt: a stale one would let a late answer
-    // from an abandoned sign-in be accepted by the next.
+    // A stale secret would let an abandoned sign-in's late answer be accepted.
     m_callbackPath.clear();
     m_callbackNonce.clear();
 }
@@ -117,8 +100,7 @@ void OAuthCallbackServer::onConnection()
     if (!m_server)
         return;
     while (QTcpSocket *socket = m_server->nextPendingConnection()) {
-        // Single-shot: once a callback has been accepted, refuse everything
-        // else outright instead of parsing it.
+        // Single-shot: refuse everything once a callback is in progress.
         if (m_consumed || m_active) {
             socket->disconnectFromHost();
             socket->deleteLater();
@@ -136,15 +118,14 @@ void OAuthCallbackServer::onReadyRead(QTcpSocket *socket)
         return;
 
     if (socket->bytesAvailable() > kMaxRequestBytes) {
-        // Not a redirect callback. Drop it without reading it into memory.
+        // Not a redirect callback; drop it unread.
         socket->disconnectFromHost();
         if (m_active == socket)
             m_active = nullptr;
         return;
     }
 
-    // We only need the request line: "GET /callback?... HTTP/1.1". Wait until
-    // a full line is available rather than guessing at a partial read.
+    // Only the request line is needed; wait until it is complete.
     if (!socket->canReadLine())
         return;
 
@@ -152,13 +133,8 @@ void OAuthCallbackServer::onReadyRead(QTcpSocket *socket)
     const QList<QByteArray> parts = line.simplified().split(' ');
     if (parts.size() < 2 || parts.at(0) != "GET") {
         respond(socket, tr("Sign-in"), tr("This page is not part of the sign-in."));
-        // respond() disconnects, and the disconnected->deleteLater connection
-        // then destroys this socket. Releasing m_active is therefore
-        // mandatory: leaving it set would both dangle (stop() would touch a
-        // freed socket) and permanently block the real callback, because
-        // onConnection() refuses every later connection while m_active is
-        // non-null. The single shot is NOT consumed here — this was not our
-        // callback.
+        // respond() disconnects and the socket deletes itself. Release it so
+        // the real callback is not refused; the single shot is not consumed.
         if (m_active == socket)
             m_active = nullptr;
         return;
@@ -169,18 +145,12 @@ void OAuthCallbackServer::onReadyRead(QTcpSocket *socket)
 
 void OAuthCallbackServer::finishWithSocket(QTcpSocket *socket, const QString &requestTarget)
 {
-    // Parse only enough to route: is this the callback, and did the server
-    // report an error rather than a code? The code and state are NOT read
-    // here — the whole URL goes to the SDK, which owns their validation.
+    // Parse only enough to route; the SDK validates code and state.
     const QUrl target(requestTarget, QUrl::StrictMode);
-    // The path must carry this attempt's secret. A request on the bare
-    // callback path is answered like any other stray request and does NOT
-    // consume the single shot.
+    // The path must carry this attempt's secret.
     if (!target.isValid() || m_callbackPath.isEmpty()
         || target.path() != m_callbackPath) {
-        // A favicon or stray request. Answer it and keep waiting for the real
-        // callback; do NOT consume the single shot. Clearing m_active is what
-        // makes "keep waiting" actually true — see onReadyRead.
+        // A favicon or stray request: answer it and keep waiting.
         respond(socket, tr("Sign-in"), tr("This page is not part of the sign-in."));
         if (m_active == socket)
             m_active = nullptr;
@@ -197,19 +167,14 @@ void OAuthCallbackServer::finishWithSocket(QTcpSocket *socket, const QString &re
         respond(socket,
                 tr("Sign-in cancelled"),
                 tr("You can close this window and return to Lightning."));
-        // The OAuth error code is a fixed protocol token (access_denied,
-        // invalid_request, …), not user data, so it is safe to pass on. The
-        // human-readable error_description is deliberately dropped: it is
-        // attacker-influenceable text from a remote server.
+        // The error code is a fixed protocol token. error_description is
+        // dropped: it is attacker-influenced remote text.
         Q_EMIT callbackFailed(error);
         stop();
         return;
     }
 
-    // The credential parameter differs per flow and nothing else does. An
-    // empty value counts as absent: a server that redirects with "loginToken="
-    // has not delivered a token, and passing "" on would fail deeper in with a
-    // worse message.
+    // An empty credential counts as absent.
     const QString required = m_flow == Flow::Sso ? QStringLiteral("loginToken")
                                                  : QStringLiteral("code");
     const QString credential = query.queryItemValue(required);
@@ -226,22 +191,15 @@ void OAuthCallbackServer::finishWithSocket(QTcpSocket *socket, const QString &re
             tr("Signed in"),
             tr("You can close this window and return to Lightning."));
 
-    // What the backend needs, per flow. Both are credentials: never logged,
-    // never shown, never stored here.
-    //
-    //   OAuth  the absolute redirect URL, reassembled from the endpoint we
-    //          advertised and the target the browser asked for, because
-    //          finish_login() parses the whole thing and validates `state`;
-    //   SSO    the login token alone, because login_token() takes the token.
-    //          Nothing else from the callback is forwarded.
+    // OAuth: the absolute redirect URL, which finish_login() parses and
+    // validates. SSO: the login token alone. Both are credentials.
     const QString payload =
         m_flow == Flow::Sso
             ? credential
             : QStringLiteral("http://127.0.0.1:%1%2")
                   .arg(socket->localPort()).arg(requestTarget);
 
-    // Emit BEFORE stop(): stop() deletes the socket and clears state, and the
-    // consumer only needs the string.
+    // Emit before stop(), which deletes the socket.
     Q_EMIT callbackReceived(payload);
     stop();
 }
@@ -251,9 +209,7 @@ void OAuthCallbackServer::respond(QTcpSocket *socket, const QString &title, cons
     if (!socket || socket->state() != QAbstractSocket::ConnectedState)
         return;
 
-    // A minimal self-contained page. No external resources, no scripts, and
-    // nothing echoed back from the request — the response must never reflect
-    // attacker-supplied query content.
+    // Self-contained, no scripts, and nothing reflected from the request.
     const QString html = QStringLiteral(
                              "<!doctype html><html><head><meta charset=\"utf-8\">"
                              "<title>%1</title></head><body>"
@@ -265,7 +221,6 @@ void OAuthCallbackServer::respond(QTcpSocket *socket, const QString &title, cons
     response += "HTTP/1.1 200 OK\r\n";
     response += "Content-Type: text/html; charset=utf-8\r\n";
     response += "Content-Length: " + QByteArray::number(payload.size()) + "\r\n";
-    // The page is a dead end; make sure nothing is cached or framed.
     response += "Cache-Control: no-store\r\n";
     response += "X-Frame-Options: DENY\r\n";
     response += "Content-Security-Policy: default-src 'none'\r\n";

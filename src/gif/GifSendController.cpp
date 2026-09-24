@@ -83,9 +83,8 @@ void GifSendController::start(Pending pending)
         Q_EMIT sendFailed(QStringLiteral("unavailable"), pending.isThread);
         return;
     }
-    // A client-local starred GIF is a stored file, never a provider URL —
-    // route it to the synchronous local-bytes send path instead of the
-    // download pipeline below.
+    // A local saved GIF is a stored file, never a provider URL: send the bytes
+    // directly.
     if (pending.result.provider == QLatin1String("local")) {
         startLocal(std::move(pending));
         return;
@@ -94,18 +93,16 @@ void GifSendController::start(Pending pending)
         Q_EMIT sendFailed(QStringLiteral("unavailable"), pending.isThread);
         return;
     }
-    // Only a validated provider-CDN https .gif is ever downloaded/sent. Rust
-    // re-checks the host and the GIF magic bytes.
+    // Only a validated provider-CDN https .gif is downloaded; Rust re-checks
+    // the host and magic.
     if (!gif::isSendableGifUrlForHosts(
             pending.result.gifUrl,
             { QStringLiteral(".giphy.com"), QStringLiteral(".klipy.com") })) {
         Q_EMIT sendFailed(QStringLiteral("unavailable"), pending.isThread);
         return;
     }
-    // De-duplication backstop — see hasIdenticalPending's declaration
-    // comment. Silently dropped, not surfaced as sendFailed: the first,
-    // identical, still-in-flight request already owns this send, so
-    // nothing has actually failed.
+    // Dedup backstop: dropped silently, since the identical in-flight request
+    // owns this send.
     if (hasIdenticalPending(pending))
         return;
     const quint64 opId = m_client->gifDownload(pending.result.gifUrl);
@@ -159,8 +156,7 @@ void GifSendController::onGifDownloadFinished(quint64 opId, bool ok,
         Q_EMIT sendFailed(QStringLiteral("send_failed"), p.isThread);
         return;
     }
-    // Successful handoff → Recents (never on preview or a failed/cancelled
-    // send). The SDK local echo now owns upload/send state and Retry.
+    // Successful handoff -> Recents. The SDK local echo now owns send state.
     if (m_recent)
         m_recent->recordSent(p.result);
     Q_EMIT sendSucceeded(p.isThread);
@@ -173,18 +169,12 @@ void GifSendController::startLocal(Pending pending)
         return;
     }
     Q_EMIT sendStarted(pending.isThread);
-    // Read fresh from disk and re-validate — never trusted from the
-    // snapshot captured at activation: the file may have been unstarred or
-    // caps refuse rather than evict, so the store never removes a file on
-    // its own — but the user can have unstarred it since choosing it.
+    // Read fresh from disk and re-validate: the user may have removed it since
+    // choosing it.
     const QByteArray bytes = m_localGifReader(pending.result.id);
-    // 2026-08 media round: the general raster validator, not the GIF-only one — a saved
-    // chat image can be GIF/PNG/JPEG/WebP now. `v.mime`/`v.ext` are the
-    // TRUTH the bytes decided, never a guess or whatever the snapshot
-    // claimed; a GIF still gets exactly its existing image/gif + animation
-    // handling (Rust re-sniffs and only marks a payload animated for
-    // image/gif — see rust/src/rooms.rs), and nothing here re-encodes the
-    // bytes in any way.
+    // The general raster validator: saved images may be GIF/PNG/JPEG/WebP.
+    // `v.mime`/`v.ext` come from the bytes, which are never re-encoded (Rust
+    // marks only image/gif as animated).
     const gif::RasterByteValidation v = gif::validateRasterBytes(bytes);
     if (!v.ok) {
         Q_EMIT sendFailed(bytes.isEmpty() ? QStringLiteral("unavailable")
@@ -193,8 +183,8 @@ void GifSendController::startLocal(Pending pending)
         return;
     }
     if (pending.isThread && pending.rootId.isEmpty()) {
-        // Never attempted — a captured thread destination with no root id
-        // is an unavailable target, not a send that was tried and failed.
+        // Never attempted: a thread destination without a root id is
+        // unavailable.
         Q_EMIT sendFailed(QStringLiteral("unavailable"), pending.isThread);
         return;
     }
@@ -210,14 +200,8 @@ void GifSendController::startLocal(Pending pending)
         Q_EMIT sendFailed(QStringLiteral("send_failed"), pending.isThread);
         return;
     }
-    // Deliberately NOT recorded into Recents: Recents is a global (not
-    // account-scoped) store, while starred-GIF bytes live under the
-    // account's own directory. Recording a "local:<hash>" reference there
-    // would let a hint of one account's starred content leak into another
-    // account's picker after switching on the same machine (the bytes stay
-    // unreachable, but the reference itself should not cross accounts).
-    // The item is already visible in the Saved tab, which the local-saved
-    // store keeps account-scoped.
+    // Not recorded in Recents: that store is global, while saved images are
+    // account-scoped, and a "local:<hash>" reference must not cross accounts.
     Q_EMIT sendSucceeded(pending.isThread);
 }
 

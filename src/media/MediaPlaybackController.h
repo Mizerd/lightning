@@ -3,17 +3,13 @@
 #include <QObject>
 #include <QString>
 
-// v0.7: shared inline-playback coordinator (video/audio/voice cards).
+// Shared inline-playback coordinator for video, audio and voice cards.
 //
-// The actual QMediaPlayer instances live in QML, one per card, behind
-// Loaders that only activate on user intent. This object is the single
-// authority for WHICH card may be audible: cards acquire() their stable
-// owner key (event identity, never a visual index) when playback starts,
-// observe audibleOwnerChanged, and pause themselves the moment another
-// card takes over — one audible item at a time, no delegate-reuse
-// cross-talk. AppController owns one instance per application session and
-// calls stopAll() on room switches, account switches, and sign-out so no
-// playback (or decrypted media access) survives a context change.
+// Players live in QML, one per card. This decides which card may be audible:
+// a card acquire()s its stable owner key (event identity, never a visual
+// index) when playback starts and pauses when audibleOwnerChanged names
+// another. AppController calls stopAll() on room switch, account switch and
+// sign-out so no playback or decrypted media access survives the change.
 class MediaPlaybackController : public QObject
 {
     Q_OBJECT
@@ -21,9 +17,8 @@ class MediaPlaybackController : public QObject
     // empty when nothing plays.
     Q_PROPERTY(QString audibleOwner READ audibleOwner
                    NOTIFY audibleOwnerChanged)
-    // Monotonic count of stopAll() calls. Cards also bind to this so a
-    // stop that lands while audibleOwner is already empty (e.g. a room
-    // switch racing a just-released card) still forces local pause state.
+    // Count of stopAll() calls, so a stop that lands while audibleOwner is
+    // already empty still pauses cards.
     Q_PROPERTY(int stopGeneration READ stopGeneration
                    NOTIFY audibleOwnerChanged)
 
@@ -43,10 +38,8 @@ public:
     Q_INVOKABLE bool owns(const QString &ownerKey) const;
     // Stop everything (room/account switch, sign-out, shutdown).
     Q_INVOKABLE void stopAll();
-    // 2026-08-18 tester report ("tarpas neveikia pause ir unpause"): ask the
-    // card that currently holds audibility to toggle play/pause. This object
-    // owns no player, so it can only broadcast the intent; the cards ignore
-    // it unless they own audibility. A no-op when nothing is playing.
+    // Asks the audible card to toggle play/pause (media key). Only a broadcast;
+    // cards ignore it unless they own audibility. No-op when nothing plays.
     Q_INVOKABLE void requestTogglePlayPause();
 
 Q_SIGNALS:

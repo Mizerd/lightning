@@ -6,22 +6,16 @@
 
 class MatrixClient;
 
-// v0.7.x: reusable User-Interactive Authentication flow + device sign-out.
+// User-Interactive Authentication flow and device sign-out, one operation at
+// a time. The operation is attempted first; only a real UIA challenge opens the
+// prompt. Only the password stage is supported; others are reported as such.
 //
-// One privileged operation at a time. The server decides whether auth is
-// needed: the operation is attempted first, and only a real UIA challenge
-// opens the prompt (`challengeActive`). Only the password stage is rendered
-// today; any other required stage surfaces honestly as unsupported.
+// The password passes through submitPassword() transiently: never stored,
+// logged or emitted, and scrubbed by every layer below. Cancellation,
+// completion, failure, sign-out and account switches clear the challenge.
 //
-// CREDENTIAL RULES (non-negotiable): the password passes through
-// submitPassword() transiently — never stored in a member, never logged,
-// never echoed into a signal, scrubbed at every layer below (C++ transit
-// buffer + Rust). Cancellation, completion, failure, sign-out and account
-// switches all clear the challenge state.
-//
-// MAS/OAuth accounts have no password to ask for: their device management
-// lives in the account web console; managementUrlReady hands the URL to
-// the UI, which opens it in the system browser.
+// OAuth (MAS) accounts manage devices in the account web console instead;
+// managementUrlReady hands its URL to the UI.
 class UiaController : public QObject
 {
     Q_OBJECT
@@ -33,7 +27,7 @@ class UiaController : public QObject
     Q_PROPERTY(bool passwordStage READ passwordStage NOTIFY stateChanged)
     // A previous password answer was rejected — offer retry.
     Q_PROPERTY(bool wrongPassword READ wrongPassword NOTIFY stateChanged)
-    // Raw stage names, for the honest unsupported-stage message.
+    // Raw stage names, for the unsupported-stage message.
     Q_PROPERTY(QStringList stages READ stages NOTIFY stateChanged)
 
 public:
@@ -48,9 +42,8 @@ public:
     bool wrongPassword() const { return m_wrongPassword; }
     QStringList stages() const { return m_stages; }
 
-    // Sign out one/many of the account's own devices. The current device
-    // is refused here as a guard — signing out THIS session is the normal
-    // logout flow, not a device deletion.
+    // Sign out other devices of this account. The current device is refused:
+    // that is the normal logout flow.
     Q_INVOKABLE void signOutDevices(const QStringList &deviceIds,
                                     const QString &currentDeviceId);
 
@@ -59,8 +52,8 @@ public:
     Q_INVOKABLE void submitPassword(const QString &password);
     Q_INVOKABLE void cancel();
 
-    // OAuth accounts: fetch the account-console URL (deviceId "" = the
-    // sessions list). Result arrives on managementUrlReady.
+    // OAuth accounts: fetch the account-console URL (deviceId "" = sessions
+    // list). The result arrives on managementUrlReady.
     Q_INVOKABLE void requestManagementUrl(const QString &deviceId);
 
 Q_SIGNALS:

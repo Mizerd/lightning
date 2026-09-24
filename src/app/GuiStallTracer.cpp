@@ -25,9 +25,8 @@ constexpr int kBeatIntervalMs = 25;
 constexpr int kWatchdogIntervalMs = 50;
 
 std::atomic<qint64> g_lastBeatNs{0};
-// Innermost active category. Written only by the GUI thread (Scope), read by
-// the watchdog. String literals only — safe to read from any thread at any
-// time without lifetime concerns.
+// Written by the GUI thread, read by the watchdog. String literals only, so
+// no lifetime concerns.
 std::atomic<const char *> g_category{nullptr};
 
 std::atomic<int> g_stallCount{0};
@@ -35,10 +34,8 @@ std::atomic<qint64> g_lastStallMs{0};
 std::atomic<const char *> g_lastStallCategory{nullptr};
 
 std::atomic<bool> g_installed{false};
-// The thread the heartbeat runs on — the one whose stalls this tracer
-// measures. A Scope entered on any OTHER thread must be inert: the category
-// is a single global, so letting a worker set it would attribute a GUI stall
-// to whatever a background decode happened to be doing (2026-08-19).
+// Scopes on other threads are inert, or a GUI stall would be attributed to
+// whatever a worker happened to be doing.
 std::atomic<QThread *> g_guiThread{nullptr};
 
 std::thread g_watchdog;
@@ -51,9 +48,8 @@ BeatHost *g_host = nullptr;
 
 void stopWatchdog();
 
-// The beat timer's owner, parented to the application object so a normal
-// shutdown joins the watchdog before Qt tears the event loop down —
-// otherwise the dying event loop reads as one long final "stall".
+// Parented to the application so shutdown joins the watchdog before the
+// event loop dies (which would otherwise read as one final stall).
 class BeatHost : public QObject
 {
 public:
@@ -92,15 +88,12 @@ void watchdogLoop(qint64 thresholdNs)
             if (nowNs() - lastBeat > thresholdNs) {
                 inStall = true;
                 beatAtStallStart = lastBeat;
-                // Sampled MID-stall: whatever the GUI thread marked before
-                // it stopped beating is the section it is stuck in.
+                // Sampled mid-stall: the section the GUI thread is stuck in.
                 categoryAtStall =
                     g_category.load(std::memory_order_relaxed);
             }
         } else if (lastBeat != beatAtStallStart) {
-            // A fresh beat landed: the stall is over. Its duration is the
-            // gap between the last beat before the stall and the first one
-            // after it (within one beat interval of the truth).
+            // The stall is over; its duration is accurate to one beat.
             const qint64 stallMs =
                 (lastBeat - beatAtStallStart) / 1000000;
             g_lastStallMs.store(stallMs, std::memory_order_relaxed);
@@ -141,9 +134,8 @@ void install(int thresholdMsOverride)
 {
     if (thresholdMsOverride < 0 && !enabled())
         return;
-    // Hard requirement, not just an assert: without an application object
-    // nothing ever destroys the BeatHost, and an unjoined std::thread
-    // terminates the process during static destruction.
+    // Without an application object the watchdog thread is never joined and
+    // terminates the process at static destruction.
     if (!QCoreApplication::instance())
         return;
     if (g_installed.exchange(true))
@@ -163,8 +155,7 @@ void install(int thresholdMsOverride)
         g_lastBeatNs.store(nowNs(), std::memory_order_relaxed);
     });
     beat->start();
-    // First beat immediately so the watchdog has a baseline even if the
-    // event loop stalls before the first timer tick.
+    // Beat now so the watchdog has a baseline before the first tick.
     g_lastBeatNs.store(nowNs(), std::memory_order_relaxed);
 
     {
@@ -197,8 +188,7 @@ void stopWatchdog()
 void shutdown()
 {
     stopWatchdog();
-    // Also retire the beat timer (its host), so an install() after a
-    // shutdown() does not accumulate timers still stamping beats.
+    // Retire the beat timer too, so a re-install does not stack timers.
     if (g_host) {
         BeatHost *host = g_host;
         g_host = nullptr; // the destructor re-checks; avoid double delete
@@ -227,9 +217,7 @@ Scope::Scope(const char *category)
 {
     if (!g_installed.load(std::memory_order_relaxed))
         return;
-    // Off-thread scopes are inert — see g_guiThread. This makes the primitive
-    // safe to place in code that may run on either thread (image decoding),
-    // rather than each call site having to know.
+    // Inert off the GUI thread, so it is safe in code that runs on either.
     if (QThread::currentThread()
         != g_guiThread.load(std::memory_order_relaxed))
         return;

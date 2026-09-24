@@ -14,16 +14,13 @@
 struct TimelineEvent;
 class TrayIcon;
 
-// v0.6.0 checkpoint 11: native desktop notifications.
+// Native desktop notifications.
 //
-// The DECISION (should this event notify, with which title/body under the
-// active privacy mode) is pure and unit-tested; DELIVERY uses the
-// freedesktop org.freedesktop.Notifications DBus service (the native path
-// on Linux — Lightning's first-class platform). Message bodies are shown
-// only in the "Sender and message" privacy mode, are never logged, and are
-// never persisted; undecryptable events always render a generic encrypted
-// placeholder. Click payloads carry only room/event/thread identity —
-// never tokens.
+// The decision (whether to notify, and the title/body under the active
+// privacy mode) is pure and unit-tested; delivery uses the freedesktop
+// Notifications D-Bus service, or the tray balloon where none exists. Bodies
+// appear only in "Sender and message" mode and are never logged or persisted.
+// Click payloads carry only room/event/thread identity.
 class NotificationManager : public QObject
 {
     Q_OBJECT
@@ -31,14 +28,9 @@ public:
     // SettingsManager's notificationPreview values.
     enum PreviewMode { SenderAndMessage = 0, SenderOnly = 1, Private = 2 };
     Q_ENUM(PreviewMode)
-    // Local per-room notification mode (explicitly local-only, not server
-    // push rules).
-    // FollowDefault means the user removed this room's override, so the
-    // ACCOUNT's push rules decide. The server knows that default and applies
-    // it to real pushes; this device does not persist it, so locally the row
-    // falls through to "notify" — identical to how a never-configured room
-    // has always behaved here. Deliberately not fabricating a resolved
-    // default: shouldNotify() only special-cases Muted and MentionsOnly.
+    // Local per-room notification mode. FollowDefault means the account's push
+    // rules decide; this device does not resolve that default, so locally it
+    // behaves like AllMessages.
     enum RoomMode {
         AllMessages = 0, MentionsOnly = 1, Muted = 2, FollowDefault = 3
     };
@@ -55,80 +47,59 @@ public:
         RoomMode roomMode = AllMessages;
         PreviewMode previewMode = SenderOnly;
         bool notificationsEnabled = true;
-        // Active-at-latest suppression: the room is on screen, focused, and
-        // following the newest message.
+        // The room is on screen, focused and following the newest message.
         bool roomVisibleAtLatest = false;
-        // v0.7.3: the room the user has just opened, still laying out its
-        // first screen. Opening a room subscribes it in sliding sync, so the
-        // server then delivers that room's recent timeline as ordinary live
-        // appends — and roomVisibleAtLatest is false throughout, because it
-        // requires a settled view. Without this the room you are looking at
-        // raises a notification for every message it just loaded.
+        // The room was just opened and is loading its first screen. Sliding
+        // sync delivers its recent timeline as live appends, which must not
+        // notify.
         bool roomHydrating = false;
-        // v0.6.1: false while the client is still applying its initial sync
-        // backlog. Events that arrive before the first sync completes are
-        // pre-existing history, not fresh activity, and must never raise a
-        // native notification — otherwise every backlog message re-notifies
-        // on each launch (the 0.6.0 cold-start storm). Defaults true so the
-        // Mock backend and pure-policy tests notify unless told otherwise.
+        // False while the initial sync backlog is applied, so existing history
+        // does not re-notify on every launch. Defaults true for the mock
+        // backend and policy tests.
         bool initialSyncComplete = true;
         SoundMode soundMode = SoundMentionsAndDirect;
-        // v0.7.x: the sender is on the account's m.ignored_user_list. The
-        // server stops SENDING an ignored user's events, so this is only
-        // the local belt-and-braces for the race window between the ignore
-        // write and the server applying it — but without it that window
-        // notifies. Supplied by the app layer to keep decide() pure.
+        // The sender is on m.ignored_user_list. Covers the window before the
+        // server stops delivering their events.
         bool senderIsIgnored = false;
         // Effective room avatar: explicit room avatar, or the unambiguous
         // other user's profile avatar for a strict 1:1 DM.
         QString avatarMxc;
-        // Identity key behind the initials disc drawn when there is no
-        // avatar to fetch — the same key the room list uses, so the two
-        // agree on colour. Empty falls back to the room name.
+        // Identity key for the initials disc when there is no avatar; matches
+        // the room list's colour. Empty falls back to the room name.
         QString avatarColorKey;
-        // The active SettingsManager::Theme. The identity discs are derived
-        // from the theme's accent now, so a notification painted without it
-        // would show a different colour from the window it came from.
+        // Active SettingsManager::Theme; identity disc colours derive from it.
         int themeId = 0;
     };
     struct Decision {
         bool notify = false;
         QString title;
         QString body;
-        // Whether this notification should also play a sound. Always false
-        // when notify is false, so muted / active-room / mentions-only
-        // suppression suppresses the sound too.
+        // Whether to also play a sound. Always false when notify is false.
         bool playSound = false;
     };
 
     explicit NotificationManager(QObject *parent = nullptr);
-    // App-layer adapter over MediaBridge. `image(mxc, request)` returns a
-    // cached image and optionally starts the normal avatar fetch; `failed`
-    // reports a current failure mark. Call avatarCacheChanged when either
-    // state changes. Keeping the concrete media bridge out of this class
-    // preserves the pure-policy unit-test boundary.
+    // App-layer adapter over MediaBridge, keeping this class free of it.
+    // `image(mxc, request)` returns a cached image and optionally starts a
+    // fetch; `failed` reports a failure mark. Call avatarCacheChanged() when
+    // either changes.
     void setAvatarProvider(
         std::function<QImage(const QString &, bool request)> image,
         std::function<bool(const QString &)> failed);
     void avatarCacheChanged();
-    /// The account notifications are currently being raised FOR. Recorded in
-    /// every click payload so a reply or mark-as-read taken after an account
-    /// switch can be refused rather than sent from the wrong identity.
+    /// The account notifications are raised for. Recorded in every click
+    /// payload so actions taken after an account switch can be refused.
     void setAccountUserId(const QString &userId) { m_accountUserId = userId; }
     QString accountUserId() const { return m_accountUserId; }
-    /// Whether the notification daemon offers an inline reply box. False
-    /// until the first delivery has queried GetCapabilities, and false on a
-    /// build without DBus.
+    /// Whether the daemon offers an inline reply box. False until the first
+    /// delivery has queried GetCapabilities, and without D-Bus.
     bool inlineReplySupported() const { return m_inlineReply; }
 
     // Pure policy — no I/O, no logging. Exposed for tests.
     static Decision decide(const TimelineEvent &event, const Context &context);
 
-    // v0.6.1: pure policy for pending-invite notifications. An invite raises a
-    // native notification only once the initial sync backlog has been applied
-    // (so a restart does not re-announce every existing invite), only for an
-    // invite not already announced this session, and only when notifications
-    // are enabled. Exposed for tests.
+    // Invites notify only after the initial sync, once per session, and only
+    // when notifications are enabled.
     static bool shouldNotifyInvite(bool initialSyncComplete, bool alreadyKnown,
                                    bool notificationsEnabled);
 
@@ -142,73 +113,35 @@ public:
                      const QString &roomId = QString(),
                      const QString &avatarMxc = QString());
 
-    // 2026-08-18 round 2: incoming voice call. While ringing it is
-    // re-delivered every few seconds (replacing itself) so the themed call
-    // sound repeats — the closest honest "ring" the freedesktop notification
-    // API offers, since Lightning bundles no audio and plays none itself.
-    // `sound` false shows a silent card (ringForCalls off / sound mode off).
-    // Bounded by `ringSeconds`, and stopped by stopIncomingCall().
+    // Incoming call. While ringing it is re-delivered every few seconds,
+    // replacing itself, so the themed call sound repeats. `sound` false shows a
+    // silent card. Bounded by `ringSeconds`; stopped by stopIncomingCall().
     //
-    // 2026-09-17: it offers ANSWERING, which it never did. The card carried
-    // Open and Decline and nothing else from the day it was written, so the
-    // one notification whose whole purpose is a decision you make in seconds
-    // could only ever be used to say no.
-    //
-    // `acceptOffered` and `rtcLane` are INPUTS rather than things this class
-    // works out, and deliberately so. Whether a call can be answered is a
-    // question with one answer and several askers — IncomingCallPrompt,
-    // RoomCallBanner and CallEventDelegate already share one gate, and that
-    // file's own comment warns that "a second opinion about whether a call is
-    // joinable is exactly the drift those two already guard against". A
-    // notification that computed its own would be the fourth opinion. The
-    // caller that already knows passes the answer down.
-    //
-    // `silenceOffered` (2026-09-23): the card carries a Silence action,
-    // offered while SOME ringer is sounding for this call — Lightning's own
-    // (then `sound` is false and the card is silent anyway) or the desktop's
-    // themed one. Pressing it emits callSilenceRequested; it does not end
-    // or decline anything. Also an input, for the same reason as the two
-    // above: the caller knows which ringer rings.
+    // `acceptOffered`, `rtcLane` and `silenceOffered` are inputs: whether a
+    // call is joinable is decided once by the gate IncomingCallPrompt,
+    // RoomCallBanner and CallEventDelegate share, and the caller knows which
+    // ringer is sounding. Silence emits callSilenceRequested and ends nothing.
     void showIncomingCall(const QString &roomId, const QString &callId,
                           const QString &title, const QString &safeBody,
                           bool sound, int ringSeconds,
                           bool acceptOffered = false, bool rtcLane = false,
                           bool silenceOffered = false);
 
-    /// The action list the freedesktop card is delivered with.
-    ///
-    /// Static and public ONLY so it can be tested. It used to be a literal
-    /// built inline inside the Notify() call, which made it structurally
-    /// unobservable: the test suite runs with no daemon, so Notify() never
-    /// executes, and nothing anywhere could see what the card offered. That
-    /// is how a call notification with no way to answer survived from
-    /// 2026-08-18 to 2026-09-17 with a registered, passing notification
-    /// suite. Pin the WHOLE list, not the presence of one key.
+    /// The action list the freedesktop card is delivered with. Public and
+    /// static so tests can check it without a daemon.
     static QStringList callActions(bool acceptOffered, bool rtcLane,
                                    bool silenceOffered = false);
     /// Update whether the showing call card offers an answer, and redraw it.
-    ///
-    /// THE GATE IS NOT KNOWN WHEN THE CARD IS FIRST RAISED, and that is not a
-    /// timing accident — it is the normal case. A MatrixRTC ring names a room
-    /// nothing has necessarily asked about, and whether it can be joined
-    /// depends on a session read that is dispatched asynchronously. Computing
-    /// the answer during the ring and storing it means computing it before
-    /// anything could know, so the button would never appear precisely when
-    /// the feature matters: app in the background, room not open.
-    ///
-    /// Deliberately NOT showIncomingCall() again: that resets the ring
-    /// deadline and restarts the sound timer, so a late answer would extend
-    /// the ring every time it arrived. This only redraws (the freedesktop
-    /// card is replaced in place by id) and leaves the deadline alone. A
-    /// mismatched or absent call id is a no-op.
+    /// The joinability answer usually arrives after the card is raised (it
+    /// needs an asynchronous session read). Unlike showIncomingCall(), this
+    /// keeps the ring deadline and sound timer. Mismatched or absent call ids
+    /// are a no-op.
     void setCallAcceptOffered(const QString &callId, bool offered,
                               bool rtcLane);
 
-    /// The user silenced this call's ring (from the card or in the app).
-    /// The card stays: the themed sound and its 5 s re-post stop, and the
-    /// Silence action is dropped from a card that is still showing. A
-    /// mismatched or absent call id is a no-op, and so is a second call.
-    /// Like setCallAcceptOffered it never touches the ring deadline.
+    /// The user silenced this call's ring. The card stays; the themed sound and
+    /// its re-post stop and the Silence action is dropped. Mismatched ids and
+    /// repeat calls are no-ops. Never touches the ring deadline.
     void silenceIncomingCall(const QString &callId);
 
     // Retire the incoming-call notification (call ended or was handled on
@@ -218,66 +151,50 @@ public:
     // Logout/account switch: forget queued click payloads.
     void clearPending();
 
-    // Test hook: record a delivered notification's click payload exactly as
-    // deliver() would, exercising the bounded FIFO eviction without a live
-    // DBus service. Not used in production paths.
+    // Test hook: record a click payload as deliver() would, exercising the
+    // bounded FIFO eviction without D-Bus.
     void recordPayloadForTest(quint32 id, const QVariantMap &payload)
     { recordPayload(id, payload); }
     int pendingPayloadCountForTest() const { return m_pendingPayloads.size(); }
     bool callRingActiveForTest() const { return m_callRingTimer.isActive(); }
-    /// Whether the showing card would be (re)delivered with the themed call
-    /// sound, and with a Silence action. The repeat timer alone cannot say
-    /// the first: setCallAcceptOffered redraws with m_activeCallSound
-    /// whether or not the timer runs.
+    /// Whether the showing card would be delivered with the themed call sound
+    /// (setCallAcceptOffered redraws with it even when the timer is idle), and
+    /// with a Silence action.
     bool callSoundActiveForTest() const { return m_activeCallSound; }
     bool callSilenceOfferedForTest() const
     { return m_activeCallSilenceOffered; }
     QString activeCallIdForTest() const { return m_activeCallId; }
-    // The DBus daemon is absent under offscreen tests: this stands in for
-    // the Notify() reply so the id-matched decline/closed branches can be
-    // driven (they key on the delivered notification id).
+    // Stands in for the Notify() reply so the id-matched decline/closed
+    // branches can be driven without a daemon.
     void setActiveCallNotificationIdForTest(quint32 id)
     { m_activeCallNotificationId = id; }
-    // Count of generic notices raised (missed calls, invites, ...): lets
-    // integration tests observe the AppController gating without a daemon.
+    // Count of generic notices raised, for tests without a daemon.
     int genericNoticeCountForTest() const { return m_genericNoticeCount; }
-    // The tray balloon is the delivery where no freedesktop daemon exists
-    // (Windows, macOS): see deliverThroughTray. The manager keeps the ONE
-    // payload the balloon carries — the platforms show one balloon at a
-    // time and a new one replaces it — so a click routes to that room.
+    // Tray balloon delivery where no freedesktop daemon exists (Windows,
+    // macOS). Only one balloon shows at a time, so the manager keeps the single
+    // payload it carries.
     void setFallbackTray(TrayIcon *tray);
     void deliverThroughTrayForTest(const QVariantMap &payload)
     { m_lastFallbackPayload = payload; }
-    // How many times the incoming-call ring has ASKED the tray for a balloon,
-    // and the payload it asked with. The attempt is what the test needs, not
-    // the delivery: an offscreen test has no tray at all, so a counter that
-    // only moved on success could not tell "the ring never reached the
-    // fallback" (the defect) from "there was no tray" (the environment).
+    // Tray balloon attempts by the call ring, and their payload. Counts
+    // attempts rather than deliveries because offscreen tests have no tray.
     int callTrayAttemptsForTest() const { return m_callTrayAttempts; }
     QVariantMap lastCallTrayPayloadForTest() const
     { return m_lastCallTrayPayload; }
-    // Deliveries parked waiting for an avatar fetch (see deliver()). They
-    // have no notification id yet, so closeRoomNotifications cannot observe
-    // them through the payload map — this is how a test sees that a read
-    // room's pending popup was dropped rather than shown a second later.
+    // Deliveries parked waiting for an avatar fetch. They have no notification
+    // id yet, so tests observe them here.
     int avatarWaitCountForTest() const { return m_avatarWaits.size(); }
-    // ...and the payload one of them is carrying, which is what proves the
-    // click identity a notification was BUILT with, before any delivery
-    // path has had a chance to touch it.
+    // The payload a parked delivery carries.
     QVariantMap avatarWaitPayloadForTest(int index) const
     {
         return index >= 0 && index < m_avatarWaits.size()
             ? m_avatarWaits.at(index).payload : QVariantMap{};
     }
 
-    // ── §8: the composite thread-timeline id must never leave this class ──
-    //
-    // A thread reply reaches processEvent() with the COMPOSITE timeline id
-    // in TimelineEvent::roomId (see the definitions for the full account),
-    // and a composite assigned to app.currentRoomId opens nothing. These
-    // reduce one to the identity a click can actually route with. Public so
-    // the property can be asserted directly as well as through the payload;
-    // both are no-ops for every real room id.
+    // ── Composite thread-timeline ids never leave this class ──
+    // Thread replies arrive with the composite timeline id in
+    // TimelineEvent::roomId. These reduce it to routable identity; both are
+    // no-ops for real room ids.
     static QString routableRoomId(const QString &roomId);
     static QString routableThreadRootId(const QString &roomId,
                                         const QString &threadRootId);
@@ -290,24 +207,17 @@ Q_SIGNALS:
     void callDeclineRequested(const QString &callId);
     /// The user pressed Answer/Join on the incoming-call notification.
     ///
-    /// Unconditional, like every other signal here: signals name no D-Bus
-    /// type, so they compile on Windows and macOS where the delivery that
-    /// raises them does not. Keeping them outside the guard is what stops
-    /// this header becoming the next `QDBusReply does not name a type`.
+    ///
+    /// Signals name no D-Bus type, so they stay outside the QtDBus guard and
+    /// compile on Windows and macOS.
     void callAcceptRequested(const QString &callId);
-    /// The user pressed Silence on the incoming-call notification. Only a
-    /// REQUEST: CallSoundController::silenceRing decides whether that call
-    /// is still the ringing one, and the card is quietened through
-    /// silenceIncomingCall() when it agrees.
+    /// The user pressed Silence. Only a request:
+    /// CallSoundController::silenceRing decides, and quietens the card through
+    /// silenceIncomingCall().
     void callSilenceRequested(const QString &callId);
-    // v0.9.0 notification actions. Both carry the ACCOUNT the notification
-    // was raised for, because a desktop notification outlives the account
-    // that produced it: the user can switch accounts, or sign out entirely,
-    // while the card is still on screen. Acting on it under whichever
-    // account happens to be current would send a reply from the wrong
-    // identity into a room the new account may not even be in — a mistake
-    // that is invisible until someone else points it out. The app layer
-    // compares this against the live account and refuses a mismatch.
+    // Notification actions. Both carry the account the notification was raised
+    // for, since the card can outlive an account switch or sign-out; the app
+    // layer refuses a mismatch.
     void markReadRequested(const QString &accountUserId, const QString &roomId,
                            const QString &eventId);
     void replyRequested(const QString &accountUserId, const QString &roomId,
@@ -316,10 +226,8 @@ Q_SIGNALS:
 private Q_SLOTS:
     // DBus signal receivers (freedesktop Notifications).
     void onActionInvoked(quint32 id, const QString &action);
-    // The daemon's inline reply box was submitted. Not part of the
-    // freedesktop spec proper — it is the KDE/Plasma `inline-reply`
-    // extension, which GNOME's daemon also implements — so the action is
-    // only ever offered when GetCapabilities advertises it.
+    // Inline reply submitted. This is the KDE `inline-reply` extension (also
+    // implemented by GNOME), offered only when GetCapabilities advertises it.
     void onNotificationReplied(quint32 id, const QString &text);
     void onNotificationClosed(quint32 id, quint32 reason);
     // The tray balloon (Windows / macOS delivery) was clicked.
@@ -336,39 +244,25 @@ private:
     void deliverNow(const QString &title, const QString &body,
                     const QVariantMap &payload, bool sound,
                     const QImage &avatar);
-    // One re-delivery of the active incoming-call notification (replacing
-    // the previous one via replaces_id so cards never stack).
+    // Re-deliver the incoming-call notification, replacing the previous one.
     void deliverCallNotification();
     void flushAvatarWaits(bool fallbackAll);
-    // Store one click payload, evicting the oldest when the bounded cap is
-    // exceeded (a desktop only keeps a handful visible). FIFO eviction keeps
-    // the most recent notifications clickable instead of dropping them all.
+    // Store a click payload, evicting the oldest past the cap so the most
+    // recent notifications stay clickable.
     void recordPayload(quint32 id, const QVariantMap &payload);
 public:
-    /// Withdraw every still-showing notification for a room the user has now
-    /// read.
-    ///
-    /// GHOST NOTIFICATIONS. Only the call ring was ever closed; a message
-    /// notification stayed in the notification centre after its room had
-    /// been read — here, or in another client, or on a phone. So the desktop
-    /// kept asserting that something was waiting when nothing was, which
-    /// teaches a person to stop believing the notification area, and that is
-    /// how a real message then gets missed.
-    ///
-    /// Cheap when there is nothing to do: the payload map is small and
-    /// bounded, and a room with no live notification scans a few entries and
-    /// returns.
+    /// Withdraw every still-showing notification for a room that has been read
+    /// (here or elsewhere), so the notification centre does not keep stale
+    /// entries.
     void closeRoomNotifications(const QString &roomId);
 private:
     void forgetPayload(quint32 id);
-    /// The one place openRequested is emitted. Normalises the payload's
-    /// identity so no producer can route a click to a timeline id.
+    /// The one place openRequested is emitted; normalises the payload identity.
     void emitOpenFor(const QVariantMap &payload);
-    /// The balloon delivery, for builds and sessions with no freedesktop
-    /// daemon. True when the tray showed it.
-    // The incoming-call ring's own tray delivery — see the long note at the
-    // definition for why it is latched and why the repeat does not survive.
+    // The incoming-call ring's tray delivery; see the definition.
     bool deliverCallThroughTray();
+    /// Balloon delivery for sessions with no freedesktop daemon. True when the
+    /// tray showed it.
     bool deliverThroughTray(const QString &title, const QString &body,
                             const QVariantMap &payload, const QImage &avatar);
     QPointer<TrayIcon> m_fallbackTray;
@@ -378,27 +272,19 @@ private:
     static constexpr int kMaxPendingPayloads = 64;
 
     QHash<quint32, QVariantMap> m_pendingPayloads;
-    // Insertion order of the ids in m_pendingPayloads, oldest first, so the
-    // eviction can drop the least-recent entry (QHash is unordered).
+    // Insertion order of m_pendingPayloads, oldest first (QHash is unordered).
     QList<quint32> m_payloadOrder;
-    // Monotonic time (ms) of the last sound played; a short window coalesces
-    // notification bursts into a single alert.
+    // Monotonic time of the last sound; coalesces bursts into one alert.
     qint64 m_lastSoundMs = 0;
-    // Escapes a body iff the daemon advertises body-markup. THE ONLY place
-    // a notification body is escaped; callers pass raw text. See the
-    // definition for why the summary is never escaped.
+    // Escapes a body iff the daemon advertises body-markup. The only place a
+    // notification body is escaped; callers pass raw text.
     QString bodyForServer(class QDBusInterface &notifications,
                           const QString &body);
 
-    // Whether this notification server renders markup in `body`.
-    // Queried once (GetCapabilities) and cached: a daemon cannot
-    // change it without restarting. Decides whether the body is
-    // HTML-escaped before it is sent. See deliverNow().
+    // Whether the server renders body markup. Queried once and cached.
     bool m_bodyMarkup = false;
     bool m_bodyMarkupKnown = false;
-    // Whether the daemon advertises `inline-reply`. Queried in the same
-    // GetCapabilities round trip as body-markup, because there is no reason
-    // to make two.
+    // Whether the daemon advertises `inline-reply` (same GetCapabilities call).
     bool m_inlineReply = false;
     QString m_accountUserId;
 
@@ -409,13 +295,13 @@ private:
     QString m_activeCallTitle;
     QString m_activeCallBody;
     bool m_activeCallSound = false;
-    // Passed in by the raise site, never derived here — see showIncomingCall.
+    // Supplied by the caller; see showIncomingCall.
     bool m_activeCallAcceptOffered = false;
     bool m_activeCallRtcLane = false;
     bool m_activeCallSilenceOffered = false;
     quint32 m_activeCallNotificationId = 0;
-    // Whether this call has already been announced through the tray balloon.
-    // Reset on every raise AND on every stop.
+    // Whether this call was already announced through the tray. Reset on every
+    // raise and stop.
     bool m_activeCallTrayDelivered = false;
     int m_callTrayAttempts = 0;
     QVariantMap m_lastCallTrayPayload;

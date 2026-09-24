@@ -32,33 +32,19 @@ struct ScreenshotDemoController::Scenario {
     bool controls = true; // demo controls visible on activation
     QString title;        // human-readable label for the panel
 
-    // v0.6.5 (Wave 2): which demo-only popup/overlay to open once the above
-    // navigation has settled, and an optional seed string for it (a quick-
-    // switcher query/command, a mention prefix, a settings-search term).
-    // Trailing fields with no explicit initializer default-construct to ""
-    // via aggregate initialization, so every existing row above is unchanged.
-    // See ScreenshotDemoController::dispatchScenarioPopup for the mapping
-    // from `popup` to the matching demoOpen*/demoFocus* signal.
+    // Demo-only popup to open once navigation has settled, plus an optional
+    // seed string for it. See dispatchScenarioPopup() for the mapping.
     QString popup;
     QString query;
 
-    // 0.8.0: which NAVIGATION LAYOUT the scenario runs in — -1 leaves the
-    // account's own choice alone, 0 is Classic, 1 is Channels.
-    //
-    // A field rather than a separate scenario list because Channels is not a
-    // different screen: it is the SAME shell with a different conversation
-    // column, and the honest way to photograph it is to run existing
-    // scenarios in it. Trailing with a default, so every row above is
-    // unchanged (aggregate initialization).
+    // Navigation layout: -1 keeps the account's choice, 0 Classic, 1 Channels.
     int navLayout = -1;
-    // 0.8.0: stage a PROCESS-LOCAL call for the shot. "" none, "call" a voice
-    // and camera call, "call-share" the same with a screen share spotlighted.
-    // Nothing is published and no device is opened — see
+    // Process-local staged call: "" none, "call", or "call-share" (screen
+    // share spotlighted). Nothing is published; see
     // SfuCallController::startDemoCall.
     QString call;
-    // Which Channels VIEW the rail should select: "" leaves it, "@people" is
-    // the Direct Messages tab, a `!` id is that Space, and "@home" is Home.
-    // Ignored in Classic, where there is no such concept.
+    // Channels view to select: "" leaves it, "@people" is Direct Messages, a
+    // `!` id is that Space, "@home" is Home. Ignored in Classic.
     QString channelsScope;
 };
 
@@ -80,10 +66,7 @@ const SizePreset kSizes[] = {
 };
 
 struct ThemeEntry { int id; const char *name; };
-// v0.6.7: Storm (11) leads — it is the 0.6.5 brand theme and the demo's
-// default, so a release gallery is coherent unless a shot deliberately asks
-// for something else. It was missing from this table entirely, which is why
-// the panel could not select it.
+// Storm leads: it is the brand theme and the demo's default.
 const ThemeEntry kThemes[] = {
     { 11, "Storm" },
     { 0,  "System" },        { 1,  "Lightning Light" }, { 2,  "Lightning Dark" },
@@ -92,8 +75,6 @@ const ThemeEntry kThemes[] = {
     { 9,  "Indigo Night" },  { 10, "Deep Teal" },
 };
 
-// The demo's default theme. Every scenario uses it unless it exists to show a
-// different one off.
 constexpr int kStormTheme = 11;
 } // namespace
 
@@ -101,34 +82,11 @@ const QList<ScreenshotDemoController::Scenario> &
 ScreenshotDemoController::catalogue()
 {
     static const QList<Scenario> c = {
-        // ── 0.8.0: the Channels navigation layout ───────────────────────
+        // Designated initializers for new rows: the struct is long enough
+        // that a positional row silently shifts values when a field is added.
         //
-        // THREE VIEWS, three scenarios, because that is what Channels IS —
-        // the rail chooses between Home, Direct Messages and one view per
-        // Space, and a single screenshot of "Channels" would show one third
-        // of it. Same shell, same rooms, same theme as the Classic shots
-        // above, so a release page can put them side by side and the only
-        // difference a reader sees is the conversation column.
-        //
-        // The scope strings are the model's own vocabulary
-        // (docs/navigation-layouts.md): a `!` id is that Space, `@people` is
-        // the Direct Messages tab, anything else is Home.
-        // ── 0.8.0: the call surface ─────────────────────────────────────
-        //
-        // A PROCESS-LOCAL call: no membership, no SFU, no microphone, no
-        // camera. It exists so the stage, the grid, the dock and the
-        // nameplates can be photographed without a homeserver and a second
-        // person. Two shots, because the grid and the share spotlight are
-        // different surfaces and one cannot stand in for the other.
-        //
-        // DESIGNATED INITIALIZERS from here down, and not as a style
-        // preference: this struct is sixteen fields long and every row above
-        // is positional, so a field inserted in the MIDDLE of it shifts every
-        // value after that point silently. That happened while these rows
-        // were being written — `channelsScope` landed in `call`, and the
-        // Channels shots staged a call with an empty participant model that
-        // rendered as "Connecting…" over the screenshot. Named fields cannot
-        // do that, and the compiler enforces declaration order.
+        // Call scenarios stage a process-local call (no membership, SFU or
+        // devices) so the call surfaces can be captured offline.
         { .id = QStringLiteral("call-grid"), .account = kAlex,
           .room = QStringLiteral("!design-lounge:lightning.example"),
           .theme = kStormTheme, .size = QStringLiteral("1440x900"),
@@ -159,20 +117,8 @@ ScreenshotDemoController::catalogue()
           .theme = kStormTheme, .size = QStringLiteral("1280x800"),
           .title = QStringLiteral("Channels — Direct Messages"),
           .navLayout = 1, .channelsScope = QStringLiteral("@people") },
-        // Classic, stated EXPLICITLY rather than inherited, so a release
-        // pair can be shot without depending on whatever the demo profile
-        // was last left in.
-        // ── 0.8.5: the two surfaces this round added ────────────────────
-        //
-        // Both go through the SAME popup mechanism every other overlay
-        // scenario uses, so they exercise the production entry points
-        // (`openFind()`, `toggleRoomInfo()`) rather than a demo-only
-        // shortcut that could photograph a state the app cannot reach.
-        //
-        // The find bar is seeded with a query because the surface this
-        // round changed is the RESULT area — the source toggle, the local
-        // coverage line and the index button only render once a search
-        // session is live, so an empty find bar shows none of it.
+        // The find bar is seeded with a query: the result area (source
+        // toggle, coverage line, index button) only renders during a search.
         { .id = QStringLiteral("find-in-room"), .account = kAlex,
           .room = QStringLiteral("!design-lounge:lightning.example"),
           .theme = kStormTheme, .size = QStringLiteral("1600x1000"),
@@ -189,10 +135,11 @@ ScreenshotDemoController::catalogue()
           .room = QStringLiteral("!design-lounge:lightning.example"),
           .theme = kStormTheme, .size = QStringLiteral("1600x1000"),
           .title = QStringLiteral("Room Information — widgets"),
-          // No section: the widget list lives in the panel's own default
-          // "overview", which is where openForRoom() already leaves it.
+          // The widget list is on the panel's default "overview" section.
           .popup = QStringLiteral("room-info") },
 
+        // Classic is set explicitly so the shot does not depend on the
+        // profile's last layout.
         { .id = QStringLiteral("classic-home"), .account = kAlex,
           .room = QStringLiteral("!design-lounge:lightning.example"),
           .theme = kStormTheme, .typing = true,
@@ -267,10 +214,7 @@ ScreenshotDemoController::catalogue()
           QString(), false, kStormTheme, false, QStringLiteral("narrow"), true,
           QStringLiteral("Responsive chat (narrow)") },
 
-        // ── v0.6.5 (Wave 2): menu/popup/dialog surface scenarios ─────────
-        // All reuse existing fictional rooms/members (no new mock data).
-        // Theme per row matches the design-handoff mock for that surface, so
-        // these captures line up in a side-by-side comparison pass.
+        // ── Menu, popup and dialog scenarios ────────────────────────────
         { QStringLiteral("menu-message"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
@@ -287,9 +231,7 @@ ScreenshotDemoController::catalogue()
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
           QString(), false, kStormTheme, false, QStringLiteral("1440x900"), true,
-          // 0.6.5 (C7): the floating composer-family find card, pre-filled
-          // so the match counter and prev/next controls are live in the
-          // capture ("layout" matches the seeded Design Lounge messages).
+          // Pre-filled so the match counter and prev/next controls are live.
           QStringLiteral("Find in loaded messages (in-room search card)"),
           QStringLiteral("find-in-room"), QStringLiteral("layout") },
         { QStringLiteral("quick-switcher"), kAlex,
@@ -297,9 +239,7 @@ ScreenshotDemoController::catalogue()
           QStringLiteral("!space-studio:lightning.example"),
           QString(), false, kStormTheme, false, QStringLiteral("1280x800"), true,
           QStringLiteral("Quick switcher"),
-          // "de" matches Design Lounge/Development/… (Rooms) and Design
-          // Lounge members whose name contains "de" if any (People) — a
-          // sectioned-results capture rather than the unfiltered full list.
+          // "de" yields sectioned results rather than the full list.
           QStringLiteral("quick-switcher"), QStringLiteral("de") },
         { QStringLiteral("quick-switcher-command"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
@@ -376,12 +316,8 @@ ScreenshotDemoController::ScreenshotDemoController(AppController *app,
                   &m_requestedWidth, &m_requestedHeight);
     m_sizeLabel = QStringLiteral("1440 × 900");
 
-    // Demo widgets, so the Room Information widget list and its consent sheet
-    // can be SEEN. One that opens and one that Lightning refuses, because the
-    // refusal row is the case a real room is least likely to contain and the
-    // one most worth being able to look at. These are the payload shape the
-    // Rust backend answers with — the mock never re-derives it (see
-    // MockMatrixClient::mockWidgets).
+    // One widget that opens and one that is refused, in the Rust backend's
+    // payload shape (see MockMatrixClient::mockWidgets).
     if (m_mock) {
         m_mock->mockWidgets = {
             QVariantMap{
@@ -421,9 +357,8 @@ ScreenshotDemoController::ScreenshotDemoController(AppController *app,
             if (!m_pendingScenario.isEmpty()) {
                 const QString id = m_pendingScenario;
                 m_pendingScenario.clear();
-                // Defer the nav to after startSync repopulates the models (the
-                // switch sets accountSwitching=false BEFORE startSync). Skip it
-                // if a newer switch changed the account out from under us.
+                // accountSwitching drops before startSync repopulates the
+                // models, so defer; skip if a newer switch has taken over.
                 QTimer::singleShot(0, this, [this, id] {
                     const Scenario *sc = findScenario(id);
                     if (sc && !m_app->accountSwitching()
@@ -438,12 +373,9 @@ ScreenshotDemoController::ScreenshotDemoController(AppController *app,
                 });
             }
         });
-        // Apply the launch scenario/overrides once, the first time the app
-        // reaches the main screen after the demo boot restore. Applied
-        // synchronously (startSync has already populated the models by the
-        // MainScreen transition) so the boot scene is fully settled before any
-        // caller drives a scenario — otherwise a queued launch could fire late
-        // and fight an already-started navigation.
+        // Apply the launch scenario once, synchronously, on the first
+        // MainScreen transition; a queued apply could fight a navigation
+        // that has already started.
         connect(m_app, &AppController::currentScreenChanged, this, [this] {
             if (m_launchApplied
                 || m_app->currentScreen() != AppController::MainScreen)
@@ -665,12 +597,10 @@ void ScreenshotDemoController::activateScenario(const QString &id)
         return;
     m_currentScenario = id;
 
-    // Account-independent presentation is safe to apply now.
     setWindowSize(s->size);
     setControlsVisible(s->controls);
-    // Theme is PER-ACCOUNT, so it (and typing) are applied in
-    // applyScenarioNavigation — after any account switch completes — so they
-    // land on the target account, not the one being switched away from.
+    // Theme and typing are per-account, so applyScenarioNavigation() sets
+    // them after any account switch completes.
 
     if (s->account != currentAccount()) {
         // Defer the room/panel navigation until the async switch completes.
@@ -688,19 +618,13 @@ void ScreenshotDemoController::applyScenarioNavigation(const Scenario &s)
 {
     if (!m_app)
         return;
-    // Per-account presentation, now that the target account is active.
     if (s.theme >= 0)
         m_app->settings()->setTheme(SettingsManager::Theme(s.theme));
-    // THE NAVIGATION LAYOUT, before the room is selected. Channels resolves
-    // its three views from the rail's scope, so setting it afterwards would
-    // photograph one frame of the wrong column.
+    // Layout before the room: Channels resolves its view from the scope.
     if (s.navLayout >= 0)
         m_app->settings()->setRoomNavigationLayout(s.navLayout);
-    // And WHICH of Channels' three views. Written VERBATIM, because that is
-    // the contract: the model classifies `!`-prefixed ids as a Space,
-    // `@people` as the Direct Messages tab and anything else as Home
-    // (docs/navigation-layouts.md). Collapsing a non-`!` value here is the
-    // exact defect that made a People tab inexpressible.
+    // Passed verbatim: the model classifies the scope string itself
+    // (docs/navigation-layouts.md).
     if (!s.channelsScope.isEmpty() && m_app->spaceChannels())
         m_app->spaceChannels()->setScopeSpaceId(s.channelsScope);
     if (m_mock)
@@ -708,11 +632,9 @@ void ScreenshotDemoController::applyScenarioNavigation(const Scenario &s)
     m_typingEnabled = s.typing;
     Q_EMIT toggleStateChanged();
 
-    // Space filter (empty = all rooms).
     if (m_app->spaces())
         m_app->spaces()->setActiveSpaceId(s.space);
 
-    // Reset any open thread panel, then select the room.
     if (m_app->thread())
         m_app->thread()->close();
     if (!s.room.isEmpty())
@@ -720,13 +642,9 @@ void ScreenshotDemoController::applyScenarioNavigation(const Scenario &s)
     else
         m_app->setCurrentRoomId(QString());
 
-    // THE DEMO CALL, after the room is open, because the call panel is keyed
-    // on `groupCall.roomId === currentRoomId`.
-    //
-    // ENDED UNCONDITIONALLY when a scenario does not ask for one: a staged
-    // call is process-local state that would otherwise follow the user
-    // through the rest of the catalogue and photograph a call panel over
-    // every other screenshot.
+    // After the room is open: the call panel is keyed on the current room.
+    // A scenario without a call ends any staged one, which would otherwise
+    // persist into every later screenshot.
     if (m_app->groupCall()) {
         if (s.call.isEmpty()) {
             m_app->groupCall()->endDemoCall();
@@ -736,7 +654,6 @@ void ScreenshotDemoController::applyScenarioNavigation(const Scenario &s)
         }
     }
 
-    // Page / panel.
     if (s.page == QLatin1String("settings-appearance")) {
         m_app->showSettingsSection(QStringLiteral("appearance"));
         m_app->showSettings();
@@ -761,9 +678,7 @@ void ScreenshotDemoController::applyScenarioNavigation(const Scenario &s)
     if (!s.room.isEmpty())
         m_selectedRoomPerAccount[s.account] = s.room;
 
-    // Seed local, demo-only state synchronously (no layout dependency) before
-    // the popup itself opens, so a picker that needs recents/favorites to
-    // look real has them the instant it's visible.
+    // Seed picker state before the popup opens.
     if (s.popup == QLatin1String("emoji-picker"))
         seedDemoEmojiRecents();
     else if (s.popup == QLatin1String("gif-picker"))
@@ -781,11 +696,8 @@ void ScreenshotDemoController::dispatchScenarioPopup(const QString &scenarioId,
 {
     if (popup.isEmpty())
         return;
-    // Deferred one event-loop tick so a popup anchored to a delegate item
-    // (a message row, a room-list row) opens only after that item has
-    // actually been instantiated by its ListView, and guarded against a
-    // newer scenario having taken over before the tick fires (the demo panel
-    // lets a user pick a different scenario faster than one tick).
+    // Deferred one tick so the delegate a popup anchors to exists; dropped
+    // if a newer scenario took over in the meantime.
     QTimer::singleShot(0, this, [this, scenarioId, popup, query] {
         if (m_currentScenario != scenarioId)
             return;
@@ -826,20 +738,9 @@ void ScreenshotDemoController::seedDemoEmojiRecents()
 {
     if (!m_app || !m_app->emojiCatalog())
         return;
-    // Fixed, deterministic call order — recordRecentEmoji dedups+prepends,
-    // so the final list is identical on every activation regardless of
-    // whatever was recorded before (idempotent for repeat/reset scenarios).
-    //
-    // Routed through EmojiCatalog::recordUse(), NOT SettingsManager::
-    // recordRecentEmoji() directly: recordUse() is the only path that also
-    // rebuild()s the live "Recently Used" bucket and emits
-    // recentEmojiChanged(), which is what the picker's GridView and the
-    // message-menu quick-react strip are actually bound to. Calling
-    // SettingsManager's setter directly persists the same data but leaves
-    // every already-constructed QML view showing a stale (empty) list —
-    // this was caught precisely that way in an early screenshot-demo
-    // capture (the picker's Recently Used section stayed empty despite the
-    // underlying settings value being seeded correctly).
+    // Recording dedups and prepends, so a fixed order is idempotent. Use
+    // EmojiCatalog::recordUse(), not the SettingsManager setter: only it
+    // rebuilds the live "Recently Used" bucket the views are bound to.
     static const QStringList kRecents = {
         QStringLiteral("\U0001F389"),   // 🎉 party popper
         QStringLiteral("\U0001F525"),   // 🔥 fire
@@ -857,18 +758,8 @@ void ScreenshotDemoController::seedDemoGifFavorite()
     seedDemoSavedGif();
 }
 
-// v0.6.7: give the picker a real, browsable catalogue.
-//
-// Until now the demo could not photograph the GIF picker at all: there is no
-// network, no provider key and the mock transport answers available() ==
-// false, so the only thing that ever rendered was "GIFs are unavailable on
-// this backend". The previous seed put ONE favourite in, pointing at a
-// fictional *.example CDN that cannot resolve, and docs/screenshot-demo.md
-// recorded the resulting broken thumbnail as an accepted limitation.
-//
-// These rows point at the bundled, license-clear demo fixtures instead, so
-// every tile renders a real picture. Nothing is persisted and no validation
-// is relaxed: GifResultModel is the in-memory browse grid, while the stored
+// Seeds the browse grid from bundled demo fixtures, since the mock has no
+// provider. Nothing is persisted and no validation is relaxed: the stored
 // collections still accept https only.
 void ScreenshotDemoController::seedDemoGifCatalogue()
 {
@@ -877,8 +768,7 @@ void ScreenshotDemoController::seedDemoGifCatalogue()
 
     struct Fixture { const char *file; const char *title; int w; int h;
                      qint64 bytes; const char *provider; };
-    // Deliberately mixed across both providers so the tab strip, the per-tile
-    // source tags and the size badges all photograph with real variety.
+    // Mixed across both providers for variety in tags and badges.
     static const Fixture kFixtures[] = {
         { "loop.gif",          "Retro dance loop",     480, 480, 66172, "giphy" },
         { "gif-coast.gif",     "Coast at golden hour", 220, 138, 98929, "klipy" },
@@ -913,8 +803,7 @@ void ScreenshotDemoController::seedDemoGifCatalogue()
         r.gifBytes = f.bytes;
         rows.append(r);
     }
-    // A second pass with rotated titles fills the grid past one screenful so
-    // scrolling and the bottom row photograph properly too.
+    // A second pass fills the grid past one screenful.
     const int firstPass = rows.size();
     for (int i = 0; i < firstPass; ++i) {
         gif::GifResult r = rows.at(i);
@@ -924,11 +813,8 @@ void ScreenshotDemoController::seedDemoGifCatalogue()
     m_app->gif()->seedDemoCatalogue(rows);
 }
 
-// The Saved tab renders the merged GifSavedModel — locally-saved chat GIFs
-// first, then provider bookmarks. Writing real bytes through the normal
-// starBytes() path is what makes those local rows render: they are resolved
-// by content hash from the account-scoped store, never from a persisted URL.
-// The store lives under the isolated demo profile, so --reset removes it.
+// Local saved GIFs resolve by content hash from the account-scoped store, so
+// real bytes go through starBytes(). The store lives under the demo profile.
 void ScreenshotDemoController::seedDemoSavedGif()
 {
     if (!m_app || !m_app->gif() || !m_app->gif()->starredStore())
@@ -949,7 +835,6 @@ void ScreenshotDemoController::setAccount(const QString &userId)
 {
     if (!m_app || userId.isEmpty() || userId == currentAccount())
         return;
-    // A manual account change through the panel restores that account's room.
     m_app->switchToAccount(userId);
     Q_EMIT stateChanged();
 }
@@ -989,11 +874,7 @@ void ScreenshotDemoController::setAppearance(const QString &mode)
     else if (m == QLatin1String("light"))
         setTheme(8);   // Moss Light
     else if (m == QLatin1String("dark"))
-        // Indigo Night (9). This tracks what the real application does —
-        // System (0) resolves to Moss Light / Indigo Night since 2026-08-25 —
-        // so "--appearance dark" in the demo shows the same theme a user with
-        // a dark desktop actually gets. It was Storm from v0.6.7 until then,
-        // for exactly the same reason.
+        // Indigo Night: what System resolves to on a dark desktop.
         setTheme(9);
 }
 
@@ -1004,7 +885,6 @@ void ScreenshotDemoController::setWindowSize(const QString &preset)
         return;
     m_requestedWidth = w;
     m_requestedHeight = h;
-    // A friendly label (prefer the preset's own label).
     m_sizeLabel = QStringLiteral("%1 × %2").arg(w).arg(h);
     for (const SizePreset &s : kSizes)
         if (preset.trimmed().toLower() == QLatin1String(s.id))
@@ -1148,7 +1028,6 @@ void ScreenshotDemoController::applyLaunchOptions(const QString &scenario,
     m_launchAppearance = appearance;
     m_launchSize = size;
     m_launchHideControls = hideControls;
-    // If the app is already on the main screen, apply immediately.
     if (m_app && m_app->currentScreen() == AppController::MainScreen
         && !m_launchApplied) {
         m_launchApplied = true;
@@ -1159,7 +1038,7 @@ void ScreenshotDemoController::applyLaunchOptions(const QString &scenario,
 void ScreenshotDemoController::applyLaunchNow()
 {
     activateScenario(m_launchScenario);
-    // CLI overrides win over the scenario defaults.
+    // CLI overrides win over scenario defaults.
     if (!m_launchTheme.isEmpty())
         setThemeByName(m_launchTheme);
     if (!m_launchAppearance.isEmpty())

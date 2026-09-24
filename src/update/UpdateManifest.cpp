@@ -145,12 +145,9 @@ bool isSafeArtifactFilename(const QString &filename)
         if (c.isSpace() && c != QLatin1Char(' '))
             return false;
     }
-    // The verified artifact is renamed to this name inside the update staging
-    // directory, which already holds two files of its own. A manifest naming
-    // one of them would have the artifact delete the single-instance lock, or
-    // be deleted by the next launch's status-file cleanup. Only an operator
-    // mistake can produce this -- the manifest is signed -- but the cost of
-    // refusing it is nothing.
+    // The artifact is renamed to this name in the staging directory; it must
+    // not collide with the lock or status file there. Only an operator mistake
+    // could cause it, and refusing costs nothing.
     if (filename == QLatin1String("update.lock")
         || filename == QLatin1String("update-status.json")
         || filename.endsWith(QLatin1String(".lock"))) {
@@ -240,15 +237,13 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
 
     const QJsonValue releasedValue = root.value(QLatin1String("released"));
     if (releasedValue.isString()) {
-        // Presentation only: an unparseable timestamp is left null rather
-        // than failing an otherwise valid, signed release.
+        // Presentation only; an unparseable timestamp stays null.
         manifest.m_released = QDateTime::fromString(releasedValue.toString(), Qt::ISODate);
     }
 
-    // OPTIONAL and informational, like `released`: absent or empty reads as
-    // "no expiry"; present but unreadable (unparseable, a zone-less local
-    // time, not a string) is flagged so the manager can show the line
-    // anyway. Never a failure (see the accessor's comment for why).
+    // Optional and informational: absent or empty means no expiry; unreadable
+    // is flagged so the manager shows the stale line. Never a failure (see the
+    // accessor).
     const QJsonValue expiresValue = root.value(QLatin1String("expires"));
     if (!expiresValue.isUndefined() && !expiresValue.isNull()) {
         if (expiresValue.isString() && !expiresValue.toString().isEmpty()) {
@@ -270,9 +265,7 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
     const QJsonValue notesUrlValue = root.value(QLatin1String("release_notes_url"));
     if (notesUrlValue.isString() && !notesUrlValue.toString().isEmpty()) {
         const QUrl url(notesUrlValue.toString(), QUrl::StrictMode);
-        // METADATA: canonical host only, never a mirror. This link is opened
-        // in the user's browser and it describes the release; a bandwidth
-        // mirror has no business serving either.
+        // Metadata: canonical host only. The link opens in the user's browser.
         if (!isAllowedManifestUrl(url))
             return failure(ManifestError::ReleaseNotesUrlRejected);
         manifest.m_releaseNotesUrl = url;
@@ -285,9 +278,8 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
         const QJsonObject artifacts = artifactsValue.toObject();
         for (auto it = artifacts.constBegin(); it != artifacts.constEnd(); ++it) {
             const std::optional<InstallType> type = installTypeFromId(it.key());
-            // Forward compatibility: an artifact key this build does not
-            // know, or one for an install type Lightning never installs
-            // itself, is ignored rather than treated as an error.
+            // Forward compatibility: unknown keys and non-downloadable install
+            // types are ignored.
             if (!type || !isDownloadableInstallType(*type))
                 continue;
             if (!it.value().isObject())
@@ -324,41 +316,23 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
             const QUrl url(urlValue.toString(), QUrl::StrictMode);
             if (!url.isValid() || url.scheme() != QLatin1String("https"))
                 return failure(ManifestError::ArtifactBadUrl, it.key());
-            // The CANONICAL address is held to the metadata host policy, not
-            // the artifact one. It is the fallback the mirror falls back TO,
-            // so it must be the release authority's own host: if this were
-            // allowed to name a mirror as well, a manifest could put both
-            // addresses on the same third party and one outage there would
-            // leave no working source at all. Hash verification would still
-            // hold, but the availability guarantee would be gone.
+            // The canonical address follows the metadata host policy: it is
+            // what the mirror falls back to, so it must not be a mirror too, or
+            // one third-party outage would leave no working source.
             if (!isAllowedManifestUrl(url))
                 return failure(ManifestError::ArtifactForeignHost, it.key());
-            // The URL must actually name the file the manifest describes,
-            // so the hash, the size and the stored name all refer to one
-            // thing.
+            // The URL must name the described file, so hash, size and name
+            // agree.
             if (url.fileName() != artifact.filename)
                 return failure(ManifestError::ArtifactFilenameMismatch, it.key());
             artifact.url = url;
 
-            // OPTIONAL mirror. Absent or JSON null means "no mirror for this
-            // artifact" and everything downstream behaves exactly as it did
-            // before mirrors existed.
-            //
-            // A mirror this build does not trust is DROPPED, not fatal. The
-            // field is consumed as nothing but a download address, and the
-            // downloader re-checks the host at transfer time anyway, so
-            // ignoring it is fail-closed on trust and merely slower: the
-            // artifact keeps its canonical address and downloads exactly as it
-            // used to. Failing the document instead would be a fleet hazard --
-            // the day the project moves the mirror, every already-installed
-            // client with an older compiled-in host list would reject EVERY
-            // later manifest outright, including the perfectly good GitLab
-            // address inside it, and could never be updated again.
-            //
-            // A MALFORMED value is still fatal: a non-string, a non-https or
-            // unparseable URL, or a name that disagrees with the entry cannot
-            // be interpreted at all, and that is a broken document rather than
-            // one describing a host we happen not to know.
+            // Optional mirror; absent or null means none. An untrusted but
+            // well-formed mirror is dropped, not fatal: the artifact keeps its
+            // canonical address, and failing instead would make older clients
+            // reject every manifest once the mirror moves. A malformed value
+            // (non-string, non-https, unparseable, or naming a different file)
+            // is a broken document and fatal.
             const QJsonValue mirrorValue = entry.value(QLatin1String("mirror_url"));
             if (!mirrorValue.isUndefined() && !mirrorValue.isNull()) {
                 if (!mirrorValue.isString())
@@ -366,8 +340,7 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
                 const QUrl mirror(mirrorValue.toString(), QUrl::StrictMode);
                 if (!mirror.isValid() || mirror.scheme() != QLatin1String("https"))
                     return failure(ManifestError::ArtifactBadMirrorUrl, it.key());
-                // The same agreement the canonical address must keep: the
-                // mirror has to name the very file this entry describes.
+                // The mirror must name the same file as well.
                 if (mirror.fileName() != artifact.filename)
                     return failure(ManifestError::ArtifactFilenameMismatch, it.key());
                 if (isAllowedArtifactUrl(mirror))
@@ -405,17 +378,15 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
                 return failure(ManifestError::ChannelMalformed, it.key());
             }
             const QJsonValue noteValue = entry.value(QLatin1String("note"));
-            // Bounded at the parse: this string reaches a status label, and
-            // a signed document is still an unbounded one.
+            // Bounded: it reaches a status label.
             if (noteValue.isString())
                 channel.note = noteValue.toString().left(kMaxChannelNoteChars);
             manifest.m_channels.insert(channel.id, channel);
         }
     }
 
-    // Every field above is data. There is deliberately no place to put a
-    // command, argument vector, script, or interpreter: unknown fields
-    // (including "command" / "install_command") were never read.
+    // Every field is data; there is nowhere to put a command, and unknown
+    // fields are never read.
     manifest.m_valid = true;
 
     Result result;

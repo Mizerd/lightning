@@ -5,16 +5,10 @@
 
 #include <functional>
 
-// Transactional replacement with rollback.
-//
-// Both routines here have the same shape: verify everything BEFORE touching
-// anything, then perform the smallest possible sequence of renames, and undo
-// them if any step fails. The invariant that matters is that the target is
-// either entirely the old version or entirely the new one — never a mixture,
-// and never missing.
-//
-// Nothing here deletes a path the caller did not name, and nothing here
-// recurses outside the directory it was given.
+// Transactional replacement with rollback. Verify everything before touching
+// anything, perform the fewest renames possible, and undo on failure: the
+// target is always entirely old or entirely new, never mixed or missing.
+// Nothing outside the named paths is deleted or recursed into.
 
 namespace updater {
 
@@ -48,9 +42,8 @@ struct ReplaceResult {
     bool ok() const { return error == ReplaceError::None; }
 };
 
-// Test seams. Each hook, when set and returning false, makes the
-// corresponding step fail as though the operating system had refused it —
-// which is how the rollback paths get real coverage.
+// Test seams: a hook returning false fails that step as if the OS refused,
+// exercising the rollback paths.
 struct ReplaceHooks {
     std::function<bool()> beforeBackupRename;  // fails before the target moves
     std::function<bool()> beforePromoteRename; // fails AFTER the target moved
@@ -63,11 +56,9 @@ struct ReplaceHooks {
 // `backupPath` must be a helper-private path. It is removed on success; on
 // failure it is restored over the target and reported.
 //
-// Cross-filesystem: rename(2) fails with EXDEV when the staged file lives on
-// another mount, which it usually does (the download staging directory is
-// under the user's data dir). The fallback copies the file into the TARGET's
-// own directory first, flushes it to disk, and only then does the two renames
-// — so the atomic swap always happens within one filesystem.
+// The staged file is usually on another mount (EXDEV), so it is first copied
+// and flushed into the target's own directory; the renames always happen on
+// one filesystem.
 ReplaceResult replaceFileAtomically(const QString &newFile,
                                     const QString &targetPath,
                                     const QString &backupPath,
@@ -81,24 +72,15 @@ ReplaceResult replaceFileAtomically(const QString &newFile,
 // exactly one immediate subdirectory contains it, that subdirectory becomes
 // the effective source.
 //
-// On success the previous directory is removed. On any failure the previous
-// directory is restored and the target is left exactly as it was found.
-// `preserveNames` are top-level entries of `targetDir` that the swap must
-// leave exactly where they are: never moved into the backup, never promoted
-// over, never deleted. It exists for ONE case and it is a data-loss guard.
+// On success the previous directory is removed; on failure it is restored and
+// the target left as found.
 //
-// A PORTABLE installation keeps its entire persistent state — settings, the
-// sealed Matrix session, the Rust SDK store and the E2EE crypto store — in a
-// directory INSIDE the installation, because that is what makes the folder
-// copyable to another machine. The swap below moves every top-level entry of
-// the installation into the backup and then deletes the backup, so without
-// this the first in-app update would take the user's session and Megolm keys
-// with it. The promoted installation would then start with no state at all:
-// a fresh login, and a NEW Matrix device issued by the server, losing access
-// to history that was encrypted to the old one.
-//
-// An installed (MSI / Setup) build passes an empty set — its state lives in
-// %LOCALAPPDATA% and the registry and was never inside the install directory.
+// `preserveNames` are top-level entries of `targetDir` that are never moved,
+// backed up, promoted over or deleted. A portable installation keeps its
+// settings, sealed session and SDK/crypto stores inside the installation; the
+// swap would otherwise delete them, leaving a fresh login as a new Matrix
+// device without access to old encrypted history. Installed (MSI/setup) builds
+// pass an empty set.
 ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
                             const QString &backupDir,
                             const QString &expectedExecutableName,
@@ -114,22 +96,10 @@ QString resolveStagedRoot(const QString &stagedDir,
 // True when a probe file can be created and removed inside `directory`.
 bool directoryIsWritable(const QString &directory);
 
-// Where a portable swap puts the outgoing build.
-//
-// A SIBLING of the installation, never a directory inside it. swapDirectory
-// refuses an overlapping backup as its first check, so a backup under the
-// target cannot merely be untidy: it makes the swap impossible. That is what
-// shipped — the backup was `<target>/data/update-work/previous-version`, the
-// refusal fired every time, and a Windows portable update failed with
-// `refused-unsafe-path` before a single file moved.
-//
-// A sibling keeps the property the inside-the-target placement was reaching
-// for, because it shares the target's PARENT and therefore its filesystem, so
-// promoting is still a rename and never a copy. It costs one directory beside
-// the installation for the lifetime of one update.
-//
-// Shared with the helper rather than spelled out there, so a test can assert
-// the rule the helper actually uses instead of a copy of it.
+// Where a portable swap puts the outgoing build: a sibling of the
+// installation, never inside it (swapDirectory refuses an overlapping backup).
+// Sharing the parent keeps promotion a same-filesystem rename. Shared with the
+// helper so tests assert the rule it actually uses.
 QString portableBackupPath(const QString &targetDir);
 
 } // namespace updater

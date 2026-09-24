@@ -34,16 +34,10 @@ void BackupController::setClient(MatrixClient *client)
             m_recoveryKey = recoveryKey;
         } else {
             m_recoveryKey.clear();
-            // "Nothing was changed" WAS FREQUENTLY FALSE, and saying it is
-            // the §6 honesty rule in mirror image -- the same conflation as
-            // reporting a cleanup that removed nothing as a success, pointed
-            // the other way. `enable` that fails inside `create_secret_store()`
-            // has already created the backup version on the server;
-            // `disable_and_delete` that fails after `backups().disable()` has
-            // already disabled them locally. The FFI collapses every error
-            // into one category and genuinely cannot tell partial from total,
-            // so the honest sentence is the one that does not claim to know.
-            // Found in the 2026-09-13 pre-release audit.
+            // Never claim "nothing was changed": a failed `enable` may already
+            // have created the backup version, and a failed
+            // `disable_and_delete` may already have disabled it locally. The
+            // FFI cannot tell partial from total failure.
             m_error = category == QLatin1String("forbidden")
                 ? tr("The server refused this backup change.")
                 : tr("The backup change did not complete. Some of it may "
@@ -51,11 +45,8 @@ void BackupController::setClient(MatrixClient *client)
         }
         Q_EMIT stateChanged();
         requestProgress();
-        // EITHER WAY, not just on success. A failure can still have changed
-        // server state -- `enable` that fails inside `create_secret_store()`
-        // has already created the backup version -- so the snapshot the
-        // Sessions card renders is untrustworthy after any outcome, and the
-        // buttons it gates are the destructive ones.
+        // On any outcome: even a failure can change server state, and the stale
+        // snapshot gates destructive buttons.
         Q_EMIT cryptoHealthStale();
     });
     connect(m_client, &MatrixClient::backupProgress, this,

@@ -10,99 +10,47 @@ namespace lightning::theme {
 // the id, so the same person keeps the same colour everywhere.
 inline constexpr int kIdentitySlots = 9;
 
-// The ONE identity hash. Mirrors the JavaScript in AppTheme.identityIndex,
-// including its 32-bit wrapping arithmetic.
+// Mirrors AppTheme.identityIndex in JavaScript, including its 32-bit
+// wrapping arithmetic.
 int identityIndex(const QString &key);
 
-// The disc fill for one slot, DERIVED FROM THE ACTIVE THEME'S ACCENT.
+// The disc fill for one slot: nine evenly spaced hues in a 190-degree arc
+// centred on the theme's anchor, so the family belongs to the theme.
 //
-// Until 2026-08-22 this was a fixed nine-colour ladder whose centre of
-// gravity had deliberately been moved warm. That reads as a mistake on a
-// cool theme: a deep indigo window with amber and rust discs in its room
-// list. The slots are now nine evenly spaced hues in a 190-degree arc
-// CENTRED ON THE THEME'S OWN ACCENT, so the family belongs to the theme,
-// with the arc wide enough that two rooms are still told apart at a glance.
-//
-// Two properties this must keep, both of which the theme-token test pins
-// across every theme accent:
-//   * adjacent slots stay far apart perceptually — the 2026-08-21 audit
-//     found sender inks that were "the same colour" at dE 5.6, and a disc
-//     ladder can fail the same way;
-//   * the initials on every disc clear 4.5:1. That is why the lightness
-//     ladder alternates deep and pale instead of sitting at one level: with
-//     every disc pinned under the white-text luminance cap there is no axis
-//     left to separate them on once the hues are pulled into one family.
+// ThemeTokensTest pins, across every theme, that adjacent slots stay
+// perceptually distinct and that the initials on every disc clear 4.5:1.
+// The lightness ladder alternates deep and pale for both reasons.
 QColor discColor(int index, const QColor &accent);
 
-// The initials ink for that disc — white or near-black, whichever the disc
-// carries at 4.5:1. Never assume white: half of these discs are pale.
+// White or near-black, whichever the disc carries at 4.5:1; half the discs
+// are pale.
 QColor discInk(int index, const QColor &accent);
 
-// The colour each SettingsManager::Theme id derives its identity discs from.
-//
-// USUALLY the accent, because in ten of the eleven themes the accent IS the
-// shell's own hue — Lightning Dark's background is 214 degrees and its accent
-// 225, Purple Dusk's 248 and 254, Warm's 37 and 28.
-//
-// Storm is the exception and it is why this is not simply called "the
-// accent": its shell is deep navy at 233 degrees and its accent is the brand
-// bolt at 46, almost exactly opposite. Anchoring on the accent there built a
-// magenta-red-orange-lime family and dropped it onto a navy window, which is
-// exactly as out of place as it sounds. So: the accent anchors the discs
-// unless it is nowhere near the surface they sit on, in which case the
-// surface wins. Measured on the literals in qml/AppTheme.qml, the rule is
+// The colour a SettingsManager::Theme id anchors its identity discs on:
 //
 //     background, when it has a usable hue (HSL saturation >= 0.20)
 //                 AND its hue is more than 60 degrees from the accent;
 //     the accent otherwise.
 //
-// This is a hand-kept mirror of that rule applied to that file, which is the
-// sole source of truth for colour. It exists because desktop notifications
-// are painted with no QML engine anywhere near them, and a notification whose
-// fallback avatar disagreed with the one in the window would be the same
-// defect the old palette copy caused in the 2026-08-21 round. ThemeTokensTest
-// parses both literals per theme, applies the rule, and requires the answers
-// equal.
+// In practice that is the accent everywhere except Storm, whose navy shell is
+// almost opposite its yellow accent.
 //
-// Theme 12 (a user's custom theme) resolves to the brand anchor here: C++ has
-// no access to the custom override layer, and a custom accent is a live QML
-// value. The in-window discs do follow the override, because AppTheme passes
-// its own resolved anchor.
+// A hand-kept mirror of that rule applied to qml/AppTheme.qml, which remains
+// the source of truth; it exists for notifications, which are painted without
+// a QML engine. ThemeTokensTest checks the two agree for every theme. A custom
+// theme (12) resolves to the brand anchor here, since its override lives in
+// QML; the in-window discs follow the override.
 QColor anchorForTheme(int themeId);
 
-// The sender-name INK for a slot: the same hue family as that slot's disc,
-// darkened or lightened until it clears 4.5:1 against every surface a name is
-// drawn on.
-//
-// This used to be two hand-tuned nine-colour tables picked by dark/light and
-// nothing else, so a person's avatar disc followed the theme and their NAME
-// did not — a green disc with a red name on Moss Light. The tables even
-// carried a comment claiming they were "hue-matched index-for-index to
-// avatarPalette", which stopped being true the moment the discs were made
-// theme-derived and the inks were left behind.
-//
-// Deriving it here rather than in QML is the same argument the discs make:
-// one implementation, and the notification painter can reach it with no QML
-// engine anywhere near. It also means a CUSTOM theme gets real name colours
-// from its own two colours instead of inheriting a stranger's table.
-//
-// `surfaces` is every ground a name is painted on — background, card,
-// elevated card, and the other party's bubble. The ink clears the WORST of
-// them, so it is legible everywhere rather than on average.
+// The sender-name ink for a slot, in the same hue family as its disc, adjusted
+// until it clears 4.5:1 against the worst of `surfaces` (every ground a name
+// is painted on).
 QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces);
 
-// A colour the USER chose, made legible on the VIEWER's surfaces.
-//
-// The hue is theirs and is never changed — that is the whole point of letting
-// somebody pick one. Only the lightness moves, and only far enough to clear
-// 4.5:1 on the worst ground this viewer paints names on.
-//
-// Clamping rather than obeying is deliberate. The value comes from a profile
-// field its owner writes and everybody else reads, so painting it verbatim
-// would let anyone hand every other user a name they cannot read — on a theme
-// the sender has never seen. Nobody gets to do that to somebody else's
-// window, and a choice that survives as "your hue, legible here" is a better
-// answer than refusing the feature.
+// A colour another user chose, made legible on the viewer's surfaces. Only
+// lightness moves, just far enough to clear 4.5:1 on the worst ground. The
+// value is remote profile data, so painting it verbatim would let anyone make
+// their name unreadable for everyone else.
 QColor legibleChoice(const QColor &chosen, const QList<QColor> &surfaces);
 
 } // namespace lightning::theme

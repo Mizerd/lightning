@@ -19,9 +19,7 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
 
     connect(m_client, &MatrixClient::loginFailed, this, [this](const QString &reason) {
         setLoggingIn(false);
-        // Any terminal outcome ends the browser wait. Without this the UI
-        // could sit in "Waiting for your browser" after the attempt had
-        // already failed.
+        // Any terminal outcome ends the browser wait.
         setBrowserLoginInProgress(false);
         setLastError(reason);
         setLoginStage(QStringLiteral("idle"));
@@ -33,22 +31,16 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         m_discoveredHomeserver = homeserver;
         m_serverPassword = password;
         m_serverOauth = oauth && m_client->supportsOAuthLogin();
-        // Gated on backend capability exactly as OAuth is: a server offering
-        // SSO is only worth showing if this build can actually perform it.
+        // Gated on backend capability, as OAuth is.
         m_serverSso = sso && m_client->supportsSsoLogin();
         // A previous server's provider list must not survive into this one.
         m_ssoProviders.clear();
         if (m_serverSso) {
-            // Ask which identity providers it advertises. The answer arrives
-            // separately and emits discoveryChanged again; until then the UI
-            // shows the generic single action, which is also the correct
-            // final state for a server that advertises none.
+            // Until providers arrive the UI shows the generic single action.
             m_client->requestSsoProviders(homeserver);
         }
-        // "failed" only when the server told us nothing at all. A server that
-        // genuinely offers neither is a valid, if unusual, answer — but it is
-        // indistinguishable here from an unreachable one, so report the
-        // conservative state and let the user retry.
+        // A server offering nothing is indistinguishable from an unreachable
+        // one here, so report "failed" and let the user retry.
         m_discoveryState = (password || oauth || sso) ? QStringLiteral("done")
                                                       : QStringLiteral("failed");
         Q_EMIT discoveryChanged();
@@ -57,9 +49,7 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
     connect(m_client, &MatrixClient::ssoProvidersReceived, this,
             [this](const QString &homeserver, bool sso,
                    const QVariantList &providers) {
-        // Only for the server the user is actually looking at: a late answer
-        // for a homeserver they have since typed away from must not repopulate
-        // the chooser.
+        // Ignore a late answer for a homeserver the user has typed away from.
         if (!m_discoveredHomeserver.isEmpty() && homeserver != m_discoveredHomeserver)
             return;
         if (!sso)
@@ -72,19 +62,15 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         setLoginStage(QStringLiteral("waiting_for_browser"));
     });
 
-    // 2026-09-01: a failed browser LAUNCH used to be silent — the backend
-    // discarded openExternally()'s result and the UI sat in
-    // waiting_for_browser until the 5-minute timeout. The flow deliberately
-    // stays alive (Cancel and the timeout still apply; the user may open a
-    // browser themselves on some setups), but the reason is now on screen.
+    // The flow stays alive (Cancel and the timeout still apply), but the
+    // failure is shown instead of waiting silently for the timeout.
     connect(m_client, &MatrixClient::browserLaunchFailed, this, [this] {
         setLastError(tr("Couldn't open your web browser. "
                         "Cancel and try again, or sign in another way."));
     });
 
     connect(m_client, &MatrixClient::oauthBrowserUrlReady, this, [this](const QString &) {
-        // The backend has opened the system browser. The URL itself is
-        // deliberately not stored or surfaced here.
+        // The URL is deliberately not stored or surfaced.
         setLoginStage(QStringLiteral("waiting_for_browser"));
     });
 
@@ -96,11 +82,8 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         Q_EMIT loggedOut();
     });
 
-    // The backend reaches Connecting only AFTER the SDK handle and the local
-    // store have been opened (RustSdkMatrixClient::login() calls
-    // ensureRustHandleForUser() first, then setState(Connecting)), so this
-    // transition is the honest store-open → credentials-in-flight boundary.
-    // Syncing is only reported once a real sync loop is running.
+    // Connecting is reached only after the SDK handle and store are open, so
+    // it marks the store-open -> credentials-in-flight boundary.
     connect(m_client, &MatrixClient::connectionStateChanged,
             this, [this](MatrixClient::ConnectionState state) {
         if (state == MatrixClient::Connecting && m_loggingIn)
@@ -164,8 +147,7 @@ void AuthManager::discoverAuthMethods(const QString &homeserver)
     if (!m_client)
         return;
     const QString hs = homeserver.trimmed();
-    // Reset first: stale results from a previously typed server must never be
-    // shown against a new one.
+    // Reset first so a previous server's results never show against this one.
     m_discoveredHomeserver = hs;
     m_serverPassword = false;
     m_serverOauth = false;
@@ -198,14 +180,8 @@ void AuthManager::cancelBrowserLogin()
 {
     if (!m_client || !m_browserLoginInProgress)
         return;
-    // The backend answers with loginFailed("Sign-in was cancelled."), which
-    // clears the in-progress flag and the stage through the normal path — so
-    // the UI can never be left stuck in a waiting state.
-    //
-    // Both flows are cancelled: only one can be in flight, each backend call
-    // is a no-op when its own flow is not running, and cancelling "the wrong
-    // one" is therefore harmless — whereas guessing wrong and cancelling
-    // NEITHER would strand the UI in "Signing in" forever.
+    // The backend answers with loginFailed, which resets the UI. Cancel both
+    // flows: each is a no-op when not running.
     m_client->cancelOAuthLogin();
     m_client->cancelSsoLogin();
 }
@@ -219,9 +195,8 @@ void AuthManager::beginSsoLogin(const QString &homeserver, const QString &idpId)
         Q_EMIT loginFailed(m_lastError);
         return;
     }
-    // Shares browserLoginInProgress with OAuth on purpose: from the UI's point
-    // of view both are "a browser sign-in is running, offer Cancel", and
-    // cancelBrowserLogin() below resolves whichever one is live.
+    // Shares browserLoginInProgress with OAuth; cancelBrowserLogin() cancels
+    // either.
     setLoggingIn(true);
     setBrowserLoginInProgress(true);
     setLastError({});

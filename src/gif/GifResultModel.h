@@ -9,10 +9,8 @@
 
 #include <functional>
 
-// v0.6.1: the animated result grid model. Holds safe gif::GifResult rows and
-// exposes only presentation-safe roles to QML — never raw provider JSON. Dedup
-// is by (provider, id) so pagination never repeats a tile. Bounded so a runaway
-// provider cannot grow the model without limit.
+// The result grid model: safe gif::GifResult rows exposed as presentation
+// roles, never raw provider JSON. Deduplicated by (provider, id) and bounded.
 class GifResultModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -34,10 +32,7 @@ public:
         AspectRole,       // width/height, for stable grid sizing
         RatingRole,
         FavoriteRole,     // set by the controller from favorites state
-        // v0.6.5: the sendable-variant byte size the provider parser already
-        // extracts (gif::GifResult::gifBytes) but which never reached QML
-        // before now. 0 = unknown; the picker only shows a size overlay when
-        // this is > 0.
+        // Sendable variant's byte size; 0 = unknown (no size overlay).
         BytesRole,
     };
 

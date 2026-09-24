@@ -13,8 +13,7 @@ Q_LOGGING_CATEGORY(lcStickers, "lightning.stickers")
 
 namespace {
 
-// Bound on one completion list. A completion popup that can grow without
-// limit is a completion popup that covers the composer.
+// Keeps a completion popup from covering the composer.
 constexpr int kMaxCompletionRows = 64;
 
 stickers::Pack packFromVariant(const QVariantMap &map)
@@ -36,10 +35,8 @@ stickers::Pack packFromVariant(const QVariantMap &map)
     for (const QVariant &value : images) {
         const stickers::PackImage image =
             stickers::PackImage::fromVariantMap(value.toMap());
-        // A row with no url or no shortcode cannot have come from the Rust
-        // parser (both are required there). Dropping it costs nothing and
-        // keeps a malformed test fixture or a future payload change from
-        // putting an unusable tile in the grid.
+        // The Rust parser requires both; drop malformed rows rather than show
+        // an unusable tile.
         if (image.url.isEmpty() || image.shortcode.isEmpty())
             continue;
         pack.images.append(image);
@@ -74,7 +71,7 @@ void StickerPackManager::setClient(MatrixClient *client)
                 &StickerPackManager::onEditFinished);
         connect(m_client, &MatrixClient::stickerPackRoomsSet, this,
                 &StickerPackManager::onRoomsSet);
-        // An account change invalidates every pack: packs are account data.
+        // Packs are account data.
         connect(m_client, &MatrixClient::loggedOut, this,
                 &StickerPackManager::onLoggedOut);
     }
@@ -96,20 +93,10 @@ void StickerPackManager::setActiveRoomId(const QString &roomId)
         return;
     m_stale = true;
 
-    // FETCH FOR THE ROOM THE USER IS IN, coalesced.
-    //
-    // This used to mark stale and wait for the picker to be opened, which
-    // meant "Add to this room's stickers" was absent on a message until you
-    // had opened the picker in that room once — reported as the action simply
-    // not being there. The old comment framed the cost as "a read on every
-    // room the user walks through"; that is one read per room ENTERED, which
-    // is what opening a room already costs several of. The rule it was
-    // borrowing — the room-list call glyph — is about issuing a request PER
-    // ROW of a list, which this is not.
-    //
-    // Coalesced through a zero-interval single-shot timer so walking a list
-    // of rooms with the keyboard fires once for the room you land on, not
-    // once per room you pass through.
+    // Fetch packs for the room the user is in, so "Add to this room's stickers"
+    // is available without first opening the picker. One read per room entered,
+    // coalesced through a zero-interval timer so keyboard navigation fetches
+    // only for the room it lands on.
     if (!m_activeRoomFetch) {
         m_activeRoomFetch = new QTimer(this);
         m_activeRoomFetch->setSingleShot(true);
@@ -126,8 +113,7 @@ void StickerPackManager::setSelectedPackId(const QString &id)
 {
     if (m_selectedPackId == id)
         return;
-    // Refuse an id the snapshot does not have. Silently falling back to the
-    // first pack would show one pack's images under another pack's tab.
+    // Refuse unknown ids rather than show one pack under another's tab.
     if (!id.isEmpty() && m_packs->indexOfPack(id) < 0)
         return;
     m_selectedPackId = id;
@@ -171,8 +157,7 @@ void StickerPackManager::refresh()
     }
     const quint64 opId = m_nextOpId++;
     m_fetchOp = opId;
-    // The room is captured in the request; the answer carries it back, and
-    // applySnapshot records it as the snapshot's room.
+    // The answer carries the room back; applySnapshot records it.
     m_client->fetchStickerPacks(m_activeRoomId, opId);
     emitStateChanged();
 }
@@ -207,9 +192,8 @@ void StickerPackManager::sendToThread(const QString &roomId,
     const stickers::PackImage row = stickers::PackImage::fromVariantMap(image);
     if (row.url.isEmpty())
         return;
-    // NO room-send fallback, ever: a thread sticker that cannot reach its
-    // thread must fail rather than land in the main timeline (§8, the same
-    // rule as thread voice messages).
+    // No room-send fallback: a thread sticker must fail rather than land in the
+    // main timeline (§8).
     m_client->sendSticker(roomId, rootId, row.url,
                           row.body.isEmpty() ? row.shortcode : row.body,
                           row.mimetype, static_cast<quint64>(qMax(0, row.width)),
@@ -220,14 +204,11 @@ void StickerPackManager::sendToThread(const QString &roomId,
 void StickerPackManager::uploadSticker(const QUrl &fileUrl,
                                        const QString &shortcode)
 {
-    // Single-flight, exactly like every other pack write here: two racing
-    // writes to one account-data event means the loser's result is reported
-    // over the winner's.
+    // Single-flight, like every pack write: racing writes to one account-data
+    // event would misreport the loser.
     if (!m_client || m_saveOp != 0 || !available())
         return;
-    // A LOCAL file only. The picker hands back file://; anything else (an
-    // http URL, an empty value) is refused here rather than passed to the
-    // FFI to interpret.
+    // Local files only; anything else is refused before the FFI.
     const QString path = fileUrl.isLocalFile() ? fileUrl.toLocalFile()
                                                : QString{};
     if (path.isEmpty())
@@ -235,8 +216,7 @@ void StickerPackManager::uploadSticker(const QUrl &fileUrl,
     const quint64 opId = m_nextOpId++;
     m_saveOp = opId;
     m_saveScope = QStringLiteral("account");
-    // The BODY doubles as the shortcode seed when none is given, matching
-    // saveSticker below — Rust sanitizes it to MSC2545's alphabet either way.
+    // The body seeds the shortcode when none is given; Rust sanitizes it.
     const QString seed = shortcode.trimmed().isEmpty()
         ? QFileInfo(path).completeBaseName()
         : shortcode.trimmed();
@@ -253,11 +233,9 @@ void StickerPackManager::saveSticker(const QString &url, const QString &body,
     const quint64 opId = m_nextOpId++;
     m_saveOp = opId;
     m_saveScope = QStringLiteral("account");
-    // The shortcode is derived from the sticker's BODY, sanitized to
-    // MSC2545's own alphabet in Rust. Sable derives it from the EVENT ID
-    // instead, which is illegal under the MSC (`$`, and a `:` in room
-    // versions 1-2) and unusable in another client's `:shortcode:`
-    // completion — see the round notes.
+    // The shortcode is derived from the body and sanitized to MSC2545's
+    // alphabet in Rust. (Deriving it from the event id, as Sable does, yields
+    // characters the MSC forbids.)
     m_client->addStickerToUserPack(body, url, body, mimetype,
                                    static_cast<quint64>(qMax(0, width)),
                                    static_cast<quint64>(qMax(0, height)),
@@ -266,12 +244,8 @@ void StickerPackManager::saveSticker(const QString &url, const QString &body,
     emitStateChanged();
 }
 
-// ── Pack management (MSC2545 CRUD) ──────────────────────────────────────
-//
-// Four verbs, ONE op slot and one dispatcher. The four differ only in the
-// operands they send; every other rule — who may write, what happens on
-// success, what happens on refusal — is identical, and writing it four times
-// is how three of them end up correct.
+// Pack management (MSC2545 CRUD): four verbs sharing one op slot and one
+// dispatcher, so the permission and completion rules exist once.
 
 bool StickerPackManager::canManagePack(const QString &packId) const
 {
@@ -281,14 +255,11 @@ bool StickerPackManager::canManagePack(const QString &packId) const
     if (row < 0)
         return false;
     const stickers::Pack &pack = m_packs->packs().at(row);
-    // This account's own pack: always. It is account data and nobody else
-    // can hold a power level over it.
+    // The account's own pack: always writable.
     if (pack.source != QLatin1String("room"))
         return true;
-    // A room pack: the SNAPSHOT's own recorded permission, exactly as
-    // canSaveToRoom reads it. The absence of the claim is not permission —
-    // the server would refuse anyway, and asking first is what lets the UI
-    // stop offering an action that cannot work.
+    // A room pack: only when the snapshot recorded permission. Absence is not
+    // permission.
     return pack.canManage && !pack.roomId.isEmpty();
 }
 
@@ -343,10 +314,8 @@ void StickerPackManager::renameImageInPack(const QString &packId,
 
 void StickerPackManager::renamePack(const QString &packId, const QString &name)
 {
-    // An EMPTY name is meaningful and must reach the bridge: it clears the
-    // display name, which for a room pack restores the MSC2545 fallback to
-    // the room's own name. Refusing it here would make "no custom name" an
-    // unreachable state.
+    // An empty name is meaningful: it clears the display name (a room pack then
+    // falls back to the room's name).
     editPack(packId, QStringLiteral("set_name"), name, QString());
 }
 
@@ -363,9 +332,8 @@ void StickerPackManager::onEditFinished(quint64 opId, bool ok,
         return;
     m_editOp = 0;
     if (ok) {
-        // Same rule the save path follows: nothing was applied optimistically,
-        // so the authoritative pack is the one that arrives next. A failed
-        // READ afterwards keeps the last known pack rather than emptying it.
+        // Nothing was applied optimistically; the next pack read is
+        // authoritative. A failed read keeps the last known pack.
         m_stale = true;
         refresh();
     }
@@ -382,9 +350,8 @@ void StickerPackManager::setRoomPackEnabled(const QString &packId,
     if (row < 0)
         return;
     const stickers::Pack &pack = m_packs->packs().at(row);
-    // The account's own pack is global by definition — there is nothing in
-    // `im.ponies.emote_rooms` that could describe it, and writing its id
-    // there would be inventing a shape the MSC does not have.
+    // The account's own pack is global by definition; `im.ponies.emote_rooms`
+    // cannot describe it.
     if (pack.source != QLatin1String("room") || pack.roomId.isEmpty())
         return;
     const quint64 opId = m_nextOpId++;
@@ -402,8 +369,7 @@ void StickerPackManager::onRoomsSet(quint64 opId, bool ok,
         return;
     m_roomsOp = 0;
     if (ok) {
-        // Nothing was applied optimistically, so the switch only moves once
-        // the authoritative snapshot says it moved.
+        // Not optimistic: the switch moves when the snapshot says so.
         m_stale = true;
         refresh();
     }
@@ -422,10 +388,8 @@ void StickerPackManager::saveStickerToRoom(const QString &roomId,
     const quint64 opId = m_nextOpId++;
     m_saveOp = opId;
     m_saveScope = QStringLiteral("room");
-    // The empty state key is the room's DEFAULT pack, which is what MSC2545
-    // means by it — not a missing key. A room may publish several packs; this
-    // surface writes the default one, and choosing among several is a pack
-    // editor's job, not a one-click action's.
+    // The empty state key is the room's default pack (MSC2545). Choosing among
+    // several packs belongs in a pack editor.
     m_client->addStickerToRoomPack(roomId, QString(), body, url, body,
                                    mimetype,
                                    static_cast<quint64>(qMax(0, width)),
@@ -440,9 +404,8 @@ bool StickerPackManager::canSaveToRoom(const QString &roomId,
 {
     if (!canSave(url) || roomId.isEmpty())
         return false;
-    // A snapshot for THIS room must actually have said this account may write
-    // its pack. Absence of the claim is NOT permission, and a permission
-    // learned about a different room says nothing about this one.
+    // The snapshot for this room must have granted write permission; absence is
+    // not permission.
     return m_loaded && m_snapshotRoomId == roomId && m_snapshotRoomCanManage;
 }
 
@@ -455,13 +418,10 @@ bool StickerPackManager::canSave(const QString &url) const
 {
     if (!available() || m_saveOp != 0)
         return false;
-    // A pack holds a plain mxc. An encrypted sticker carries an
-    // EncryptedFile and no url at all, so there is nothing a pack could
-    // hold — the action is genuinely unavailable, not merely refused.
+    // Packs hold plain mxc URLs; an encrypted sticker has none.
     if (!url.startsWith(QLatin1String("mxc://")))
         return false;
-    // Deliberately NOT gated on isSaved(): see the header. A duplicate is
-    // refused authoritatively in Rust and reported as such.
+    // Not gated on isSaved(); Rust refuses duplicates authoritatively.
     return true;
 }
 
@@ -481,8 +441,7 @@ QVariantList StickerPackManager::findEmoticons(const QString &prefix,
             if (!prefix.isEmpty()
                 && !image.shortcode.startsWith(prefix, Qt::CaseInsensitive))
                 continue;
-            // One shortcode wins once. The account's own pack comes first in
-            // the snapshot, so a user's own name beats a room pack's.
+            // First shortcode wins; the account's own pack comes first.
             if (seen.contains(image.shortcode))
                 continue;
             seen.insert(image.shortcode);
@@ -534,8 +493,7 @@ void StickerPackManager::onPacksReceived(quint64 opId, const QString &roomId,
                                          bool roomCanManage,
                                          const QVariantList &packs)
 {
-    // A late answer from a previous account (or a request this manager no
-    // longer owns) must never populate the current one.
+    // A late answer from a previous account or superseded request is dropped.
     if (opId == 0 || opId != m_fetchOp)
         return;
     m_fetchOp = 0;
@@ -557,9 +515,8 @@ void StickerPackManager::onSaveFinished(quint64 opId, bool ok,
                                                 : m_saveScope;
     m_saveScope.clear();
     if (ok) {
-        // Nothing is applied optimistically: the pack that follows is the
-        // authoritative one. A failed READ afterwards keeps the last known
-        // pack rather than emptying it.
+        // Not optimistic: the next pack read is authoritative. A failed read
+        // keeps the last known pack.
         m_stale = true;
         refresh();
     }
@@ -613,8 +570,7 @@ void StickerPackManager::applySnapshot(const QString &roomId,
     m_stale = false;
 
     // Keep the selection if the pack survived; otherwise pick the first pack
-    // that actually holds something of the current usage, so opening the
-    // picker never lands on an empty tab when a populated one exists.
+    // with content for the current usage.
     const QString previous = m_selectedPackId;
     if (m_selectedPackId.isEmpty() || m_packs->indexOfPack(m_selectedPackId) < 0) {
         m_selectedPackId.clear();

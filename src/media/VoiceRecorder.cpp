@@ -55,10 +55,9 @@ VoiceRecorder::VoiceRecorder(QObject *parent)
     m_maxDurationGuard.setSingleShot(true);
     m_maxDurationGuard.setInterval(static_cast<int>(kMaxDurationMs));
     connect(&m_maxDurationGuard, &QTimer::timeout, this, [this] {
-        // Review H1: the cap must NEVER publish. stop() feeds the send
-        // path, and a forgotten open mic auto-uploading fifteen minutes of
-        // ambient audio would be an unintended publication the user never
-        // authorized. Discard, and say why.
+        // The cap must never publish: stop() feeds the send path, and a
+        // forgotten open mic must not upload fifteen minutes of audio. Discard
+        // instead.
         if (recording()) {
             qCInfo(lcVoice, "recording hit the hard duration cap; discarding");
             cancel();
@@ -66,9 +65,8 @@ VoiceRecorder::VoiceRecorder(QObject *parent)
                              "was discarded."));
         }
     });
-    // Review L2: finalization (encoder flush + waveform decode) is bounded
-    // too — a backend that never reports StoppedState (or a wedged decoder)
-    // must not trap the composer in the recording pill forever.
+    // Finalization is bounded too, so a backend that never reports StoppedState
+    // cannot trap the composer in the recording pill.
     m_processingGuard.setSingleShot(true);
     m_processingGuard.setInterval(15000);
     connect(&m_processingGuard, &QTimer::timeout, this, [this] {
@@ -76,8 +74,8 @@ VoiceRecorder::VoiceRecorder(QObject *parent)
             return;
         qCWarning(lcVoice, "finalization timed out; discarding");
         m_cancelRequested = true;
-        // Abandons any decode in flight: a queued finishLater() hop from the
-        // old decoder must not land after this.
+        // Abandon any decode in flight so a queued finishLater() hop cannot
+        // land.
         ++m_decodeTag;
         m_decoder.reset();
         discardActiveFile();
@@ -89,8 +87,7 @@ VoiceRecorder::VoiceRecorder(QObject *parent)
 
 VoiceRecorder::~VoiceRecorder()
 {
-    // Release the liveness lock BEFORE the QTemporaryDir member wipes the
-    // recordings, so no descriptor outlives the directory.
+    // Release the lock before the QTemporaryDir removes the recordings.
     if (m_dir && m_dir->isValid())
         lightning::portable::releaseScratchDir(m_dir->path());
 }
@@ -105,14 +102,13 @@ bool VoiceRecorder::available()
 bool VoiceRecorder::ensureCaptureChain()
 {
     if (!m_dir) {
-        // Same scratch root as every other decrypted-media path — inside the
-        // portable folder when portable, the OS temp directory otherwise.
+        // Same scratch root as other decrypted media (inside the portable
+        // folder when portable).
         m_dir = std::make_unique<QTemporaryDir>(
             lightning::portable::mediaScratchRoot()
             + QStringLiteral("/lightning-voice-XXXXXX"));
-        // Marked live for as long as it exists, or the startup sweep of a
-        // second instance would remove it (see holdScratchDirLive). Released
-        // in the destructor before the QTemporaryDir goes.
+        // Marked live so another instance's startup sweep leaves it alone;
+        // released in the destructor.
         if (m_dir->isValid())
             lightning::portable::holdScratchDirLive(m_dir->path());
         if (!m_dir->isValid()) {
@@ -140,7 +136,7 @@ bool VoiceRecorder::ensureCaptureChain()
                         Q_EMIT stateChanged();
                         return;
                     }
-                    // The recorder resolves the REAL output location itself.
+                    // The recorder resolves the real output location.
                     const QString actual =
                         m_recorder->actualLocation().toLocalFile();
                     if (!actual.isEmpty())
@@ -161,7 +157,7 @@ bool VoiceRecorder::ensureCaptureChain()
                 });
         connect(m_recorder.get(), &QMediaRecorder::errorOccurred, this,
                 [this](QMediaRecorder::Error, const QString &) {
-                    // Error strings can embed device/file detail; log the
+                    // Error strings can contain device or file details; log the
                     // category only.
                     qCWarning(lcVoice, "recorder error during capture");
                     if (m_state == State::Idle)
@@ -197,19 +193,16 @@ bool VoiceRecorder::start()
         Q_EMIT failed(tr("Recording storage could not be prepared."));
         return false;
     }
-    // A new recording supersedes an unsent previous one; the dir is wiped
-    // wholesale at destruction, so only the immediately previous file is
-    // dropped eagerly here.
+    // A new recording supersedes an unsent one; the directory is wiped at
+    // destruction, so only the previous file is dropped here.
     discardActiveFile();
 
     QMediaFormat format(profile->container);
     format.setAudioCodec(profile->codec);
     m_recorder->setMediaFormat(format);
-    // Voice, not music: mono at a speech bitrate. Without these the
-    // recorder inherits the capture device's channel layout (a 4-channel
-    // mic array produced QUAD Opus at a defaulted 192 kbps — 126 KB for
-    // six seconds of speech). 32 kbps mono Opus at 48 kHz is the
-    // conventional voice-message profile and ~6x smaller.
+    // Voice profile: 32 kbps mono Opus at 48 kHz. Otherwise the recorder
+    // inherits the device's channel layout and bitrate (a 4-channel array gave
+    // 192 kbps quad Opus).
     m_recorder->setAudioChannelCount(1);
     m_recorder->setAudioSampleRate(48000);
     m_recorder->setAudioBitRate(32000);
@@ -229,8 +222,7 @@ bool VoiceRecorder::start()
     }
     m_state = State::Recording;
     m_paused = false;
-    // A previous resume may have shortened the interval to the time that
-    // was left; a new recording gets the full cap back.
+    // A new recording gets the full cap back.
     m_maxDurationGuard.setInterval(static_cast<int>(kMaxDurationMs));
     m_maxDurationGuard.start();
     Q_EMIT stateChanged();
@@ -247,8 +239,7 @@ bool VoiceRecorder::pause()
     if (m_recorder->error() != QMediaRecorder::NoError)
         return false;
     m_paused = true;
-    // The 15-minute cap measures RECORDED audio, so it is suspended too;
-    // a paused recorder holds no microphone input.
+    // The cap measures recorded audio, so it pauses too.
     m_maxDurationGuard.stop();
     Q_EMIT stateChanged();
     qCDebug(lcVoice, "recording paused");
@@ -263,8 +254,7 @@ bool VoiceRecorder::resume()
     if (m_recorder->error() != QMediaRecorder::NoError)
         return false;
     m_paused = false;
-    // Restart with the time that is LEFT, not a fresh 15 minutes: the cap
-    // bounds recorded audio, and a pause/resume cycle must not extend it.
+    // Resume with the remaining time; pausing must not extend the cap.
     const qint64 remaining =
         std::max<qint64>(1000, kMaxDurationMs - m_recorder->duration());
     m_maxDurationGuard.start(static_cast<int>(remaining));
@@ -295,18 +285,15 @@ void VoiceRecorder::cancel()
     m_processingGuard.stop();
     m_cancelRequested = true;
     if (m_decoder) {
-        // Same reason as the finalization guard: bump first, so a hop
-        // already queued from this decoder is stale when it arrives.
+        // Bump first so a hop already queued from this decoder is stale.
         ++m_decodeTag;
         m_decoder->stop();
         m_decoder.reset();
     }
     if (m_recorder
         && m_recorder->recorderState() != QMediaRecorder::StoppedState) {
-        // The stopped handler sees m_cancelRequested and discards. Bounded
-        // exactly like stop()-driven finalization (review recheck): a
-        // backend that never reports StoppedState must not leave the
-        // recorder wedged in Processing with a permanently dead mic.
+        // The stopped handler sees m_cancelRequested and discards. Bounded like
+        // stop(), so a backend that never stops cannot leave the mic dead.
         m_state = State::Processing;
         m_processingGuard.start();
         m_recorder->stop();
@@ -332,14 +319,11 @@ void VoiceRecorder::stop()
 
 void VoiceRecorder::beginWaveformExtraction()
 {
-    // Identifies THIS decode across the queued hop finishLater() makes; see
-    // the note there. Bumped by anything that abandons a decode, so a hop
-    // already posted from the old decoder's signals cannot land on the new
-    // one.
+    // Identifies this decode across finishLater()'s queued hop; bumped by
+    // anything that abandons a decode.
     const quint64 tag = ++m_decodeTag;
     m_decoder = std::make_unique<QAudioDecoder>();
-    // A fixed mono float output keeps the peak math format-independent;
-    // the FFmpeg decoder resamples internally.
+    // Fixed mono float output keeps the peak math format-independent.
     QAudioFormat format;
     format.setChannelCount(1);
     format.setSampleRate(16000);
@@ -354,10 +338,8 @@ void VoiceRecorder::beginWaveformExtraction()
     m_decodeFormatMismatch = false;
     connect(m_decoder.get(), &QAudioDecoder::bufferReady, this, [this] {
         const QAudioBuffer buffer = m_decoder->read();
-        // Review M1: setAudioFormat() is a REQUEST. constData<T>() does no
-        // type checking, so reading a non-Float delivery as float would be
-        // an out-of-bounds read (Int16 buffers hold half the bytes). A
-        // decoder that ignores the request costs only the waveform.
+        // setAudioFormat() is only a request, and constData<T>() does no type
+        // check: reading non-float data as float would read out of bounds.
         if (!buffer.isValid()
             || buffer.format().sampleFormat() != QAudioFormat::Float
             || buffer.format().channelCount() != 1) {
@@ -391,8 +373,7 @@ void VoiceRecorder::beginWaveformExtraction()
     connect(m_decoder.get(),
             qOverload<QAudioDecoder::Error>(&QAudioDecoder::error), this,
             [this, tag] {
-        // The recording itself is fine; only the derived waveform is
-        // unavailable. Send honestly without one.
+        // Only the waveform is unavailable; send without it.
         qCInfo(lcVoice, "waveform decode failed; sending without waveform");
         finishLater(tag, {});
     });
@@ -401,22 +382,10 @@ void VoiceRecorder::beginWaveformExtraction()
 
 void VoiceRecorder::finishLater(quint64 tag, const QList<int> &waveform)
 {
-    // NEVER DESTROY THE DECODER FROM INSIDE ITS OWN SIGNAL EMISSION.
-    //
-    // finishWithWaveform() begins with m_decoder.reset(), and all three of
-    // its callers are lambdas invoked from QAudioDecoder's own emission — so
-    // the object was deleted while its emitting frame was still on the
-    // stack, and QObject's activation machinery touches the sender after the
-    // slot returns. The sibling class states the rule outright and obeys it
-    // ("Queued: never tear the player down from inside its own frame
-    // callback", VideoPosterWorker::startNext in VideoPosterExtractor.cpp),
-    // and this is the same hop: back to the event loop, then re-check that
-    // this decode is still the current one.
-    //
-    // The tag also keeps the ONCE-ONLY property the synchronous version got
-    // for free. `error` and `finished` can both be emitted for one decode;
-    // previously the first call's m_decoder.reset() disconnected the second,
-    // and with two hops queued instead they would both deliver a ready().
+    // Never destroy the decoder inside its own signal emission
+    // (finishWithWaveform resets it, and QObject touches the sender after the
+    // slot returns). Hop back to the event loop and check the tag, which also
+    // keeps completion once-only when both `error` and `finished` fire.
     QMetaObject::invokeMethod(
         this,
         [this, tag, waveform] {
@@ -442,10 +411,8 @@ void VoiceRecorder::finishWithWaveform(const QList<int> &waveform)
     const QString file = m_activeFile;
     const QString mime = m_activeMime;
     const qint64 duration = m_finalDurationMs;
-    // Ownership transfers with ready() (review M2/L1): the consumer queues
-    // the send — which reads the bytes immediately — and deletes the file
-    // when its op resolves. Keeping it referenced here would let the NEXT
-    // start() delete a file the send queue had just been handed.
+    // Ownership moves with ready(): the send queue reads the file and deletes
+    // it when done, so the next start() must not delete it.
     m_activeFile.clear();
     m_state = State::Idle;
     Q_EMIT stateChanged();
@@ -472,14 +439,13 @@ QList<int> VoiceRecorder::bucketsFromPeaks(const QList<float> &peaks,
         std::min<int>(maxBuckets, static_cast<int>(peaks.size()));
     QList<int> out;
     out.reserve(buckets);
-    // Normalize against the loudest chunk so quiet recordings still render
-    // a legible envelope; a fully silent recording stays flat at zero.
+    // Normalize to the loudest chunk so quiet recordings still show an
+    // envelope.
     float loudest = 0.0f;
     for (float peak : peaks)
         loudest = std::max(loudest, peak);
     for (int b = 0; b < buckets; ++b) {
-        // Max-preserving downsample: a bucket covers [begin, end) source
-        // chunks and takes their loudest value, so short spikes survive.
+        // Max-preserving downsample, so short spikes survive.
         const qsizetype begin = static_cast<qsizetype>(b) * peaks.size()
             / buckets;
         const qsizetype end = static_cast<qsizetype>(b + 1) * peaks.size()

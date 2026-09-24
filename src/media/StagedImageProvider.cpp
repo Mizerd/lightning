@@ -36,10 +36,8 @@ QImage StagedImageProvider::requestImage(const QString &id, QSize *size,
     reader.setAutoTransform(true);
 
     const QSize natural = reader.size();
-    // A width-only `sourceSize` is QML's documented keep-the-aspect idiom, and
-    // QSize::isEmpty() is true whenever EITHER axis is below 1 — the trap that
-    // once made every timeline image decode at full resolution. Resolve each
-    // axis explicitly instead.
+    // QML's width-only `sourceSize` idiom leaves the other axis 0, and
+    // QSize::isEmpty() is then true; resolve each axis explicitly.
     const int rw = qMax(0, requestedSize.width());
     const int rh = qMax(0, requestedSize.height());
     QSize target;

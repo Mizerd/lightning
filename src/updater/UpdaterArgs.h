@@ -18,44 +18,33 @@
 // command; the parsed struct only ever feeds a QProcess program + QStringList
 // argument vector (see InstallStrategies).
 //
-// `--relaunch` is the ONE optional option, and it is the helper's entire
-// relaunch policy: present means "start this program once the install
-// succeeded", absent means "do not start anything". Lightning passes it only
-// for installAndRestart(); a plain installUpdate() deliberately omits it, so
-// an update applied on quit does not resurrect an application the user just
-// closed. Omission is the safe default: forgetting the option can only ever
-// skip a relaunch, never cause an unwanted one. When present it is validated
-// exactly as strictly as every required path.
+// `--relaunch` is the helper's entire relaunch policy: present means start
+// that program after a successful install. Lightning passes it only for
+// installAndRestart(), so an install-on-quit does not reopen the application.
+// Omission is the safe default.
 //
-// `--sha256` is the digest the SIGNED MANIFEST gave for the artifact. The
-// helper is connected to the application's verified download by nothing but
-// a filesystem path, and that path can sit armed for hours before an
-// install-on-quit fires -- so the helper re-hashes the artifact itself,
-// right before it acts, and refuses on any mismatch (see ArtifactDigest.h).
-// The parser only validates the SHAPE of the value here; the comparison
-// happens in main.cpp after the application has exited, which is the last
-// moment before the bytes are consumed.
+// `--sha256` is the signed manifest's digest. The helper re-hashes the
+// artifact right before acting (the path may sit for hours before an
+// install-on-quit) and refuses on mismatch; see ArtifactDigest.h. Only the
+// shape is validated here; main.cpp compares.
 //
-// `--install-scope` is optional too, and valid ONLY for windows-msi and
-// windows-setup: those are the two packages Windows can install either for
-// one user or for the whole machine. `machine` makes the upgrade run in the
-// per-machine context and elevated (see InstallStrategies.h); absent means
-// `user`, exactly what every helper before it did. Omission is again the safe
-// direction: it can only fail to ask for elevation, never ask for it
-// unprompted. Any other value, or the option on another mode, is refused.
+// `--install-scope` is valid only for windows-msi and windows-setup.
+// `machine` runs the upgrade per-machine and elevated (InstallStrategies.h);
+// absent means `user`. Omission can only fail to elevate, never elevate
+// unprompted.
 //
-// Every path option refuses a symbolic link. Lightning hands the helper
-// fully resolved paths, and a link would redirect a chmod, a replace, or a
-// package-manager read at whatever it points to at the moment of use.
+// Every path option refuses a symbolic link: Lightning passes resolved paths,
+// and a link would redirect a chmod, replace or package-manager read.
+//
+// No global state, so it is testable with a plain QStringList.
 //
 // This translation unit is deliberately free of global state so it can be
 // unit-tested by passing a QStringList directly.
 
 namespace updater {
 
-// The canonical install-type identifiers from UPDATE-SPEC §5. All of them
-// parse (so the helper can report an honest, specific refusal), but only the
-// self-installable subset is ever dispatched.
+// Install-type identifiers from UPDATE-SPEC §5. All parse, so refusals are
+// specific, but only the self-installable subset is dispatched.
 enum class UpdaterMode {
     Invalid = 0,     // not a recognised identifier at all
     WindowsMsi,      // "windows-msi"
@@ -78,11 +67,9 @@ struct ModeName {
     const char *name;
 };
 
-// The canonical table. Header-scoped and inline so that the application-side
-// install-type test can assert, without linking the helper, that
-// lightning::update::canInstallAutomatically() and isSelfInstallable() agree
-// about every identifier. The two sides disagreeing is exactly the defect
-// that assertion exists to catch.
+// Inline so the application-side test can check, without linking the helper,
+// that canInstallAutomatically() and isSelfInstallable() agree on every
+// identifier.
 inline constexpr ModeName kModeNames[] = {
     {UpdaterMode::WindowsMsi, "windows-msi"},
     {UpdaterMode::WindowsSetup, "windows-setup"},
@@ -99,9 +86,7 @@ inline constexpr ModeName kModeNames[] = {
 
 } // namespace detail
 
-// Exact, case-sensitive mapping against the canonical identifiers. An
-// unrecognised string yields UpdaterMode::Invalid; there is no fuzzy match,
-// no case folding, and no aliasing.
+// Exact, case-sensitive match; anything else is UpdaterMode::Invalid.
 inline UpdaterMode modeFromString(const QString &value)
 {
     for (const detail::ModeName &entry : detail::kModeNames) {
@@ -135,22 +120,18 @@ inline bool isSelfInstallable(UpdaterMode mode)
     return false;
 }
 
-// True for the modes whose install is performed in-process by the helper
-// (archive extraction / atomic replacement) rather than by launching an
-// external installer.
+// Modes installed in-process by the helper (extraction or atomic replace)
+// rather than by an external installer.
 bool isInProcessMode(UpdaterMode mode);
 
-// Who the installation being upgraded belongs to. Mirrors
-// lightning::update::InstallScope; the helper links none of the application,
-// so it carries its own copy of the two values.
+// Mirrors lightning::update::InstallScope; the helper links none of the
+// application.
 enum class InstallScope {
     User,     // "user"    -- the default, and every installation up to 0.9.9
     Machine,  // "machine" -- Program Files / HKLM; upgraded elevated
 };
 
-// Inline, like modeFromString above, so the application-side install-type test
-// can compare it with lightning::update::installScopeId() without linking the
-// helper's sources.
+// Inline so the application-side test can compare it with installScopeId().
 inline QString installScopeToString(InstallScope scope)
 {
     return scope == InstallScope::Machine ? QStringLiteral("machine")
@@ -188,12 +169,10 @@ struct UpdaterArguments {
     QString artifactPath;  // absolute, exists, regular file, non-empty
     qint64 pid = 0;        // > 1
     QString targetPath;    // absolute, exists (file for appimage, dir for portable)
-    // Empty when --relaunch was not supplied, which means "do not relaunch".
-    // When non-empty it is absolute, exists and is a regular file.
+    // Empty means do not relaunch; otherwise absolute, existing regular file.
     QString relaunchPath;
     QString statusPath;    // absolute, parent directory exists, not a dir/symlink
-    // The manifest's SHA-256 for the artifact, 64 lowercase hex characters.
-    // Shape-validated here; compared against the file in main.cpp.
+    // Manifest SHA-256, 64 lowercase hex characters; compared in main.cpp.
     QString expectedSha256;
     // User unless --install-scope machine was supplied (MSI / setup only).
     InstallScope installScope = InstallScope::User;
@@ -211,31 +190,23 @@ struct ArgsParseResult {
     bool ok() const { return error == ArgsError::None; }
 };
 
-// `arguments` must NOT contain the program name — main.cpp passes
-// QCoreApplication::arguments().mid(1).
+// `arguments` excludes the program name.
 ArgsParseResult parseUpdaterArgs(const QStringList &arguments);
 
-// Exposed for tests and for the pre-scan main.cpp uses to find a usable
-// --status path even when the full parse failed.
-//
-// A value is unsafe when it is empty, contains an embedded NUL, contains any
-// control character (including newline / carriage return, which is how a
-// value would try to smuggle a second line into anything that logs it), or is
-// unreasonably long.
+// Also used by the pre-scan. Unsafe: empty, embedded NUL, any control
+// character (e.g. a newline smuggling a second log line), or over-long.
 bool valueIsUnsafe(const QString &value);
 bool pathIsAbsolute(const QString &path);
 
-// True when any component of `path` is "..". Lightning always hands the
-// helper a fully resolved path, so a traversal component is never legitimate
-// here — and refusing it keeps a `/staging/../../etc/x` value from quietly
-// cleaning itself into something that passes the existence checks.
+// True when any component of `path` is "..". Lightning passes resolved paths,
+// so this is never legitimate, and refusing it stops `/staging/../../etc/x`
+// from normalizing into something that passes the existence checks.
 bool pathContainsParentComponent(const QString &path);
 
 QString parseErrorName(ArgsError error);
 
-// Best-effort recovery of the --status path from a raw argument list that may
-// otherwise be invalid. Returns an empty string unless the value is present
-// exactly once, safe, absolute, and its parent directory already exists.
+// Recovers --status from an otherwise invalid argument list: only when present
+// once, safe, absolute, and its parent exists.
 QString preScanStatusPath(const QStringList &arguments);
 
 } // namespace updater

@@ -6,10 +6,8 @@
 #include <utility>
 
 namespace {
-// #rrggbb and nothing else. Rust validates the same shape on the way out of
-// the profile field; this is the second gate, on the value that is about to
-// reach a QML colour property. Two independent checks on remote text that
-// becomes a paint instruction is the right number.
+// #rrggbb only. Rust validates the same shape; this is the second check before
+// remote text becomes a QML colour.
 bool isColour(const QString &value)
 {
     static const QRegularExpression re(
@@ -46,8 +44,7 @@ void NameColorManager::setClient(MatrixClient *client)
             return;   // not ours, or an answer for another account's user
         m_inFlight.remove(userId);
         setSupported(supported);
-        // "" is a real answer — this user chose no colour — and it is stored
-        // as one so the fetch is not repeated on every binding evaluation.
+        // "" is a real answer (no colour), stored so it is not re-fetched.
         const QString accepted = isColour(color) ? color.toLower() : QString();
         if (m_colors.value(userId) == accepted && m_colors.contains(userId))
             return;
@@ -80,7 +77,7 @@ void NameColorManager::setClient(MatrixClient *client)
         }
     });
 
-    // One account's colours must never surface under another's.
+    // One account's colours never surface under another's.
     connect(m_client, &MatrixClient::loggedOut, this, [this] { clear(); });
     Q_EMIT availableChanged();
 }
@@ -102,22 +99,17 @@ QString NameColorManager::colorFor(const QString &userId)
     if (userId.isEmpty() || !available() || !m_supported)
         return {};
     if (m_asked.contains(userId)) {
-        // REFRESH, BOUNDED. A colour someone changed while this client ran
-        // used to stay cached for the whole session ("others need to restart
-        // their client to see the new colour"). Past the interval the next
-        // read re-asks — once, never while an ask is in flight — and keeps
-        // serving the cached answer; a changed reply bumps the revision.
+        // Refresh, bounded: past the interval the next read re-asks once (never
+        // while an ask is in flight) and keeps serving the cached value; a
+        // changed reply bumps the revision.
         m_lastRead.insert(userId, m_clock.elapsed());
         if (m_refreshMs >= 0 && !m_inFlight.contains(userId)
             && m_clock.elapsed() - m_askedAt.value(userId) >= m_refreshMs)
             dispatchFetch(userId);
         return m_colors.value(userId);
     }
-    // FIRST CALL DISPATCHES. This is reached from a binding that re-evaluates
-    // for every name on screen, so the ask must happen exactly once per user
-    // — m_asked is inserted BEFORE the request, not in the reply, or a
-    // timeline of thirty messages from one sender dispatches thirty fetches
-    // before the first answer lands.
+    // Mark as asked before dispatching: this runs from bindings for every name
+    // on screen, and marking on reply would dispatch once per message.
     m_asked.insert(userId);
     m_lastRead.insert(userId, m_clock.elapsed());
     dispatchFetch(userId);
@@ -140,9 +132,8 @@ void NameColorManager::sweepRecentlyRead()
     if (!available() || !m_supported)
         return;
     const qint64 now = m_clock.elapsed();
-    // Oldest ask first, so a room with more recently read names than the cap
-    // rotates through them over successive sweeps rather than starving the
-    // same ones every time.
+    // Oldest ask first, so a room with more names than the cap rotates through
+    // them.
     QList<QPair<qint64, QString>> due;
     for (auto it = m_lastRead.constBegin(); it != m_lastRead.constEnd(); ++it) {
         const QString &user = it.key();
@@ -167,8 +158,7 @@ void NameColorManager::setOwnColor(const QString &value)
 {
     if (!available() || m_pendingSet != 0)
         return;
-    // An empty value is a deliberate CLEAR and is passed through; anything
-    // else must be a colour before it is sent.
+    // An empty value is a deliberate clear; anything else must be a colour.
     const QString trimmed = value.trimmed();
     if (!trimmed.isEmpty() && !isColour(trimmed)) {
         setLastError(QStringLiteral("invalid_colour"));

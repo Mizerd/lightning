@@ -48,10 +48,8 @@ namespace lightning::portable {
 
 namespace {
 
-// One mutex for every piece of module state. isPortable() is reached from the
-// preflight (single-threaded) but also, indirectly, from
-// matrix::app_data::primaryRoot(), which the Rust backend calls off the GUI
-// thread. A torn read of the cache would be a storage-location race.
+// One mutex for all module state: isPortable() is also reached via
+// primaryRoot() from the Rust backend's threads.
 QMutex &stateMutex()
 {
     static QMutex mutex;
@@ -72,9 +70,8 @@ bool g_portable = false;
 QString resolveExecutablePath()
 {
 #if defined(Q_OS_WIN)
-    // GetModuleFileNameW truncates rather than failing when the buffer is too
-    // small (and on pre-2000 builds does not null-terminate), so the only safe
-    // loop is "grow until the result fits strictly inside the buffer".
+    // GetModuleFileNameW truncates rather than failing, so grow until the
+    // result fits strictly inside the buffer.
     std::wstring buffer(MAX_PATH, L'\0');
     for (;;) {
         const DWORD written = ::GetModuleFileNameW(
@@ -97,17 +94,15 @@ QString resolveExecutablePath()
     std::vector<char> buffer(size + 1, '\0');
     if (_NSGetExecutablePath(buffer.data(), &size) != 0)
         return {};
-    // _NSGetExecutablePath may return a path containing symlinks or "..";
-    // realpath is what makes "the directory containing the executable"
-    // comparable with a marker file's own resolved location.
+    // realpath resolves symlinks and "..", so the directory compares with the
+    // marker's resolved location.
     char resolved[PATH_MAX] = {};
     if (::realpath(buffer.data(), resolved) == nullptr)
         return QString::fromLocal8Bit(buffer.data());
     return QString::fromLocal8Bit(resolved);
 #else
-    // /proc/self/exe is already fully resolved by the kernel. readlink() never
-    // null-terminates and never reports the required size, so grow until the
-    // result fits strictly inside the buffer.
+    // /proc/self/exe is resolved by the kernel. readlink() neither terminates
+    // nor reports the needed size, so grow until the result fits.
     std::vector<char> buffer(PATH_MAX, '\0');
     for (;;) {
         const ssize_t written =
@@ -125,8 +120,7 @@ QString resolveExecutablePath()
 #endif
 }
 
-// The real executable directory, cached: the platform call is a syscall and
-// isPortable()/dataRoot() are on the startup path.
+// Cached: isPortable()/dataRoot() are on the startup path.
 QString realExecutableDir()
 {
     static const QString cached = [] {
@@ -139,10 +133,8 @@ QString realExecutableDir()
     return cached;
 }
 
-// Development-only forcing. Returns nullopt when the variable is unset or
-// carries a value we refuse to interpret — an unrecognised value must not
-// silently mean "off", because that would be a silent departure from portable
-// mode, which is exactly the failure class this module forbids.
+// Development-only forcing. nullopt when unset or unrecognised: an unknown
+// value must not silently mean "off".
 std::optional<bool> environmentOverride()
 {
     const QByteArray raw = qgetenv(kPortableEnvVar);
@@ -152,13 +144,8 @@ std::optional<bool> environmentOverride()
     if (value == "1" || value == "true" || value == "on" || value == "yes")
         return true;
     if (value == "0" || value == "false" || value == "off" || value == "no") {
-        // Accepted as a value, but see the caller: it can only ever prevent a
-        // dev build from opting IN. It cannot switch a PACKAGED portable
-        // installation off, because an environment variable that silently
-        // moves a portable copy's session, secrets and crypto store back to
-        // %LOCALAPPDATA%, the registry and the Credential Manager is the exact
-        // failure this module exists to prevent — and it would surface to the
-        // user only as "why am I being asked to sign in again?".
+        // Accepted, but it can only stop a dev build from opting in; it never
+        // turns a packaged portable installation off (see isPortable()).
         return false;
     }
     qWarning("LIGHTNING_PORTABLE is set to an unrecognised value; "
@@ -166,8 +153,7 @@ std::optional<bool> environmentOverride()
     return std::nullopt;
 }
 
-// Directory executableDir() should report, honouring an installed override.
-// Caller holds stateMutex().
+// executableDir(), honouring a test override. Caller holds stateMutex().
 QString executableDirLocked()
 {
     if (g_overrideActive)
@@ -189,9 +175,7 @@ bool markerPresentIn(const QString &dir)
         return false;
     const QFileInfo marker(QDir(dir).absoluteFilePath(
         QLatin1String(kMarkerFileName)));
-    // isFile() and not merely exists(): a DIRECTORY named portable.marker is
-    // not the packaging pipeline's marker, and treating it as one would move
-    // a normal installation's storage.
+    // isFile(), not exists(): a directory with that name is not the marker.
     return marker.isFile();
 }
 
@@ -210,22 +194,13 @@ bool isPortable()
         return g_overridePortable;
     if (!g_decided) {
         g_decided = true;
-        // An unresolvable executable directory is "not portable": we have
-        // nowhere to anchor a portable tree, and inventing one from the
-        // working directory would put the user's session wherever the
-        // shortcut happened to point.
+        // An unresolvable executable directory means "not portable", never the
+        // working directory.
         const bool marked = markerPresentIn(realExecutableDir());
-        // THE MARKER WINS. The environment variable can only ever opt a
-        // build IN (for development against a tree that was never packaged);
-        // it can NOT opt a packaged portable installation OUT.
-        //
-        // That asymmetry is deliberate. A stray LIGHTNING_PORTABLE=0 in a
-        // user's environment would otherwise send a portable copy's settings,
-        // sealed session and crypto store back to %LOCALAPPDATA%, the registry
-        // and the Credential Manager — silently, and visible to the user only
-        // as being asked to sign in again after moving the folder, with the
-        // old machine still holding the only copy of the device keys. An
-        // environment variable must not be able to cause that.
+        // The marker wins. The environment can opt a development tree in, never
+        // a packaged portable copy out: a stray LIGHTNING_PORTABLE=0 would
+        // silently move its session, secrets and crypto store back to the
+        // system locations.
         if (marked) {
             g_portable = true;
         } else if (const std::optional<bool> forced = environmentOverride()) {
@@ -282,9 +257,8 @@ QString mediaScratchRoot()
         if (!scratchRootOverride().isEmpty())
             return scratchRootOverride();
     }
-    // ONE definition for every decrypted-media path. A second call site that
-    // reached for QDir::tempPath() directly would write decrypted payloads
-    // outside a portable folder and nothing would report it.
+    // One definition for every decrypted-media path, so nothing writes such
+    // payloads outside a portable folder.
     if (isPortable()) {
         const QString dir = tempDir();
         if (!dir.isEmpty())
@@ -312,17 +286,14 @@ void clearPortableOverrideForTest()
     g_overrideActive = false;
     g_overridePortable = false;
     g_overrideExecutableDir.clear();
-    // Deliberately does NOT reset g_decided: the real decision is still the
-    // real decision, and re-deciding here would give this function the power
-    // to change a running process's storage location, which is precisely what
-    // the caching exists to prevent.
+    // Does not reset g_decided: nothing may change a running process's storage
+    // location.
 }
 
 QString prepareDataRoot()
 {
     if (!isPortable()) {
-        // A programming error rather than a user-fixable condition, so it does
-        // not get the user-facing wording.
+        // A programming error, not user-fixable; no user-facing wording.
         return QStringLiteral(
             "prepareDataRoot() called while not in portable mode.");
     }
@@ -334,10 +305,9 @@ QString prepareDataRoot()
             "directory, so it does not know where to keep your data.");
     }
 
-    // matrix/ is matrix::app_data::primaryRoot() in portable mode; the other
-    // four are lightning::portable's own named subdirectories. Creating them
-    // up front means every later writer finds its directory already there,
-    // and it makes an extracted-but-never-run folder visibly complete.
+    // matrix/ is primaryRoot() in portable mode; the rest are this module's
+    // subdirectories. Created up front so writers find them and a fresh folder
+    // looks complete.
     const QStringList wanted = {
         root,
         root + QLatin1String("/config"),
@@ -355,9 +325,8 @@ QString prepareDataRoot()
         }
     }
 
-    // mkpath() succeeding is NOT evidence of writability: the directory may
-    // already exist on a read-only mount, inside a still-mounted ISO, or in a
-    // ZIP browsed through a shell namespace extension. Prove it by writing.
+    // mkpath() succeeding does not prove writability (read-only mount, mounted
+    // ISO, ZIP shell view). Write a probe.
     const QString probe = QDir(root).absoluteFilePath(
         QStringLiteral(".write-probe-%1")
             .arg(QUuid::createUuid().toString(QUuid::Id128)));
@@ -378,9 +347,7 @@ QString prepareDataRoot()
                 .arg(QDir::toNativeSeparators(root));
         }
     }
-    // Read it back: a network share or a filter driver can accept a write and
-    // discard it, and discovering that here is much cheaper than discovering
-    // it after a sign-in that then fails to persist.
+    // Read it back: network shares and filter drivers can discard writes.
     {
         QFile file(probe);
         const bool readable = file.open(QIODevice::ReadOnly)
@@ -404,11 +371,9 @@ QMutex &liveScratchMutex()
     static QMutex mutex;
     return mutex;
 }
-// Keyed by the directory, so a creator can release exactly its own lock,
-// and so entries whose directory is already gone (a QTemporaryDir that was
-// destroyed without a release call) can be pruned rather than leaking one
-// open descriptor per account switch. std::unordered_map: the element is
-// move-only, which QHash does not accept.
+// Keyed by directory so a creator releases its own lock and entries for
+// removed directories can be pruned. std::unordered_map because the value is
+// move-only.
 std::unordered_map<QString, std::unique_ptr<QLockFile>> &liveScratchLocks()
 {
     static std::unordered_map<QString, std::unique_ptr<QLockFile>> locks;
@@ -424,9 +389,8 @@ void pruneDeadScratchLocksLocked()
             ++it;
     }
 }
-// Unmarked directories are only ever swept once they are at least this old,
-// so a directory created by a code path that has not registered its lock
-// yet (or by an older build) is not taken for a leftover while it is in use.
+// Unmarked directories are swept only past this age, so one whose creator has
+// not registered its lock yet is not taken for a leftover.
 constexpr qint64 kUnmarkedScratchMinAgeMs = 60 * 60 * 1000;
 } // namespace
 
@@ -437,8 +401,7 @@ void holdScratchDirLive(const QString &dir)
     const QString key = QDir(dir).absolutePath();
     auto lock = std::make_unique<QLockFile>(
         QDir(dir).absoluteFilePath(QLatin1String(kScratchLiveLockName)));
-    // Never stale by AGE: a lock is stale only when its holder is gone,
-    // which QLockFile decides from the pid it recorded.
+    // Stale only when the recorded pid is gone, never by age.
     lock->setStaleLockTime(0);
     if (!lock->tryLock(0))
         return; // somebody else's directory after all; do not claim it
@@ -461,26 +424,15 @@ int cleanStaleTempDirs()
 
 int cleanStaleTempDirs(const QDateTime &now)
 {
-    // The scratch ROOT, not the portable temp dir: decrypted video, audio
-    // and GIF payloads are written under mediaScratchRoot(), which is
-    // QDir::tempPath() on every ordinary install. This used to read
-    // tempDir() and run only in portable mode, so on a deb, rpm, Flatpak,
-    // AppImage or source build a crash left encrypted-room media in /tmp
-    // forever, with nothing that would ever remove it.
+    // The scratch root, not the portable temp dir: decrypted payloads live
+    // under mediaScratchRoot() on every install type, so crash leftovers must
+    // be swept everywhere.
     const QString root = mediaScratchRoot();
     if (root.isEmpty())
         return 0;
-    // Only OUR prefixes, only directories, and only OUR OWN. /tmp is shared:
-    // a directory with one of our names that belongs to another user is not
-    // ours to touch. This runs unattended at startup — it must not be
-    // capable of removing anything it did not create.
-    //
-    // THIS LIST IS HAND-MAINTAINED, WHICH IS ITS OWN HAZARD. The image
-    // cropper's directories were absent from it AND created outside this
-    // root entirely (a bare `QDir::temp()`, the exact mistake the root
-    // exists to prevent), so a crash mid-crop left re-encoded copies of a
-    // user's pictures in /tmp permanently. `lightning-playable-*` is the
-    // other tell: nothing creates that name any more, and the entry stayed.
+    // Only our prefixes, only directories, only our own user's: /tmp is shared
+    // and this runs unattended. The list is hand-maintained; every creator of a
+    // scratch directory must use mediaScratchRoot() and appear here.
     static const QStringList kOurs = {
         QStringLiteral("lightning-voice-*"),
         QStringLiteral("lightning-animated-*"),
@@ -491,19 +443,16 @@ int cleanStaleTempDirs(const QDateTime &now)
     QDir dir(root);
     const auto stale = dir.entryInfoList(kOurs, QDir::Dirs | QDir::NoDotAndDotDot);
     for (const QFileInfo &info : stale) {
-        // A symlink is not one of ours no matter what it is named, and
-        // removeRecursively() would follow it out of the folder.
+        // Never follow a symlink, whatever its name.
         if (info.isSymLink())
             continue;
 #ifndef Q_OS_WIN
         if (info.ownerId() != ::getuid())
             continue;
 #endif
-        // LIVE? A directory marked by holdScratchDirLive() carries a lock
-        // file; if its holder is still running the lock cannot be taken and
-        // the directory is in use -- a second instance's, or a concurrent
-        // run of ours. A lock whose holder died can be taken, and then the
-        // directory is exactly the leftover this sweep exists for.
+        // A held lock means the directory is in use (another instance or a
+        // concurrent run). A lock whose holder died can be taken, making it a
+        // leftover.
         const QString lockPath =
             QDir(info.absoluteFilePath()).absoluteFilePath(QLatin1String(kScratchLiveLockName));
         if (QFileInfo::exists(lockPath)) {
@@ -514,8 +463,7 @@ int cleanStaleTempDirs(const QDateTime &now)
             probe.unlock();
         } else if (info.lastModified(QTimeZone::UTC).msecsTo(now)
                    < kUnmarkedScratchMinAgeMs) {
-            // Unmarked and recent: possibly a creator that has not
-            // registered its lock, so it is left for a later sweep.
+            // Unmarked and recent: leave it for a later sweep.
             continue;
         }
         QDir victim(info.absoluteFilePath());

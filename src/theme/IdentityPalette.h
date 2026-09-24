@@ -8,11 +8,9 @@
 
 #include "theme/IdentityColors.h"
 
-// QML-facing wrapper over lightning::theme, so AppTheme.qml derives its
-// identity discs from the very same code the notification painter uses
-// instead of a second implementation that drifts from it. Deliberately
-// separate from IdentityPalette.h: the notification path links no QML at
-// all, and it must keep being able to include the arithmetic.
+// QML wrapper over lightning::theme, so AppTheme.qml and the notification
+// painter share one implementation. Kept separate from IdentityColors.h,
+// which the QML-free notification path includes.
 class IdentityPalette : public QObject
 {
     Q_OBJECT
@@ -34,9 +32,7 @@ public:
     {
         return lightning::theme::discInk(slot, accent);
     }
-    // The sender-name ink for a slot. `surfaces` is every ground a name is
-    // drawn on; the ink clears the worst of them. QVariantList because that
-    // is what a QML array arrives as.
+    // `surfaces` arrives from QML as a QVariantList of colours.
     Q_INVOKABLE QColor nameInk(int slot, const QColor &accent,
                                const QVariantList &surfaces) const
     {
@@ -49,8 +45,6 @@ public:
         }
         return lightning::theme::nameInk(slot, accent, grounds);
     }
-    // A colour the user chose, made legible on the viewer's surfaces. Their
-    // hue, this window's readability.
     Q_INVOKABLE QColor legibleChoice(const QColor &chosen,
                                      const QVariantList &surfaces) const
     {

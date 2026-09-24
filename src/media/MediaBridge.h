@@ -19,28 +19,21 @@ class MatrixClient;
 class PlayableFileWriter;
 class VideoPosterExtractor;
 
-// v0.5.9: managed download half of the media pipeline for the Rust backend.
+// Managed media download pipeline for the Rust backend.
 //
 // QML asks for media by the timeline item's `mediaKey` (or an avatar's mxc
-// URI); the bridge deduplicates requests, bounds concurrency, forwards to
-// MatrixClient::fetchMedia / fetchMxcThumbnail (the SDK decrypts encrypted
-// attachments internally), and keeps the resulting bytes in a bounded
-// in-memory LRU cache shared with MediaImageProvider. Nothing is written to
-// CacheStore. The cache is cleared on sign-out.
+// URI). The bridge deduplicates requests, bounds concurrency, forwards to
+// MatrixClient (the SDK decrypts encrypted attachments) and keeps the bytes in
+// a bounded in-memory LRU shared with MediaImageProvider. Cleared on sign-out.
 //
-// WHAT DOES REACH DISK, stated precisely because an earlier version of this
-// comment claimed "nothing … except Save As" and that was not true:
-//   * an explicit, user-chosen Save As destination, and the user's own
-//     starred-GIF store — both deliberate, both a user gesture;
-//   * playable and animated payloads, written to a 0600 temp file in a 0700
-//     scratch directory so the in-process player can map them rather than
-//     hold a video in the RAM LRU. Removed by clear() and on destruction,
-//     but they survive a crash or SIGKILL;
-//   * the SDK's own sqlite media store, for UNENCRYPTED rooms only. An
-//     encrypted room's media is never admitted to it — `media_fetch` in
-//     rust/src/rooms.rs passes use_cache=false for every encrypted source,
-//     because that store has no cipher and the SDK would write the DECRYPTED
-//     bytes. See the reasoning there before changing it.
+// What reaches disk:
+//   * an explicit Save As destination and the user's starred-GIF store;
+//   * playable and animated payloads, as 0600 files in a 0700 scratch
+//     directory so the player can map them. Removed by clear() and on
+//     destruction, but a crash leaves them behind;
+//   * the SDK media store, for unencrypted rooms only. `media_fetch` in
+//     rust/src/rooms.rs passes use_cache=false for encrypted sources because
+//     that store has no cipher and would hold decrypted bytes.
 class MediaBridge : public QObject
 {
     Q_OBJECT
@@ -48,12 +41,8 @@ class MediaBridge : public QObject
 
 public:
     explicit MediaBridge(QObject *parent = nullptr);
-    // Releases the scratch directory's live mark before the directory goes.
-    // Without it, process exit removed the directory (and the lock file
-    // inside it) while PortableMode's static map still held the QLockFile,
-    // and Qt reported "Could not remove our own lock file" on every clean
-    // shutdown. clear() already had the right order; exit had no destructor
-    // at all.
+    // Releases the scratch directory's lock before the directory is removed;
+    // otherwise Qt fails to remove its own lock file at exit.
     ~MediaBridge() override;
 
     void setClient(MatrixClient *client);
@@ -63,20 +52,13 @@ public:
     // otherwise dispatches a fetch and returns an empty string; QML retries
     // from the mediaCached(cacheKey) signal. kind: "thumb" or "full".
     Q_INVOKABLE QString mediaSource(const QString &mediaKey, const QString &kind);
-    // Avatar thumbnails by plain mxc URI. v0.7.1: every avatar identity is
-    // fetched at ONE canonical server-side edge (kAvatarCanonicalEdge)
-    // regardless of the requested render size, so the cache key —
-    // "mxc:<edge>:<uri>" — is size-independent: the room list, room header,
-    // timeline rows, popovers and rail all share a single fetch, a single
-    // cache entry, and a single failure mark per identity. QML scales the
-    // decoded bitmap down at render time.
+    // Avatar thumbnails by mxc URI. Every avatar is fetched at one server-side
+    // edge (kAvatarCanonicalEdge), so the cache key is size-independent and all
+    // surfaces share one fetch, one entry and one failure mark. QML downscales.
     Q_INVOKABLE QString avatarSource(const QString &mxcUri, int size);
-    // A WIDE image referenced by a bare mxc URI — today, profile banners.
-    // Deliberately not avatarSource(): that one asks for a small square
-    // thumbnail, which is exactly the wrong shape for a 3:1 banner. Same
-    // dedup, failure marks and mediaCached re-poll as every other fetch;
-    // returns "" on a miss and dispatches, so the caller re-asks on
-    // mediaCached like the timeline and the composer already do.
+    // A wide image by bare mxc URI (profile banners). avatarSource() would ask
+    // for a small square thumbnail. Returns "" on a miss and dispatches; re-ask
+    // on mediaCached.
     Q_INVOKABLE QString wideImageSource(const QString &mxcUri);
     // NotificationManager's in-process read of an already-cached canonical
     // avatar. It never dispatches and never exposes bytes to QML/disk.
@@ -86,102 +68,55 @@ public:
     Q_INVOKABLE QString mxcImageSource(const QString &mxcUri, int edge);
     // Provider URL for an already-cached key ("" when evicted meanwhile).
     Q_INVOKABLE QString cachedSource(const QString &cacheKey) const;
-    // Animatable media uses original SDK-fetched/decrypted bytes written
-    // atomically beneath a short-lived account/session cache directory.
-    // `animatedExtensionFor` decides from the MAGIC whether the payload is
-    // one; nothing here trusts a declared mimetype.
+    // Animatable media: SDK-fetched bytes written to the session scratch dir.
+    // `animatedExtensionFor` decides from the magic; the declared mimetype is
+    // never trusted.
     //
-    // `speculative` is the sticker case. A caller that KNOWS the payload is
-    // an animation (the timeline's image path, gated on an `image/gif`
-    // mimetype) renders nothing when the materialization fails, so it is
-    // owed mediaFetchFailed("invalid_gif"). A caller that is ASKING — a
-    // sticker, whose `info.mimetype` is optional under MSC2545 and often
-    // absent — already draws the same bytes as a still Image, so a "not an
-    // animation" answer must be silent: marking the key failed there would
-    // replace a perfectly good picture with a retry card.
+    // `speculative` is for stickers, whose mimetype is optional (MSC2545) and
+    // which already draw the bytes as a still image: "not an animation" is then
+    // silent instead of marking the key failed with "invalid_gif".
     Q_INVOKABLE QString animatedSource(const QString &mediaKey,
                                        bool speculative = false);
-    // The same materialization, for media identified by a BARE mxc URI
-    // rather than by an event-scoped media key — the sticker PICKER's
-    // tiles. A pack entry is not an event, so it has no media key, and
-    // `mxcImageSource` (the still tile) asks for a SERVER THUMBNAIL, which
-    // is a single frame by construction: an animated sticker therefore
-    // played in the timeline and sat frozen in the picker it was chosen
-    // from.
-    //
-    // ALWAYS SPECULATIVE, with no way to ask otherwise. A pack entry's
-    // `mimetype` is optional under MSC2545 and the pack is room state any
-    // member can write, so no caller here can ever KNOW the payload is an
-    // animation; and the tile's still Image is already drawing these exact
-    // bytes, so "not an animation" must be answered with silence. The
-    // failure obligation of animatedSource() has no counterpart here on
-    // purpose — see the speculative note above.
-    //
-    // Bytes are validated exactly as every other class is: the §6 markup
-    // and gzip refusal (SVG/SVGZ), the thumbnail-class A/V-container
-    // refusal, and finally `animatedExtensionFor`'s container magic. The
-    // declared type is used only by the CALLER, and only to skip asking.
+    // The same materialization for a bare mxc URI (sticker picker tiles, which
+    // have no media key; mxcImageSource returns a single-frame server
+    // thumbnail). Always speculative: a pack is member-writable room state with
+    // an optional mimetype, so no caller can know the payload is an animation.
+    // Bytes pass the same SVG/SVGZ, A/V-container and animation-magic checks as
+    // everything else.
     Q_INVOKABLE QString mxcAnimatedSource(const QString &mxcUri);
-    // v0.7: inline video/audio playback. Same secure materialization
-    // contract as animatedSource — SDK-fetched/decrypted bytes, validated
-    // by container magic, written 0600 inside the session's 0700 temp dir
-    // under an unguessable name, bounded by a separate LRU, wiped on
-    // sign-out/account switch — but returns a file:// URL suitable for the
-    // in-process QMediaPlayer ONLY. Paths must never reach external
-    // applications. QML retries from playableMediaReady(cacheKey).
+    // Inline video/audio playback. Same contract as animatedSource (validated
+    // by container magic, 0600 file with an unguessable name, separate LRU,
+    // wiped on sign-out), but returns a file:// URL for the in-process
+    // QMediaPlayer only; paths must never reach external applications.
     //
-    // 2026-08-20: the file is written on a worker thread, so this ALWAYS
-    // returns "" the first time a payload is materialized — even when the
-    // bytes were already in the RAM cache, where it used to write inline
-    // and hand back a URL. The retry contract is unchanged and QML already
-    // implements it (AudioPlayerCard/VideoPlayerCard set fetchState
-    // "fetching" and re-ask from onPlayableMediaReady); only the number of
-    // times that branch is taken changed.
+    // The file is written on a worker thread, so the first call for a payload
+    // always returns ""; QML re-asks from playableMediaReady(cacheKey).
     Q_INVOKABLE QString playableSource(const QString &mediaKey);
-    // v0.7 perf round: bounded speculative playable prefetch. Called for an
-    // on-screen video cover so the payload is (usually) already
-    // materialized when the user presses Play — the 5-8s press-to-playback
-    // wait was pure download time. Only dispatches when the event's Matrix
-    // metadata declares a size at or below the speculative cap (fail-safe:
-    // unknown or large sizes are never prefetched), at the lowest priority
-    // class, so it can never crowd out visible chrome or explicit intent.
-    // Queued prefetches are dropped on room switch exactly like GIF
-    // autoplay prefetches. sizeBytes comes from QML as a double.
+    // Speculative playable prefetch for an on-screen video cover, so Play does
+    // not wait for the download. Dispatches only when the declared size is at
+    // or below the speculative cap (unknown sizes are never prefetched), at the
+    // lowest priority. Dropped on room switch like GIF prefetches.
     Q_INVOKABLE void prefetchPlayable(const QString &mediaKey,
                                       double sizeBytes);
-    // v0.7 perf round: poster for a video WITHOUT a Matrix thumbnail.
-    // Returns the provider URL when a poster is already cached under the
-    // event's "thumb:" key; otherwise arranges one — extracting the first
-    // frame of the already-materialized playable file, or (bounded by the
-    // speculative cap) prefetching the payload first — and returns "".
-    // QML retries from mediaCached("thumb:<mediaKey>"). The poster is
-    // encoded JPEG in the ordinary in-RAM image cache: decrypted-media
-    // derived pixels never touch disk.
+    // Poster for a video without a Matrix thumbnail. Returns the URL when a
+    // poster is cached under "thumb:<mediaKey>"; otherwise extracts the first
+    // frame (prefetching within the speculative cap) and returns "". The JPEG
+    // lives in the in-RAM cache only; decrypted-media pixels never touch disk.
     Q_INVOKABLE QString videoPosterSource(const QString &mediaKey,
                                           double sizeBytes);
-    // Embedded audio artwork exposed by QMediaPlayer metadata. The decoded
-    // QImage is retained only in this session's bounded in-memory cache and
-    // served through MediaImageProvider; it is never encoded to a temp file
-    // or written to CacheStore. Returns an image-provider URL, or "" for an
-    // absent/invalid/oversized image.
+    // Embedded audio artwork from QMediaPlayer metadata, kept only in the
+    // bounded in-memory cache. Returns a provider URL, or "" for an
+    // absent/invalid/ oversized image.
     Q_INVOKABLE QString audioArtworkSource(const QString &mediaKey,
                                            const QVariant &artwork);
-    // v0.7 perf round: cancel the playable fetch for a card that no longer
-    // wants it (closed mid-download, delegate reused, room left). Playable
-    // interest is refcounted (two cards can share one fetch); when the
-    // count reaches zero this frees the concurrency slot immediately and
-    // aborts the backend download task, so an abandoned multi-hundred-MB
-    // transfer stops consuming bandwidth and store access. No failure mark
-    // is left — a fresh Play re-dispatches cleanly. ONLY an animated/GIF
-    // consumer of the same bytes keeps the fetch alive; a pending poster
-    // hook or speculative prefetch deliberately does NOT veto a user
-    // cancel (review H1 — the poster is a derivative that can be
-    // re-extracted whenever the file is next materialized).
+    // Cancels the playable fetch for a card that no longer wants it. Interest
+    // is refcounted; at zero this frees the slot and aborts the backend
+    // download. No failure mark is left. Only an animated consumer of the same
+    // bytes keeps the fetch alive; a poster hook or prefetch does not veto a
+    // user cancel.
     Q_INVOKABLE void cancelPlayable(const QString &mediaKey);
-    // Container sniffing for the playable path: returns the file suffix
-    // ("mp4", "webm", "ogg", …) when the payload's magic matches a
-    // supported audio/video container, "" otherwise. Static + public for
-    // the validation tests.
+    // File suffix ("mp4", "webm", "ogg", ...) when the payload's magic matches
+    // a supported A/V container, "" otherwise. Public for tests.
     static QString playableExtensionFor(const QByteArray &bytes,
                                         const QString &mimetype);
     Q_INVOKABLE QString previewAnimatedSource(const QString &dataSource,
@@ -191,52 +126,28 @@ public:
     Q_INVOKABLE QString previewImageSource(const QString &dataSource,
                                            const QString &mimetype);
 
-    // v0.5.11: failure state. A failed fetch marks its cache key so QML
-    // repolling cannot hammer the backend; retry() clears the mark so the
-    // next mediaSource/avatarSource call dispatches again. failureCategory
-    // returns the coarse category ("network", "rejected", ...) or "".
-    //
-    // v0.7: transient categories (network and similar) expire after a
-    // bounded interval, so an avatar that failed once — e.g. during a flaky
-    // startup — recovers on its own with at most one re-dispatch per
-    // interval. Validation failures ("rejected", "invalid_gif") stay
-    // permanent until an explicit retry().
-    //
-    // v0.7.1: expiry is ACTIVE, not merely passive: the watchdog tick sweeps
-    // expired transient marks and emits mediaRetryable(cacheKey), so an
-    // Avatar instantiated while its key was failure-marked recovers without
-    // any user interaction. Anti-hammering is preserved — a mark re-arms its
-    // retry window on every failed attempt, bounding retries to one
-    // dispatch per interval per key.
+    // A failed fetch marks its cache key so QML repolling cannot hammer the
+    // backend; retry() clears it. Returns the coarse category or "".
+    // Transient categories expire: the watchdog sweeps them and emits
+    // mediaRetryable, at most one re-dispatch per interval per key. Validation
+    // failures ("rejected", "invalid_gif") stay until retry().
     Q_INVOKABLE QString failureCategory(const QString &cacheKey) const;
-    // Synchronous, non-expiring failure lookup by plain mxc URI (the
-    // canonical avatar cache key is derived internally). Lets Avatar.qml
-    // render honest initials instead of an eternal skeleton when
-    // avatarSource() returns "" because the key is failure-marked.
+    // Non-expiring failure lookup by mxc URI, so Avatar.qml can show initials
+    // instead of a permanent skeleton.
     Q_INVOKABLE QString avatarFailureCategory(const QString &mxcUri) const;
     Q_INVOKABLE void retry(const QString &cacheKey);
     void setFailureRetryMsForTest(qint64 ms) { m_failureRetryMs = ms; }
 
-    // v0.7.1: in-flight watchdog. A dispatched op that the backend never
-    // completes (a dropped mediaReady/mediaFailed callback, a hung transport,
-    // a request the Rust side silently discards) would otherwise pin its
-    // concurrency slot forever. Once kMaxConcurrent such orphans accumulate,
-    // pump() can never dispatch again and the whole media/avatar pipeline
-    // stalls — the "images and avatars stop loading after a few minutes"
-    // failure. The watchdog reclaims a slot whose op has exceeded its class
-    // timeout, marks a transient failure (so QML shows a fallback now and
-    // re-dispatches once the interval elapses), and pumps the queue. Runs on
-    // the object's own event loop; also callable directly for deterministic
-    // tests.
+    // In-flight watchdog. An op the backend never completes would pin its slot
+    // forever, and kMaxConcurrent of them stall the whole pipeline. Reclaims
+    // slots past their class timeout, marks a transient failure and pumps the
+    // queue. Callable directly for tests.
     Q_INVOKABLE void checkInflightTimeouts();
     void setInflightTimeoutMsForTest(qint64 ms) { m_inflightTimeoutMs = ms; }
 
-    // Bounded, sanitized queue-health snapshot for diagnostics and the soak
-    // test. Contains only counts, ages, and byte totals — never keys, URIs,
-    // or bytes.
+    // Sanitized queue-health snapshot: counts, ages and byte totals only, never
+    // keys, URIs or bytes.
     Q_INVOKABLE QVariantMap healthSnapshot() const;
-    // Slot-health accessors for tests: the soak proves in-flight returns to
-    // zero and the queue fully drains under saturation.
     int inflightCountForTest() const { return m_inflight.size(); }
     int queuedCountForTest() const { return m_queue.size(); }
     void setStarvationMsForTest(qint64 ms) { m_starvationMs = ms; }
@@ -245,86 +156,56 @@ public:
         m_playableMaxEntries = entries;
         m_playableMaxBytes = bytes;
     }
-    // Writes handed to the worker thread and not yet published. Lets a test
-    // distinguish "refused before any file was created" (0) from "under
-    // way" without waiting on a timer.
+    // Writes handed to the worker thread and not yet published: 0 means the
+    // payload was refused before any file was created.
     int pendingPlayableWritesForTest() const
     {
         return m_playableWriting.size();
     }
 
-    // v0.7 media round: playable-file pinning. A QMediaPlayer holds its
-    // materialized temp file open for the whole playback session; the LRU
-    // evicting that file under it deletes what the decoder is reading
-    // (survivable on Linux through the open fd, a hard failure on any
-    // re-open or seek-after-source-reset). Cards pin on start and unpin on
-    // reset/destruction; eviction skips pinned victims, temporarily
-    // exceeding the cap when everything is pinned (bounded by the number of
-    // live players). clear() drops all pins with the files.
+    // A QMediaPlayer keeps its temp file open for the whole session, so cards
+    // pin on start and unpin on reset. Eviction skips pinned files, exceeding
+    // the cap if necessary; clear() drops all pins.
     Q_INVOKABLE void pinPlayable(const QString &mediaKey);
     Q_INVOKABLE void unpinPlayable(const QString &mediaKey);
 
-    // v0.7 media round: drops QUEUED speculative work (full-GIF autoplay
-    // prefetch) that became irrelevant — called on room switch, where the
-    // requesting delegates are destroyed. In-flight ops are untouched (the
-    // backend has no cancellation; the watchdog and stale-drop already
-    // bound them), and a revisit re-requests naturally. Entries a
-    // playableSource() caller coalesced onto are kept (review L3). NOTE the
-    // call-site ordering dependency: AppController calls this AFTER
-    // stopAll() and BEFORE the new room's model attaches, all synchronously
-    // — no consumer of a dropped entry survives to observe the silence.
+    // Drops queued speculative work (GIF autoplay prefetch) on room switch.
+    // In-flight ops are untouched and entries a playableSource() caller
+    // coalesced onto are kept. Must be called after stopAll() and before the
+    // new room's model attaches.
     Q_INVOKABLE void dropQueuedSpeculative();
 
-    // Explicit Save As: fetches the full payload (cache or network) and
-    // writes it atomically to the user-chosen destination. Never executes
-    // or opens the file. Result arrives via saveFinished().
+    // Fetches the full payload and writes it atomically to the chosen
+    // destination. Never opens the file. Result via saveFinished().
     Q_INVOKABLE void saveAs(const QString &mediaKey, const QUrl &destination);
-    /// A safe default file name for a save dialog, from a SENDER-CHOSEN
-    /// attachment name. Returns empty when it cannot produce a meaningful
-    /// one, so the caller can let the dialog decide. Never seed a dialog's
-    /// path with a raw attachment name.
+    /// A safe default save-dialog file name from a sender-chosen attachment
+    /// name, or empty to let the dialog decide.
     Q_INVOKABLE QString suggestedSaveName(const QString &rawName) const;
 
-    /// True when the payload opens as markup (SVG and friends) or as gzip
-    /// (SVGZ). Image-class results are refused on this.
-    ///
-    /// PUBLIC because MediaImageProvider is the OTHER place bytes reach a
-    /// decoder, and it applies the same refusal to a payload whose raster
-    /// format this build does not recognise. One rule, both doors.
+    /// True when the payload opens as markup (SVG) or gzip (SVGZ); image-class
+    /// results are refused on this. Public so MediaImageProvider applies the
+    /// same rule.
     static bool looksLikeMarkupOrCompressed(const QByteArray &bytes);
 
-    // v0.6.6: "star a chat GIF" fetch trigger. Fetches the full payload
-    // (cache or network, decrypted by the SDK exactly like every other
-    // attachment) and hands the raw bytes back via mediaBytesForStar() —
-    // this class stays media-generic and does no GIF-specific validation or
-    // disk writing itself; see AppController::starChatGif for the caller
-    // that relays the result into GifStarredStore. Mirrors saveAs()'s
-    // dispatch/timeout class exactly (an explicit user export, same bound).
+    // Fetches the full payload for starring a chat GIF and returns it via
+    // mediaBytesForStar(). No GIF validation here; see
+    // AppController::starChatGif. Uses the save timeout class.
     Q_INVOKABLE void fetchFullForStar(const QString &mediaKey);
 
-    // v0.6.6 fix: durable "is this GIF's content already starred" support
-    // for GifStarredStore (see AppController::isChatGifStarred/
-    // unstarChatGif, the only callers). Returns the SHA-256 hex digest of
-    // whatever FULL payload is already sitting in the ordinary in-RAM
-    // display cache for `mediaKey` — the exact bytes animatedSource()/
-    // mediaSource() already fetched to show the row — or "" when nothing is
-    // cached yet. Never dispatches a fetch and never returns raw bytes:
-    // only a content hash crosses this boundary, so this stays safe to call
-    // from the GIF-star path without handing decrypted media bytes to
-    // another module.
+    // SHA-256 hex of the full payload already in the display cache for
+    // `mediaKey`, or "". Never dispatches and never exposes bytes; used by
+    // GifStarredStore to tell whether a GIF is starred.
     QString cachedFullContentHash(const QString &mediaKey) const;
 
     Q_INVOKABLE void clear();
 
-    // Shared with MediaImageProvider (called from the QML render thread).
+    // Shared with MediaImageProvider (QML render thread).
     QByteArray cachedBytes(const QString &cacheKey) const;
     // MediaImageProvider's image-thread read for embedded artwork.
     QImage cachedArtwork(const QString &cacheKey) const;
 
-    // Cache caps; exposed for tests. Avatar-class entries ("mxc:" keys)
-    // have their own reserved byte budget so churning timeline media can
-    // never evict every avatar over a long session; both budgets are hard
-    // bounds, so total memory stays bounded.
+    // Avatar-class entries ("mxc:" keys) have their own byte budget so timeline
+    // media cannot evict every avatar. Both budgets are hard bounds.
     void setCacheLimitBytes(qint64 bytes) { m_cacheLimit = bytes; }
     void setAvatarCacheLimitBytes(qint64 bytes) { m_avatarCacheLimit = bytes; }
     qint64 cacheBytesUsed() const;
@@ -332,36 +213,24 @@ public:
 Q_SIGNALS:
     void supportedChanged();
     void mediaCached(const QString &cacheKey);
-    // v0.7.1: an expired TRANSIENT failure mark was swept by the watchdog;
-    // consumers holding a fallback for this key may re-request it now
-    // (bounded: one sweep emission per failure cycle, and a re-failed
-    // attempt re-arms its window before the next emission).
+    // An expired transient failure mark was swept; consumers may re-request.
     void mediaRetryable(const QString &cacheKey);
     void animatedMediaReady(const QString &cacheKey);
-    // v0.7: a requested playable (video/audio) payload was validated and
-    // materialized; QML re-calls playableSource(cacheKey) for the URL.
     void playableMediaReady(const QString &cacheKey);
     void mediaFetchFailed(const QString &cacheKey, const QString &category);
-    // mediaKey identifies WHICH save finished, so per-card save
-    // feedback can never show another download's outcome.
+    // mediaKey identifies which save finished.
     void saveFinished(bool ok, const QString &message,
                       const QString &mediaKey);
-    // Result of fetchFullForStar(). `bytes` is empty and `category` is
-    // non-empty on failure; category is "" on success. Never GIF-validated
-    // here — that is GifStarredStore's job (see AppController::starChatGif).
+    // Result of fetchFullForStar(). On failure `bytes` is empty and `category`
+    // is set.
     void mediaBytesForStar(const QString &mediaKey, bool ok,
                            const QByteArray &bytes, const QString &category);
-    // v0.7: the poster extractor saw the video's real (display-oriented)
-    // frame — its dimensions let the timeline card take the true shape on
-    // every later render for events whose metadata declares none.
-    // AppController persists them via SettingsManager. Dimensions only;
-    // no pixels cross this signal.
+    // The poster extractor saw the video's display-oriented size, so the card
+    // can take the true shape for events that declare none. Dimensions only.
     void videoDimensionsLearned(const QString &mediaKey, int width,
                                 int height);
-    // A full A/V payload's real byte size, observed at fetch time. Lets
-    // the bounded speculative prefetch work on later sessions for events
-    // that declare no size (the pre-metadata-fix backlog) once the media
-    // has been fetched a single time. Size only — never content.
+    // A full A/V payload's real size, so later sessions can prefetch events
+    // that declare no size. Size only.
     void playableSizeLearned(const QString &mediaKey, qint64 bytes);
 
 private Q_SLOTS:
@@ -381,123 +250,85 @@ private:
         int size = 0;     // mxc thumbnail edge
         bool saveRequest = false;
         QUrl saveDestination;
-        // v0.6.6: same fetch shape as saveRequest (full payload, save-class
-        // timeout) but the result is relayed raw via mediaBytesForStar()
-        // instead of written to a user-chosen file.
+        // Full payload with the save timeout class, relayed via
+        // mediaBytesForStar().
         bool starRequest = false;
-        // v0.7: backend timeout class (0 standard / 1 playable / 2 save).
-        // The Rust timeout for each class sits strictly below the matching
-        // C++ watchdog deadline, so Rust normally emits the terminal event
-        // and the watchdog stays last-resort.
+        // 0 standard / 1 playable / 2 save. Each Rust timeout sits below the
+        // matching C++ watchdog deadline, so the watchdog stays last-resort.
         int timeoutClass = 0;
-        // v0.7 media round: request priority. Lower dispatches first.
-        //   0 explicit user intent (press-play playable, Save As, star)
-        //   1 interactive chrome (avatars, timeline thumbnails, mxc images)
-        //   2 full static media (viewer, images without thumbnails)
-        //   3 speculative (full-GIF prefetch for autoplay)
-        // The old single FIFO let eight multi-megabyte GIF prefetches pin
-        // every slot while the pressed-play FLAC and the room's avatars
-        // waited behind them.
+        // Lower dispatches first:
+        //   0 explicit user intent (play, Save As, star)
+        //   1 interactive chrome (avatars, thumbnails, mxc images)
+        //   2 full static media
+        //   3 speculative (GIF autoplay prefetch)
         int priority = 2;
         // Monotonic enqueue time for the starvation bound (see pump()).
         qint64 enqueuedAtMs = 0;
-        // Monotonic dispatch time (m_failureClock ms) for resolution timing
-        // in the logs; 0 until dispatched.
+        // Dispatch time (m_failureClock ms) for log timing; 0 until dispatched.
         qint64 dispatchedAtMs = 0;
     };
 
     void insertCache(const QString &cacheKey, const QByteArray &bytes);
     void touch(const QString &cacheKey) const;
     void markFailed(const Pending &request, const QString &category);
-    // True while the key's failure mark still blocks a new dispatch;
-    // expires transient marks as a side effect.
+    // True while the key's failure mark blocks dispatch; expires transient
+    // marks.
     bool failureBlocks(const QString &cacheKey);
-    // Watchdog-driven active expiry: removes expired transient marks and
-    // emits mediaRetryable for each, so QML recovers without repolling.
+    // Removes expired transient marks and emits mediaRetryable for each.
     void sweepExpiredFailureMarks();
-    // Validation failures reported by the backend never fix themselves;
-    // everything else (network, timeout, unavailable, …) is transient.
+    // Validation failures are permanent; everything else is transient.
     static bool isPermanentCategory(const QString &category);
-    // Review M3: every terminal outcome (failure, watchdog timeout,
-    // dispatch failure) must void the interest sets for its key — leaked
-    // entries both grew unboundedly and vetoed cancelPlayable forever.
+    // Every terminal outcome must clear the key's interest sets, or they grow
+    // without bound and veto cancelPlayable.
     void dropInterestSets(const QString &cacheKey);
     static bool isAvatarClassKey(const QString &cacheKey);
     void dispatch(const Pending &request);
     void pump();
     bool alreadyPending(const QString &cacheKey) const;
-    // review L4: when a caller coalesces onto an already-QUEUED entry,
-    // raise that entry to the caller's class (lower priority value, wider
-    // timeout class) in place.
+    // Raises an already-queued entry to the caller's priority and timeout
+    // class.
     void promoteQueuedRequest(const QString &cacheKey, int priority,
                               int timeoutClass);
-    // Heavy = priority >= 2 (full static media and speculative prefetch).
-    // Bounded below kMaxConcurrent so interactive classes always have
-    // reserved headroom.
+    // Heavy = priority >= 2. Capped below kMaxConcurrent so interactive classes
+    // always have headroom.
     int heavyInflightCount() const;
-    // Payload sniff for thumbnail-class results: a homeserver that cannot
-    // thumbnail may return the ORIGINAL media, and the Rust bridge labels
-    // thumbnail results with the parent's mimetype anyway — so the bytes,
-    // not the label, decide whether the payload may enter the image path.
+    // A homeserver that cannot thumbnail may return the original media under
+    // the parent's mimetype, so the bytes decide whether it may enter the image
+    // path.
     static bool looksLikeAvContainer(const QByteArray &bytes);
 public:
-    // The file suffix an ANIMATABLE payload must be written under ("gif",
-    // "webp"), or "" when the bytes are not an animation this client can
-    // play. Static + public so the validation tests can drive it directly.
-    //
-    // BYTES ONLY, and that is the point. The declared mimetype used to be
-    // required to be exactly "image/gif" here, and the declared mimetype
-    // for a STICKER is optional under MSC2545 — `MsgLikeKind::Sticker` in
-    // rust/src/timeline.rs forwards `info.mimetype` only when the sender
-    // supplied one, so a GIF sticker arrived with an empty label and could
-    // never be materialized as an animation. A label is also the weaker
-    // authority in the direction that matters for safety: this file already
-    // refuses SVG and A/V payloads by magic precisely because the label is
-    // attacker-chosen (CLAUDE.md §6). Deciding here on the magic alone is
-    // strictly narrower than "the label AND the magic agreed", never wider.
+    // File suffix an animatable payload must use ("gif", "webp"), or "". Public
+    // for tests. Decided from the bytes only: sticker mimetypes are optional
+    // (MSC2545) and attacker-chosen, so the magic is the only authority.
     static QString animatedExtensionFor(const QByteArray &bytes);
 private:
     static QString sanitizedFileName(const QString &name);
     void writeSaveFile(const QUrl &destination, const QByteArray &bytes,
                        const QString &mediaKey);
     QString writeAnimatedFile(const QString &cacheKey, const QByteArray &bytes);
-    // 2026-08-20: playable payloads are written on PlayableFileWriter's
-    // worker thread (see that header for the measurement that motivated
-    // it). Everything that must fail CLOSED still runs here, before a
-    // single byte is handed over: the size bound, the container sniff, and
-    // the salted name derivation.
-    //
-    // Returns true when a write is under way for this key — including when
-    // one was already under way and this caller was coalesced onto it —
-    // and false when the payload was REFUSED and no file will ever appear.
-    // Callers that used the old synchronous return value must read true as
-    // "wait for playableMediaReady", never as "the file exists now".
-    //
-    // `notifyFailure` marks a real pressed-play consumer, which is owed a
-    // terminal mediaFetchFailed if the write fails; a speculative prefetch
-    // or a poster hook is not.
+    // Playable payloads are written on PlayableFileWriter's worker thread. The
+    // size bound, container sniff and name derivation run here first so they
+    // fail closed. Returns true when a write is under way (possibly coalesced),
+    // false when the payload was refused and no file will appear.
+    // `notifyFailure` marks a pressed-play consumer that is owed
+    // mediaFetchFailed on failure.
     bool beginPlayableWrite(const QString &cacheKey, const QString &mediaKey,
                             const QByteArray &bytes, const QString &mimetype,
                             bool notifyFailure);
     void onPlayableWriteFinished(quint64 serial, const QString &cacheKey,
                                  const QString &path, quint64 generation,
                                  bool ok);
-    // Registers a completed file in the playable registry and evicts down
-    // to the caps, never choosing a PINNED victim. GUI thread: the only
-    // disk work left on it is unlinking evicted files.
+    // Registers a finished file and evicts to the caps, never a pinned file.
     void registerPlayableFile(const QString &cacheKey, const QString &path,
                               qint64 bytes);
-    // Lazy, like the poster extractor: a session (or a guiless suite) that
-    // never materializes an A/V payload never spawns the writer thread.
+    // Lazy: sessions that never play A/V never start the writer thread.
     PlayableFileWriter *ensurePlayableWriter();
-    // Lazy poster machinery: constructed on the first poster request (or
-    // backend warm-up) so headless tests, and sessions that never
-    // materialize any A/V payload, never touch Qt Multimedia.
+    // Lazy so headless tests and sessions without A/V never touch Qt
+    // Multimedia.
     VideoPosterExtractor *ensurePosterExtractor();
     void startPosterExtraction(const QString &mediaKey,
                                const QString &filePath);
-    // Pays Qt Multimedia's one-time ~931 ms initialization off the GUI
-    // thread, once a playable A/V file exists. See the definition.
+    // Pays Qt Multimedia's one-time ~1 s initialization off the GUI thread.
     void warmMultimediaBackend();
     void onPosterReady(const QString &mediaKey, const QByteArray &jpeg);
 
@@ -505,51 +336,35 @@ private:
 
     mutable QMutex m_cacheMutex;
     QHash<QString, QByteArray> m_cache;
-    // Two LRU lists over the one byte store: avatar-class entries ("mxc:"
-    // keys) are evicted only against their own reserved budget, so timeline
-    // media churn cannot push avatars out over a long session (and vice
-    // versa). front = most recent.
+    // Separate LRUs over one byte store so timeline media and avatars cannot
+    // evict each other. front = most recent.
     mutable QList<QString> m_lru;
     mutable QList<QString> m_avatarLru;
     qint64 m_cacheLimit = 64 * 1024 * 1024;
     qint64 m_avatarCacheLimit = 8 * 1024 * 1024;
-    // Running per-class byte totals (guarded by m_cacheMutex), maintained
-    // by insertCache/clear so no path ever needs to iterate the whole
-    // cache to know its size.
+    // Per-class byte totals (m_cacheMutex), so size never needs a full scan.
     qint64 m_cacheBytesMain = 0;
     qint64 m_cacheBytesAvatar = 0;
-    // Embedded cover art is already decoded by Qt Multimedia. Keep it in a
-    // separate bounded image LRU so it does not require a permanent or
-    // session-temp plaintext extraction merely to reach QML.
+    // Decoded cover art in its own bounded LRU, so it never needs a plaintext
+    // file to reach QML.
     QHash<QString, QImage> m_artworkCache;
     QList<QString> m_artworkLru;
     qint64 m_artworkBytes = 0;
-    // v0.7.1: per-key content revision, bumped ONLY on an actual byte
-    // insert (insertCache) and appended to provider URLs as "?r=<n>".
-    // A re-cached key therefore always yields a NEW source string, so a QML
-    // Image stuck in Error (e.g. the cache-hit-then-evicted race) reloads;
-    // cache hits keep an identical string so pixmap-cache dedup survives.
-    // Guarded by m_cacheMutex; survives eviction, cleared with the cache.
+    // Per-key revision, bumped on each byte insert and appended to provider
+    // URLs as "?r=<n>". A re-cached key yields a new source so an Image stuck
+    // in Error reloads, while cache hits keep the pixmap-cache key stable.
     QHash<QString, quint32> m_revision;
-    // v0.6.6 perf fix (review H1b): cachedFullContentHash() is queried from
-    // up to eight different QML triggers per eligible GIF row (see the call
-    // site's own comment), and a full SHA-256 over the payload is NOT cheap
-    // — 146-149 MB/s measured on this Qt/OpenSSL build (~33ms for a 5MiB
-    // GIF, ~430ms for the 64MiB cap) run on the UI thread inside a property
-    // binding. Memoized per cache key so a given payload is ever hashed at
-    // most once: invalidated whenever the key's m_revision changes (an
-    // actual byte re-insert — see insertCache), when the key is evicted (the
-    // LRU loop in insertCache), and on clear(). Guarded by m_cacheMutex,
-    // exactly like m_cache/m_revision.
+    // Memoized SHA-256 per cache key: cachedFullContentHash() is queried from
+    // several bindings per GIF row and hashing a 64 MiB payload takes ~430 ms.
+    // Invalidated on revision change, eviction and clear(). Guarded by
+    // m_cacheMutex.
     struct ContentHashEntry { QString hex; quint32 revision = 0; };
     mutable QHash<QString, ContentHashEntry> m_contentHashCache;
 
     QHash<quint64, Pending> m_inflight;
     QQueue<Pending> m_queue;
-    // v0.5.11: cache keys whose last fetch failed, with the coarse
-    // category. Bounded; cleared on sign-out and per key via retry().
-    // v0.7: transient marks also carry the monotonic time they were set so
-    // they expire (see failureBlocks()).
+    // Failure marks with the time they were set. Bounded; cleared on sign-out
+    // and per key via retry().
     struct FailureMark {
         QString category;
         qint64 markedAtMs = 0;
@@ -558,19 +373,10 @@ private:
     QElapsedTimer m_failureClock;
     qint64 m_failureRetryMs = 60 * 1000;
 
-    // v0.7.1: watchdog + sanitized diagnostics.
     QTimer m_watchdog;
-    // The default log used to carry three or more lines per media request —
-    // "cache=miss dispatching", then "queue" or "fetch opId=", then "ready" —
-    // plus one "already-pending" line PER DUPLICATE CALLER, which in a list is
-    // unbounded: one account switch produced several hundred lines and the
-    // maintainer reported the log as unreadable. Those are per-REQUEST and
-    // per-CALLER lines, so they moved to lightning.media.trace; what lands in
-    // the default category instead is ONE line once a burst goes quiet.
-    //
-    // Counts, bytes and a peak queue depth only. No cache keys, no mxc URIs,
-    // no paths — the summary must stay safe to paste into a bug report, which
-    // per-key lines are not.
+    // Per-request lines go to lightning.media.trace; the default category gets
+    // one summary per burst. Counts and bytes only, no keys, URIs or paths, so
+    // it is safe to paste into a bug report.
     QTimer m_burstSummary;
     qint64 m_burstCompleted = 0;
     qint64 m_burstFailed = 0;
@@ -578,16 +384,12 @@ private:
     qint64 m_burstPeakQueued = 0;
     /// Restarts the quiet-period timer and tracks the peak queue depth.
     void noteMediaActivity();
-    // Class timeouts. Thumbnails/avatars/full images are small; a genuine
-    // fetch resolves in well under this. Only a truly stuck op reaches it.
+    // Class timeouts; only a stuck op reaches them.
     qint64 m_inflightTimeoutMs = 45 * 1000;
     qint64 m_saveTimeoutMs = 5 * 60 * 1000; // user Save As of a large file
-    // Playable materialization: whole video/audio payloads are larger than
-    // thumbnails but still interactive; above the 90s Rust bound, below
-    // the save class.
+    // Above the 90 s Rust bound, below the save class.
     qint64 m_playableTimeoutMs = 100 * 1000;
-    // All incremented on the object thread only (mediaSource/avatarSource,
-    // onMediaReady/onMediaFailed, checkInflightTimeouts).
+    // Object thread only.
     qint64 m_statCompleted = 0;
     qint64 m_statFailed = 0;
     qint64 m_statTimedOut = 0;
@@ -595,14 +397,8 @@ private:
     qint64 m_statCacheHit = 0;
     qint64 m_statCacheMiss = 0;
     qint64 m_statCancelled = 0;
-    // review H1b/M2: bumped when cachedFullContentHash() runs a SHA-256 on
-    // a memo miss AND the payload survived the hash (the digest is only
-    // counted once it is actually installed) — a timing-independent,
-    // deterministic way for tests (and future diagnostics) to prove the
-    // memoization eliminates repeat hashing, rather than asserting on
-    // wall-clock cost. Written under m_cacheMutex like the memo table
-    // itself; healthSnapshot() reads it unlocked, as it does the
-    // neighbouring counters.
+    // Counts SHA-256 runs on a memo miss, so tests can prove memoization
+    // without timing. Written under m_cacheMutex.
     mutable qint64 m_statContentHashComputed = 0;
 
     std::unique_ptr<QTemporaryDir> m_animatedDir;
@@ -610,42 +406,29 @@ private:
     QHash<QString, qint64> m_animatedSizes;
     QList<QString> m_animatedLru;
     QSet<QString> m_animatedWanted;
-    // The subset of m_animatedWanted whose askers included at least one
-    // non-speculative caller — see animatedSource(). Only those keys report
-    // mediaFetchFailed("invalid_gif") when the payload is not an animation.
+    // Keys with at least one non-speculative asker; only these report
+    // mediaFetchFailed("invalid_gif").
     QSet<QString> m_animatedDemanded;
-    // v0.7: playable (video/audio) materialization registry. Shares the
-    // session temp dir with the animated path but has its own, larger LRU
-    // budget so one video cannot evict every GIF (or vice versa). The
-    // per-session random suffix keeps names unguessable even though the
-    // directory itself is 0700.
+    // Playable registry. Shares the scratch dir with the animated path but has
+    // its own larger LRU. The per-session suffix keeps names unguessable.
     QHash<QString, QString> m_playableFiles;
     QHash<QString, qint64> m_playableSizes;
     QList<QString> m_playableLru;
-    // REFCOUNTED playable interest (review M1): the same media event can be
-    // rendered by two cards at once (main timeline + thread panel), and one
-    // card's cancel must not strand the other mid-fetch. Only when the
-    // count reaches zero may cancelPlayable abort the shared op. Failure
-    // paths drop the whole entry — a retry re-expresses interest.
+    // Refcounted: the main timeline and thread panel can show the same event,
+    // and one card's cancel must not strand the other. Failures drop the entry.
     QHash<QString, int> m_playableWanted;
-    // v0.7 perf round: speculative playable interest ("full:" keys). Kept
-    // separate from m_playableWanted so dropQueuedSpeculative can still
-    // distinguish a real pressed-play consumer (kept) from a prefetch
-    // (dropped on room switch).
+    // Speculative interest ("full:" keys), separate so dropQueuedSpeculative
+    // can tell a prefetch from a pressed-play consumer.
     QSet<QString> m_prefetchWanted;
-    // "full:" keys whose materialization should trigger a poster grab, and
-    // media keys with an extraction currently queued/active.
+    // "full:" keys that should trigger a poster, and media keys being
+    // extracted.
     QSet<QString> m_posterWanted;
     QSet<QString> m_posterExtracting;
     VideoPosterExtractor *m_posterExtractor = nullptr;
-    // Deliberately NOT cleared by clear(): Qt Multimedia initializes once
-    // per process, so re-warming for a second account would be a no-op.
+    // Not reset by clear(): Qt Multimedia initializes once per process.
     bool m_multimediaWarmed = false;
-    // Cache keys whose materialized file a live player currently holds
-    // open, REFCOUNTED (review L1): the same media event can be rendered by
-    // two cards at once (main timeline + thread panel), and one card's
-    // reset must not unpin the file the other still holds. Never chosen as
-    // an eviction victim while the count is positive.
+    // Refcounted pins on files a live player holds open; never evicted while
+    // positive.
     QHash<QString, int> m_pinnedPlayables;
     QString m_playableNameSalt;
     PlayableFileWriter *m_playableWriter = nullptr;
@@ -657,39 +440,27 @@ private:
         quint64 generation = 0;
         bool notifyFailure = false;
     };
-    // Writes handed to the worker thread and not yet published. This hash
-    // is the session-isolation AUTHORITY, not the signal connection: the
-    // completion arrives as a QUEUED call, so one already posted can
-    // outlive a disconnect and land in the next account — clear() empties
-    // this and makes any late delivery inert by construction. The poster
-    // path learned exactly this (see onPosterReady), and the generation
-    // token below is the second, independent guard.
+    // Writes handed to the worker and not yet published. This hash, not the
+    // signal connection, is the session-isolation authority: a queued
+    // completion can outlive a disconnect, and clear() empties it. The
+    // generation below is a second guard.
     QHash<QString, PendingPlayableWrite> m_playableWriting;
-    // Bumped by clear(). A completion carrying an older value belongs to a
-    // previous account or session and must publish nothing — even if the
-    // next session happens to want the same cache key.
+    // Bumped by clear(); a completion with an older value publishes nothing.
     quint64 m_sessionGeneration = 1;
-    // Playable LRU caps as members so tests can shrink them; initialized
-    // from the class constants below.
+    // Members so tests can shrink them.
     int m_playableMaxEntries;
     qint64 m_playableMaxBytes;
-    // Bounded-starvation guard for the priority queue: an entry older than
-    // this dispatches ahead of higher-priority newcomers.
+    // Starvation bound: an entry older than this dispatches ahead of newer,
+    // higher-priority ones.
     qint64 m_starvationMs = 15 * 1000;
-    // v0.7: raised from 4 — a cold room list fetches its visible avatars in
-    // one or two bursts instead of a long 4-at-a-time trickle. Still a hard
-    // bound; excess requests queue and pump as fetches complete.
+    // Hard bound; excess requests queue.
     static constexpr int kMaxConcurrent = 8;
-    // Heavy work (priority >= 2: full static media, speculative prefetch)
-    // may hold at most this many slots, so explicit playback and visible
-    // chrome always find headroom immediately — eight multi-megabyte GIF
-    // prefetches can no longer starve the room's avatars or a pressed-play
-    // track.
+    // Cap on heavy slots (priority >= 2), so playback and chrome always find
+    // headroom.
     static constexpr int kMaxHeavyConcurrent = 6;
     static constexpr int kMaxFailureMarks = 512;
-    // One server-side thumbnail edge for every avatar surface (largest
-    // consumer is the 96px popover at 2x DPR = 192; 224 covers it with
-    // headroom). All render sizes downscale from this single decode.
+    // One server-side edge for every avatar (largest consumer: 96 px at 2x
+    // DPR).
     static constexpr int kAvatarCanonicalEdge = 224;
     static constexpr int kArtworkMaxEntries = 24;
     static constexpr qint64 kArtworkMaxBytes = 24 * 1024 * 1024;
@@ -698,10 +469,9 @@ private:
     static constexpr int kAnimatedCacheEntries = 64;
     static constexpr qint64 kPlayableCacheBytes = 256 * 1024 * 1024;
     static constexpr int kPlayableCacheEntries = 16;
-    // Full-size media above this skips the RAM LRU (it exists on disk for
-    // the player; caching it in memory would evict every image at once).
+    // Full-size media above this skips the RAM LRU (the player reads it from
+    // disk).
     static constexpr qint64 kLargeCacheSkipBytes = 8 * 1024 * 1024;
-    // Speculative playable prefetch cap: a video/audio payload whose Matrix
-    // metadata declares more than this is only fetched on explicit Play.
+    // Playables declaring more than this are fetched only on explicit Play.
     static constexpr qint64 kSpeculativePlayableMaxBytes = 32 * 1024 * 1024;
 };

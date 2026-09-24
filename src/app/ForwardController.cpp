@@ -25,27 +25,16 @@ void ForwardController::setClient(MatrixClient *client)
         m_client->disconnect(this);
     m_client = client;
     if (m_client) {
-        // Logout (or an account switch, which also emits loggedOut — see
-        // MatrixClient::detachSession) invalidates any forward in progress:
-        // its source event, its target room, and any outstanding media
-        // fetch all belonged to the account that just went away.
+        // Logout, including an account switch, invalidates any forward.
         connect(m_client, &MatrixClient::loggedOut, this, [this] {
-            // Reset AND notify. resetToIdle() alone leaves every property
-            // binding stale, so an open picker would stay on screen over
-            // the login screen still showing the previous account's
-            // decrypted preview text.
+            // Notify too, or an open picker keeps showing the previous
+            // account's decrypted preview.
             resetToIdle();
-            // Sends dispatched by the previous account must not report
-            // into the next one.
             m_dispatchedSends.clear();
             Q_EMIT changed();
         });
-        // Belongs HERE, not in setMediaBridge(): it is a CLIENT signal, and
-        // guarding it on the media bridge instead made the N1 failure
-        // reporting depend on setClient() happening first — an ordering
-        // nothing in this API states — and silently dropped it entirely on
-        // a second setClient(), which disconnects everything and would not
-        // have re-established it.
+        // Connected here, since it is a client signal and must survive a
+        // second setClient().
         connect(m_client, &MatrixClient::attachmentQueueFinished, this,
                 &ForwardController::onAttachmentQueueFinished);
     }
@@ -79,9 +68,7 @@ QString ForwardController::buildPreview(const QVariantMap &snapshot)
         snapshot.value(QStringLiteral("senderDisplayName")).toString();
 
     QString kind;
-    // Stickers have no dedicated Lightning send path — they forward as an ordinary image attachment, so
-    // the preview honestly calls it "Sticker" while the actual send below
-    // takes the exact same branch as an image.
+    // Stickers forward as ordinary image attachments.
     if (snapshot.value(QStringLiteral("isImage")).toBool())
         kind = tr("Photo");
     else if (snapshot.value(QStringLiteral("isVideo")).toBool())
@@ -100,9 +87,7 @@ QString ForwardController::buildPreview(const QVariantMap &snapshot)
         if (!filename.isEmpty())
             kind = tr("%1 (%2)").arg(kind, filename);
     } else {
-        // Text-like (text/emote/notice, collapsed at send time per D4) —
-        // this is a dialog caption, not the message itself, so it is
-        // flattened to one line and capped.
+        // A one-line, capped caption for the dialog.
         QString body =
             snapshot.value(QStringLiteral("body")).toString().trimmed();
         body.replace(QLatin1Char('\n'), QLatin1Char(' '));
@@ -127,10 +112,8 @@ void ForwardController::begin(const QString &sourceRoomId,
         return;
     }
 
-    // D7: refuse redacted / local-echo / undecryptable content up front —
-    // none of it has anything safe to re-send. The menu item that calls
-    // begin() already withholds itself for these rows (MessageDelegate.qml);
-    // this is defense in depth, not the only gate.
+    // Nothing here is safe to re-send. The menu already hides the action for
+    // these rows; this is defense in depth.
     if (snapshot.value(QStringLiteral("redacted")).toBool()
         || snapshot.value(QStringLiteral("isLocalEcho")).toBool()
         || snapshot.value(QStringLiteral("undecryptable")).toBool()
@@ -141,9 +124,6 @@ void ForwardController::begin(const QString &sourceRoomId,
 
     const bool isMedia = snapshotIsMedia(snapshot);
     if (isMedia) {
-        // No usable source bytes (e.g. the row's media source became
-        // unavailable between load and click) — refuse rather than send an
-        // empty/broken attachment.
         if (snapshot.value(QStringLiteral("mediaKey")).toString().isEmpty()) {
             setError(tr("This message can't be forwarded."));
             return;
@@ -212,9 +192,7 @@ void ForwardController::toggleSelected(const QString &eventId,
         m_selectedIds.removeAt(at);
         m_selectionSnapshots.removeAt(at);
     } else {
-        // A bound on how much one gesture can send. Fifty messages into
-        // three rooms is already 150 events; beyond that a mis-drag becomes
-        // a flood the user cannot recall.
+        // Bounds how much one gesture can send.
         constexpr int kMaxSelected = 50;
         if (m_selectedIds.size() >= kMaxSelected) {
             setError(tr("You can forward up to %1 messages at once.")
@@ -250,20 +228,14 @@ void ForwardController::beginSelection(const QString &sourceRoomId,
 
 void ForwardController::setForwardMode(const QString &mode)
 {
-    // Unknown values fall back to the SAFE one. "context" discloses the
-    // source room's name and the original sender to whoever receives the
-    // copy, so it is never what a typo produces.
+    // Unknown values fall back to "content", which discloses nothing.
     m_mode = (mode == QLatin1String("context")) ? mode
                                                 : QStringLiteral("content");
     Q_EMIT changed();
 }
 
-/// The attribution line for "with context" mode.
-///
-/// Deliberately plain text and deliberately minimal: the original sender,
-/// the room it came from and when. It is NOT a permalink — a link into a
-/// room the recipient may not be in is an invitation to a 404, and building
-/// one would re-introduce exactly the source-room pills D4 refuses.
+/// Plain-text attribution for "context" mode. Deliberately not a permalink:
+/// the recipient may not be in the source room.
 QString ForwardController::contextPrefixFor(const QVariantMap &snapshot) const
 {
     const QString sender =
@@ -295,9 +267,7 @@ void ForwardController::sendSelection(const QVariantList &targets)
     m_failures.clear();
     m_failedPairs.clear();
     m_progressDone = 0;
-    // Every (message, destination) pair is its own unit of success. Twelve
-    // pairs where one fails is not "sent" and not "failed" — it is eleven
-    // and one, and the user is told which.
+    // Each (message, destination) pair succeeds or fails on its own.
     for (const QVariant &snapValue : m_selectionSnapshots) {
         const QVariantMap snapshot = snapValue.toMap();
         for (const QVariant &targetValue : targets) {
@@ -361,12 +331,8 @@ void ForwardController::pumpQueue()
             notePairResult(pair, false, tr("Not signed in."));
             continue;
         }
-        // TEXT ONLY on this path, for now, and it is honest about that: the
-        // media lane is a per-item asynchronous fetch-then-upload with its
-        // own generation guard, and running N of those concurrently is the
-        // unbounded-upload problem the design forbids. A selected attachment
-        // is reported as a failure with a reason rather than silently
-        // dropped or sent as its caption.
+        // Text only: concurrent fetch-then-upload media sends would be
+        // unbounded. Attachments are reported as failures with a reason.
         if (snapshotIsMedia(pair.snapshot)) {
             notePairResult(pair, false,
                            tr("Attachments can only be forwarded one at a "
@@ -382,16 +348,13 @@ void ForwardController::pumpQueue()
             body = contextPrefixFor(pair.snapshot) + body;
 
         if (!pair.threadRootId.isEmpty()) {
-            // A thread relation the TARGET room negotiated — the opposite of
-            // D5's refusal, which is about carrying the SOURCE's thread into
-            // a room that never saw it.
+            // A thread in the target room, not the source's relation.
             m_client->sendThreadReplyTo(pair.targetRoomId, pair.threadRootId,
                                         QString(), body);
         } else {
             m_client->sendTextMessage(pair.targetRoomId, body);
         }
-        // Same "dispatched is done" rule as D6: an ordinary text send is
-        // fire-and-forget on every path in this application.
+        // Text sends are fire-and-forget; dispatched counts as done.
         notePairResult(pair, true, QString());
     }
 }
@@ -406,25 +369,13 @@ void ForwardController::forwardTo(const QString &targetRoomId)
     Q_EMIT changed();
 
     if (!snapshotIsMedia(m_snapshot)) {
-        // The SOURCE event's formatted_body is deliberately never read: its
-        // pills and permalinks point into the source room and would be
-        // misleading in the target.
-        //
-        // HONESTLY, though, the result is not a byte-faithful copy. This
-        // rides the shared send path, which renders Markdown
-        // (RoomMessageEventContent::text_markdown in rust/src/timeline.rs),
-        // so a plain body containing "> quoting Bob" or "# 1" arrives
-        // formatted. Receiving clients sanitize, so this is not an
-        // injection — but do not describe forwarding as an exact copy, and
-        // do not "fix" it by reintroducing the source's formatted_body.
-        //
-        // D5: sendTextMessage attaches no relation, so this can never
-        // become a reply or an m.thread reply in the target room even
-        // though the SOURCE event may have been one.
+        // formatted_body is never read: its pills point into the source
+        // room. The shared send path renders Markdown, so the copy is not
+        // byte-faithful; do not "fix" that by reusing formatted_body.
+        // sendTextMessage attaches no relation.
         const QString body = m_snapshot.value(QStringLiteral("body")).toString();
         m_client->sendTextMessage(targetRoomId, body);
-        // No op id on this path (it never had one — same as the ordinary
-        // composer send); reaching this line IS "dispatched" for D6.
+        // No op id for text sends; reaching here is "dispatched".
         const QString target = targetRoomId;
         resetToIdle();
         Q_EMIT changed();
@@ -432,10 +383,7 @@ void ForwardController::forwardTo(const QString &targetRoomId)
         return;
     }
 
-    // Media (including a sticker forwarded as an image — see D1/scope):
-    // re-fetch fresh bytes through the SAME decrypting path every other
-    // save/star action uses (D1/D2). The snapshot never carries bytes,
-    // only classification.
+    // Media: fetch fresh bytes through the decrypting save/star path.
     if (!m_mediaBridge) {
         m_busy = false;
         setError(tr("Media isn't available right now."));
@@ -452,10 +400,6 @@ void ForwardController::onMediaBytesForStar(const QString &mediaKey, bool ok,
                                             const QByteArray &bytes,
                                             const QString &category)
 {
-    // MediaBridge broadcasts this to every listener for every media key it
-    // resolves (star, save, and now forward can all be outstanding at
-    // once) — ignore anything that is not the exact key this generation is
-    // waiting on.
     if (m_pendingMediaKey.isEmpty() || mediaKey != m_pendingMediaKey)
         return;
 
@@ -464,9 +408,7 @@ void ForwardController::onMediaBytesForStar(const QString &mediaKey, bool ok,
     m_pendingMediaKey.clear();
     m_pendingTargetRoomId.clear();
 
-    // begin()/cancel() ran again while this fetch was outstanding — this
-    // answer belongs to a forward the user has already left. Never send it
-    // into whatever the CURRENT forward's dialog now shows.
+    // The forward was cancelled or replaced while the fetch was outstanding.
     if (generation != m_generation)
         return;
 
@@ -478,58 +420,26 @@ void ForwardController::onMediaBytesForStar(const QString &mediaKey, bool ok,
         return;
     }
 
-    // The filename and MIME on the SOURCE event were chosen by whoever sent
-    // it. Forwarding RE-ORIGINATES both under this account, so they are
-    // sanitized rather than copied — the same standard the saved-media path
-    // applies ("never a claimed MIME or file name").
+    // The source's filename and MIME were chosen by its sender; they are
+    // re-originated under this account, so sanitize rather than copy.
     QString filename = sanitizedForwardFilename(
         m_snapshot.value(QStringLiteral("mediaFilename")).toString());
     QString mime = m_snapshot.value(QStringLiteral("mediaMimetype")).toString();
     int width = m_snapshot.value(QStringLiteral("mediaWidth")).toInt();
     int height = m_snapshot.value(QStringLiteral("mediaHeight")).toInt();
 
-    // Correct the metadata from the BYTES where they can be identified.
-    // QImageReader is a format+dimension probe with no policy of its own —
-    // deliberately NOT gif::validateRasterBytes, which carries the saved-GIF
-    // store's 4096px / 25 MiB caps and would refuse a 5K screenshot or a
-    // large camera JPEG that Lightning displays and sends perfectly well.
-    //
-    // Refusal is NOT decided here. The send path already sniffs magic
-    // Rust-side and rejects an `image/*` payload whose bytes disagree
-    // (rooms::sniff_image_mime), so a mislabelled or SVG payload cannot be
-    // uploaded regardless of what this block concludes. What this adds is
-    // truthfulness: a forward re-originates the attachment under THIS
-    // account, so it should not attest to a type or a shape it did not
-    // check.
-    //
-    // Video, audio and arbitrary files keep their declared type. Lightning
-    // cannot verify those containers here, and that is stated rather than
-    // implied to be safe.
-    // Identify from MAGIC BYTES, not from QImageReader::format(): that is
-    // plugin-backed, and WebP lives in qtimageformats, which the packaged
-    // DEB/RPM/AppImage builds did not carry at all until 2026-08-28. A build
-    // without it would refuse ordinary WebP content as unidentifiable — the
-    // exact class of defect this gate was corrected for once already, arriving
-    // through a different door and invisible in the dev shell.
-    //
-    // The signatures now live in lightning::imagefmt::sniffRaster, ONE table
-    // shared with the app-icon path and mirrored by rooms::sniff_image_mime,
-    // so the C++ and Rust gates cannot disagree about what is acceptable. The
-    // copy that used to sit here is gone rather than kept in sync by hand.
-    //
-    // IDENTIFICATION IS NOT DECODABILITY, and this call site deliberately does
-    // not consult the decoder. A forward re-uploads the ORIGINAL BYTES with a
-    // truthful type; drawing them is the receiving client's problem. So a
-    // JPEG XL forwards correctly from a Windows build that cannot display it,
-    // which is the honest outcome — refusing there would destroy a working
-    // path to protect a preview nobody asked for.
+    // Correct image metadata from the bytes. The type comes from magic bytes
+    // (the table shared with rooms::sniff_image_mime), not from
+    // QImageReader::format(), which depends on which image plugins a package
+    // ships. Identification is not decodability: a format this build cannot
+    // display still forwards. Not gif::validateRasterBytes, whose size caps
+    // would refuse ordinary large photos. The Rust send path re-checks magic
+    // bytes regardless. Video, audio and files keep their declared type.
     const QString identified = lightning::imagefmt::sniffRasterMime(bytes);
 
     if (!identified.isEmpty()) {
         mime = identified;
-        // QImageReader is used ONLY to refine the shape, never to decide
-        // acceptability — so a missing plugin costs at most the dimensions,
-        // which the source event already declared.
+        // Dimensions only; a missing plugin just keeps the declared size.
         QByteArray probe = bytes;
         QBuffer buffer(&probe);
         buffer.open(QIODevice::ReadOnly);
@@ -541,11 +451,8 @@ void ForwardController::onMediaBytesForStar(const QString &mediaKey, bool ok,
         }
     }
 
-    // Claims to be an image but cannot be identified as one of the raster
-    // formats Lightning sends — SVG included, which must never enter a media
-    // path. Refuse rather than re-upload an unverifiable payload under this
-    // account's name. This is IDENTIFICATION only: a 5K screenshot or a
-    // 40 MiB camera JPEG identifies fine and forwards normally.
+    // Claims to be an image but is not a known raster format (SVG included,
+    // which must never enter a media path): refuse.
     if (identified.isEmpty()
         && mime.startsWith(QLatin1String("image/"))) {
         m_busy = false;
@@ -553,11 +460,8 @@ void ForwardController::onMediaBytesForStar(const QString &mediaKey, bool ok,
         return;
     }
 
-    // The room-SCOPED send, when the backend has one. The timeline-scoped
-    // variant refuses any room but the open one, and a forward's target is
-    // by definition a room the user is not looking at — so using it here
-    // made every real media forward fail while passing every test whose
-    // fake accepted any room id.
+    // Prefer the room-scoped send: the timeline-scoped one refuses any room
+    // but the open one, and the target is usually not open.
     const quint64 opId = m_client->supportsRoomScopedAttachmentSend()
         ? m_client->sendAttachmentBytesToRoom(
               targetRoomId, bytes,
@@ -573,25 +477,17 @@ void ForwardController::onMediaBytesForStar(const QString &mediaKey, bool ok,
         return;
     }
 
-    // The picker closes and the app navigates now, but the send is NOT
-    // done: Room::send_attachment is a direct upload, not the send queue,
-    // and the target timeline was not open, so there is no local echo to
-    // stand in for it. A server refusal (no permission, rate limit, over
-    // m.upload.size) would otherwise be completely silent — the user would
-    // arrive in the target room, see nothing, and believe it worked.
-    // A HASH, not one slot: forwarding two images in quick succession is
-    // ordinary, and overwriting would make the first one's rejection
-    // silent again — the exact failure this tracking exists to prevent.
+    // The send is a direct upload with no local echo in the target, so track
+    // it to report a server refusal. One entry per send, so a second forward
+    // cannot hide the first one's failure.
     m_dispatchedSends.insert(opId, targetRoomId);
     resetToIdle();
     Q_EMIT changed();
     Q_EMIT forwarded(targetRoomId);
 }
 
-// A forwarded attachment's name is re-originated under THIS account, so it
-// must not carry path structure a receiving client could act on when saving.
-// Keeps the leaf only, drops anything that could traverse, and refuses a
-// leading dot so a forward cannot silently produce a hidden file.
+// Keeps the leaf name only and strips leading dots, so a forward cannot carry
+// path structure or produce a hidden file.
 QString ForwardController::sanitizedForwardFilename(const QString &raw)
 {
     QString name = raw;
@@ -599,17 +495,13 @@ QString ForwardController::sanitizedForwardFilename(const QString &raw)
     const int slash = name.lastIndexOf(QLatin1Char('/'));
     if (slash >= 0)
         name = name.mid(slash + 1);
-    // Control characters (NUL, newline, tab) must not reach the event's
-    // filename. Removed BEFORE the dot strip, along with surrounding
-    // whitespace: " .bashrc" does not start with '.', so trimming
-    // afterwards would hand back exactly the hidden-file name this guard
-    // exists to prevent.
+    // Strip control characters and whitespace before the dot strip, or
+    // " .bashrc" would survive it.
     name.removeIf([](QChar c) { return c.category() == QChar::Other_Control; });
     name = name.trimmed();
     while (name.startsWith(QLatin1Char('.')))
         name.remove(0, 1);
     name = name.trimmed();
-    // Bounded: a pathological name must not become the event body.
     if (name.size() > 128)
         name = name.left(128);
     return name;
@@ -628,18 +520,14 @@ void ForwardController::onAttachmentQueueFinished(quint64 opId,
     if (ok)
         return;
     Q_UNUSED(category);
-    // Carries the room it was aimed at so the surface can decide whether it
-    // is still relevant — by the time this arrives the picker has closed
-    // and the user has been navigated there, but they may have moved again.
     Q_EMIT forwardFailed(roomId.isEmpty() ? target : roomId,
                          tr("That message could not be forwarded."));
 }
 
 void ForwardController::resetToIdle()
 {
-    // NOT m_dispatchedSends: a dispatched send outlives the picker by
-    // design, and its rejection must still be reportable. Those are dropped
-    // only on sign-out, where there is no account left to report to.
+    // m_dispatchedSends is kept: those sends outlive the picker and are
+    // cleared only on sign-out.
     ++m_generation;
     m_pendingGeneration = 0;
     m_pendingMediaKey.clear();

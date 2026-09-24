@@ -1,35 +1,19 @@
 #pragma once
 
-// ONE table of the raster image formats Lightning identifies, and ONE way to
-// ask whether the RUNNING BUILD can actually decode them.
+// One table of the raster formats Lightning identifies, and one way to ask
+// whether the running build can decode them.
 //
-// WHY THIS EXISTS. A Qt image format is a dlopen'd plugin, so what a build can
-// decode is decided by PACKAGING, not by source. Up to 0.8.0 every Linux
-// package shipped exactly the three plugins qtbase itself carries — libqgif,
-// libqico, libqjpeg — while Lightning's own byte sniffers ACCEPTED image/webp.
-// The client accepted, forwarded and re-uploaded a format it could not draw,
-// and nothing said so: the AppImage's usr/plugins/imageformats holds three
-// files and no check ever looked. Windows had staged qwebp.dll all along and
-// macdeployqt copies libqwebp.dylib, so the disagreement existed on Linux only
-// — which is exactly why it survived: the dev shell decodes 92 formats because
-// the MAINTAINER'S NixOS system profile has kimageformats installed, not
-// because anything in this repository provides it.
-//
-// THE SET GENUINELY DIFFERS PER PLATFORM AND CANNOT BE HARDCODED:
-//   * JPEG XL comes from KDE's kimageformats (kimg_jxl.so). Qt has never
-//     shipped a JXL plugin — qt/qtimageformats at v6.11.1 is dds, icns, jp2,
-//     macheif, macjp2, mng, tga, tiff, wbmp, webp — and neither Fedora's
-//     mingw64 repository nor Homebrew packages a cross/macOS build of
-//     kimageformats. So Linux packages decode JPEG XL and Windows and macOS
-//     do not.
-//   * HEIF is the mirror image: macOS gets `qmacheif` free from Qt (it wraps
-//     Apple ImageIO) and no other platform has it.
-// A single compiled-in list would therefore be wrong on at least one platform.
-// Ask the decoder instead. `lightning-matrix --image-format-status` prints the
+// Qt image formats are plugins, so decode support is decided by packaging,
+// not source; accepting a format the build cannot draw must be detectable.
+// The set differs per platform and cannot be hardcoded:
+//   * JPEG XL comes only from KDE's kimageformats (kimg_jxl.so), available on
+//     Linux packages but not Windows or macOS.
+//   * HEIF is the reverse: macOS gets `qmacheif` from Qt, nothing else does.
+// So ask the decoder. `lightning-matrix --image-format-status` reports the
 // answer for a packaged artifact.
 //
-// SVG IS ABSENT ON PURPOSE (CLAUDE.md §6): it must never reach a media path as
-// active content, so it is not in the table and `sniffRaster` cannot return it.
+// SVG is absent on purpose (CLAUDE.md §6): it is active content and
+// `sniffRaster` can never return it.
 
 #include <QByteArray>
 #include <QImageReader>
@@ -41,24 +25,19 @@
 
 namespace lightning::imagefmt {
 
-/// One row of the table. `qtFormat` is the name QImageReader uses, which is
-/// also the plugin's key; `mime` is what crosses the wire and what the Rust
-/// sniffer reports.
+/// One row. `qtFormat` is QImageReader's name (and the plugin key); `mime` is
+/// what crosses the wire and what the Rust sniffer reports.
 struct RasterFormat {
     const char *mime = nullptr;
     const char *qtFormat = nullptr;
-    /// REQUIRED means a build that cannot decode it is broken, not merely
-    /// limited: these are the formats Lightning itself sends, saves and
-    /// re-uploads, so accepting them without a decoder is the accept/decode
-    /// disagreement this file exists to prevent. Optional formats are ones
-    /// Lightning only ever RECEIVES, where "this build cannot show it" is a
-    /// truthful answer rather than a defect.
+    /// Required formats are ones Lightning itself sends, saves and re-uploads;
+    /// a build that cannot decode them is broken. Optional formats are only
+    /// ever received, where "cannot show it" is a truthful answer.
     bool required = false;
 };
 
-/// The complete table. PNG, JPEG, GIF and BMP need no plugin beyond qtbase's
-/// built-ins and its gif plugin; WebP and JPEG XL are the two that packaging
-/// has to supply.
+/// PNG, JPEG, GIF and BMP come with qtbase; WebP and JPEG XL must be supplied
+/// by packaging.
 inline const RasterFormat *rasterFormats(int *count)
 {
     static const RasterFormat kFormats[] = {
@@ -67,9 +46,7 @@ inline const RasterFormat *rasterFormats(int *count)
         { "image/gif",  "gif",  true  },
         { "image/bmp",  "bmp",  true  },
         { "image/webp", "webp", true  },
-        // JPEG XL. Optional because it is reachable only through KDE
-        // kimageformats, which exists for Linux and for nothing else — see the
-        // header comment. A build without it must say so, not pretend.
+        // Optional: only available via kimageformats on Linux.
         { "image/jxl",  "jxl",  false },
     };
     if (count)
@@ -77,22 +54,14 @@ inline const RasterFormat *rasterFormats(int *count)
     return kFormats;
 }
 
-/// Magic-byte identification. Returns nullptr when the bytes are not one of
-/// the listed rasters — SVG, HEIF, AVIF, TIFF and anything unrecognised all
-/// land here, and every caller treats that as "refuse", never as "probably
-/// fine".
-///
-/// Deliberately byte-based rather than QImageReader::format(): the reader is
-/// PLUGIN-BACKED, so on a build missing a plugin it would answer "not an
-/// image" for content that plainly is one, and the accept decision would then
-/// swing with the packaging. Identification is a property of the bytes;
-/// whether this build can DRAW them is the separate question `canDecode`
-/// answers.
+/// Magic-byte identification, or nullptr for anything else (SVG, HEIF, AVIF,
+/// TIFF, unknown), which every caller refuses. Byte-based rather than
+/// QImageReader::format(), which is plugin-backed and would make acceptance
+/// depend on packaging. Whether the build can draw it is canDecode's question.
 inline const RasterFormat *sniffRaster(const QByteArray &bytes)
 {
-    // Twelve is the longest signature below (the JPEG XL container box), and
-    // matching the Rust sniffer's floor keeps the two from disagreeing about
-    // a truncated payload.
+    // Twelve bytes is the longest signature (the JPEG XL container) and matches
+    // the Rust sniffer's floor.
     if (bytes.size() < 12)
         return nullptr;
     const auto starts = [&bytes](const char *magic, int len) {
@@ -119,16 +88,13 @@ inline const RasterFormat *sniffRaster(const QByteArray &bytes)
         return row("image/gif");
     if (starts("RIFF", 4) && std::memcmp(bytes.constData() + 8, "WEBP", 4) == 0)
         return row("image/webp");
-    // JPEG XL, both shapes, VERIFIED against real cjxl output rather than
-    // taken from a spec summary:
-    //   bare codestream  FF 0A                                   (lossy and -d 0)
+    // JPEG XL, both forms (checked against real cjxl output):
+    //   bare codestream   FF 0A
     //   ISOBMFF container 00 00 00 0C "JXL " 0D 0A 87 0A, then "ftypjxl "
-    // Note bytes[4..8] of the container form is "JXL ", NOT "ftyp", so the A/V
-    // container probe in MediaBridge cannot mistake a .jxl for an MP4.
-    //
-    // The codestream signature is only TWO bytes, which is weak — no weaker
-    // than the "BM" already accepted below, and a false positive costs a
-    // declared image/jxl the decoder then refuses, never a wrong decode.
+    // bytes[4..8] of the container are "JXL ", not "ftyp", so MediaBridge's A/V
+    // probe cannot mistake it for MP4. The two-byte codestream signature is
+    // weak, but a false positive only yields a declared image/jxl the decoder
+    // refuses.
     if (starts("\x00\x00\x00\x0c\x4a\x58\x4c\x20\x0d\x0a\x87\x0a", 12))
         return row("image/jxl");
     if (at(0) == 0xFF && at(1) == 0x0A)
@@ -145,29 +111,22 @@ inline QString sniffRasterMime(const QByteArray &bytes)
     return f ? QString::fromLatin1(f->mime) : QString();
 }
 
-/// The Qt format key, or an empty QString. Hand this to
-/// `QImageReader::setFormat` with `setAutoDetectImageFormat(false)` so the
-/// sniffed answer stays authoritative and no other plugin re-guesses.
+/// The Qt format key, or "". Use with setAutoDetectImageFormat(false) so no
+/// other plugin re-guesses.
 inline QString sniffRasterQtFormat(const QByteArray &bytes)
 {
     const RasterFormat *f = sniffRaster(bytes);
     return f ? QString::fromLatin1(f->qtFormat) : QString();
 }
 
-/// PURE, so a test can pin the policy without depending on which plugins the
-/// host happens to have installed — the property that let this defect hide for
-/// a year.
+/// Pure, so the policy is testable regardless of the host's plugins.
 inline bool canDecodeWith(const QSet<QString> &available, const QString &qtFormat)
 {
     return !qtFormat.isEmpty() && available.contains(qtFormat.toLower());
 }
 
-/// What THIS process can decode, asked of Qt once. Cached because
-/// `supportedImageFormats()` walks the plugin directory, and the timeline asks
-/// per image.
-///
-/// Requires a QCoreApplication to exist (plugin loading needs library paths);
-/// every caller in Lightning runs well after that.
+/// What this process can decode, asked of Qt once and cached (the plugin scan
+/// is not cheap). Requires a QCoreApplication.
 inline const QSet<QString> &decodableQtFormats()
 {
     static const QSet<QString> kAvailable = [] {
@@ -185,8 +144,8 @@ inline bool canDecode(const QString &qtFormat)
     return canDecodeWith(decodableQtFormats(), qtFormat);
 }
 
-/// Formats in the table this build cannot decode, as `image/...` strings.
-/// Empty is the healthy answer. PURE overload first, for the same reason.
+/// Table formats this build cannot decode, as `image/...` strings; empty is
+/// healthy.
 inline QStringList undecodableWith(const QSet<QString> &available,
                                    bool requiredOnly)
 {

@@ -9,29 +9,19 @@
 
 class MatrixClient;
 
-// The GLOBAL profile — display name and avatar — of any Matrix user, asked
-// from the homeserver once and remembered for the session.
+// The global profile (display name, avatar) of any Matrix user, asked once
+// and remembered for the session. For users the room's member snapshot cannot
+// name: a mentioned non-member, a lazily loaded member, a sender whose room
+// members were never fetched. Mention pills and the profile popover use it; a
+// room's own member name always wins.
 //
-// It exists for the users a room's member snapshot cannot name: the target
-// of a mention who is not in the room, a lazily-loaded member this client
-// has never received a state event for, a sender in a room whose member
-// list was never fetched. Before it (2026-09-05, tester report) such a pill
-// rendered as the bare localpart and its profile card opened with no name
-// and no picture. The timeline's mention pills and the member profile
-// popover both consult it; the room's OWN member name always wins over it
-// where one exists, because a per-room nick is what the room shows.
+// profile() never asks. lookup()/request() ask at most once per user per
+// session; a failure is re-asked only after failureRetryMs. /profile gets a
+// user id and no room context.
 //
-// Reads are pure: profile() never asks. lookup()/request() ask the server
-// at most once per user per session — a refused answer is remembered as a
-// failure and re-asked only after failureRetryMs, so a transient error is
-// not permanent and a missing user is not hammered. /profile takes a user
-// id and nothing else; no room context is sent.
-//
-// "Per session" ends at SIGN-OUT, not at process exit: an answer resolved
-// under one account's authority is dropped when that account's session ends
-// (MatrixClient::loggedOut, which an account switch emits through
-// detachSession()). setClient() cannot carry that on its own — the client
-// OBJECT is never replaced.
+// The session ends at sign-out (MatrixClient::loggedOut, also emitted by an
+// account switch via detachSession()), since the client object is never
+// replaced.
 class UserProfileResolver : public QObject
 {
     Q_OBJECT
@@ -69,8 +59,7 @@ private:
                     const QString &displayName, const QString &avatarUrl,
                     const QString &category);
 
-    // Bounded: a session that mentions more distinct users than this stops
-    // asking rather than growing without limit.
+    // Bounded: past this many distinct users the resolver stops asking.
     static constexpr int kMaxProfiles = 4000;
 
     MatrixClient *m_client = nullptr;

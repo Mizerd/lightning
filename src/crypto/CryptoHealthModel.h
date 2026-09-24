@@ -6,18 +6,15 @@
 #include <QVariantMap>
 #include <QtQmlIntegration/qqmlintegration.h>
 
-// v0.6.0 checkpoint 7: read-only E2EE health and readiness state.
+// Read-only E2EE health and readiness state.
 //
-// The Rust Matrix SDK owns all crypto state; this model only mirrors the
-// sanitized `crypto_health` snapshots the bridge emits (booleans, enum
-// names, and the public device id — never keys, signatures, secrets, or
-// store paths) plus coarse lifecycle knowledge from the app layer
-// (supported backend, sync state, pending verification). QML consumes
-// semantic properties; nothing here can mutate crypto state.
+// The Rust SDK owns all crypto state; this mirrors the sanitized
+// `crypto_health` snapshots (booleans, enum names and the public device id;
+// never keys, signatures, secrets or paths) plus app-layer context. It cannot
+// mutate crypto state.
 //
-// Generation isolation: AppController bumps the generation on logout and
-// account switches; snapshots stamped with an older generation are
-// ignored, so a stale async answer can never describe the wrong account.
+// AppController bumps the generation on logout and account switch; snapshots
+// from an older generation are ignored.
 class CryptoHealthModel : public QObject
 {
     Q_OBJECT
@@ -34,13 +31,10 @@ class CryptoHealthModel : public QObject
     Q_PROPERTY(bool crossSigningAvailable READ crossSigningAvailable NOTIFY healthChanged)
     Q_PROPERTY(bool crossSigningReady READ crossSigningReady NOTIFY healthChanged)
     Q_PROPERTY(TriState ownIdentityVerified READ ownIdentityVerified NOTIFY healthChanged)
-    // TRI-STATE. "Not yet known" is NOT "no backup exists": the Rust probe
-    // performs a real GET /room_keys/version, and a network failure used to
-    // be published as a definite false. Telling someone their account has no
-    // key backup when the answer never arrived invites them to treat a real
-    // recovery key as nonexistent, and it arms an action that can mint a new
-    // one over it. QML must compare against CryptoHealthModel.No, never
-    // truthiness.
+    // Tri-state: "not known" is not "no backup". A failed GET
+    // /room_keys/version must not read as "no backup exists", which would
+    // invite the user to set up a new recovery key over the real one. Compare
+    // against CryptoHealthModel.No in QML, never truthiness.
     Q_PROPERTY(int keyBackupAvailable READ keyBackupAvailable NOTIFY healthChanged)
     Q_PROPERTY(bool keyBackupUsable READ keyBackupUsable NOTIFY healthChanged)
     Q_PROPERTY(QString keyBackupState READ keyBackupState NOTIFY healthChanged)
@@ -51,10 +45,8 @@ class CryptoHealthModel : public QObject
     Q_PROPERTY(int pendingVerificationCount READ pendingVerificationCount NOTIFY healthChanged)
     Q_PROPERTY(QDateTime lastRefreshed READ lastRefreshed NOTIFY healthChanged)
     Q_PROPERTY(QString statusSummary READ statusSummary NOTIFY healthChanged)
-    // v0.9 (phase 9): the three cross-signing keys individually, for the
-    // detail view. Booleans from the SDK's own identity state — whether
-    // each key is KNOWN locally (present in the store), never the private
-    // material itself.
+    // The three cross-signing keys individually, for the detail view: whether
+    // each is known locally, never the private material.
     Q_PROPERTY(bool hasMasterKey READ hasMasterKey NOTIFY healthChanged)
     Q_PROPERTY(bool hasSelfSigningKey READ hasSelfSigningKey NOTIFY healthChanged)
     Q_PROPERTY(bool hasUserSigningKey READ hasUserSigningKey NOTIFY healthChanged)
@@ -71,8 +63,7 @@ public:
     void setPendingVerificationCount(int count);
     void setError(bool error);
 
-    // Adopt one sanitized Rust snapshot. Ignored when `generation` no
-    // longer matches (stale answer from a previous account/session).
+    // Adopt one sanitized snapshot; ignored when `generation` is stale.
     void applySnapshot(const QVariantMap &snapshot, quint64 generation);
     quint64 generation() const { return m_generation; }
     // New account/session epoch: everything returns to Unknown.

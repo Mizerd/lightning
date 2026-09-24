@@ -4,19 +4,14 @@
 #include <QString>
 #include <QVariantMap>
 
-// Plain value types for MSC2545 image packs.
+// Value types for MSC2545 image packs.
 //
-// Every field here arrived from another account's global account data or from
-// room state anyone with the power level can write. It was validated and
-// bounded in `rust/src/stickers.rs` before it crossed the FFI — a url that is
-// not `mxc://` was DROPPED there, a DECLARED mimetype outside the five raster
-// types was refused there, and shortcodes/bodies/names were stripped of
-// control characters and capped there. Nothing on this side re-derives any of
-// that: there is exactly ONE place that decides what a pack may contain, and
-// duplicating the rule in C++ is how the two copies drift apart.
-//
-// What this side must still honour: these strings are LABELS. They are set on
-// `text`, never on rich text, and never on a URL, a file path or a command.
+// Every field came from another account's account data or member-writable room
+// state, and was validated in rust/src/stickers.rs before crossing the FFI
+// (non-mxc urls dropped, declared mimetypes outside the raster set refused,
+// text stripped of control characters and capped). The rule lives in one
+// place and is not duplicated here. These strings are labels only: shown as
+// plain text, never used as a URL, path or command.
 namespace stickers {
 
 struct PackImage
@@ -25,48 +20,41 @@ struct PackImage
     QString shortcode;
     // Always a syntactically valid mxc:// URI, or the image would not exist.
     QString url;
-    // Alt text. MSC2545 defaults it to the shortcode; Rust already applied
-    // that default, so this is never empty for a live row.
+    // Alt text; Rust already defaulted it to the shortcode.
     QString body;
-    // May be EMPTY, which means the pack DECLARED nothing — genuinely
-    // unknown, and different from a declared type we refused. The bytes are
-    // sniffed when the media is fetched either way.
+    // May be empty: the pack declared nothing (unknown, unlike a refused type).
+    // The bytes are sniffed on fetch either way.
     QString mimetype;
     int width = 0;
     int height = 0;
     qint64 size = 0;
-    // MSC2545's usage, already resolved through the image-then-pack
-    // inheritance rule (an empty set at both levels means BOTH).
+    // MSC2545 usage after image-then-pack inheritance (empty at both levels
+    // means both).
     bool isEmoticon = false;
     bool isSticker = false;
 
-    // The map QML hands back to send/save. Deliberately the SAME shape the
-    // image model exposes as roles, so a caller can round-trip a row without
-    // knowing which of the two it came from.
+    // The map QML hands back to send/save; the same shape as the image model's
+    // roles.
     QVariantMap toVariantMap() const;
     static PackImage fromVariantMap(const QVariantMap &map);
 };
 
 struct Pack
 {
-    // `user`, or `room:<room id>:<state key>`. Stable across refreshes, and
-    // what the picker's selected-tab property holds.
+    // `user` or `room:<room id>:<state key>`; stable across refreshes.
     QString id;
     QString displayName;
-    // "" unless the pack declared an mxc avatar (a non-mxc one was dropped
-    // in Rust, so a pack cannot put an http beacon on a tab).
+    // "" unless the pack declared an mxc avatar (non-mxc ones were dropped).
     QString avatarUrl;
     QString attribution;
     // `user` | `room`.
     QString source;
     QString roomId;
     QString stateKey;
-    // ROOM packs only. `enabledGlobally` is whether `im.ponies.emote_rooms`
-    // lists this pack — i.e. whether it is available OUTSIDE its own room; a
-    // room's packs are always usable INSIDE that room whatever it says.
-    // `canManage` is the room's own required power level for
-    // `im.ponies.room_emotes`, asked of the SDK — never a role label, and
-    // false until a snapshot has actually said otherwise.
+    // Room packs only. `enabledGlobally`: listed in `im.ponies.emote_rooms`, so
+    // usable outside its room (always usable inside). `canManage`: the SDK's
+    // answer for the room's required power level; false until a snapshot says
+    // otherwise.
     bool enabledGlobally = false;
     bool canManage = false;
     QList<PackImage> images;

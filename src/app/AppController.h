@@ -95,71 +95,40 @@ class AppController : public QObject
     Q_PROPERTY(QString currentRoomId READ currentRoomId WRITE setCurrentRoomId NOTIFY currentRoomIdChanged)
     Q_PROPERTY(bool loggedIn READ loggedIn NOTIFY loggedInChanged)
     Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
-    // The colour emoji face to NAME on surfaces that draw emoji, or empty when
-    // the host has none. Lives here rather than on EmojiCatalog because it
-    // needs QFontDatabase (Qt6::Gui) and EmojiCatalog is linked against
-    // Qt6::Core alone by its own test target -- the same reason QScreen is
-    // kept out of SettingsManager.
+    // The colour emoji family, or empty when the host has none. Here rather
+    // than on EmojiCatalog, whose test target links only Qt6::Core.
     Q_PROPERTY(QString emojiFontFamily READ emojiFontFamily CONSTANT)
-    // Current application icon for in-app branding surfaces (About, the
-    // Appearance preview). Either the embedded default logo resource or a
-    // file: URL to the normalized custom icon with a cache-busting revision.
-    // The window/taskbar icon is applied separately via
-    // QGuiApplication::setWindowIcon from the same state.
+    // Application icon for in-app surfaces: the default resource or a file:
+    // URL to the custom icon with a cache-busting revision.
     Q_PROPERTY(QString appIconSource READ appIconSource NOTIFY appIconChanged)
-    // Development-only screenshot/demo mode indicator (see beginScreenshotDemo).
-    // Always present so QML bindings resolve in every build; only ever true in a
-    // build compiled with LIGHTNING_ENABLE_SCREENSHOT_DEMO and launched with
-    // --screenshot-demo.
+    // Present in every build so bindings resolve; true only in a demo build
+    // launched with --screenshot-demo.
     Q_PROPERTY(bool screenshotDemoActive READ screenshotDemoActive CONSTANT)
-    // Development-only demo-session controller (see demoController()). Always
-    // present so QML bindings resolve; null in every non-demo build.
+    // Null outside demo builds.
     Q_PROPERTY(QObject* demo READ demoController CONSTANT)
     Q_PROPERTY(QString backendName READ backendName CONSTANT)
-    // True when the active backend synchronizes per-room notification modes
-    // with the account's server push rules (Rust SDK backend). Fixed per
-    // backend for the whole process lifetime, like backendName. The QML
-    // notification pickers phrase their disclaimer from this.
+    // True when per-room notification modes sync with server push rules
+    // (Rust backend). Fixed for the process lifetime.
     Q_PROPERTY(bool serverRoomNotificationModes READ serverRoomNotificationModes
                CONSTANT)
     Q_PROPERTY(QString connectionStatus READ connectionStatus NOTIFY connectionStatusChanged)
     Q_PROPERTY(QString syncModeLabel READ syncModeLabel NOTIFY syncModeChanged)
-    // v0.5.11: platform colour-scheme hint for the "System" theme. Reflects
-    // QStyleHints::colorScheme(); QML binds AppTheme.systemDark to it.
+    // QStyleHints::colorScheme(), for the "System" theme.
     Q_PROPERTY(bool systemDarkMode READ systemDarkMode NOTIFY systemDarkModeChanged)
-    // WHETHER THE SCENE GRAPH FELL BACK TO QT QUICK'S CPU RASTERISER.
-    //
-    // A FACT ABOUT THE BACKEND, deliberately, and not a claim like
-    // "videoRenderable" — but the consequence is what the call UI needs it
-    // for, so it is stated once here. Qt Quick's software adaptation has NO
-    // NODE TYPE FOR VIDEO (`QSGSoftwareRenderableNode::NodeType` is a closed
-    // list of rectangles, glyphs, images and nine-patches; Qt Multimedia's
-    // QSGVideoNode is none of them) and the path is RHI-only besides, while
-    // the software context has no RHI. So on this backend a call tile paints
-    // its chrome and never paints a picture, while the engine's own frame
-    // counters climb — measured 2026-09-12 on Windows and reproduced on Linux
-    // with QT_QUICK_BACKEND=software as the only change.
-    //
-    // Written once, from the sceneGraphInitialized handler in main.cpp, which
-    // reads the renderer interface rather than the REQUEST made to
-    // setGraphicsApi(). False until that fires.
+    // True when the scene graph runs on Qt Quick's software backend, which
+    // cannot draw video. Set once from main.cpp from the actual renderer
+    // interface; false until then.
     Q_PROPERTY(bool softwareRenderer READ softwareRenderer
                NOTIFY softwareRendererChanged)
     Q_PROPERTY(bool initialSyncDone READ initialSyncDone NOTIFY initialSyncDoneChanged)
     Q_PROPERTY(bool localRustResetRequired READ localRustResetRequired
                NOTIFY localRustResetRequiredChanged)
-    // Machine-readable classification of the local-session failure that is
-    // currently blocking sign-in, plus the account it actually applies to.
-    // The reason code is the backend's own diagnostic token (see
-    // matrix::rust_session::diagnosticName); an empty code means "no
-    // failure". C++ deliberately does NOT author user-facing prose for these
-    // states — QML owns the copy, and a single generic sentence for five
-    // distinct causes is exactly what made the old login dead end unusable.
+    // The local-session failure blocking sign-in, as the backend's diagnostic
+    // token (matrix::rust_session::diagnosticName; empty = none), plus the
+    // account it applies to. QML owns the user-facing copy.
     //
-    // The identity is captured at DETECTION time, not read from settings on
-    // demand: during an add-account attempt the settings' active account is
-    // still the previously signed-in one, so a settings-derived repair would
-    // target the wrong account.
+    // The identity is captured at detection time: during an add-account
+    // attempt the settings' active account is still the previous one.
     Q_PROPERTY(QString localSessionFailureReasonCode
                READ localSessionFailureReasonCode
                NOTIFY localSessionFailureChanged)
@@ -169,90 +138,57 @@ class AppController : public QObject
     Q_PROPERTY(QString localSessionFailureHomeserver
                READ localSessionFailureHomeserver
                NOTIFY localSessionFailureChanged)
-    // v0.7: true while an account switch is in flight. QML disables sending
-    // and shows the switching state; the previous account's session is
-    // already detached, so nothing can route through it.
+    // True while an account switch is in flight; the previous session is
+    // already detached.
     Q_PROPERTY(bool accountSwitching READ accountSwitching
                NOTIFY accountSwitchingChanged)
 
-    // v0.7.4 own display name. The NAME itself is deliberately NOT mirrored
-    // here: the account registry already holds it, and the rail, the
-    // account menu and the Settings identity card all refresh off
-    // AccountManager::accountsChanged. A second copy would be a second
-    // truth. These three carry only what the editor needs and nothing else
-    // does — whether the backend can write a profile at all, whether a
-    // write is in flight, and the last failure's wording.
+    // Own display name editor state. The name itself lives in the account
+    // registry (AccountManager) and is deliberately not mirrored here.
     Q_PROPERTY(bool canEditOwnDisplayName READ canEditOwnDisplayName
                NOTIFY loggedInChanged)
     Q_PROPERTY(bool ownDisplayNameBusy READ ownDisplayNameBusy
                NOTIFY ownDisplayNameStateChanged)
     Q_PROPERTY(QString ownDisplayNameError READ ownDisplayNameError
                NOTIFY ownDisplayNameStateChanged)
-    // Own AVATAR write state. Deliberately a SEPARATE op and error from the
-    // display name: they are two independent requests and one failing must
-    // not blank the other's message.
+    // Own avatar write state, independent of the display name's.
     Q_PROPERTY(bool ownAvatarBusy READ ownAvatarBusy
                NOTIFY ownAvatarStateChanged)
     Q_PROPERTY(QString ownAvatarError READ ownAvatarError
                NOTIFY ownAvatarStateChanged)
 
-    // v0.5.0-prep+10: redacted Rust SDK device id (e.g. "GAOT...GBSK")
-    // so Settings can show which Lightning session is running without
-    // exposing the full id. Empty when the backend is not Rust or the
-    // client has not yet logged in.
+    // Redacted device id (e.g. "GAOT...GBSK"); empty when not on the Rust
+    // backend or not logged in.
     Q_PROPERTY(QString rustDeviceIdRedacted READ rustDeviceIdRedacted NOTIFY rustDeviceIdChanged)
 
-    // v0.5.6 Security & Recovery. Aggregate cross-signing/verification
-    // state cached from the SDK; QML must not compute this. Distinct
-    // from generic own-device trust because Matrix SDK reports it
-    // separately.
+    // Cross-signing/verification state cached from the SDK; QML must not
+    // derive it.
     Q_PROPERTY(QString sessionTrustState READ sessionTrustState NOTIFY securityStateChanged)
     Q_PROPERTY(QString sessionDeviceId READ sessionDeviceId NOTIFY securityStateChanged)
     Q_PROPERTY(bool ownIdentityAvailable READ ownIdentityAvailable NOTIFY securityStateChanged)
     Q_PROPERTY(bool crossSigningAvailable READ crossSigningAvailable NOTIFY securityStateChanged)
 
-    // B011: THIS SESSION CANNOT DECRYPT ANYTHING, AND NOTHING USED TO SAY SO.
-    //
-    // True only when the check has ANSWERED and the answer is that the
-    // curve25519 identity key this device publishes on the server is not the
-    // one its local Olm account holds. Peers encrypt to the published key, so
-    // every room key and every call media key addressed here is unreadable,
-    // permanently: encrypted messages sit on "Waiting for keys…" and an
-    // encrypted call is silent one way while the other side hears us fine.
-    //
-    // NEVER true because the check could not run. Offline, no keys uploaded
-    // yet and a 5xx on /keys/query all leave it false — telling a healthy
-    // user their encryption is destroyed would be worse than saying nothing.
-    // Its own notify signal, not securityStateChanged, so binding to it in a
-    // per-row delegate does not re-evaluate on every trust update.
+    // True only when the check answered that the curve25519 key published
+    // on the server differs from the local Olm account's, so nothing sent to
+    // this device can be decrypted. Never true when the check could not run
+    // (offline, no keys yet, server error). Has its own notify signal so
+    // per-row bindings do not re-evaluate on every trust update.
     Q_PROPERTY(bool encryptionIdentityBroken READ encryptionIdentityBroken
                    NOTIFY encryptionIdentityBrokenChanged)
-    // v0.7.x verification prompts. TRUE only for the one state the user can
-    // actually act on: signed in, on a crypto-capable backend, with a
-    // cross-signing identity that has NOT signed this device.
-    //   * "Unknown"                    — not determined yet; warning off.
-    //   * "Cross-signing unavailable"  — there is no identity to verify
-    //                                    against, so "verify this session"
-    //                                    would be advice that cannot be
-    //                                    followed; warning off.
-    // The dismissal is applied by sessionVerificationWarning (the badges),
-    // never by this property — the Sessions page still states the fact.
+    // True only when actionable: signed in, crypto-capable backend, and a
+    // cross-signing identity that has not signed this device. False for
+    // "Unknown" and "Cross-signing unavailable". Ignores dismissal.
     Q_PROPERTY(bool sessionVerificationNeeded READ sessionVerificationNeeded
                    NOTIFY securityStateChanged)
     // sessionVerificationNeeded AND the user has not dismissed the badges.
     Q_PROPERTY(bool sessionVerificationWarning READ sessionVerificationWarning
                    NOTIFY sessionVerificationWarningChanged)
 
-    // v0.5.6 Encrypted room-key import.
+    // Encrypted room-key import.
     Q_PROPERTY(QString roomKeyImportState READ roomKeyImportState NOTIFY roomKeyImportStateChanged)
-    /// Bumped whenever anything `canStartCall()` reads has changed: RTC
-    /// transport availability, or one room's observed session. A QML binding
-    /// that calls `canStartCall()` must read this too, or it evaluates once
-    /// at room-open and never again — which leaves the call button ABSENT
-    /// (it gates `visible:`, not `enabled:`) until the user navigates away
-    /// and back. One property rather than a tick per QML file, so the two
-    /// gates that must agree cannot drift apart in their dependencies
-    /// either.
+    /// Bumped whenever an input of `canStartCall()` changes. QML bindings
+    /// that call `canStartCall()` must also read this, or they never
+    /// re-evaluate.
     Q_PROPERTY(int callGateRevision READ callGateRevision
                    NOTIFY callGateRevisionChanged)
     Q_PROPERTY(int roomKeyImportImportedCount READ roomKeyImportImportedCount NOTIFY roomKeyImportStateChanged)
@@ -261,7 +197,7 @@ class AppController : public QObject
     Q_PROPERTY(QString roomKeyImportLastMessage READ roomKeyImportLastMessage NOTIFY roomKeyImportStateChanged)
     Q_PROPERTY(bool roomKeyImportRunning READ roomKeyImportRunning NOTIFY roomKeyImportStateChanged)
 
-    // v0.5.0 SAS emoji verification. QML binds all of these.
+    // SAS emoji verification.
     Q_PROPERTY(bool verificationActive READ verificationActive NOTIFY verificationStateChanged)
     Q_PROPERTY(QString verificationFlowId READ verificationFlowId NOTIFY verificationStateChanged)
     Q_PROPERTY(QString verificationOtherUser READ verificationOtherUser NOTIFY verificationStateChanged)
@@ -271,103 +207,66 @@ class AppController : public QObject
     Q_PROPERTY(QVariantList verificationEmojis READ verificationEmojis NOTIFY verificationStateChanged)
     Q_PROPERTY(QVariantList verificationDecimals READ verificationDecimals NOTIFY verificationStateChanged)
 
-    // Show-QR verification, orthogonal to verificationState on purpose:
-    // the QR leg is an alternative presentation of the SAME flow, so the
-    // existing state machine is untouched and the card simply prefers the
-    // QR panel while one is available.
+    // Show-QR verification: an alternative presentation of the same flow,
+    // independent of verificationState.
     Q_PROPERTY(bool verificationQrAvailable READ verificationQrAvailable NOTIFY verificationStateChanged)
     Q_PROPERTY(QString verificationQrImage READ verificationQrImage NOTIFY verificationStateChanged)
     Q_PROPERTY(bool verificationQrScanned READ verificationQrScanned NOTIFY verificationStateChanged)
     Q_PROPERTY(bool verificationQrConfirming READ verificationQrConfirming NOTIFY verificationStateChanged)
 
     Q_PROPERTY(SettingsManager* settings READ settings CONSTANT)
-    // Rebindable keyboard shortcuts. CONSTANT like the other controllers —
-    // the OBJECT never changes; its rows announce their own changes, and
-    // `bindingRevision` is what a QML Shortcut binding depends on.
+    // Rebindable shortcuts; QML Shortcut bindings depend on `bindingRevision`.
     Q_PROPERTY(ShortcutRegistry* shortcuts READ shortcuts CONSTANT)
-    // UI language. Application-wide, not per-account: the translators are
-    // installed on QCoreApplication and the layout direction is process-wide.
+    // UI language; application-wide, not per-account.
     Q_PROPERTY(LocalizationManager* localization READ localization CONSTANT)
-    // User-authored palette overrides (Settings -> Appearance -> Custom
-    // theme). Per-account appearance state, like the theme itself.
+    // Per-account custom palette overrides.
     Q_PROPERTY(CustomThemeStore* customTheme READ customTheme CONSTANT)
-    // How the Spaces rail is arranged (drag order and folders).
-    // Device-local; see RailLayoutStore.
+    // Device-local Spaces rail order and folders.
     Q_PROPERTY(RailLayoutStore* railLayout READ railLayout CONSTANT)
     // The rows the Spaces rail draws, plus live drag state; see RailEntryModel.
     Q_PROPERTY(RailEntryModel* railEntries READ railEntries CONSTANT)
-    // Profile banners (MSC4427 / MSC4133), read and written under both
-    // the stable and the Commet field names.
+    // Profile banners (MSC4427 / MSC4133), stable and Commet field names.
     Q_PROPERTY(ProfileBannerManager* banners READ banners CONSTANT)
     Q_PROPERTY(NameColorManager* nameColors READ nameColors CONSTANT)
-    // Profile bios (MSC4440 / MSC4133), read and written under both the
-    // stable and the MSC's unstable field names. Plain text only.
+    // Profile bios (MSC4440 / MSC4133), stable and unstable field names.
+    // Plain text only.
     Q_PROPERTY(ProfileBioManager* bio READ bio CONSTANT)
-    // Global profiles for users the room member snapshot cannot name —
-    // consulted by mention pills and the profile popover. See
-    // UserProfileResolver.h.
+    // Global profiles for users missing from the room member snapshot.
     Q_PROPERTY(UserProfileResolver* userProfiles READ userProfiles CONSTANT)
-    /// Decorative thank-you badges beside a name. A fixed local table — no
-    /// Matrix state, no permission, no verification claim. See ProfileBadges.
+    /// Decorative badges from a fixed local table; no Matrix state and no
+    /// verification claim.
     Q_PROPERTY(ProfileBadges* badges READ badges CONSTANT)
-    /// Crop / adjust for every display-image upload (avatars and banners).
-    /// See ImageCropper: it is a PRE-STEP that writes a cropped temp file,
-    /// so every upload sink keeps the local-path contract it already had.
+    /// Crop step for avatar and banner uploads; writes a cropped temp file.
     Q_PROPERTY(ImageCropper* imageCrop READ imageCrop CONSTANT)
     Q_PROPERTY(AuthManager* auth READ auth CONSTANT)
     Q_PROPERTY(AccountManager* accounts READ accounts CONSTANT)
     Q_PROPERTY(RoomListModel* roomList READ roomList CONSTANT)
-    /// EVERY joined room, with NO Space filter — the list a "pick a room"
-    /// surface needs.
-    ///
-    /// `roomList` is bound to SpaceManager and shows only the ACTIVE Space's
-    /// rooms; that is right for navigation and wrong for forwarding. Reported
-    /// 2026-09-15: "you cant forward outside of the space you are in. But if
-    /// you arnt in any spaces you can forward wherever you want" — which is
-    /// exactly the filter, since an empty active Space disables it. A message
-    /// can be forwarded to any room the user is in, so the picker gets its own
-    /// unfiltered model rather than a second meaning for the navigation one.
+    /// Every joined room with no Space filter, for room pickers such as
+    /// forwarding. `roomList` shows only the active Space's rooms.
     Q_PROPERTY(RoomListModel* allRooms READ allRooms CONSTANT)
-    /// The Channels navigation layout's model: the active Space's DIRECT
-    /// hierarchy. Separate from roomList because the two answer different
-    /// questions — see SpaceChannelModel's header for why a filtered
-    /// roomList cannot do this.
+    /// The Channels layout's model: the active Space's direct hierarchy
+    /// (see SpaceChannelModel).
     Q_PROPERTY(SpaceChannelModel* spaceChannels READ spaceChannels CONSTANT)
-    /// The widgets the open room advertises. Lightning lists and OPENS them
-    /// in the user's browser rather than embedding them — docs/widgets.md.
+    /// The open room's widgets, opened in the browser rather than embedded
+    /// (docs/widgets.md).
     Q_PROPERTY(WidgetController* widgets READ widgets CONSTANT)
     Q_PROPERTY(QuickSwitcherModel* quickSwitcher READ quickSwitcher CONSTANT)
     Q_PROPERTY(TimelineModel* timeline READ timeline CONSTANT)
     Q_PROPERTY(QAbstractItemModel* timelineView READ timelineView CONSTANT)
     Q_PROPERTY(MessageComposer* composer READ composer CONSTANT)
-    // v0.9 rich composer: the QML-facing document bridge (serialize + send,
-    // toolbar formatting, draft-only markdown conversion). Typed QObject*
-    // for the same reason as the spell checker below — no QML type
-    // registration needed, everything QML calls is Q_INVOKABLE.
+    // Rich composer document bridge. QObject* so no QML type registration
+    // is needed; everything QML calls is Q_INVOKABLE.
     Q_PROPERTY(QObject* richComposer READ richComposer CONSTANT)
-    /// The composer's spell checker. Typed QObject* rather than
-    /// SpellChecker* on purpose: it needs no QML type registration to be
-    /// used from QML, and every method QML calls on it is Q_INVOKABLE.
-    /// Never null — an unavailable platform reports `available: false`, and
-    /// QML draws nothing rather than being handed a null object.
+    /// The composer's spell checker, as QObject* for the same reason. Never
+    /// null; an unavailable backend reports `available: false`.
     Q_PROPERTY(QObject* spell READ spellChecker CONSTANT)
-    // v0.7 outgoing @-mentions: the current-room member suggestion model
-    // shared by the room and thread composer mention popups.
-    // Whether this session actually has a system tray to close INTO. QML
-    // gates both tray settings on it rather than offering a switch that
-    // would hide the window into nothing.
+    // Whether a system tray exists; QML hides the tray settings otherwise.
     Q_PROPERTY(bool trayAvailable READ trayAvailable CONSTANT)
-    // Where the window was last time, or an invalid rect for "do not restore".
-    //
-    // SettingsManager holds the stored value and validates its SIZE; this adds
-    // the display-layout half, which is the half that can lose a window: a
-    // geometry saved on a monitor that has since been unplugged would reopen
-    // Lightning at x=2560 with nothing there to show it. CONSTANT and computed
-    // once, because it answers a question about the past — re-answering it
-    // mid-session (a monitor plugged in, say) would move a window the user has
-    // since placed themselves.
+    // The saved window geometry, or an invalid rect when it no longer fits
+    // on any connected screen. Computed once at startup.
     Q_PROPERTY(QRect restorableWindowGeometry READ restorableWindowGeometry
                    CONSTANT)
+    // Member suggestions for the room and thread composers' @-mention popups.
     Q_PROPERTY(MentionSuggestionModel* mentionSuggestions READ mentionSuggestions
                    CONSTANT)
     Q_PROPERTY(EmojiCatalog* emojiCatalog READ emojiCatalog CONSTANT)
@@ -377,30 +276,28 @@ class AppController : public QObject
     Q_PROPERTY(QrLoginController* qrLogin READ qrLogin CONSTANT)
     // Mjolnir-style policy lists.
     Q_PROPERTY(PolicyListController* policy READ policy CONSTANT)
-    // v0.6.0 checkpoint 7: read-only E2EE health/readiness (app.cryptoHealth).
+    // Read-only E2EE health/readiness.
     Q_PROPERTY(CryptoHealthModel* cryptoHealth READ cryptoHealth CONSTANT)
-    // v0.9 (phase 9): key-backup / recovery management (app.backup).
+    // Key backup and recovery management.
     Q_PROPERTY(QObject* backup READ backup CONSTANT)
-    // v0.9 (phase 11): "Send later" (app.scheduledSends).
+    // "Send later".
     Q_PROPERTY(QObject* scheduledSends READ scheduledSends CONSTANT)
-    // v0.9 (phase 2): the Activity Center model (app.activity).
+    // Activity Center model.
     Q_PROPERTY(QObject* activity READ activity CONSTANT)
     /// The room's media, files and links, walked independently of the
     /// timeline — see MediaHistoryModel.
     Q_PROPERTY(QObject* mediaHistory READ mediaHistory CONSTANT)
-    // v0.7: verified-session key-bootstrap status (app.cryptoBootstrap).
+    // Verified-session key-bootstrap status.
     Q_PROPERTY(CryptoBootstrapModel* cryptoBootstrap READ cryptoBootstrap CONSTANT)
-    // v0.6.0 checkpoint 9: the account's devices/sessions (server metadata +
-    // SDK crypto trust; current session first, then by last-seen).
+    // The account's sessions (server metadata + SDK trust), current first,
+    // then by last seen.
     Q_PROPERTY(QVariantList sessionDevices READ sessionDevices NOTIFY sessionDevicesChanged)
-    // v0.6.0 checkpoint 11: whether the room timeline is on screen, focused,
-    // and following the latest message (QML supplies it; notifications use
-    // it for active-room suppression).
+    // Set by QML: the timeline is on screen, focused and at the latest
+    // message. Used for active-room notification suppression.
     Q_PROPERTY(bool activeRoomAtLatest READ activeRoomAtLatest
                    WRITE setActiveRoomAtLatest NOTIFY activeRoomAtLatestChanged)
-    // True while the open room's timeline is still hydrating. Suppression
-    // needs this as well as activeRoomAtLatest, which cannot be true until
-    // the view has settled — see NotificationManager::Context::roomHydrating.
+    // True while the open room is still hydrating (activeRoomAtLatest cannot
+    // be true yet); see NotificationManager::Context::roomHydrating.
     Q_PROPERTY(bool activeRoomHydrating READ activeRoomHydrating
                    WRITE setActiveRoomHydrating
                    NOTIFY activeRoomHydratingChanged)
@@ -420,90 +317,58 @@ class AppController : public QObject
     Q_PROPERTY(SfuCallController* groupCall READ groupCall CONSTANT)
     // Microphone/speaker/camera selection for calls.
     Q_PROPERTY(CallDeviceController* callDevices READ callDevices CONSTANT)
-    // Lightning's own call sounds: ringer, ringback and in-call cues. QML
-    // only uses it for the Settings preview buttons; the policy is C++.
+    // Call sounds. QML only uses it for Settings previews.
     Q_PROPERTY(CallSoundController* callSounds READ callSounds CONSTANT)
-    // v0.7.x pinned messages for the ACTIVE room (not the Room Information
-    // panel's room): the message-action menu asks it whether the message
-    // under the cursor is pinned.
+    // Pinned messages for the active room (not the Room Information panel's).
     Q_PROPERTY(PinnedMessagesController* pinned READ pinned CONSTANT)
-    // v0.7.x room upgrades for the ACTIVE room: the timeline banner offering
-    // the successor of a tombstoned room, and the link back to a
-    // predecessor. Offers only — it never follows an upgrade by itself.
+    // Room upgrade links for the active room. Never follows an upgrade by
+    // itself.
     Q_PROPERTY(RoomUpgradeController* roomUpgrade READ roomUpgrade CONSTANT)
-    // v0.6.0: the single open SDK-backed thread panel (app.thread).
+    // The single open thread panel.
     Q_PROPERTY(ThreadController* thread READ thread CONSTANT)
-    // v0.5.9: conversation creation (DMs, rooms, invites), Room Information
-    // (members, permissions, editing, leave) and the media bridge.
+    // Conversation creation, Room Information and the media bridge.
     Q_PROPERTY(ConversationController* conversations READ conversations CONSTANT)
     Q_PROPERTY(RoomDiscoveryController* discovery READ discovery CONSTANT)
     Q_PROPERTY(MessageSearchController* messageSearch READ messageSearch CONSTANT)
     Q_PROPERTY(UiaController* uia READ uia CONSTANT)
     Q_PROPERTY(ModerationController* moderation READ moderation CONSTANT)
-    // v0.7.x message forwarding (task #14): the ONE forward-picker state
-    // (app.forward). See ForwardController's class comment for the
-    // non-negotiable decisions (re-upload never mxc-copy, no relation, D6
-    // navigation-only-after-dispatch) this follows.
+    // Message forwarding; see ForwardController.
     Q_PROPERTY(ForwardController* forward READ forward CONSTANT)
     Q_PROPERTY(RoomInfoController* roomInfo READ roomInfo CONSTANT)
     Q_PROPERTY(MediaBridge* mediaBridge READ mediaBridge CONSTANT)
-    /// Every signed-in account's last known picture, on disk. See
-    /// AccountAvatarStore: the media cache is memory-only, and an INACTIVE
-    /// account's avatar cannot be fetched by the active client at all, so
-    /// without this the switcher shows initials for every other account for
-    /// ever.
+    /// Every signed-in account's last known avatar, on disk: the media cache
+    /// is memory-only and an inactive account's avatar cannot be fetched.
     Q_PROPERTY(AccountAvatarStore* accountAvatars READ accountAvatars CONSTANT)
     // Which images the reader has hidden locally; see MediaVisibilityStore.
     Q_PROPERTY(MediaVisibilityStore* mediaVisibility READ mediaVisibility
                    CONSTANT)
-    // v0.7 voice round: microphone capture for MSC3245 voice messages.
-    // Created LAZILY on first access (the composer only touches it on the
-    // first mic press), so the audio backend never spins up for a session
-    // that never records. CONSTANT is honest: the pointer is created once
-    // inside the first read and never changes afterwards.
+    // Microphone capture for MSC3245 voice messages. Created lazily on first
+    // read so the audio backend only starts when needed; never changes after.
     Q_PROPERTY(VoiceRecorder* voiceRecorder READ voiceRecorder CONSTANT)
-    // v0.7 thread parity: WHICH composer owns the shared recorder — "" when
-    // idle, "room" or "thread" while recording.
-    //
-    // There is exactly ONE VoiceRecorder for the whole application, and both
-    // composers listen to its ready()/failed() signals. Before this existed
-    // each composer armed those Connections off its own local flag, so a
-    // recording started in the room composer and then superseded by one
-    // started in the thread panel left BOTH armed — and a single ready()
-    // sent the same file twice, once into the room and once into the thread.
-    // Opening a thread does not change currentRoomId, so the room composer's
-    // cancel-on-room-change never fired for that sequence. Making ownership
-    // one authoritative value, rather than two flags that must agree, is
-    // what removes the whole class of bug: a composer sends only while it is
-    // the owner, and at most one composer is ever the owner.
-    //
-    // Ownership is NEVER transferred away from a live recording. A second
-    // composer's start is refused while the recorder is busy — see
-    // startVoiceRecording for why stealing it orphaned the microphone.
+    // Which composer owns the shared recorder: "" when idle, "room" or
+    // "thread". Both composers listen to the one recorder, so only the owner
+    // may send its result. Ownership is never taken from a live recording.
     Q_PROPERTY(QString voiceOwner READ voiceOwner NOTIFY voiceOwnerChanged)
-    // v0.7: shared inline-playback coordinator (one audible media card at a
-    // time; stopped on room/account switches and sign-out).
+    // One audible media card at a time; stopped on room/account switch and
+    // sign-out.
     Q_PROPERTY(MediaPlaybackController* playback READ playback CONSTANT)
-    // v0.5.11: backward-pagination policy and automatic read receipts.
+    // Backward-pagination policy and automatic read receipts.
     Q_PROPERTY(PaginationController* pagination READ pagination CONSTANT)
     Q_PROPERTY(ReadReceiptCoordinator* readReceipts READ readReceipts CONSTANT)
-    // v0.5.12: safe client-side link-preview backend (Rust HTTPS fetcher).
+    // Client-side link previews (Rust HTTPS fetcher).
     Q_PROPERTY(LinkPreviewController* linkPreviews READ linkPreviews CONSTANT)
-    // v0.6.1: multi-provider client-side GIF browser (app.gif) + send pipeline.
+    // GIF provider search and send pipeline.
     Q_PROPERTY(GifSearchController* gif READ gif CONSTANT)
     Q_PROPERTY(GifSendController* gifSend READ gifSend CONSTANT)
     // MSC2545 image packs: the sticker picker's controller, custom-emoji
     // lookup, and the m.sticker send / "add to my stickers" paths.
     Q_PROPERTY(StickerPackManager* stickers READ stickers CONSTANT)
-    // Application updates (app.updateManager). Deliberately owns no Matrix
-    // state: it is constructed once, never re-created on sign-in or account
-    // switch, and nothing about it is account-scoped. See docs/updates.md.
+    // Application updates; not account-scoped. See docs/updates.md.
     Q_PROPERTY(lightning::update::UpdateManager* updateManager READ updateManager CONSTANT)
-    // v0.5.19: device-aware timeline wheel-scroll policy.
+    // Device-aware timeline wheel-scroll policy.
     Q_PROPERTY(TimelineScrollController* timelineScroll READ timelineScroll CONSTANT)
-    // v0.6.0 checkpoint 6: the thread panel's OWN wheel motion engine.
-    // Same policy/speed as the room timeline, but fully isolated motion
-    // state — the two panels can never share an active contentY target.
+    // The thread panel's own wheel engine: same policy, separate motion
+    // state from the room timeline.
     Q_PROPERTY(TimelineScrollController* threadScroll READ threadScroll CONSTANT)
 
 public:
@@ -511,10 +376,8 @@ public:
         LoginScreen = 0,
         MainScreen = 1,
         SettingsScreen = 2,
-        // v0.7: explicit session-restoration state so an authenticated
-        // launch never instantiates (or flashes) the login form while the
-        // saved session restores. Appended so 0/1/2 stay stable for the
-        // integer-based QML routing.
+        // Shown while a saved session restores, so the login form never
+        // flashes. Appended: QML routes on the integer values.
         BootScreen = 3,
     };
     Q_ENUM(Screen)
@@ -526,27 +389,20 @@ public:
     };
     Q_ENUM(Backend)
 
-    // True if this build actually contains an implementation for the given
-    // backend. main.cpp uses this to reject --backend=rust cleanly when the
-    // Rust backend was not compiled in.
+    // True if this build contains an implementation of the backend.
     static bool isBackendCompiled(Backend backend);
 
-    // `screenshotDemo` is only ever true in a build compiled with
-    // LIGHTNING_ENABLE_SCREENSHOT_DEMO and launched with --screenshot-demo (main
-    // forces the mock backend for it). It is injected here — not discovered
-    // later — so the constructor can (a) build an in-memory SecretStore instead
-    // of probing the production libsecret/keychain store, and (b) skip the
-    // normal startup session-restore and let beginScreenshotDemo drive it.
+    // `screenshotDemo` (demo builds only) makes the constructor use an
+    // in-memory SecretStore and skip the normal session restore.
     explicit AppController(Backend backend = HttpBackend,
                            bool screenshotDemo = false,
                            QObject *parent = nullptr);
     ~AppController() override;
 
-    // Quiesce background work (media playback, sync) while the window and the
-    // platform event dispatcher are still valid, so no worker posts an event
-    // after teardown begins. Wired to QGuiApplication::aboutToQuit; idempotent.
-    // Addresses the Windows "QEventDispatcherWin32: Failed to post a message
-    // (Invalid window handle.)" seen on close. Safe to call with no GUI.
+    // Quiesce background work (playback, sync) while the event dispatcher is
+    // still valid, so no worker posts events during teardown (avoids
+    // QEventDispatcherWin32 "Invalid window handle" on close). Wired to
+    // aboutToQuit; idempotent.
     void prepareForShutdown();
     bool isShuttingDown() const { return m_shuttingDown; }
 
@@ -556,73 +412,39 @@ public:
     QString appVersion() const { return QStringLiteral(APP_VERSION); }
     QString emojiFontFamily() const;
 
-    // A FONT, not a family name, and that is the whole point.
-    //
-    // QML's font value type has `family` (one string) and no `families`, so a
-    // QML surface holding MIXED text cannot express "this face, then the emoji
-    // face". A QFont CAN: setFamilies() is real Qt font fallback, resolved
-    // per character by the shaper. Handing one to a TextArea is therefore the
-    // only way to get colour emoji in the composer without rendering the words
-    // in an emoji face too.
-    //
-    // Takes the pixel size because the composer's size follows the 90-140%
-    // text-size setting; returning a fixed font would freeze it.
+    // A QFont with the emoji face as a fallback family. QML's font type has
+    // no `families`, so this is the only way to give mixed text colour emoji.
     Q_INVOKABLE QFont textFontWithEmoji(const QString &family, int pixelSize,
                                         bool italic = false) const;
 
-    // Custom application icon (Settings -> Appearance). The picked file's
-    // bytes are validated and normalized by appicon::normalizeIconBytes
-    // (byte-sniffed raster only, SVG refused, circular 512px PNG) and the
-    // normalized copy is stored under app data — never a live reference to
-    // the arbitrary external path. Returns an empty string on success or a
-    // short translated failure sentence for the settings UI. Honest desktop
-    // limitation: the runtime icon reaches the window, X11 task
-    // switchers/docks, and Wayland compositors that honor xdg-toplevel-icon;
-    // launchers and pinned entries resolve the hicolor theme icon from the
-    // installed desktop entry and keep the packaged default.
+    // Custom application icon. The file is validated and normalized by
+    // appicon::normalizeIconBytes (raster only, SVG refused) and a copy is
+    // stored under app data. Returns "" on success or a translated error.
+    // Launchers keep the packaged icon from the installed desktop entry.
     Q_INVOKABLE QString setCustomAppIconFromFile(const QUrl &fileUrl);
-    // Removes the normalized copy, disables the setting, and restores the
-    // packaged default icon immediately.
+    // Removes the copy and restores the default icon immediately.
     Q_INVOKABLE void resetCustomAppIcon();
 
-    /// One line naming how the window was placed at startup, and against
-    /// what. Diagnostic only — the reported "opens half off screen, then
-    /// fights being dragged" needs to be told apart from a stale stored rect,
-    /// a monitor that has gone away, and metrics that were not settled yet,
-    /// and those look identical from the outside. Carries geometry only:
-    /// nothing here is account data.
-    /// A centred opening rect for a window of this size, or an EMPTY rect
-    /// when one cannot be computed safely — in which case the caller must
-    /// leave the platform to place the window rather than guess.
-    ///
-    /// Centred on ONE SCREEN, not on the virtual desktop, and validated
-    /// before it is handed back. See the implementation for what went wrong
-    /// without either half.
+    /// A rect centred on one screen for a window of this size, or an empty
+    /// rect when none can be computed safely (let the platform place it).
     Q_INVOKABLE static QRect centredWindowRect(int width, int height);
 
-    /// True when a window at this rect could actually be reached — its top
-    /// grab band meets some screen. The same test the stored geometry gets.
+    /// True when the window's top grab band meets some screen.
     static bool windowGeometryIsReachable(const QRect &geometry);
 
+    /// Logs how the window was placed at startup (geometry only).
     Q_INVOKABLE void noteWindowPlacement(const QString &how, int x, int y,
                                          int width, int height) const;
     QString appIconSource() const;
     bool screenshotDemoActive() const { return m_screenshotDemoActive; }
-    // Development-only: enter screenshot/demo mode. Enriches the mock scene,
-    // marks screenshotDemoActive, and auto-logs-in the deterministic demo
-    // account so the app opens directly into the real chat UI. A no-op unless
-    // the active backend is the in-memory mock (guaranteed by preflight, which
-    // forces --screenshot-demo to the mock backend). Never networks.
+    // Development-only: enter demo mode and auto-login the demo account. A
+    // no-op unless the mock backend is active.
     void beginScreenshotDemo(const QString &initialAccount = QString());
-    // Development-only: forward launcher/CLI demo options (scenario, theme,
-    // appearance, size, hide-controls) to the demo controller. A no-op unless
-    // the screenshot demo is active. Called by main() after beginScreenshotDemo.
+    // Development-only: forward the --demo-* options to the demo controller.
     void applyDemoLaunchOptions(const QString &scenario, const QString &theme,
                                 const QString &appearance, const QString &size,
                                 bool hideControls);
-    // Development-only: the demo-session controller (scenarios, control panel,
-    // window presets, per-account selected-room memory). Null unless the
-    // screenshot demo is active. Exposed to QML as `app.demo`.
+    // Development-only demo controller; null unless demo mode is active.
     QObject *demoController() const { return m_demoController; }
     QString backendName() const;
     bool serverRoomNotificationModes() const;
@@ -635,16 +457,13 @@ public:
     bool initialSyncDone() const;
     QString rustDeviceIdRedacted() const;
     bool localRustResetRequired() const { return m_localRustResetRequired; }
-    // Public so a C++ test can drive the classified-failure state directly on
-    // the controller. The real emitter is a Rust-backend rejection, which a
-    // MockBackend test cannot produce; exposing a QML-invokable debug hook
-    // instead would put a state-injection seam into the shipped UI surface.
+    // Public (not Q_INVOKABLE) so C++ tests can set the state; the real
+    // source is a Rust-backend rejection a mock test cannot produce.
     void setLocalSessionFailure(const QString &reasonCode,
                                 const QString &userId,
                                 const QString &homeserver);
-    // Explicit, because only the caller knows whether a failure was actually
-    // resolved. Login success and a completed repair clear it; merely
-    // disarming the destructive action does not.
+    // Only the caller knows whether the failure was resolved (login success
+    // or a completed repair).
     void clearLocalSessionFailure()
     { setLocalSessionFailure(QString{}, QString{}, QString{}); }
     QString localSessionFailureReasonCode() const
@@ -698,10 +517,8 @@ public:
     bool sessionDevicesLoading() const { return m_sessionDevicesLoading; }
     bool sessionDevicesFailed() const { return m_sessionDevicesFailed; }
     Q_INVOKABLE void refreshSessionDevices();
-    // v0.9 (phase 9): rename one of this account's sessions through the
-    // standard device endpoint; the list is refetched on success. The
-    // outcome lands on sessionDeviceRenameError ("" = fine) and
-    // sessionDeviceRenaming.
+    // Rename one of this account's sessions; refetches on success. Result in
+    // sessionDeviceRenameError ("" = fine).
     Q_INVOKABLE void renameSessionDevice(const QString &deviceId,
                                          const QString &name);
     QString sessionDeviceRenameError() const { return m_sessionDeviceRenameError; }
@@ -714,24 +531,12 @@ public:
     ThreadManager *threads() const;
     PresenceManager *presence() const;
     CallController *calls() const;
-    /// Start a call in `roomId`, choosing the lane.
-    ///
-    /// MatrixRTC (SFU) is PRIMARY: it is what current Element speaks, it
-    /// carries video and screen share, and it works in a group. The legacy
-    /// 1:1 lane is the FALLBACK, for a room or homeserver with no MatrixRTC
-    /// — and it is audio-only and DM-only by protocol, because a legacy
-    /// invite rings every member of a room.
-    ///
-    /// Returns false and reports through `callStartRefused` when neither
-    /// lane can carry a call, rather than appearing to start one.
+    /// Start a call in `roomId`. MatrixRTC (SFU) is primary; the legacy 1:1
+    /// lane is an audio-only, DM-only fallback. Returns false and emits
+    /// `callStartRefused` when neither lane is usable.
     Q_INVOKABLE bool startCall(const QString &roomId, bool withVideo = false);
-    /// Whether `startCall` would do anything for this room — the gate the
-    /// room-header button uses, so a dead button is never offered.
-    ///
-    /// A binding on this ALONE goes stale. It is a Q_INVOKABLE, so Qt records
-    /// no dependency, and its answer rides RtcController state that arrives
-    /// asynchronously — transport discovery, the room's own session, the
-    /// membership capability. Read `callGateRevision` beside it.
+    /// Whether `startCall` would do anything for this room. Bindings must
+    /// also read `callGateRevision`, since the inputs change asynchronously.
     Q_INVOKABLE bool canStartCall(const QString &roomId) const;
     /// The single user a legacy 1:1 call in `roomId` would be placed to, or
     /// empty when the room is not a genuine two-party DM (see the .cpp).
@@ -744,35 +549,31 @@ public:
     SfuCallController *groupCall() const;
     CallDeviceController *callDevices() const;
     CallSoundController *callSounds() const;
-    // Installs the audio player behind the call sounds. main.cpp only, like
-    // enableCallMediaEngine: the offscreen test fleet decides every sound
-    // and never opens an audio device.
+    // Installs the call-sound audio player. main.cpp only; tests never open
+    // an audio device.
     void enableCallSounds();
-    // Registers the real WebRTC media engine (webrtcbin) when the build
-    // carries it and its runtime elements resolve. Called by main.cpp for
-    // the real application only; tests opt in explicitly.
+    // Registers the WebRTC media engine when built and its elements resolve.
+    // main.cpp only; tests opt in explicitly.
     void enableCallMediaEngine();
 
 private:
 
-    /// Push the two disclosure settings — read-receipt privacy and typing
-    /// notices — into the client and composer. Called on change and on every
-    /// client attachment, because a fresh bridge starts permissive.
+    /// Push read-receipt privacy and typing-notice settings into the client
+    /// and composer. Also on every client attach: a fresh bridge starts
+    /// permissive.
     void applyPrivacyPreferences();
-    /// Push MSC4153 into the Rust process global. Read when a client is
-    /// BUILT, so this affects the next sign-in, never the live session.
+    /// Push MSC4153 into the Rust process global; takes effect at the next
+    /// sign-in.
     void applyStrictDeviceTrust();
-    /// Whether a notification action may act: the account it was raised for
-    /// is still the live one. Refuses and tells the user otherwise — a card
-    /// outlives its account, and acting under the wrong one is invisible.
+    /// Whether a notification action's account is still the active one;
+    /// otherwise refuses and tells the user.
     bool notificationActionIsForCurrentAccount(const QString &accountUserId);
     void copyImageBytesToClipboard(const QString &mediaKey, bool ok,
                                    const QByteArray &bytes,
                                    const QString &category);
 
 public:
-    // Test seam: integration tests drive/inspect notification glue (the
-    // DBus daemon is absent under offscreen runs).
+    // Test seam: no notification daemon under offscreen runs.
     NotificationManager *notificationsForTest() const
     { return m_notifications.get(); }
     PinnedMessagesController *pinned() const { return m_pinned.get(); }
@@ -784,10 +585,8 @@ public:
     UiaController *uia() const { return m_uia.get(); }
     ModerationController *moderation() const { return m_moderation.get(); }
     ForwardController *forward() const { return m_forward.get(); }
-    // v0.7.x sessions page: MAS/OAuth accounts manage devices in the
-    // account console, never through a password prompt. Invokable (not a
-    // bound property) — the page evaluates it when it opens, matching the
-    // capture-at-open idiom the popovers use.
+    // OAuth accounts manage devices in the account console, not via a
+    // password prompt. Evaluated when the Sessions page opens.
     Q_INVOKABLE bool activeAccountIsOAuth() const
     {
         return m_settings
@@ -808,36 +607,23 @@ public:
         return m_voiceRecorder.get();
     }
     QString voiceOwner() const { return m_voiceOwner; }
-    // Start a recording owned by `owner` ("room" or "thread"). Constructs
-    // the recorder on first use exactly as the getter does, so a session
-    // that never records never spins up the audio backend. Returns false
-    // when no device or encoder is available, AND when a recording is
-    // already in progress anywhere — ownership is taken only after a
-    // successful start and is never stolen from a live recorder, so at most
-    // one composer is ever armed to send the result. Use
-    // voiceRecordingBusy() to tell the two refusals apart.
+    // Start a recording owned by `owner` ("room" or "thread"). Returns false
+    // when no device/encoder is available or a recording is already in
+    // progress (voiceRecordingBusy() tells them apart). Ownership is taken
+    // only after a successful start.
     Q_INVOKABLE bool startVoiceRecording(const QString &owner);
-    // True while any recording is in progress (including one owned by the
-    // other composer, and including the finalizing window). Lets a refused
-    // start report "already recording" instead of "unavailable".
+    // True while any recording is in progress or finalizing.
     Q_INVOKABLE bool voiceRecordingBusy() const;
-    // Test seam, in the shape of AttachmentQueueModel::setPosterRequestHook.
-    // Replaces the real capture chain so the ownership rules — a second
-    // composer cannot steal a live recording, and a refused start leaves the
-    // existing owner intact — are assertable without a microphone. The
-    // AppController takes ownership of the recorder. Production never calls
-    // this; the lazy getter builds the real one.
+    // Test seam: replaces the recorder (takes ownership) so ownership rules
+    // can be tested without a microphone.
     void setVoiceRecorderForTest(VoiceRecorder *recorder);
     // Release ownership without touching the recorder. Called after the
     // owning composer has consumed ready()/failed().
     Q_INVOKABLE void endVoiceRecording();
     // Discard an in-progress recording and release ownership.
     Q_INVOKABLE void cancelVoiceRecording();
-    // 2026-08-18: delete a FINALIZED recording the user decided not to send.
-    // ready() transfers file ownership to the composer, so a discarded
-    // preview would otherwise leave the audio on disk until the session
-    // ends. Deletes only a file the recorder itself produced (the recorder
-    // answers that), never an arbitrary path handed over from QML.
+    // Delete a finalized recording the user chose not to send. Only deletes
+    // a file the recorder itself produced, never an arbitrary QML path.
     Q_INVOKABLE bool discardPreparedVoice(const QString &localPath);
     MediaPlaybackController *playback() const { return m_playback.get(); }
     PaginationController *pagination() const { return m_pagination.get(); }
@@ -857,100 +643,48 @@ public Q_SLOTS:
     void showMain();
     void showSettings();
     void openRoom(const QString &roomId);
-    // v0.7.x: a room-oriented Matrix link (matrix.to permalink or matrix:
-    // URI) activated inside the app. Routed to the Discover surface, which
-    // resolves it through the SDK and opens/joins from there — QML never
-    // parses Matrix identifiers itself.
+    // A room link (matrix.to or matrix: URI) activated in the app. Routed to
+    // Discover, which resolves it through the SDK; QML never parses it.
     void openMatrixLink(const QString &link) { Q_EMIT matrixLinkRequested(link); }
 
-    // Space Home: select the Space in the rail AND clear the open room so
-    // the Space overview surface becomes visible. The overview pane itself
-    // has existed since the v0.7 UI checkpoints but was unreachable once
-    // any room had been opened — nothing on space selection cleared the
-    // room (user report, 2026-08-14). Reached from a rail double-click and
-    // the workspace header.
+    // Select the Space and clear the open room so the Space overview shows.
     void openSpaceHome(const QString &spaceId);
-    // The Channels layout's "Lobby": back to the home / all-conversations
-    // surface. Deliberately NOT a fake room and NOT a persisted event —
-    // Lobby is navigation, and the state it names is one the shell already
-    // has ("no room open, no real Space selected").
+    // The Channels layout's "Lobby": no room open and no Space selected.
+    // Navigation only, not a fake room.
     Q_INVOKABLE void openLobby();
 
     // Per-room notification mode (0 = all, 1 = mentions & keywords,
-    // 2 = mute) — the single UI entry point. Always writes the
-    // device-local SettingsManager value first (NotificationManager reads
-    // it, so policy works instantly and offline); on a backend with
-    // server push-rule support it then issues the SDK write. The async
-    // roomNotificationModeChanged report reconciles the cache only when
-    // it is USER-DEFINED (a resolved account default is never persisted),
-    // and while the room carries kept-on-this-device failure state only a
-    // report EQUAL to the cached value — the real write acknowledgement —
-    // is accepted. Note the deliberate semantic shift on such backends:
-    // mode 0 used to merely remove the local key — it now ALSO sets an
-    // explicit server "all messages" rule (label-faithful mapping; a
-    // separate "follow account default" choice is an accepted follow-up).
+    // 2 = mute). Writes the device-local value first so policy applies
+    // immediately and offline, then the server push rule where supported.
+    // Server reports update the cache only when user-defined; after a failed
+    // write, only a report equal to the cached value is accepted. Mode 0 sets
+    // an explicit server "all messages" rule.
     Q_INVOKABLE void setRoomNotificationMode(const QString &roomId, int mode);
-    // Mute or unmute EVERY joined room in a Space, in one action.
-    //
-    // Matrix has no "mute a Space" primitive — a Space is a room with no
-    // timeline, and muting it would silence nothing. So this is exactly what a
-    // person would otherwise do by hand: set each member room's notification
-    // mode. `mute` false restores mode 3 (follow the account default) rather
-    // than "all messages", because that is the state a room is in before
-    // anyone touched it, and asserting "all messages" for rooms that never
-    // asked for it would be a different, louder choice than undoing the mute.
-    //
-    // Bounded by the Space's own membership and idempotent per room. Reports
-    // nothing of its own: each room's write already reports through the
-    // existing per-room notification-mode path, including the honest
-    // kept-on-this-device disclosure when the server refuses.
+    // Mute or unmute every joined room in a Space (Matrix has no Space-level
+    // mute). Unmuting restores mode 3 (account default), not "all messages".
+    // Each room reports through the per-room notification-mode path.
     Q_INVOKABLE void setSpaceMuted(const QString &spaceId, bool mute);
-    // Whether every joined room in the Space is currently muted. False for a
-    // Space with no rooms — there is nothing muted, and offering "unmute"
-    // for it would be offering to change nothing.
+    // Whether every joined room in the Space is muted; false for no rooms.
     Q_INVOKABLE bool spaceIsMuted(const QString &spaceId) const;
-    // Marks every joined room in the Space read. Matrix has no "mark a Space
-    // read" primitive — a Space is a room with no timeline, so a receipt on
-    // the Space itself would clear nothing — so this does what a person would
-    // otherwise do by hand to each room inside it, through the SAME entry
-    // point the room list's own Mark as read uses (which takes its target from
-    // the room's latest event and sends the public receipt and m.fully_read
-    // together, and works for rooms other than the open one).
-    //
-    // Bounded by the Space's own membership, which SpaceManager resolves
-    // transitively: marking a Space read has to cover the rooms a subspace
-    // brought into it, or it is a half-read.
+    // Mark every joined room in the Space (including subspaces) read, via
+    // the room list's own Mark as read path.
     Q_INVOKABLE void markSpaceRead(const QString &spaceId);
-    /// "Jump to date" (MSC3030). Asks the server for the first event at or
-    /// after `timestampMs` in the OPEN room and, when it answers, jumps the
-    /// timeline to it through the same landing path a reply jump uses.
-    ///
-    /// Returns the op id, or 0 when this backend cannot ask at all — which is
-    /// a different answer from the SERVER being unable to, and the caller has
-    /// to be able to tell them apart. A homeserver without the endpoint
-    /// arrives later as jumpToDateFinished(ok=false, "not_found").
-    ///
-    /// There is deliberately NO client-side fallback. Paginating backwards
-    /// until the dates look right is an unbounded walk through a room's whole
-    /// history to answer a question one request answers.
+    /// "Jump to date" (MSC3030): jump the open room to the first event at or
+    /// after `timestampMs`. Returns the op id, or 0 when the backend cannot
+    /// ask; a server without the endpoint reports
+    /// jumpToDateFinished(ok=false, "not_found"). No client-side pagination
+    /// fallback.
     Q_INVOKABLE quint64 jumpToDate(qint64 timestampMs);
 
-    // ── Export a room ────────────────────────────────────────────────────
+    // Room export: writes the open room's loaded timeline to a user-chosen
+    // file (see models/RoomExport.h).
     //
-    // Writes the OPEN room's LOADED timeline to a file the user picked. See
-    // src/models/RoomExport.h for what the file contains and, more
-    // importantly, what it deliberately does not.
-    //
-    // CLAUDE.md §6 keeps encrypted-room plaintext memory-only, and this is
-    // the ONE place that writes it to disk. That is a deliberate, explicitly
-    // authorized exception, not a hole: `includeEncryptedText` must be passed
-    // by a surface that asked the user in those words, and with it false an
-    // encrypted room still exports — with every body replaced by a withheld
-    // marker, so the shape of the conversation survives and none of its text
-    // does. Nothing else is relaxed: the cache still refuses encrypted rows.
+    // Security: the only path that writes encrypted-room plaintext to disk.
+    // `includeEncryptedText` must come from a surface that asked the user
+    // explicitly; when false, encrypted bodies are replaced by a withheld
+    // marker.
 
-    /// How many messages an export of the open room would contain. The number
-    /// the dialog shows, computed by the same rule the renderer counts by.
+    /// How many messages an export of the open room would contain.
     Q_INVOKABLE int exportableMessageCount() const;
     /// A safe leaf filename to suggest. `format` is "text" or "json".
     Q_INVOKABLE QString suggestedExportFileName(const QString &format) const;
@@ -961,202 +695,118 @@ public Q_SLOTS:
                                           const QString &format,
                                           bool includeEncryptedText);
 private:
-    /// Everything the renderer needs about the open room, in one place so the
-    /// count, the suggested name and the file itself cannot disagree about
-    /// which room they describe.
+    /// Shared by the count, the suggested name and the export itself.
     roomexport::Options exportOptions() const;
 public:
     // Poll-on-open refresh: re-query the server rule when a notification
     // picker opens so changes made in another client land in the cache.
     // No-op on backends without server support.
     Q_INVOKABLE void requestRoomNotificationMode(const QString &roomId);
-    /// Ask what a room's bridge advertises about itself (MSC2346), ONCE per
-    /// room per session, and feed the answer to the room list's badge.
-    ///
-    /// `allowNetwork` decides whether the `/state` fallback may run. It has
-    /// to exist because the SDK's state store is empty for this event type
-    /// (src/matrix/BridgeNetwork.h and rust/src/bridges.rs explain why), so
-    /// the free read answers nothing and the useful read is a request. The
-    /// policy lives at the call sites: room-open is eager but bounded, and
-    /// the room info panel — one room, opened deliberately by the user —
-    /// always pays.
-    ///
-    /// A room already asked WITH the network is never asked again; a room
-    /// asked without it may be upgraded once.
+    /// Ask what a room's bridge advertises (MSC2346), once per room per
+    /// session, for the room list badge. `allowNetwork` permits the `/state`
+    /// fallback, needed because the SDK store lacks this event type (see
+    /// matrix/BridgeNetwork.h). A room asked without the network may be
+    /// asked once more with it.
     Q_INVOKABLE void requestRoomBridgeInfo(const QString &roomId,
                                            bool allowNetwork);
-    // True while the room's LAST server push-rule write is known to have
-    // failed (the device-local mode still applies). Cleared by the next
-    // successful user-defined report for the room; session-scoped, never
-    // persisted. Rooms in this state are retried automatically on the next
-    // reconnection (see retryFailedNotificationModes); a room leaves the
-    // failed set only when the SERVER acknowledges the value, never merely
-    // because a retry was attempted.
+    // True while the room's last server push-rule write is known to have
+    // failed (the local mode still applies). Retried on reconnection; cleared
+    // only when the server acknowledges the value. Session-scoped.
     Q_INVOKABLE bool roomNotificationModeSyncFailed(const QString &roomId) const;
 
-    // v0.7 multi-account. Switch the whole Matrix context (client session,
-    // stores, crypto, models, notifications) to another saved account
-    // without a login form. The previous account stays signed in — its
-    // session, store, and token are untouched; only its local runtime is
-    // detached. No-op when already switching or the target is unusable.
+    // Switch the whole Matrix context to another saved account. The previous
+    // account stays signed in; only its runtime is detached. No-op when
+    // already switching or the target is unusable.
     Q_INVOKABLE void switchToAccount(const QString &userId);
 
-    // ── v0.7.4 own display name ─────────────────────────────────────────
-    // The write is a single-flight command matched by op id, exactly like
-    // presence: the id is recorded before the backend is called, and an
-    // answer carrying any other id is dropped (it belongs to a previous
-    // account, or to an attempt this controller already retired).
+    // Own display name. Single-flight, matched by op id recorded before the
+    // backend call; answers with any other id are dropped.
     bool canEditOwnDisplayName() const;
     bool ownDisplayNameBusy() const { return m_displayNameOp != 0; }
     QString ownDisplayNameError() const { return m_displayNameError; }
-    // A client-side ceiling: Matrix specifies no maximum and servers
-    // differ. Mirrors the bound Rust applies before the request goes out.
+    // Client-side ceiling (Matrix specifies none); mirrors the Rust bound.
     Q_INVOKABLE int ownDisplayNameMaxLength() const { return 255; }
-    // Length in Unicode CODE POINTS. QML's `text.length` counts UTF-16
-    // code units, so an emoji reads as two there and would have the editor
-    // refuse names the server accepts.
+    // Length in code points; QML's `text.length` counts UTF-16 units.
     Q_INVOKABLE int displayNameLength(const QString &name) const;
-    // Returns true when a write was DISPATCHED. False means nothing was
-    // sent: a write is already in flight, the backend cannot write
-    // profiles, the name is empty (clearing is a separate deliberate
-    // action — an empty editor must never silently erase the name), it is
-    // over the ceiling, or it is unchanged. ownDisplayNameError explains
-    // all of those except "unchanged", which is a silent no-op because the
-    // editor disables Save in that state and never reaches here.
+    // Returns true when a write was dispatched. Refuses when busy,
+    // unsupported, empty (use clearOwnDisplayName), over the ceiling or
+    // unchanged; ownDisplayNameError explains all but "unchanged".
     Q_INVOKABLE bool submitOwnDisplayName(const QString &name);
-    // The explicit CLEAR. Reaches the SDK as `None`, which asks the server
-    // to remove the field rather than to store an empty name.
+    // Removes the field on the server (sent as `None`, not an empty name).
     Q_INVOKABLE bool clearOwnDisplayName();
     Q_INVOKABLE void dismissOwnDisplayNameError();
 
     bool ownAvatarBusy() const { return m_avatarOp != 0; }
     QString ownAvatarError() const { return m_avatarError; }
-    // True when this backend can write the account's own avatar at all.
-    // Mirrors canEditOwnDisplayName: a control that cannot work is worse
-    // than no control, so QML hides the whole block on false.
+    // Whether this backend can write the own avatar; QML hides it otherwise.
     Q_INVOKABLE bool canEditOwnAvatar() const;
-    // Returns true when a write was DISPATCHED. The path is a LOCAL FILE
-    // (the crop dialog's output); Rust sniffs its MIME from the bytes and
-    // refuses anything that is not a raster image it accepts.
+    // Returns true when a write was dispatched. Takes a local file (the crop
+    // output); Rust sniffs the bytes and refuses non-raster images.
     Q_INVOKABLE bool submitOwnAvatar(const QUrl &fileUrl);
     Q_INVOKABLE bool clearOwnAvatar();
     Q_INVOKABLE void dismissOwnAvatarError();
 
-    // v0.7. Fully remove one saved account from this device: if it is the
-    // active account this performs a real (server) logout, otherwise it
-    // deletes the account's local store, token, and record without touching
-    // the active session. Other accounts are never affected.
+    // Remove one saved account from this device: a server logout if active,
+    // otherwise delete its local store, token and record. Other accounts are
+    // unaffected.
     Q_INVOKABLE void removeAccount(const QString &userId);
 
-    // v0.5.9: open Settings on a specific category (account menu entries
-    // "Settings" vs "Security & Recovery"). The section name is consumed
-    // once by SettingsScreen on load.
+    // Open Settings on a category; SettingsScreen consumes it once on load.
     Q_INVOKABLE void showSettingsSection(const QString &section);
     Q_INVOKABLE QString takeRequestedSettingsSection();
 
-    // v0.7: apply the active theme to the QGuiApplication palette. Fusion
-    // paints ComboBox popups, Menus, ToolTips, ScrollBars and Dialogs from
-    // the *application* palette — an ApplicationWindow item palette does not
-    // reach popups, so a dark theme otherwise left them the default light
-    // colour. Main.qml calls this with the resolved AppTheme tokens whenever
-    // the theme changes; the map is keyed by palette role name ("window",
-    // "windowText", "base", "text", "button", "buttonText", "highlight",
-    // "highlightedText", "toolTipBase", "toolTipText", "placeholderText",
-    // "light", "midlight", "mid", "dark", "brightText", "link", and the
-    // disabled-prefixed "disabledText"/"disabledButtonText"/…).
+    // Apply the theme to the application palette, which popups, menus and
+    // tooltips paint from (an item palette does not reach them). Keys are
+    // palette role names ("window", "text", "highlight", ...), plus
+    // "disabled"-prefixed variants.
     Q_INVOKABLE void applyControlPalette(const QVariantMap &roles);
 
-    // v0.5.0-prep+10: GUI recovery-key restore. The QML Settings panel
-    // calls this from a password-style TextField and never keeps the
-    // key in a QML property beyond the invocation. The recovery key is
-    // routed straight into the RustSdkMatrixClient wrapper (which sends
-    // it to Rust via mx_rust_recover_from_backup) and is never logged.
-    // No-op on non-Rust backends. Results arrive via
+    // Recovery-key restore. The key goes straight to Rust and is never
+    // stored or logged. No-op on non-Rust backends; results arrive via
     // recoveryStateChanged().
     Q_INVOKABLE void requestRecoverFromBackup(const QString &recoveryKey);
 
-    // v0.5.0-prep+11. Delete only this app's local Rust SDK store
-    // for the currently-configured homeserver + user slug. Does not
-    // touch other accounts, other backends, or server-side data.
-    // Emits localRustStoreResetResult(ok, message). No-op on non-Rust
-    // backends.
+    // Delete the local Rust SDK store for the configured account only.
+    // Emits localRustStoreResetResult(ok, message). No-op on non-Rust.
     Q_INVOKABLE void resetLocalRustStore();
 
-    // Login-screen reset. Account identity is derived canonically in C++ from
-    // the current form values; QML never computes paths or deletes files.
-    //
-    // Superseded by repairLocalSession() for the login screen and kept only
-    // for callers that genuinely have an explicit identity in hand. It must
-    // never be driven from raw form text again: the login form has no user
-    // field prefill, so a startup restore failure passed empty strings here
-    // and the repair could not run at all without the user retyping their
-    // Matrix ID from memory.
+    // Reset for an explicit identity; QML never computes paths or deletes
+    // files. The login screen uses repairLocalSession() instead.
     Q_INVOKABLE void resetLocalRustSession(const QString &homeserver,
                                            const QString &user);
 
-    // Repair the local session for the account that ACTUALLY failed. Uses the
-    // identity captured when the failure was detected, falling back to the
-    // active account only when no failure is in flight (the Settings danger
-    // zone case). Takes no arguments precisely so no caller can point it at
-    // the wrong account.
+    // Repair the local session of the account that failed (captured at
+    // detection), or the active account when none is pending. Takes no
+    // arguments so it cannot be aimed at the wrong account.
     Q_INVOKABLE void repairLocalSession();
 
-    // Whether clearing this device's local data can actually repair the given
-    // failure. QML binds the destructive action's visibility to THIS rather
-    // than to a per-reason list maintained by hand, so a card can never offer
-    // a button that repairLocalSession() will refuse. Unknown or empty codes
-    // answer false — the safe direction.
+    // Whether clearing local data can repair this failure; QML shows the
+    // destructive action only then. Unknown or empty codes answer false.
     Q_INVOKABLE bool localResetHelpsFor(const QString &reasonCode) const;
 
-    // Sanitized, user-invoked support bundle for the clipboard. Contains
-    // versions, capability flags, session lifecycle state and error
-    // categories only — never tokens, keys, recovery material, message
-    // bodies, room identifiers, or filesystem paths.
+    // Sanitized support bundle for the clipboard: versions, capabilities,
+    // lifecycle state and error categories only. Never tokens, keys,
+    // recovery material, message bodies, room ids or paths.
     Q_INVOKABLE QString sessionDiagnosticsText() const;
     Q_INVOKABLE void copySessionDiagnostics();
 
-    // Automatic "a key arrived, try again" — IN PLACE. Keeps the
-    // subscription, the loaded history, the media and the reader's open
-    // thread panel; retries the thread timeline too. Every automatic trigger
-    // uses this.
+    // Retry decryption in place after a key arrives, keeping the loaded
+    // history, media and open thread. Used by every automatic trigger.
     void retryDecryptionInCurrentRoom();
 
-    // v0.5.0-prep+11, corrected 2026-09-20. REBUILDS the room's timeline —
-    // new subscription generation, fresh snapshot, re-pagination,
-    // `clear_media()` and `close_thread()`. This is the explicit user
-    // Refresh (Settings → Labs) and nothing should call it automatically.
-    // No-op on non-Rust.
-    //
-    // The description this comment carried until 2026-09-20 — "reload via
-    // matrix-sdk's Room::messages, safe to call at any time, the wrapper
-    // dedupes by event_id" — had been stale since v0.5.7, which moved it to
-    // openRoomTimeline(). It was also, briefly, sitting above the WRONG
-    // declaration, because a new comment was spliced in beneath it. §16
-    // carries that exact failure from 2026-09-19; this is it recurring.
+    // Rebuilds the room's timeline (new subscription, re-pagination, media
+    // and thread cleared). Only for the explicit user Refresh; never call it
+    // automatically. No-op on non-Rust.
     Q_INVOKABLE void reloadCurrentRoomTimeline(int limit = 30);
 
-    // 2026-08-19 jump-to-live history trim. Releases the paginated backlog
-    // and re-opens the live timeline at the newest message — Element's
-    // jumpToLiveTimeline() policy, which rebuilds at the live edge rather
-    // than scrolling through thousands of retained rows.
-    //
-    // Returns TRUE only when a trim was actually dispatched, so the caller
-    // can fall back to its ordinary jump. It refuses (returns false) unless
-    // ALL of these hold, because an un-asked-for timeline reset is a far
-    // worse outcome than a large but correct timeline:
-    //   * the Rust backend is active (the mock/HTTP backends have no event
-    //     cache to release);
-    //   * a room is open and not mid-pagination;
-    //   * the loaded row count exceeds `historyTrimRowThreshold()` — below
-    //     that the reset costs more than the rows it would release.
-    // NEVER call this from scrolling or pagination: it is for one explicit
-    // user action.
+    // Release the paginated backlog and reopen at the live edge (as Element's
+    // jumpToLiveTimeline() does). Returns true only when a trim was
+    // dispatched; see historyTrimAllowed() for the conditions. Only for an
+    // explicit user action, never from scrolling or pagination.
     Q_INVOKABLE bool trimHistoryAndJumpToLive();
-    // The refusal policy as a PURE predicate, so every clause is testable
-    // without a live Rust event cache. trimHistoryAndJumpToLive() gathers
-    // the state and calls this; the offline suites drive it directly
-    // (short-circuit evaluation inside the gatherer otherwise makes the
-    // later clauses unreachable on the mock backend — review finding).
+    // The trim policy as a pure predicate, testable without a Rust event
+    // cache. Requires the Rust backend, an open room not mid-pagination, and
+    // more loaded rows than the threshold.
     static bool historyTrimAllowed(bool rustBackend, bool roomOpen,
                                    bool paginationBusy, bool threadOpen,
                                    int loadedRows, int rowThreshold)
@@ -1165,78 +815,52 @@ public:
             return false;
         if (paginationBusy)
             return false;
-        // A thread panel / Threads view holds its own event-cache
-        // subscriber for this room, so the SDK's auto-shrink cannot fire
-        // while either is open — and the reload would tear the panel's live
-        // subscription out from under it.
+        // An open thread view holds its own subscription, which the reload
+        // would tear down.
         if (threadOpen)
             return false;
         return loadedRows > rowThreshold;
     }
-    // The loaded-row count above which a jump-to-live trims. Exposed so QML
-    // and the tests read ONE value.
+    // The loaded-row count above which a jump-to-live trims.
     Q_INVOKABLE int historyTrimRowThreshold() const { return 400; }
 
-    // v0.6.6: "Star GIF" — the Discord-style hover star overlaid on GIF
-    // media in the timeline (see MessageDelegate.qml's imageComponent).
-    // Fetches `mediaKey`'s decrypted bytes through the existing controlled
-    // media bridge (works in encrypted rooms exactly like Save As) and hands
-    // them to the local-starred store once they arrive; see
-    // GifStarredStore's header for the documented rationale. Progress/result
-    // is observable via app.gif.starredStore.starFinished. This is the ONLY
-    // place MediaBridge and the gif:: local-star store meet, so neither
-    // gains a dependency on the other.
-    // 2026-08-18: Copy image (Discord-style) — a transient clipboard
-    // export of the decrypted bytes on explicit user action (Save-As
-    // precedent; nothing persists). Result on copyImageFinished.
+    // Copy the decrypted image to the clipboard on explicit user action.
+    // Result on copyImageFinished.
     Q_INVOKABLE void copyImageToClipboard(const QString &mediaKey);
+    // Star a timeline GIF: fetch its decrypted bytes through the media bridge
+    // and hand them to GifStarredStore. Result on
+    // app.gif.starredStore.starFinished. The only place MediaBridge and the
+    // star store meet, so neither depends on the other.
     Q_INVOKABLE void starChatGif(const QString &mediaKey);
-    // v0.6.6 fix: the two QML-facing entry points for the hover star's
-    // filled/outline state and its unstar action. Both are two-tier — a
-    // fast, exact, SESSION-only check/action (GifStarredStore's own
-    // isStarredThisSession/unstarByMediaKey, correct for a GIF starred in
-    // this run) with a DURABLE, content-addressed fallback for everything
-    // else (a restart, or a second message carrying the identical GIF):
-    // MediaBridge::cachedFullContentHash turns `mediaKey` into the sha256
-    // GifStarredStore already indexes by, using only bytes MediaBridge's
-    // ordinary display cache already fetched for showing the row — never a
-    // fresh fetch just to answer this, and never a Matrix identifier
-    // (mediaKey/event id) persisted anywhere. See GifStarredStore's class
-    // comment ("DURABLE STARRED-STATE DESIGN") for the full rationale and
-    // its honest staleness trade-off. This is the ONLY place MediaBridge and
-    // the gif:: local-star store meet for this purpose, mirroring
-    // starChatGif() above.
+    // Star state and unstar for the hover star. Checks this session's stars
+    // by media key first, then falls back to the content hash of bytes the
+    // display cache already holds (never a new fetch, and no Matrix id is
+    // persisted). See GifStarredStore.
     Q_INVOKABLE bool isChatGifStarred(const QString &mediaKey) const;
     Q_INVOKABLE void unstarChatGif(const QString &mediaKey);
 
-    // v0.5.0 SAS emoji verification invocables.
+    // SAS emoji verification.
     Q_INVOKABLE void acceptVerification();
     Q_INVOKABLE void confirmVerification();
     Q_INVOKABLE void mismatchVerification();
     Q_INVOKABLE void cancelVerification();
 
-    // The user confirmed that the OTHER device reported a successful scan
-    // of the displayed QR code. Only meaningful once the SDK has reported
-    // the scan; the SDK alone performs the trust change.
+    // The user confirms the other device scanned the QR code. The SDK alone
+    // performs the trust change.
     Q_INVOKABLE void confirmQrVerification();
 
-    // v0.5.6. Initiate SAS verification of this Lightning session
-    // against another session belonging to the same Matrix account.
+    // Start SAS verification against another session of this account.
     Q_INVOKABLE void startOwnVerification();
 
-    // v0.7.2. "Request keys again": ask the Rust recovery coordinator for
-    // a fresh standards-based encryption-secret request round and re-arm
-    // the bootstrap model's bounded wait. Only meaningful on the Rust
-    // backend while signed in.
+    // "Request keys again": a fresh secret-request round and a re-armed
+    // bootstrap wait. Rust backend only.
     Q_INVOKABLE void requestEncryptionKeys();
 
-    // v0.5.6. Re-query the SDK trust state so the Settings pane can
-    // refresh after a manual action.
+    // Re-query SDK trust state after a manual action.
     Q_INVOKABLE void refreshSessionTrustState();
 
-    // v0.5.6. Kick off encrypted Megolm room-key import from a local
-    // file. The passphrase is passed straight to Rust and never stored
-    // in QML properties, C++ members, QSettings, or logs.
+    // Import encrypted room keys from a local file. The passphrase goes
+    // straight to Rust and is never stored or logged.
     Q_INVOKABLE void importRoomKeys(const QUrl &fileUrl, const QString &passphrase);
 
     bool verificationActive() const { return !m_verificationFlowId.isEmpty(); }
@@ -1250,9 +874,8 @@ public:
     bool verificationQrAvailable() const { return !m_verificationQrToken.isEmpty(); }
     QString verificationQrImage() const
     {
-        // The token is the whole URL identity: opaque, per-code, and never
-        // derived from the flow id, so no flow id ever reaches a URL. A
-        // fresh token per code also busts QML's image cache.
+        // An opaque per-code token, so no flow id reaches a URL and QML's
+        // image cache is busted per code.
         return m_verificationQrToken.isEmpty()
             ? QString{}
             : QStringLiteral("image://lightning-qr/") + m_verificationQrToken;
@@ -1265,19 +888,16 @@ public:
 
     // Owned here so it outlives the QML engine that holds the provider.
     QrCodeStore *qrCodeStore() { return &m_qrCodeStore; }
-    // Ditto: StagedImageProvider reads it from the QML loader thread, so it
-    // must outlive the engine. Holds the encoded bytes of clipboard images
-    // that are queued to send but not sent — the only way a chip can preview
-    // a paste, which never becomes a file.
+    // Ditto (read from the QML loader thread). Bytes of queued clipboard
+    // images, which have no file to preview.
     StagedImageStore *stagedImages() { return &m_stagedImages; }
 
-    // v0.5.6 Security & Recovery accessors.
+    // Security & Recovery accessors.
     QString sessionTrustState() const { return m_sessionTrustState; }
     bool sessionVerificationNeeded() const;
     bool sessionVerificationWarning() const;
     // Dismiss the verification badges for the active account (persisted).
-    // The Sessions page keeps stating the fact — dismissal silences the
-    // nagging, it does not claim the session is verified.
+    // Does not claim the session is verified.
     Q_INVOKABLE void dismissVerificationWarning();
     QString sessionDeviceId() const { return m_sessionDeviceId; }
     bool ownIdentityAvailable() const { return m_ownIdentityAvailable; }
@@ -1297,16 +917,11 @@ Q_SIGNALS:
     void trayShowRequested();
 
     void voiceOwnerChanged();
-    // Emitted when a reconnect retry batch is ISSUED, carrying how many
-    // rooms were re-sent. Exists so the retry is observable: the backend
-    // call itself no-ops without a live session, so a test asserting only
-    // on state cannot tell "retried" from "never ran" — which is exactly
-    // what a first version of the retry test could not distinguish.
+    // Emitted when a reconnect retry batch is issued, with the room count,
+    // so tests can observe the retry without a live session.
     void roomNotificationModesRetried(int roomCount);
     void currentScreenChanged();
-    // A section asked for by showSettingsSection(); the kept-alive settings
-    // screen listens, since Component.onCompleted runs only on its first
-    // build.
+    // From showSettingsSection(), for the kept-alive settings screen.
     void settingsSectionRequested(const QString &section);
     void appIconChanged();
     void initialSyncDoneChanged();
@@ -1314,17 +929,11 @@ Q_SIGNALS:
     void ownDisplayNameStateChanged();
     void ownAvatarStateChanged();
     void ownAvatarSaved();
-    // Server-CONFIRMED success. The editor closes on this and on nothing
-    // else: renaming to the value the account record already held emits no
-    // accountsChanged at all (SettingsManager::updateAccountProfile writes
-    // only on a real change), so waiting for the registry would hang the
-    // editor on exactly the case that succeeded.
-    // The application is quitting ON PURPOSE and every window must let it.
-    // Close-to-tray REFUSES an ordinary close, and a refusing window aborts
-    // the quit -- which stranded the update helper until it timed out. Ctrl+Q
-    // already announced its intent to the window; this is the same
-    // announcement for every other deliberate quit, so the two cannot drift.
+    // A deliberate quit: windows must not refuse it via close-to-tray, or
+    // the quit is aborted.
     void applicationQuitIntended();
+    // Server-confirmed success; the editor closes on this. Waiting for the
+    // registry would hang when the name did not change.
     void ownDisplayNameSaved();
     void currentRoomIdChanged();
     void loggedInChanged();
@@ -1335,81 +944,63 @@ Q_SIGNALS:
     void errorReported(const QString &message);
     /// A call could not be started, with wording already fit to show.
     void callStartRefused(const QString &message);
-    // v0.7.x: see openMatrixLink().
+    // See openMatrixLink().
     void matrixLinkRequested(const QString &link);
     void rustDeviceIdChanged();
     void localRustResetRequiredChanged();
     void localSessionFailureChanged();
-    // v0.5.0-prep+10. Fires once per requestRecoverFromBackup call.
-    // `state`: "attempted" / "ok" / "failed". `message`: non-secret
-    // detail for failures, empty on success. Never contains the
-    // recovery key or imported key material.
+    // Once per requestRecoverFromBackup call. `state`: "attempted", "ok" or
+    // "failed"; `message` is non-secret failure detail, never key material.
     void recoveryStateChanged(const QString &state, const QString &message);
 
-    // v0.5.0-prep+11. Emitted after resetLocalRustStore() finishes.
+    // Emitted after resetLocalRustStore() finishes.
     void localRustStoreResetResult(bool ok, const QString &message);
 
-    // v0.5.0-prep+11. Fires after reloadCurrentRoomTimeline completes.
+    // Fires after reloadCurrentRoomTimeline completes.
     void currentRoomTimelineReloaded(int totalEvents,
                                      int decryptedEvents,
                                      int undecryptableEvents);
 
-    // v0.5.0 SAS verification.
+    // SAS verification.
     void verificationStateChanged();
     void sessionVerificationWarningChanged();
     void sessionDevicesChanged();
     void activeRoomAtLatestChanged();
     void activeRoomHydratingChanged();
-    // v0.6.0 checkpoint 11: a notification was clicked — QML raises the
-    // window, selects the room, opens the thread, and locates the event.
-    // Identity only, never tokens.
     void copyImageFinished(bool ok, const QString &message);
-    /// "Jump to date" answered. On success the jump has ALREADY been
-    /// dispatched — this is for the surface that asked, so it can close or
-    /// say why nothing happened. `category` is sanitized ("not_found",
-    /// "forbidden", "rate_limited", "network"), never server prose.
+    /// "Jump to date" answered; on success the jump was already dispatched.
+    /// `category` is sanitized ("not_found", "forbidden", "rate_limited",
+    /// "network"), never server prose.
     void jumpToDateFinished(quint64 opId, bool ok, const QString &category);
+    // A notification was clicked: QML raises the window, opens the thread
+    // and locates the event. Identifiers only.
     void notificationOpenRequested(const QString &roomId,
                                    const QString &eventId,
                                    const QString &threadRootId);
 
-    // The room's server notification-mode sync state flipped (a push-rule
-    // write failed, or a later server report cleared the failure). The
-    // pickers re-query roomNotificationModeSyncFailed() on this.
+    // roomNotificationModeSyncFailed() changed for this room.
     void roomNotificationModeSyncStateChanged(const QString &roomId);
 
-    // v0.5.6 Security & Recovery.
+    // Security & Recovery.
     void securityStateChanged();
     void encryptionIdentityBrokenChanged();
     void roomKeyImportStateChanged();
     void callGateRevisionChanged();
-    // Emitted after a successful room-key import completes, with the
-    // aggregate counts the UI should display. Non-secret.
+    // After a successful room-key import, with aggregate counts.
     void roomKeyImportCompleted(int imported, int total, int affectedRooms);
 
 private:
-    // The single landing for a notification click and an Activity Center row.
-    // OPENS the room (openRoom, so the SDK timeline is actually subscribed)
-    // and then re-emits notificationOpenRequested for the QML half — the
-    // window raise, the thread panel and the jump to the event. See the
-    // definition for what selecting-without-opening did.
-    /// Whether the incoming-call notification may offer to answer.
-    ///
-    /// ONE computation, two callers — the raise site and the late update that
-    /// follows an RTC session read. The surfaces that already answer this
-    /// question (IncomingCallPrompt, RoomCallBanner, CallEventDelegate) share
-    /// one gate for a reason their own comment states: "a second opinion
-    /// about whether a call is joinable is exactly the drift those two
-    /// already guard against". Two copies here would have been a fifth and a
-    /// sixth.
+    /// Whether the incoming-call notification may offer to answer. Shared by
+    /// the raise site and the later update so they cannot disagree.
     bool callAcceptOffered(const QString &roomId, bool rtcLane) const;
+    // Common landing for a notification click and an Activity Center row:
+    // opens the room (subscribing its timeline), then emits
+    // notificationOpenRequested for the QML half.
     void routeNotificationOpen(const QString &roomId, const QString &eventId,
                                const QString &threadRootId);
     void setCurrentScreen(Screen s);
     void setConnectionStatus(const QString &s);
-    // Applies the persisted icon choice to QGuiApplication::setWindowIcon —
-    // the normalized custom file when enabled and readable, else the packaged
-    // default (theme icon with the embedded 256px fallback).
+    // Applies the custom icon when enabled and readable, else the default.
     void applyAppIcon();
     void onLoginSucceeded();
     void onLoggedOut();
@@ -1419,50 +1010,30 @@ private:
     // once; if that is impossible, lands on the login screen.
     void failAccountSwitch(const QString &message);
 
-    // How one saved account's stored credential reads RIGHT NOW.
-    //
-    // Three states, not two, and that is the whole point. §6: "no readable
-    // access token" is NOT "no account" — a locked keyring or an unavailable
-    // session bus makes every lookup come back empty, and collapsing that
-    // into "the sign-in is gone" is the conflation that once let a transient
-    // credential-backend failure become a destructive verdict about a user's
-    // data. Here it produced a closed loop with a wrong explanation at both
-    // ends: the switcher refused with "sign in again", and the fresh password
-    // login that advice asks for is bounced by
-    // matrix::rust_session::passwordLoginBlockReason as
-    // ExistingStoreNeedsRestore ("login redirected to switch") — back to the
-    // switch that just refused.
+    // How a saved account's stored credential reads right now. Three states:
+    // an unreadable secret store (locked keyring, no session bus) says nothing
+    // about whether the account is signed out.
     enum class SignInState {
         Usable,      // a token was read
         Gone,        // no token AND the backend could answer: really signed out
         Unreadable,  // the backend could not answer; says nothing about the account
     };
     SignInState signInStateFor(const QString &userId) const;
-    // Clears every cache that must not leak across accounts (media bytes,
-    // pending notifications, invite memory, verification/security state,
-    // session devices, room-list profile lookups). Used on account change;
-    // a real logout clears the same state through loggedOut connections.
+    // Clears every cache that must not leak across accounts. Used on account
+    // change; logout clears the same state through loggedOut connections.
     void clearCrossAccountCaches();
 
-    // Resolve one saved account's on-disk layout for removal: the recorded
-    // identity first (which binds the store slug it ACTUALLY uses), then the
-    // canonical layout as a fallback so an unreadable record still removes
-    // something rather than silently succeeding. False = nothing to act on.
+    // Resolve an account's on-disk layout for removal: the recorded identity
+    // first, then the canonical layout. False = nothing to act on.
     bool resolveRemovalIdentity(const QString &userId,
                                 matrix::app_data::AccountIdentity *identity) const;
-    // Delete every local trace of one already-resolved account: its SDK
-    // store, the account directory (whose NAME is the Matrix localpart), the
-    // cache.sqlite under a possibly divergent second root, the local starred
-    // GIFs and the bridge-badge file. ONE implementation for both removal
-    // paths — the background account and the active one whose removal has to
-    // wait for a sign-out — because two of them is how the same button came
-    // to mean two different things. Logs deleted/absent/failed distinctly:
-    // "target absent" is not "reset completed" (§6).
+    // Delete every local trace of a resolved account (SDK store, account
+    // directory, cache.sqlite, starred GIFs, bridge labels). Shared by both
+    // removal paths. Logs deleted, absent and failed distinctly.
     void removeAccountLocalState(const matrix::app_data::AccountIdentity &identity);
 
-    // B011. Dispatch one own-identity-key check if the rate limit allows it,
-    // and fold one answer in. Both are here rather than at each call site so
-    // the four event-driven callers and the periodic backstop share one gate.
+    // Rate-limited own-identity-key check and its answer, shared by every
+    // caller.
     void requestOwnDeviceKeyCheck();
     void applyOwnDeviceKeyAgreement(matrix::crypto::KeyAgreement agreement);
 
@@ -1471,32 +1042,22 @@ private:
                                                     QObject *parent);
 
     Backend m_backend;
-    // Cache-busting revision for appIconSource: bumped every time the
-    // normalized custom-icon file is rewritten so QML's image cache reloads.
+    // Cache-busting revision for appIconSource.
     int m_appIconRevision = 0;
-    // Injected at construction (never discovered later): true only in a
-    // LIGHTNING_ENABLE_SCREENSHOT_DEMO build launched with --screenshot-demo.
-    // Gates the in-memory SecretStore and the skipped startup restore.
+    // See the constructor.
     bool m_screenshotDemo = false;
     Screen m_currentScreen = LoginScreen;
     QString m_currentRoomId;
-    /// Event ids already notified through a THREAD timeline copy, so the
-    /// room copy of the same event (when one exists) cannot notify twice.
-    /// Bounded and cleared wholesale; it only has to outlive the moment two
-    /// producers could both deliver one event.
+    /// Event ids already notified via a thread timeline, so the room copy
+    /// does not notify again. Bounded; cleared wholesale.
     QSet<QString> m_notifiedThreadEventIds;
-    // Rooms whose member roster was hydrated this session (one bounded
-    // requestRoomMembers per room per account; cleared on logout/switch).
+    // Rooms whose members were fetched this session (once per room).
     QSet<QString> m_memberHydratedRooms;
-    // Rooms whose MSC2346 bridge state was read this session -> whether that
-    // read was allowed to go to the network. One bounded read per room per
-    // account; cleared on logout/switch with the roster cache above.
+    // Rooms whose MSC2346 bridge state was read -> whether the network was
+    // allowed. Cleared on logout/switch.
     QHash<QString, bool> m_bridgeReadRooms;
-    // B017: what the reads above ANSWERED, kept across restarts so the badge
-    // is painted before any request exists. The session cache above is
-    // "have I asked"; this is "what came back", and only this one survives a
-    // relaunch. Opened per account on login, closed on logout, deleted with
-    // the account (see matrix::app_data::bridgeLabelsFile).
+    // The bridge answers, persisted per account so badges paint before any
+    // request (see matrix::app_data::bridgeLabelsFile).
     BridgeLabelStore m_bridgeLabels;
     QString m_requestedSettingsSection;
     QString m_connectionStatus;
@@ -1505,7 +1066,6 @@ private:
     QString m_localSessionFailureUserId;
     QString m_localSessionFailureHomeserver;
     bool m_resetResultPending = false;
-    // v0.7 account switching.
     bool m_accountSwitching = false;
     // The account to fall back to if activating the switch target fails.
     // Consumed by the loginFailed handler; empty = no fallback pending.
@@ -1513,54 +1073,36 @@ private:
     // The account whose session most recently succeeded — used to detect a
     // cross-account transition in onLoginSucceeded.
     QString m_lastSessionUserId;
-    // "Remove this account from this computer", aimed at the account that is
-    // ACTIVE and signed in. That case cannot delete anything up front — the
-    // store is open and a real server logout has to happen first — so it
-    // delegates to AuthManager::logout() and finishes in onLoggedOut. These
-    // three fields carry the intent across that gap.
-    //
-    // The identity is resolved and captured HERE, before the logout runs,
-    // because the sign-out removes the saved record on the Rust backend
-    // (RustSdkMatrixClient::finishSignOut -> clearSessionForAccount): by the
-    // time onLoggedOut lands there may be nothing left to resolve FROM, and
-    // §6 requires the deletion to key on the record rather than re-derive a
-    // path from a user id. Empty user id = no removal pending, and the wipe
-    // is only ever run for the identity that was actually signed out.
+    // Removing the active account needs a server logout first, so the
+    // removal finishes in onLoggedOut. The identity is resolved before the
+    // logout, because sign-out removes the saved record it is keyed on.
+    // Empty user id = no removal pending.
     QString m_pendingRemovalUserId;
     matrix::app_data::AccountIdentity m_pendingRemovalIdentity;
     bool m_pendingRemovalResolved = false;
-    // v0.7.4 own display name. 0 = idle; otherwise the id of the ONE write
-    // in flight. The counter is separate from the backend's own op ids on
-    // purpose — this is a caller-owned id, like PresenceManager's.
+    // Own profile writes: 0 = idle, else the caller-owned id of the write
+    // in flight.
     quint64 m_displayNameOp = 0;
     quint64 m_avatarOp = 0;
     quint64 m_avatarOpCounter = 0;
     QString m_avatarError;
     quint64 m_displayNameOpCounter = 0;
     QString m_displayNameError;
-    // Dispatch helper shared by the set and clear paths, so the op id is
-    // recorded before the backend call in both.
+    // Shared by set and clear; records the op id before the backend call.
     bool dispatchOwnDisplayName(const QString &name);
-    // Empty when a write may be dispatched; otherwise the honest reason it
-    // may not. "Not signed in" and "this backend cannot write a profile"
-    // are different facts and are worded differently.
+    // Empty when a write may be dispatched; otherwise the reason it may not.
     QString ownDisplayNameUnavailableReason() const;
-    // The registry's cached name for the active account, or empty when
-    // there is none. Read only to refuse an unchanged write.
+    // The registry's cached name, used only to refuse an unchanged write.
     QString cachedOwnDisplayName() const;
-    // Retire an in-flight write and its error. Called on every session
-    // teardown (sign-out AND account switch) — retiring the op id is what
-    // makes a late answer stale, so the next account's editor can never
-    // take it as its own.
+    // Retire the in-flight write on every session teardown so a late answer
+    // is stale for the next account.
     void retireOwnDisplayNameWrite();
     void retireOwnAvatarWrite();
-    // v0.7 add-account mode: the account to return to when an add-account
-    // login fails or the user presses Back. Entering the login screen while
-    // a session is active sets it; success with a new account clears it.
+    // Add-account mode: the account to return to when the login fails or
+    // the user presses Back.
     QString m_addAccountReturnTo;
-    // True while the previous account is being restored in the background
-    // after a failed add-account attempt: the restore's loginSucceeded must
-    // not yank the user off the login screen.
+    // True while the previous account restores after a failed add-account
+    // attempt, so its loginSucceeded does not leave the login screen.
     bool m_backgroundRestore = false;
 
     // Order matters: SecretStore is constructed first so SettingsManager can
@@ -1578,15 +1120,11 @@ private:
     std::unique_ptr<UserProfileResolver> m_userProfiles;
     std::unique_ptr<ProfileBadges> m_badges;
     bool m_shuttingDown = false;
-    // Development-only screenshot/demo mode (never true in a release build; the
-    // compile option that enables beginScreenshotDemo cannot coexist with a
-    // Rust-only release).
+    // Never true in a release build.
     bool m_screenshotDemoActive = false;
     bool m_softwareRenderer = false;
-    // Development-only demo-session controller (scenarios/panel/window presets).
-    // Parented to this AppController; null in non-demo builds. Owned as a raw
-    // QObject* so the concrete ScreenshotDemoController type stays behind the
-    // LIGHTNING_ENABLE_SCREENSHOT_DEMO compile guard and out of this header.
+    // QObject* keeps ScreenshotDemoController out of this header. Parented to
+    // this; null in non-demo builds.
     QObject *m_demoController = nullptr;
     std::unique_ptr<MatrixClient> m_client;
     std::unique_ptr<AccountManager> m_accounts;
@@ -1613,23 +1151,14 @@ private:
     std::unique_ptr<class ActivityModel> m_activity;
     std::unique_ptr<class MediaHistoryModel> m_mediaHistory;
     bool m_activitySeeded = false;
-    /// In-flight "jump to date" requests, op id -> the room that asked. Small
-    /// and self-draining: an entry is taken on the answer, and the only way
-    /// one lingers is a request the backend never answers, which is the same
-    /// bound every other op-id map here lives with.
+    /// In-flight "jump to date" requests: op id -> room.
     QHash<quint64, QString> m_pendingDateJumps;
-    /// Keeps the local search index current. See the connection in the
-    /// constructor for why a timer rather than an event hook: the sweep is
-    /// idempotent and cheap, and hooking every ingest path would put index
-    /// bookkeeping in a dozen places instead of one.
+    /// Periodic, idempotent local search index sweep (rather than hooks in
+    /// every ingest path).
     QTimer m_searchIndexTimer;
     std::unique_ptr<CryptoBootstrapModel> m_cryptoBootstrap;
-    // The CryptoHealthModel generation captured at the moment a crypto-health
-    // query is DISPATCHED. Comparing this (not the model's live generation)
-    // against the model epoch when the async answer arrives lets a logout /
-    // account switch that happened in between correctly reject the stale
-    // answer — the 0.6.0 code passed the model's own current generation, so
-    // the guard could never reject anything.
+    // Generation captured when a crypto-health query is dispatched, so an
+    // answer arriving after a logout or switch is rejected.
     quint64 m_cryptoQueryGeneration = 1;
     QVariantList m_sessionDevices;
     bool m_sessionDevicesLoading = false;
@@ -1639,9 +1168,8 @@ private:
     bool m_activeRoomAtLatest = false;
     bool m_activeRoomHydrating = false;
     QSet<QString> m_knownInvites;
-    // Rooms whose last server push-rule write failed, so the pickers can
-    // say "kept on this device" instead of claiming the mode was saved to
-    // the account. Session-scoped: cleared on logout/account switch.
+    // Rooms whose last server push-rule write failed ("kept on this
+    // device"). Cleared on logout/account switch.
     QSet<QString> m_notificationModeSyncFailures;
     std::unique_ptr<SpaceManager> m_spaces;
     std::unique_ptr<ThreadManager> m_threads;
@@ -1653,9 +1181,8 @@ private:
     std::unique_ptr<SfuCallController> m_groupCall;
     std::unique_ptr<CallDeviceController> m_callDevices;
     std::unique_ptr<CallSoundController> m_callSounds;
-    // The one call whose ring was actually announced (notification shown):
-    // the missed-call notice requires it, so suppressed rings never
-    // resurface as "missed". Bounded per-sender ring cooldown alongside.
+    // The call whose ring was actually announced; only that one can become
+    // a missed-call notice. Plus a per-sender ring cooldown.
     QString m_announcedCallId;
     QHash<QString, qint64> m_lastCallRingBySender;
     std::unique_ptr<PinnedMessagesController> m_pinned;
@@ -1667,10 +1194,8 @@ private:
     std::unique_ptr<UiaController> m_uia;
     std::unique_ptr<ModerationController> m_moderation;
     std::unique_ptr<ForwardController> m_forward;
-    // Media keys THIS account asked to star. The star fetch is
-    // media-generic and has more than one caller now, so its result must be
-    // claimed rather than assumed — see the handler in setClient(). Cleared
-    // on sign-out with the rest of the account-scoped state.
+    // Media keys this account asked to star or copy; the shared media fetch
+    // result must be claimed. Cleared on sign-out.
     QSet<QString> m_pendingStarKeys;
     QSet<QString> m_pendingCopyKeys;
     std::unique_ptr<RoomInfoController> m_roomInfo;
@@ -1682,10 +1207,8 @@ private:
     // Re-issue push-rule writes that failed offline, once per genuine
     // transition into Syncing. Never clears the failure set itself.
     void retryFailedNotificationModes();
-    // MatrixClient::ConnectionState as an int — the class is only
-    // forward-declared here. -1 is "no state seen yet", which is distinct
-    // from every real enumerator, so the first transition into Syncing
-    // counts as an edge.
+    // MatrixClient::ConnectionState as an int (forward-declared here); -1 =
+    // none seen yet, so the first transition into Syncing counts.
     int m_lastConnectionState = -1;
     std::unique_ptr<MediaPlaybackController> m_playback;
     std::unique_ptr<PaginationController> m_pagination;
@@ -1699,10 +1222,9 @@ private:
     std::unique_ptr<TimelineScrollController> m_timelineScroll;
     std::unique_ptr<TimelineScrollController> m_threadScroll;
 
-    // Show-QR verification. The grid itself lives in the store (memory
-    // only); the controller keeps just the opaque URL token and the
-    // SDK-reported progress flags. `clearVerificationQr` is the single
-    // point that drops both, and every flow-ending path calls it.
+    // Show-QR verification: the grid lives in the store (memory only); this
+    // keeps the URL token and progress flags. Every flow-ending path calls
+    // clearVerificationQr().
     QrCodeStore m_qrCodeStore;
     std::unique_ptr<QrLoginController> m_qrLogin;
     std::unique_ptr<PolicyListController> m_policy;
@@ -1710,17 +1232,11 @@ private:
     ImageCropper m_imageCrop;
     TrayIcon m_tray;
     SpellChecker m_spell;
-    // Pushes the account's unread state onto the tray. It READS the room
-    // snapshot the client already holds and asks the server for nothing —
-    // the same rule the room-list call glyph is held to, because a tray
-    // badge that refreshed itself would issue one request per room per
-    // rebuild.
+    // Push unread state to the tray from the local room snapshot; never
+    // issues requests.
     void refreshTrayUnread();
-    // COALESCED, for the same reason RoomListModel coalesces its own
-    // reconcile through a zero-interval single shot: `roomUpdated` fires per
-    // room and `MatrixClient::rooms()` returns the whole snapshot BY VALUE,
-    // so reacting to each one directly would copy every RoomInfo in the
-    // account once per delivered event. One pass per event-loop turn.
+    // Coalesced to one pass per event-loop turn: rooms() copies the whole
+    // snapshot and roomUpdated fires per room.
     QTimer m_trayUnreadCoalesce;
     void refreshTrayState();
     // Computed once in the constructor; see restorableWindowGeometry().
@@ -1730,7 +1246,7 @@ private:
     bool m_verificationQrConfirming = false;
     void clearVerificationQr();
 
-    // v0.5.0 SAS verification state cache.
+    // SAS verification state cache.
     QString m_verificationFlowId;
     QString m_verificationOtherUser;
     QString m_verificationOtherDevice;
@@ -1739,23 +1255,20 @@ private:
     QVariantList m_verificationEmojis;
     QVariantList m_verificationDecimals;
 
-    // B011: the tri-state latch and the re-check rate limit. See
-    // OwnDeviceKeyWatch for why "unknown" may never become "broken".
+    // Tri-state latch and re-check rate limit; "unknown" never becomes
+    // "broken" (see OwnDeviceKeyWatch).
     matrix::crypto::OwnDeviceKeyWatch m_ownDeviceKeyWatch;
-    // The periodic backstop for a fault that appears after login.
-    // Started on sign-in, stopped on sign-out and once the fault is
-    // latched (it cannot recover without a new session, so asking
-    // again buys nothing).
+    // Periodic re-check while signed in; stops once the fault is latched,
+    // since it cannot recover without a new session.
     QTimer m_ownDeviceKeyTimer;
 
-    // v0.5.6 Security & Recovery cache.
+    // Security & Recovery cache.
     QString m_sessionTrustState = QStringLiteral("Unknown");
     QString m_sessionDeviceId;
     bool    m_ownIdentityAvailable = false;
     bool    m_crossSigningAvailable = false;
 
-    // v0.5.6 Room-key import cache. State values:
-    //   "" (idle), "importing", "done", "failed".
+    // Room-key import state: "" (idle), "importing", "done" or "failed".
     QString m_roomKeyImportState;
     int     m_roomKeyImportImported = 0;
     int     m_roomKeyImportTotal = 0;

@@ -4,12 +4,10 @@
 #include <QObject>
 #include <QString>
 
-// v0.6.1: async transport the GIF controller uses to reach a provider. Kept
-// abstract so the controller is unit-testable with a fake transport (canned
-// responses) and never needs the Rust backend or a network in tests. The real
-// implementation (MatrixGifTransport) routes through the hardened Rust
-// safe-get. Callers pass a URL that carries the provider API key — it is
-// secret and must never be logged.
+// Async transport the GIF controller uses to reach a provider; abstract so
+// tests can use canned responses. The real implementation (MatrixGifTransport)
+// uses the hardened Rust safe-get. URLs carry the provider key and must never
+// be logged.
 class GifTransport : public QObject
 {
     Q_OBJECT

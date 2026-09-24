@@ -5,9 +5,7 @@
 #include <QCoreApplication>
 
 namespace {
-// Bound for waiting on the authoritative room-list appearance of a freshly
-// joined room. If sync has not delivered it by then, open by id anyway —
-// the membership exists server-side; the list entry follows.
+// After this, open a joined room by id even if sync has not listed it yet.
 constexpr int kRoomWaitTimeoutMs = 10000;
 } // namespace
 
@@ -190,17 +188,8 @@ void RoomDiscoveryController::onJoinFinished(quint64 opId, bool ok,
         m_joinTarget.clear();
         const QString message = describeJoinCategory(category);
         setError(message);
-        // Targeted, in addition to the shared errorMessage. A consumer that
-        // started one specific join (the room-upgrade banner) cannot tell
-        // from errorMessageChanged alone whether the failure was its own —
-        // knock and knock-withdrawal failures set the same property, and
-        // cancelKnock() has no busy guard at all, so one can land while a
-        // join is in flight and be mistaken for its result.
-        //
-        // BEFORE busyChanged, deliberately. A consumer that releases its
-        // ownership on the busy edge would otherwise have already forgotten
-        // which join this was by the time the reason arrives, and the
-        // failure would go unreported.
+        // Emitted before busyChanged, so a consumer that releases ownership on
+        // the busy edge still knows which join failed.
         Q_EMIT joinFailed(target, message);
         Q_EMIT busyChanged();
         return;
@@ -250,8 +239,7 @@ void RoomDiscoveryController::onSpaceChildren(quint64 opId,
         return;
     it->pendingOp = 0;
     if (!ok) {
-        // A failed refresh keeps any previously shown rows: a flaky
-        // connection must not read as "this space has no more rooms".
+        // A failed refresh keeps the previously shown rows.
         it->state = it->rows.isEmpty() ? QStringLiteral("failed")
                                        : QStringLiteral("ready");
         Q_EMIT spaceChildrenChanged(spaceId);
@@ -309,8 +297,7 @@ void RoomDiscoveryController::beginWaitForRoom(const QString &roomId,
     m_awaitedIsSpace = isSpace;
     m_roomWaitTimeout.start();
     Q_EMIT busyChanged();
-    // The room may already be in the local store (join inserts it), so
-    // check immediately as well as on future updates.
+    // The join may already have inserted it locally, so check now too.
     onRoomsChanged();
 }
 

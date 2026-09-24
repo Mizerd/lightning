@@ -9,64 +9,45 @@
 
 class MatrixClient;
 
-// v0.7.x pinned messages (`m.room.pinned_events`).
+// Pinned messages (`m.room.pinned_events`) for the active room. The list is
+// room state; this controller owns the policy around it.
 //
-// The pinned list IS Matrix room state — Lightning stores nothing of its
-// own. This controller owns the C++-side policy around it: which room is
-// being tracked, when to re-read, what the viewer may do, and how an
-// in-flight write reconciles with the authoritative state that follows.
-//
-// It tracks the ACTIVE room (AppController::setCurrentRoomId), not the Room
-// Information panel's room, because `isPinned()` has to answer for the
-// message the user is right-clicking in the open timeline.
-//
-// Honesty rules, matching the presence/facepile precedents:
-//   - A failed fetch keeps the last known list rather than erasing it; only
-//     an authoritative answer replaces an answer.
-//   - `canPin` is the SDK's own power-level check against the room's real
-//     required level for `m.room.pinned_events`. It is false until a
-//     snapshot has actually said otherwise — never optimistically true.
-//   - A pin/unpin is NOT applied optimistically. The write completes, then
-//     the authoritative list is re-read; a server rejection therefore
-//     cannot leave the UI showing a state the room does not have.
-//   - Entry previews are decrypted message text in an encrypted room. They
-//     live in memory only and are never written to CacheStore.
+//   - A failed fetch keeps the last known list.
+//   - `canPin` is the SDK's power-level check and false until a snapshot
+//     says otherwise.
+//   - Pin/unpin is not optimistic: the list is re-read after each write.
+//   - Previews may be decrypted text; they live in memory only and are never
+//     written to CacheStore.
 class PinnedMessagesController : public QObject
 {
     Q_OBJECT
 
     Q_PROPERTY(QString roomId READ roomId NOTIFY roomIdChanged)
-    // Backend capability alone. QML hides the whole surface when false.
+    // Backend capability; QML hides the surface when false.
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY stateChanged)
     // Resolved rows, newest-pinned last, capped by the bridge. Each is a map
     // with eventId + available, and when available sender,
     // senderDisplayName, senderAvatarUrl, timestampMs, kind, preview.
     Q_PROPERTY(QVariantList entries READ entries NOTIFY stateChanged)
-    // How many events the room actually pins. May exceed entries.count()
-    // when the bridge capped resolution — `truncated` says so.
+    // May exceed entries.count() when the bridge capped resolution.
     Q_PROPERTY(int total READ total NOTIFY stateChanged)
     Q_PROPERTY(bool truncated READ truncated NOTIFY stateChanged)
     Q_PROPERTY(bool canPin READ canPin NOTIFY stateChanged)
-    // A pin/unpin write is in flight. One at a time.
+    // A pin/unpin write is in flight (one at a time).
     Q_PROPERTY(bool pending READ pending NOTIFY stateChanged)
-    // Sanitized, user-facing failure text for the LAST write; empty on
-    // success. Cleared when a new write starts.
+    // Sanitized failure text for the last write; empty on success.
     Q_PROPERTY(QString error READ error NOTIFY stateChanged)
-    // Bumped on every state change. `isPinned()` and `canTogglePin()` are
-    // Q_INVOKABLEs, so a QML binding cannot observe their inputs on its
-    // own — reference this property in the binding (the PresenceManager
-    // revision idiom) and it re-evaluates.
+    // Bumped on every state change. Reference it in bindings that call
+    // isPinned()/canTogglePin(), which QML cannot track on their own.
     Q_PROPERTY(int revision READ revision NOTIFY stateChanged)
-    // Complete authoritative id list (unlike the capped preview entries),
-    // used by room search's client-side pinned/not-pinned predicate.
+    // The complete id list (entries are capped); used by room search.
     Q_PROPERTY(QStringList ids READ ids NOTIFY stateChanged)
 
 public:
     explicit PinnedMessagesController(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
-    // Called by AppController when the active room changes.
     void setRoomId(const QString &roomId);
 
     QString roomId() const { return m_roomId; }
@@ -81,16 +62,10 @@ public:
     int revision() const { return m_revision; }
     QStringList ids() const { return m_ids; }
 
-    // Pure read over the CURRENT room's complete id list — safe in a QML
-    // binding, re-evaluate on stateChanged. Answers false for an empty id
-    // or before the first snapshot: "not known to be pinned", which is the
-    // only claim the data supports.
+    // False for an empty id or before the first snapshot.
     Q_INVOKABLE bool isPinned(const QString &eventId) const;
-    // Whether the pin/unpin action should be OFFERED for this event. The
-    // policy lives here rather than in QML (architecture §5): it requires
-    // pin permission, a loaded snapshot, a non-empty event id, no write
-    // already in flight, and — for a pin — that the event is not already
-    // pinned (and vice versa).
+    // Whether to offer pin (or unpin) for this event: requires permission, a
+    // loaded snapshot, no write in flight, and a state change to make.
     Q_INVOKABLE bool canTogglePin(const QString &eventId, bool pin) const;
     Q_INVOKABLE void pin(const QString &eventId);
     Q_INVOKABLE void unpin(const QString &eventId);
@@ -100,18 +75,13 @@ Q_SIGNALS:
     void roomIdChanged();
     void supportedChanged();
     void stateChanged();
-    // A pin/unpin write finished. `message` is empty on success. Main.qml's
-    // pinActionNotice renders FAILURES from this — the action is usually
-    // taken from the message context menu, which closes on trigger, so
-    // `error` alone (only visible inside Room Information → Pinned) would
-    // let a refused pin fail silently. Success is deliberately quiet: the
-    // pinned list updating is the feedback.
+    // `message` is empty on success. Main.qml shows failures from this,
+    // since the context menu that triggered the write has already closed.
     void pinActionFinished(const QString &roomId, const QString &eventId,
                            bool pin, bool ok, const QString &message);
 
 private:
-    // Bump the revision and notify. Every state mutation goes through here
-    // so a QML binding on revision cannot miss one.
+    // Every state mutation goes through here so `revision` never misses one.
     void emitStateChanged();
     void fetch(bool allowRemote);
     void clearSnapshot();
@@ -120,15 +90,11 @@ private:
     MatrixClient *m_client = nullptr;
     QString m_roomId;
     quint64 m_fetchOp = 0;
-    // A refresh became due while one was already in flight. The in-flight
-    // read predates whatever made the refresh due (our own completed write,
-    // or a remote change), so its answer is stale by construction and
-    // dropping the request would leave the list wrong until the next
-    // unrelated poke. Honoured when the in-flight read lands.
+    // A refresh requested during an in-flight read; that read's answer is
+    // already stale, so it is re-issued when the read lands.
     bool m_refreshOwed = false;
     quint64 m_writeOp = 0;
-    // The room a pending write targets. A write's answer must never be
-    // applied to whatever room the user has since switched to.
+    // A write's answer must never apply to a room the user switched to.
     QString m_writeRoomId;
     QString m_writeEventId;
     bool m_writePin = false;
@@ -140,8 +106,7 @@ private:
     bool m_canPin = false;
     int m_revision = 0;
     QString m_error;
-    // Rooms whose pinned state has been fetched at least once this session.
-    // The bridge's /state fallback (for rooms carrying NO pinned-events
-    // state) is worth one request per room, not one per refresh.
+    // Rooms already probed this session; the /state fallback runs once per
+    // room.
     QSet<QString> m_remoteProbed;
 };

@@ -4,23 +4,12 @@
 #include <QImage>
 #include <QString>
 
-// The initials avatar the interface already draws for an identity with no
-// picture, rendered as an image so a desktop notification can carry it too.
-//
-// A user without an avatar previously produced a notification with NO image
-// hint at all, and the notification daemon filled that hole with its own
-// generic document glyph — so the one notification that most needed a name
-// attached to it looked like an unknown file. Every other surface in
-// Lightning shows a coloured disc with the identity's initials instead.
-//
-// The disc colour comes from lightning::theme (src/theme/IdentityPalette.*),
-// the SAME code AppTheme.qml calls, so there is no palette copy here to
-// drift — there used to be one, and it did. The initials rule is still
-// reproduced from qml/Avatar.qml (_initials).
-//
-// Because the discs now follow the active theme's accent, the theme id has
-// to travel with the request: a notification painted in the old fixed
-// palette would no longer match the window it came from.
+// The initials avatar the interface draws for an identity with no picture,
+// rendered as an image so a desktop notification can carry it instead of the
+// daemon's generic glyph. Colours come from lightning::theme
+// (src/theme/IdentityPalette.*), shared with AppTheme.qml; the initials rule
+// mirrors qml/Avatar.qml (_initials). The theme id is required because disc
+// colours follow the active theme's accent.
 namespace lightning::notifications {
 
 // AppTheme.identityIndex: a 32-bit-wrapping string hash, then modulo the
@@ -36,11 +25,9 @@ QColor identityColor(const QString &key, int themeId);
 QString initialsFor(const QString &name);
 
 // A square ARGB32 disc of identityColor(colorKey, themeId) carrying
-// initialsFor(name) in whichever ink that disc can actually carry — NOT
-// always white, since half the slots are pale. `colorKey` falls back to
-// `name` when empty, exactly as Avatar.qml's _paletteKey does. Returns a
-// null image for an empty edge or when both name and key are empty — a blank
-// disc would be no more informative than the daemon's own placeholder.
+// initialsFor(name) in an ink readable on that disc. `colorKey` falls back to
+// `name` when empty, as Avatar.qml's _paletteKey does. Returns a null image
+// for an empty edge or when both name and key are empty.
 QImage fallbackAvatar(const QString &name, const QString &colorKey, int edge,
                       int themeId);
 

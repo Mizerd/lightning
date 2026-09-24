@@ -5,8 +5,7 @@
 #include <QCoreApplication>
 
 namespace {
-// Sanitized, user-facing text for the coarse bridge categories. The raw SDK
-// error never reaches QML.
+// The raw SDK error never reaches QML.
 QString messageForCategory(const QString &category)
 {
     if (category == QLatin1String("forbidden")) {
@@ -56,20 +55,15 @@ void PinnedMessagesController::setClient(MatrixClient *client)
     connect(m_client, &MatrixClient::pinnedReceived, this,
             [this](quint64 opId, const QString &roomId,
                    const QVariantMap &snapshot) {
-        // Match by op id AND room: a snapshot for a room the user has since
-        // left must never repaint the current one.
+        // Match op id and room so a stale snapshot never repaints this one.
         if (opId == 0 || opId != m_fetchOp || roomId != m_roomId)
             return;
         m_fetchOp = 0;
-        // A refresh that was asked for while this read was in flight is
-        // answering a newer question than this answer can; honour it now.
-        // Taken BEFORE the early return below so a failed read cannot
-        // swallow it.
+        // Taken before the early return so a failed read cannot swallow it.
         const bool owed = m_refreshOwed;
         m_refreshOwed = false;
         if (!snapshot.value(QStringLiteral("ok")).toBool()) {
-            // A failed read keeps the last known list. Erasing it would make
-            // a flaky connection look like "nothing is pinned any more".
+            // A failed read keeps the last known list.
             emitStateChanged();
             if (owed)
                 fetch(/*allowRemote=*/false);
@@ -99,17 +93,12 @@ void PinnedMessagesController::setClient(MatrixClient *client)
         m_error = ok ? QString() : messageForCategory(category);
         emitStateChanged();
         Q_EMIT pinActionFinished(roomId, eventId, pin, ok, m_error);
-        // Re-read the authoritative state either way: on success to pick up
-        // what the room now holds, and on failure to discard anything the
-        // UI might have inferred. Only when the room has not moved on —
-        // otherwise the fetch would target the wrong room.
+        // Re-read either way, unless the user has moved to another room.
         if (targetRoom == m_roomId && !m_roomId.isEmpty())
             fetch(/*allowRemote=*/false);
     });
 
-    // Remote change (another client, or another of this user's devices):
-    // re-read rather than trusting a pushed payload, so a remote pin and a
-    // local one converge on exactly one code path.
+    // Remote change: re-read, so remote and local pins share one path.
     connect(m_client, &MatrixClient::pinnedEventsChanged, this,
             [this](const QString &roomId) {
         if (roomId == m_roomId && !m_roomId.isEmpty())
@@ -143,9 +132,8 @@ void PinnedMessagesController::setRoomId(const QString &roomId)
     if (m_roomId == roomId)
         return;
     m_roomId = roomId;
-    // Drop the previous room's list immediately. An in-flight fetch or write
-    // for it is invalidated by the op-id + room checks above, so its answer
-    // can never land here.
+    // In-flight answers for the previous room are rejected by the checks
+    // above.
     clearSnapshot();
     Q_EMIT roomIdChanged();
     if (!m_roomId.isEmpty())
@@ -171,9 +159,7 @@ void PinnedMessagesController::clearSnapshot()
 
 void PinnedMessagesController::refresh()
 {
-    // The /state fallback is worth one request per room per session (it is
-    // only reached when the room carries no pinned-events state at all);
-    // every later refresh in that room reads what sync already delivered.
+    // The /state fallback runs once per room per session.
     const bool allowRemote =
         !m_roomId.isEmpty() && !m_remoteProbed.contains(m_roomId);
     fetch(allowRemote);
@@ -183,20 +169,14 @@ void PinnedMessagesController::fetch(bool allowRemote)
 {
     if (!m_client || m_roomId.isEmpty() || !supported())
         return;
-    // One read at a time; a second would only race the first to the same
-    // answer. But the request is REMEMBERED rather than dropped: a refresh
-    // asked for after a completed write (or a remote change) is answering a
-    // newer question than the in-flight read can, so it is re-issued when
-    // that read lands.
+    // One read at a time; a request made meanwhile is re-issued afterwards.
     if (m_fetchOp != 0) {
         m_refreshOwed = true;
         return;
     }
     const quint64 opId = m_client->requestPinnedMessages(m_roomId, allowRemote);
     if (opId == 0) {
-        // Synchronous refusal (no session yet, room not joined): nothing
-        // will ever answer, so do not mark the room probed — the next
-        // attempt must be a genuine retry.
+        // Synchronous refusal: do not mark the room probed, so it is retried.
         return;
     }
     m_fetchOp = opId;
@@ -217,8 +197,6 @@ bool PinnedMessagesController::canTogglePin(const QString &eventId,
         return false;
     if (!m_canPin || m_writeOp != 0)
         return false;
-    // Offer exactly the action that applies: Pin for an unpinned event,
-    // Unpin for a pinned one, never both and never the no-op.
     return isPinned(eventId) != pin;
 }
 
@@ -234,9 +212,7 @@ void PinnedMessagesController::unpin(const QString &eventId)
 
 void PinnedMessagesController::setPinned(const QString &eventId, bool pin)
 {
-    // Re-check the same gate the UI used: permissions can change between
-    // the menu opening and the click, and a state event that is known to be
-    // unauthorized must not be sent.
+    // Re-check: permissions can change between menu open and click.
     if (!canTogglePin(eventId, pin))
         return;
     const quint64 opId = m_client->setEventPinned(m_roomId, eventId, pin);

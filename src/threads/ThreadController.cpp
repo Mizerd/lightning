@@ -17,9 +17,8 @@
 #include <algorithm>
 
 namespace {
-// Clipboard images beyond this edge are scaled down before encoding so a
-// paste can never trigger an unbounded allocation or upload (mirrors the
-// room composer's guard).
+// Clipboard images beyond this edge are scaled down before encoding, as in
+// the room composer, to bound allocation and upload size.
 constexpr int kMaxPasteEdge = 4096;
 }
 
@@ -29,8 +28,8 @@ ThreadController::ThreadController(QObject *parent)
 {
     connect(m_attachments, &AttachmentQueueModel::countChanged, this,
             [this] { Q_EMIT attachmentsChanged(); });
-    // A video queued before its poster finished decoding dispatches here,
-    // the moment the poster resolves (or definitively fails).
+    // A video queued before its poster decoded dispatches once the poster
+    // resolves or fails.
     connect(m_attachments, &AttachmentQueueModel::entryPrepared,
             this, &ThreadController::dispatchAttachment);
     m_draftDebounce.setSingleShot(true);
@@ -51,18 +50,14 @@ ThreadController::ThreadController(QObject *parent)
         Q_EMIT navigationChanged();
     });
     connect(&m_navigationBatchTimer, &QTimer::timeout, this, [this] {
-        // Nothing ever answered the batch (a dropped request, a backend that
-        // went quiet). Say so rather than leaving a click that silently did
-        // nothing — one bounded batch cannot be retried into a spin because
-        // the batch counter has already been spent.
+        // Nothing answered the batch; report failure. The batch counter is
+        // already spent, so this cannot spin.
         if (!m_navigationEventId.isEmpty())
             failNavigation();
     });
-    // Rows landed. Check here as well as on the completion edge below so the
-    // panel lands on the same frame the page arrived; deciding whether to ask
-    // for ANOTHER page is deliberately not done here, because the model is
-    // still paginating and that request would just be dropped after spending
-    // one of the bounded attempts.
+    // Rows landed: check now so the panel lands on the same frame. Requesting
+    // another page waits for the completion edge, since a request made while
+    // still paginating would be dropped and waste an attempt.
     connect(&m_model, &TimelineModel::olderPrepended, this, [this](int) {
         if (m_navigationEventId.isEmpty())
             return;
@@ -74,15 +69,10 @@ ThreadController::ThreadController(QObject *parent)
         if (row >= 0)
             locateNavigationTarget(row);
     });
-    // THE SDK SUMMARY DOES NOT REACH countChanged, WHICH IS THE ONE
-    // TRANSITION THIS PROPERTY EXISTS FOR. It arrives as an in-place Set on
-    // the root row, and onEventChangedAt emits countChanged only when a
-    // row's virtualness flips — correctly, since a Set cannot change the row
-    // count. So dataChanged has to be listened to as well, and every source
-    // goes through notifyReplyCountIfChanged() rather than the signal
-    // directly: the count is recomputed and announced only when the ANSWER
-    // moves, so a busy timeline cannot turn one Set per receipt into a
-    // re-render per receipt.
+    // The SDK summary arrives as an in-place Set on the root row, which does
+    // not emit countChanged, so dataChanged is watched too. Everything goes
+    // through notifyReplyCountIfChanged(), which only announces when the
+    // number actually changes.
     connect(&m_model, &TimelineModel::countChanged, this,
             &ThreadController::notifyReplyCountIfChanged);
     connect(this, &ThreadController::stateChanged, this,
@@ -90,19 +80,14 @@ ThreadController::ThreadController(QObject *parent)
     connect(&m_model, &TimelineModel::dataChanged, this,
             [this](const QModelIndex &topLeft, const QModelIndex &bottomRight,
                    const QList<int> &roles) {
-                // onEventChangedAt announces ALL roles (an empty list), so
-                // the role filter must treat empty as "might be it" — which
-                // means every SDK Set reaches the next line.
+                // onEventChangedAt announces all roles (an empty list), so
+                // empty must count as a match.
                 if (!roles.isEmpty()
                     && !roles.contains(TimelineModel::ThreadReplyCountRole))
                     return;
-                // COMPARE IDS OVER THE ANNOUNCED RANGE; do not resolve the
-                // root's row. rowForStableId is an unconditional linear scan
-                // (it does not use the rowIndex hash), so asking it first
-                // would put an O(n) lookup in front of a free range test on
-                // every Set — a receipt-frequency cost on long timelines, and
-                // the third time this file would have paid it. The range is
-                // one row in practice, so this is O(1).
+                // Compare ids over the announced range instead of resolving
+                // the root's row: rowForStableId is a linear scan, and this
+                // runs on every Set.
                 const auto &events = m_model.events();
                 const int lo = qMax(0, topLeft.row());
                 const int hi =
@@ -121,9 +106,8 @@ ThreadController::ThreadController(QObject *parent)
         m_modelPaginating = m_model.paginating();
         if (m_navigationEventId.isEmpty() || m_modelPaginating)
             return;
-        // Only a busy -> idle transition is an answer; every other emission
-        // is a state poke (a failure clear, a readiness change) and must not
-        // consume one of the bounded attempts.
+        // Only a busy -> idle transition is an answer; other emissions must
+        // not consume a bounded attempt.
         if (!wasPaginating)
             return;
         continueNavigation();
@@ -201,17 +185,15 @@ void ThreadController::setClient(MatrixClient *client)
                 &ThreadController::onAttachmentQueueFinished);
         connect(m_client, &MatrixClient::loggedOut, this, [this] {
             // Unresolved thread recordings must not outlive the session on
-            // disk; their ops can never resolve past this point. Mirrors
-            // MessageComposer's cleanup for the room path.
+            // disk. Mirrors MessageComposer's cleanup.
             for (const VoiceOp &op : std::as_const(m_voiceOps))
                 QFile::remove(op.localPath);
             m_voiceOps.clear();
         });
         connect(m_client, &MatrixClient::timelineReset, this,
                 [this](const QString &timelineId) {
-                    // Only the currently requested thread's reset promotes
-                    // to Ready; anything else (rooms, stale threads) is not
-                    // ours. Composite-id identity is the staleness gate.
+                    // Only the requested thread's reset promotes to Ready;
+                    // composite-id identity is the staleness gate.
                     if (m_state == Opening && timelineId == this->timelineId())
                         setState(Ready);
                 });
@@ -241,8 +223,7 @@ void ThreadController::setClient(MatrixClient *client)
                         || rootEventId != m_rootEventId)
                         return;
                     if (!ok) {
-                        // The change did not apply; a fresh query restores
-                        // the honest server state.
+                        // The change did not apply; re-query the server state.
                         m_followBusy = false;
                         Q_EMIT followStateChanged();
                         m_client->queryThreadSubscription(m_roomId,
@@ -316,9 +297,9 @@ void ThreadController::openThread(const QString &roomId,
         && m_state != Failed)
         return; // already open/opening — reopening would only reset scroll.
 
-    // v0.7.x: the previous thread's draft is saved BEFORE anything below
-    // mutates the ids the key derives from; the debounce is stopped so a
-    // stale timer cannot write across threads.
+    // Save the previous thread's draft before the ids its key derives from
+    // change, and stop the debounce so a stale timer cannot write across
+    // threads.
     m_draftDebounce.stop();
     saveDraftNow();
 
@@ -326,21 +307,16 @@ void ThreadController::openThread(const QString &roomId,
     m_rootEventId = rootEventId;
     m_failureCategory.clear();
     cancelReply();
-    // A thread switch drops the previous thread's composer text (its draft
-    // was saved above), just like queued attachments below.
+    // Drop the previous thread's composer text (its draft was saved above).
     clearComposerText();
     restoreDraft();
-    // Queued attachments belong to the thread they were prepared in; a thread
-    // switch must never reroute them into the newly opened thread.
+    // Queued attachments belong to the thread they were prepared in.
     clearAttachments();
-    // A reply search still walking the previous thread's history is abandoned
-    // SILENTLY: the reader moved on, and reporting the old thread's failure
-    // over the new one would be noise about something they no longer asked
-    // for. (navigationStale() catches any batch already in flight; this is
-    // the synchronous half.)
+    // Abandon any reply search in the previous thread silently;
+    // navigationStale() handles batches already in flight.
     clearNavigation(/*clearMessage=*/true);
-    // Bind the model to the new composite id BEFORE dispatching so the
-    // arriving snapshot reset is applied, never raced.
+    // Bind the model to the new composite id before dispatching so the
+    // snapshot reset is applied, never raced.
     m_model.setRoomId(timelineId());
     resetFollowState();
     m_lastMarkedReadEventId.clear();
@@ -353,8 +329,7 @@ void ThreadController::openThread(const QString &roomId,
 
 void ThreadController::close()
 {
-    // Closing the panel keeps the draft — it restores when the thread is
-    // reopened.
+    // Closing keeps the draft; it restores when the thread is reopened.
     m_draftDebounce.stop();
     saveDraftNow();
     const bool wasActive = m_state != Closed;
@@ -370,32 +345,17 @@ void ThreadController::close()
     clearNavigation(/*clearMessage=*/true);
     resetFollowState();
     m_lastMarkedReadEventId.clear();
-    // Reclaim any voice recording whose send may never report back. The
-    // thread send result is gated on the THREAD generation, which advances
-    // when the thread closes or another opens — so an op still in flight
-    // here can silently never resolve, and its file would survive until
-    // logout.
-    //
-    // Deleting here is safe because the thread voice path takes the BYTES
-    // up front (rooms::send_thread_voice_path reads the file on the calling
-    // thread and hands over AttachmentSource::Data), so nothing downstream
-    // ever touches this path again. That is a structural guarantee, not a
-    // timing one: with the File variant the SDK's fs::read happens inside
-    // the spawned task, and closing the panel right after Send could delete
-    // the recording before it was read — losing the message silently,
-    // because the advanced thread generation also suppresses the failure
-    // report.
+    // Reclaim voice recordings whose send may never report back: the result
+    // is gated on the thread generation, which advances here. Deleting is
+    // safe because rooms::send_thread_voice_path reads the bytes up front
+    // (AttachmentSource::Data), so nothing touches the path afterwards. Do
+    // not switch it to the File variant, which reads inside the spawned task.
     for (const VoiceOp &op : std::as_const(m_voiceOps))
         QFile::remove(op.localPath);
     m_voiceOps.clear();
     if (wasActive) {
-        // The next thread announces its own count. Braced deliberately: an
-        // earlier revision left setState() as an unbraced follower at the
-        // same indent, which READS as guarded and is not. It happened to be
-        // harmless only because setState() early-returns on an unchanged
-        // state — and stateChanged now fans out to
-        // notifyReplyCountIfChanged(), so narrowing that early return would
-        // have made close() announce on an already-closed controller.
+        // The next thread announces its own count. Keep the braces: close()
+        // must not announce on an already-closed controller.
         m_lastReplyCount = -1;
         setState(Closed);
     }
@@ -416,20 +376,19 @@ void ThreadController::sendTextInternal(const QString &body, bool allowCommands)
     if (!m_client || m_state == Closed || m_roomId.isEmpty()
         || m_rootEventId.isEmpty())
         return;
-    // v0.7: expand inserted @-mentions into matrix.to markdown links and the
-    // deduped MXID list. The refs index into m_text (the tracked composer
-    // text); a caller that does not sync text (no mentions possible) falls
-    // back to the trimmed body.
+    // Expand inserted @-mentions into matrix.to links and the deduped MXID
+    // list. Refs index into m_text; without tracked text, fall back to the
+    // trimmed body.
     const mention::Expansion expansion = mention::expand(m_text, m_mentionRefs);
     QString outBody = expansion.body.trimmed();
     if (outBody.isEmpty())
         outBody = body.trimmed();
     const QStringList mentionIds = expansion.userIds;
 
-    // v0.9 slash commands, same rules as the room composer: parsed BEFORE
-    // attachments dispatch, so a refused command leaves the tray untouched
-    // too. Content commands (/me, /shrug, /spoiler) go out through the
-    // thread lane; room administration acts on the thread's room.
+    // Slash commands follow the room composer's rules: parsed before
+    // attachments dispatch, so a refused command leaves the tray untouched.
+    // Content commands go through the thread lane; room administration acts
+    // on the thread's room.
     if (allowCommands && !outBody.isEmpty()) {
         const SlashCommands::Parse parsed = SlashCommands::parse(outBody);
         switch (parsed.kind) {
@@ -439,18 +398,9 @@ void ThreadController::sendTextInternal(const QString &body, bool allowCommands)
             outBody = parsed.literalText.trimmed();
             break;
         case SlashCommands::Parse::Unknown:
-            // SENT AS TEXT, NOT REFUSED. Reported as issue #11: people run
-            // bots whose command sets Lightning cannot know, so "/new" met
-            // "Unknown command. It was not sent." and a mouse trip to a
-            // button, every single time. A client cannot tell a bot's command
-            // from a typo, and refusing every one of them to guard against
-            // the typo is the wrong trade: the bot case is constant and the
-            // typo case is rare and recoverable by redacting.
-            //
-            // Falls through to the ordinary send with the leading slash
-            // intact, which is what the bot needs to receive. A KNOWN command
-            // with bad arguments still refuses, because there Lightning does
-            // know what was meant. `//text` still escapes to a literal.
+            // Unknown commands are sent as text (issue #11): bots have
+            // command sets Lightning cannot know. A known command with bad
+            // arguments still refuses; `//text` still escapes to a literal.
             break;
         case SlashCommands::Parse::Known: {
             SlashCommands::Actions actions;
@@ -504,9 +454,8 @@ void ThreadController::sendTextInternal(const QString &body, bool allowCommands)
         }
     }
 
-    // Attachments go first — each becomes its own SDK local echo in the
-    // thread — then the text as a separate thread message, matching the room
-    // composer's "files + comment" behaviour.
+    // Attachments first, each its own SDK local echo, then the text as a
+    // separate thread message, matching the room composer.
     dispatchAttachments();
     if (outBody.isEmpty())
         return;   // attachment-only send is valid.
@@ -521,8 +470,8 @@ void ThreadController::sendPrepared(const QString &body, const QString &html,
         || m_rootEventId.isEmpty() || body.trimmed().isEmpty())
         return;
     dispatchAttachments();
-    // Empty html = an unformatted rich-mode message: the PLAIN lane, sent
-    // verbatim rather than re-read as markdown.
+    // Empty html is an unformatted rich-mode message: send verbatim on the
+    // plain lane, not as markdown.
     sendThreadBody(body, mentionUserIds,
                    html.isEmpty()
                        ? QVariantMap{ { QStringLiteral("format"),
@@ -537,10 +486,9 @@ void ThreadController::sendThreadBody(const QString &body,
                                       const QStringList &mentionIds,
                                       const QVariantMap &bodySpec)
 {
-    // Always the backend's SDK thread path (sendThreadReplyTo) — never
-    // sendTextMessage, so a thread reply can never land as an ordinary room
-    // message. An active reply target makes it a rich reply within the thread;
-    // an empty in-reply-to is a plain thread reply.
+    // Always the SDK thread path (sendThreadReplyTo), never sendTextMessage,
+    // so a thread reply cannot land as a room message. An empty in-reply-to
+    // is a plain thread reply.
     if (!m_replyToEventId.isEmpty()) {
         m_client->sendThreadReplyTo(m_roomId, m_rootEventId, m_replyToEventId,
                                     body, mentionIds, bodySpec);
@@ -553,8 +501,7 @@ void ThreadController::sendThreadBody(const QString &body,
 
 void ThreadController::retireComposerDraft()
 {
-    // A dispatched send retires the draft; a pending debounce must not
-    // resurrect the text (delivery state lives on the SDK local echo).
+    // Retire the draft; a pending debounce must not resurrect the text.
     m_draftDebounce.stop();
     if (m_drafts && !timelineId().isEmpty())
         m_drafts->clear(timelineId());
@@ -712,10 +659,8 @@ void ThreadController::dispatchAttachments()
     }
 }
 
-// v0.7 video round: see MessageComposer::dispatchAttachment — a queued
-// video waits for its locally extracted poster, then sends through the
-// SDK's thread-focused path so the m.thread relation and encryption stay
-// SDK-owned exactly as for every other thread attachment.
+// See MessageComposer::dispatchAttachment: a queued video waits for its local
+// poster, then sends through the SDK's thread-focused path.
 void ThreadController::dispatchAttachment(int row)
 {
     if (!m_client || m_state != Ready || m_roomId.isEmpty()
@@ -765,8 +710,7 @@ void ThreadController::sendVoiceMessage(const QString &localPath,
         Q_EMIT attachmentRejected(tr("The voice message could not be sent."));
         return;
     }
-    // Same preflight as the room composer: refuse before uploading what the
-    // server would reject. Silent when the limit is unknown.
+    // Same preflight as the room composer; silent when the limit is unknown.
     const qint64 recordedBytes = QFileInfo(localPath).size();
     if (m_attachments && m_attachments->exceedsUploadLimit(recordedBytes)) {
         QFile::remove(localPath);
@@ -781,17 +725,16 @@ void ThreadController::sendVoiceMessage(const QString &localPath,
     amplitudes.reserve(waveform.size());
     for (const QVariant &value : waveform)
         amplitudes.append(value.toInt());
-    // Capture the target thread NOW: the panel may move before the send
-    // resolves, and the recording belongs to the thread it was made in.
+    // Capture the target thread now; the panel may move before the send
+    // resolves.
     const QString targetRoom = m_roomId;
     const QString targetRoot = m_rootEventId;
     const quint64 opId = m_client->sendThreadVoiceMessage(
         targetRoom, targetRoot, localPath, mime,
         static_cast<qint64>(durationMs), amplitudes);
     if (opId == 0) {
-        // Never queued — and NEVER retried as a room send: a thread voice
-        // message that cannot reach its thread must not land in the main
-        // timeline.
+        // Never retried as a room send: a thread voice message must not land
+        // in the main timeline.
         QFile::remove(localPath);
         Q_EMIT attachmentRejected(tr("The voice message could not be sent."));
         return;
@@ -809,10 +752,8 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
         return;
     if (const auto voiceIt = m_voiceOps.constFind(opId);
         voiceIt != m_voiceOps.constEnd()) {
-        // Cleanup is unconditional; reporting is scoped to the still-open
-        // thread. Both room AND root must still match — a failure from
-        // another thread in the same room is just as misplaced as one from
-        // another room.
+        // Cleanup is unconditional; a failure is reported only while the same
+        // room and root are still open.
         const VoiceOp op = voiceIt.value();
         QFile::remove(op.localPath);
         m_voiceOps.erase(voiceIt);
@@ -828,8 +769,7 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
         if (entries[row].opId != opId)
             continue;   // not ours (the room composer owns other op ids).
         if (ok) {
-            // The SDK local echo now owns this attachment's send state; the
-            // tray entry has served its purpose.
+            // The SDK local echo now owns this attachment's send state.
             entries[row].state = QStringLiteral("sent");
             m_attachments->removeAt(row);
         } else {
@@ -852,8 +792,8 @@ void ThreadController::beginReply(const QString &eventId)
 {
     if (m_state == Closed || eventId.isEmpty())
         return;
-    // Only loaded thread events are valid reply targets (replying to the
-    // root is a plain thread message, so it clears the target instead).
+    // Only loaded thread events are valid reply targets; replying to the
+    // root is a plain thread message, so it clears the target.
     if (eventId == m_rootEventId) {
         cancelReply();
         return;
@@ -900,15 +840,9 @@ QStringList ThreadController::participants() const
 
 int ThreadController::replyCount() const
 {
-    // READ THE EVENT, NOT THE ROLE. ThreadReplyCountRole answers 0 — never
-    // -1 — when the SDK summary is absent, because it falls back to a local
-    // index, so through the role "the server says none", "no summary yet"
-    // and "nothing indexed" are one value. TimelineEvent::threadReplyCount
-    // is -1 in exactly the unknown case, which makes the preference
-    // expressible instead of approximated: an earlier revision took
-    // qMax(role, loaded) to dodge the ambiguity, and that would have pinned
-    // the count high when replies are redacted and a stale num_replies
-    // outlives them.
+    // Read the event, not ThreadReplyCountRole: the role reports 0 when the
+    // summary is absent, while TimelineEvent::threadReplyCount is -1 exactly
+    // when unknown.
     const auto summaryFor = [](const QList<TimelineEvent> &events,
                                const QString &rootId) {
         for (const auto &e : events)
@@ -919,39 +853,19 @@ int ThreadController::replyCount() const
 
     const int rootRow = m_model.rowForStableId(m_rootEventId);
     int known = summaryFor(m_model.events(), m_rootEventId);
-    // The root is not always a row of the THREAD model — rootInfo() has the
-    // same fallback, for the window while the thread snapshot is still
-    // arriving — and that is precisely the case the SDK's number exists for.
-    // Only worth the room-length scan when the thread model does not hold
-    // the root at all.
+    // The root may not be a row of the thread model yet (same fallback as
+    // rootInfo()); only then scan the room timeline.
     if (rootRow < 0 && known < 0 && m_client)
         known = summaryFor(m_client->timeline(m_roomId), m_rootEventId);
 
-    // The REAL events loaded — virtual rows are rows and are not replies —
-    // less the root, when the root is one of them.
+    // Real loaded events (virtual rows are not replies), less the root.
     const int loaded = qMax(0, m_model.realEventCount() - (rootRow >= 0 ? 1 : 0));
 
-    // THE LABEL SITS DIRECTLY ABOVE THE REPLIES, SO IT MUST NEVER CONTRADICT
-    // THEM. Preferring the SDK's number outright was tried and FAILED LIVE on
-    // 2026-09-11: sending a third reply left the divider reading "2 replies"
-    // above three visible ones, and it had not corrected itself 45 seconds
-    // later — the server's thread summary simply had not been re-delivered.
-    // So the loaded replies are a FLOOR, and the SDK's number is consulted
-    // for what lies beyond the loaded window, which a loaded count can never
-    // know about.
-    //
-    // The cost of that choice, recorded rather than hidden: `loaded` can
-    // legitimately exceed the server's truth two ways, and under "the label
-    // describes the rows underneath it" both are CORRECT rather than
-    // tolerated. After a redaction the server may decrement num_replies while
-    // the redacted reply REMAINS a row (onEventRedacted sets `redacted` and
-    // removes nothing, and a redacted event is not virtual). And a failed or
-    // still-sending local echo is a non-virtual row too, so a reply the
-    // server has never seen counts while it is on screen. Either way the
-    // divider can read one above the room's summary card — the card describes
-    // the thread from outside, this label describes the list underneath it,
-    // and a label contradicting the rows it introduces is the defect a reader
-    // actually sees.
+    // The divider sits above the replies, so loaded replies are a floor: the
+    // server summary can lag behind a just-sent reply. The SDK number covers
+    // history beyond the loaded window. As a result the label may exceed the
+    // room card by one after a redaction (the redacted row stays) or while a
+    // local echo is pending; it describes the rows beneath it.
     return qMax(known, loaded);
 }
 
@@ -1129,24 +1043,17 @@ void ThreadController::paginateList()
 
 // ── Reply navigation inside the open thread (contract C5) ───────────────
 //
-// The room timeline's equivalent is PaginationController::jumpToEvent. This
-// is deliberately a SEPARATE implementation rather than a second caller of
-// that controller: a reply preview shown inside a thread panel can only point
-// at another event of that same thread. The SDK's thread-focused timeline
-// drops the falling-back m.in_reply_to and keeps only genuine in-thread
-// relations, so the target is another thread reply or the thread root —
-// never an ordinary room message. Handing any of it to the ROOM history
-// loader would therefore pull the reader out of the thread to hunt for an
-// event the thread itself owns. There is no room-handoff branch here on
-// purpose; "Open in room" stays the one explicit, user-chosen way to leave.
+// Separate from PaginationController::jumpToEvent on purpose. The SDK's
+// thread timeline keeps only in-thread relations, so a reply target is always
+// another thread event or the root; the room history loader must never be
+// used. "Open in room" is the only way out of the thread.
 void ThreadController::navigateToEvent(const QString &eventId)
 {
     if (eventId.isEmpty() || m_state == Closed)
         return;
     if (eventId == m_rootEventId) {
-        // The root is not a row of the reply list: ThreadPanel suppresses its
-        // row and pins it as a card above the replies, so "navigate to the
-        // root" is a pulse of that card. Never a close, never a room jump.
+        // The root is pinned as a card above the replies, so navigating to
+        // it pulses the card.
         clearNavigation(/*clearMessage=*/true);
         setNavigationHighlight(eventId);
         return;
@@ -1178,9 +1085,8 @@ void ThreadController::beginNavigationBatch()
         return;
     }
     const QString id = timelineId();
-    // canPaginate() is false while a batch is loading as well as at the start
-    // of history, so a batch already in flight is ridden rather than treated
-    // as "no more history": its completion edge continues this search.
+    // canPaginate() is also false while a batch is loading; ride that batch,
+    // its completion edge continues the search.
     const bool busy = m_client->paginating(id);
     if (m_navigationBatches >= m_maxNavigationBatches
         || (!busy && !m_client->canPaginate(id))) {
@@ -1191,8 +1097,7 @@ void ThreadController::beginNavigationBatch()
     m_navigationBatchTimer.start(m_navigationBatchTimeoutMs);
     if (!busy)
         m_model.requestOlder();
-    // Re-read rather than assume: the mirror must be right at the start of
-    // every batch or the busy -> idle edge below cannot be recognised.
+    // Re-read so the busy -> idle edge below can be recognised.
     m_modelPaginating = m_client->paginating(id);
 }
 
@@ -1227,8 +1132,7 @@ void ThreadController::locateNavigationTarget(int row)
 void ThreadController::failNavigation()
 {
     clearNavigation(/*clearMessage=*/false);
-    // Deliberately the ROOM's sentence, not a second one: the reader is told
-    // the same fact by the same words wherever the reply lived.
+    // Reuses the room timeline's message so both surfaces read the same.
     m_navigationMessage = PaginationController::unavailableTargetMessage();
     m_navigationMessageTimer.start(
         PaginationController::kNavigationMessageDurationMs);

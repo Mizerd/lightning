@@ -14,9 +14,7 @@ QString sniffedRasterFormat(const QByteArray &bytes)
     if (bytes.size() < 12)
         return {};
     const auto u = [&bytes](int i) { return static_cast<unsigned char>(bytes.at(i)); };
-    // SVG (and any XML/HTML-shaped text) is rejected before anything else:
-    // scan the first bytes for a document that starts with markup once
-    // leading whitespace/BOM is skipped.
+    // Reject anything that starts with markup after whitespace/BOM.
     int first = 0;
     while (first < bytes.size()
            && (u(first) == 0xEF || u(first) == 0xBB || u(first) == 0xBF
@@ -25,9 +23,8 @@ QString sniffedRasterFormat(const QByteArray &bytes)
         ++first;
     if (first < bytes.size() && bytes.at(first) == '<')
         return {};
-    // ONE table, shared with ForwardController and mirrored by the Rust
-    // bridge's rooms::sniff_image_mime — see media/ImageFormatSupport.h. The
-    // copy that used to live here drifted from the others by one format.
+    // One shared table, mirrored by Rust's rooms::sniff_image_mime; see
+    // media/ImageFormatSupport.h.
     return lightning::imagefmt::sniffRasterQtFormat(bytes);
 }
 
@@ -42,8 +39,7 @@ NormalizeResult normalizeIconBytes(const QByteArray &bytes)
         result.category = QStringLiteral("too_large_bytes");
         return result;
     }
-    // Cheap SVG pre-check so the category is honest even though QImageReader
-    // could not load SVG anyway (Qt6::Svg is not linked).
+    // So the category says "svg_rejected" rather than "unsupported_format".
     const QByteArray head = bytes.left(512).toLower();
     if (head.contains("<svg") || head.contains("<?xml")) {
         result.category = QStringLiteral("svg_rejected");
@@ -54,12 +50,8 @@ NormalizeResult normalizeIconBytes(const QByteArray &bytes)
         result.category = QStringLiteral("unsupported_format");
         return result;
     }
-    // IDENTIFIED, AND THIS BUILD STILL CANNOT DRAW IT. Distinct from
-    // "decode_failed", which means corrupt bytes: this is a packaging fact
-    // (a Qt image format is a dlopen'd plugin, so the set differs between a
-    // Linux package and a Windows one — JPEG XL exists on one and not the
-    // other). Saying "decode failed" for a perfectly good file would send the
-    // user hunting a corruption that is not there.
+    // Identified but this build has no plugin for it (image formats are
+    // dlopen'd, so this varies by package). Not a corrupt file.
     if (!lightning::imagefmt::canDecode(format)) {
         result.category = QStringLiteral("format_not_decodable");
         return result;
@@ -69,8 +61,7 @@ NormalizeResult normalizeIconBytes(const QByteArray &bytes)
     buffer.setData(bytes);
     buffer.open(QIODevice::ReadOnly);
     QImageReader reader(&buffer, format.toLatin1());
-    // The sniffed format is authoritative — never let the reader re-guess
-    // from content a different (possibly non-raster) plugin.
+    // The sniffed format is authoritative; never let the reader re-guess.
     reader.setAutoDetectImageFormat(false);
     reader.setAutoTransform(true);
     reader.setAllocationLimit(128); // MB — far above any legitimate icon
@@ -94,7 +85,7 @@ NormalizeResult normalizeIconBytes(const QByteArray &bytes)
         return result;
     }
 
-    // Center-crop to square (aspect preserved — nothing is stretched).
+    // Center-crop to square.
     const int side = qMin(decoded.width(), decoded.height());
     const QRect crop((decoded.width() - side) / 2, (decoded.height() - side) / 2,
                      side, side);
@@ -102,8 +93,7 @@ NormalizeResult normalizeIconBytes(const QByteArray &bytes)
     QImage scaled = square.scaled(kNormalizedEdge, kNormalizedEdge,
                                   Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
 
-    // Circular alpha mask — the same full-bleed circular presentation the
-    // default Lightning logo uses, painted with antialiasing.
+    // Circular alpha mask, matching the default logo.
     QImage out(kNormalizedEdge, kNormalizedEdge, QImage::Format_ARGB32_Premultiplied);
     out.fill(Qt::transparent);
     QPainter painter(&out);

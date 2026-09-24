@@ -123,19 +123,11 @@ bool CacheStore::isOpen() const
     return database().isOpen();
 }
 
-// Qt's QSQLITE driver binds a null QString as SQL NULL, even when the
-// QString is empty-but-non-null on some Qt patch versions. Two of our
-// columns — rooms.child_room_ids and events.thread_root_id — carry
-// NOT NULL constraints from v0.4.5, so binding a null QString for an
-// event that has no thread root violated them with:
-//     "NOT NULL constraint failed: events.thread_root_id"
-// The helper below guarantees a non-null empty string reaches the
-// driver, which the driver then writes as SQL '' — satisfying NOT NULL.
+// QSQLITE can bind an empty QString as SQL NULL, violating the NOT NULL
+// constraints on rooms.child_room_ids and events.thread_root_id. This
+// guarantees a non-null empty string reaches the driver.
 static QVariant textNonNull(const QString &s)
 {
-    // QLatin1String("") is a length-0, non-null underlying storage.
-    // Wrapping in QVariant preserves the string type; if `s` is
-    // empty-or-null we substitute the safe non-null empty literal.
     return QVariant(s.isEmpty() ? QString(QLatin1String("")) : s);
 }
 
@@ -160,10 +152,8 @@ bool CacheStore::ensureSchema()
     QSqlQuery q(db);
 
     static const char *ddl[] = {
-        // v0.4.5 note: for fresh databases we declare the full column set
-        // up front. For pre-v0.4.5 databases the ALTER TABLE migration
-        // below adds the same columns idempotently — either path arrives
-        // at the same schema.
+        // Fresh databases get the full column set here; older ones get the same
+        // columns from the idempotent migration below.
         "CREATE TABLE IF NOT EXISTS rooms ("
         "  id TEXT PRIMARY KEY,"
         "  name TEXT,"
@@ -217,10 +207,8 @@ bool CacheStore::ensureSchema()
         }
     }
 
-    // v0.4.5 migrations: bring existing databases up to the current schema
-    // without destroying user data. SQLite's ALTER TABLE ADD COLUMN is
-    // additive-only and safe; we probe with PRAGMA table_info first so we
-    // don't spam warnings on a fresh database that already has the column.
+    // Additive migrations for existing databases. PRAGMA table_info is probed
+    // first so a fresh database logs no warnings.
     struct AddCol { const char *table; const char *col; const char *ddl; };
     static const AddCol adds[] = {
         { "rooms",  "is_space",
@@ -237,21 +225,14 @@ bool CacheStore::ensureSchema()
         if (!m.exec(QLatin1String(a.ddl))) {
             qCWarning(lcCache) << "migration failed for" << a.table << a.col
                                << m.lastError().text();
-            // Non-fatal: caller can still operate; new fields just won't
-            // persist for that user.
+            // Non-fatal: the new fields just will not persist.
         } else {
             qCInfo(lcCache) << "migrated" << a.table << "->" << a.col;
         }
     }
 
-    // v0.4.8: Repair any historical NULLs in NOT NULL columns.
-    //
-    // SQLite ALTER TABLE ADD COLUMN with `NOT NULL DEFAULT ''` does the
-    // right thing for existing rows — but earlier v0.4.5/6/7 code paths
-    // could have subsequently updated those rows with a null-bound
-    // QString (see textNonNull() above), which is what produced the
-    // "NOT NULL constraint failed" spam. The repair is a no-op on
-    // clean databases and idempotent.
+    // Repair NULLs that older builds wrote into NOT NULL columns (see
+    // textNonNull()). Idempotent, and a no-op on clean databases.
     struct Repair { const char *table; const char *column; };
     static const Repair repairs[] = {
         { "rooms",  "child_room_ids" },
@@ -312,7 +293,7 @@ QList<RoomInfo> CacheStore::loadRooms()
             // Matrix room ids never contain commas, so comma-joining is safe.
             r.childRoomIds = ids.split(QLatin1Char(','), Qt::SkipEmptyParts);
         }
-        // members loaded separately via loadMembers()
+        // Members are loaded separately via loadMembers().
         out.append(r);
     }
     return out;
@@ -351,8 +332,7 @@ void CacheStore::saveRoom(const RoomInfo &r)
                 r.encrypted ? QString{} : r.lastMessagePreview);
     q.bindValue(QStringLiteral(":prevBatch"), r.prevBatchToken);
     q.bindValue(QStringLiteral(":space"),     r.isSpace ? 1 : 0);
-    // v0.4.8: coerce to non-null so the QSQLITE driver writes SQL '' for
-    // rooms that have no children instead of NULL (see textNonNull()).
+    // Non-null, so rooms without children store '' (see textNonNull()).
     q.bindValue(QStringLiteral(":children"),
                 textNonNull(r.childRoomIds.join(QLatin1Char(','))));
     if (!q.exec())
@@ -442,11 +422,9 @@ void CacheStore::updateEvent(const TimelineEvent &e)
 {
     if (!isOpen() || e.eventId.isEmpty()) return;
     if (e.isEncrypted) {
-        // Policy for the Rust E2EE bring-up: encrypted-room plaintext may be
-        // displayed in memory when matrix-sdk decrypts it, but it must not be
-        // persisted into the C++ SQLite cache until the cache/encryption
-        // design is explicit. Delete any stale row with the same id and skip
-        // the upsert entirely.
+        // Decrypted plaintext may be shown in memory but never persisted to
+        // this cache; the SDK store owns encrypted state. Delete any stale row
+        // and skip.
         deleteEvent(e.eventId);
         return;
     }
@@ -496,8 +474,7 @@ void CacheStore::updateEvent(const TimelineEvent &e)
     q.bindValue(QStringLiteral(":h"),       e.mediaHeight);
     q.bindValue(QStringLiteral(":thumb"),   e.mediaThumbnailMxcUrl);
     q.bindValue(QStringLiteral(":react"),   encodeReactions(e.reactions));
-    // v0.4.8: coerce to non-null (empty QString would be bound as SQL
-    // NULL by Qt's SQLITE driver, violating our NOT NULL constraint).
+    // Non-null, see textNonNull().
     q.bindValue(QStringLiteral(":thread"),  textNonNull(e.threadRootId));
     if (!q.exec())
         qCWarning(lcCache) << "updateEvent" << q.lastError().text();
@@ -531,8 +508,8 @@ void CacheStore::replaceEventId(const QString &oldEventId,
         deleteEvent(newEvent.eventId);
         return;
     }
-    // If a real event with the new id already exists (e.g. from /sync), just
-    // remove the local placeholder.
+    // If the real event already exists (e.g. from /sync), just drop the local
+    // placeholder.
     QSqlQuery lookup(database());
     lookup.prepare(QStringLiteral(
         "SELECT event_id FROM events WHERE event_id=:id"));

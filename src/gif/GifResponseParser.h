@@ -5,24 +5,21 @@
 #include <QString>
 #include <QStringList>
 
-// v0.6.1: client-side GIF provider foundation. Pure translation from a
-// provider JSON response (GIPHY or KLIPY trending / search) into safe,
-// presentation-ready result structs. No Qt Network, no FFI, no I/O — fully
-// unit-testable without an API key or a homeserver. The actual bounded HTTPS
-// request belongs Rust-side (mirroring rooms.rs safe_get); this layer only
-// interprets the bytes it is handed and enforces the client-side safety rules.
+// Pure translation of a GIPHY or KLIPY trending/search response into safe,
+// presentation-ready results. No network, FFI or I/O; the bounded HTTPS
+// request lives Rust-side.
 //
 // Safety contract:
-//  - result URLs are provider CDN https URLs used ONLY to (a) render a bounded
-//    preview through the existing safe media path and (b) download the real GIF
-//    bytes before sending as m.image — never rendered as a raw Image source,
-//    never sent as a bare URL message;
-//  - only https provider-CDN hosts (per provider: *.giphy.com / *.klipy.com)
-//    are accepted for the sendable variant;
-//  - provider tracking query params are stripped;
-//  - no API key, response headers, or raw provider JSON are ever surfaced;
-//  - a safe-search rating cap drops results above the configured rating,
-//    including results whose rating is missing/unknown.
+//  - result URLs are provider CDN https URLs used only to render a bounded
+//    preview through the safe media path and to download the real bytes
+//    before sending as m.image; never a raw Image source or a bare URL
+//    message;
+//  - only https provider-CDN hosts (*.giphy.com / *.klipy.com) are accepted
+//    for the sendable variant;
+//  - provider tracking query parameters are stripped;
+//  - no API key, response header or raw provider JSON is ever surfaced;
+//  - the safe-search cap drops results above the configured rating, and
+//    results with a missing or unknown rating.
 namespace gif {
 
 // One safe GIF ready for the picker / send pipeline.
@@ -40,14 +37,10 @@ struct GifResult {
     int gifHeight = 0;
     qint64 gifBytes = 0;   // 0 = unknown
     QString mp4Url;        // optional preview video — NEVER sent as a gif
-    // 2026-08 media round: canonical suffix ("gif"/"png"/"jpg"/"webp") for a client-local
-    // saved row (provider == "local" — see GifStarredStore). ALWAYS empty
-    // for a provider (giphy/klipy) row. Empty on a local row means either a
-    // legacy entry persisted before raster generalization (treat as "gif" —
-    // the only format that existed then) or "not yet validated"; callers
-    // that need the true on-disk format re-derive it from the store rather
-    // than trusting this field as the sole source, exactly like every other
-    // GifStarredStore lookup re-validates against disk.
+    // Canonical suffix ("gif"/"png"/"jpg"/"webp") for a locally saved row
+    // (provider "local"); always empty for provider rows. Empty on a local row
+    // means a legacy entry ("gif"). Callers needing the real format ask the
+    // store, which re-validates against disk.
     QString localExt;
 };
 
@@ -69,23 +62,21 @@ struct ParseOutcome {
 inline constexpr int kMaxGifDimension = 4096;
 inline constexpr qint64 kMaxGifBytes = 25LL * 1024 * 1024; // 25 MiB
 
-// Parse a GIPHY v1 trending/search response. `requestOffset` is the offset the
-// request used, so nextOffset can be derived without trusting echoed input.
+// `requestOffset` is the request's own offset, so nextOffset does not trust
+// echoed input.
 ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
                         int requestOffset);
 
-// Parse a KLIPY v1 trending/search response. `requestPage` is the 0-based page
-// the request used. KLIPY does not return a per-item rating, so `requestRating`
-// records the safe-search level applied at request time onto each result.
+// `requestPage` is the 0-based page requested. KLIPY returns no per-item
+// rating, so the request's safe-search level is recorded on each result.
 ParseOutcome parseKlipy(const QByteArray &json, Rating requestRating,
                         int requestPage);
 
 Rating ratingFromString(const QString &value);
 QString ratingToString(Rating r);
 
-// True when `itemRating` is at or below `maxRating`. Missing/unknown ratings
-// are treated as the most permissive (R), so they are excluded unless the user
-// explicitly allows R.
+// True when `itemRating` is at or below `maxRating`. Missing or unknown
+// ratings count as R, so they are excluded unless R is allowed.
 bool ratingWithin(const QString &itemRating, Rating maxRating);
 
 // True when `url` is an https URL on one of `allowedHostSuffixes` (e.g.
@@ -94,18 +85,16 @@ bool ratingWithin(const QString &itemRating, Rating maxRating);
 bool isSendableGifUrlForHosts(const QString &url,
                               const QStringList &allowedHostSuffixes);
 
-// GIPHY convenience overload (*.giphy.com) — retained for the existing tests.
+// GIPHY overload (*.giphy.com).
 bool isSendableGifUrl(const QString &url);
 
 // Remove provider tracking query params, keeping the bare CDN path.
 QString stripTracking(const QString &url);
 
-// v0.6.6: byte-level GIF validation for bytes that never go through the
-// Rust provider-download path (see GifStarredStore / the "star a chat GIF"
-// local-media pipeline). Mirrors rust/src/gifs.rs::validate_gif_bytes
-// exactly and deliberately (magic bytes, logical-screen-descriptor
-// width/height, the same kMaxGifDimension/kMaxGifBytes caps) so a locally
-// sourced GIF is held to the identical bar as a provider-downloaded one.
+// Byte-level GIF validation for bytes that do not come through the Rust
+// provider download (locally saved chat GIFs). Matches
+// rust/src/gifs.rs::validate_gif_bytes exactly: magic, logical screen size,
+// kMaxGifDimension and kMaxGifBytes.
 struct GifByteValidation {
     bool ok = false;
     // "not_a_gif" | "invalid_media" | "too_large" | "" when ok.
@@ -115,29 +104,20 @@ struct GifByteValidation {
 };
 GifByteValidation validateGifBytes(const QByteArray &bytes);
 
-// 2026-08 media round: byte-level validation for ANY of the raster formats Lightning
-// accepts for a locally-saved chat image (GIF/PNG/JPEG/WebP) — the general
-// form of validateGifBytes above, used by GifStarredStore's "save this
-// image" path and GifSendController's local-send path. The bytes decide the
-// real format; a claimed extension or Content-Type is NEVER trusted (a PNG
-// renamed ".gif", an SVG, an HTML error page, or any other unsupported
-// content is rejected). Mirrors validateGifBytes's own caps
-// (kMaxGifDimension, kMaxGifBytes) for every format, so a PNG/JPEG/WebP is
-// held to the identical bar as a GIF — and never transcoded: the stored
-// bytes are always exactly what was validated.
+// Byte-level validation for any raster format accepted for a locally saved
+// image (GIF/PNG/JPEG/WebP), used by GifStarredStore and GifSendController.
+// The bytes decide the format; a claimed extension or Content-Type is never
+// trusted. Same caps as validateGifBytes for every format, and the stored
+// bytes are exactly what was validated.
 struct RasterByteValidation {
     bool ok = false;
-    // "invalid_media" | "too_large" | "unsupported_format" | "" when ok.
-    // Never "not_a_gif" — that is validateGifBytes' own magic-mismatch
-    // category, and this function only enters the GIF branch after already
-    // confirming the GIF magic bytes itself.
+    // "invalid_media" | "too_large" | "unsupported_format" | "" when ok. Never
+    // "not_a_gif".
     QString category;
-    // Canonical suffix for the validated bytes — "gif" | "png" | "jpg" |
-    // "webp" — decided by the magic bytes, never a filename or claimed
-    // type. Empty when !ok.
+    // "gif" | "png" | "jpg" | "webp", from the magic bytes. Empty when !ok.
     QString ext;
-    // The truthful MIME for what the bytes actually are: "image/gif" |
-    // "image/png" | "image/jpeg" | "image/webp". Empty when !ok.
+    // What the bytes actually are: "image/gif" | "image/png" | "image/jpeg" |
+    // "image/webp". Empty when !ok.
     QString mime;
     int width = 0;
     int height = 0;

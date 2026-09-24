@@ -6,7 +6,7 @@
 
 class MatrixClient;
 
-// v0.3: coordinates media picking + upload/send. The composer bar in QML
+// Coordinates media picking + upload/send. The composer bar in QML
 // calls pickAndSendMedia(...) which uses a QML FileDialog for path selection
 // and then forwards to the client's send{Image,File}(). Downloading is
 // handled via MatrixClient::mediaDownloadUrl -> QDesktopServices::openUrl.

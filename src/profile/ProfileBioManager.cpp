@@ -21,8 +21,7 @@ void ProfileBioManager::setClient(MatrixClient *client)
             &ProfileBioManager::handleReceived);
     connect(m_client, &MatrixClient::profileBioSet, this,
             &ProfileBioManager::handleSet);
-    // A bio belongs to the account that fetched it. The next account's profile
-    // cards must not inherit the previous one's answers.
+    // Answers belong to the account that fetched them.
     connect(m_client, &MatrixClient::loggedOut, this,
             &ProfileBioManager::clearSession);
     Q_EMIT availableChanged();
@@ -49,8 +48,7 @@ void ProfileBioManager::request(const QString &userId)
 {
     if (!available() || userId.isEmpty() || !m_supported)
         return;
-    // Once per user per session: a profile popover that opens, closes and
-    // opens again must not cost two requests.
+    // Once per user per session.
     if (m_asked.contains(userId))
         return;
     if (m_cache.size() >= kMaxCached)
@@ -76,8 +74,7 @@ void ProfileBioManager::setOwnBio(const QString &text)
     setLastError({});
     m_pendingWrite = m_nextOpId++;
     Q_EMIT busyChanged();
-    // Whitespace-only IS a clear; Rust decides that, so the two entry points
-    // stay one code path and cannot disagree about what "empty" means.
+    // Rust decides that whitespace-only clears, so both paths agree.
     m_client->setProfileBio(text, m_pendingWrite);
 }
 
@@ -108,9 +105,7 @@ void ProfileBioManager::handleReceived(quint64 opId, const QString &userId,
     m_inFlight.erase(it);
 
     if (!supported && m_supported) {
-        // Latched for the session: the server has said it does not know the
-        // endpoint, so every further request would ask the same question and
-        // get the same answer. It clears with the session.
+        // Latched for the session: the server does not know the endpoint.
         m_supported = false;
         Q_EMIT supportedChanged();
     }
@@ -126,10 +121,8 @@ void ProfileBioManager::handleSet(quint64 opId, bool ok, const QString &bio,
     Q_EMIT busyChanged();
     if (!ok) {
         setLastError(category.isEmpty() ? QStringLiteral("failed") : category);
-        // A write that came back unrecognised settles the same question a read
-        // settles, and settles it more definitively — the endpoint is not
-        // there. Without this the account could be invited to fail at the same
-        // write indefinitely. It clears with the session, like the read latch.
+        // An unrecognised write settles it too; latch it, or the account could
+        // retry a failing write forever.
         if (category == QLatin1String("unsupported") && m_supported) {
             m_supported = false;
             Q_EMIT supportedChanged();
@@ -137,9 +130,8 @@ void ProfileBioManager::handleSet(quint64 opId, bool ok, const QString &bio,
         return;
     }
     setLastError({});
-    // NOT optimistic: the server has accepted this write, and the value cached
-    // is the one the write path reports actually stored — the bounded,
-    // sanitized text, not what was typed into the field.
+    // Not optimistic: the server accepted the write, and the cached value is
+    // the bounded, sanitized text actually stored.
     if (m_client) {
         const QString own = m_client->currentUserId();
         m_asked.insert(own);

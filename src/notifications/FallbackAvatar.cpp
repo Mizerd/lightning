@@ -47,9 +47,7 @@ QString initialsFor(const QString &name)
 QImage fallbackAvatar(const QString &name, const QString &colorKey, int edge,
                       int themeId)
 {
-    // Avatar.qml's _paletteKey: the explicit identity key when there is one,
-    // otherwise the display name, so the disc matches whatever the interface
-    // drew for the same identity.
+    // Avatar.qml's _paletteKey: the identity key, else the display name.
     const QString paletteKey = colorKey.isEmpty() ? name : colorKey;
     if (edge <= 0 || paletteKey.isEmpty())
         return {};
@@ -68,9 +66,8 @@ QImage fallbackAvatar(const QString &name, const QString &colorKey, int edge,
     font.setBold(true);
     font.setPixelSize(qMax(1, int(edge * 0.42)));
     painter.setFont(font);
-    // The ink THIS disc can carry, exactly as Avatar.qml picks it. Half the
-    // slots are pale — that alternation is what keeps two rooms apart once
-    // the hues share one family — and white on a pale disc is unreadable.
+    // The ink this disc can carry, as Avatar.qml picks it: half the slots are
+    // pale, and white on a pale disc is unreadable.
     painter.setPen(lightning::theme::discInk(
         lightning::theme::identityIndex(paletteKey),
         lightning::theme::anchorForTheme(themeId)));

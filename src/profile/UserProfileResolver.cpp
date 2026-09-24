@@ -19,20 +19,10 @@ void UserProfileResolver::setClient(MatrixClient *client)
     if (m_client) {
         connect(m_client, &MatrixClient::userProfileFinished, this,
                 &UserProfileResolver::onFinished);
-        // A PROFILE BELONGS TO THE ACCOUNT THAT RESOLVED IT.
-        //
-        // This is the session boundary production actually crosses.
-        // AppController builds ONE MatrixClient in its constructor and keeps
-        // it for the process, so an account switch is `detachSession()`
-        // (which emits loggedOut) followed by `restoreSession()` on the same
-        // object — and `setClient` above returns early when the pointer has
-        // not changed. Without this the previous account's global display
-        // names and avatar URIs were still handed to the next account's
-        // mention pills and profile cards, and a refusal remembered under one
-        // account silenced the question under the next.
-        //
-        // Its three siblings in this directory — NameColorManager,
-        // ProfileBannerManager and ProfileBioManager — all do exactly this.
+        // Profiles belong to the account that resolved them. An account switch
+        // reuses the same MatrixClient (detachSession() emits loggedOut), so
+        // setClient() alone would carry names, avatars and refusals over to the
+        // next account. The sibling profile managers do the same.
         connect(m_client, &MatrixClient::loggedOut, this,
                 &UserProfileResolver::clear);
     }
@@ -96,8 +86,7 @@ void UserProfileResolver::onFinished(quint64 opId, bool ok,
     const QString asked = it.value();
     m_inFlight.erase(it);
     m_asking.remove(asked);
-    // The answer names the user it is about; a mismatch is a backend fault
-    // and is not stored under the user that was asked for.
+    // An answer about a different user is a backend fault; not stored.
     if (!ok || (!userId.isEmpty() && userId != asked)) {
         m_failedAt.insert(asked, m_clock.elapsed());
         return;

@@ -2,7 +2,7 @@
 
 #include "gif/GifStoredModel.h"
 
-// v0.6.1: locally-persisted GIF favorites (cross-provider; each entry keeps its
+// Locally persisted GIF favorites (cross-provider; each entry keeps its
 // provider identity). Toggle from the picker; stable, deduped, bounded.
 class GifFavoritesModel : public GifStoredModel
 {

@@ -1,10 +1,8 @@
 #pragma once
 
-// Development-only. Compiled ONLY in a LIGHTNING_ENABLE_SCREENSHOT_DEMO build
-// (see CMakeLists.txt). Drives the screenshot-demo scenario catalogue, the
-// in-app control panel, window presets, theme/appearance selection, and the
-// per-account selected-room memory — all through the SAME AppController /
-// SettingsManager paths the normal UI uses. Never present in a release binary.
+// Development-only; compiled only with LIGHTNING_ENABLE_SCREENSHOT_DEMO.
+// Drives the screenshot scenario catalogue and demo control panel through the
+// same AppController/SettingsManager paths the normal UI uses.
 
 #include <QObject>
 #include <QHash>
@@ -19,7 +17,6 @@ class ScreenshotDemoController : public QObject
 {
     Q_OBJECT
 
-    // Catalogue + current selection, all bindable by the control panel.
     Q_PROPERTY(QVariantList scenarios READ scenarios CONSTANT)
     Q_PROPERTY(QVariantList accounts READ accounts CONSTANT)
     Q_PROPERTY(QVariantList themes READ themes CONSTANT)
@@ -28,8 +25,7 @@ class ScreenshotDemoController : public QObject
 
     Q_PROPERTY(QString currentScenario READ currentScenario NOTIFY currentScenarioChanged)
     Q_PROPERTY(QString currentAccount READ currentAccount NOTIFY stateChanged)
-    // The active account's non-space rooms ({id, name}), for the panel's Room
-    // selector. Refreshes on any state change (account/room switch).
+    // The active account's non-space rooms ({id, name}).
     Q_PROPERTY(QVariantList currentRooms READ currentRooms NOTIFY stateChanged)
     Q_PROPERTY(QString currentAccountName READ currentAccountName NOTIFY stateChanged)
     Q_PROPERTY(QString currentRoom READ currentRoom NOTIFY stateChanged)
@@ -67,30 +63,23 @@ public:
     bool typingEnabled() const { return m_typingEnabled; }
     bool unreadBadgesEnabled() const { return m_unreadEnabled; }
 
-    // Map a theme name ("ocean"/"midnight"/"violet"/"dark"/…) to a
-    // SettingsManager::Theme id, or -1 if unknown. Static so the launcher CLI
-    // and the panel share one mapping.
+    // Theme name to SettingsManager::Theme id, or -1 if unknown.
     static int themeIdForName(const QString &name);
-    // Map a size preset ("1440x900"/"narrow"/"wide"/…) to width/height, or
-    // false if unsupported/unsafe. Static so the CLI can validate it too.
+    // Size preset or bounded "WxH" to width/height; false if unsupported.
     static bool sizeForPreset(const QString &preset, int *w, int *h);
     static bool isValidScenario(const QString &id);
     static QStringList scenarioIds();
-    // The account a scenario runs on (full user id), or empty if unknown. Lets
-    // the launcher restore that account directly at boot so a cross-account
-    // launch scenario lands instantly instead of switching after the fact.
+    // The scenario's account, so the launcher can restore it directly at boot.
     static QString scenarioAccount(const QString &id);
 
-    // Apply the launcher/CLI-provided initial demo options once, after the
-    // first frame is up. Empty strings are ignored.
+    // Applied once on the first main-screen transition; empty strings are
+    // ignored.
     void applyLaunchOptions(const QString &scenario, const QString &theme,
                             const QString &appearance, const QString &size,
                             bool hideControls);
 
 public Q_SLOTS:
-    // One-click scenario activation: performs ALL navigation (account, room,
-    // space, thread/settings/switcher page, theme, appearance, window size,
-    // typing, controls) deterministically.
+    // Performs all of the scenario's navigation and presentation state.
     void activateScenario(const QString &id);
 
     void setAccount(const QString &userId);
@@ -120,23 +109,12 @@ Q_SIGNALS:
     void controlsVisibleChanged();
     void toggleStateChanged();
     void windowSizeChanged();
-    // The window can only be resized from QML (there is no C++ handle). The
-    // panel/Main connects this to Window.window width/height (imperative, so
-    // the user can still resize afterwards).
+    // Applied imperatively in QML so the user can still resize afterwards.
     void windowSizeRequested(int width, int height);
-    // Open the real account-switcher popover (a QML-local element on the rail).
     void accountSwitcherRequested();
 
-    // Development-only demo-scenario popup hooks. Each Scenario may name one
-    // of these in its `popup` field; activateScenario() fires the matching
-    // signal once navigation to the scenario's room/section has settled
-    // (same spirit as accountSwitcherRequested above). A production build
-    // never emits these (the whole class is compiled out); QML Connections
-    // with `enabled: app.screenshotDemoActive` and a null target in a
-    // non-demo build make wiring them an inert no-op there too. The surface
-    // that owns each popup/dialog decides which item to target (e.g. which
-    // message/room row, which room member) — the controller only says
-    // "open now", never which instance.
+    // Popup hooks fired once a scenario's navigation has settled. The owning
+    // QML surface chooses which instance to open.
     void demoOpenMessageContextMenu();
     void demoOpenRoomContextMenu();
     void demoOpenFindBar(const QString &query);
@@ -150,14 +128,9 @@ Q_SIGNALS:
     void demoFocusSettingsSearch(const QString &query);
     void demoOpenInvitePeople();
     void demoOpenCreatePoll();
-    /// 0.8.5: open Room Information at one named section, so a surface that
-    /// lives inside it (the widget list) can be photographed. The section
-    /// string is RoomInfoPanel's own vocabulary — "" leaves it on whichever
-    /// section the panel opens with.
+    /// Opens Room Information at a RoomInfoPanel section ("" = default).
     void demoOpenRoomInfo(const QString &section);
-    /// 0.8.5: open Find already switched to History, which is the only state
-    /// that renders the local-index coverage row and its "Index this room"
-    /// button — an empty or loaded-mode find bar shows neither.
+    /// Opens Find in History mode, which renders the local-index coverage row.
     void demoOpenFindBarHistory(const QString &query);
 
 private:
@@ -165,20 +138,12 @@ private:
     static const QList<Scenario> &catalogue();
     const Scenario *findScenario(const QString &id) const;
     void applyScenarioNavigation(const Scenario &s);
-    // Fire the Scenario's `popup` signal (if any) one event-loop tick after
-    // navigation, guarded against a newer scenario having taken over in the
-    // meantime. `scenarioId` is the owning scenario id (staleness check),
-    // `popup` the field value, `query` its optional seed text.
+    // Emits the popup signal one tick later unless a newer scenario took over.
     void dispatchScenarioPopup(const QString &scenarioId, const QString &popup,
                                const QString &query);
-    // Seed local, demo-only state so a popup scenario has something to show
-    // (emoji recents / a favorited GIF) instead of an empty section. Both
-    // are idempotent — safe to call on every activation/reset.
+    // Idempotent seeds so picker scenarios are not empty.
     void seedDemoEmojiRecents();
     void seedDemoGifFavorite();
-    // v0.6.7: a browsable local catalogue for the picker's provider tabs, and
-    // a real locally-saved GIF for its Saved tab. See the .cpp for why the
-    // previous *.example seed could only ever render a broken thumbnail.
     void seedDemoGifCatalogue();
     void seedDemoSavedGif();
     void applyLaunchNow();
@@ -195,11 +160,9 @@ private:
     bool m_controlsVisible = true;
     bool m_typingEnabled = true;
     bool m_unreadEnabled = true;
-    // Guards the account-switch-complete auto-restore so scenario/explicit
-    // navigation is not overridden by the remembered-room restore.
+    // Stops the remembered-room restore overriding scenario navigation.
     bool m_suppressRoomRestore = false;
-    // A scenario whose room/panel navigation is deferred until an in-flight
-    // account switch completes.
+    // Scenario waiting for an in-flight account switch.
     QString m_pendingScenario;
     QHash<QString, QString> m_selectedRoomPerAccount;
     // Launcher/CLI options, applied once on the first main-screen transition.

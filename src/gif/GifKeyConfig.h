@@ -15,9 +15,9 @@
 //   3. key compiled into an official release build
 //   4. unavailable
 //
-// Key VALUES never leave this module except as the resolved key handed to the
-// provider transport. Diagnostics may expose only the provider name, a
-// configured boolean, the sanitized source class, and the key length.
+// Key values never leave this module except to the provider transport.
+// Diagnostics may expose only the provider, a configured flag, the source
+// class and the key length.
 namespace gif {
 
 enum class KeySourceClass { Absent, BuildKey, EnvFile, Environment };

@@ -10,11 +10,8 @@
 namespace lightning::theme {
 namespace {
 
-// The lightness ladder. It alternates deep and pale ON PURPOSE: once nine
-// hues are pulled into one 190-degree family, hue alone no longer separates
-// adjacent slots, and pinning every disc under the white-text luminance cap
-// removes the only other axis. Alternating lightness is what buys the
-// separation back — and it is why the initials ink has to be chosen per disc.
+// Alternates deep and pale: within one 190-degree family hue alone does not
+// separate adjacent slots. Hence the initials ink is chosen per disc.
 constexpr std::array<double, kIdentitySlots> kLightness = {
     0.30, 0.56, 0.38, 0.62, 0.33, 0.58, 0.42, 0.60, 0.35,
 };
@@ -22,41 +19,14 @@ constexpr std::array<double, kIdentitySlots> kLightness = {
 // Degrees of hue the nine slots span, centred on the theme's accent.
 constexpr double kArcDegrees = 190.0;
 
-// The magenta wedge, held back.
-//
-// At these lightnesses magenta and hot pink are the loudest part of the
-// wheel: two of them in a room list read as a lot more than two, and on a
-// cool theme they are the slots furthest from anything the shell is made of.
-// Indigo Night's accent sits at 239 degrees, so the arc's warm end lands
-// squarely here and the fallback avatars came out pink — reported in exactly
-// those words.
-//
-// Damping the SATURATION rather than moving the hue is what keeps this from
-// costing anything else: rotating or narrowing the arc either collapses
-// several dark themes onto one identical family (they all end up clamped to
-// the same span) or drops the all-pairs separation below the gate. This
-// leaves every hue where it is, so the families stay distinct and the worst
-// pair across all eleven themes is unchanged at dE 19.7 — the two affected
-// slots simply become mauve and plum instead of pink and magenta.
+// Magenta and hot pink are the loudest discs at these lightnesses. Saturation
+// is damped rather than the hue moved: rotating or narrowing the arc collapses
+// several themes onto one family or breaks the all-pairs separation gate.
 constexpr double kMagentaLowDegrees = 290.0;
 constexpr double kMagentaHighDegrees = 350.0;
 constexpr double kMagentaDamping = 0.55;
 
-// The yellow-green wedge, held back for the same reason.
-//
-// Yellow-green is where the wheel is BRIGHTEST: at the pale end of the
-// lightness ladder a fully-chroma'd 99 degrees is the loudest colour a disc
-// can be, and it belongs to no theme's family — the arc simply passes
-// through it. Warm's accent sits at 28 degrees, so its 190-degree arc puts
-// slots at 75 and 99 and the room list came out with lime discs on a cream
-// window; reported, accurately, as looking silly. Deep Teal and Mossy reach
-// the same wedge from the other side.
-//
-// Damped, not moved, exactly as the magenta wedge is: rotating or narrowing
-// the arc collapses several themes onto one family, and the all-pairs
-// separation gate in ThemeTokensTest is what says whether a change is
-// affordable. These two slots become olive and sage instead of mustard and
-// lime, and nothing else moves.
+// Yellow-green, the brightest part of the wheel, damped the same way.
 constexpr double kLimeLowDegrees = 62.0;
 constexpr double kLimeHighDegrees = 108.0;
 constexpr double kLimeDamping = 0.55;
@@ -127,9 +97,8 @@ int clampSlot(int index)
 
 int identityIndex(const QString &key)
 {
-    // JavaScript's `h = ((h << 5) - h + c) | 0` is 32-bit wrapping signed
-    // arithmetic. Done in UNSIGNED here and reinterpreted, because signed
-    // overflow is undefined in C++ and would be free to compute anything.
+    // JavaScript's `h = ((h << 5) - h + c) | 0` wraps at 32 bits. Computed
+    // unsigned and reinterpreted, since signed overflow is UB in C++.
     quint32 hash = 0;
     for (const QChar character : key)
         hash = (hash << 5) - hash + character.unicode();
@@ -144,8 +113,7 @@ QColor discColor(int index, const QColor &accent)
     const int slot = clampSlot(index);
     double lightness = kLightness[size_t(slot)];
     QColor disc = slotColor(slot, accent, lightness);
-    // Push the disc away from mid-tone until SOME ink clears 4.5:1 on it.
-    // A disc nobody can read initials on is not an identity colour.
+    // Push the disc away from mid-tone until an ink clears 4.5:1 on it.
     const bool preferWhite = lightness <= 0.5;
     for (int guard = 0; guard < 24; ++guard) {
         const QColor ink = preferWhite ? QColor(Qt::white) : darkInk();
@@ -171,24 +139,10 @@ QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces)
 {
     const int slot = clampSlot(index);
 
-    // THE SAME HUE AS THE DISC. That is the whole point: a person's avatar
-    // and their name are one identity, and the arc arithmetic below is
-    // deliberately identical to slotColor()'s so the two cannot drift.
+    // Same anchor as the discs, but a wider arc: at text lightness nine inks
+    // 23.75 degrees apart are not distinguishable, whatever the lightness
+    // pattern. A filled disc can afford a tighter family than thin text.
     const double accentHue = accent.hueF() < 0.0 ? 0.0 : accent.hueF();
-    // A WIDER ARC THAN THE DISCS USE, and this is measured rather than
-    // chosen. Nine inks spread over the discs' 190 degrees are 23.75 degrees
-    // apart, and at the lightness a legible text ink needs that is simply not
-    // nine distinguishable colours: the worst pair across the eleven themes
-    // came out dE 3.3 (Nordic), against a floor of 12. No lightness pattern
-    // rescues it — 2-phase, 3-phase and a full permutation were all tried and
-    // all failed on the slots two apart.
-    //
-    // The old hand-tuned tables cleared the floor comfortably because they
-    // used 321 degrees of the wheel, which is exactly why they matched no
-    // theme. A filled disc can afford a tight family; thin text cannot.
-    //
-    // So the ink family stays CENTRED ON THE THEME's anchor — that is what
-    // makes it the theme's palette — and spends more of the wheel around it.
     constexpr double kInkArcDegrees = 340.0;
     const double offset = (double(slot) / double(kIdentitySlots - 1) - 0.5)
                           * (kInkArcDegrees / 360.0);
@@ -196,25 +150,16 @@ QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces)
     if (hue < 0.0)
         hue += 1.0;
 
-    // More chroma than the pale disc slots carry. A disc is a filled shape
-    // and reads at low saturation; a name is thin strokes on a flat ground
-    // and washes out at the same value.
+    // More chroma than the discs: thin strokes wash out at disc saturation.
     double saturation = 0.80;
-    // THE MAGENTA DAMPING IS A DISC RULE AND DOES NOT TRANSFER. It exists
-    // because two filled pink discs in a room list read as far more than two
-    // — a solid shape at that hue is the loudest thing on the surface. A
-    // NAME is thin strokes, and damping it there does not calm anything; it
-    // just removes the chroma that tells two adjacent slots apart. Measured:
-    // Lightning Light's slots 7 and 8 both land in the wedge (296 and 320
-    // degrees) and came out dE 11.9, under the floor, purely from this.
-    // Eased rather than dropped, so the wedge is still the quieter end.
+    // Only a light magenta easing: the disc-strength damping would erase the
+    // chroma that separates adjacent name inks.
     const double degrees = hue * 360.0;
     if (degrees >= kMagentaLowDegrees && degrees <= kMagentaHighDegrees)
         saturation *= 0.88;
 
-    // Which direction to walk is decided by the GROUND, not by a dark/light
-    // flag — a custom theme has no flag to consult, and the surfaces are the
-    // truth in either case.
+    // Direction is decided by the surfaces, not a dark/light flag, so custom
+    // themes work too.
     double meanLuminance = 0.0;
     for (const QColor &surface : surfaces)
         meanLuminance += relativeLuminance(surface);
@@ -222,62 +167,20 @@ QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces)
         meanLuminance /= double(surfaces.size());
     const bool darkGround = meanLuminance < 0.18;
 
-    // ALTERNATE THE LIGHTNESS, for the same reason the disc ladder does.
-    // Nine hues 23.75 degrees apart, all solved to the same lightness, are
-    // not nine tellable-apart colours: measured, Lightning Dark's slots 4
-    // and 5 came out dE 9.8 — below the floor the palette has advertised
-    // since the 2026-08-21 de-duplication. Hue is not enough on its own once
-    // the family is this tight.
-    //
-    // The bump is applied AFTER the contrast floor is found and always in
-    // the direction of MORE contrast, so it can never undo legibility: on a
-    // dark ground a lighter ink is a safer ink, and on a light ground a
-    // darker one is.
-    // EVERY SLOT A DIFFERENT LIGHTNESS, spread by permutation.
-    //
-    // Nine hues 23.75 degrees apart are not nine tellable-apart colours on
-    // their own: light inks on a dark ground desaturate perceptually and
-    // neighbouring hues converge. The disc ladder solves this by alternating
-    // lightness, and this is the same idea taken further — a 2-phase
-    // alternation leaves slots two apart identical (measured dE 10.3), and a
-    // 3-phase one only pushes the collision further out (dE 11.9).
-    //
-    // `slot * 4 % 9` is a full permutation of 0..8 whose consecutive values
-    // are always four steps apart, so ADJACENT slots get maximally different
-    // lightness and no two slots share one. The bump is applied AFTER the
-    // contrast floor and always toward MORE contrast, so it can never cost
-    // legibility: lighter on a dark ground, darker on a light one.
-    // With the arc widened, hue carries most of the separation and the
-    // lightness only has to break ties between neighbours, so a plain
-    // alternation is enough.
-    // THREE phases, not two. A 2-phase alternation gives slots two apart the
-    // SAME lightness, and on the themes whose elevated cards are lightest
-    // (Nordic, Purple Dusk) every ink is already pushed near the top of the
-    // range to clear 4.5:1 — so hue is doing the work alone up there and 4/6
-    // collapsed to dE 6.1. Three phases give every slot a different lightness
-    // from both neighbours and from the next one out.
-    // `slot * 2 % 9` walks every ninth of the range exactly once, so no two
-    // slots share a lightness and — unlike a 3-phase cycle — slots THREE
-    // apart differ too. That was the last collision standing: Nordic's 4 and
-    // 7 shared a phase and, on a theme whose elevated card pushes every ink
-    // to the top of the range, lightness was the only axis left.
+    // A per-slot lightness bump breaks ties where inks are pushed to the top
+    // of the range and hue alone separates them. `slot * 2 % 9` is a
+    // permutation of 0..8, so no two slots share a lightness. Applied after
+    // the contrast floor and always toward more contrast, so it never costs
+    // legibility.
     constexpr double kInkSpread = 0.20;
     const double bump = double((slot * 2) % kIdentitySlots)
                         / double(kIdentitySlots - 1) * kInkSpread;
 
 
-    // SATURATION IS HELD, NOT EASED TOWARD THE EXTREMES. Easing it was the
-    // obvious thing to do — a near-white at full chroma can read as a tint —
-    // but it is what flattened the themes whose "dark" surfaces are lightest.
-    // Nordic and Purple Dusk push every ink up near 0.9 lightness to clear
-    // 4.5:1 on their elevated cards, and easing the chroma there collapsed
-    // hues 100 degrees apart to dE 5. Holding the chroma is what keeps them
-    // apart once lightness can no longer do it.
-    // QUANTISED before it is measured. QColor keeps float channels, but what
-    // ships is the 8-bit value, and solving against the float one left slot 5
-    // of Lightning Dark at 4.50 internally and 4.49 once rounded — the test
-    // reading the hex was right and the derivation was wrong. Round here, so
-    // the colour that is measured is the colour that is used.
+    // Saturation is not eased toward the extremes: near the top of the
+    // lightness range it is what keeps hues apart.
+    // Quantised to 8 bits before measuring, so the measured colour is the
+    // one that ships.
     const auto build = [&](double l, double sat) {
         const QColor exact =
             QColor::fromHslF(float(hue), float(sat), float(l)).toRgb();
@@ -290,10 +193,8 @@ QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces)
         return worst;
     };
 
-    // TWO STAGES, and the order is the point. Lightness first, because it
-    // costs nothing: a lighter ink on a dark ground is simply more legible.
-    // Chroma is spent only when lightness has run out, because chroma is
-    // what tells one identity from another.
+    // Adjust lightness first; spend chroma, which separates identities, only
+    // when lightness has run out.
     double lightness = darkGround ? 0.70 : 0.40;
     for (int guard = 0; guard < 48; ++guard) {
         if (worstContrast(build(lightness, saturation)) >= kMinInkContrast)
@@ -336,8 +237,7 @@ QColor legibleChoice(const QColor &chosen, const QList<QColor> &surfaces)
     meanLuminance /= double(surfaces.size());
     const bool darkGround = meanLuminance < 0.18;
 
-    // HUE AND SATURATION ARE HELD. Only lightness moves, so what comes back
-    // is recognisably the colour they picked rather than a different one.
+    // Hue and saturation are held; only lightness moves.
     const double hue = chosen.hueF() < 0.0 ? 0.0 : chosen.hueF();
     const double saturation = chosen.hslSaturationF();
     double lightness = chosen.lightnessF();
@@ -354,10 +254,7 @@ QColor legibleChoice(const QColor &chosen, const QList<QColor> &surfaces)
 
 QColor anchorForTheme(int themeId)
 {
-    // The rule in the header, already applied to qml/AppTheme.qml's literals.
-    // In ten of eleven themes the accent IS the shell's hue (never more than
-    // 29 degrees apart), so the accent anchors them. Storm is the one theme
-    // where the accent is a brand highlight rather than the shell's colour.
+    // The header's rule, pre-applied to qml/AppTheme.qml's literals.
     switch (themeId) {
     case 1:  return QColor(0x1D, 0x57, 0xFF);   // Lightning Light  bg 212 / accent 225
     case 2:  return QColor(0x1D, 0x57, 0xFF);   // Lightning Dark   214 / 225
@@ -369,17 +266,12 @@ QColor anchorForTheme(int themeId)
     case 8:  return QColor(0x00, 0x77, 0x57);   // Moss Light       135 / 164
     case 9:  return QColor(0x4A, 0x4E, 0xED);   // Indigo Night     neutral bg
     case 10: return QColor(0x27, 0xC2, 0xAD);   // Deep Teal        180 / 172
-    // Storm: the NAVY SHELL, not the yellow bolt. Its background is 233
-    // degrees and its accent 46 — almost exactly opposite — and anchoring the
-    // discs on the bolt built a magenta-red-orange-lime family and dropped it
-    // onto a navy window. This is the branch the rule exists for.
+    // Storm: the navy shell, not the yellow accent (233 vs 46 degrees).
     case 11: return QColor(0x02, 0x05, 0x1D);
     default: break;
     }
-    // System (0) resolves the way AppTheme resolves it — Moss Light or Storm.
-    // A custom theme (12) falls back to the brand shell: its override layer
-    // is a live QML value C++ cannot reach, and a wrong-but-stable colour is
-    // better than a blank disc.
+    // System (0) resolves as AppTheme does. A custom theme (12) falls back to
+    // the brand shell, since its override lives in QML.
     if (themeId == 0 && qGuiApp
         && QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Light) {
         return QColor(0x00, 0x77, 0x57);

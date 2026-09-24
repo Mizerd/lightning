@@ -4,7 +4,7 @@
 
 class MediaBridge;
 
-// v0.5.9: serves decoded media images to QML from MediaBridge's in-memory
+// Serves decoded media images to QML from MediaBridge's in-memory
 // cache under image://lightning-media/<percent-encoded cache key>.
 //
 // Decoding is bounded: images larger than the safety edge are downscaled at

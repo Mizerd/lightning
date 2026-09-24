@@ -8,35 +8,16 @@
 
 class MatrixClient;
 
-/// Mjolnir-style POLICY LISTS: `m.policy.rule.*` events published in a room,
-/// describing entities somebody recommends banning.
+/// Mjolnir-style policy lists (`m.policy.rule.*`): reads and writes rules,
+/// tracks subscribed lists, and answers whether they cover a user or server.
 ///
-/// # What this offers, and the line it does not cross
-///
-/// It reads a policy room, writes rules where the account has the power
-/// level, keeps the list of rooms this account follows, and answers whether
-/// those lists cover a given user or server.
-///
-/// It never acts on a match by itself. A subscribed list is somebody else's
-/// judgement; silently hiding people on the strength of it — with no way to
-/// see that it happened or why — is a different feature from showing that a
-/// list covers someone and offering to act. Lightning already has ignore
-/// (server-side, account-wide) and kick/ban; this feeds them. The user
-/// decides.
-///
-/// # Ops
-///
-/// Every call carries an op id and only the LATEST answer for each kind of
-/// question is applied, so a slow read of one room cannot overwrite a faster
-/// read of the one the user has since moved to.
+/// It never acts on a match by itself; the user decides whether to ignore or
+/// ban. Only the latest answer per kind of request is applied.
 class PolicyRuleModel : public QAbstractListModel
 {
     Q_OBJECT
-    // QAbstractListModel has NO `count` in QML — a ListView supplies one, the
-    // model does not — so a binding on `model.count` reads `undefined`. That
-    // reached qsTr() as a plural argument and the QML-warning gates caught it
-    // ("third argument (n) must be a number"). Every model here that QML
-    // counts declares this explicitly.
+    // QAbstractListModel has no `count` in QML; without this `model.count` is
+    // undefined.
     Q_PROPERTY(int count READ count NOTIFY countChanged)
 public:
     enum Roles {
@@ -77,8 +58,7 @@ class PolicyListController : public QObject
     Q_PROPERTY(PolicyRuleModel *rules READ rules CONSTANT)
     /// Whether this account may publish rules in `roomId`.
     Q_PROPERTY(bool canWrite READ canWrite NOTIFY stateChanged)
-    /// Whether the read hit its bound. A partial answer that does not say so
-    /// reads as a complete one.
+    /// Whether the read hit its bound.
     Q_PROPERTY(bool truncated READ truncated NOTIFY stateChanged)
     /// The policy rooms this account follows.
     Q_PROPERTY(QStringList subscriptions READ subscriptions
@@ -104,12 +84,9 @@ public:
     /// Publish a rule. `kind` is "user", "server" or "room".
     Q_INVOKABLE void addRule(const QString &kind, const QString &entity,
                              const QString &reason);
-    /// Remove a rule by the entity it names.
-    /// Remove a rule. `stateKey` is the rule's OWN key as the model reports
-    /// it — NOT derived from the entity. `rule:<entity>` is a convention and
-    /// a rule another tool wrote may sit elsewhere; removing by the derived
-    /// key would write an empty event at a fresh key, succeed, and report
-    /// success while the rule stayed on the list.
+    /// Remove a rule. `stateKey` is the rule's own key as the model reports
+    /// it, not derived from the entity: another tool may have written the
+    /// rule under a key other than `rule:<entity>`.
     Q_INVOKABLE void removeRule(const QString &kind, const QString &entity,
                                 const QString &stateKey);
     Q_INVOKABLE void setSubscribed(const QString &roomId, bool subscribed);

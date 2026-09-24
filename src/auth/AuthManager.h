@@ -15,15 +15,8 @@ class AuthManager : public QObject
     Q_PROPERTY(QString currentUserId READ currentUserId NOTIFY isLoggedInChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
-    // Sign-in progress. A plain QString token (the convention already used by
-    // verificationState / roomKeyImportState) rather than a translated status
-    // string, so QML can branch on it without comparing user-visible prose.
-    //
-    // Only stages the backend can actually PROVE are reported. The bridge
-    // cannot currently distinguish "creating a device" from "restoring
-    // encryption state", so those labels are deliberately absent rather than
-    // guessed: a progress step that is not observed is a lie about what the
-    // client is doing.
+    // Sign-in progress as a stable token for QML to branch on. Only stages
+    // the backend can actually observe are reported.
     //
     //   idle           no sign-in in flight
     //   connecting     credentials accepted locally; SDK handle + local store
@@ -33,15 +26,13 @@ class AuthManager : public QObject
     //   ready          sync is running
     Q_PROPERTY(QString loginStage READ loginStage NOTIFY loginStageChanged)
 
-    // Backend CAPABILITY: what this build can do at all, regardless of any
-    // particular server. Distinct from discovery below, which is what a given
-    // homeserver actually offers.
+    // What this build can do, independent of any server.
     Q_PROPERTY(bool supportsPasswordLogin READ supportsPasswordLogin CONSTANT)
     Q_PROPERTY(bool supportsSsoLogin      READ supportsSsoLogin      CONSTANT)
     Q_PROPERTY(bool supportsOidcLogin     READ supportsOidcLogin     CONSTANT)
 
-    // SERVER DISCOVERY: what the entered homeserver advertises. All false
-    // until a discovery completes, so the UI shows nothing speculative.
+    // What the entered homeserver advertises; all false until discovery
+    // completes.
     //
     //   idle       no homeserver resolved yet
     //   probing    discovery in flight
@@ -51,17 +42,10 @@ class AuthManager : public QObject
     Q_PROPERTY(QString discoveredHomeserver READ discoveredHomeserver NOTIFY discoveryChanged)
     Q_PROPERTY(bool serverOffersPassword READ serverOffersPassword NOTIFY discoveryChanged)
     Q_PROPERTY(bool serverOffersBrowserLogin READ serverOffersBrowserLogin NOTIFY discoveryChanged)
-    // The server offers legacy Matrix SSO (m.login.sso). Since 0.7.6+ this is
-    // a USABLE flow — see rust/src/sso.rs — so the UI renders a real action
-    // rather than the dead end this property used to describe. The old name is
-    // gone deliberately: leaving "Unsupported" in it would have kept every
-    // reader believing the feature was still absent.
+    // The server offers legacy Matrix SSO (m.login.sso); see rust/src/sso.rs.
     Q_PROPERTY(bool serverOffersSso READ serverOffersSso NOTIFY discoveryChanged)
-    // Identity providers the server advertises for SSO: a list of
-    // {id, name, icon} maps. EMPTY while the server offers SSO is normal and
-    // common — it means one unnamed flow, and the UI offers a single generic
-    // action rather than a chooser. Populated by discovery, so nothing
-    // speculative is shown.
+    // SSO identity providers as {id, name, icon} maps. Empty is common and
+    // means a single unnamed flow.
     Q_PROPERTY(QVariantList ssoProviders READ ssoProviders NOTIFY discoveryChanged)
     // True from the moment a browser sign-in starts until it resolves.
     Q_PROPERTY(bool browserLoginInProgress READ browserLoginInProgress
@@ -76,16 +60,10 @@ public:
     QString lastError() const { return m_lastError; }
     QString loginStage() const { return m_loginStage; }
 
-    // Password login is available on all compiled backends. Rust may still
-    // surface SDK-side login errors through MatrixClient::login().
     bool supportsPasswordLogin() const { return true; }
-    // Legacy Matrix SSO, answered by the backend rather than hardcoded. The
-    // SDK's login_sso CONVENIENCE helper is still unavailable (it needs the
-    // sso-login feature's axum dependency), but the two primitives underneath
-    // it — get_sso_login_url and login_token — are not feature-gated, so the
-    // flow is implemented on those plus Lightning's existing loopback listener.
+    // Legacy SSO is built on the ungated get_sso_login_url/login_token
+    // primitives; the SDK's login_sso helper needs the unvendored axum feature.
     bool supportsSsoLogin() const;
-    // OAuth 2.0 / OIDC, answered by the backend rather than hardcoded.
     bool supportsOidcLogin() const;
 
     QString discoveryState() const { return m_discoveryState; }

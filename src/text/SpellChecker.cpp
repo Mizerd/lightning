@@ -9,13 +9,11 @@
 
 namespace {
 
-// The cache is bounded rather than pruned: it holds words, one boolean each,
-// and a composer that has genuinely produced four thousand distinct words has
-// earned a fresh start more cheaply than an LRU costs to maintain.
+// Cleared when full; cheaper than maintaining an LRU.
 constexpr int kMaxCachedWords = 4096;
 
-// A chunk is a whitespace-delimited run. Anything in this list is not English
-// and asking a dictionary about it produces a false underline.
+// A chunk is a whitespace-delimited run. Rejects chunks that are not natural
+// language.
 bool chunkIsCheckable(QStringView chunk)
 {
     if (chunk.isEmpty())
@@ -33,10 +31,8 @@ bool chunkIsCheckable(QStringView chunk)
         return false;
     for (int i = 0; i < chunk.size(); ++i) {
         const QChar c = chunk.at(i);
-        // A digit anywhere makes the chunk an identifier, a version, a time
-        // or a measurement — never a word to correct. `@` catches mxids and
-        // e-mail addresses mid-sentence; the slashes catch paths and dates;
-        // a backtick is a code span.
+        // Digits: identifiers, versions, times. `@`: mxids and e-mail.
+        // Slashes: paths and dates. Backtick: code.
         if (c.isDigit() || c == u'@' || c == u'/' || c == u'\\' || c == u'`'
             || c == u'_') {
             return false;
@@ -51,10 +47,8 @@ bool chunkIsCheckable(QStringView chunk)
     return true;
 }
 
-// Inside a checkable chunk a word is a run of letters, with an apostrophe
-// allowed BETWEEN letters so "doesn't" is one word and a quoted 'word' is
-// still just the word. U+2019 is included because that is what most systems
-// type and what Lightning's own text carries.
+// A word is a run of letters, with an apostrophe (' or U+2019) allowed
+// between letters so "doesn't" is one word.
 bool isWordCharacter(QChar c)
 {
     return c.isLetter() || c.isMark();
@@ -72,12 +66,9 @@ bool isInnerApostrophe(QStringView text, int index)
 
 bool wordIsWorthChecking(QStringView word)
 {
-    // One letter is never a spelling mistake worth marking.
     if (word.size() < 2)
         return false;
-    // ALL CAPS is an acronym far more often than it is a misspelling, and
-    // chat is full of them. A word with an interior capital (CamelCase, an
-    // identifier, a product name) is left alone for the same reason.
+    // Skip acronyms and words with an interior capital (CamelCase, names).
     bool sawLower = false;
     for (int i = 0; i < word.size(); ++i) {
         const QChar c = word.at(i);
@@ -96,10 +87,9 @@ struct Span {
     int end; // exclusive
 };
 
-// Regions of the text that are never natural language: fenced ``` blocks,
-// inline `code spans` (which may hold spaces, so the chunk rule above cannot
-// see their middle words) and Markdown link destinations `](…)`. Computed
-// once per pass, in document order.
+// Fenced ``` blocks, inline `code spans` (which may contain spaces, so the
+// chunk rule cannot catch them) and Markdown link destinations `](…)`, in
+// document order.
 QList<Span> excludedSpans(const QString &text)
 {
     QList<Span> spans;
@@ -107,9 +97,8 @@ QList<Span> excludedSpans(const QString &text)
     int lineStart = 0;
     bool inFence = false;
     int fenceStart = 0;
-    // A line ends at '\n' (the Markdown editor) OR at U+2029 (what a rich
-    // TextEdit's getText() puts between paragraphs), so no rule ever runs
-    // "to the end of the line" across the whole draft.
+    // A line ends at '\n' or at U+2029/U+2028, which a rich TextEdit's
+    // getText() uses between paragraphs.
     auto nextLineEnd = [&](int from) {
         for (int k = from; k < n; ++k) {
             const QChar c = text.at(k);
@@ -120,9 +109,8 @@ QList<Span> excludedSpans(const QString &text)
         }
         return n;
     };
-    // A fence is a line that is ONLY a run of three or more backticks (or
-    // tildes) plus an info string; a backtick anywhere after the run makes
-    // it an inline span on its own line (CommonMark), not a fence.
+    // Three or more backticks or tildes plus an info string. A backtick
+    // after the run makes it an inline span instead (CommonMark).
     auto isFenceLine = [](QStringView trimmed) {
         if (!(trimmed.startsWith(u"```") || trimmed.startsWith(u"~~~")))
             return false;
@@ -145,10 +133,8 @@ QList<Span> excludedSpans(const QString &text)
                 spans.append({ fenceStart, lineEnd });
             }
         } else if (!inFence) {
-            // Inline code: backtick RUNS pair up on one line (CommonMark:
-            // ``a ` b`` is one span delimited by double backticks). An
-            // unmatched opening run excludes the rest of the line — while
-            // it is being typed that is what the user means.
+            // Inline code: backtick runs pair up within a line. An unmatched
+            // run excludes the rest of the line, as it is still being typed.
             auto runEnd = [&](int at) {
                 int e = at;
                 while (e < lineEnd && text.at(e) == QLatin1Char('`'))
@@ -287,9 +273,7 @@ void SpellChecker::resolve()
         : createPlatformSpellBackend(m_preferredLanguage, &failure, &offered);
     m_backend = std::move(next);
     m_unavailableReason = m_backend ? QString() : failure;
-    // What the platform can check survives a failed open: the picker must
-    // keep offering it, or a stored preference the machine no longer has
-    // would leave the user with no way to choose another.
+    // Kept on a failed open so the picker can still offer other languages.
     m_languages = m_backend ? m_backend->availableLanguages() : offered;
     // A different dictionary can answer differently for every word.
     m_cache.clear();
@@ -338,9 +322,8 @@ QString SpellChecker::labelForTag(const QString &tag)
     if (locale.language() == QLocale::C || locale.language() == QLocale::AnyLanguage)
         return bcp47;
     QString label = QLocale::languageToString(locale.language());
-    // A territory is shown only when the tag carried one: "English (United
-    // Kingdom)" against "English (United States)", but plain "Lithuanian"
-    // for "lt".
+    // Territory only when the tag has one: "English (United Kingdom)", but
+    // plain "Lithuanian" for "lt".
     if (bcp47.contains(QLatin1Char('-')) && locale.territory() != QLocale::AnyTerritory)
         label += QStringLiteral(" (") + QLocale::territoryToString(locale.territory())
             + QLatin1Char(')');
@@ -409,9 +392,8 @@ QVariantList SpellChecker::misspelledRanges(const QString &text,
         return out;
 
     forEachWord(text, [&](int start, int length) {
-        // The caret sitting anywhere in the word, INCLUDING at either edge,
-        // suppresses it: a word is "being typed" right up to the keystroke
-        // that leaves it.
+        // The caret anywhere in the word, including either edge, means it is
+        // still being typed.
         if (cursorPosition >= start && cursorPosition <= start + length)
             return;
         if (!skipRanges.isEmpty() && overlapsAnyRange(start, length, skipRanges))
@@ -438,8 +420,7 @@ QVariantMap SpellChecker::wordAt(const QString &text, int position) const
     forEachWord(text, [&](int start, int length) {
         if (position < start || position > start + length)
             return;
-        // Do not overwrite an earlier hit: at a boundary between two words
-        // the first one wins, deterministically.
+        // At a boundary between two words, the first wins.
         if (out.value(QStringLiteral("start")).toInt() >= 0)
             return;
         out[QStringLiteral("word")] = text.mid(start, length);
@@ -461,10 +442,8 @@ void SpellChecker::addToDictionary(const QString &word)
     if (!m_backend || word.isEmpty())
         return;
     m_backend->addToPersonalDictionary(word);
-    // The platform now says this word is correct, so the cached "wrong" must
-    // go. Clearing the whole cache rather than one key is deliberate: some
-    // backends normalise case, so the entry that answers for this word may
-    // not be spelled like it.
+    // Clear the whole cache: some backends normalise case, so the stale entry
+    // may be keyed differently.
     m_cache.clear();
     Q_EMIT dictionaryChanged();
 }

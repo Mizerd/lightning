@@ -23,11 +23,7 @@ void RailEntryModel::setFlat(bool flat)
     if (m_flat == flat)
         return;
     m_flat = flat;
-    // `refresh()` and not a direct rebuild: this adds or removes ROWS, and
-    // refresh is the entry point that DEFERS when a drag is live. Rebuilding
-    // under the pointer is what destroyed the gesture in an earlier round,
-    // and a style change is the one refresh a person could plausibly trigger
-    // from a settings window while a rail drag is somehow still open.
+    // refresh() rather than a direct rebuild: it defers while a drag is live.
     refresh();
 }
 
@@ -164,8 +160,7 @@ void RailEntryModel::setOrphansEntryVisible(bool visible)
 void RailEntryModel::refresh()
 {
     if (m_dragging) {
-        // The gesture owns the row order until it ends. Rebuilding here is
-        // exactly what destroyed the delegate holding the drag.
+        // The gesture owns the row order until it ends.
         m_refreshPending = true;
         return;
     }
@@ -185,8 +180,8 @@ void RailEntryModel::refresh()
             continue;
         }
         byId.insert(id, entry);
-        // Only ROOTS are arrangeable at the top level. A subspace is shown
-        // under its parent, so handing it to arrange() would list it twice.
+        // Only roots are arranged at the top level; a subspace is listed
+        // under its parent.
         if (entry.value(QStringLiteral("parentSpaceId")).toString().isEmpty())
             topLevelInput.append(entry);
     }
@@ -194,17 +189,9 @@ void RailEntryModel::refresh()
     const QVariantList arranged = m_layout->arrange(topLevelInput);
     QVector<QVariantMap> rows;
     rows.reserve(arranged.size() + 4);
-    // The Direct Messages tab, directly under Home.
-    //
-    // Synthesised here, not read from SpaceManager: it is a rail SELECTION
-    // with a view behind it, not a Space with rooms in it, and the other
-    // surfaces that read SpaceManager's model have no such view. It is a
-    // pseudo row like Home and "Other rooms", so it is not draggable, not a
-    // group target, and it keeps its place ahead of every Space — a tab that
-    // could be dragged into a folder is a tab that can be lost.
-    //
-    // Inserted AFTER Home rather than at row 0: Home is the rail's anchor and
-    // pushing it down would move the one tile every user already knows.
+    // The Direct Messages tab, directly under Home. A pseudo row like Home
+    // and "Other rooms": not draggable, not a group target, never filed into
+    // a folder where it could be lost.
     const bool peopleWanted = m_peopleEntryVisible;
     bool peopleInserted = false;
     auto insertPeople = [&rows, this] {
@@ -219,12 +206,8 @@ void RailEntryModel::refresh()
         people.insert(QStringLiteral("draggable"), false);
         people.insert(QStringLiteral("expandable"), false);
         people.insert(QStringLiteral("expanded"), false);
-        // BEING SYNTHESISED HERE IS EXACTLY WHY THIS WAS MISSED. Every real
-        // Space arrives from SpaceManager carrying its own totals; this row
-        // is built by hand, and a key nobody wrote is not a zero anybody
-        // chose — UnreadTotalRole reads value("unreadTotal", 0) and the tile
-        // stayed silent through every unread direct message there has ever
-        // been. Two were missed for real on 2026-08-31.
+        // A synthesised row must carry its own totals; UnreadTotalRole would
+        // otherwise read the default 0.
         const int unread = m_spaces ? m_spaces->peopleUnreadTotal() : 0;
         const int highlight = m_spaces ? m_spaces->peopleHighlightTotal() : 0;
         people.insert(QStringLiteral("unreadTotal"), unread);
@@ -242,8 +225,7 @@ void RailEntryModel::refresh()
             && spaceId == SpaceManager::orphansId())
             continue;
         if (kind.isEmpty()) {
-            // A pseudo row comes back from arrange() exactly as it was given,
-            // so it carries no kind of its own.
+            // A pseudo row comes back from arrange() without a kind.
             entry.insert(QStringLiteral("kind"), kKindSpace);
             entry.insert(QStringLiteral("entryId"), spaceId);
             entry.insert(QStringLiteral("folderId"), QString());
@@ -252,29 +234,15 @@ void RailEntryModel::refresh()
         entry.insert(QStringLiteral("hierarchyChild"), false);
         // A folder is arrangeable; a pseudo row never is.
         entry.insert(QStringLiteral("draggable"), !pseudo);
-        // EXPANDABLE MEANS "REVEALS SOMETHING", NOT "HAS SUBSPACES".
-        //
-        // This read `childSpaceCount > 0` alone, and the chevron is the ONLY
-        // expansion trigger in the rail — so a Space with rooms and no
-        // subspaces could never be opened at all. That is every
-        // Discord-style category, and it is half of a user report on
-        // 2026-09-17: the leaf spaces that actually hold the channels showed
-        // none of them.
-        //
-        // It cannot use `childCount` instead: that one is TRANSITIVE, so an
-        // umbrella Space whose rooms all live in subspaces would claim to be
-        // expandable and then reveal nothing — which is the complaint the
-        // childSpaceCount gate was added to fix in the first place. The
-        // honest question needs the third count.
+        // Expandable means "reveals something": subspaces or direct rooms.
+        // Not `childCount`, which is transitive and would mark an umbrella
+        // Space whose rooms all live in subspaces.
         const int childSpaces =
             entry.value(QStringLiteral("childSpaceCount")).toInt();
         const int directRooms =
             entry.value(QStringLiteral("directChildRoomCount")).toInt();
-        // NOTHING EXPANDS ON A FLAT RAIL, and the flag has to reach these
-        // two fields and not only the walk below. `expandable` is what puts
-        // a chevron beside a tile, so leaving it true would draw a control
-        // that cannot do anything; `expanded` is read by the region and
-        // band code, which would then box a run that has no members.
+        // Nothing expands on a flat rail: `expandable` draws the chevron and
+        // `expanded` drives the region and band code.
         entry.insert(QStringLiteral("expandable"),
                      !m_flat && !folder && !pseudo
                          && (childSpaces > 0 || directRooms > 0));
@@ -282,25 +250,21 @@ void RailEntryModel::refresh()
                      !m_flat && !folder && !pseudo
                          && m_layout->spaceExpanded(spaceId));
         rows.append(entry);
-        // Home is `allRoomsId()` — the empty spaceId — and it is always row 0.
+        // Home is allRoomsId() (empty spaceId), always row 0.
         if (peopleWanted && !peopleInserted && pseudo
             && spaceId == SpaceManager::allRoomsId()) {
             peopleInserted = true;
             insertPeople();
         }
-        // The hierarchy walk itself. A Space's subspaces are still THERE
-        // in Classic — reachable from the Space's own room list, from
-        // search and from a permalink — they are simply not listed a second
-        // time down the side of the window.
+        // In Classic, subspaces remain reachable elsewhere; they are just
+        // not listed in the rail.
         if (!m_flat && !folder && !pseudo) {
             appendSubspaces(spaceId,
                             entry.value(QStringLiteral("folderId")).toString(),
                             byId, rows, 1);
         }
     }
-    // Home is always present today, so this is a backstop rather than a
-    // branch anyone expects to take — but a tab that silently disappears
-    // because a row above it moved is worse than one in an unexpected place.
+    // Backstop: Home is always present, but the tab must not vanish.
     if (peopleWanted && !peopleInserted)
         insertPeople();
     applyRows(std::move(rows));
@@ -315,10 +279,7 @@ void RailEntryModel::appendSubspaces(const QString &parentId,
         return;
     if (!m_layout->spaceExpanded(parentId))
         return;
-    // THE USER'S ORDER, not Matrix's, and this is the whole of what makes a
-    // subspace draggable: the rail has always arranged its TOP level locally
-    // and refused to arrange anything below it, which is what "I can't
-    // rearrange subspaces as I can with normal spaces" was pointing at.
+    // The user's local order for this parent's children.
     for (const QString &childId :
          m_layout->orderedChildren(parentId,
                                    m_spaces->childSpaceIds(parentId))) {
@@ -328,25 +289,16 @@ void RailEntryModel::appendSubspaces(const QString &parentId,
         QVariantMap entry = *it;
         entry.insert(QStringLiteral("kind"), kKindSpace);
         entry.insert(QStringLiteral("entryId"), childId);
-        // The subspaces of a FILED Space belong to the same folder block, or
-        // dragging that folder would leave them behind: the block is found by
-        // walking the folderId run after the header.
+        // Subspaces of a filed Space belong to the same folder block, so
+        // dragging the folder takes them along.
         entry.insert(QStringLiteral("folderId"), owningFolderId);
         entry.insert(QStringLiteral("folderLast"), false);
         entry.insert(QStringLiteral("pseudo"), false);
         entry.insert(QStringLiteral("hierarchyChild"), true);
-        // DRAGGABLE, AMONG ITS OWN SIBLINGS. This used to read "Matrix owns
-        // this row's position", and that was true of the SERVER's order and
-        // never true of the rail's: the top level has always been arranged
-        // locally, by exactly the same mechanism, and a rail that arranges
-        // one level and refuses the next is the inconsistency that was
-        // reported. `legalGap()` is what keeps a subspace inside its own
-        // parent — a drag cannot reparent anything, because reparenting IS
-        // Matrix's to own and needs power this client may not have.
+        // Draggable among its own siblings only; legalGap() prevents a
+        // reparent, which is Matrix state and may need power we lack.
         entry.insert(QStringLiteral("draggable"), true);
-        // Same rule as the top-level rows above, and for the same reason: a
-        // nested Space that holds only rooms is exactly the case the reporter
-        // hit, and it is reached through THIS branch, not that one.
+        // Same expandable rule as the top-level rows.
         const int childSpaces =
             entry.value(QStringLiteral("childSpaceCount")).toInt();
         const int directRooms =
@@ -364,24 +316,11 @@ void RailEntryModel::stampGroupField(QVector<QVariantMap> &rows)
 {
     for (int i = 0; i < rows.size(); ++i) {
         const int level = rows.at(i).value(QStringLiteral("level")).toInt();
-        // THE NEIGHBOURS' DEPTHS, and the view derives the rest.
-        //
-        // The rail draws one tinted region PER ANCESTOR, nested inside each
-        // other, so a row at depth 3 sits on three layers and not on one. A
-        // pair of booleans could only describe the innermost: the region at
-        // depth d opens here when the row above is shallower than d and
-        // closes here when the row below is, and that is a question per
-        // depth, not per row. The two numbers answer all of them.
-        //
-        // A LEVEL, NOT A PARENT POINTER, and that is not laziness: the rows
-        // are already in draw order, and the regions are a statement about
-        // the picture rather than about the graph. Whatever run of rows a
-        // reader sees between one shallow row and the next IS the group,
-        // including during a drag preview, where the graph has not changed
-        // yet and the picture has.
-        //
-        // -1 past either end, so the outermost region closes at the list's
-        // own edges without the view needing a bounds case.
+        // The neighbours' depths; the view derives the rest. The rail draws
+        // one region per ancestor, and the region at depth d opens where the
+        // row above is shallower than d and closes where the row below is.
+        // Levels rather than parent pointers because the rows are already in
+        // draw order, including during a drag preview. -1 past either end.
         const int prevLevel =
             i > 0 ? rows.at(i - 1).value(QStringLiteral("level")).toInt() : -1;
         const int nextLevel =
@@ -392,26 +331,10 @@ void RailEntryModel::stampGroupField(QVector<QVariantMap> &rows)
     }
 }
 
-// `folderLast` MARKS THE LAST ROW OF A FOLDER'S RUN, AND THE RUN INCLUDES
-// NESTED ROWS.
-//
-// It used to be stamped by the STORE, over the folder's top-level members
-// only (`RailLayoutStore`), and `appendSubspaces()` then gave every nested row
-// a hard-coded `folderLast: false`. So the moment a folder's last member was
-// an EXPANDED Space, the flag sat on that Space rather than on the last row of
-// the block — and the QML reads it three ways, so one wrong row produced three
-// defects at once: the container squared its bottom at the block's true end
-// (`visible: inFolder && !folderLast`), overshot into the gap below it
-// (`folderLast ? 0 : list.spacing`), and pinched mid-block at the row that
-// wrongly held the flag. Reported as a square corner and reproduced with a
-// folder whose last member is expanded.
-//
-// `refreshFolderRuns()` has always computed this correctly over every row —
-// but its only caller is the drag-preview path, so the ordinary refresh never
-// ran it. Stamped here instead, beside `stampGroupField` and for the same
-// reason: the bounds of a run are part of what makes two row sets the same
-// picture, so this has to happen BEFORE the equality check below or a reorder
-// that only moves a run's end would compare equal and never reach the view.
+// `folderLast` marks the last row of a folder's run, nested rows included
+// (the QML reads it for the container's corner, spacing and visibility).
+// Stamped on every applyRows(), before the equality check, so a change that
+// only moves a run's end still reaches the view.
 void RailEntryModel::stampFolderRuns(QVector<QVariantMap> &rows)
 {
     for (int i = 0; i < rows.size(); ++i) {
@@ -440,10 +363,8 @@ void RailEntryModel::stampFolderRuns(QVector<QVariantMap> &rows)
 
 void RailEntryModel::applyRows(QVector<QVariantMap> rows)
 {
-    // BEFORE the equality check below, not after: the field's bounds are part
-    // of what makes two row sets the same picture. Stamping after it would
-    // let a reorder that changes only the grouping — a run gaining a row at
-    // its end — compare equal and never reach the view.
+    // Before the equality check: a change that only moves a group or run
+    // boundary must not compare equal.
     stampGroupField(rows);
     stampFolderRuns(rows);
     if (rows.size() == m_rows.size()) {
@@ -456,9 +377,8 @@ void RailEntryModel::applyRows(QVector<QVariantMap> rows)
             }
         }
         if (sameIds) {
-            // Same rows, possibly different unread counts or names. A reset
-            // here would tear down and rebuild every delegate — and its avatar
-            // fetch — on every arriving message.
+            // Same rows, possibly changed counts or names. A reset would
+            // rebuild every delegate (and its avatar fetch) per message.
             if (rows == m_rows)
                 return;
             m_rows = std::move(rows);
@@ -503,9 +423,8 @@ int RailEntryModel::blockLength(int row) const
     if (row < 0 || row >= m_rows.size())
         return 0;
     if (rowIsFolder(row)) {
-        // A folder owns its open members — and their own expanded subspaces,
-        // which is why appendSubspaces gives them the same folderId. Moving
-        // the header alone would detach it from its contents mid-gesture.
+        // A folder owns its open members and their expanded subspaces
+        // (which share its folderId).
         const QString folderId =
             m_rows.at(row).value(QStringLiteral("entryId")).toString();
         int length = 1;
@@ -517,9 +436,7 @@ int RailEntryModel::blockLength(int row) const
         }
         return length;
     }
-    // A Space carries its EXPANDED SUBSPACES with it. Those rows are Matrix's
-    // arrangement under this Space; leaving them behind would strand them
-    // under whatever the drag happened to move into their place.
+    // A Space carries its expanded subspaces with it.
     const int level = m_rows.at(row).value(QStringLiteral("level")).toInt();
     int length = 1;
     while (row + length < m_rows.size()
@@ -534,17 +451,11 @@ int RailEntryModel::blockLength(int row) const
 
 QVector<QString> RailEntryModel::folderOwners(const QString &draggedId) const
 {
-    // Which folder each row would belong to IF the arrangement were committed
-    // right now. ONE definition, used by both the preview (so the container
-    // band follows the drag) and the commit (so what the user sees is what is
-    // written). Two copies of this rule is how a drop lands somewhere the
-    // preview never showed.
+    // Which folder each row would belong to if committed now. Used by both
+    // the preview and the commit so they cannot disagree.
     //
-    // The rule: a row belongs to the folder run it follows. Land after a
-    // folder's header or after one of its members and you are inside; land
-    // anywhere else and you are at the top level. Dropping just past a
-    // folder's last member therefore APPENDS to it — the rule has to choose,
-    // and appending is the choice that makes the end of a folder reachable.
+    // A row belongs to the folder run it follows, so dropping just past a
+    // folder's last member appends to it; that keeps the end reachable.
     QVector<QString> owners(m_rows.size());
     QString run;
     for (int i = 0; i < m_rows.size(); ++i) {
@@ -559,8 +470,7 @@ QVector<QString> RailEntryModel::folderOwners(const QString &draggedId) const
             continue;
         }
         if (row.value(QStringLiteral("hierarchyChild")).toBool()) {
-            // A subspace inherits its ancestor's run: it is not placed by the
-            // user and cannot change the grouping on its own.
+            // A subspace inherits its ancestor's run.
             owners[i] = i > 0 ? owners.at(i - 1) : QString();
             continue;
         }
@@ -577,10 +487,8 @@ QVector<QString> RailEntryModel::folderOwners(const QString &draggedId) const
 
 void RailEntryModel::refreshFolderRuns()
 {
-    // Keeps the PREVIEW honest: a Space dragged out of a folder must stop
-    // drawing the folder's container band immediately, and the row that is now
-    // last in a run must take the rounded bottom. Without this the band tells
-    // the user the drop will do something it will not.
+    // Keeps the preview's folder band and rounded bottom in step with the
+    // drag.
     const QVector<QString> owners = folderOwners(m_dragEntryId);
     int first = -1;
     int last = -1;
@@ -631,27 +539,21 @@ int RailEntryModel::legalGap(int gap) const
     const int dragRow = rowForEntry(m_dragEntryId);
     if (dragRow < 0)
         return -1;
-    // A gap is the slot BEFORE row `gap`, so gap == rowCount is the end of the
-    // rail and is always legal. Every rule below reads the row the gap sits
-    // in front of.
+    // A gap is the slot before row `gap`; gap == rowCount is the end and
+    // always legal.
     int g = qBound(0, gap, int(m_rows.size()));
-    // A pseudo row keeps its place at the top of the rail, so nothing may be
-    // dropped above one.
+    // Nothing may be dropped above a pseudo row.
     int firstMovable = 0;
     while (firstMovable < m_rows.size()
            && m_rows.at(firstMovable).value(QStringLiteral("pseudo")).toBool()) {
         ++firstMovable;
     }
-    // ── A SUBSPACE MOVES AMONG ITS OWN SIBLINGS, AND NOWHERE ELSE ──────
-    //
-    // Its legal slots are the boundaries between the children of ITS parent,
-    // plus the end of that parent's run. Anything else would be a reparent,
-    // and reparenting is Matrix's — it needs power to send state in a Space
-    // this user may not own, and it would move the Space for every member.
+    // A subspace moves among its own parent's children only; anything else
+    // would be a reparent.
     if (m_rows.at(dragRow).value(QStringLiteral("hierarchyChild")).toBool()) {
         const int level = m_rows.at(dragRow).value(QStringLiteral("level"))
                               .toInt();
-        // The parent is the first row ABOVE that is shallower than this one.
+        // The parent is the first row above that is shallower.
         int parentRow = dragRow - 1;
         while (parentRow >= 0
                && m_rows.at(parentRow).value(QStringLiteral("level")).toInt()
@@ -668,8 +570,7 @@ int RailEntryModel::legalGap(int gap) const
             ++runEnd;
         }
         g = qBound(runStart, g, runEnd);
-        // Snap DOWN to a sibling's own row: a gap inside a sibling's subtree
-        // would drop this Space between that sibling and its children.
+        // Snap down to a sibling's own row, not into its subtree.
         while (g > runStart && g < runEnd
                && m_rows.at(g).value(QStringLiteral("level")).toInt() != level) {
             --g;
@@ -679,36 +580,12 @@ int RailEntryModel::legalGap(int gap) const
     if (g < firstMovable)
         return firstMovable;
 
-    // ── THE NEARER BOUNDARY OF THE RUN, NEVER ALWAYS ITS TOP ────────────
+    // A refused slot snaps to the nearer boundary of the run, not always its
+    // top, so the tile lands where it is drawn. Ties go up.
     //
-    // Both clamps below refuse the same thing — a top-level entry landing
-    // INSIDE a run it does not belong to — and both used to answer that
-    // refusal by walking UP, to the one fixed slot in front of the run's
-    // owner, however far below that the pointer actually was.
-    //
-    // `where the tile currently sits IS where it will land` is this
-    // gesture's stated contract, and that breaks it by as much as a whole
-    // subtree. Measured 2026-09-19: a top-level Space released at y=560,
-    // in a gap between two nested rows deep inside an open folder's block,
-    // was offered the 65px slot at y 169..234 — seven rows and ~360px
-    // ABOVE the release point — and the release confirmed it, the Space
-    // becoming the folder's first member. The refusal is correct;
-    // answering every refusal with the same slot is not.
-    //
-    // So walk BOTH ways out of the run and take the boundary the pointer
-    // is nearer to. Ties keep the old answer, upwards.
-    //
-    // THIS CANNOT OSCILLATE under a live drag, which is what killed two
-    // earlier readings of this gesture (see the header of
-    // tests/RailDragQmlTest.cpp). hoverGap() MOVES the block to the slot
-    // it resolves, so after a downward snap the block sits immediately
-    // past the run — and a dragged top-level row is neither a
-    // `hierarchyChild` nor a folder member, so the block itself terminates
-    // the downward walk on the next sample — while after an upward snap it
-    // sits immediately in front of the owner and terminates the upward
-    // one. Either way the same pointer position then resolves into
-    // hoverGap()'s own no-op window (`g >= dragRow && g <= dragRow +
-    // length`), which is what makes the gesture settle.
+    // Cannot oscillate: hoverGap() moves the block to the resolved slot, and
+    // the block then bounds the walk on the next sample, so the same pointer
+    // position falls in hoverGap()'s no-op window.
     const auto nearerBoundary = [this](int g, int lo, auto inRun) -> int {
         const int hi = int(m_rows.size());
         if (g <= lo || g >= hi || !inRun(g))
@@ -722,15 +599,13 @@ int RailEntryModel::legalGap(int gap) const
         return (g - up) <= (down - g) ? up : down;
     };
 
-    // A TOP-LEVEL entry may not land inside a subspace run: that would put a
-    // user-arranged entry between a parent and its children.
+    // A top-level entry may not land between a parent and its children.
     g = nearerBoundary(g, firstMovable, [this](int row) {
         return m_rows.at(row).value(QStringLiteral("hierarchyChild")).toBool();
     });
     if (!rowIsFolder(dragRow))
         return g;
-    // Dragging a FOLDER: its destination is a top-level boundary, never inside
-    // another folder's member run.
+    // A folder lands only at a top-level boundary.
     g = nearerBoundary(g, firstMovable, [this](int row) {
         return !m_rows.at(row).value(QStringLiteral("folderId")).toString()
                     .isEmpty()
@@ -743,13 +618,11 @@ void RailEntryModel::moveBlock(int from, int count, int to)
 {
     if (count <= 0 || from < 0 || from + count > m_rows.size())
         return;
-    // `to` is the FINAL index the block starts at, so it cannot run past the
-    // end once the block itself is out of the way.
+    // `to` is the final start index once the block is removed.
     to = qBound(0, to, m_rows.size() - count);
     if (to == from)
         return;
-    // Qt wants the destination in the ORIGINAL numbering: the row the block is
-    // inserted before, which for a downward move is past the block itself.
+    // Qt wants the destination in the original numbering.
     const int destination = to > from ? to + count : to;
     if (!beginMoveRows(QModelIndex(), from, from + count - 1, QModelIndex(),
                        destination)) {
@@ -778,26 +651,17 @@ void RailEntryModel::hoverGroup(int row)
     const int length = blockLength(dragRow);
     const QVariantMap &target = m_rows.at(hovered);
     const bool eligible =
-        // Not the block in the user's own hand: a folder header's open members
-        // travel with it, so the whole run is excluded, not just the header.
+        // Not the dragged block itself, including a folder's open members.
         (hovered < dragRow || hovered >= dragRow + length)
         && !target.value(QStringLiteral("pseudo")).toBool()
         && !target.value(QStringLiteral("hierarchyChild")).toBool()
-        // A folder cannot go inside a folder: folders do not nest, and
-        // pretending otherwise would create an arrangement the store cannot
-        // represent.
+        // Folders do not nest.
         && !rowIsFolder(dragRow)
-        // NOR CAN A SUBSPACE BE FILED. It became draggable on 2026-09-18 so
-        // a user can order the children of one Space; a rail folder is a
-        // TOP-LEVEL grouping, and filing a subspace into one would either
-        // detach it from the parent that owns it or claim a nesting the store
-        // has no way to write. Its drag rearranges and nothing else.
+        // A subspace cannot be filed: folders group top-level entries only.
         && !m_rows.at(dragRow).value(QStringLiteral("hierarchyChild")).toBool();
     if (!eligible) {
-        // AND RETURN. The previous single-verb version fell through to the
-        // reorder below when the target was ineligible, so aiming at something
-        // that cannot be grouped with silently moved the dragged block instead
-        // — a different outcome from the one the pointer asked for.
+        // Return rather than reorder: an ineligible aim must not move
+        // anything.
         clearDropTarget();
         return;
     }
@@ -820,22 +684,17 @@ void RailEntryModel::revealSpace(const QString &spaceId)
 {
     if (spaceId.isEmpty() || !m_spaces || !m_layout)
         return;
-    // OUTERMOST FIRST. `setSpaceExpanded` publishes a layout change each
-    // time and the rail rebuilds from it, so expanding a child before its
-    // parent would repeatedly build rows that do not exist yet. The list
-    // comes back nearest-first, so it is walked backwards.
+    // Outermost first: each expansion rebuilds the rail. ancestorSpaceIds()
+    // is nearest-first, so walk it backwards.
     const QStringList ancestors = m_spaces->ancestorSpaceIds(spaceId);
     for (int i = ancestors.size() - 1; i >= 0; --i) {
         if (!m_layout->spaceExpanded(ancestors.at(i)))
             m_layout->setSpaceExpanded(ancestors.at(i), true);
     }
-    // AND THE SPACE ITSELF, so arriving at it shows what is inside it. That
-    // is the difference between "find this" and "open this", and the request
-    // was for the second: "it gets expanded and focused".
+    // Expand the Space itself too, so arriving shows its contents.
     if (!m_layout->spaceExpanded(spaceId))
         m_layout->setSpaceExpanded(spaceId, true);
-    // AFTER the rebuild those writes triggered, or the listener looks for a
-    // row that the next refresh is about to create.
+    // After the rebuild, so the listener finds the row.
     refresh();
     Q_EMIT revealRequested(spaceId);
 }
@@ -847,31 +706,19 @@ void RailEntryModel::hoverGap(int gap)
     const int dragRow = rowForEntry(m_dragEntryId);
     if (dragRow < 0)
         return;
-    // A gap is never a group: the two readings are exclusive, so arriving in
-    // one has to disarm the other.
+    // A gap is never a group target.
     clearDropTarget();
 
     const int length = blockLength(dragRow);
     const int g = legalGap(gap);
     if (g < 0)
         return;
-    // The block's own slot and BOTH gaps adjacent to it are no-ops — the block
-    // is already there. Without this, a gap strictly inside a multi-row block
-    // would compute a destination above the block and move it.
+    // The block's own slot and both adjacent gaps are no-ops.
     if (g >= dragRow && g <= dragRow + length)
         return;
-    // THE CONVERSION THE ROW-INDEX VERSION NEVER HAD. moveBlock's `to` is the
-    // FINAL index the block starts at, i.e. after its own rows have been taken
-    // out, so a gap BELOW the block shifts up by the block's length. The old
-    // code passed the hovered ROW index straight through, which is why hovering
-    // the next row down always landed the block ON that row and under the
-    // pointer, and why the next pointer sample read the dragged block and
-    // oscillated.
-    //
-    // With this, a move only ever fires from a gap and the block lands adjacent
-    // to that gap — so re-reading the same pointer position yields the same gap
-    // and the guard above makes it a no-op. That is what makes the gesture
-    // stable.
+    // Convert gap to moveBlock's final start index: a gap below the block
+    // shifts up by the block's length. The block then lands adjacent to the
+    // gap, so re-reading the same pointer position is a no-op.
     const int to = (g > dragRow) ? g - length : g;
     moveBlock(dragRow, length, to);
     refreshFolderRuns();
@@ -905,13 +752,8 @@ void RailEntryModel::endDrag(bool commit)
     m_dragEntryId.clear();
     m_dropTargetId.clear();
     Q_EMIT dragChanged();
-    // ANNOUNCE the cleared per-row flags before anything else. `refresh()`
-    // below is allowed to find the rows identical and emit nothing at all —
-    // which is right for the row data and catastrophic for these two roles:
-    // the released tile kept rendering as "being dragged" (dimmed, with the
-    // insertion line still under it) until some unrelated room update
-    // happened to refresh the model. Reported as "their icons get darkened
-    // after moved and let go and only clear up after entering a room".
+    // Announce the cleared per-row flags first: refresh() may find the rows
+    // identical and emit nothing, leaving a released tile drawn as dragged.
     if (!m_rows.isEmpty()) {
         Q_EMIT dataChanged(index(0, 0), index(m_rows.size() - 1, 0),
                            { DraggedRole, DropTargetRole });
@@ -926,9 +768,7 @@ void RailEntryModel::endDrag(bool commit)
         refresh();
         return;
     }
-    // A SUBSPACE WRITES ITS PARENT'S ORDER, NOT THE TOP LEVEL'S. Falling
-    // through to commitReorder would hand `applyArrangement` a top-level list
-    // that this drag never rearranged, and skip the one thing it did.
+    // A subspace drag writes its parent's child order, not the top level.
     if (finalRow >= 0 && finalRow < m_rows.size()
         && m_rows.at(finalRow).value(QStringLiteral("hierarchyChild"))
                .toBool()) {
@@ -941,12 +781,7 @@ void RailEntryModel::endDrag(bool commit)
 
 void RailEntryModel::commitChildOrder(const QString &dragged)
 {
-    // A subspace drag rearranges ONE parent's children and touches nothing
-    // else, so it writes one key rather than going through
-    // `applyArrangement`, which is about the top level and its folders.
-    //
-    // The rows are read back from the PREVIEW, exactly as commitReorder does
-    // — what the user saw is what is written, and the preview is the model.
+    // Writes one parent's child order, read back from the preview.
     const int row = rowForEntry(dragged);
     if (row < 0 || !m_layout)
         return;
@@ -985,16 +820,9 @@ void RailEntryModel::commitChildOrder(const QString &dragged)
 void RailEntryModel::commitGrouping(const QString &dragged,
                                     const QString &target)
 {
-    // Dropping ONTO a folder files the Space there. Dropping onto another
-    // Space makes a folder out of the pair, WHERE THE TARGET WAS — the folder
-    // takes over the position the user was pointing at, which is what makes
-    // the gesture feel like the two tiles merged rather than like one of them
-    // was moved somewhere.
-    //
-    // Dropping onto a Space that is already filed joins THAT folder instead of
-    // creating a nested one: folders do not nest, and a nested arrangement is
-    // not something the store can represent, so pretending otherwise would
-    // silently lose the grouping.
+    // Onto a folder: file the Space there. Onto a Space: make a folder of the
+    // pair at the target's position. Onto a filed Space: join that folder,
+    // since folders do not nest.
     bool targetIsFolder = false;
     for (const QVariant &value : m_layout->folders()) {
         if (value.toMap().value(QStringLiteral("id")).toString() == target) {
@@ -1036,11 +864,9 @@ void RailEntryModel::commitReorder(const QString &dragged)
         refresh();
         return;
     }
-    // The whole arrangement the rail is SHOWING, committed in one write, using
-    // the SAME placement rule the preview drew (see folderOwners) — so what
-    // the user saw is what is stored.
-    // The dragged id is passed rather than read off the member, so this does
-    // not depend on when endDrag happened to clear it.
+    // Commit the arrangement the rail is showing in one write, using the
+    // same placement rule as the preview. The dragged id is passed in so this
+    // does not depend on when endDrag cleared it.
     const QVector<QString> owners = folderOwners(dragged);
     QStringList topLevel;
     QHash<QString, QStringList> members;
@@ -1055,23 +881,10 @@ void RailEntryModel::commitReorder(const QString &dragged)
             continue;
         if (rowIsFolder(i)) {
             topLevel.append(entryId);
-            // DELIBERATELY NO EMPTY PLACEHOLDER HERE. applyArrangement takes
-            // a named folder's list as the WHOLE truth about that folder, and
-            // only a folder LEFT OUT keeps what it holds — the store says so
-            // and RailLayoutTest pins it. Naming every folder row therefore
-            // handed a COLLAPSED folder (whose members the rail never
-            // rendered, so nothing can ever append to its key) an empty list
-            // on every reorder drag, which emptied it: its Spaces fell out to
-            // the end of the rail and an empty tile was left behind. The same
-            // line destroyed a stored member id that had not resolved yet in
-            // an OPEN folder, which is the case the store's
-            // "ignored rather than cleaned up eagerly" rule exists for.
-            //
-            // Leaving it out loses nothing: a member the drag moved somewhere
-            // else is named in `topLevel` or in another folder's list, and
-            // applyArrangement removes it from the unrendered folder anyway.
-            // A key appears below only when a member row was actually placed
-            // in it, which is exactly "the folders the caller rendered".
+            // No empty placeholder for a folder: applyArrangement treats a
+            // named folder's list as its whole contents, so naming a
+            // collapsed folder would empty it (and drop unresolved member
+            // ids). A key is added below only for members actually placed.
             continue;
         }
         const QString owner = owners.at(i);

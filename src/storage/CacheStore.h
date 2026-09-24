@@ -9,24 +9,14 @@
 #include <QSqlDatabase>
 #include <QString>
 
-// A minimal per-user SQLite cache for rooms, timeline events and per-room
-// members. Backed by QSqlDatabase (SQLite driver) under
-// ${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/cache.sqlite.
+// Per-user SQLite cache for rooms, recent timeline events and members,
+// under ${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/cache.sqlite,
+// so the room list and recent events render at startup before sync.
 //
-// v0.3 scope:
-//   - Store enough state to render the room list + last N timeline events
-//     for each room instantly on startup, before /whoami or /sync run.
-//   - Persist member display names / avatar mxc URLs so senders don't render
-//     as raw MXIDs after a restart.
-//
-// Explicitly NOT stored here (see docs/threat-model.md):
-//   - access_token or any other bearer credential — those still live in
-//     SettingsManager (plaintext QSettings until v0.4 moves them behind a
-//     keychain abstraction).
-//   - Encrypted-message plaintext. If a TimelineEvent is marked encrypted,
-//     CacheStore skips the row rather than writing a decrypted body.
-//   - Full timeline history — we cap per-room at kEventCap most recent events
-//     to avoid unbounded growth.
+// Never stored here (see docs/threat-model.md):
+//   - access tokens or other credentials (SecretStore holds those);
+//   - encrypted-message plaintext: encrypted rows are skipped;
+//   - full history: each room keeps at most kEventCap recent events.
 class CacheStore : public QObject
 {
     Q_OBJECT

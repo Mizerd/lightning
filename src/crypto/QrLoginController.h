@@ -8,33 +8,23 @@
 
 class MatrixClient;
 
-/// MSC4108 — signing ANOTHER device in from this one.
+/// MSC4108: signing another device in from this one.
 ///
-/// # What this is not
-///
-/// It is not a way to sign THIS device in. That direction needs the OAuth
-/// device-code grant, which `rust/src/oauth.rs` deliberately does not request
-/// (there is a test asserting so). See rust/src/qrlogin.rs for the route if
-/// that decision is ever revisited.
-///
-/// # Two flows, one state machine
+/// Not for signing this device in; that needs the OAuth device-code grant,
+/// which rust/src/oauth.rs deliberately does not request (see
+/// rust/src/qrlogin.rs).
 ///
 /// SHOW: this device displays a QR, the new device scans it and shows two
-/// digits, the user types them here.
-/// ENTER: the new device displays a QR, its text is pasted here, and THIS
-/// device shows two digits for the user to type over there.
+/// digits, and the user types them here.
+/// ENTER: the new device displays a QR, its text is pasted here, and this
+/// device shows two digits to type over there.
 ///
-/// Both end at a verification URL the user opens to consent, and then at the
-/// new device being signed in AND cross-signed — the SDK transfers the
-/// private cross-signing keys and the backup key over the channel, which is
-/// why this is a security surface and not a convenience.
+/// Both end at a verification URL for consent, then the new device is signed
+/// in and cross-signed: the SDK transfers the private cross-signing keys and
+/// the backup key over the channel, which makes this a security surface.
 ///
-/// # Generations
-///
-/// Every start bumps a generation. A progress event naming an older one is
-/// from a flow the user has already left; applying it would drive the current
-/// flow with the previous one's input, which for a check code means asking
-/// the user to compare digits from a channel that no longer exists.
+/// Every start bumps a generation; progress naming an older one is from an
+/// abandoned flow and is dropped.
 class QrLoginController : public QObject
 {
     Q_OBJECT
@@ -50,14 +40,12 @@ class QrLoginController : public QObject
     /// The image URL for the QR being displayed, or empty. Served by the same
     /// provider verification uses; the token is opaque and per-code.
     Q_PROPERTY(QString qrSource READ qrSource NOTIFY stateChanged)
-    /// The same code as text, for a device that offers paste rather than a
-    /// camera. NOT a secret in the key-material sense, but it is the channel:
-    /// anyone who reads it can take the new device's place in this flow.
+    /// The same code as text, for paste instead of a camera. Not key material,
+    /// but it is the channel: whoever reads it can take the new device's place.
     Q_PROPERTY(QString qrText READ qrText NOTIFY stateChanged)
     /// The two digits WE display, in the enter flow. -1 when there are none.
     Q_PROPERTY(int checkCode READ checkCode NOTIFY stateChanged)
-    /// Where the user must consent. Opened through UrlLauncher, which already
-    /// refuses anything but http/https.
+    /// Where the user consents. Opened through UrlLauncher (http/https only).
     Q_PROPERTY(QString verificationUri READ verificationUri NOTIFY stateChanged)
     /// A failure, in words rather than a category name.
     Q_PROPERTY(QString errorText READ errorText NOTIFY stateChanged)
@@ -66,9 +54,8 @@ public:
     explicit QrLoginController(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
-    /// The store the QR grid is published into. Shared with verification:
-    /// both DISPLAY one code at a time and a stale token renders nothing, so
-    /// one slot is correct rather than merely convenient.
+    /// The shared QR store. Verification uses it too; one slot is correct
+    /// because only one code is displayed at a time.
     void setQrStore(QrCodeStore *store) { m_store = store; }
 
     bool available() const;
@@ -96,9 +83,8 @@ private:
     void onProgress(quint64 generation, const QString &step,
                     const QVariantMap &detail);
     void onLoggedOut();
-    /// Back to idle AND clear the code. Called on cancel, on completion and
-    /// on sign-out: a grid left in the store after its flow is over is a code
-    /// the next flow's URL could still serve.
+    /// Back to idle and clear the code (cancel, completion, sign-out), so no
+    /// stale code can be served.
     void reset();
     /// Give up the stored grid, but only if the store still holds OURS.
     void releaseStoredCode();
@@ -107,22 +93,14 @@ private:
     MatrixClient *m_client = nullptr;
     QrCodeStore *m_store = nullptr;
     quint64 m_generation = 0;
-    /// Whether a flow is RUNNING, as distinct from which one.
-    ///
-    /// The generation guard alone is not enough after a bare cancel with no
-    /// restart: `m_generation` still names the cancelled flow, so a step for
-    /// it that was already queued compares EQUAL and is applied — re-publishing
-    /// the QR grid into the shared store and putting the dialog back into
-    /// "showing". The contract is that the code does not outlive its flow by
-    /// ANY exit, and inequality cannot express "no flow at all".
+    /// Whether any flow is running. The generation alone is not enough after a
+    /// bare cancel: queued steps for the cancelled flow would still compare
+    /// equal and put the code back on screen.
     bool m_flowActive = false;
     QString m_state = QStringLiteral("idle");
     QString m_qrToken;
-    /// Whether the token currently in the shared store is OURS.
-    ///
-    /// The store is single-slot and shared with device verification. Clearing
-    /// it unconditionally means cancelling a sign-in blanks a verification QR
-    /// somebody is mid-scan of, and vice versa.
+    /// Whether the token in the shared store is ours; clearing unconditionally
+    /// would blank a verification QR mid-scan.
     bool m_ownsStoredCode = false;
     QString m_qrText;
     int m_checkCode = -1;

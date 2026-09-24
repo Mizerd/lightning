@@ -7,18 +7,16 @@
 
 #include <memory>
 
-// v0.6.1: shared GIF-provider abstraction. A GifProvider owns the
-// provider-specific concerns — endpoint construction, API-key injection,
-// pagination convention, safe-search mapping, response parsing, attribution and
-// media-host policy — behind one interface the shared controller drives. The
-// API key is passed per-call (from the environment / settings) and never held
-// in provider state, so a provider object can never leak a key.
+// Shared GIF-provider abstraction. A provider owns endpoint construction, key
+// injection, pagination, safe-search mapping, parsing, attribution and media
+// host policy. The API key is passed per call and never held in provider
+// state.
 namespace gif {
 
 // The request kind the controller is running (drives debounce + attribution).
 enum class QueryKind { Trending, Search, Categories };
 
-// Controller-facing request state (Phase 1). Presentation-safe; carries no key.
+// Controller-facing request state. Presentation-safe; carries no key.
 enum class RequestState {
     Idle,
     Loading,

@@ -15,9 +15,7 @@
 
 namespace {
 
-// Short keys, because this file is read at startup on the GUI thread's way to
-// painting the room list and there is no reason for it to be larger than it
-// has to be.
+// Short keys: the file is read on the GUI thread before the room list paints.
 constexpr auto kKeyNetwork = "n";
 constexpr auto kKeyLabel = "l";
 constexpr auto kKeyLearnedAt = "t";
@@ -33,9 +31,8 @@ bool BridgeLabelStore::entryIsFresh(const Entry &entry, qint64 nowSecs)
 {
     if (entry.learnedAt <= 0)
         return false;
-    // A row stamped in the future is a clock that moved backwards, not a row
-    // that is fresh forever. Treat it as expired so it is re-read rather than
-    // believed until the clock catches up.
+    // A future timestamp means the clock moved backwards; treat the row as
+    // expired.
     if (entry.learnedAt > nowSecs)
         return false;
     const qint64 lifetime = entry.isPositive() ? kPositiveLifetimeSecs
@@ -67,10 +64,8 @@ void BridgeLabelStore::load()
         return;
     if (!file.open(QIODevice::ReadOnly))
         return;
-    // A CAP, because this runs on the GUI thread at login. The file is a
-    // few tens of bytes per room and the map is capped at kMaxEntries, so
-    // anything past this ceiling is corruption or hostility, and reading it
-    // whole would stall the app on the way to painting the room list.
+    // Capped: read on the GUI thread at login, and anything larger than
+    // kMaxEntries rows could produce is corruption or hostility.
     constexpr qint64 kMaxFileBytes = 4 * 1024 * 1024;
     if (file.size() > kMaxFileBytes)
         return;
@@ -79,9 +74,7 @@ void BridgeLabelStore::load()
 
     QJsonParseError error{};
     const QJsonDocument doc = QJsonDocument::fromJson(bytes, &error);
-    // A corrupt file is discarded rather than repaired. Everything in it is
-    // re-derivable from the server, and a half-parsed badge table is worse
-    // than an empty one.
+    // A corrupt file is discarded, not repaired; everything is re-derivable.
     if (error.error != QJsonParseError::NoError || !doc.isObject())
         return;
 
@@ -121,9 +114,8 @@ bool BridgeLabelStore::save() const
         root.insert(it.key(), row);
     }
 
-    // Atomic: a truncated file read at the next launch would be discarded
-    // whole by load(), losing every remembered badge for a crash that had
-    // nothing to do with them.
+    // Atomic, so a crash cannot leave a truncated file that load() discards
+    // whole.
     QSaveFile out(m_filePath);
     if (!out.open(QIODevice::WriteOnly))
         return false;
@@ -143,17 +135,9 @@ void BridgeLabelStore::pruneToCap()
     byAge.reserve(static_cast<size_t>(m_entries.size()));
     for (auto it = m_entries.constBegin(); it != m_entries.constEnd(); ++it)
         byAge.emplace_back(it.value().learnedAt, it.key());
-    // A FUTURE ROW IS EVICTED FIRST, not kept.
-    //
-    // The first attempt at this clamped the sort key to `now`, and a review
-    // showed that is a no-op: the list is sorted ASCENDING and the smallest
-    // keys are removed, so a future row clamped to `now` is still at least
-    // as large as every legitimate row (one learned a second ago is
-    // `now - 1`) and is still kept while a fresh row is evicted. The comment
-    // claimed otherwise, which is worse than not having tried.
-    //
-    // `entryIsFresh` already refuses to believe a future stamp, so such a
-    // row is worthless: sort it to the very front and let it go first.
+    // Rows stamped in the future are evicted first. entryIsFresh() never
+    // believes them, so sort them to the front; clamping the key to `now` would
+    // still keep them ahead of legitimate rows.
     const qint64 now = nowSecs();
     const auto sortKey = [now](qint64 stamp) {
         return stamp > now ? std::numeric_limits<qint64>::min() : stamp;

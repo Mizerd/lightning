@@ -14,26 +14,21 @@ class QNetworkAccessManager;
 class QNetworkReply;
 class QTimer;
 
-// Lightning secure update system — bounded HTTPS fetching.
-//
-// Two shapes, both with identical transport policy:
-//   * UpdateDocumentFetcher — small in-memory documents (manifest, .sig),
+// Bounded HTTPS fetching for updates, in two shapes with the same transport
+// policy:
+//   * UpdateDocumentFetcher: small in-memory documents (manifest, .sig) with a
 //     hard byte ceiling, never written to disk.
-//   * UpdateDownloader — the artifact, STREAMED to a caller-owned file and
-//     hashed incrementally. A 200 MB package is never held in RAM.
+//   * UpdateDownloader: the artifact, streamed to a caller-owned file and
+//     hashed incrementally.
 //
-// Policy (spec §9), enforced on the initial request AND on every redirect:
-//   - https only; any other scheme aborts the transfer;
-//   - the host must be on the compiled-in allowlist for THIS transfer's role
-//     (isPermittedUrl): a document fetch accepts the canonical host, or --
-//     for the compiled-in FALLBACK pair alone -- the mirror hosts; an
-//     artifact download additionally accepts the bandwidth mirrors;
-//   - bounded redirect count;
-//   - a hard size ceiling; exceeding it aborts mid-stream;
-//   - no cookies, no cache, no custom headers beyond the Lightning user
-//     agent ("Lightning/<version>" — version only, no platform token and
-//     nothing else), no query parameters derived from the user, no Matrix
-//     data.
+// Policy (spec §9), on the first request and every redirect:
+//   - https only;
+//   - the host must be allowed for this transfer's role (isPermittedUrl):
+//     documents use the canonical host, or the mirror hosts for the fallback
+//     pair only; artifacts also accept the bandwidth mirrors;
+//   - bounded redirects and a hard size ceiling (aborts mid-stream);
+//   - no cookies or cache, no headers beyond the "Lightning/<version>" user
+//     agent, no user-derived query parameters, no Matrix data.
 namespace lightning::update {
 
 enum class TransferError {
@@ -73,20 +68,16 @@ protected:
     explicit UpdateTransferBase(QNetworkAccessManager *network, QObject *parent = nullptr);
 
     void beginTransfer(const QUrl &url, const QByteArray &userAgent, qint64 maxBytes);
-    // Test seam. Runs the IDENTICAL policy, chunking, ceiling and completion
-    // path as a network transfer with the network removed: `bytes` is the
-    // body the server would have returned, and std::nullopt is a transport
-    // failure (DNS/TLS/404). It relaxes nothing — the URL is still checked by
-    // isPermittedUrl(), the size ceiling still aborts, and succeed() is still
-    // only reachable through onCompleted().
+    // Test seam: the same policy, chunking, ceiling and completion path with
+    // the network removed. `bytes` is the response body; std::nullopt is a
+    // transport failure. isPermittedUrl() and the ceiling still apply.
     void deliverOfflineForTest(const QUrl &url, qint64 maxBytes,
                                const std::optional<QByteArray> &bytes);
     void fail(TransferError error, const QString &detail = QString());
     void succeed();
     void abortReply();
 
-    // The host policy for THIS transfer's role. Metadata and artifact bytes
-    // deliberately do not share one predicate.
+    // Host policy for this transfer's role; documents and artifacts differ.
     virtual bool isPermittedUrl(const QUrl &url) const = 0;
     virtual void onChunk(const QByteArray &chunk) = 0;
     virtual bool onCompleted(QString *message) = 0;
@@ -94,13 +85,10 @@ protected:
 
     qint64 receivedBytes() const { return m_received; }
 
-    // Clear the terminal flags so this object can perform ANOTHER transfer.
-    // fail() and cancel() are both no-ops once m_done is set, and the mirror
-    // fallback reuses one downloader for a second transfer within a single
-    // download -- without this, a pre-flight refusal on that second attempt
-    // would emit no finished() at all and the manager would wait forever,
-    // holding the lock, with cancel equally inert. Call it BEFORE any check
-    // that can fail.
+    // Clears the terminal flags so the object can run another transfer (the
+    // mirror fallback reuses one downloader). Otherwise fail() and cancel() are
+    // no-ops and a refused second attempt would never emit finished(). Call
+    // before any check that can fail.
     void resetTerminalStateForReuse();
 
 private:
@@ -133,19 +121,14 @@ public:
 
     void start(const QUrl &url, qint64 maxBytes, const QByteArray &userAgent);
     QByteArray document() const { return m_buffer; }
-    // What a transfer STARTED at `start` may hop to. Exposed for the test
-    // that pins the two roles apart without a network.
+    // What a transfer started at `start` may hop to. For tests.
     bool permitsForTest(const QUrl &start, const QUrl &hop);
 
 protected:
-    // Two roles, fixed by the URL the transfer STARTED at. Canonical metadata
-    // may never leave the canonical host. The FALLBACK pair -- the fixed
-    // GitHub release slot the client reads when the canonical host does not
-    // answer -- is on a mirror host and is served through GitHub's asset
-    // redirect to its object hosts, so that transfer may hop within the
-    // mirror host list and nowhere else. Until 2026-09-03 this returned the
-    // canonical predicate unconditionally, which refused the fallback fetch
-    // before its first request: the GitHub fallback had never once worked.
+    // Fixed by the starting URL. Canonical metadata never leaves the canonical
+    // host. The fallback pair (a fixed GitHub release slot) is served through
+    // GitHub's asset redirects, so that transfer may hop within the mirror host
+    // list only.
     bool isPermittedUrl(const QUrl &url) const override;
     void onChunk(const QByteArray &chunk) override;
     bool onCompleted(QString *message) override;
@@ -169,30 +152,22 @@ public:
     void start(const QUrl &url, qint64 expectedSize, const QString &expectedSha256Hex,
                QFile *target, const QByteArray &userAgent);
 
-    // Test seam. Installs the streaming state that start() would install,
-    // WITHOUT issuing any request, so the redirect-restart path can be driven
-    // deterministically and offline. It relaxes nothing: onCompleted() still
-    // enforces the declared size and the SHA-256, and there is no way from
-    // here to reach succeed() without both.
+    // Test seam: installs start()'s streaming state without a request, to drive
+    // the redirect-restart path offline. Size and SHA-256 are still enforced.
     void prepareForTest(QFile *target, qint64 expectedSize,
                         const QString &expectedSha256Hex);
-    // Test seam: runs the redirect-restart hook exactly as handleFinished()
-    // would, so its failure path is observable without a live redirect.
+    // Test seam: runs the redirect-restart hook as handleFinished() would.
     void restartForTest() { onRestart(); }
 
-    // Test seam. Streams `bytes` (std::nullopt = the source was unreachable)
-    // as if they had arrived from `url`, through the same path a network
-    // transfer takes. Verification is untouched: the host policy still
-    // applies, the bytes still land in `target`, and onCompleted() still
-    // enforces the declared size and SHA-256 — so a mirror serving MODIFIED
-    // bytes fails here exactly as it would in production.
+    // Test seam: streams `bytes` (std::nullopt = unreachable) as if from `url`.
+    // Host policy, the target file, size and SHA-256 checks all apply, so a
+    // mirror serving modified bytes fails exactly as in production.
     void deliverForTest(const QUrl &url, qint64 expectedSize,
                         const QString &expectedSha256Hex, QFile *target,
                         const std::optional<QByteArray> &bytes);
 
 protected:
-    // Artifact bytes: the canonical host or a compiled-in mirror, applied to
-    // the first request and to every redirect hop.
+    // The canonical host or a compiled-in mirror, on every hop.
     bool isPermittedUrl(const QUrl &url) const override;
     void onChunk(const QByteArray &chunk) override;
     bool onCompleted(QString *message) override;

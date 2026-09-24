@@ -7,11 +7,9 @@
 
 namespace {
 
-/// A sequence is legal for a Global action only if it carries Ctrl, Alt or
-/// Meta. Shift alone is NOT enough: Shift+A is how a capital A is typed, and
-/// a Shortcut on it would pre-empt every text field in the application
-/// (fact 1 in the header). The check inspects the FIRST chord only, which is
-/// the one Qt matches against a plain key press.
+/// A Global sequence must carry Ctrl, Alt or Meta. Shift alone is not enough:
+/// Shift+A types a capital A. Only the first chord is checked, since that is
+/// what Qt matches against a plain key press.
 bool hasCommandModifier(const QKeySequence &seq)
 {
     if (seq.count() <= 0)
@@ -22,9 +20,8 @@ bool hasCommandModifier(const QKeySequence &seq)
            || mods.testFlag(Qt::MetaModifier);
 }
 
-/// A sequence whose only content is a modifier is what a capture control
-/// reports while the user is still reaching for the real key. Storing it
-/// would produce a Shortcut that fires on Ctrl alone.
+/// What a capture control reports while the user is still reaching for the
+/// real key. Storing it would produce a Shortcut that fires on Ctrl alone.
 bool isBareModifier(const QKeySequence &seq)
 {
     if (seq.count() <= 0)
@@ -50,38 +47,24 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
     const QString composeCat = tr("Message formatting");
     const QString callCat = tr("Calls");
 
-    // THE SEED LIST IS THE CONTRACT. Every row here must be WIRED to
-    // something — a registry entry whose QML site was never migrated is a
-    // shortcut that reports a key and does nothing, which is strictly worse
-    // than not offering it. When an action is added here, its `Shortcut`
-    // must be migrated in the same change.
+    // Every row must be wired to a QML `Shortcut`: a registry entry whose QML
+    // site was never migrated is a shortcut that reports a key and does
+    // nothing, which is strictly worse than not offering it.
     m_actions = {
         // ── Application ─────────────────────────────────────────────────
         { QStringLiteral("app.quit"), appCat,
           tr("Quit Lightning"), QStringLiteral("Ctrl+Q"), GlobalContext },
-        // WIDENED, and RENAMED with it (was `app.settingsSearch`). The row
-        // only ever focused the search field of an ALREADY-OPEN Settings, so
-        // nothing in the client opened Settings from the keyboard at all —
-        // the one thing Ctrl+, means in every other desktop application.
-        // It now does both, from two Shortcuts on PROVABLY EXCLUSIVE gates
-        // (qml/MainScreen.qml `app.currentScreen !== 2`, qml/
-        // SettingsScreen.qml `root.visible`, and SettingsScreen's visibility
-        // IS `app.currentScreen === 2` — see qml/Main.qml's
-        // settingsViewLoader). Two enabled Shortcuts on one sequence make Qt
-        // fire NEITHER, so that exclusivity is the whole safety argument and
-        // must survive any change to either gate.
-        //
-        // The rename orphans a stored override of the old id: the value is
-        // ignored and the default applies, which is the same degradation an
-        // unparseable stored value already gets. Deliberate — the alternative
-        // is an id that lies about what the row does.
+        // Opens Settings or focuses its search field, via two Shortcuts on
+        // mutually exclusive gates (MainScreen `app.currentScreen !== 2`,
+        // SettingsScreen `root.visible`). Two enabled Shortcuts on one
+        // sequence fire neither, so that exclusivity must be preserved.
+        // Renamed from `app.settingsSearch`; old overrides fall back to the
+        // default.
         { QStringLiteral("app.openSettings"), appCat,
           tr("Open Settings, or focus its search field"),
           QStringLiteral("Ctrl+,"), GlobalContext },
-        // Discord's own key for the shortcut list. Lightning's equivalent is
-        // the rebinding page itself, so this navigates there rather than
-        // opening a second, separate cheat sheet that would immediately
-        // disagree with the page that can actually change the keys.
+        // Navigates to the rebinding page rather than a separate cheat sheet
+        // that could disagree with it.
         { QStringLiteral("app.shortcutsHelp"), appCat,
           tr("Show the keyboard shortcuts"), QStringLiteral("Ctrl+/"),
           GlobalContext },
@@ -99,20 +82,12 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
         { QStringLiteral("nav.newConversation"), navCat,
           tr("Create a room or Space"), QStringLiteral("Ctrl+Shift+N"),
           GlobalContext },
-        // 2026-09-12 Discord audit. Discord's own key for "create private
-        // group" is Ctrl+Shift+T and it is free here, so this is one of the
-        // few additions that keeps the spelling as well as the meaning. It
-        // opens the SAME dialog Ctrl+Shift+N does, on its DM tab — the mode
-        // argument is what the two rows differ by.
+        // Opens the same dialog as Ctrl+Shift+N, on its DM tab.
         { QStringLiteral("nav.newDirectMessage"), navCat,
           tr("Start a direct message"), QStringLiteral("Ctrl+Shift+T"),
           GlobalContext },
-        // Discord's inbox popout is Ctrl+I. Ctrl+I is `composer.italic`
-        // here, and while a Global/Editor pair on one sequence is a legal
-        // SHADOW rather than a conflict, this client has exactly two of
-        // those by design (Ctrl+B and Ctrl+U) and a third one bought nothing
-        // — the Activity Center is not so central that it is worth making a
-        // second key ambiguous. Ctrl+Shift+I is free and keeps the letter.
+        // Not Ctrl+I: that is `composer.italic`, and one more Global/Editor
+        // shadow was not worth it.
         { QStringLiteral("nav.activityCenter"), navCat,
           tr("Open the Activity Center"), QStringLiteral("Ctrl+Shift+I"),
           GlobalContext },
@@ -140,178 +115,83 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
         { QStringLiteral("room.markRead"), roomCat,
           tr("Mark the open conversation as read"),
           QStringLiteral("Ctrl+Shift+M"), GlobalContext },
-        // Discord marks a whole server read with Shift+Esc, which is
-        // STRUCTURALLY unavailable twice over: Esc is in the reserved table,
-        // and Shift alone does not satisfy hasCommandModifier(). Ctrl+Shift+A
-        // instead — A for all.
+        // Shift+Esc is unavailable (Esc is reserved; Shift alone is not a
+        // command modifier). Note Ctrl+Shift+A is QKeySequence::Deselect on
+        // X11 and this Shortcut pre-empts it in text fields; accepted since
+        // the row is rebindable.
         //
-        // IT IS NOT ADJACENT TO NOTHING, which this comment claimed for one
-        // review cycle: on X11 desktops Ctrl+Shift+A is
-        // `QKeySequence::Deselect`, which QQuickTextInput/QQuickTextControl
-        // handle, and a window-scoped Shortcut wins over the focused item. So
-        // a user in the message box loses Deselect and gets a bulk, silent,
-        // un-undoable mark-everything-read instead. ACCEPTED FOR NOW — the
-        // mnemonic is the right one, Deselect is a chord almost nobody uses,
-        // and the row is rebindable — but it is a real shadow and the honest
-        // place to reconsider it is beside the reserved table, not here.
-        //
-        // markAllRoomsRead() RETURNS A COUNT on purpose (RoomListModel), so a
-        // caller can tell "nothing was unread" from "it worked"; §6's rule
-        // that a no-op must not be reported as a success applies to a
-        // keyboard shortcut exactly as it does to a repair.
+        // markAllRoomsRead() returns a count so a caller can tell "nothing
+        // was unread" from "it worked".
         { QStringLiteral("room.markAllRead"), roomCat,
           tr("Mark every conversation as read"), QStringLiteral("Ctrl+Shift+A"),
           GlobalContext },
-        // Discord's Alt+Enter is MESSAGE-scoped ("mark this message unread")
-        // and Lightning's capability is ROOM-scoped, so the action is not the
-        // same one and deliberately does not wear Discord's spelling. R for
-        // "unRead"; M would have paired it with Ctrl+Shift+M above and M is
-        // taken by that very row.
+        // Room-scoped, unlike Discord's message-scoped Alt+Enter.
         //
-        // WHY NOT Ctrl+Alt, WHICH THIS ROW AND `call.leave` BOTH USED FOR ONE
-        // REVIEW CYCLE. Two independent reasons, and the comment that stood
-        // here saw only half of one of them:
-        //
-        //  * Windows delivers AltGr as Ctrl+Alt, so a Ctrl+Alt+<letter>
-        //    default fires while a user whose layout reaches a character
-        //    through AltGr is simply TYPING. The set that matters is the
-        //    layouts users HAVE, not the catalogs we ship — the earlier
-        //    comment scoped it to `i18n/` and so cleared M, when German T1
-        //    reaches µ with AltGr+M. Polish alone also claims a c e l n o s
-        //    x z.
-        //  * macOS maps portable "Ctrl" to Command and "Alt" to Option, so
-        //    every Ctrl+Alt default ships there as ⌘⌥. ⌘⌥H is the system
-        //    "Hide Others" that Qt's own application menu installs, and ⌘⌥M
-        //    is "Minimize All" in many apps. macOS has been a published
-        //    download since 0.7.5 and the earlier comment did not consider it
-        //    at all.
-        //
-        // KNOWN AND ACCEPTED, not overlooked: `call.returnToCall` below is
-        // still Ctrl+Alt+A, which is Polish AltGr+ą by the first rule and ⌘⌥A
-        // by the second. It predates this round and moving a shipped default
-        // silently re-binds it for every existing install, so it stays until
-        // that is a deliberate decision. Every row here is rebindable.
+        // Avoid Ctrl+Alt defaults: Windows delivers AltGr as Ctrl+Alt (German
+        // reaches µ with AltGr+M, Polish uses many letters), and on macOS
+        // Ctrl+Alt becomes Cmd+Option, which collides with system chords such
+        // as "Hide Others". `call.returnToCall` is still Ctrl+Alt+A because
+        // moving a shipped default rebinds every existing install.
         { QStringLiteral("room.markUnread"), roomCat,
           tr("Mark the open conversation as unread"),
           QStringLiteral("Ctrl+Shift+R"), GlobalContext },
-        // A DELIBERATE SECOND DUAL BINDING, and Discord's own arrangement:
-        // Ctrl+U opens the member list, and inside the message box Ctrl+U is
-        // still Underline (`composer.underline`, EditorContext). That is a
-        // SHADOW, not a conflict — the composer accepts the ShortcutOverride
-        // while it has focus, so the global action keeps the key everywhere
-        // else. It is the Ctrl+B/Bold arrangement exactly, and both rows say
-        // so through ShadowNoteRole rather than leaving it to be discovered.
+        // Deliberate shadow: inside the message box Ctrl+U is still Underline
+        // (`composer.underline`), like the Ctrl+B/Bold pair.
         { QStringLiteral("room.togglePeople"), roomCat,
           tr("Show or hide the people in this conversation"),
           QStringLiteral("Ctrl+U"), GlobalContext },
-        // Ctrl+Shift+P, NOT Discord's Ctrl+P. The same argument this table
-        // already makes for refusing Ctrl+S as the strikethrough default: on
-        // a desktop Ctrl+P is Print in every other application, and a client
-        // that eats a universal key is a client people distrust.
+        // Not Ctrl+P, which is Print everywhere else.
         { QStringLiteral("room.togglePinned"), roomCat,
           tr("Show or hide pinned messages"), QStringLiteral("Ctrl+Shift+P"),
           GlobalContext },
 
         // ── Calls ───────────────────────────────────────────────────────
         //
-        // GlobalContext, and deliberately so: the whole value of a mute key
-        // is that it works while you are doing something else — reading the
-        // room, typing a note in another conversation — which is exactly
-        // when you need to mute in a hurry. An EditorContext mute would be
-        // unreachable at the one moment it matters.
-        //
-        // Discord's own keys are Ctrl+Shift+M and Ctrl+Shift+D, and NEITHER
-        // was available: Ctrl+Shift+M is already room.markRead, and
-        // Ctrl+Shift+D is in the RESERVED table below (the screenshot-demo
-        // controls). Two actions cannot share a default — validationError()
-        // refuses the conflict, and the rebinding page would open on an
-        // unresolvable state the first time a user saw it — so both fall
-        // back to free keys that keep the mnemonic: U for unmute, H for
-        // hear. Anyone who wants Discord's keys can rebind, which is what
-        // the rebinding feature is for.
-        //
-        // They are inert when no call is running, rather than absent: a key
-        // that quietly does nothing outside a call is better than one that
-        // takes the sequence away from something else while a call is up.
+        // Global so mute works while focus is elsewhere. Discord's
+        // Ctrl+Shift+M/D are taken here (room.markRead, and the reserved
+        // screenshot-demo controls), so these use U (unmute) and H (hear).
+        // Inert when no call is running.
         { QStringLiteral("call.toggleMute"), callCat,
           tr("Mute or unmute the microphone"), QStringLiteral("Ctrl+Shift+U"),
           GlobalContext },
         { QStringLiteral("call.toggleDeafen"), callCat,
           tr("Deafen or undeafen"), QStringLiteral("Ctrl+Shift+H"),
           GlobalContext },
-        // Discord's own key. A camera exists only on the MatrixRTC lane —
-        // the legacy 1:1 lane is audio-only BY DESIGN (see CallHeaderBar's
-        // `richMedia`), so there is no second lane to fall back to and the
-        // handler says so rather than calling something that would refuse.
+        // Camera exists only on the MatrixRTC lane; the legacy 1:1 lane is
+        // audio-only, so the handler reports that rather than falling back.
         { QStringLiteral("call.toggleCamera"), callCat,
           tr("Turn the camera on or off"), QStringLiteral("Ctrl+Shift+V"),
           GlobalContext },
-        // Discord's own key, and free here. Brings the window back to the
-        // room the live call is in, from anywhere — including Settings,
-        // which is exactly where a call is easiest to lose track of.
+        // Returns to the call's room from anywhere, including Settings.
         { QStringLiteral("call.returnToCall"), callCat,
           tr("Return to the active call"), QStringLiteral("Ctrl+Alt+A"),
           GlobalContext },
-        // Discord starts a DM call with Ctrl+' — an apostrophe, which is a
-        // DEAD KEY on several European layouts, so QKeySequence would store a
-        // default some users cannot type at all. Ctrl+Shift+C keeps the
-        // mnemonic on a key everyone has. (Ctrl+C is reserved for the message
-        // menu's Copy; Ctrl+Shift+C is a different sequence and free.)
+        // Not Discord's Ctrl+', which is a dead key on several European
+        // layouts.
         //
-        // GATED, unlike the mute/camera rows: those are inert inside a call
-        // that does not offer them, whereas this one would START something.
-        // The gate is the timeline call button's OWN four-clause expression
-        // (qml/MainScreen.qml) — NOT `canStartCall()` alone, which is one
-        // line over `preferredCallLane()` and would have let this key tear
-        // down a live call. That comment stood here for one review cycle;
-        // read the block in MainScreen.qml before touching either.
+        // Gated, since it starts something: the gate is the timeline call
+        // button's own expression in qml/MainScreen.qml, not canStartCall()
+        // alone, which would let this key tear down a live call.
         { QStringLiteral("call.startCall"), callCat,
           tr("Start a call in this conversation"), QStringLiteral("Ctrl+Shift+C"),
           GlobalContext },
-        // Discord ships "Disconnect from Voice" and "Toggle Go Live" as
-        // keybind-page actions with NO default at all, so there is no
-        // spelling to keep and both are free choices. S for share.
-        //
-        // LEAVE HAS NO MNEMONIC, DELIBERATELY, and it took three attempts to
-        // get here. Ctrl+Alt+H (hang up) is ⌘⌥H on macOS — the system "Hide
-        // Others" — see the Ctrl+Alt block above; Ctrl+Shift+H is
-        // `call.toggleDeafen`; and Ctrl+Shift+W, the obvious
-        // close-this-thing chord, is the reflex every desktop and browser
-        // trains for CLOSE THE WINDOW. CallHeaderBar shapes the leave button
-        // differently from every other control on the bar precisely because
-        // leaving is the one irreversible thing there — it disconnects the
-        // user from a live conversation with other people — so putting it on
-        // a chord fingers press without looking contradicts this client's own
-        // stance on it. Ctrl+Shift+Y is free, is nobody's reflex, is not an
-        // AltGr letter, and is not a macOS system chord. Memorability is the
-        // thing to trade away here: the keyboard-shortcuts page is where
-        // anyone finds this, and Discord ships no default at all.
+        // No mnemonic on purpose: Ctrl+Alt+H is macOS "Hide Others",
+        // Ctrl+Shift+H is deafen, and Ctrl+Shift+W is the close-window reflex.
+        // Leaving is irreversible, so it gets a chord nobody presses by habit.
         { QStringLiteral("call.leave"), callCat,
           tr("Leave the call"), QStringLiteral("Ctrl+Shift+Y"), GlobalContext },
-        // Ctrl+Shift+S, and note what it does NOT do: requestScreenShare()
-        // opens the portal or the source picker rather than sharing
-        // immediately, exactly as the call bar's own button does. A key that
-        // silently started sending a picture of the user's desktop would be a
-        // privacy defect, not a convenience.
+        // Opens the portal or source picker, like the call bar's button; it
+        // never starts sharing the desktop on its own.
         { QStringLiteral("call.toggleScreenShare"), callCat,
           tr("Share your screen, or stop sharing"),
           QStringLiteral("Ctrl+Shift+S"), GlobalContext },
 
         // ── Message box surfaces (Global context) ───────────────────────
         //
-        // GLOBAL, not Editor, and the distinction matters: an EditorContext
-        // row is delivered by the composer CLAIMING the ShortcutOverride and
-        // is then routed through applyFormat() by action id
-        // (qml/MessageComposerBar.qml). Opening a picker is not a format, so
-        // routing it there would hand applyFormat() a name it does not know.
-        // Global also means the key works while the timeline has focus,
-        // which is when you are most likely to reach for it.
-        //
-        // NONE of these is Discord's own key, and each departure is forced:
-        // Ctrl+E is `composer.code` here, so a global Ctrl+E would be
-        // shadowed by the composer at exactly the moment the picker is
-        // wanted; and Discord's Ctrl+Shift+U (upload) is `call.toggleMute`
-        // here and must not move.
+        // Global, not Editor: Editor rows are routed through applyFormat() by
+        // action id, and opening a picker is not a format. Ctrl+E is
+        // `composer.code` and Ctrl+Shift+U is `call.toggleMute`, hence the
+        // non-Discord keys.
         { QStringLiteral("composer.emojiPicker"), composerCat,
           tr("Open the emoji picker"), QStringLiteral("Ctrl+Shift+E"),
           GlobalContext },
@@ -322,15 +202,9 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
           tr("Attach files"), QStringLiteral("Ctrl+Shift+O"), GlobalContext },
 
         // ── Message formatting (Editor context) ─────────────────────────
-        // These call the composer's existing applyFormat(), which the
-        // formatting toolbar already drives — so the key is the only new
-        // part. Ctrl+B and Ctrl+I are the conventions every editor uses;
-        // they SHADOW the two panel toggles rather than replacing them (see
-        // the header). Ctrl+E is Element Web's inline-code key and is free
-        // here because Lightning has no sticker picker to open with it.
-        // Ctrl+S is deliberately NOT the strikethrough default the way it is
-        // elsewhere: on a desktop every other application treats it as Save,
-        // and a client that eats Ctrl+S is a client people distrust.
+        // These drive the composer's applyFormat(). Ctrl+B and Ctrl+I shadow
+        // the two panel toggles (see the header). Ctrl+S is not the
+        // strikethrough default because it means Save everywhere else.
         { QStringLiteral("composer.bold"), composeCat,
           tr("Bold"), QStringLiteral("Ctrl+B"), EditorContext },
         { QStringLiteral("composer.italic"), composeCat,
@@ -343,23 +217,17 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
           tr("Bulleted list"), QStringLiteral("Ctrl+Shift+8"), EditorContext },
         { QStringLiteral("composer.quote"), composeCat,
           tr("Quote"), QStringLiteral("Ctrl+Shift+9"), EditorContext },
-        // v0.9 rich composer. Underline has no markdown form, so in markdown
-        // mode this is a no-op; in rich mode it is the standard Ctrl+U.
-        // Link is NOT Ctrl+K: that is the quick switcher everywhere in this
-        // app, and Ctrl+Shift+K is taken globally too — Ctrl+Shift+L is the
-        // free editor-context sequence.
+        // Underline has no markdown form, so it is a no-op in markdown mode.
+        // Link is not Ctrl+K (the quick switcher); Ctrl+Shift+K is taken too.
         { QStringLiteral("composer.underline"), composeCat,
           tr("Underline"), QStringLiteral("Ctrl+U"), EditorContext },
         { QStringLiteral("composer.link"), composeCat,
           tr("Link"), QStringLiteral("Ctrl+Shift+L"), EditorContext },
     };
 
-    // SEQUENCES THAT STAY HARD-CODED. They are not rows — none of them is a
-    // sensible thing to rebind — but conflict detection has to KNOW about
-    // them, because fact 2 does not care whether a Shortcut came from this
-    // model or from a QML literal: two enabled Shortcuts on one sequence
-    // fire NEITHER. Without this list the page would happily accept Escape
-    // for "Quit" and quietly break closing a dialog at the same time.
+    // Hard-coded sequences with no row. Conflict detection must know them,
+    // because two enabled Shortcuts on one sequence fire neither, whatever
+    // declared them.
     m_reserved = {
         { QStringLiteral("Esc"),
           tr("closing the find bar, room information, a thread or Settings") },
@@ -370,18 +238,15 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
         { QStringLiteral("T"), tr("the message menu's Thread accelerator") },
         { QStringLiteral("E"), tr("the message menu's Edit accelerator") },
         { QStringLiteral("Ctrl+Shift+D"), tr("the screenshot-demo controls") },
-        // Not a Shortcut, but taken all the same: TimelinePane reads these
-        // in Keys.onPressed, which a Shortcut would pre-empt (fact 1). They
-        // are the exact keys commit 4c2317f was about.
+        // Not Shortcuts: TimelinePane handles these in Keys.onPressed, which
+        // a Shortcut would pre-empt.
         { QStringLiteral("Space"), tr("paging the timeline and the media grids") },
         { QStringLiteral("PgUp"), tr("paging the timeline") },
         { QStringLiteral("PgDown"), tr("paging the timeline") },
         { QStringLiteral("Home"), tr("jumping to the earliest loaded message") },
         { QStringLiteral("End"), tr("jumping to the latest message") },
     };
-    // Normalize the reserved list ONCE, through the same round-trip every
-    // candidate goes through — otherwise "Esc" and "Escape" compare unequal
-    // and the whole list silently matches nothing.
+    // Normalize once so "Esc" and "Escape" compare equal.
     for (Reserved &r : m_reserved) {
         const QString portable = normalize(r.sequence);
         if (!portable.isEmpty())
@@ -401,12 +266,9 @@ int ShortcutRegistry::rowCount(const QModelIndex &parent) const
 
 QHash<int, QByteArray> ShortcutRegistry::roleNames() const
 {
-    // ROLE NAMES ARE DELIBERATELY PREFIXED. The delegate is a ShortcutRow,
-    // which declares properties of its own called actionId, description,
-    // currentSequence and so on — and a QML component instance may not
-    // redeclare a property its type already has. Unprefixed role names would
-    // therefore either collide outright or silently shadow the component's
-    // own properties, which is the harder bug of the two to see.
+    // Role names are prefixed because ShortcutRow declares properties named
+    // actionId, description, currentSequence etc., and a component may not
+    // redeclare them.
     return {
         { IdRole, "shortcutId" },
         { CategoryRole, "shortcutCategory" },
@@ -434,11 +296,7 @@ QVariant ShortcutRegistry::data(const QModelIndex &index, int role) const
     case DescriptionRole:
         return a.description;
     case DefaultSequenceRole:
-        // NORMALIZED, like every other sequence that leaves this class. The
-        // seed list is written in canonical form already, but a role that
-        // returns the raw literal while defaultSequenceFor() returns the
-        // round-tripped one is two answers to one question, and the "Reset
-        // to %1" label would eventually disagree with what Reset does.
+        // Normalized so this agrees with defaultSequenceFor() and Reset.
         return normalize(a.defaultSequence);
     case CurrentSequenceRole:
         return m_resolved.at(row);
@@ -482,9 +340,8 @@ QString ShortcutRegistry::normalize(const QString &sequence)
 
 QString ShortcutRegistry::sequenceFromKeyEvent(int key, int modifiers) const
 {
-    // KeypadModifier and GroupSwitchModifier describe WHICH physical key
-    // produced the character, not what the user meant to bind — leaving them
-    // in would store a sequence that only matches the numeric keypad.
+    // Keypad/GroupSwitch describe which physical key was used; keeping them
+    // would bind only the numeric keypad.
     const auto mods = static_cast<Qt::KeyboardModifiers>(modifiers)
                       & ~Qt::KeypadModifier & ~Qt::GroupSwitchModifier;
     const QKeySequence seq(QKeyCombination(mods, static_cast<Qt::Key>(key)));
@@ -497,11 +354,8 @@ QString ShortcutRegistry::storedOverride(const QString &actionId) const
 {
     if (!m_settings)
         return {};
-    // An unparseable stored value is IGNORED rather than surfaced. A
-    // Shortcut bound to an unparseable string is inert and looks exactly
-    // like a shortcut that simply does not work, with nothing anywhere
-    // saying why — so a corrupted or hand-edited settings file degrades to
-    // the DEFAULT, which is a state the user can see and reason about.
+    // An unparseable stored value falls back to the default: an inert
+    // Shortcut would fail with no visible reason.
     return normalize(m_settings->shortcutSequence(actionId));
 }
 
@@ -527,8 +381,8 @@ QString ShortcutRegistry::editorActionForKey(int key, int modifiers) const
     const QString seq = sequenceFromKeyEvent(key, modifiers);
     if (seq.isEmpty())
         return {};
-    // m_resolved holds the CURRENT binding, so a rebound Bold is matched at
-    // its new sequence and a stale default is never matched at its old one.
+    // m_resolved holds the current binding, so a rebound action matches at
+    // its new sequence only.
     for (int i = 0; i < m_actions.size(); ++i) {
         if (m_actions.at(i).context == EditorContext
             && m_resolved.at(i) == seq)
@@ -580,11 +434,9 @@ QString ShortcutRegistry::validationError(const QString &actionId,
     const QKeySequence seq =
         QKeySequence::fromString(portable, QKeySequence::PortableText);
 
-    // Fact 1. A modifier-less global shortcut takes that key away from every
-    // text field in the application — including the one you would use to
-    // undo it. Refused for BOTH contexts: an Editor action bound to a bare
-    // letter would be unreachable anyway, because typing the letter is what
-    // the message box is for.
+    // A modifier-less sequence is refused for both contexts: globally it
+    // takes the key from every text field, and in the editor typing it
+    // inserts the character.
     if (!hasCommandModifier(seq)) {
         return action->context == GlobalContext
                    ? tr("Use Ctrl, Alt or Super. A shortcut without one of "
@@ -607,10 +459,8 @@ QString ShortcutRegistry::validationError(const QString &actionId,
         const Action &other = m_actions.at(i);
         if (other.id == actionId)
             continue;
-        // Cross-context is a SHADOW, not a conflict — the composer takes the
-        // key while it has focus and the global action keeps it otherwise.
-        // Reporting it as a conflict would forbid exactly the arrangement
-        // that makes Ctrl+B work for both Bold and the panel toggle.
+        // Cross-context is a shadow, not a conflict; this is what lets
+        // Ctrl+B be both Bold and the panel toggle.
         if (other.context != action->context)
             continue;
         if (m_resolved.at(i) == portable) {
@@ -635,10 +485,8 @@ QString ShortcutRegistry::setBinding(const QString &actionId,
 
     const QString portable = normalize(sequence);
     if (portable == normalize(action->defaultSequence)) {
-        // Setting a binding back to its own default CLEARS the override
-        // rather than storing it. Otherwise the account would carry a
-        // pinned copy of today's default and would not follow a future
-        // change to it — and "Reset" would appear to do nothing.
+        // Binding a sequence back to its default clears the override, so the
+        // account keeps following future default changes.
         m_settings->clearShortcutSequence(actionId);
     } else {
         m_settings->setShortcutSequence(actionId, portable);
@@ -760,11 +608,7 @@ void ShortcutRegistry::reload()
     recomputeSummary();
     ++m_revision;
     announceAll();
-    // ANNOUNCED EXPLICITLY, not left to dataChanged. QML binds a Shortcut's
-    // sequence through sequenceFor(), which is a function call and therefore
-    // creates no binding dependency — the same trap the media-cache handlers
-    // hit when they assigned Image.source imperatively and destroyed the
-    // binding. Every QML site reads bindingRevision inside the binding, and
-    // this signal is what makes that read fire.
+    // Emitted explicitly: sequenceFor() is a function call and creates no
+    // QML binding dependency, so QML sites re-evaluate via bindingRevision.
     Q_EMIT bindingsChanged();
 }

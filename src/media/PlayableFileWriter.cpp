@@ -19,9 +19,8 @@ PlayableFileWriter::PlayableFileWriter(QObject *parent)
     , m_thread(new QThread)
     , m_worker(new PlayableWriteWorker(m_control))
 {
-    // The worker is created on THIS thread and moved; it owns no timers and
-    // no child objects, so there is nothing that could keep the creating
-    // thread's affinity behind (the trap VideoPosterWorker's watchdog hit).
+    // Created here and moved; it owns no timers or children that could keep the
+    // old thread affinity.
     m_thread->setObjectName(QStringLiteral("lightning-playable-write"));
     m_worker->moveToThread(m_thread);
     connect(m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
@@ -32,8 +31,7 @@ PlayableFileWriter::PlayableFileWriter(QObject *parent)
 
 PlayableFileWriter::~PlayableFileWriter()
 {
-    // Cancel first, so the wait below is bounded by one chunk rather than
-    // by a multi-hundred-megabyte write that nobody is left to receive.
+    // Cancel first so the wait is bounded by one chunk.
     cancelAll();
     m_thread->quit();
     m_thread->wait();
@@ -101,10 +99,9 @@ void PlayableWriteWorker::enqueue(const QString &cacheKey, const QString &path,
     {
         QSaveFile file(path);
         if (file.open(QIODevice::WriteOnly)) {
-            // Owner-only, explicitly — QSaveFile otherwise honours the
-            // umask. The 0700 session directory already blocks traversal;
-            // this is the second layer for decrypted payloads, and it is
-            // set before a single byte is written.
+            // Owner-only before any byte is written; QSaveFile otherwise
+            // honours the umask. A second layer behind the 0700 session
+            // directory.
             file.setPermissions(QFileDevice::ReadOwner
                                 | QFileDevice::WriteOwner);
             const qint64 total = bytes.size();
@@ -131,17 +128,15 @@ void PlayableWriteWorker::enqueue(const QString &cacheKey, const QString &path,
                 // so a failed commit leaves nothing behind either.
                 ok = file.commit();
             } else {
-                // Partial write: discard rather than commit a truncated
-                // payload that would sniff as a valid container and play
-                // as a corrupt one.
+                // Partial write: discard rather than commit a truncated payload
+                // that would sniff as valid and play as corrupt.
                 file.cancelWriting();
             }
         }
     }
 
-    // Retire before emitting: the completion is queued to the caller's
-    // thread, and a re-request made from there must not be refused by a
-    // stale live-job mapping.
+    // Retire before emitting, so a re-request from the queued completion is not
+    // refused by a stale mapping.
     retire(cacheKey, serial);
     if (abandoned) {
         qCDebug(lcPlayableWrite, "playable write abandoned (cancelled)");
@@ -163,8 +158,8 @@ void PlayableWriteWorker::retire(const QString &cacheKey, quint64 serial)
 {
     QMutexLocker locker(&m_control->mutex);
     m_control->cancelled.remove(serial);
-    // Only when the mapping still names THIS job: a cancel already released
-    // the key, and a newer job may have claimed it since.
+    // Only if the mapping still names this job; a newer one may have claimed
+    // the key.
     if (m_control->live.value(cacheKey) == serial)
         m_control->live.remove(cacheKey);
 }

@@ -9,14 +9,10 @@
 Q_LOGGING_CATEGORY(lcConv, "matrix.conversations")
 
 namespace {
-// Bound for waiting on the authoritative room-list appearance of a freshly
-// created room. If sync has not delivered it by then, open by id anyway —
-// the room exists server-side; the list entry follows.
+// After this, open a created room by id even if sync has not listed it yet.
 constexpr int kRoomWaitTimeoutMs = 10000;
 
-// A federated invite is genuinely slow — the server contacts the peer's
-// homeserver before answering /createRoom — so this is deliberately generous.
-// It exists to stop a hang being PERMANENT, not to cut a slow success short.
+// Generous, because a federated invite is slow; it only stops a permanent hang.
 constexpr int kCreateOpTimeoutMs = 60000;
 } // namespace
 
@@ -36,10 +32,7 @@ ConversationController::ConversationController(QObject *parent)
         if (m_pendingOp == 0)
             return;
         m_pendingOp = 0;
-        // Honest about what we do and do not know. We cannot cancel a
-        // /createRoom that the server is already processing, so a room may
-        // yet appear — saying "failed" would be a lie and saying nothing
-        // leaves the reader pressing the button again.
+        // The server may still create the room, so do not claim failure.
         setError(tr("This is taking longer than expected. The other person's "
                     "server may be slow to respond. If a room appears in your "
                     "list, use that one rather than starting another."));
@@ -91,9 +84,7 @@ QString ConversationController::describeCategory(const QString &category)
         return tr("The server rejected the request as invalid.");
     if (category == QLatin1String("not_found"))
         return tr("Not found on this server.");
-    // M_UNRECOGNIZED: the homeserver does not implement the endpoint at all.
-    // Without this branch it fell through to the network message, which
-    // invites a retry that can never work.
+    // M_UNRECOGNIZED: the endpoint is not implemented; retrying cannot help.
     if (category == QLatin1String("unrecognized"))
         return tr("Your homeserver does not support that.");
     return tr("A network or server error occurred.");
@@ -137,9 +128,7 @@ void ConversationController::createRoom(const QVariantMap &options)
         return;
     }
     clearError();
-    // The optional avatar is applied after creation through the ordinary
-    // room-edit path — it is stripped here and never reaches the backend's
-    // create call.
+    // The avatar is applied after creation through the room-edit path.
     QVariantMap createOptions = options;
     const QString rawAvatar =
         createOptions.take(QStringLiteral("avatarPath")).toString();
@@ -197,22 +186,9 @@ void ConversationController::clearError()
 
 void ConversationController::reset()
 {
-    // CLOSING A DIALOG DOES NOT CANCEL A SERVER-SIDE ROOM CREATION, so this
-    // must not clear `m_pendingOp`. It used to, and that is how one user got
-    // SEVEN empty rooms in three minutes (reported 2026-09-20, starting a DM
-    // with someone on another homeserver):
-    //
-    //   create_dm spawns with no timeout -> the server federates the invite
-    //   and does not answer -> the dialog spins -> the user closes it ->
-    //   `onClosed: resetAll()` -> reset() -> `busy()` goes false while the
-    //   create is STILL RUNNING -> reopen, click again -> a second
-    //   /createRoom. Every hung call still lands server-side eventually, so
-    //   each attempt leaves a room, and none of them gets the m.direct write
-    //   that would let `existingDms` offer it for reuse. Hence "Empty Room",
-    //   over and over.
-    //
-    // The op is bounded by `m_opTimeout` instead, so keeping the guard cannot
-    // lock room creation for the session.
+    // Closing the dialog does not cancel a server-side create, so keep
+    // `m_pendingOp`: clearing it let users retry a hung create and leave a
+    // stray room each time. `m_opTimeout` bounds the guard instead.
     m_waitingForRoom = false;
     m_awaitedRoomId.clear();
     m_pendingIsSpace = false;
@@ -262,8 +238,7 @@ void ConversationController::onRoomCreateFinished(quint64 opId, bool ok,
     qCInfo(lcConv) << "room created";
     if (warning == QLatin1String("space_add_failed"))
         Q_EMIT spacePlacementFailed(roomId);
-    // Apply the optional avatar now that the room exists. Fire-and-track:
-    // the room opens regardless of how (or whether) this completes.
+    // The room opens regardless of how this completes.
     if (!m_pendingAvatarPath.isEmpty()) {
         const QString path = m_pendingAvatarPath;
         m_pendingAvatarPath.clear();
@@ -331,8 +306,7 @@ void ConversationController::beginWaitForRoom(const QString &roomId)
     m_awaitedRoomId = roomId;
     m_roomWaitTimeout.start();
     Q_EMIT busyChanged();
-    // The room may already be in the local store (create_room inserts it),
-    // so check immediately as well as on future updates.
+    // create_room may already have inserted it locally, so check now too.
     onRoomsChanged();
 }
 
@@ -368,11 +342,8 @@ void ConversationController::finishWaitForRoom()
 
 void ConversationController::onLoggedOut()
 {
-    // A signed-out session must never open rooms or surface late errors — and
-    // unlike closing a dialog, this DOES abandon the pending operation. The
-    // session it belonged to is gone, so it can never complete meaningfully
-    // and the next account must start clean. `reset()` deliberately keeps the
-    // op (see its comment); this is the one caller that must not.
+    // Unlike reset(), sign-out abandons the pending op: its session is gone
+    // and the next account must start clean.
     m_pendingOp = 0;
     m_opTimeout.stop();
     reset();

@@ -53,8 +53,7 @@ void MediaVisibilityStore::clear()
     const QStringList keys = m_order;
     m_hidden.clear();
     m_order.clear();
-    // Announced per key, not as one blanket signal: the rows re-query by key,
-    // and a row whose key was never in the set must not be told it changed.
+    // Announced per key; rows re-query by key.
     for (const QString &key : keys)
         Q_EMIT hiddenChanged(key, false);
     Q_EMIT hiddenCountChanged();
@@ -68,8 +67,7 @@ void MediaVisibilityStore::resetForSession()
     const QStringList keys = m_order;
     m_hidden.clear();
     m_order.clear();
-    // NOT persisted, deliberately — see the header. Announced per key so a
-    // row still on screen reveals rather than staying painted over.
+    // Not persisted (see the header). Announced so rows on screen reveal.
     for (const QString &key : keys)
         Q_EMIT hiddenChanged(key, false);
     Q_EMIT hiddenCountChanged();
@@ -85,18 +83,14 @@ void MediaVisibilityStore::setSettings(SettingsManager *settings)
 
 void MediaVisibilityStore::reloadForAccount()
 {
-    // Announce the OLD keys as shown before adopting the new set, so a row
-    // still on screen from the previous account is told to reveal rather
-    // than being left painted over by a flag that no longer applies.
+    // Announce the old keys as shown first, so rows still on screen from the
+    // previous account reveal.
     const QStringList previous = m_order;
     m_hidden.clear();
     m_order.clear();
 
     if (m_settings) {
-        // Trusted only as far as its shape: this is a plain INI a user can
-        // edit. Empty keys are dropped and the cap is applied on READ as
-        // well as on write, so a hand-grown list cannot make the timeline
-        // carry an unbounded set.
+        // A user-editable INI: drop empty keys and apply the cap on read too.
         const QStringList stored = m_settings->hiddenMediaKeys();
         for (const QString &key : stored) {
             if (key.isEmpty() || m_hidden.contains(key))

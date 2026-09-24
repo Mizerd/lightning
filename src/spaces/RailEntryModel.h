@@ -13,32 +13,18 @@ class SpaceManager;
 
 // The rows the Spaces rail draws, and the live state of a drag over them.
 //
-// WHY THIS IS A MODEL AND NOT A JS ARRAY. The rail used to bind its ListView
-// to a plain JavaScript array rebuilt on every change, which makes every
-// change a model RESET: no move, no displaced transition, every delegate torn
-// down and rebuilt. A reorder therefore could not animate, and during a drag
-// the delegate holding the gesture was destroyed the moment anything refreshed
-// it. Both of those are the reported "hard to tell exactly where you are
-// moving them". A QAbstractListModel that emits a real `beginMoveRows` is what
-// lets QML animate the neighbours out of the way while the pointer is still
-// down.
+// A real list model (not a JS array) so a reorder emits beginMoveRows and QML
+// can animate neighbours while the pointer is down, without resetting and
+// destroying the delegate that holds the gesture.
 //
-// THREE SEPARATE PIECES OF STATE, deliberately not one:
+// Three separate pieces of state: the durable arrangement (RailLayoutStore),
+// the transient preview order (these rows during a drag, never saved), and
+// the drag itself (what is moving, and whether a release would reorder or
+// group). Nothing is written until the gesture ends.
 //
-//   * the DURABLE arrangement — RailLayoutStore, on disk;
-//   * the TRANSIENT preview order — this model's rows while a drag is live,
-//     never written anywhere;
-//   * the drag's own facts — which entry is moving, and whether releasing
-//     now would REORDER it or GROUP it into a folder.
-//
-// Nothing is saved until the gesture ends, so a drag is one settings write
-// rather than one per pointer sample.
-//
-// HIERARCHY. Only ROOT Spaces sit at the top level; a subspace appears
-// underneath its parent when that parent is expanded, exactly as Element
-// Classic's Space panel does. A subspace row is presentation of MATRIX state,
-// so it is not draggable and not a group target: its position is the
-// hierarchy's, and a local folder must never look like it can change it.
+// Only root Spaces sit at the top level; subspaces appear under an expanded
+// parent. A subspace row reflects Matrix hierarchy, so it is neither
+// draggable nor a group target.
 class RailEntryModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -49,29 +35,16 @@ class RailEntryModel : public QAbstractListModel
     /// The folder (or Space) a release would file the dragged Space into, or
     /// empty while the gesture is a plain reorder.
     Q_PROPERTY(QString dropTargetId READ dropTargetId NOTIFY dragChanged)
-    /// True when releasing would GROUP rather than REORDER. The rail draws two
-    /// visibly different things for the two, because "between" and "onto" are
-    /// a few pixels apart and mean completely different outcomes.
+    /// True when releasing would group rather than reorder.
     Q_PROPERTY(bool grouping READ grouping NOTIFY dragChanged)
-    /// Whether the Direct Messages tab is offered, directly under Home.
-    ///
-    /// CHANNELS ONLY. Classic reaches DMs through its People filter chip and
-    /// its one activity-ordered list, so a tab there would be a second route
-    /// to the same rows and a change to a layout the maintainer asked to
-    /// leave alone. The row is synthesised HERE rather than in SpaceManager
-    /// because SpaceManager's model feeds other surfaces that must not grow
-    /// a tab they have no view for.
+    /// Whether the Direct Messages tab is offered under Home. Channels only:
+    /// Classic reaches DMs through its People filter. Synthesised here rather
+    /// than in SpaceManager, whose model feeds surfaces with no DM view.
     Q_PROPERTY(bool peopleEntryVisible READ peopleEntryVisible
                    WRITE setPeopleEntryVisible NOTIFY peopleEntryVisibleChanged)
-    /// Whether the "Other rooms" tile is offered. CLASSIC ONLY.
-    ///
-    /// The tile means "the rooms in no Space", and it exists to NARROW a Home
-    /// that shows everything — which is what Classic's Home is. Channels' Home
-    /// is already exactly that set (SpaceChannelModel::buildHome skips every
-    /// room `roomInAnySpace` claims), so in Channels the two tiles open the
-    /// same page. Reported live 2026-09-03: "home and other rooms open the
-    /// exact same page, so maybe other rooms is unneeded?" — in that layout,
-    /// it is.
+    /// Whether the "Other rooms" tile is offered. Classic only: Channels'
+    /// Home already excludes every room in a Space, so the tile would open
+    /// the same page.
     Q_PROPERTY(bool orphansEntryVisible READ orphansEntryVisible
                    WRITE setOrphansEntryVisible
                    NOTIFY orphansEntryVisibleChanged)
@@ -79,9 +52,7 @@ class RailEntryModel : public QAbstractListModel
 public:
     enum Roles {
         EntryIdRole = Qt::UserRole + 1,
-        /// "space" | "folder". A string, matching the convention the rest of
-        /// the shell's models use: exposing an enum to QML means registering
-        /// this type purely so a delegate can name a constant.
+        /// "space" | "folder".
         KindRole,
         SpaceIdRole,
         NameRole,
@@ -102,49 +73,30 @@ public:
         /// True for "All rooms" / "Other rooms": a view of everything, never
         /// something with a position among the Spaces.
         PseudoRole,
-        /// A Space shown because its parent is expanded. Matrix's arrangement,
-        /// not the user's.
+        /// A Space shown because its parent is expanded (Matrix hierarchy,
+        /// not the user's arrangement).
         HierarchyChildRole,
         /// This Space has joined subspaces, so the expander means something.
         ExpandableRole,
         ExpandedRole,
-        /// The row currently being dragged: the rail draws it as the gap the
-        /// entry would land in.
+        /// The row currently being dragged.
         DraggedRole,
         /// This row is the folder/Space a release would group into.
         DropTargetRole,
-        /// The last member row of an open folder — carries the container's
+        /// The last member row of an open folder; carries the container's
         /// rounded bottom.
         FolderLastRole,
         /// Whether the user may drag this row at all.
         DraggableRole,
-        /// ── The group field ──────────────────────────────────────────
+        /// Group field: derived from the rows' level sequence rather than the
+        /// Space graph, so the regions follow the live drag preview.
         ///
-        /// Everything the rail needs to draw the hierarchy, and all of it
-        /// derived from the LEVEL SEQUENCE of the rows themselves rather
-        /// than from the Space graph. That matters for one reason: the rows
-        /// are reordered live during a drag, and a region computed from the
-        /// graph would draw the arrangement the user is leaving rather than
-        /// the one under their pointer.
-        ///
-        ///
-        /// Connector lines were removed on 2026-09-18: a visual audit
-        /// measured them spending 59% of the rail's width to encode depth
-        /// as the LENGTH of a horizontal rule — 10px per level at the
-        /// widest stop and 4px at the default — with lanes that never
-        /// attached to the parent they stood for. Containment is drawn as
-        /// a tinted region behind the run instead, which is what Discord
-        /// does and what this rail's own folders already did.
-        ///
-        /// The depth of the row ABOVE this one, or -1 at the top of the
-        /// list. The region at depth d starts here when this is below d.
+        /// Depth of the row above, or -1 at the top. The region at depth d
+        /// starts here when this is below d.
         BandPrevLevelRole,
-        /// The depth of the row BELOW, or -1 at the end. The region at
-        /// depth d ends here when this is below d.
-        ///
-        /// NEIGHBOUR DEPTHS RATHER THAN TWO BOOLEANS, because the rail draws
-        /// one region per ANCESTOR — a row at depth 3 sits on three nested
-        /// layers — and "does the region start here" is a question per depth.
+        /// Depth of the row below, or -1 at the end. The region at depth d
+        /// ends here when this is below d. Neighbour depths rather than
+        /// booleans because a row sits on one region per ancestor.
         BandNextLevelRole,
     };
 
@@ -152,26 +104,10 @@ public:
 
     void setSources(SpaceManager *spaces, RailLayoutStore *layout);
 
-    /// ── THE FLAT RAIL, WHICH IS WHAT ELEMENT DRAWS ──────────────────────
-    ///
-    /// When true the model emits TOP-LEVEL ENTRIES ONLY: no subspace is
-    /// listed under its parent, nothing is expandable, and nothing is
-    /// expanded. That is the whole of the Classic rail — a plain column of
-    /// Space icons, which is what this client drew before the hierarchy
-    /// landed and what Element draws today.
-    ///
-    /// IT IS A MODEL FLAG AND NOT A PAINT FLAG, deliberately. Hiding the
-    /// nested rows in QML would leave them in the row list that the drag
-    /// arithmetic, the group bands and the drop targets all index into —
-    /// every one of which would then be measuring rows nobody can see. The
-    /// rows simply do not exist in Classic, so there is nothing to keep in
-    /// step.
-    ///
-    /// What it does NOT touch: folders. A folder is the user's own grouping
-    /// of TOP-LEVEL Spaces, not Matrix hierarchy, and collapsing one hides
-    /// nothing that Classic would otherwise show. Dropping folders here
-    /// would rearrange a rail the user built by hand, which is a bigger
-    /// change than the one being asked for.
+    /// Flat (Classic) rail: top-level entries only, nothing expandable.
+    /// A model flag, not a paint flag, so hidden rows never exist in the list
+    /// that drag arithmetic, group bands and drop targets index into.
+    /// Folders are unaffected: they group top-level Spaces, not hierarchy.
     void setFlat(bool flat);
     bool flat() const { return m_flat; }
 
@@ -182,10 +118,8 @@ public:
     bool dragging() const { return m_dragging; }
     QString draggingEntryId() const { return m_dragEntryId; }
     QString dropTargetId() const { return m_dropTargetId; }
-    /// Test-only reader for the gap snapping above. The rule it implements —
-    /// a subspace may reorder and may not reparent — cannot be asserted from
-    /// outside without it, and asserting it by driving a whole QML drag would
-    /// be testing the gesture rather than the rule.
+    /// Test-only reader for legalGap(): a subspace may reorder but never
+    /// reparent.
     int legalGapForTest(int gap) const { return legalGap(gap); }
     bool grouping() const { return m_grouping; }
     bool peopleEntryVisible() const { return m_peopleEntryVisible; }
@@ -194,55 +128,28 @@ public:
     void setPeopleEntryVisible(bool visible);
 
     /// Recompute the rows from the Space model and the stored arrangement.
-    /// A refresh that arrives DURING a drag is remembered and applied when the
-    /// gesture ends — rebuilding under the pointer is what destroyed the
-    /// delegate holding the gesture.
+    /// A refresh during a drag is deferred until the gesture ends.
     Q_INVOKABLE void refresh();
 
     /// Takes hold of `entryId`. False when it cannot be dragged (a pseudo row,
     /// a subspace) or is not currently shown.
     Q_INVOKABLE bool beginDrag(const QString &entryId);
-    /// The pointer is ON the TILE of view row `row`: arm the GROUP gesture and
-    /// MOVE NOTHING. An ineligible target (a pseudo row, a subspace, or a
-    /// folder being dragged onto another folder) clears the target and returns
-    /// — it never degrades into a reorder.
-    ///
-    /// TWO VERBS, NOT A FLAG. This used to be `updateDrag(row, onto)`, one
-    /// entry point whose `onto == false` branch REORDERED INTO THE HOVERED
-    /// ROW. Every caller that wanted to say "the pointer is aiming at this
-    /// tile" had to spell it with the same call that moves the dragged block
-    /// onto that tile's slot — so the tile stepped aside, the row under the
-    /// pointer became the dragged block, and grouping was unreachable. No drop
-    /// ever created a folder, through two rounds and fifteen passing model
-    /// tests, because those tests called the grouping branch directly.
-    ///
-    /// The `onto` flag is gone rather than defaulted: leaving the
-    /// reorder-into-the-hovered-row path reachable is precisely the defect.
+    /// The pointer is on the tile of view row `row`: arm the group gesture
+    /// and move nothing. An ineligible target clears the target; it never
+    /// degrades into a reorder. Kept separate from hoverGap() so aiming at a
+    /// tile can never move it out from under the pointer.
     Q_INVOKABLE void hoverGroup(int row);
-    /// The pointer is in the GAP before view row `gap` (gaps run 0..rowCount):
-    /// clear any armed group target and move the dragged block so it starts
-    /// there. A gap is never a group target and a tile is never a reorder
-    /// target, so the tile the user is aiming at can never move out from under
-    /// the pointer.
-    ///
-    /// `gap` is a GAP INDEX, not a row index. The destination handed to
-    /// moveBlock() is derived from it, accounting for the block's own removal
-    /// — the conversion the row-index version never had, and the reason a
-    /// one-row hover used to park the block under the pointer and oscillate.
+    /// The pointer is in the gap before view row `gap` (0..rowCount): clear
+    /// any group target and move the dragged block to start there. `gap` is a
+    /// gap index; the moveBlock() destination accounts for the block's own
+    /// removal.
     Q_INVOKABLE void hoverGap(int gap);
     /// Expands every ancestor of `spaceId` so its row exists, then asks the
-    /// rail to scroll it into view.
-    ///
-    /// A DEEP SPACE HAS NO ROW UNTIL ITS WHOLE CHAIN IS OPEN, which is why
-    /// this is not just a scroll: selecting "deep level 6" from the Home
-    /// pane's Your-spaces chips used to set the active Space and change
-    /// nothing a reader could see, because the rail had no row for it and no
-    /// reason to make one.
+    /// rail to scroll it into view. A deep Space has no row until its whole
+    /// chain is open.
     Q_INVOKABLE void revealSpace(const QString &spaceId);
-    /// Clear any armed group target and leave the preview order exactly as it
-    /// is. The view calls this for the one reading neither verb covers: the
-    /// pointer sitting over the dragged block's OWN slot, where there is
-    /// nothing to group with and nowhere new to go.
+    /// Clear any group target and leave the preview order as is: the pointer
+    /// is over the dragged block's own slot.
     Q_INVOKABLE void clearDropTarget();
     /// Ends the gesture. `commit` false abandons it and restores the stored
     /// arrangement.
@@ -251,57 +158,46 @@ public:
     Q_INVOKABLE int rowForEntry(const QString &entryId) const;
     Q_INVOKABLE QVariantMap entryAt(int row) const;
 
-    /// Recursion bound for the subspace walk. The hierarchy is already a tree
-    /// (one primary parent each), so this is a backstop, not a policy.
+    /// Recursion backstop for the subspace walk.
     static constexpr int kMaxHierarchyDepth = 16;
 
 Q_SIGNALS:
     void countChanged();
     void dragChanged();
-    /// A Space the rail should bring into view. Emitted by `revealSpace()`
-    /// AFTER the ancestors have been expanded and the rows rebuilt, so the
-    /// listener can look the row up and find it there.
+    /// Emitted by revealSpace() after ancestors are expanded and rows rebuilt.
     void revealRequested(const QString &spaceId);
     void peopleEntryVisibleChanged();
     void orphansEntryVisibleChanged();
 
 private:
     void applyRows(QVector<QVariantMap> rows);
-    /// Stamps `bandTop` and `bandBottom` onto every row. Called from
-    /// applyRows(), which is the one chokepoint every row set passes
-    /// through — including the drag preview, so the grouping the user sees
-    /// while dragging is the grouping they will get.
+    /// Stamps the group field onto every row. Called from applyRows(), which
+    /// every row set passes through, including the drag preview.
     static void stampGroupField(QVector<QVariantMap> &rows);
-    // `folderLast` over the folder's WHOLE run, nested rows included. See the
-    // definition for why the model could not be trusted to carry it.
+    // `folderLast` over the folder's whole run, nested rows included.
     static void stampFolderRuns(QVector<QVariantMap> &rows);
     void appendSubspaces(const QString &parentId,
                          const QString &owningFolderId,
                          const QHash<QString, QVariantMap> &byId,
                          QVector<QVariantMap> &rows, int depth);
-    /// The rows a folder header owns: [header, members…]. One row for
-    /// anything else. Dragging a folder has to move its open members with it,
-    /// or the header detaches from its own contents mid-gesture.
+    /// The rows a folder header owns: [header, members…], one row otherwise.
+    /// A dragged folder moves its open members with it.
     int blockLength(int row) const;
     void moveBlock(int from, int count, int to);
-    /// Which folder each row would belong to if the arrangement were committed
-    /// right now, "" for the top level. ONE definition, shared by the preview
-    /// and the commit: two copies of this rule is how a drop lands somewhere
-    /// the preview never showed.
+    /// Which folder each row would belong to if committed now, "" for the
+    /// top level. Shared by preview and commit so a drop lands where the
+    /// preview showed.
     QVector<QString> folderOwners(const QString &draggedId) const;
-    /// Applies folderOwners() to the rows' own folderId/folderLast, so the
-    /// container band drawn behind an open folder follows the drag.
+    /// Applies folderOwners() to the rows so the folder band follows the drag.
     void refreshFolderRuns();
-    /// Snaps a pointer GAP to a legal one for the entry being dragged: never
-    /// above a pseudo row; for a TOP-LEVEL entry never strictly inside a
-    /// subspace run; for a FOLDER only at a top-level boundary; and for a
-    /// SUBSPACE only at a boundary between its own parent's children, which
-    /// is what keeps a reorder from becoming a reparent. Gaps run
-    /// 0..m_rows.size().
+    /// Snaps a pointer gap (0..m_rows.size()) to a legal one for the dragged
+    /// entry: never above a pseudo row; a top-level entry never inside a
+    /// subspace run; a folder only at a top-level boundary; a subspace only
+    /// among its own parent's children, so a reorder never reparents.
     int legalGap(int gap) const;
     void commitGrouping(const QString &dragged, const QString &target);
     void commitReorder(const QString &dragged);
-    /// Writes ONE parent's subspace order, read back off the drag preview.
+    /// Writes one parent's subspace order, read off the drag preview.
     void commitChildOrder(const QString &dragged);
     bool rowIsFolder(int row) const;
 
@@ -311,7 +207,7 @@ private:
 
     bool m_flat = false;
     bool m_peopleEntryVisible = false;
-    // Default TRUE: Classic is the default layout and the tile belongs there.
+    // Default true: Classic is the default layout and the tile belongs there.
     bool m_orphansEntryVisible = true;
     bool m_dragging = false;
     bool m_grouping = false;

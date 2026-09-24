@@ -15,17 +15,14 @@
 Q_LOGGING_CATEGORY(lcPoster, "lightning.media.poster")
 
 namespace {
-// A frame that never arrives (broken container, missing codec, hostile
-// file) must not wedge the single extraction slot. Local-file decode of the
-// first frame is fast; only a genuinely undecodable input reaches this.
+// A frame that never arrives (broken container, missing codec, hostile file)
+// must not wedge the single extraction slot.
 constexpr int kExtractTimeoutMs = 6000;
 
-// A poster grabbed from a fade-in's lead-in is a solid black card
-// (maintainer screenshot: a logo animation rendered an all-black poster).
-// Frames whose brightest downsampled pixel stays below this are treated
-// as lead-in and skipped — bounded by kMaxSkippedFrames, and the LAST
-// skipped frame is kept as the fallback so an all-black video still gets
-// its honest (black) poster rather than a failure.
+// Fade-in lead-in frames would give a solid black poster. Frames whose
+// brightest downsampled pixel stays below this are skipped (bounded by
+// kMaxSkippedFrames); the last one is kept so an all-black video still gets a
+// poster.
 constexpr int kBlackMaxLuma = 24;
 constexpr int kMaxSkippedFrames = 90; // ~1.5s at 60fps
 
@@ -42,10 +39,8 @@ bool frameLooksBlack(const QImage &image)
     return maxLuma < kBlackMaxLuma;
 }
 
-// Encodes and reports the encoded image's OWN geometry: the send path
-// declares thumbnail w/h on the Matrix event, and a receiver that trusts a
-// mismatched declaration lays the poster out wrong. Scaling keeps the
-// aspect ratio, so the poster's shape always matches the source frame's.
+// Reports the encoded image's own geometry, which the send path declares as
+// thumbnail w/h. Scaling keeps the aspect ratio.
 QByteArray encodePoster(const QImage &image, int maxEdge, int quality,
                         QSize *encodedSize = nullptr)
 {
@@ -69,11 +64,9 @@ VideoPosterExtractor::VideoPosterExtractor(QObject *parent)
     , m_thread(new QThread)
     , m_worker(new VideoPosterWorker)
 {
-    // Every QMediaPlayer/QVideoSink call this class makes runs here instead
-    // of on the caller's (GUI) thread — see the header for the measurements
-    // that motivated it. The worker is created on THIS thread and moved, so
-    // its child QTimer moves with it; the player and sink are constructed
-    // inside startNext(), which only ever runs on the worker thread.
+    // All QMediaPlayer/QVideoSink calls run on the worker thread (see header).
+    // The worker is moved there with its child QTimer; player and sink are
+    // built in startNext() on that thread.
     m_thread->setObjectName(QStringLiteral("lightning-poster"));
     m_worker->moveToThread(m_thread);
     connect(m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
@@ -86,10 +79,8 @@ void VideoPosterExtractor::retireWithoutWaiting()
 {
     if (!m_thread)
         return;
-    // quit() still drains the worker's loop and runs its queued deleteLater,
-    // so the decoder is torn down on its own thread exactly as before. The
-    // thread then deletes ITSELF, and this object stops owning it — so the
-    // destructor below has nothing left to wait for.
+    // quit() still drains the loop and runs the queued deleteLater, so the
+    // decoder is destroyed on its own thread. The thread then deletes itself.
     QThread *retiring = m_thread;
     m_thread = nullptr;
     connect(retiring, &QThread::finished, retiring, &QObject::deleteLater);
@@ -98,16 +89,11 @@ void VideoPosterExtractor::retireWithoutWaiting()
 
 VideoPosterExtractor::~VideoPosterExtractor()
 {
-    // Retired already: the thread owns itself and is on its way out. Waiting
-    // here would put back the block retireWithoutWaiting() exists to remove.
+    // Already retired; waiting would reintroduce the block.
     if (!m_thread)
         return;
-    // The process-exit path, where waiting is right: quit() lets the worker's
-    // event loop drain and run the queued deleteLater above, which tears the
-    // decoder down on its own thread, and tearing the process down around a
-    // half-destroyed decoder is worse than a bounded wait. Bounded in
-    // practice by the longest single call the worker can be inside (~1 s for
-    // the one-time Qt Multimedia backend initialisation).
+    // Process exit: wait, bounded by the longest worker call (~1 s backend
+    // init), rather than tear down around a half-destroyed decoder.
     m_thread->quit();
     m_thread->wait();
     delete m_thread;
@@ -118,8 +104,7 @@ void VideoPosterExtractor::requestPoster(const QString &tag,
 {
     if (tag.isEmpty() || filePath.isEmpty())
         return;
-    // Queued: the worker owns the queue and its deduplication, so a caller
-    // never touches worker state from another thread.
+    // Queued: the worker owns the queue and its deduplication.
     QMetaObject::invokeMethod(m_worker, [worker = m_worker, tag, filePath] {
         worker->enqueue(tag, filePath);
     });
@@ -168,8 +153,7 @@ void VideoPosterWorker::warmUp()
     if (m_warmed)
         return;
     m_warmed = true;
-    // Constructing one sink is what triggers the backend's plugin load and
-    // hardware-decoder probe; the object itself is not needed afterwards.
+    // Constructing a sink triggers the plugin load and decoder probe.
     QVideoSink probe;
     Q_UNUSED(probe);
 }
@@ -187,12 +171,10 @@ void VideoPosterWorker::startNext()
     m_sink = std::make_unique<QVideoSink>();
     m_player = std::make_unique<QMediaPlayer>();
     m_player->setVideoSink(m_sink.get());
-    // No AudioOutput is attached: decode is silent by construction and the
-    // audio backend is never spun up for a poster grab.
+    // No AudioOutput: decoding is silent and the audio backend never starts.
 
-    // Queued completions carry the job's tag (review M2): a decoder can
-    // emit more than one terminal signal for one job, and an untagged
-    // second callback would terminate the NEXT job with an empty poster.
+    // Completions carry the job's tag: a decoder can emit more than one
+    // terminal signal, and an untagged second one would end the next job.
     const QString jobTag = m_activeTag;
     m_skippedFrames = 0;
     m_fallbackFrame = QImage();
@@ -211,13 +193,10 @@ void VideoPosterWorker::startNext()
                 const QImage image = frame.toImage();
                 if (image.isNull())
                     return; // wait for a decodable frame
-                // Sample INTO the clip instead of freezing the first
-                // non-black frame: fade-ins postered as a half-drawn frame
-                // (maintainer screenshot — one fragment of a logo). Black
-                // lead-in frames are skipped (bounded, last kept as the
-                // all-black fallback); non-black frames keep updating the
-                // candidate until the target timestamp — ~40% of the clip,
-                // capped at 2s — whose frame becomes the poster.
+                // Sample into the clip rather than freezing the first non-black
+                // frame (a fade-in would give a half-drawn poster). Skip black
+                // lead-in frames (bounded, last kept as fallback) and keep
+                // updating the candidate until ~40% of the clip, capped at 2 s.
                 ++m_skippedFrames;
                 if (frameLooksBlack(image)) {
                     if (m_bestFrame.isNull())
@@ -241,8 +220,8 @@ void VideoPosterWorker::startNext()
                     m_bestFrame, VideoPosterExtractor::kMaxEdge,
                     VideoPosterExtractor::kJpegQuality, &posterSize);
                 const QSize sourceSize = m_bestFrame.size();
-                // Queued: never tear the player down from inside its own
-                // frame callback.
+                // Queued: never tear the player down from its own frame
+                // callback.
                 QMetaObject::invokeMethod(
                     this,
                     [this, jobTag, jpeg, posterSize, sourceSize] {
@@ -254,8 +233,8 @@ void VideoPosterWorker::startNext()
             });
     connect(m_player.get(), &QMediaPlayer::mediaStatusChanged, this,
             [this, jobTag](QMediaPlayer::MediaStatus status) {
-                // A short clip can end before any non-black frame arrived;
-                // deliver the honest fallback instead of idling to timeout.
+                // A short clip can end before any non-black frame; deliver the
+                // fallback now.
                 if (status != QMediaPlayer::EndOfMedia)
                     return;
                 QMetaObject::invokeMethod(
@@ -268,7 +247,7 @@ void VideoPosterWorker::startNext()
             });
     connect(m_player.get(), &QMediaPlayer::errorOccurred, this,
             [this, jobTag](QMediaPlayer::Error, const QString &) {
-                // Error text can embed a file path; log nothing of it.
+                // Error text can contain a file path; log none of it.
                 qCDebug(lcPoster, "poster extraction failed (decoder error)");
                 QMetaObject::invokeMethod(
                     this,
@@ -286,18 +265,11 @@ void VideoPosterWorker::startNext()
 
 void VideoPosterWorker::finishWithBestAvailable()
 {
-    // Best non-black candidate first (a clip that ended before the target
-    // timestamp), then the last lead-in frame (an all-black video honestly
-    // gets a black poster), then nothing.
+    // Best non-black frame first, then the last lead-in frame, then nothing.
     const QImage &frame = !m_bestFrame.isNull() ? m_bestFrame : m_fallbackFrame;
     if (frame.isNull()) {
-        // NO FRAME IS NOT NO INFORMATION. An AUDIO file has no video track
-        // to grab, so it always lands here — and the decoder has still told
-        // us how long it is, which is the whole reason the send path decodes
-        // one. Reporting the duration with an empty poster is what stops an
-        // attached song going out with no length, drawn by every player as
-        // "0:00". A video that genuinely produced no frame reports its
-        // duration here too, which is strictly more than it used to.
+        // No frame still reports the duration: audio files always land here,
+        // and the send path decodes them only for their length.
         finishActive({}, {}, {}, m_durationMs);
         return;
     }
@@ -321,11 +293,7 @@ void VideoPosterWorker::finishActive(const QByteArray &jpeg,
     m_activeTag.clear();
     m_durationMs = 0;
     teardownPlayer();
-    // THE DURATION SURVIVES AN EMPTY POSTER, and that is the whole point of
-    // the argument. An AUDIO file always lands here (no video track, so no
-    // frame), and dropping the value on the floor made the "an attached audio
-    // file carries its duration" fix a no-op on the real path: the send still
-    // went out as "0:00". The header states this contract explicitly.
+    // The duration survives an empty poster (audio files); see the header.
     if (jpeg.isEmpty())
         Q_EMIT posterReady(tag, {}, {}, {}, durationMs);
     else

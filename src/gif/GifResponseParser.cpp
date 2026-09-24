@@ -78,12 +78,9 @@ bool isProviderHttpsUrl(const QString &url, const QStringList &allowedHostSuffix
 }
 
 // Pick the first rendition in `keys` whose `field` is an https URL on one of
-// `hosts`. These are the PREVIEW URLs the picker's tiles load directly
-// through Qt's image loader -- outside MediaBridge, with none of its host,
-// size or byte-magic policy -- so the host allowlist is the only thing that
-// stops a hostile or compromised provider response from pointing every open
-// picker at an arbitrary server. It used to be a bare scheme check while the
-// SENDABLE rendition beside it was host-restricted.
+// `hosts`. The picker loads these preview URLs directly through Qt, outside
+// MediaBridge's policy, so the host allowlist is what stops a hostile provider
+// response from pointing the picker at an arbitrary server.
 QString firstHttpsUrl(const QJsonObject &images, const QStringList &keys,
                       const QString &field, const QStringList &hosts,
                       int &width, int &height)
@@ -111,8 +108,8 @@ Rating ratingFromString(const QString &value)
         return Rating::PG;
     if (v == QLatin1String("pg-13") || v == QLatin1String("pg13"))
         return Rating::PG13;
-    // "r", "nsfw", unknown, empty → most permissive so unknowns are excluded
-    // unless the user explicitly allows R.
+    // "r", "nsfw", unknown or empty: most permissive, so excluded unless R is
+    // allowed.
     return Rating::R;
 }
 
@@ -182,9 +179,7 @@ GifByteValidation validateGifBytes(const QByteArray &bytes)
         out.category = QStringLiteral("invalid_media");
         return out;
     }
-    // GIF magic: "GIF87a" or "GIF89a" — nothing else may be treated as a
-    // real GIF (never an HTML page, JSON error, mp4, or webp renamed into
-    // place). Matches rust/src/gifs.rs::validate_gif_bytes exactly.
+    // GIF magic "GIF87a"/"GIF89a" only. Matches rust/src/gifs.rs exactly.
     if (!bytes.startsWith("GIF87a") && !bytes.startsWith("GIF89a")) {
         out.category = QStringLiteral("not_a_gif");
         return out;
@@ -355,9 +350,8 @@ RasterByteValidation validateRasterBytes(const QByteArray &bytes)
         ext = QStringLiteral("webp");
         mime = QStringLiteral("image/webp");
     } else {
-        // Not one of the four supported magics — explicitly including SVG
-        // (text, no binary magic), HTML error pages, BMP, TIFF, AVIF, and
-        // everything else. Rejected, never guessed at.
+        // Not one of the four supported formats (SVG, HTML, BMP, TIFF, AVIF,
+        // ...).
         out.category = QStringLiteral("unsupported_format");
         return out;
     }

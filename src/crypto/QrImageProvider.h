@@ -5,20 +5,14 @@
 #include <QQuickImageProvider>
 #include <QString>
 
-// Show-QR verification rendering.
+// Show-QR verification rendering. Lightning displays a verification QR for
+// another device and never scans one, so `m.qr_code.scan.v1` is not
+// advertised. The Rust bridge hands over only the module grid, never the
+// payload (cross-signing key material and the flow's shared secret).
 //
-// Lightning DISPLAYS a verification QR code for another device to scan; it
-// never scans one (no camera), so `m.qr_code.scan.v1` is never advertised.
-// The Rust bridge hands the C++ side the code's MODULE GRID only — never
-// the payload, which encodes cross-signing key material and the flow's
-// shared secret.
-//
-// The grid is memory-only and single-slot: there is one verification flow
-// at a time, so storing a second code replaces the first. It is cleared
-// whenever the flow ends, is cancelled, is reset, or the session goes away,
-// so the store stops serving a code once its flow is over and none can leak
-// into the next account's UI. Nothing is written to disk and nothing is
-// logged. Clearing is not a secure erase — see QrCodeStore::clear.
+// Memory-only and single-slot (one verification flow at a time). Cleared when
+// the flow ends, is cancelled or reset, or the session goes away. Nothing is
+// written to disk or logged. Clearing is not a secure erase (see clear()).
 class QrCodeStore
 {
 public:
@@ -28,13 +22,11 @@ public:
     bool setCode(const QString &token, int modules, const QByteArray &bits);
     void clear();
 
-    // Fetch the grid for `token`. Returns an empty QByteArray and leaves
-    // `modules` at 0 when the token does not match the stored code — a
-    // stale URL must render nothing rather than the current flow's code.
+    // The grid for `token`, or empty with `modules` 0 when the token does not
+    // match: a stale URL renders nothing.
     QByteArray gridFor(const QString &token, int *modules) const;
 
-    // Hard bound on the module count accepted. QR version 40 — far above
-    // anything a verification payload needs — is 177 modules per side.
+    // QR version 40, far beyond any verification payload, is 177 modules.
     static constexpr int kMaxModules = 200;
 
 private:
@@ -46,10 +38,8 @@ private:
 
 // Serves the stored grid to QML under image://lightning-qr/<token>.
 //
-// Rendered black-on-white with a 4-module quiet zone regardless of the
-// active theme: a QR code has to be scannable by another device's camera,
-// which is a physical constraint, not a styling choice. Scaling is
-// nearest-neighbour so module edges stay hard.
+// Always black on white with a 4-module quiet zone, whatever the theme: it
+// must scan. Nearest-neighbour scaling keeps module edges hard.
 class QrImageProvider : public QQuickImageProvider
 {
 public:

@@ -167,10 +167,8 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
         const QString value = arguments.at(i + 1);
         ++i;
 
-        // A value that itself looks like an option is always a mistake here:
-        // every value in this contract is an absolute path, a decimal
-        // integer, a hex digest or a scope word, and none of them can start
-        // with "--".
+        // A value that looks like an option is always a mistake: every value is
+        // a path, integer, digest or scope word.
         if (value.startsWith(QLatin1String("--")))
             return fail(ArgsError::MissingValue,
                         QStringLiteral("option value looks like another option"),
@@ -192,10 +190,8 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
                         QStringLiteral("required option missing"), option);
     }
 
-    // No path in this contract may carry a ".." component. Lightning always
-    // passes a fully resolved path, and without this a value such as
-    // "/staging/../../etc/passwd" would silently clean itself into a
-    // directory that does exist and then pass every later check.
+    // No path may contain "..": Lightning passes resolved paths, and
+    // "/staging/../../etc/passwd" would otherwise normalize into a real path.
     for (const QString &option :
          {QStringLiteral("--artifact"), QStringLiteral("--target"),
           QStringLiteral("--relaunch"), QStringLiteral("--status")}) {
@@ -252,10 +248,8 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
             return fail(ArgsError::PathDoesNotExist,
                         QStringLiteral("artifact does not exist"),
                         QStringLiteral("--artifact"));
-        // exists()/isFile() FOLLOW a link. The AppImage strategy chmods this
-        // path and the package strategies hand it to a root process, so a
-        // link here would aim either at whatever it resolves to at that
-        // moment. --status refused links from the start; every path does now.
+        // exists()/isFile() follow links, and this path is chmodded or handed
+        // to a root process, so a symlink is refused.
         if (info.isSymLink())
             return fail(ArgsError::PathIsSymlink,
                         QStringLiteral("artifact is a symbolic link"),
@@ -271,10 +265,9 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
         args.artifactPath = info.absoluteFilePath();
     }
 
-    // --target: absolute and existing. A portable swap targets a directory;
-    // an AppImage replacement targets the running AppImage file. For the
-    // installer-driven modes the target is informational, but the contract is
-    // fixed so it is still validated rather than ignored.
+    // --target: absolute and existing (a directory for portable, the AppImage
+    // file for AppImage). Informational for installer modes but still
+    // validated.
     args.targetPath = values.value(QStringLiteral("--target"));
     if (!pathIsAbsolute(args.targetPath))
         return fail(ArgsError::PathNotAbsolute,
@@ -301,10 +294,8 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
         args.targetPath = info.absoluteFilePath();
     }
 
-    // --relaunch: OPTIONAL. Absent leaves relaunchPath empty, which the helper
-    // reads as "install, then start nothing". When supplied it is validated
-    // exactly as strictly as the required paths -- absolute, existing, and a
-    // regular file -- so making it optional relaxes no check on the value.
+    // --relaunch: optional; absent means start nothing afterwards. When
+    // present, validated as strictly as the required paths.
     if (values.contains(QStringLiteral("--relaunch"))) {
         args.relaunchPath = values.value(QStringLiteral("--relaunch"));
         if (!pathIsAbsolute(args.relaunchPath))
@@ -353,20 +344,17 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
                               .absoluteFilePath(info.fileName());
     }
 
-    // --sha256: shape only. Exactly 64 lowercase hex characters, which is
-    // how UpdateManifest normalises the signed value. The comparison against
-    // the file happens in main.cpp, AFTER the application has exited, so it
-    // sits as close as possible to the read it protects.
+    // --sha256: shape only (64 lowercase hex, as UpdateManifest normalizes it).
+    // main.cpp compares after the application exits, right before the read.
     args.expectedSha256 = values.value(QStringLiteral("--sha256"));
     if (!isSha256Hex(args.expectedSha256))
         return fail(ArgsError::InvalidDigest,
                     QStringLiteral("sha256 must be exactly 64 lowercase hex characters"),
                     QStringLiteral("--sha256"));
 
-    // --install-scope: OPTIONAL, and only where a package can be installed in
-    // two contexts. On any other mode it is a caller bug, so it is refused
-    // rather than ignored -- ignoring it would let a mistaken "machine" pass
-    // silently into a code path that never elevates.
+    // --install-scope: optional, only for modes with two install contexts.
+    // Elsewhere it is refused, so a mistaken "machine" cannot pass silently
+    // into a path that never elevates.
     if (values.contains(QStringLiteral("--install-scope"))) {
         const QString scope = values.value(QStringLiteral("--install-scope"));
         if (args.mode != UpdaterMode::WindowsMsi && args.mode != UpdaterMode::WindowsSetup)

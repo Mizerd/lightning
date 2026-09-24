@@ -3,43 +3,31 @@
 #include <QLatin1Char>
 #include <QLatin1String>
 
-// Canonical GitLab host and project id for the update feed. Both are
-// compile-time constants: nothing at runtime — and certainly nothing from
-// the network — can change where Lightning looks for updates.
+// Canonical host and project id: compile-time constants that nothing at
+// runtime can change.
 #ifndef LIGHTNING_UPDATE_HOST
 #define LIGHTNING_UPDATE_HOST "gitlab.smetonis.net"
 #endif
 #ifndef LIGHTNING_UPDATE_PROJECT_ID
-// CLAUDE.md §14: project 6 is the Lightning source project whose Generic
-// Package Registry holds the published packages. Confirm against the deploy
-// repository before a release build.
+// Project 6 is the Lightning project whose Generic Package Registry holds the
+// published packages.
 #define LIGHTNING_UPDATE_PROJECT_ID "6"
 #endif
 #ifndef LIGHTNING_UPDATE_MIRROR_HOSTS
-// Semicolon-separated hosts that may serve ARTIFACT BYTES. A GitHub release
-// asset download 302s from github.com to a *.githubusercontent.com object
-// host, so both object hosts must be acceptable as redirect targets or every
-// mirror download would fail on its first hop.
-//
-// An EMPTY configured list is not "mirroring off": it means this build trusts
-// no mirror, so a manifest that names one is refused rather than silently
-// downgraded. Keep this non-empty unless that is genuinely what you want.
+// Hosts that may serve artifact bytes. GitHub release downloads redirect from
+// github.com to *.githubusercontent.com, so both are needed. An empty list
+// means no mirror is trusted: a manifest naming one is refused.
 #define LIGHTNING_UPDATE_MIRROR_HOSTS                                                              \
     "github.com;objects.githubusercontent.com;release-assets.githubusercontent.com"
 #endif
 
 #ifndef LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE
-// Base URL of the MIRRORED manifest pair, read only after the canonical host
-// failed to answer. Empty disables the fallback entirely and restores
-// canonical-only metadata; a value whose host is not in the mirror list above
-// is dropped rather than trusted.
-//
-// Deliberately a FIXED tag whose two assets the release pipeline replaces —
-// never a "latest release" URL, which would let GitHub choose which release
-// answers. GitHub decides nothing here: the path is constant, no API is
-// called, no release metadata is read, and the Ed25519 signature is what
-// makes the bytes trustworthy. update-manager-state's source scan enforces
-// the no-API rule and fails on the "latest" form.
+// Base URL of the mirrored manifest pair, read only after the canonical host
+// failed. Empty disables the fallback; a host outside the mirror list is
+// dropped. A fixed tag whose assets the pipeline replaces, never a "latest"
+// URL that would let GitHub choose the release. No API is called; the
+// signature makes the bytes trustworthy. update-manager-state's source scan
+// enforces this.
 #define LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE                                                      \
     "https://github.com/Mizerd/lightning/releases/download/update-latest"
 #endif
@@ -69,8 +57,7 @@ bool isAllowedUrlOn(const QUrl &url, const QStringList &hosts)
         return false;
     if (url.scheme() != QLatin1String("https"))
         return false;
-    // Credentials in an update URL would be both a leak and a redirect
-    // trick; there is no legitimate use for them here.
+    // Credentials in an update URL are a leak or a redirect trick.
     if (!url.userInfo().isEmpty())
         return false;
     const int port = url.port(443);
@@ -82,14 +69,9 @@ bool isAllowedUrlOn(const QUrl &url, const QStringList &hosts)
     return hosts.contains(host);
 }
 
-// Parsed once. A malformed entry is DROPPED rather than half-understood: a
-// host is a host, so anything carrying a scheme, path, port, credentials,
-// wildcard or whitespace is not one.
-//
-// Both ';' and ',' separate entries. The documented form is semicolons, but a
-// semicolon is also CMake's list separator: an unescaped one in a compile
-// definition splits the value into several -D flags. Accepting commas gives
-// the build an unambiguous alternative, and no valid host contains either.
+// Parsed once. Anything that is not a bare host (scheme, path, port,
+// credentials, wildcard, whitespace) is dropped. ',' is accepted besides ';'
+// because a ';' splits a CMake compile definition.
 QStringList parseMirrorHosts()
 {
     QStringList hosts;
@@ -136,15 +118,13 @@ QStringList allowedUpdateHosts()
 
 bool isAllowedManifestUrl(const QUrl &url)
 {
-    // Metadata is canonical-only. GitLab decides WHAT may be installed; a
-    // mirror only carries bytes that decision already named.
+    // Canonical-only: GitLab decides what may be installed.
     return isAllowedUrlOn(url, QStringList{ canonicalUpdateHost() });
 }
 
 bool isAllowedFallbackManifestUrl(const QUrl &url)
 {
-    // Mirror hosts only: the canonical copy has its own predicate, and a URL
-    // that is neither is not metadata this build will read.
+    // Mirror hosts only; the canonical copy has its own predicate.
     return isAllowedUrlOn(url, mirrorArtifactHosts());
 }
 
@@ -154,9 +134,8 @@ QUrl mirrorLatestManifestUrl()
     if (base.isEmpty())
         return {};
     const QUrl url(base + QLatin1Char('/') + QLatin1String(kManifestFile));
-    // A base that does not resolve to an allowed mirror host is DROPPED
-    // rather than trusted: a build-time typo must not silently point update
-    // metadata at a third party.
+    // A base outside the mirror hosts is dropped: a build-time typo must not
+    // point metadata at a third party.
     return isAllowedFallbackManifestUrl(url) ? url : QUrl{};
 }
 

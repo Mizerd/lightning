@@ -35,12 +35,9 @@ void QrCodeStore::clear()
     QMutexLocker locker(&m_mutex);
     m_token.clear();
     m_modules = 0;
-    // Release the store's reference to the grid as well as its key, so the
-    // store stops serving the code the moment its flow ends. This is NOT a
-    // secure erase: QByteArray is implicitly shared, so any copy already
-    // handed out by gridFor() keeps its own reference, and the freed buffer
-    // is not zeroed. What is guaranteed is that no later request can obtain
-    // the grid through this store.
+    // Drop the grid and its key so the store stops serving the code. Not a
+    // secure erase: copies from gridFor() keep their own reference and freed
+    // memory is not zeroed.
     m_bits.clear();
     m_bits.squeeze();
 }
@@ -72,11 +69,8 @@ QImage QrImageProvider::requestImage(const QString &id, QSize *size,
         return {};
 
     int modules = 0;
-    // An unknown or stale token renders NOTHING. Falling back to whatever
-    // code happens to be stored would show one flow's code under another
-    // flow's URL, which is exactly the confusion a scannable secret must
-    // never create. (MediaImageProvider takes the same line: a cache miss
-    // returns a null QImage rather than a substitute.)
+    // An unknown or stale token renders nothing, never whatever code is
+    // currently stored.
     const QByteArray bits = m_store->gridFor(id, &modules);
     if (modules <= 0 || bits.isEmpty())
         return {};
@@ -84,9 +78,8 @@ QImage QrImageProvider::requestImage(const QString &id, QSize *size,
     const int total = modules + 2 * kQuietZoneModules;
     const int stride = strideFor(modules);
 
-    // One pixel per module first, then a nearest-neighbour upscale. Drawing
-    // straight to the target size would let rounding shave or double module
-    // rows; scaling a clean grid cannot.
+    // One pixel per module, then a nearest-neighbour upscale, so rounding
+    // cannot shave or double module rows.
     QImage base(total, total, QImage::Format_RGB32);
     base.fill(Qt::white);
     for (int y = 0; y < modules; ++y) {
@@ -103,8 +96,7 @@ QImage QrImageProvider::requestImage(const QString &id, QSize *size,
     if (requestedSize.isValid()) {
         const int wanted = qMax(requestedSize.width(), requestedSize.height());
         if (wanted > 0) {
-            // Whole-module scaling only: a fractional module size is what
-            // makes a rendered code fail to scan.
+            // Whole-module scaling only; fractional modules fail to scan.
             const int scale = qMax(1, wanted / total);
             edge = total * scale;
         }

@@ -42,9 +42,8 @@ void UiaController::signOutDevices(const QStringList &deviceIds,
         return;
     QStringList ids;
     for (const QString &id : deviceIds) {
-        // Guard, not policy: the server would allow deleting the current
-        // device, but that is a logout with extra data-loss steps — the
-        // UI's own Sign out flow (with its store cleanup) owns that.
+        // Deleting the current device is a logout; the Sign out flow (with
+        // its store cleanup) owns that.
         if (id.isEmpty() || id == currentDeviceId)
             continue;
         if (!ids.contains(id))
@@ -68,13 +67,10 @@ void UiaController::submitPassword(const QString &password)
         || password.isEmpty()) {
         return;
     }
-    // The challenge closes optimistically here (a fresh uiaRequired
-    // reopens it on a wrong password). The QString is the caller's; the
-    // QML field wipes itself immediately after this call, and every layer
-    // below scrubs its transit copy.
+    // Close optimistically; a wrong password reopens it via uiaRequired.
     const bool accepted = m_client->uiaSubmitPassword(m_deleteOp, password);
     if (!accepted) {
-        // Stale or lost challenge: report honestly rather than hanging.
+        // Stale or lost challenge: report it rather than hang.
         m_deleteOp = 0;
         clearChallenge();
         Q_EMIT signOutFinished(
@@ -164,8 +160,7 @@ void UiaController::onManagementUrl(quint64 opId, bool ok, const QString &url)
 
 void UiaController::onLoggedOut()
 {
-    // A signed-out (or switched) session must never keep a challenge that
-    // a later account could answer.
+    // A later account must never be able to answer this one's challenge.
     m_deleteOp = 0;
     m_urlOp = 0;
     clearChallenge();

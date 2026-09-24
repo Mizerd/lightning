@@ -2,14 +2,10 @@
 
 #include "gif/GifStoredModel.h"
 
-// v0.6.6: locally-persisted "starred chat GIFs" — see GifStarredStore for
-// the full feature (that class owns hashing, validation, disk I/O, caps and
-// account scoping; this is just the thin GifStoredModel sibling that holds
-// the resulting rows, exactly like GifFavoritesModel/GifRecentModel already
-// do for their own collections). Every row carries provider == "local" and
-// id == the sha256 content hash of the stored file — never a room, event,
-// sender, or any other Matrix identifier (see GifStarredStore's header for
-// why provenance is deliberately never persisted).
+// Rows of the locally saved chat images. GifStarredStore owns hashing,
+// validation, disk I/O, caps and account scoping; this only holds the rows.
+// Each has provider "local" and the file's sha256 as id, never any Matrix
+// identifier.
 class GifStarredModel : public GifStoredModel
 {
     Q_OBJECT
@@ -17,24 +13,19 @@ class GifStarredModel : public GifStoredModel
 public:
     explicit GifStarredModel(QSettings *settings, QObject *parent = nullptr);
 
-    // Insert or refresh a validated local entry — called only by
-    // GifStarredStore, which has already hashed, validated and (for a new
-    // hash) written the bytes to disk. Never called from QML directly.
+    // Inserts or refreshes a validated entry. Called only by GifStarredStore
+    // after the bytes are on disk.
     void insertLocal(const gif::GifResult &r) { insertFront(r); }
-    // Remove by content hash. Safe to call for an absent hash (no-op).
-    // Returns true only if a row was actually removed, so callers (e.g.
-    // GifStarredStore's unstarFinished feedback) can distinguish a real
-    // removal from a no-op.
+    // Removes by content hash. Returns true only when a row was removed.
     Q_INVOKABLE bool unstar(const QString &hash)
     { return removeEntry(QStringLiteral("local"), hash); }
     Q_INVOKABLE bool hasHash(const QString &hash) const
     { return contains(QStringLiteral("local"), hash); }
 
-    // Sum of every stored entry's byte size — used to enforce the total-size
-    // cap (GifStoredModel's own cap is item-count only).
+    // Total stored bytes, for the size cap (the base cap counts items only).
     qint64 totalBytes() const;
 
-    // Bounded: an explicit item cap (refused, never silently evicted — see
-    // GifStarredStore::star()) and a total-size cap enforced by the store.
+    // Item cap, enforced as a refusal by GifStarredStore, alongside its size
+    // cap.
     static constexpr int kMaxStarred = 200;
 };

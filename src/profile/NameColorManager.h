@@ -9,45 +9,31 @@
 
 #include "matrix/MatrixClient.h"
 
-// A display-name colour the user chooses, carried in their Matrix profile
+// A display-name colour the user chooses, carried in their profile
 // (`org.lightning.name_color`, MSC4133) so other Lightning clients see it.
+// The protocol half is rust/src/namecolor.rs.
 //
-// The policy half; the protocol half is rust/src/namecolor.rs.
+// This carries the choice only; `AppTheme.userColor` adapts it to the viewer's
+// background, since a colour legible on the sender's theme may be invisible on
+// the viewer's.
 //
-// # What this does NOT do
-//
-// Paint the colour. It carries the CHOICE, and `AppTheme.userColor` decides
-// what that becomes on the viewer's background — because a colour legible on
-// the sender's theme can be invisible on the viewer's, and a profile field is
-// written by its owner and read by everybody else. Nobody gets to hand every
-// other user an unreadable name.
-//
-// # Fetching
-//
-// Lazily, once per user, and never again for the life of the session unless
-// the caller asks. A sender colour is wanted for every name in a busy
-// timeline, so a fetch per message would be a request storm against the
-// profile endpoint; `m_asked` is what makes `colorFor()` safe to call from a
-// binding that re-evaluates constantly.
-//
-// Honesty rules, the same ones the banner and presence follow: a user with no
-// colour and a user nobody has asked about are both rendered as NOTHING, and
-// a homeserver with no extended profile fields is `supported == false` — a
-// different fact, and the one that hides the editing surface rather than
-// offering a control that cannot work.
+// Fetched lazily, once per user (`m_asked`), so colorFor() is safe in bindings
+// that re-evaluate constantly. No colour and not-yet-asked both render as
+// nothing. A homeserver without extended profile fields is
+// `supported == false`, which hides the editing control.
 class NameColorManager : public QObject
 {
     Q_OBJECT
 
     // The backend can carry name colours at all.
     Q_PROPERTY(bool available READ available NOTIFY availableChanged)
-    // ...and this homeserver answered one. False once it has said it does not
-    // know the endpoint.
+    // ...and this homeserver supports it; false once it reports the endpoint is
+    // unknown.
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
-    // Bumped whenever any cached colour changes; QML bindings read it so
-    // colorFor() re-evaluates when an answer lands.
+    // Bumped when any cached colour changes, so colorFor() bindings
+    // re-evaluate.
     Q_PROPERTY(int revision READ revision NOTIFY revisionChanged)
-    // The local account's own colour, or "" — the Settings control's model.
+    // The account's own colour, or "".
     Q_PROPERTY(QString ownColor READ ownColor NOTIFY revisionChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
@@ -64,23 +50,18 @@ public:
     bool busy() const { return m_pendingSet != 0; }
     QString lastError() const { return m_lastError; }
 
-    /// The colour this user chose, or "" when they chose none, nobody has
-    /// asked yet, or the server cannot answer. Asking is a SIDE EFFECT: the
-    /// first call for a user schedules the fetch and returns "" for now.
+    /// The user's colour, or "" when none, not yet asked, or unsupported. The
+    /// first call for a user schedules the fetch.
     Q_INVOKABLE QString colorFor(const QString &userId);
     /// Set or clear (empty) the local account's colour.
     Q_INVOKABLE void setOwnColor(const QString &value);
-    /// How long a fetched colour is trusted before the next read of it
-    /// re-asks the server (default five minutes). A changed answer bumps
-    /// `revision`, so every name on screen follows without a restart; an
-    /// unchanged one changes nothing. Tests set 0 to make every read re-ask.
+    /// How long a fetched colour is trusted before a read re-asks. A changed
+    /// answer bumps `revision`. Tests set 0.
     void setRefreshIntervalForTest(int ms) { m_refreshMs = ms; }
-    // The periodic sweep (see sweepRecentlyRead), exposed so a test can run
-    // one without waiting twenty seconds, and the "recently read" window it
-    // sweeps within.
+    // Runs one periodic sweep (see sweepRecentlyRead) immediately.
     void sweepForTest() { sweepRecentlyRead(); }
     void setRecentReadWindowForTest(int ms) { m_recentReadMs = ms; }
-    /// Drop everything — a new account must not inherit the last one's map.
+    /// Drops everything; a new account must not inherit the map.
     void clear();
 
 Q_SIGNALS:
@@ -94,30 +75,25 @@ private:
     void setSupported(bool supported);
     void setLastError(const QString &error);
     void dispatchFetch(const QString &userId);
-    /// Re-ask, on a timer, every user whose colour was READ recently — the
-    /// names on screen — so a colour someone changed reaches everyone within
-    /// the interval without anything having to re-render first. Bounded per
-    /// sweep; oldest ask first, so a large room rotates.
+    /// Periodically re-asks users whose colour was read recently (names on
+    /// screen), so a changed colour propagates without a re-render. Bounded per
+    /// sweep, oldest ask first.
     void sweepRecentlyRead();
 
     MatrixClient *m_client = nullptr;
     // userId -> "#rrggbb", or "" for "asked, and they have none".
     QHash<QString, QString> m_colors;
-    // Every user a fetch has been dispatched for. Separate from m_colors so
-    // "no colour" is remembered as an ANSWER and not re-asked forever.
+    // Every user asked. Separate from m_colors so "no colour" is an answer, not
+    // re-asked forever.
     QSet<QString> m_asked;
     QHash<quint64, QString> m_pending;
-    // When each user was last asked (m_clock ms) and who has an ask in
-    // flight — a refresh re-asks at most once per interval, never twice at
-    // once, and the cached answer is served meanwhile.
+    // Last ask time per user (m_clock ms) and asks in flight: at most one ask
+    // per interval, and the cached answer is served meanwhile.
     QHash<QString, qint64> m_askedAt;
     QSet<QString> m_inFlight;
     QElapsedTimer m_clock;
-    // 20 s, was 5 min (2026-09-06: "when display name color is changed it
-    // should update for other users to see the new color in max 15-30
-    // seconds"). A binding read past this re-asks; the sweep below re-asks
-    // the recently read set on the same cadence whether or not anything
-    // re-renders.
+    // A read past this re-asks; the sweep re-asks recently read users on the
+    // same cadence.
     int m_refreshMs = 20 * 1000;
     QHash<QString, qint64> m_lastRead;
     int m_recentReadMs = 5 * 60 * 1000;

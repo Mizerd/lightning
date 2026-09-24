@@ -32,8 +32,7 @@ struct InstallTypeEntry {
     const char *label;
 };
 
-// Canonical table. The ids are the artifact keys in the update manifest and
-// the --mode values in the updater helper's argv contract.
+// Ids are the manifest's artifact keys and the helper's --mode values.
 constexpr InstallTypeEntry kInstallTypes[] = {
     { InstallType::WindowsMsi, "windows-msi", "Windows installer (MSI)" },
     { InstallType::WindowsSetup, "windows-setup", "Windows setup" },
@@ -62,9 +61,8 @@ bool isConcretePackageType(InstallType type)
     return type != InstallType::Development && type != InstallType::Unknown;
 }
 
-// The three Windows packages that share ONE build. They are the entire
-// reason the install marker exists, and therefore the entire set of values
-// the marker is allowed to select.
+// The three Windows packages built from one tree: the only values the install
+// marker may select.
 bool isWindowsPackageType(InstallType type)
 {
     return type == InstallType::WindowsMsi || type == InstallType::WindowsSetup
@@ -78,9 +76,8 @@ QString envValue(const InstallEnvironment &environment, const char *name)
     return environment.readEnv(name);
 }
 
-// The long form of an existing path, so an 8.3 short name ("PROGRA~1") on
-// either side of the HKLM comparison cannot make a genuine per-machine copy
-// read as per-user. Unchanged when it cannot be resolved or off Windows.
+// Long form of a path, so an 8.3 short name cannot defeat the HKLM comparison.
+// Unchanged when unresolvable or off Windows.
 QString longPathName(const QString &path)
 {
 #ifdef Q_OS_WIN
@@ -141,9 +138,7 @@ bool canInstallAutomatically(InstallType type)
     case InstallType::Development:
     case InstallType::Unknown:
         return false;
-    // The updater helper has no macOS strategy: planForMode(macos-dmg)
-    // returns UnsupportedPlatform and isSelfInstallable() is false. Offering
-    // an automatic install here would advertise something the helper refuses.
+    // The helper has no macOS strategy.
     case InstallType::MacosDmg:
         return false;
     case InstallType::WindowsMsi:
@@ -195,14 +190,13 @@ InstallEnvironment defaultInstallEnvironment()
                                  + QLatin1String(lightning::portable::kMarkerFileName));
     };
     environment.readInstallMarker = []() -> QString {
-        // Beside the running executable, never a search path: the marker
-        // describes THIS installation or it is not consulted at all.
+        // Only beside the running executable, never a search path.
         const QString path = QCoreApplication::applicationDirPath()
                 + QLatin1Char('/') + QLatin1String(kInstallMarkerFileName);
         QFile marker(path);
         if (!marker.open(QIODevice::ReadOnly | QIODevice::Text))
             return {};
-        // A canonical id is short; refuse to read an arbitrarily large file.
+        // Canonical ids are short; never read a large file.
         return QString::fromLatin1(marker.read(64)).trimmed();
     };
     environment.readInstallScopeMarker = []() -> QString {
@@ -217,7 +211,7 @@ InstallEnvironment defaultInstallEnvironment()
     environment.readMachineInstallDirs = []() -> QStringList {
         QStringList dirs;
 #ifdef Q_OS_WIN
-        // The 64-bit view explicitly: both installers are x64 and write there.
+        // 64-bit view: both installers are x64.
         const QSettings machine(QStringLiteral("HKEY_LOCAL_MACHINE\\Software\\Mizerd\\Lightning"),
                                 QSettings::Registry64Format);
         for (const char *name : {"InstallDir", "MsiInstallDir"}) {
@@ -259,19 +253,16 @@ InstallDetection detectInstall(const InstallEnvironment &environment)
         return environment.pathExists ? environment.pathExists(path) : false;
     };
 
-    // 1. Runtime ecosystem evidence wins: the binary genuinely runs there.
+    // 1. Runtime ecosystem evidence.
     std::optional<InstallType> runtimeType;
     if (envIsSet(environment, "FLATPAK_ID") || pathExists(QStringLiteral("/.flatpak-info"))) {
         runtimeType = InstallType::LinuxFlatpak;
     } else if (envIsSet(environment, "SNAP") && envIsSet(environment, "SNAP_NAME")) {
         runtimeType = InstallType::LinuxSnap;
     } else {
-        // The AppImage runtime sets $APPIMAGE to the image it mounted. The
-        // variable is also settable by anything that starts the process, and
-        // it becomes the updater's --target: the file that gets chmod +x and
-        // replaced. So the claim is accepted only for a file that at least
-        // IS an AppImage. Same-user only either way; this keeps a stray
-        // environment from turning an update into "replace that file".
+        // $APPIMAGE can be set by whatever starts the process, and it becomes
+        // the file the updater replaces, so accept it only for an actual
+        // AppImage.
         const QString appImage = envValue(environment, "APPIMAGE");
         if (!appImage.isEmpty() && pathExists(appImage) && environment.looksLikeAppImage
             && environment.looksLikeAppImage(appImage)) {
@@ -283,13 +274,8 @@ InstallDetection detectInstall(const InstallEnvironment &environment)
         environment.compileTimeId.isEmpty() ? std::optional<InstallType>(InstallType::Development)
                                             : installTypeFromId(environment.compileTimeId);
 
-    // 2. The Windows installer's own marker -- and nothing else. It is
-    // consulted only when no runtime ecosystem claimed the process, only on
-    // Windows, and only for the three Windows package types it exists to
-    // distinguish. On Linux and macOS a concrete compile-time value wins, so a
-    // stray or copied marker file cannot flip a genuine linux-appimage install
-    // to linux-deb and hand the user an unexpected PolicyKit prompt for a
-    // package that was never installed.
+    // 2. The Windows installer's marker: only when no runtime claimed the
+    // process, only on Windows, and only for the Windows package types.
     std::optional<InstallType> markerType;
     if (!runtimeType && environment.windowsPlatform && environment.readInstallMarker) {
         const QString marker = environment.readInstallMarker().trimmed();
@@ -309,7 +295,7 @@ InstallDetection detectInstall(const InstallEnvironment &environment)
         // 3. Explicit build metadata from the packaging pipeline.
         detection.type = *compileTime;
     } else {
-        // 4. Diagnostic override — never an installation authorisation.
+        // 4. Diagnostic override; never authorizes installation.
         const QString overrideId = envValue(environment, "LIGHTNING_INSTALL_TYPE_OVERRIDE");
         const std::optional<InstallType> overrideType =
             overrideId.isEmpty() ? std::nullopt : installTypeFromId(overrideId);
@@ -320,28 +306,16 @@ InstallDetection detectInstall(const InstallEnvironment &environment)
             // 5. Compile-time fallback (development when unset).
             detection.type = *compileTime;
         } else {
-            // A compile-time value we do not recognise is reported as
-            // unknown rather than assumed to be a development build.
+            // An unrecognised compile-time value is Unknown, not development.
             detection.type = InstallType::Unknown;
         }
     }
 
-    // PORTABLE MUST BE PROVEN, NEVER REACHED BY FALLBACK.
-    //
-    // windows-portable is the compiled-in value for all three Windows
-    // packages, so it is what an installed copy lands on whenever its
-    // `.lightning-install-type` marker is missing -- and the NSIS script
-    // writes that marker without checking whether the write succeeded. The
-    // portable strategy would then swap the directory an installer owns,
-    // moving `.lightning-install-root` into the backup (so the uninstaller
-    // refuses forever) and relocating the user's data root (so they appear
-    // signed out). The other two strategies hand the work to an installer
-    // and cannot do that.
-    //
-    // A portable copy always carries `portable.marker`; the installed
-    // packages never do. Require it, and when it is absent report Unknown,
-    // which offers the update and declines to APPLY it rather than applying
-    // the wrong one.
+    // Portable must be proven, never reached by fallback. An installed copy
+    // whose type marker is missing (NSIS writes it unchecked) would otherwise
+    // get the portable strategy, which swaps the installer-owned directory,
+    // breaking the uninstaller and relocating the data root. Without
+    // `portable.marker`, report Unknown: offer the update but do not apply it.
     if (detection.type == InstallType::WindowsPortable
         && environment.windowsPlatform
         && environment.portableMarkerPresent
@@ -349,11 +323,8 @@ InstallDetection detectInstall(const InstallEnvironment &environment)
         detection.type = InstallType::Unknown;
     }
 
-    // THE SCOPE, for the two installer-owned Windows types only. Portable has
-    // no installer to own a context, and on any other platform the marker is
-    // a stray file (the same reasoning as the install-type marker above).
-    // "machine" must be backed by HKLM naming this directory: the marker is
-    // user-writable in a per-user installation (see InstallType.h).
+    // Scope, for the two installer-owned types only. "machine" requires HKLM to
+    // name this directory (the marker is user-writable; see InstallType.h).
     if (environment.windowsPlatform && environment.readInstallScopeMarker
         && (detection.type == InstallType::WindowsMsi
             || detection.type == InstallType::WindowsSetup)

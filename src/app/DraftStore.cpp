@@ -35,10 +35,8 @@ bool DraftStore::persistAllowed(const QString &realRoomId) const
     const RoomInfo info = m_client->roomInfo(realRoomId);
     if (info.id.isEmpty())
         return false; // room not in the authoritative list yet
-    // Review H1: persistence needs an AFFIRMATIVE "not encrypted". A room
-    // whose m.room.encryption state has not synced yet (a just-joined room
-    // inside its first sync window) reads encrypted=false but
-    // encryptionKnown=false — that is "unknown", never "plaintext is fine".
+    // Persist only on an affirmative "not encrypted": a just-joined room reads
+    // encrypted=false before its encryption state has synced.
     return info.encryptionKnown && !info.encrypted;
 }
 
@@ -47,11 +45,8 @@ void DraftStore::save(const QString &draftKey, const QString &realRoomId,
 {
     if (draftKey.isEmpty())
         return;
-    // Review M2: no session, no draft — a save landing during or after
-    // sign-out (a late debounce, a close() running from the loggedOut
-    // signal) must not re-insert the departing account's text into memory
-    // the next account would inherit, nor re-create a persisted entry the
-    // account wipe just removed.
+    // A late save during sign-out must not leak into the next account or
+    // re-create a wiped entry.
     if (!m_client || !m_client->isLoggedIn())
         return;
     if (draftIsEmpty(draft)) {
@@ -64,8 +59,7 @@ void DraftStore::save(const QString &draftKey, const QString &realRoomId,
             m_settings->setRoomDraft(draftKey, draft);
         return;
     }
-    // Encrypted (or unknown) room: memory only, and make sure no stale
-    // persisted copy survives from before the room became encrypted.
+    // Memory only; drop any persisted copy from before encryption was enabled.
     m_memory.insert(draftKey, draft);
     if (m_settings)
         m_settings->setRoomDraft(draftKey, {});

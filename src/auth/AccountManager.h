@@ -7,12 +7,9 @@
 
 class SettingsManager;
 
-// v0.7: the QML-facing view of the persistent multi-account registry.
-// Account records (user id, homeserver, device id, cached display name and
-// avatar) live in SettingsManager under accounts/<slug>/; access tokens stay
-// in the SecretStore keyed by the full Matrix user id. This class only
-// reads/writes metadata — the account-switch *lifecycle* (client handle,
-// sync, models) is orchestrated by AppController.
+// QML-facing view of the multi-account registry. Records live in
+// SettingsManager under accounts/<slug>/, tokens in the SecretStore. This class
+// handles metadata only; AppController owns the account-switch lifecycle.
 class AccountManager : public QObject
 {
     Q_OBJECT
@@ -34,10 +31,8 @@ public:
 
     Q_INVOKABLE bool hasAccount(const QString &userId) const;
     Q_INVOKABLE QVariantMap account(const QString &userId) const;
-    // True when nothing survives that could restore this account locally —
-    // no saved record, or no access token. Derived live; never persisted.
-    // Returns false when the secret backend cannot be read at all, because
-    // "cannot answer" is not "the account is broken".
+    // True when nothing could restore this account locally (no record or no
+    // token). False when the secret backend cannot be read at all.
     Q_INVOKABLE bool needsSignIn(const QString &userId) const;
 
     void setActiveUser(const QString &userId);

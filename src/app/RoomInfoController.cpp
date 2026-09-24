@@ -30,8 +30,7 @@ void RoomInfoController::setClient(MatrixClient *client)
                 [this](quint64, const QString &roomId, const QString &,
                        bool ok, const QString &error) {
                     // Another room's answer must not clear this panel's
-                    // pending state — the user can move while one is in
-                    // flight.
+                    // pending state; the user may have moved on.
                     if (roomId != m_roomId)
                         return;
                     if (m_profileOps > 0)
@@ -47,9 +46,8 @@ void RoomInfoController::setClient(MatrixClient *client)
                 this, &RoomInfoController::onRoomMembersReceived);
         connect(m_client, &MatrixClient::roomEditFinished,
                 this, &RoomInfoController::onRoomEditFinished);
-        // v0.9 room access: the on-demand directory-visibility answer. A
-        // failed read leaves the tri-state at "unknown", which the switch
-        // renders disabled rather than as a guessed value.
+        // Directory visibility answer. A failed read leaves the tri-state
+        // unknown, rendered disabled rather than guessed.
         connect(m_client, &MatrixClient::roomDirectoryVisibilityReceived, this,
                 [this](const QString &roomId, bool ok, bool published) {
                     if (roomId != m_roomId)
@@ -73,8 +71,8 @@ void RoomInfoController::setClient(MatrixClient *client)
         connect(m_client, &MatrixClient::mutualRoomsReceived, this,
                 [this](quint64 opId, const QString &userId,
                        const QVariantList &rooms) {
-            // Matched on the op AND the user: a late answer for the person
-            // whose card was closed must never populate the next one.
+            // Match op and user, so a late answer for a closed card never
+            // populates the next one.
             if (opId == 0 || opId != m_mutualRoomsOp
                 || userId != m_mutualRoomsUser)
                 return;
@@ -82,11 +80,8 @@ void RoomInfoController::setClient(MatrixClient *client)
             m_mutualRooms = rooms;
             Q_EMIT mutualRoomsChanged();
         });
-        // The sync poke, NOT membersChanged (review H1): this controller
-        // REFETCHES on the signal, and membersChanged also fires for the
-        // snapshots its own fetches deliver — the pending-op guard is
-        // what kept that from looping. roomMemberEventSeen carries only
-        // the "membership changed in sync" meaning.
+        // The sync poke, not membersChanged: this controller refetches on the
+        // signal, and membersChanged also fires for its own fetches.
         connect(m_client, &MatrixClient::roomMemberEventSeen,
                 this, &RoomInfoController::onMembersChanged);
         connect(m_client, &MatrixClient::loggedOut,
@@ -102,9 +97,8 @@ bool RoomInfoController::supported() const
 void RoomInfoController::setRoomId(const QString &roomId)
 {
     if (m_roomId == roomId) {
-        // Reopening the panel for the room it last showed used to render
-        // an arbitrarily old snapshot with loading == false and no way to
-        // refetch. A refetch here is a store read after the first sync.
+        // Refetch on reopen so the panel never shows a stale snapshot with
+        // loading == false. After the first sync this is a store read.
         if (!m_roomId.isEmpty() && m_membersOp == 0)
             refreshMembers();
         return;
@@ -115,7 +109,7 @@ void RoomInfoController::setRoomId(const QString &roomId)
         m_directoryPublished = -1;
         Q_EMIT directoryVisibilityChanged();
     }
-    // Room switch invalidates every in-flight operation for the old room.
+    // A room switch invalidates every in-flight operation for the old room.
     m_membersOp = 0;
     m_editOp = 0;
     m_leaveOp = 0;
@@ -162,9 +156,8 @@ void RoomInfoController::clearSnapshot()
     m_usersDefaultPowerLevel = 0;
     m_joinRule.clear();
     m_canonicalAlias.clear();
-    // An EMPTY matrix is the unknown state, and every reader must treat it
-    // that way: clearing to zeros would claim the room requires 0 for
-    // everything, which is a real (and very permissive) configuration.
+    // Empty is the unknown state; zeros would claim a real, very permissive
+    // configuration.
     m_powerLevels.clear();
     m_roomVersion.clear();
     m_canUpgradeRoom = false;
@@ -189,9 +182,8 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
 {
     if (opId != m_membersOp || roomId != m_roomId)
         return; // stale snapshot (old room / old request)
-    // A partial (cache-only) snapshot renders immediately but keeps the
-    // op pending — `loading` stays true until the synced roster lands
-    // under the same op.
+    // A partial (cache-only) snapshot renders immediately but keeps the op
+    // pending until the synced roster lands under the same op.
     const bool partial = snapshot.value(QStringLiteral("partial")).toBool();
     if (!partial)
         m_membersOp = 0;
@@ -200,9 +192,8 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
         return;
     }
     m_members = snapshot.value(QStringLiteral("members")).toList();
-    // The counts and the truncation flag are WHOLE-roster facts a
-    // cache-only snapshot cannot know — a confidently wrong "2 members"
-    // is worse than the previous value while loading (review M3). Rows
+    // Counts and the truncation flag are whole-roster facts a cache-only
+    // snapshot cannot know, so keep the previous values while loading. Rows
     // and permissions still render immediately.
     if (!partial) {
         m_joinedCount = snapshot.value(QStringLiteral("joinedCount")).toInt();
@@ -233,12 +224,9 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
         snapshot.value(QStringLiteral("canManageSpaceChildren")).toBool();
     m_usersDefaultPowerLevel =
         snapshot.value(QStringLiteral("usersDefaultPowerLevel")).toLongLong();
-    // Space Home's Remove / Mark-as-suggested / Invite controls are gated on
-    // canManageSpaceChildren and canInvite, and when a gate reads false they
-    // simply are not rendered — which is indistinguishable, from the outside,
-    // from the surface having lost them. Booleans and a power level only; the
-    // room id is already truncated by the shared logging helper elsewhere and
-    // is deliberately NOT repeated here.
+    // Logged because a false gate hides Space Home's Remove / Suggest /
+    // Invite controls with no visible trace. No room id here; the shared
+    // logging helper covers it.
     qCDebug(lcRoomInfo)
         << "member snapshot power gates ownLevel=" << m_ownPowerLevel
         << "canInvite=" << m_canInvite
@@ -248,9 +236,8 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
     m_joinRule = snapshot.value(QStringLiteral("joinRule")).toString();
     m_canonicalAlias =
         snapshot.value(QStringLiteral("canonicalAlias")).toString();
-    // v0.9 room access (phase 4). Absent keys read as "" / empty / false —
-    // a backend that does not send them offers nothing rather than
-    // defaults that would claim a configuration the room may not have.
+    // Absent keys read as "" / empty / false, so a backend that omits them
+    // offers nothing rather than claiming a configuration.
     m_historyVisibility =
         snapshot.value(QStringLiteral("historyVisibility")).toString();
     m_guestAccess = snapshot.value(QStringLiteral("guestAccess")).toString();
@@ -263,16 +250,14 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
         snapshot.value(QStringLiteral("canChangeHistoryVisibility")).toBool();
     m_canChangeGuestAccess =
         snapshot.value(QStringLiteral("canChangeGuestAccess")).toBool();
-    // 2026-08-26: the room's real thresholds. A backend that does not send
-    // them leaves the map EMPTY rather than defaulted — the Permissions
-    // matrix then renders nothing instead of inventing a permission model.
+    // A backend that omits the thresholds leaves the map empty, so the
+    // Permissions matrix renders nothing rather than inventing a model.
     m_powerLevels = snapshot.value(QStringLiteral("powerLevels")).toMap();
     m_roomVersion = snapshot.value(QStringLiteral("roomVersion")).toString();
     m_canUpgradeRoom =
         snapshot.value(QStringLiteral("canUpgradeRoom")).toBool();
-    // DEFAULT TRUE when the backend does not report it: a Join button must
-    // not be disabled on a guess, and a backend with no capability field is
-    // exactly today's behaviour ("let them try, the server decides").
+    // Defaults to true when unreported: the Join button is not disabled on a
+    // guess; the server decides.
     m_canPublishCallMembership =
         !snapshot.contains(QStringLiteral("canPublishCallMembership"))
         || snapshot.value(QStringLiteral("canPublishCallMembership")).toBool();
@@ -281,8 +266,8 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
 
 void RoomInfoController::onMembersChanged(const QString &roomId)
 {
-    // Authoritative sync updated membership for the open room (e.g. an
-    // invite landed) — refresh the snapshot unless one is already pending.
+    // Sync updated membership for the open room (e.g. an invite landed);
+    // refresh unless a fetch is already pending.
     if (roomId == m_roomId && m_membersOp == 0 && !m_roomId.isEmpty())
         refreshMembers();
 }
@@ -342,8 +327,8 @@ void RoomInfoController::setMyRoomAvatar(const QUrl &fileUrl)
     if (path.isEmpty())
         return;
     m_profileError.clear();
-    // The local path goes through: Rust uploads it and writes only this
-    // room's membership, deliberately NOT the global avatar.
+    // Rust uploads the file and writes only this room's membership, not the
+    // global avatar.
     if (m_client->setRoomMemberAvatar(m_roomId, path) != 0)
         ++m_profileOps;
     Q_EMIT roomProfileChanged();
@@ -381,14 +366,10 @@ void RoomInfoController::onRoomEditFinished(quint64 opId, const QString &roomId,
             : tr("The change could not be saved.");
     }
     Q_EMIT editStateChanged();
-    // The authoritative value arrives via sync; no optimistic local write.
-    //
-    // Name/topic/avatar reach the UI through the room-list model, which sync
-    // updates on its own. The v0.7.x room-state fields do NOT: join rule and
-    // canonical alias ride the MEMBER SNAPSHOT, and nothing refetches that
-    // for a state change that is not a membership change. So those two ask
-    // for the roster explicitly, on success only — a failed write changed
-    // nothing to re-read.
+    // The value arrives via sync; no optimistic local write. Name, topic and
+    // avatar reach the UI through the room-list model, but join rule and
+    // canonical alias ride the member snapshot, which nothing refetches for
+    // non-membership state. So those refetch the roster on success.
     if (ok
         && (field == QLatin1String("join_rule")
             || field == QLatin1String("canonical_alias")
@@ -397,8 +378,8 @@ void RoomInfoController::onRoomEditFinished(quint64 opId, const QString &roomId,
             || field == QLatin1String("alt_aliases"))) {
         refreshMembers();
     }
-    // Directory visibility is not room state: nothing re-syncs it, so a
-    // successful write is re-read from the server rather than assumed.
+    // Directory visibility is not room state and is not re-synced, so a
+    // successful write is re-read from the server.
     if (ok && field == QLatin1String("directory_visibility"))
         requestDirectoryVisibility();
 }
@@ -425,11 +406,8 @@ void RoomInfoController::onRoomLeaveFinished(quint64 opId, const QString &roomId
                                              bool ok, const QString &category)
 {
     if (m_adhocLeaveOps.remove(opId)) {
-        // Room-list adapter path: independent of the panel's own
-        // leavePending/leaveError state. Reuses the exact same sanitized
-        // category-to-text mapping the panel's own leave path uses, so the
-        // two surfaces stay honest and consistent — no new sanitization
-        // rules.
+        // Room-list adapter path, independent of the panel's
+        // leavePending/leaveError, using the same sanitized messages.
         if (ok) {
             Q_EMIT roomLeft(roomId);
         } else {
@@ -464,18 +442,14 @@ bool RoomInfoController::canModerate(const QString &userId,
         return false;
     if (!m_client || m_roomId.isEmpty() || userId.isEmpty() || !supported())
         return false;
-    // SDK-derived permission flag — never a role label, never derived
-    // from another flag: unban's required level is max(ban, kick)
-    // (ruma PowerLevelAction::Unban), so it has its own snapshot flag
-    // (review MU1 — gating unban on the ban power alone over-offered in
-    // rooms where kick > ban).
+    // SDK-derived flag, never a role label. Unban has its own flag because
+    // its required level is max(ban, kick) (ruma PowerLevelAction::Unban).
     const bool allowed = isKick ? m_canKick : isBan ? m_canBan : m_canUnban;
     if (!allowed)
         return false;
-    // The target must be a loaded snapshot row: absence of the row is the
-    // "unknown" state and fails closed. The power level itself may be any
-    // integer, including negative (Element's "Restricted" is -1), so no
-    // sentinel value can stand in for "unknown".
+    // The target must be a loaded snapshot row; absence is "unknown" and
+    // fails closed. Levels may be negative (Element's "Restricted" is -1), so
+    // no sentinel can mean unknown.
     for (const QVariant &value : m_members) {
         const QVariantMap row = value.toMap();
         if (row.value(QStringLiteral("userId")).toString() != userId)
@@ -484,10 +458,8 @@ bool RoomInfoController::canModerate(const QString &userId,
             return false;
         if (!row.contains(QStringLiteral("powerLevel")))
             return false;
-        // Membership must match the action: unban applies ONLY to banned
-        // members, kick/ban never to them (a banned member is already
-        // out; the server would reject a second ban as a no-op state
-        // change and a kick outright).
+        // Unban applies only to banned members, kick/ban never to them (the
+        // server would reject both).
         const bool banned = row.value(QStringLiteral("membership"))
                                 .toString() == QLatin1String("banned");
         if (isUnban != banned)
@@ -515,15 +487,14 @@ void RoomInfoController::banMember(const QString &userId,
 void RoomInfoController::unbanMember(const QString &userId,
                                      const QString &reason, bool inviteBack)
 {
-    // With an action already in flight, arming would OVERWRITE the live
-    // unban's pending invite (review L3) — the busy refusal must come
-    // before the arm, and moderate() below re-refuses regardless.
+    // Refuse while busy before arming, or this would overwrite a live
+    // unban's pending invite. moderate() re-refuses regardless.
     if (moderationPending())
         return;
     m_inviteBackUserId = inviteBack ? userId : QString();
     moderate(userId, reason, QStringLiteral("unban"));
-    // moderate() can refuse synchronously; never leave the invite armed
-    // for an unban that was not dispatched.
+    // moderate() can refuse synchronously; never leave the invite armed for
+    // an unban that was not dispatched.
     if (m_moderationOp == 0)
         m_inviteBackUserId.clear();
 }
@@ -533,8 +504,8 @@ void RoomInfoController::moderate(const QString &userId,
 {
     if (m_moderationOp != 0)
         return;
-    // Re-check the full offer policy at dispatch time — the QML surface
-    // binds to canModerate() but must never be the enforcement point.
+    // Re-check the full policy at dispatch; QML binds canModerate() but is
+    // not the enforcement point.
     if (!canModerate(userId, op))
         return;
     quint64 opId = 0;
@@ -545,12 +516,12 @@ void RoomInfoController::moderate(const QString &userId,
     else if (op == QLatin1String("unban"))
         opId = m_client->unbanUser(m_roomId, userId, reason);
     else
-        return; // canModerate() already refused unknown ops — never
-                // default a destructive dispatcher to kick (review LU4).
+        return; // canModerate() already refused unknown ops; never
+                // default a destructive dispatcher to kick.
     if (opId == 0) {
         // Synchronous rejection (backend unsupported, room not joined,
-        // invalid user id): report honestly instead of leaving the
-        // confirm surface armed forever (review L2).
+        // invalid user id): report it so the confirm surface is not left
+        // armed.
         Q_EMIT moderationActionFinished(
             m_roomId, userId, op, false,
             tr("The action could not be sent."));
@@ -576,9 +547,8 @@ void RoomInfoController::onModerationFinished(quint64 opId,
                ? tr("You do not have permission to do that.")
                : tr("The action failed. Check your connection and retry."));
     Q_EMIT moderationActionFinished(roomId, userId, op, ok, message);
-    // Invite-back requested from the unban confirm: only after a
-    // SUCCESSFUL unban, through the normal invite path; its own result
-    // arrives via onInviteUserFinished.
+    // Invite back only after a successful unban, via the normal invite path;
+    // its result arrives via onInviteUserFinished.
     if (ok && op == QLatin1String("unban") && roomId == m_roomId
         && !m_inviteBackUserId.isEmpty() && userId == m_inviteBackUserId
         && m_client) {
@@ -590,16 +560,14 @@ void RoomInfoController::onModerationFinished(quint64 opId,
         }
     }
     m_inviteBackUserId.clear();
-    // The roster refresh is CLIENT-initiated: the Rust backend only emits
-    // membersChanged in response to an explicit member fetch, never from
-    // sync, so without this the kicked user would stay in the People list
-    // until the next room switch (review M2).
+    // Refresh the roster explicitly: the Rust backend emits membersChanged
+    // only for explicit member fetches, never from sync.
     if (ok && roomId == m_roomId)
         refreshMembers();
 }
 
 // ---------------------------------------------------------------------------
-// v0.7.x room administration
+// Room administration
 // ---------------------------------------------------------------------------
 
 qlonglong RoomInfoController::powerLevelFor(const QString &userId) const
@@ -617,15 +585,10 @@ qlonglong RoomInfoController::powerLevelFor(const QString &userId) const
 
 QString RoomInfoController::roleLabelForLevel(qlonglong level) const
 {
-    // The conventional Matrix presets, and NOTHING ELSE flattened into
-    // them. A room may use any integer; showing "Moderator" for 42 would be
-    // a lie, and rounding 42 to 50 on save would destroy the room's own
-    // configuration. Anything unconventional renders as its number.
-    //
-    // The room's OWN default is checked first: in a room that sets
-    // users_default to 50, a member sitting at 50 is an ordinary member
-    // there, and calling them "Moderator" would misdescribe the room's
-    // configuration in the one place the user consults to understand it.
+    // Only the conventional Matrix presets get names; any other level renders
+    // as its number, and nothing is rounded on save. The room's own
+    // users_default is checked first, so a room whose default is 50 does not
+    // call its ordinary members "Moderator".
     if (level == m_usersDefaultPowerLevel)
         return tr("Member");
     if (level == 100)
@@ -660,8 +623,7 @@ bool RoomInfoController::canSetPowerLevel(const QString &userId,
         if (current == level)
             return false; // a no-op is not an action worth offering
         if (row.value(QStringLiteral("isOwn")).toBool()) {
-            // Self: demotion only. Matrix lets a user lower their own
-            // level, and nothing lets them raise it.
+            // Self: demotion only.
             return level < current;
         }
         // A peer at or above your own level is not yours to change.
@@ -673,9 +635,8 @@ bool RoomInfoController::canSetPowerLevel(const QString &userId,
 void RoomInfoController::setMemberPowerLevel(const QString &userId,
                                              qlonglong level)
 {
-    // Re-check the gate the UI used: room state can change between the menu
-    // opening and the click, and a state event that is known to be
-    // unauthorized must not be sent.
+    // Re-check the gate: room state can change between menu and click, and
+    // a known-unauthorized state event must not be sent.
     if (!canSetPowerLevel(userId, level))
         return;
     const quint64 opId = m_client->setMemberPowerLevel(m_roomId, userId, level);
@@ -713,10 +674,8 @@ void RoomInfoController::onPowerLevelChangeFinished(quint64 opId,
                      : tr("The change failed. Check your connection and "
                           "retry."));
     Q_EMIT powerLevelActionFinished(roomId, userId, level, ok, message);
-    // Re-read the authoritative roster either way. On success it carries
-    // the level the room now holds; on failure it discards anything the UI
-    // might have shown optimistically. Nothing here writes the new level
-    // into the snapshot by hand.
+    // Re-read the roster either way: it carries the level the room now holds,
+    // and nothing writes the new level into the snapshot by hand.
     if (roomId == m_roomId)
         refreshMembers();
 }
@@ -765,8 +724,8 @@ void RoomInfoController::setRestrictedJoinRule(const QString &rule,
             ids.append(trimmed);
     }
     if (ids.isEmpty() && !m_restrictedHasUnknownRules) {
-        // Refused here for the same reason the Rust edge refuses it: an
-        // empty allow list is invite-only wearing a restricted label.
+        // Same refusal as the Rust edge: an empty allow list is invite-only
+        // under a restricted label.
         m_editError = tr("Choose at least one space whose members may join.");
         Q_EMIT editStateChanged();
         return;
@@ -809,9 +768,8 @@ void RoomInfoController::setDirectoryPublished(bool published)
 {
     if (!m_client || m_roomId.isEmpty() || !supported())
         return;
-    // Publishing to the directory is gated like the alias controls: the
-    // server enforces its own policy (some refuse everyone but admins), and
-    // that refusal surfaces through the ordinary edit error.
+    // Gated like the alias controls; the server enforces its own policy and
+    // a refusal surfaces through the ordinary edit error.
     if (!m_canChangeAlias || m_editOp != 0)
         return;
     if (m_directoryPublished == (published ? 1 : 0))
@@ -832,9 +790,7 @@ QString RoomInfoController::completeAlias(const QString &alias,
     QString value = alias.trimmed();
     if (value.isEmpty())
         return value;
-    // Accept a bare localpart and complete it with the account's own
-    // server; typing "#name:server.example" by hand is not something to
-    // require of the user.
+    // Accept a bare localpart and complete it with the account's own server.
     if (!value.startsWith(QLatin1Char('#')))
         value.prepend(QLatin1Char('#'));
     if (!value.contains(QLatin1Char(':'))) {
@@ -911,18 +867,14 @@ void RoomInfoController::setCanonicalAlias(const QString &alias)
 }
 
 // ---------------------------------------------------------------------------
-// 2026-08-26: the m.room.power_levels matrix (Space settings, Sable parity)
+// The m.room.power_levels matrix (Space settings)
 // ---------------------------------------------------------------------------
 
 QStringList RoomInfoController::powerLevelKeys()
 {
-    // Must stay in step with the allowlist in rooms::set_room_power_level_key
-    // and with the keys the Rust member snapshot emits. Anything not here is
-    // refused at the Rust edge, so a QML typo produces an inert control
-    // rather than an unexpected state event.
-    //
-    // Built once: powerLevelKnown() is called from a per-row binding, and a
-    // fresh 15-element list per row per roster answer is pure waste.
+    // Must match the allowlist in rooms::set_room_power_level_key and the
+    // keys the Rust member snapshot emits; anything else is refused at the
+    // Rust edge. Built once, since powerLevelKnown() runs per row.
     static const QStringList keys{
         QStringLiteral("users_default"),
         QStringLiteral("events_default"),
@@ -950,10 +902,8 @@ bool RoomInfoController::powerLevelKnown(const QString &key) const
 
 qlonglong RoomInfoController::powerLevelForKey(const QString &key) const
 {
-    // -1 is a SENTINEL for "not known", not a level. It is safe only because
-    // callers are told to ask powerLevelKnown() first: -1 is itself a legal
-    // Matrix level (Element renders it as "Restricted"), so no in-band
-    // number can carry the unknown meaning on its own.
+    // -1 is a sentinel only because callers ask powerLevelKnown() first; it
+    // is also a legal Matrix level.
     if (!powerLevelKnown(key))
         return -1;
     return m_powerLevels.value(key).toLongLong();
@@ -970,11 +920,8 @@ bool RoomInfoController::canSetPowerLevelKey(const QString &key,
         return false; // an unknown threshold fails closed
     if (level < kMinSettableLevel || level > kMaxSettableLevel)
         return false;
-    // THE ONE-WAY DOOR. Requiring MORE than you have for m.room.power_levels
-    // locks you out of the key that would undo it, and no server will help.
-    // The same clause is what stops users_default being raised above the
-    // person raising it — which is how a room accidentally hands everyone
-    // moderator rights.
+    // Raising m.room.power_levels above your own level cannot be undone.
+    // This also stops users_default being raised above the person setting it.
     if (level > m_ownPowerLevel)
         return false;
     return m_powerLevels.value(key).toLongLong() != level;
@@ -982,9 +929,8 @@ bool RoomInfoController::canSetPowerLevelKey(const QString &key,
 
 void RoomInfoController::setPowerLevelKey(const QString &key, qlonglong level)
 {
-    // Re-check the gate the UI used: room state can change between the
-    // control rendering and the click, and a state event that is known to be
-    // unauthorized must not be sent.
+    // Re-check the gate: room state can change between render and click, and
+    // a known-unauthorized state event must not be sent.
     if (!canSetPowerLevelKey(key, level))
         return;
     const quint64 opId = m_client->setRoomPowerLevelKey(m_roomId, key, level);
@@ -1024,10 +970,8 @@ void RoomInfoController::onPowerMatrixFinished(quint64 opId,
     m_powerMatrixError = message;
     Q_EMIT powerMatrixStateChanged();
     Q_EMIT powerMatrixActionFinished(roomId, key, level, ok, message);
-    // Re-read the authoritative roster either way. On success it carries the
-    // threshold the room now holds; on failure it discards anything the UI
-    // might have shown optimistically. Nothing here writes the new value
-    // into the snapshot by hand.
+    // Re-read the roster either way: it carries the threshold the room now
+    // holds, and nothing writes the new value into the snapshot by hand.
     if (roomId == m_roomId)
         refreshMembers();
 }
@@ -1048,8 +992,8 @@ void RoomInfoController::onInviteUserFinished(quint64 opId,
     Q_EMIT moderationActionFinished(roomId, userId,
                                     QStringLiteral("invite_back"), ok,
                                     message);
-    // Show the Invited state without waiting for the next panel open; a
-    // newer fetch op simply supersedes any pending one.
+    // Show the Invited state immediately; a newer fetch supersedes any
+    // pending one.
     if (ok && roomId == m_roomId)
         refreshMembers();
 }
@@ -1061,9 +1005,8 @@ QVariantList RoomInfoController::filterMembers(const QString &needle) const
 
 void RoomInfoController::requestMutualRooms(const QString &userId)
 {
-    // Cleared FIRST and announced, so a card that opens on a new person
-    // never shows the previous person's rooms while the answer is in
-    // flight. An empty list is the honest "not known yet" state.
+    // Clear and announce first, so a card opened on a new person never shows
+    // the previous person's rooms. Empty means "not known yet".
     if (!m_mutualRooms.isEmpty()) {
         m_mutualRooms.clear();
         Q_EMIT mutualRoomsChanged();
@@ -1086,11 +1029,9 @@ QVariantMap RoomInfoController::memberFor(const QString &userId,
     if (userId.isEmpty())
         return {};
 
-    // 1. The loaded roster snapshot, when it is THIS room's. It is the
-    //    richest answer — membership and power level as well as the name and
-    //    the face — and it is exact: Matrix localparts are case-SENSITIVE,
-    //    so guessing at equivalence between two ids is how one person's card
-    //    gets another person's face.
+    // 1. The loaded roster snapshot, when it is this room's: the richest
+    //    answer. Exact match only, since Matrix localparts are
+    //    case-sensitive.
     if (!roomId.isEmpty() && roomId == m_roomId) {
         for (const QVariant &value : m_members) {
             const QVariantMap row = value.toMap();
@@ -1099,27 +1040,21 @@ QVariantMap RoomInfoController::memberFor(const QString &userId,
         }
     }
 
-    // 2. The client's own per-room member cache. This matters more than it
-    //    looks: the snapshot above only exists once somebody has OPENED Room
-    //    Information for this room, and the caller this lookup exists for —
-    //    a mention link clicked in the timeline — normally has not. The cache
-    //    is the SAME derivation the mention chips, reply headers and thread
-    //    summaries already resolve through, so a card cannot disagree with
-    //    the pill that was clicked to open it.
+    // 2. The client's per-room member cache. The snapshot exists only once
+    //    Room Information was opened for this room, which a mention click
+    //    usually has not; the cache is what mention chips and reply headers
+    //    use, so the card agrees with the pill.
     if (!m_client || roomId.isEmpty())
         return {};
     const QString name = m_client->displayNameFor(roomId, userId);
     const QString avatar = m_client->avatarMxcFor(roomId, userId);
-    // Both answer with the USER ID itself when they know nothing. That is
-    // not a display name, and storing it as one would defeat the shared
-    // localpart fallback and put an MXID where a name belongs — which is
-    // precisely the defect this lookup exists to fix.
+    // Both return the user id itself when they know nothing; that is not a
+    // display name.
     const QString resolved = name == userId ? QString() : name;
     if (resolved.isEmpty() && avatar.isEmpty())
         return {};
-    // Deliberately NO membership and NO power level: this source does not
-    // know them, and an absent key is how a caller finds that out. Inventing
-    // "joined" here would put a Member chip on somebody who has left.
+    // No membership or power level: this source does not know them, and an
+    // absent key says so.
     return QVariantMap{
         { QStringLiteral("userId"), userId },
         { QStringLiteral("displayName"), resolved },
@@ -1144,9 +1079,7 @@ QVariantList RoomInfoController::visibleMembers(const QString &needle,
     out.reserve(m_members.size());
     for (const QVariant &value : m_members) {
         const QVariantMap row = value.toMap();
-        // An unrecognised facet matches NOTHING rather than quietly meaning
-        // "all": a filter that silently stops filtering looks identical to
-        // a filter that found everything.
+        // An unrecognised facet matches nothing rather than meaning "all".
         if (!facet.isEmpty()
             && row.value(QStringLiteral("membership")).toString() != facet) {
             continue;
@@ -1159,11 +1092,8 @@ QVariantList RoomInfoController::visibleMembers(const QString &needle,
         out.append(row);
     }
     if (alphabetical) {
-        // Case-insensitive by the name a person actually reads, falling back
-        // to the user id when a member has no display name. The Rust
-        // snapshot's own order (joined → invited → banned, then power level
-        // descending) is what the cap was applied to — see the header: past
-        // MEMBER_SNAPSHOT_CAP this re-orders only the rows that survived it.
+        // Case-insensitive by display name, falling back to the user id. See
+        // the header on how this interacts with MEMBER_SNAPSHOT_CAP.
         std::sort(out.begin(), out.end(),
                   [](const QVariant &lhs, const QVariant &rhs) {
                       const QVariantMap a = lhs.toMap();
@@ -1179,9 +1109,8 @@ QVariantList RoomInfoController::visibleMembers(const QString &needle,
                       const int cmp = an.compare(bn, Qt::CaseInsensitive);
                       if (cmp != 0)
                           return cmp < 0;
-                      // A total order: two members may share a display name
-                      // (that is what `ambiguous` is for), and an unstable
-                      // comparator is undefined behaviour in std::sort.
+                      // Total order: display names can collide, and an
+                      // unstable comparator is UB in std::sort.
                       return a.value(QStringLiteral("userId")).toString()
                              < b.value(QStringLiteral("userId")).toString();
                   });
@@ -1194,10 +1123,7 @@ QVariantList RoomInfoController::memberRoleGroups(const QString &needle,
                                                   bool alphabetical) const
 {
     const QVariantList rows = visibleMembers(needle, membership, alphabetical);
-    // Bucket by EXACT level, highest first. Not by the role LABEL: a room
-    // using 42 and a room using 50 would collide under "Moderator" if two
-    // custom numbers ever mapped to the same text, and folding them would
-    // misdescribe the room's own configuration.
+    // Bucket by exact level, highest first, never by label.
     QList<qlonglong> order;
     QHash<qlonglong, QVariantList> buckets;
     for (const QVariant &value : rows) {
@@ -1243,9 +1169,8 @@ QVariantList RoomInfoController::memberRoleRows(const QString &needle,
         header.insert(QStringLiteral("label"), label);
         header.insert(QStringLiteral("level"), level);
         header.insert(QStringLiteral("count"), members.size());
-        // A header needs an id a delegate can key on, and it must never be
-        // mistaken for a user id: '@' starts every Matrix user id, so a level
-        // prefix is used instead.
+        // A header id that can never be mistaken for a user id ('@' starts
+        // every Matrix user id).
         header.insert(QStringLiteral("userId"),
                       QStringLiteral("role:%1").arg(level));
         out.append(header);

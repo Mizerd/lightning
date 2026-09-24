@@ -17,26 +17,19 @@
 
 class MatrixClient;
 
-// v0.6.0: lifecycle owner for the single open SDK-backed thread panel.
+// Lifecycle owner for the single open SDK-backed thread panel.
 //
-// The heavy lifting is deliberately NOT here: the backend serves the thread
-// as a normal timeline under a composite thread timeline id
-// (MatrixClient::threadTimelineId), so this controller owns only the
-// LIFECYCLE — open/close, generation isolation across rapid thread and room
-// switches, state presentation, and the thread send entry point. The
-// thread's rows live in an ordinary TimelineModel bound to the composite
-// id, reusing the exact diff application, roles, grouping, and pagination
-// plumbing of the room timeline (per the architecture rule: no duplicated
-// timeline implementation, no independent sync).
+// The backend serves the thread as a normal timeline under a composite id
+// (MatrixClient::threadTimelineId), so the rows live in an ordinary
+// TimelineModel. This class owns only open/close, generation isolation across
+// thread and room switches, state, and the thread send entry points.
 //
 // Never logs message bodies, tokens, or media URLs.
 class ThreadController : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
-    // Instantiated in C++ and exposed to QML only as the "app.threads"
-    // context-property instance; registration exists so QML can name the
-    // State enum as ThreadController.Ready etc.
+    // Exposed only as app.threads; registered so QML can name the State enum.
     QML_UNCREATABLE("ThreadController is exposed via app.threads")
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
     Q_PROPERTY(State state READ state NOTIFY stateChanged)
@@ -47,80 +40,54 @@ class ThreadController : public QObject
     // display; never carries server detail or message content.
     Q_PROPERTY(QString failureCategory READ failureCategory NOTIFY stateChanged)
     Q_PROPERTY(TimelineModel *model READ model CONSTANT)
-    /// How many REPLIES this thread has. Never negative: with no SDK
-    /// summary and nothing loaded it is 0.
-    ///
-    /// The room's own summary card reads the SDK's `num_replies`, and the
-    /// panel used to derive its "N replies" divider from
-    /// `model.count - 1` — the ROW count, minus the thread root. That was
-    /// wrong twice over and both are fixed here rather than in QML, because
-    /// only this class can see which correction applies:
-    ///
-    ///   * virtual rows (date dividers, the read marker, timeline start) are
-    ///     rows, so they inflated it — live on 2026-09-11 the panel said 3
-    ///     beside two replies while the card correctly said 2; and
-    ///   * the `- 1` assumed the root IS a row, which `rootInfo()` itself
-    ///     documents is not always true (it falls back to the ROOM timeline
-    ///     while the thread snapshot is still arriving), so in that window it
-    ///     undercounted instead.
-    ///
-    /// The SDK's count is preferred whenever it is known, which also fixes
-    /// the divergence a LOADED count can never fix: a thread timeline is
-    /// windowed and paginates lazily, so for any thread longer than its first
-    /// page a loaded count disagrees with the card by length.
+    /// Number of replies, never negative: the larger of the SDK's
+    /// `num_replies` (covers history beyond the lazily paginated window) and
+    /// the loaded real events, excluding virtual rows and the root.
     Q_PROPERTY(int replyCount READ replyCount NOTIFY replyCountChanged)
-    // v0.7: the thread composer text lives here so outgoing @-mentions can be
-    // tracked (the room composer keeps its own text on MessageComposer). The
-    // thread panel two-way-binds its TextArea to this.
+    // Thread composer text, kept here so outgoing @-mentions can be tracked.
+    // The panel two-way-binds its TextArea to this.
     Q_PROPERTY(QString text READ text WRITE setText NOTIFY textChanged)
-    // v0.9 slash commands in the thread composer: the same non-destructive
-    // refusal contract as MessageComposer::commandError — the draft stays,
-    // nothing was sent, and the panel offers sendTextBypassingCommands.
+    // Slash-command refusal, same contract as MessageComposer::commandError:
+    // the draft stays and the panel offers sendTextBypassingCommands.
     Q_PROPERTY(QString commandError READ commandError NOTIFY commandErrorChanged)
     // Mention ranges [{start, length}] for the thread composer's chip
     // highlighter; mirrors MessageComposer::mentionRanges.
     Q_PROPERTY(QVariantList mentionRanges READ mentionRanges
                    NOTIFY mentionRangesChanged)
-    // v0.6.0 checkpoint 4: rich-reply-within-thread compose state. The panel
-    // composer shows the banner; sendText targets the reply through the SDK
+    // Rich reply within the thread. sendText targets it through the SDK
     // thread path.
     Q_PROPERTY(bool inReply READ inReply NOTIFY replyStateChanged)
     Q_PROPERTY(QString replyToEventId READ replyToEventId NOTIFY replyStateChanged)
     Q_PROPERTY(QString replyToSender READ replyToSender NOTIFY replyStateChanged)
     Q_PROPERTY(QString replyToPreview READ replyToPreview NOTIFY replyStateChanged)
-    // v0.6.0 checkpoint 5: MSC4306 follow state for the OPEN thread.
-    // followSupported is false until the backend confirms the homeserver
-    // supports thread subscriptions — the UI hides the control rather than
-    // pretending. followBusy covers the query and the change round-trips.
+    // MSC4306 follow state for the open thread. followSupported stays false
+    // until the backend confirms server support; followBusy covers the
+    // round-trips.
     Q_PROPERTY(bool followSupported READ followSupported NOTIFY followStateChanged)
     Q_PROPERTY(bool followed READ followed NOTIFY followStateChanged)
     Q_PROPERTY(bool followAutomatic READ followAutomatic NOTIFY followStateChanged)
     Q_PROPERTY(bool followBusy READ followBusy NOTIFY followStateChanged)
-    // v0.6.0 checkpoint 5: the room's Threads view (bounded to fetched
-    // pages, sorted by latest activity, unread-first where known).
+    // The room's Threads view (bounded to fetched pages, sorted by latest
+    // activity, unread-first where known).
     Q_PROPERTY(bool listOpen READ listOpen NOTIFY listStateChanged)
     Q_PROPERTY(bool listLoading READ listLoading NOTIFY listStateChanged)
     Q_PROPERTY(bool listEndReached READ listEndReached NOTIFY listStateChanged)
     Q_PROPERTY(bool listFailed READ listFailed NOTIFY listStateChanged)
     Q_PROPERTY(QVariantList threadList READ threadList NOTIFY listStateChanged)
-    // v0.6.1: thread composer attachment tray (SDK thread-focused send).
+    // Thread composer attachment tray (SDK thread-focused send).
     Q_PROPERTY(AttachmentQueueModel *attachments READ attachments CONSTANT)
     Q_PROPERTY(bool hasAttachments READ hasAttachments NOTIFY attachmentsChanged)
     Q_PROPERTY(bool attachmentsSupported READ attachmentsSupported
                    NOTIFY stateChanged)
-    // v0.7.4 thread-local reply navigation. The room timeline's equivalent is
-    // PaginationController; this is deliberately separate state rather than a
-    // second consumer of that controller, because a reply preview inside a
-    // thread must NEVER be routed through the ROOM history loader — see
-    // navigateToEvent(). Empty highlight id means "nothing is pulsing".
+    // Thread-local reply navigation. Separate from PaginationController
+    // because a reply inside a thread must never go through the room history
+    // loader; see navigateToEvent(). Empty means nothing is highlighted.
     Q_PROPERTY(QString navigationHighlightEventId READ navigationHighlightEventId
                    NOTIFY navigationChanged)
-    // Honest, transient failure wording. Shares PaginationController's single
-    // translatable string so the two surfaces cannot drift.
+    // Transient failure text; shares PaginationController's string.
     Q_PROPERTY(QString navigationMessage READ navigationMessage
                    NOTIFY navigationChanged)
-    // True while a bounded backward search for a not-yet-loaded target is in
-    // flight. Presentation hint and test surface; no policy reads it.
+    // True while a bounded backward search for an unloaded target runs.
     Q_PROPERTY(bool navigating READ navigating NOTIFY navigationChanged)
 
 public:
@@ -130,9 +97,8 @@ public:
     explicit ThreadController(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
-    // v0.7.x drafts (per thread, keyed on the internal composite id —
-    // which never leaves the process). Optional; without a store the
-    // composer wipes on switch exactly as before.
+    // Per-thread drafts, keyed on the internal composite id (never leaves the
+    // process). Optional.
     void setDraftStore(class DraftStore *store) { m_drafts = store; }
 
     bool supported() const;
@@ -193,13 +159,12 @@ public:
     // "Send as a message" on the unknown-command refusal: the same send
     // with command parsing skipped.
     Q_INVOKABLE void sendTextBypassingCommands(const QString &body);
-    // v0.9 rich composer: send a pre-composed (plainBody, html, mentions)
-    // triple through the thread lane — see MessageComposer::sendPrepared.
+    // Sends a pre-composed (plainBody, html, mentions) triple through the
+    // thread lane; see MessageComposer::sendPrepared.
     Q_INVOKABLE void sendPrepared(const QString &body, const QString &html,
                                   const QStringList &mentionUserIds);
     QString commandError() const { return m_commandError; }
-    // v0.7 outgoing @-mentions in the thread composer — mirrors
-    // MessageComposer's ref-aware token detection and insertion.
+    // Outgoing @-mentions; mirrors MessageComposer.
     Q_INVOKABLE QVariantMap mentionTokenAt(const QString &text,
                                            int cursorPos) const;
     Q_INVOKABLE int insertMention(const QString &userId,
@@ -208,27 +173,23 @@ public:
     // Begin/cancel replying to a specific loaded thread event.
     Q_INVOKABLE void beginReply(const QString &eventId);
     Q_INVOKABLE void cancelReply();
-    // v0.6.1: queue a picked/dropped file for the open thread; emits
-    // attachmentRejected(reason) on validation failure. Never logs the path.
+    // Queues a file for the open thread; emits attachmentRejected(reason) on
+    // validation failure. Never logs the path.
     Q_INVOKABLE void addAttachment(const QUrl &fileUrl);
-    // Intercept Ctrl+V: queue a clipboard image or local file URLs; returns
-    // true when handled (so the editor does not also paste), false to let the
-    // text editor paste normally.
+    // Ctrl+V: queues a clipboard image or local file URLs. Returns true when
+    // handled so the editor does not also paste.
     Q_INVOKABLE bool pasteFromClipboard();
-    // v0.7 thread parity: MSC3245 voice message into the OPEN thread, from
-    // the same shared VoiceRecorder the room composer uses. waveform entries
-    // are 0..=100. Always a real m.thread reply through the SDK thread send
-    // path — there is no room-send fallback. Failure surfaces via
-    // attachmentRejected, scoped to the thread it was recorded in.
+    // MSC3245 voice message into the open thread (waveform entries 0..=100).
+    // Always an m.thread reply via the SDK thread path; no room-send
+    // fallback. Failures surface via attachmentRejected for that thread only.
     Q_INVOKABLE void sendVoiceMessage(const QString &localPath,
                                       const QString &mime,
                                       qreal durationMs,
                                       const QVariantList &waveform);
     // Follow/unfollow the open thread (server-side MSC4306 subscription).
     Q_INVOKABLE void setFollowed(bool followed);
-    // Send ONE threaded read receipt for the open thread's latest readable
-    // event (deduplicated; never a room-wide receipt). QML calls this when
-    // the panel is at the latest reply.
+    // Sends one threaded read receipt for the open thread's latest readable
+    // event (deduplicated; never room-wide).
     Q_INVOKABLE void markRead();
     // Threads view lifecycle for the current room.
     Q_INVOKABLE void openList(const QString &roomId);
@@ -237,23 +198,20 @@ public:
     // De-duplicated sender MXIDs of the loaded thread events (root first
     // when loaded). Participants of unloaded history are not invented.
     Q_INVOKABLE QStringList participants() const;
-    // Presentation data for the pinned root header. Resolved from the
-    // loaded thread timeline first, then from the room timeline; when the
-    // root is not loaded anywhere, {loaded: false} lets QML show the
-    // honest "original message unavailable" state. Safe fields only.
+    // Presentation data for the pinned root header, from the thread timeline
+    // or else the room timeline. {loaded: false} when the root is loaded
+    // nowhere. Safe fields only.
     Q_INVOKABLE QVariantMap rootInfo() const;
     int replyCount() const;
     void notifyReplyCountIfChanged();
 
-    // Reply navigation WITHIN the open thread (contract C5). Resolves the
-    // target in the thread's own timeline, paginating this thread's history a
-    // bounded number of times when it is not loaded yet, and reports honestly
-    // when it cannot be reached. Never touches the room timeline.
+    // Reply navigation within the open thread. Paginates this thread's
+    // history a bounded number of times and reports when the target cannot be
+    // reached. Never touches the room timeline.
     Q_INVOKABLE void navigateToEvent(const QString &eventId);
 
-    // Test hook: keeps the bounded loop, the highlight pulse and the
-    // unanswered-batch watchdog off wall-clock time. Non-positive arguments
-    // leave the corresponding policy value untouched.
+    // Test hook for the navigation policy. Non-positive arguments leave the
+    // value unchanged.
     void setNavigationPolicyForTest(int maxBatches, int highlightDurationMs,
                                     int batchTimeoutMs);
 
@@ -265,22 +223,14 @@ Q_SIGNALS:
     void supportedChanged();
     void stateChanged();
     void replyCountChanged();
-    /// The ROOT's own row changed in place — decrypted, edited, redacted, or
-    /// its sender's name/avatar resolved.
-    ///
-    /// The panel renders the root from a SNAPSHOT (`rootInfo()`), refreshed
-    /// only on a lifecycle change and on the model's countChanged. Every one
-    /// of those four arrives as an in-place Set, which changes no row count,
-    /// so without this the card kept showing "Unable to decrypt this
-    /// message" over a thread whose replies had decrypted fine — and §9 says
-    /// a late key must update the event in place, with no restart or room
-    /// switch.
+    /// The root's own row changed in place (decrypted, edited, redacted, or
+    /// its sender resolved). The panel renders the root from a `rootInfo()`
+    /// snapshot, and in-place updates change no row count, so this is what
+    /// refreshes it after a late key arrives.
     void rootInfoChanged();
     void textChanged();
     void commandErrorChanged();
-    // /markdown and /nick only ASK, exactly as in MessageComposer: the mode
-    // is a setting QML owns; display-name changes carry AppController's
-    // op-id bookkeeping.
+    // /markdown and /nick only request the change, as in MessageComposer.
     void composerModeToggleRequested();
     void displayNameChangeRequested(const QString &name);
     void mentionRangesChanged();
@@ -290,11 +240,9 @@ Q_SIGNALS:
     void attachmentsChanged();
     void attachmentRejected(const QString &reason);
     void navigationChanged();
-    // The navigation target resolved to `row` of model(); the panel positions
-    // its ListView there. Mirrors PaginationController::targetLocated without
-    // the pixel offset — the thread panel keeps no saved scroll anchors, and
-    // a reply landing is always a "put it comfortably on screen", never a
-    // restore of a remembered position.
+    // The navigation target resolved to `row` of model(). Like
+    // PaginationController::targetLocated but without a pixel offset: the
+    // thread panel keeps no saved scroll anchors.
     void navigationTargetLocated(int row);
 
 private Q_SLOTS:
@@ -311,11 +259,8 @@ private:
     void dispatchAttachment(int row);
     void clearAttachments();
 
-    // Voice send ops in flight for this panel. Each carries the recording
-    // file it owns AND the exact thread it was sent to. The file is deleted
-    // unconditionally when the op resolves; the FAILURE is only surfaced
-    // while that same thread is still open, so a late failure never appears
-    // over a different thread — or a different room.
+    // Voice send ops in flight. The recording file is deleted when the op
+    // resolves; a failure is surfaced only while the same thread is open.
     struct VoiceOp {
         QString localPath;
         QString roomId;
@@ -325,9 +270,8 @@ private:
 
     MatrixClient *m_client = nullptr;
     TimelineModel m_model;
-    // De-duplication only: notifyReplyCountIfChanged() always recomputes
-    // from live state and compares. Never `mutable` — writing it from a
-    // const getter would mean emitting from one.
+    // De-duplication only; notifyReplyCountIfChanged() recomputes from live
+    // state. Not `mutable`, so a const getter can never emit.
     int m_lastReplyCount = -1;
     AttachmentQueueModel *m_attachments = nullptr;
     State m_state = Closed;
@@ -340,17 +284,16 @@ private:
     QString m_text;
     QList<mention::MentionRef> m_mentionRefs;
     void clearComposerText();
-    // v0.9: the one send implementation behind sendText/bypass, the shared
-    // thread lane every content path uses, and the draft-retire tail.
+    // The single send implementation, the shared thread lane, and the
+    // draft-retire tail.
     void sendTextInternal(const QString &body, bool allowCommands);
     void sendThreadBody(const QString &body, const QStringList &mentionIds,
                         const QVariantMap &bodySpec);
     void retireComposerDraft();
     void setCommandError(const QString &error);
     QString m_commandError;
-    // v0.7.x drafts: same discipline as MessageComposer — the debounce is
-    // stopped before every thread change and the save reads the current
-    // thread, so a stale timer cannot write across threads.
+    // Drafts: the debounce stops before every thread change and the save
+    // reads the current thread, so a stale timer cannot write across threads.
     void saveDraftNow();
     void restoreDraft();
     class DraftStore *m_drafts = nullptr;
@@ -365,9 +308,8 @@ private:
     void failNavigation();
     void clearNavigation(bool clearMessage);
     void setNavigationHighlight(const QString &eventId);
-    // The open thread is no longer the one the pending navigation started in
-    // (closed, switched thread, or switched room). Identity IS the generation
-    // guard here, exactly as it is for the follow/subscription answers above.
+    // The open thread is no longer the one the navigation started in. Identity
+    // is the generation guard, as for the follow answers.
     bool navigationStale() const;
     // Conservative unread hint for a list entry: the loaded room timeline's
     // SDK thread summary for that root, when present.
@@ -384,9 +326,8 @@ private:
     QString m_listRoomId;
     QVariantList m_threadList;
 
-    // Reply navigation state. m_navigationEventId non-empty == a bounded
-    // backward search is in flight; the room/root pair it started in is the
-    // staleness gate for every completion.
+    // Non-empty m_navigationEventId means a search is in flight; its room/root
+    // pair is the staleness gate for every completion.
     QString m_navigationEventId;
     QString m_navigationRoomId;
     QString m_navigationRootEventId;
@@ -396,14 +337,12 @@ private:
     QString m_navigationMessage;
     QTimer m_navigationHighlightTimer;
     QTimer m_navigationMessageTimer;
-    // Per-batch watchdog. A request the backend drops silently would
-    // otherwise leave the reader with a click that did nothing at all — the
-    // exact failure class this round exists to remove.
+    // Per-batch watchdog, so a request the backend drops silently still ends
+    // with a visible result.
     QTimer m_navigationBatchTimer;
     int m_navigationHighlightMs =
         PaginationController::kDefaultHighlightDurationMs;
     int m_navigationBatchTimeoutMs = 8000;
-    // Mirrors TimelineModel::paginating() so a completion EDGE can be told
-    // from an ordinary state poke.
+    // Mirrors TimelineModel::paginating() to detect the completion edge.
     bool m_modelPaginating = false;
 };

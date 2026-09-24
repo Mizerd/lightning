@@ -16,8 +16,7 @@ namespace {
 
 constexpr int kDefaultSlowMs = 2000;
 constexpr int kMinSlowMs = 100;
-// Bounded: a burst of a thousand events must not turn the tracer into the
-// memory problem it exists to diagnose. Oldest journeys are dropped.
+// Bounded; the oldest journeys are dropped.
 constexpr int kMaxTrackedJourneys = 512;
 
 struct Journey {
@@ -45,12 +44,9 @@ State &state()
     return s;
 }
 
-// Wall clock, deliberately: the SDK stage is stamped in RUST, and a
-// QElapsedTimer's origin is not shared across that boundary. Both sides use
-// milliseconds since the Unix epoch in the SAME process, so the delta is
-// meaningful. Caveat, stated rather than hidden: a system clock step during a
-// capture skews one interval. That is acceptable for a coarse diagnostic and
-// is why the thresholds are seconds, not milliseconds.
+// Wall clock, because the SDK stage is stamped in Rust and a QElapsedTimer
+// origin is not shared across the FFI. A clock step skews one interval, which
+// is acceptable for a coarse diagnostic.
 qint64 nowMs()
 {
     return QDateTime::currentMSecsSinceEpoch();
@@ -90,9 +86,8 @@ int enabledThreshold()
     return cached;
 }
 
-// A room KEY, not a room id: eight hex characters of a SHA-256, enough to tell
-// two rooms apart in one capture and useless for identifying either. The same
-// discipline the support-diagnostics export uses.
+// Eight hex characters of a SHA-256: distinguishes rooms without identifying
+// them.
 QByteArray roomKeyFor(const QString &roomId)
 {
     if (roomId.isEmpty())
@@ -121,8 +116,6 @@ quint64 synctrace::beginEvent(const QString &roomId, qint64 sdkEpochMs)
         return 0;
     State &s = state();
     QMutexLocker lock(&s.mutex);
-    // Drop the oldest rather than grow without bound. A dropped journey simply
-    // never reports; it is diagnostics, not bookkeeping anything depends on.
     if (s.journeys.size() >= kMaxTrackedJourneys) {
         quint64 oldest = 0;
         qint64 oldestMs = std::numeric_limits<qint64>::max();
@@ -138,9 +131,7 @@ quint64 synctrace::beginEvent(const QString &roomId, qint64 sdkEpochMs)
     Journey j;
     j.id = s.nextId++;
     j.roomKey = roomKeyFor(roomId);
-    // A stamp from the far side of the FFI when we have one. Guarded against a
-    // clock that disagrees: a "future" stamp would render every later delta
-    // negative and read as an impossible journey, so it degrades to now.
+    // A future stamp would make every later delta negative; use now instead.
     const qint64 now = nowMs();
     j.sdkMs = (sdkEpochMs > 0 && sdkEpochMs <= now) ? sdkEpochMs : now;
     s.journeys.insert(j.id, j);
@@ -192,9 +183,7 @@ void synctrace::noteUi(quint64 id)
         s.lastTotalMs = uiMs - j.sdkMs;
     }
 
-    // Per-stage deltas. A stage that never fired reports -1 rather than a
-    // fabricated 0 — "we did not observe this" and "it took no time" are
-    // different facts, and conflating them is how an instrument lies.
+    // A stage that never fired reports -1, not 0.
     const qint64 toBridge = j.bridgeMs >= 0 ? j.bridgeMs - j.sdkMs : -1;
     const qint64 toModel =
         (j.modelMs >= 0 && j.bridgeMs >= 0) ? j.modelMs - j.bridgeMs : -1;
@@ -207,9 +196,6 @@ void synctrace::noteUi(quint64 id)
         s.stalls++;
     }
 
-    // sdk -> bridge -> model -> ui, with the elapsed time between each pair.
-    // Identifiers are a correlation id and a hashed room key; nothing here is
-    // derived from the event's content.
     if (slow) {
         qCWarning(lcSyncTrace).nospace()
             << "SLOW event id=" << j.id << " room=" << j.roomKey
@@ -249,11 +235,6 @@ void synctrace::noteSyncResponse()
         QMutexLocker lock(&st.mutex);
         st.stalls++;
     }
-    // THE line to look for when chasing the minute-long lag. Sliding sync
-    // issues its long poll with a 60 s request timeout (30 s poll + 30 s
-    // network, matrix-sdk 0.18 defaults), so a silently dead connection
-    // produces a gap of about 60 000 ms here — with no event journey beside
-    // it, because nothing was delivered during the wait.
     qCWarning(lcSyncTrace).nospace()
         << "SLOW sync gap=" << gap << "ms"
         << " (a gap near 60000ms with no event journeys is the sliding-sync "

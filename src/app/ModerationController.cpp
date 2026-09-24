@@ -139,8 +139,7 @@ void ModerationController::onIgnoreFinished(quint64 opId,
         return;
     m_ignoreOp = 0;
     if (ok) {
-        // Reflect immediately; the authoritative push follows from sync
-        // and re-applies the same truth.
+        // Reflect now; the sync push follows and confirms it.
         if (ignored) {
             if (!m_ignored.contains(userId)) {
                 m_ignored.insert(userId);
@@ -208,8 +207,7 @@ void ModerationController::onReportFinished(quint64 opId, const QString &,
 
 void ModerationController::onInitialSyncDoneChanged()
 {
-    // First authoritative read per session: the notification guard and the
-    // menus need the set before the user opens Settings.
+    // Read once per session; notifications and menus need the set early.
     if (m_client && m_client->initialSyncDone() && !m_initialListLoaded) {
         m_initialListLoaded = true;
         refreshIgnoredUsers();

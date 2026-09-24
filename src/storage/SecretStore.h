@@ -4,24 +4,16 @@
 #include <QString>
 #include <memory>
 
-// Abstract on-disk secret storage.
+// Abstract secret storage. Backends include:
+//   * LibSecretStore: Secret Service via libsecret (HAVE_LIBSECRET);
+//     isAvailable() checks that the session bus is actually reachable.
+//   * WinCredStore: Windows Credential Manager (HAVE_WINCRED).
+//   * PortableSecretStore: sealed file for portable installations.
+//   * InsecureFallbackSecretStore: plaintext QSettings; reports insecure and
+//     Settings shows a warning while it is active.
 //
-// Concrete backends (v0.4):
-//   * LibSecretStore              — Freedesktop Secret Service via libsecret.
-//                                   Available if HAVE_LIBSECRET is defined at
-//                                   build time. `isAvailable()` verifies the
-//                                   session bus can actually be reached at
-//                                   runtime (headless CI, containers, etc.
-//                                   report unavailable).
-//   * InsecureFallbackSecretStore — plaintext QSettings storage under a
-//                                   dedicated group. Loudly reports insecure
-//                                   status; the Settings screen surfaces a
-//                                   warning banner while it is active.
-//
-// Callers should never pick the concrete class themselves — use
-// SecretStore::createDefault(), which picks the best available backend and
-// falls back to the insecure one, and check `isAvailable()` /
-// `isSecure()` to render an accurate UI.
+// Use SecretStore::createDefault(), and check isAvailable()/isSecure() for an
+// accurate UI.
 class SecretStore : public QObject
 {
     Q_OBJECT
@@ -46,9 +38,8 @@ public:
     // Examples: "libsecret (Secret Service)", "insecure fallback (QSettings)".
     virtual QString backendName() const = 0;
 
-    // Store / read / delete a secret keyed by (userId, key). userId scopes
-    // secrets to an account so multi-account (v0.5) can later target a
-    // single identity for clearAccountSecrets().
+    // Store / read / delete a secret keyed by (userId, key); userId scopes
+    // secrets to one account.
     virtual bool storeSecret(const QString &userId,
                              const QString &key,
                              const QString &value) = 0;
@@ -62,33 +53,16 @@ public:
     // Last error string. Empty when no error.
     virtual QString lastError() const = 0;
 
-    // True when the most recent readSecret() failed because the BACKEND could
-    // not answer — a locked collection, a dropped session bus — as opposed to
-    // returning empty because no such secret is stored.
-    //
-    // This distinction is load-bearing, not cosmetic. `isAvailable()` is a
-    // construction-time probe, and createDefault() only ever returns a
-    // backend that probed available, so it can never report a keyring that
-    // locks *after* startup. Without a read-outcome signal, "token unreadable"
-    // is indistinguishable from "no account", which is precisely the
-    // conflation that let a transient credential-backend failure be treated
-    // as a destructive verdict about the user's data.
-    //
-    // Default false: a backend that cannot fail this way need not override.
+    // True when the last readSecret() failed because the backend could not
+    // answer (locked collection, dropped session bus), as opposed to no such
+    // secret. isAvailable() is only probed at construction, so this is the only
+    // way to tell "token unreadable" from "no account" (CLAUDE.md §6). Default
+    // false.
     virtual bool lastReadFailed() const { return false; }
 
-    /// Whether a MISS from this store is inconclusive by construction.
-    ///
-    /// Separate from lastReadFailed() on purpose. That predicate answers "was
-    /// the read I just made trustworthy", and a substituted fallback can now
-    /// answer YES for a hit and for a miss on an account it already holds.
-    /// This one answers the structural question — "could the secret be
-    /// somewhere I cannot see" — which stays true for the WHOLE life of a
-    /// store that stood in for a native backend it could not open.
-    ///
-    /// It exists so a DESTRUCTIVE decision can key on the structural fact
-    /// rather than on the per-read refinement: a repair that deletes a crypto
-    /// store must not become reachable because a read happened to be
-    /// conclusive.
+    /// Whether a miss is inconclusive by construction: true for the whole life
+    /// of a store standing in for a native backend it could not open.
+    /// Destructive decisions key on this structural fact, not on
+    /// lastReadFailed(), which can report individual reads as trustworthy.
     virtual bool missesAreInconclusive() const { return false; }
 };

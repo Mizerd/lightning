@@ -7,51 +7,37 @@
 
 #include "matrix/MatrixClient.h"
 
-// Profile biographies (MSC4440 over MSC4133 extended profile fields).
+// Profile biographies (MSC4440 over MSC4133 extended profile fields). The
+// protocol half is rust/src/bio.rs. Same shape as ProfileBannerManager, so the
+// two agree on whether the server supports extended profiles.
 //
-// The policy half of the feature; the protocol half is rust/src/bio.rs. This
-// is deliberately the same shape as ProfileBannerManager — the two features
-// share a transport, a capability question and an honesty problem, and letting
-// their policies drift apart would mean two different answers to "does this
-// server do extended profiles?" on one card.
+//   * No bio and not-yet-asked both render as nothing: bioFor() returns ""
+//     and QML must not show a placeholder or error.
+//   * A server without extended profile fields is `supported == false`,
+//     which hides the editor. An absent field (M_NOT_FOUND) is not this case
+//     (rust/src/banner.rs::is_unsupported).
+//   * The text is plain, bounded and control-stripped in Rust, and must be
+//     rendered with Text.PlainText: it is remote free text.
 //
-// Honesty rules, the same ones presence and banners follow:
-//   * a user with no bio and a user we have not asked about are both rendered
-//     as NOTHING. `bioFor()` returns "" for both, and QML must not turn that
-//     into a placeholder, an error, or an empty card;
-//   * a homeserver that does not implement extended profile fields is
-//     `supported == false`, which is a DIFFERENT fact from "no bio" and is
-//     what hides the editing surface — rather than offering a control that
-//     cannot work. An absent field answers M_NOT_FOUND and is NOT this case
-//     (rust/src/banner.rs::is_unsupported draws that line, and both managers
-//     read the same answer from it);
-//   * the text that arrives is PLAIN, bounded and control-stripped in Rust,
-//     and must be rendered with Text.PlainText. It is free text written by a
-//     remote user.
-//
-// Nothing is applied optimistically. `ownBio` changes only when the server has
-// accepted the write, and it takes the value the WRITE PATH reports — which is
-// the bounded text actually stored, not the text that was typed.
+// Nothing is optimistic: `ownBio` changes only after the server accepted the
+// write, to the bounded text actually stored.
 class ProfileBioManager : public QObject
 {
     Q_OBJECT
 
     // The backend can read extended profile fields at all.
     Q_PROPERTY(bool available READ available NOTIFY availableChanged)
-    // ...and this homeserver actually answered one. False once the server has
-    // told us it does not know the endpoint.
+    // ...and this homeserver answered one; false once it reported the endpoint
+    // unknown.
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
-    // Bumped whenever any cached bio changes; QML bindings read it to
-    // re-evaluate bioFor().
+    // Bumped when any cached bio changes, so bioFor() bindings re-evaluate.
     Q_PROPERTY(int revision READ revision NOTIFY revisionChanged)
-    // The local account's own bio, or "" — the Settings editor's model.
+    // The account's own bio, or "".
     Q_PROPERTY(QString ownBio READ ownBio NOTIFY revisionChanged)
     // A write is in flight.
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
-    // The client-side ceiling, so the editor can show a counter and bound the
-    // field without hard-coding a number QML would have to keep in step with
-    // rust/src/bio.rs.
+    // Client-side ceiling for the editor's counter, from rust/src/bio.rs.
     Q_PROPERTY(int maxLength READ maxLength CONSTANT)
 
 public:
@@ -65,23 +51,18 @@ public:
     bool busy() const { return m_pendingWrite != 0; }
     QString lastError() const { return m_lastError; }
     QString ownBio() const;
-    // Mirrors MAX_BIO_CHARS in rust/src/bio.rs. MSC4440 specifies no limit and
-    // names an unbounded bio as its own security consideration.
+    // Mirrors MAX_BIO_CHARS in rust/src/bio.rs. MSC4440 sets no limit and lists
+    // unbounded bios as a security consideration.
     static constexpr int kMaxLength = 2048;
     int maxLength() const { return kMaxLength; }
 
-    // "" when unknown or absent — the two are deliberately indistinguishable
-    // here, because they look the same on a card. Pure read, safe in a
-    // binding; re-read on revisionChanged.
+    // "" when unknown or absent (they look the same on a card). Pure read.
     Q_INVOKABLE QString bioFor(const QString &userId) const;
-    // Asks once per user per session. Idempotent and deduplicated: a profile
-    // popover opening twice must not cost two requests.
+    // Asks once per user per session; deduplicated.
     Q_INVOKABLE void request(const QString &userId);
-    // Ask again even if this user has been asked about already, for the one
-    // case where the answer is known to have changed — the account's own bio
-    // straight after writing it.
+    // Asks again regardless, e.g. for the account's own bio after writing it.
     Q_INVOKABLE void refresh(const QString &userId);
-    // EMPTY (or whitespace-only) clears the bio.
+    // Empty or whitespace-only clears the bio.
     Q_INVOKABLE void setOwnBio(const QString &text);
     Q_INVOKABLE void clearOwnBio();
 
@@ -101,7 +82,7 @@ private:
     void setLastError(const QString &error);
     void cache(const QString &userId, const QString &bio);
 
-    // Bounded: one entry per profile card anyone has opened this session.
+    // Bounded: one entry per profile card opened this session.
     static constexpr int kMaxCached = 256;
 
     MatrixClient *m_client = nullptr;

@@ -4,7 +4,7 @@
 
 class MatrixClient;
 
-// v0.6.1: the real GIF transport — routes requests through the hardened Rust
+// The real GIF transport — routes requests through the hardened Rust
 // safe-get via MatrixClient::gifGet and forwards gifResponse() as finished().
 // The URL (which carries the provider key) is passed straight through and is
 // never logged on either side.

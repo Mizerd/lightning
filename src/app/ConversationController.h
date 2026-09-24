@@ -11,14 +11,9 @@
 
 class MatrixClient;
 
-// v0.5.9: orchestrates starting Direct Messages, creating rooms and inviting
-// users into existing rooms.
-//
-// All operations are single-flight (`busy`), identified by backend operation
-// ids, and safe against sign-out: MatrixClient::loggedOut clears every
-// pending id, so a stale completion can never open a room or mutate state
-// for a new session. m.direct handling stays entirely inside the SDK
-// (create_dm / mark_as_dm) — this class never composes account data.
+// Starts DMs, creates rooms and invites users. Operations are single-flight
+// (`busy`) and keyed by op id; sign-out clears every pending id so a stale
+// completion cannot touch the next session. m.direct stays inside the SDK.
 class ConversationController : public QObject
 {
     Q_OBJECT
@@ -44,21 +39,17 @@ public:
     UserSearchModel *userSearch() const { return m_userSearch; }
     QVariantList inviteResults() const { return m_inviteResults; }
 
-    // Step 1 of the DM flow: look up existing joined DMs with `userId`
-    // through the SDK's m.direct projection. Updates `existingDms`.
+    // Looks up existing joined DMs with `userId`; updates `existingDms`.
     Q_INVOKABLE void checkExistingDm(const QString &userId);
 
-    // Create a new encrypted DM (explicitly, after the existing-DM check).
+    // Create a new encrypted DM, after the existing-DM check.
     Q_INVOKABLE void startDirectMessage(const QString &userId);
 
-    // Create a room. options: name, topic, public, encrypted, alias,
-    // invites (list of user ids), spaceId, and an optional avatarPath (a
-    // local file path or file:// URL). The avatar is applied AFTER the room
-    // is created; a failed upload emits avatarUploadFailed and never blocks
-    // or fails the creation itself.
+    // options: name, topic, public, encrypted, alias, invites, spaceId and an
+    // optional avatarPath (path or file:// URL). The avatar is applied after
+    // creation; a failed upload emits avatarUploadFailed and never fails it.
     Q_INVOKABLE void createRoom(const QVariantMap &options);
 
-    // Invite one or more users into a joined room.
     Q_INVOKABLE void inviteUsers(const QString &roomId, const QStringList &userIds);
 
     Q_INVOKABLE void clearError();
@@ -70,18 +61,15 @@ Q_SIGNALS:
     void errorMessageChanged();
     void existingDmsChanged();
     void inviteResultsChanged();
-    // Fired when a created (or reused) conversation should be opened.
-    // Never fired for Spaces — an m.space room must not get a message
-    // timeline; spaceReady carries those.
+    // A created or reused conversation should be opened. Never for Spaces,
+    // which use spaceReady.
     void conversationReady(const QString &roomId);
-    // Fired when a created Space is present in the authoritative room list
-    // (or the bounded wait elapsed): select it in the rail, never open a
-    // timeline on it.
+    // A created Space is in the room list (or the wait elapsed): select it in
+    // the rail, never open a timeline on it.
     void spaceReady(const QString &spaceId);
     // Room creation succeeded but the optional Space placement failed.
     void spacePlacementFailed(const QString &roomId);
-    // Room creation succeeded but the optional avatar upload failed (or is
-    // unsupported by the backend). A warning, never a failed create.
+    // Room creation succeeded but the optional avatar upload failed.
     void avatarUploadFailed(const QString &roomId);
     void inviteBatchCompleted(int okCount, int failCount);
 
@@ -114,25 +102,19 @@ private:
     QVariantList m_existingDms;
     QVariantList m_inviteResults;
 
-    // After creation the room must appear in the authoritative room list
-    // before it is opened; a bounded timer prevents a stuck busy state.
+    // A created room is opened once it appears in the room list, bounded by
+    // a timer.
     bool m_waitingForRoom = false;
     QString m_awaitedRoomId;
     QTimer m_roomWaitTimeout;
-    // And a SECOND bound, on the create call itself. The room-list wait above
-    // only starts once a create has SUCCEEDED; nothing bounded the create.
-    // `Client::create_dm` is one /createRoom carrying the invite, and the
-    // server federates that invite before answering — so a peer whose server
-    // is unreachable can hang it indefinitely.
+    // Bounds the create call itself: the server federates the invite before
+    // answering /createRoom, so an unreachable peer server can hang it.
     QTimer m_opTimeout;
-    // Whether the pending create is an m.space room. Owned here — not in
-    // the dialog — so closing the dialog mid-create can never reroute a
-    // Space into an ordinary room timeline.
+    // Owned here, not by the dialog, so closing it mid-create cannot route a
+    // Space into a room timeline.
     bool m_pendingIsSpace = false;
 
-    // Optional avatar applied after a successful room create. Deliberately
-    // OUTSIDE busy(): a slow or failed avatar upload must never block or
-    // time out opening the new room.
+    // Outside busy(): a slow avatar upload must not delay opening the room.
     QString m_pendingAvatarPath;
     quint64 m_avatarOp = 0;
 };

@@ -22,12 +22,10 @@ struct Language {
     bool rtl;
 };
 
-// English comes first because it is the source language. Its catalog still
-// carries plural forms; without it a source such as "%n room(s)" renders the
-// parenthesised suffix literally.
-//
-// Adding a language is this table plus an i18n/lightning_<code>.ts file and
-// one entry in CMakeLists' LIGHTNING_LANGUAGE_CODES. Nothing else.
+// English first, as the source language. Its catalog still carries plural
+// forms, without which "%n room(s)" renders literally. Adding a language: a
+// row here, an i18n/lightning_<code>.ts file and an entry in
+// LIGHTNING_LANGUAGE_CODES.
 constexpr Language kLanguages[] = {
     { "en",    "English",                    "English",          false },
     { "zh_CN", "Chinese (Simplified)",       "中文（简体）", false },
@@ -101,20 +99,10 @@ QString LocalizationManager::englishName(const QString &code)
     return l ? QString::fromUtf8(l->english) : QString();
 }
 
-// One locale tag -> one supported code.
-//
-// The rule is: exact tag first, then the bare language subtag. Regional
-// variants therefore collapse the way the requirement asks — es_ES and es_MX
-// both reach "es", pt_BR and pt_PT both reach "pt", fr_CA reaches "fr".
-//
-// Chinese is the one language where the SCRIPT decides rather than the
-// region, because Simplified and Traditional are different written forms.
-// zh_CN, zh_SG, zh_MY and anything tagged Hans reach the Simplified catalog.
-// zh_TW, zh_HK, zh_MO and anything tagged Hant deliberately DO NOT: Lightning
-// ships no Traditional catalog, and serving Simplified to a Traditional
-// reader while the language picker claims nothing of the sort is a worse
-// answer than the honest English fallback. Adding zh_TW later is one row in
-// kLanguages plus one .ts file.
+// Exact tag first, then the bare language subtag (es_MX -> "es",
+// pt_BR -> "pt", fr_CA -> "fr"). For Chinese the script decides: zh_CN/zh_SG/
+// zh_MY and Hans reach Simplified; zh_TW/zh_HK/zh_MO and Hant fall back to
+// English, since there is no Traditional catalog.
 QString LocalizationManager::matchLanguageTag(const QString &tag)
 {
     const QString t = canonical(tag.trimmed());
@@ -160,9 +148,8 @@ QString LocalizationManager::matchPreferenceList(const QStringList &uiLanguages)
 
 QString LocalizationManager::systemLanguage()
 {
-    // uiLanguages() is the user's ORDERED preference list, not just one
-    // locale, so a desktop set to "French, then English" reaches French even
-    // when the primary locale carries a region Lightning has never heard of.
+    // uiLanguages() is the ordered preference list, so "French, then English"
+    // reaches French even with an unknown region.
     return matchPreferenceList(QLocale::system().uiLanguages());
 }
 
@@ -187,8 +174,8 @@ QString LocalizationManager::language() const
     const QString stored = m_settings->language();
     if (stored == QLatin1String(kSystemPolicy) || isSupported(stored))
         return stored;
-    // An unreadable or retired value is not a language. Fall back to the
-    // policy rather than to English, so the desktop still decides.
+    // An unreadable or retired value falls back to the system policy, not
+    // English.
     return QString::fromLatin1(kSystemPolicy);
 }
 
@@ -245,9 +232,8 @@ void LocalizationManager::applyLanguage(const QString &policy)
     removeTranslators();
     m_effective = installCatalog(code) ? code : QStringLiteral("en");
 
-    // Layout direction is process-wide and is read by Qt Quick's own
-    // mirroring, so it belongs here rather than in QML. Main.qml turns the
-    // direction into actual anchor mirroring via LayoutMirroring.
+    // Layout direction is process-wide; Main.qml applies it via
+    // LayoutMirroring.
     if (auto *gui = qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
         gui->setLayoutDirection(isRightToLeft(m_effective) ? Qt::RightToLeft
                                                            : Qt::LeftToRight);
@@ -262,13 +248,9 @@ bool LocalizationManager::installCatalog(const QString &code)
     if (code.isEmpty())
         return true;
 
-    // English IS the source language, so most of its catalog is empty and
-    // lrelease drops it. It is still built and loaded for one reason: Qt's
-    // plural forms. A `%n room(s)` source string renders its "(s)" LITERALLY
-    // when no catalog is loaded, so without this the English UI would say
-    // "1 room(s)". The catalog therefore carries the numerus forms and
-    // essentially nothing else, and its ABSENCE is not a failure — a build
-    // without Linguist tools simply shows the source strings.
+    // English is the source language, so its catalog holds little but plural
+    // forms; it is still loaded so "%n room(s)" does not render "(s)"
+    // literally. Its absence (no Linguist tools) is not a failure.
     const bool isSource = code == QLatin1String("en");
 
     auto translator = std::make_unique<QTranslator>();

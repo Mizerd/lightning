@@ -18,141 +18,89 @@ class SettingsManager : public QObject
     Q_OBJECT
 
     Q_PROPERTY(QString homeserverUrl READ homeserverUrl WRITE setHomeserverUrl NOTIFY homeserverUrlChanged)
-    // Login-screen homeserver prefill. Deliberately account-INDEPENDENT: the
-    // add-account flow keeps the current account active, so binding the login
-    // field to homeserverUrl (which returns the active account's server)
-    // meant the field always reverted to "your own" server and could not be
-    // pointed at a different homeserver. This reads/writes the same global
-    // prefill key so the field reflects exactly what the user types.
+    // Login-screen homeserver prefill. Account-independent: the add-account
+    // flow keeps the current account active, so binding to homeserverUrl would
+    // always revert the field to the active account's server.
     Q_PROPERTY(QString loginHomeserverPrefill READ loginHomeserverPrefill
                    WRITE setLoginHomeserverPrefill
                    NOTIFY loginHomeserverPrefillChanged)
     Q_PROPERTY(Theme theme READ theme WRITE setTheme NOTIFY themeChanged)
-    // Design Appearance page: message layout (0 = Modern, 1 = Bubbles for
-    // direct-message timelines, 2 = Compact/IRC) and text scale (percent,
-    // 90–140, 100 = default). Both are per-account like the theme: the
-    // active account's value wins, the global value doubles as the
-    // logged-out default and the fallback for accounts without one.
+    // Message layout (0 = Modern, 1 = Bubbles for DMs, 2 = Compact/IRC) and
+    // text scale (percent, 90–140). Per-account with a global fallback that
+    // doubles as the logged-out default.
     Q_PROPERTY(int messageLayout READ messageLayout WRITE setMessageLayout
                    NOTIFY messageLayoutChanged)
-    /// How the room-list column is organised: 0 = Classic (one activity-
-    /// ordered list with DM/Rooms sections), 1 = Channels (the active
-    /// Space's own hierarchy, categories and channels, in the order its
-    /// admin built).
-    ///
-    /// Account-scoped through appearanceValue like the other Appearance
-    /// choices, so someone whose work account is a Space-heavy workspace and
-    /// whose personal account is a handful of DMs is not forced into one
-    /// shape for both.
+    /// Room-list organisation: 0 = Classic (one activity-ordered list with
+    /// DM/Rooms sections), 1 = Channels (the active Space's own hierarchy).
+    /// Account-scoped through appearanceValue.
     Q_PROPERTY(int roomNavigationLayout READ roomNavigationLayout
                    WRITE setRoomNavigationLayout
                    NOTIFY roomNavigationLayoutChanged)
-    // Room-list filter chips (0 All, 1 People, 2 Rooms, 3 Unreads) —
-    // per-account with global fallback, like the other appearance state.
+    // Room-list filter chips (0 All, 1 People, 2 Rooms, 3 Unreads).
+    // Per-account with global fallback.
     Q_PROPERTY(int roomFilterMode READ roomFilterMode WRITE setRoomFilterMode
                    NOTIFY roomFilterModeChanged)
     Q_PROPERTY(int textScale READ textScale WRITE setTextScale
                    NOTIFY textScaleChanged)
-    // UI font family (per-account with global fallback, like the rest of
-    // Appearance). Stored VERBATIM after a syntactic check and nothing more:
-    // this class is linked against Qt6::Core alone by ~20 test targets, so it
-    // cannot ask QFontDatabase whether a family exists and must not pretend
-    // to. FontManager (Qt6::Gui) resolves the name against the host and falls
-    // back to the bundled face when it is missing — WITHOUT rewriting this
-    // value, so a font that is uninstalled and reinstalled comes back.
+    // UI font family, per-account with global fallback. Stored verbatim after a
+    // syntactic check only: this class links Qt6::Core alone and cannot ask
+    // QFontDatabase. FontManager resolves the name and falls back to the
+    // bundled face without rewriting this value, so a reinstalled font comes
+    // back.
     Q_PROPERTY(QString uiFont READ uiFont WRITE setUiFont
                    NOTIFY uiFontChanged)
-    // The monospace family (code blocks, keycaps, Matrix identifiers). Same
-    // storage and same resolution rules as uiFont; a separate setting because
-    // "the face I read prose in" and "the face I read code in" are different
-    // choices and always have been.
+    // Monospace family (code blocks, keycaps, Matrix identifiers). Same storage
+    // and resolution rules as uiFont.
     Q_PROPERTY(QString monoFont READ monoFont WRITE setMonoFont
                    NOTIFY monoFontChanged)
     Q_PROPERTY(QString language READ language WRITE setLanguage NOTIFY languageChanged)
     Q_PROPERTY(bool startMinimized READ startMinimized WRITE setStartMinimized NOTIFY startMinimizedChanged)
-    // Custom application icon (Settings -> Appearance). Device-global like
-    // language/startMinimized — the window icon is process-wide and applies
-    // before any account restores. The normalized image itself lives at
-    // matrix::app_data::customAppIconFile(); this flag only records that the
-    // user enabled it. AppController owns validation/application.
+    // Custom application icon. Device-global: the window icon is process-wide
+    // and applies before any account restores. The image itself lives at
+    // matrix::app_data::customAppIconFile(); AppController owns validation.
     Q_PROPERTY(bool customAppIconEnabled READ customAppIconEnabled
                    WRITE setCustomAppIconEnabled NOTIFY customAppIconEnabledChanged)
     Q_PROPERTY(bool notificationsEnabled READ notificationsEnabled WRITE setNotificationsEnabled NOTIFY notificationsEnabledChanged)
-    // v0.6.0 checkpoint 11: notification privacy. 0 = sender and message,
-    // 1 = sender only (default), 2 = private ("New Matrix notification").
+    // Notification privacy: 0 = sender and message, 1 = sender only (default),
+    // 2 = private ("New Matrix notification").
     Q_PROPERTY(int notificationPreview READ notificationPreview
                    WRITE setNotificationPreview NOTIFY notificationPreviewChanged)
-    // v0.9.0: a SEPARATE preview level for ENCRYPTED rooms.
-    //
-    // One setting could not express the thing people actually want. A
-    // notification body is written to the desktop's notification daemon, its
-    // log, and on some setups a lock screen — plaintext, outside every
-    // guarantee the room was encrypted to make. Someone can reasonably want
-    // full previews from a public project room and nothing but "New message"
-    // from an encrypted one, and before this the only way to get the second
-    // was to lose the first.
-    //
-    // Values are PreviewMode (0 sender+message, 1 sender only, 2 private),
-    // plus 3 = FollowGeneral, which is the default so nobody's existing
-    // behaviour changes. Same idiom as RoomMode::FollowDefault.
+    // Separate preview level for encrypted rooms: a notification body lands in
+    // the notification daemon, its log and possibly a lock screen, outside the
+    // room's encryption. Values are PreviewMode (0-2) plus 3 = FollowGeneral,
+    // the default.
     Q_PROPERTY(int notificationPreviewEncrypted READ notificationPreviewEncrypted
                    WRITE setNotificationPreviewEncrypted
                    NOTIFY notificationPreviewEncryptedChanged)
-    // v0.9.0: who is told that this account has read a message.
-    //
-    // 0 public (default, unchanged), 1 private — MSC2285 `m.read.private`,
-    // stable since Matrix 1.4: the server records it so THIS account's other
-    // devices still clear their unread badge, and no other member ever sees
-    // it — and 2 off, which tells nobody at all including your own devices.
-    //
-    // The fully-read marker is sent in every mode. It is account data and
-    // only this user can read it; losing it would mean losing your own place
-    // in a conversation, which is not what a privacy setting should cost.
-    // v0.9.0 MSC4153 "invisible crypto": refuse to share room keys with — and
-    // refuse to decrypt from — devices that are not cross-signed.
-    //
-    // Default OFF, and that is a decision. Turning it on retroactively changes
-    // what is readable: a contact who has never verified their own devices
-    // becomes unreadable, and doing that to an existing install without being
-    // asked would read as "Lightning broke". It is offered, explained, and
-    // chosen.
-    //
-    // RESTART TO APPLY, which the UI says plainly. matrix-sdk 0.18 exposes no
-    // runtime setter for either half of it — `decryption_settings()` is
-    // read-only and there is no recipient-strategy setter at all — so the
-    // alternative would be tearing down and rebuilding the whole client,
-    // store and timeline registry underneath the user.
+    // MSC4153 "invisible crypto": refuse to share room keys with, and to
+    // decrypt from, devices that are not cross-signed. Off by default because
+    // enabling it makes contacts with unverified devices unreadable. Takes
+    // effect on restart: matrix-sdk 0.18 has no runtime setter for either half.
     Q_PROPERTY(bool strictDeviceTrust READ strictDeviceTrust
                    WRITE setStrictDeviceTrust NOTIFY strictDeviceTrustChanged)
+    // Who is told this account has read a message: 0 public (default), 1
+    // private (MSC2285 `m.read.private`, still clears this account's other
+    // devices), 2 off. The fully-read marker is sent in every mode; it is
+    // private account data.
     Q_PROPERTY(int readReceiptMode READ readReceiptMode
                    WRITE setReadReceiptMode NOTIFY readReceiptModeChanged)
-    // v0.9.0: whether "… is typing" leaves this device. Typing notices are
-    // the highest-frequency thing a client discloses — one per few
-    // keystrokes, to every member of the room — and they say when you are at
-    // the keyboard, not just what you eventually send.
+    // Whether typing notices leave this device.
     Q_PROPERTY(bool sendTypingNotifications READ sendTypingNotifications
                    WRITE setSendTypingNotifications
                    NOTIFY sendTypingNotificationsChanged)
-    // v0.6.1: notification sound. 0 = off, 1 = mentions and direct messages
-    // (default), 2 = all displayed notifications. Sound rides on the same
-    // decision as the notification, so muted / active-room / mentions-only
-    // suppression suppresses the sound too.
+    // Notification sound: 0 = off, 1 = mentions and DMs (default), 2 = all.
+    // Suppressed along with the notification it belongs to.
     Q_PROPERTY(int notificationSound READ notificationSound
                    WRITE setNotificationSound NOTIFY notificationSoundChanged)
-    // 2026-08-18 round 2: whether an incoming voice call rings (the
-    // repeating call notification sound). Device-wide like the other
-    // notification switches. The call BANNER and the plain notification
-    // are governed by notificationsEnabled; this only silences the ring.
+    // Whether an incoming call rings. Device-wide; the call banner itself is
+    // governed by notificationsEnabled.
     Q_PROPERTY(bool ringForCalls READ ringForCalls WRITE setRingForCalls
                    NOTIFY ringForCallsChanged)
-    // 2026-09-23: Lightning's OWN call sounds (src/calls/CallSoundPolicy.h).
-    // Device-scoped like the ring switch: a speaker belongs to the machine.
-    // The master switch covers every in-call cue and the outgoing ringback;
-    // the three below it split the cues by meaning (people arriving and
-    // leaving, your own mute/deafen controls, screen shares and raised
-    // hands). The INCOMING ring stays on `ringForCalls` above, which is the
-    // switch users already know. Volumes are 0-100 on a perceptual scale.
-    // One NOTIFY for the whole group: the one reader re-reads all of it.
+    // Lightning's own call sounds (src/calls/CallSoundPolicy.h). Device-scoped.
+    // The master switch covers every in-call cue and the outgoing ringback; the
+    // three below split cues by meaning. The incoming ring stays on
+    // ringForCalls. Volumes are 0-100 on a perceptual scale. One NOTIFY for the
+    // group.
     Q_PROPERTY(bool callSoundsEnabled READ callSoundsEnabled
                    WRITE setCallSoundsEnabled NOTIFY callSoundSettingsChanged)
     Q_PROPERTY(bool callSoundsPresence READ callSoundsPresence
@@ -166,11 +114,8 @@ class SettingsManager : public QObject
                    WRITE setCallSoundVolume NOTIFY callSoundSettingsChanged)
     Q_PROPERTY(int ringerVolume READ ringerVolume WRITE setRingerVolume
                    NOTIFY callSoundSettingsChanged)
-    // Call device preferences. DEVICE-scoped, not account-scoped: a
-    // microphone belongs to the machine, and two accounts on one desktop
-    // share the same hardware. Stored as the PipeWire/Pulse node name; an
-    // empty value means "system default", which is a real choice and is
-    // stored as such rather than as the resolved id of the day.
+    // Call device preferences. Device-scoped: hardware belongs to the machine.
+    // Stored as the PipeWire/Pulse node name; empty means "system default".
     Q_PROPERTY(QString preferredMicrophoneId READ preferredMicrophoneId
                    WRITE setPreferredMicrophoneId
                    NOTIFY callDevicePreferenceChanged)
@@ -180,7 +125,7 @@ class SettingsManager : public QObject
     Q_PROPERTY(QString preferredCameraId READ preferredCameraId
                    WRITE setPreferredCameraId
                    NOTIFY callDevicePreferenceChanged)
-    // v0.5.11: link previews. Encrypted-room previews default OFF (privacy).
+    // Link previews. Encrypted-room previews default off.
     Q_PROPERTY(bool autoLoadLinkPreviews READ autoLoadLinkPreviews
                    WRITE setAutoLoadLinkPreviews NOTIFY autoLoadLinkPreviewsChanged)
     Q_PROPERTY(bool loadPreviewsInEncryptedRooms READ loadPreviewsInEncryptedRooms
@@ -188,35 +133,24 @@ class SettingsManager : public QObject
                    NOTIFY loadPreviewsInEncryptedRoomsChanged)
     Q_PROPERTY(bool animateGifPreviews READ animateGifPreviews
                    WRITE setAnimateGifPreviews NOTIFY animateGifPreviewsChanged)
-    // v0.7.x Matrix presence: publish this account's own online/idle state
-    // to its homeserver. Default ON (the Matrix ecosystem norm — Element
-    // publishes presence wherever the server enables it); disclosed and
-    // switchable under Privacy & security. Viewing OTHERS' presence is
-    // passive (reads against the user's own homeserver) and has no toggle.
-    // Screen-share quality. Global to the computer, not the account.
+    // Screen-share quality. Device-global.
     Q_PROPERTY(int shareMaxHeight READ shareMaxHeight WRITE setShareMaxHeight
                    NOTIFY shareQualityChanged)
     Q_PROPERTY(int shareFps READ shareFps WRITE setShareFps
                    NOTIFY shareQualityChanged)
     /// True when the chosen combination asks more of the encoder than it can
-    /// deliver in real time. ONE predicate, read by every surface that
-    /// offers the choice, so two menus cannot warn differently.
+    /// sustain in real time. Single predicate shared by every surface.
     Q_PROPERTY(bool shareQualityDemanding READ shareQualityDemanding
                    NOTIFY shareQualityChanged)
+    // Publish this account's own presence. Default on; viewing others' presence
+    // is passive and has no toggle.
     Q_PROPERTY(bool sharePresence READ sharePresence
                    WRITE setSharePresence NOTIFY sharePresenceChanged)
-    // Shell layout. Device-level, not per-account: it describes this
-    // window on this screen, and an account switch must not resize it.
-    //
-    // Requested by a tester on Windows — "option to resize and/or hide all
-    // panels, like the member list panel but for the servers/rooms panel
-    // too, along with the left-most one. Screen real estate wise."
+    // Shell layout. Device-level: it describes this window on this screen, and
+    // an account switch must not resize it.
     Q_PROPERTY(bool spacesRailVisible READ spacesRailVisible
                    WRITE setSpacesRailVisible NOTIFY spacesRailVisibleChanged)
-    // A Space's banner: shown at all, and shown whole or cropped to a strip.
-    // Both are app-wide rather than per-Space, which is how Sable scopes the
-    // same two choices — someone who does not want a 400px picture above
-    // every Space does not want to say so once per Space.
+    // Space banner visibility and expansion. App-wide rather than per-Space.
     Q_PROPERTY(bool spaceBannersVisible READ spaceBannersVisible
                    WRITE setSpaceBannersVisible NOTIFY spaceBannersVisibleChanged)
     Q_PROPERTY(bool spaceBannerExpanded READ spaceBannerExpanded
@@ -227,103 +161,55 @@ class SettingsManager : public QObject
                    WRITE setRoomListWidth NOTIFY roomListWidthChanged)
     Q_PROPERTY(int spacesRailWidth READ spacesRailWidth
                    WRITE setSpacesRailWidth NOTIFY spacesRailWidthChanged)
-    /// HOW THE RAIL SHOWS NESTING: 0 = Regions (the default since 0.9.9 —
-    /// one tinted region per ancestor drawn behind the rows), 1 = Classic
-    /// (the 0.9.8 rail — no tinted regions, depth shown by stepping the
-    /// tile in, and the expander with no plate under it).
-    ///
-    /// Offered because the regions are a large change to a surface that is
-    /// on screen the whole time and was not asked for by the people looking
-    /// at it. It is a PRESENTATION choice and nothing else: both styles draw
-    /// the same rows, in the same order, with the same drag behaviour, and
-    /// the model is untouched by it. Nothing about the hierarchy is hidden
-    /// in Classic — a nested Space is still nested, still reachable, still
-    /// expandable — it is shown with indentation instead of colour.
-    ///
-    /// Shell-scoped and app-wide, like `spacesRailWidth` beside it: the rail
-    /// is chrome, and a per-account look for the strip down the side of the
-    /// window would change under the user when they switch accounts.
+    /// How the rail shows nesting: 0 = Regions (tinted region per ancestor),
+    /// 1 = Classic (indentation only). Presentation only: rows, order and drag
+    /// behaviour are identical. App-wide like spacesRailWidth.
     Q_PROPERTY(int spacesRailDepthStyle READ spacesRailDepthStyle
                    WRITE setSpacesRailDepthStyle
                    NOTIFY spacesRailDepthStyleChanged)
     Q_PROPERTY(int sidePanelWidth READ sidePanelWidth
                    WRITE setSidePanelWidth NOTIFY sidePanelWidthChanged)
-    // The clamps, exposed so a slider cannot invent its own bounds. Written
-    // because the first version of the Appearance sliders guessed 220–480
-    // and 240–520 against real clamps of 200–560 and 240–640: a slider whose
-    // range is NARROWER than the setter's does not snap back visibly, it
-    // silently forbids widths the app supports, and a stored 560 renders the
-    // handle pinned at a position that is not the stored value. CONSTANT —
-    // these are compile-time bounds, not settings.
+    // The clamps, exposed so a slider cannot invent narrower bounds than the
+    // setter enforces.
     Q_PROPERTY(int roomListMinWidth READ roomListMinWidth CONSTANT)
     Q_PROPERTY(int roomListMaxWidth READ roomListMaxWidth CONSTANT)
     Q_PROPERTY(int sidePanelMinWidth READ sidePanelMinWidth CONSTANT)
     Q_PROPERTY(int sidePanelMaxWidth READ sidePanelMaxWidth CONSTANT)
-    // Same rule for the Spaces rail, with one difference worth stating: the
-    // rail's DRAGGABLE bounds are not these. It snaps to stops made of
-    // scaled pixels, and `AppTheme.scaled` folds in the text scale and the
-    // font's optical factor, neither of which C++ knows — so the stops are
-    // computed in QML and a second copy here would drift at every zoom but
-    // 100%. These are the STORAGE bound: what may be written to disk and
-    // read back at any scale. MainScreen intersects the two, because they
-    // genuinely disagree at the floor (the narrowest stop is 61 at the
-    // smallest interface, this floor is 68) and honouring only one let the
-    // narrowest choice widen itself on every restart.
+    // Storage bounds for the rail width. The draggable stops are computed in
+    // QML from scaled pixels (which C++ cannot know); MainScreen intersects
+    // both.
     Q_PROPERTY(int spacesRailMinWidth READ spacesRailMinWidth CONSTANT)
     Q_PROPERTY(int spacesRailMaxWidth READ spacesRailMaxWidth CONSTANT)
-    // Closing the window puts Lightning in the system tray instead of
-    // quitting. OFF by default and gated on the platform actually having a
-    // tray: closing a window into a tray that does not exist is closing it
-    // into nothing.
+    // Closing the window hides to the system tray instead of quitting. Off by
+    // default and gated on the platform having a tray.
     Q_PROPERTY(bool closeToTray READ closeToTray WRITE setCloseToTray
                    NOTIFY closeToTrayChanged)
     Q_PROPERTY(bool startInTray READ startInTray WRITE setStartInTray
                    NOTIFY startInTrayChanged)
-    // The window's own size, position and maximized state, restored on the
-    // next launch.
-    //
-    // Read-only and CONSTANT on purpose. The window reads these in the
-    // bindings that declare its geometry, and Qt writes x/y/width/height back
-    // as the user drags — so a notifying property would feed the saved value
-    // back into the binding that produced it. Saving goes through the
-    // invokables below instead, and nothing re-reads mid-session: this is
-    // "where the window was last time", answered once.
-    //
-    // An INVALID rect means "never saved", which is what lets the first launch
-    // use the declared default size rather than a fabricated corner. The
-    // stored SIZE is validated here; whether the stored POSITION still lands
-    // on a connected screen is a display-layout question and is answered by
-    // AppController::restorableWindowGeometry, which is the only reader.
-    //
-    // Only the NORMAL geometry is stored; maximized is its own flag, because a
-    // maximized window's frame is the screen, and restoring that as a normal
-    // size would lose the size the user actually chose.
+    // Window size, position and maximized state from the previous launch.
+    // CONSTANT on purpose: a notifying property would feed Qt's write-back of
+    // x/y/width/height into the binding that produced it. Saving goes through
+    // the invokables below. An invalid rect means "never saved". Only the
+    // normal geometry is stored; maximized is a separate flag. Whether the
+    // position is still on a connected screen is decided by
+    // AppController::restorableWindowGeometry.
     Q_PROPERTY(QRect initialWindowGeometry READ initialWindowGeometry CONSTANT)
     Q_PROPERTY(bool initialWindowMaximized READ initialWindowMaximized CONSTANT)
-    // v0.7.x: the user dismissed the "verify this session" warning badges.
-    // STRICTLY account-scoped — dismissing on one account must not silence
-    // the warning for another, so this deliberately does NOT use
-    // appearanceValue(), which mirrors into a shared global fallback.
-    // Cleared automatically the moment the session becomes verified, so a
-    // later unverified session warns again instead of inheriting a
-    // dismissal that answered a different question.
+    // The user dismissed the "verify this session" warnings. Strictly
+    // account-scoped (not appearanceValue, which mirrors into a global
+    // fallback). Cleared once the session becomes verified.
     Q_PROPERTY(bool verificationWarningDismissed
                    READ verificationWarningDismissed
                    WRITE setVerificationWarningDismissed
                    NOTIFY verificationWarningDismissedChanged)
-    // v0.6.1: GIF browser policy. gifAutoplay: 0=Always (while visible),
-    // 1=OnHover, 2=Never. gifSafeSearch is a gif::Rating id (0=g,1=pg,2=pg-13,
-    // 3=r). storeRecentGifs toggles Recents recording. gifPreferredProvider is
-    // the picker's default provider id ("giphy"/"klipy").
+    // GIF browser policy. gifAutoplay: 0 = Always, 1 = OnHover, 2 = Never.
+    // gifSafeSearch is a gif::Rating id. gifPreferredProvider is "giphy" or
+    // "klipy".
     //
-    // NOTE the name is historical. `gifAutoplay` (stored key "gif/autoplay")
-    // has governed ALL passive media since the 2026-08-12 perf round — GIF
-    // animation, the picker's autoplay, and the speculative video/audio
-    // prefetch — so 2=Never means "no passive downloads at all", not merely
-    // "still GIFs". The UI presents it as "Autoplay and prefetch media". The
-    // property and key keep their old names ON PURPOSE: renaming the stored
-    // key would silently reset every existing user's preference to the
-    // default, which is a worse outcome than a slightly stale identifier.
+    // The gifAutoplay name is historical: it governs all passive media (GIF
+    // animation and speculative video/audio prefetch), so Never means no
+    // passive downloads. The key keeps its name so existing preferences are
+    // not reset.
     Q_PROPERTY(int gifAutoplay READ gifAutoplay WRITE setGifAutoplay
                    NOTIFY gifAutoplayChanged)
     Q_PROPERTY(int gifSafeSearch READ gifSafeSearch WRITE setGifSafeSearch
@@ -334,160 +220,77 @@ class SettingsManager : public QObject
                    WRITE setGifPreferredProvider NOTIFY gifPreferredProviderChanged)
     Q_PROPERTY(bool showRoomActivity READ showRoomActivity
                    WRITE setShowRoomActivity NOTIFY showRoomActivityChanged)
-    // showRoomActivity SPLIT INTO ITS TWO HALVES (2026-08-26). The single
-    // coarse toggle above already described itself as "joins, leaves,
-    // profile changes, and room setting updates" — four different things
-    // behind one switch, and the two people who ask for this ask for
-    // opposite halves of it: one wants the join/leave churn of a big room
-    // gone, the other wants to stop seeing "X changed their avatar" fifty
-    // times a day. The Rust bridge has distinguished them all along
-    // (rust/src/timeline.rs emits state_kind "membership" and
-    // "member_profile"); only the FILTER conflated them, by testing that
-    // the kind was non-empty rather than testing its value.
-    //
-    // showRoomActivity stays the master switch, so an existing user's stored
-    // choice keeps meaning exactly what it meant. These two only narrow it —
-    // with the master off, nothing is shown regardless.
+    // Narrower filters under the showRoomActivity master switch: joins/leaves
+    // and profile changes. With the master off nothing is shown.
     Q_PROPERTY(bool showMembershipEvents READ showMembershipEvents
                    WRITE setShowMembershipEvents
                    NOTIFY showMembershipEventsChanged)
     Q_PROPERTY(bool showProfileChangeEvents READ showProfileChangeEvents
                    WRITE setShowProfileChangeEvents
                    NOTIFY showProfileChangeEventsChanged)
-    // Collapse media and link embeds to one line (2026-09-19, maintainer
-    // request: "modern media, too much clutter, please add an option to
-    // reduce all embeds in to single lines, with an expanding arrow or
-    // mouse over or keyboard shortcut something something").
-    //
-    // PRESENTATION ONLY, and OFF BY DEFAULT — the timeline model, the event
-    // cache and the media bridge are untouched, so switching it is a
-    // re-render and never a resync. What it governs is enumerated in
-    // qml/MessageDelegate.qml beside `collapseEmbedsSetting`, exclusions
-    // included; the short version is the six surfaces that paint a block
-    // (pictures, GIFs, stickers, video, audio/voice, files) plus a LOADED
-    // link preview, and not the reply quote, the thread card, a poll, a
-    // shared place or a preview that is still asking for consent.
-    //
-    // Per account with a global fallback, like reducedMotion and
-    // smoothScrolling beside it: how dense a timeline someone wants is a
-    // property of the person, and the global value is what a fresh account
-    // inherits. That scoping obliges an entry in setActiveAccountUserId —
-    // see the comment there, and SettingsSessionTest derives the
-    // requirement from this file rather than trusting a hand-written list.
+    // Collapse media and link embeds to one line. Presentation only and off by
+    // default; see `collapseEmbedsSetting` in qml/MessageDelegate.qml for what
+    // it covers. Per account with a global fallback, so it must be announced in
+    // setActiveAccountUserId (SettingsSessionTest checks this).
     Q_PROPERTY(bool collapseEmbeds READ collapseEmbeds WRITE setCollapseEmbeds
                    NOTIFY collapseEmbedsChanged)
-    // Reduced motion. AppTheme has declared `reducedMotion` since the design
-    // round and roughly twenty animation sites across ten QML files already
-    // read it — and NOTHING ever assigned it, so every one of those branches
-    // was dead. This is the assignment. Per account with a global fallback
-    // like the rest of Appearance; vestibular sensitivity belongs to the
-    // person, and the global value is what the logged-out shell uses.
+    // Reduced motion, read by AppTheme.reducedMotion. Per account with a global
+    // fallback.
     Q_PROPERTY(bool reducedMotion READ reducedMotion WRITE setReducedMotion
                    NOTIFY reducedMotionChanged)
 
-    // Smooth scrolling. SEPARATE from reducedMotion on purpose: that setting
-    // is an accessibility one covering every animation in the shell, and a
-    // reader who simply wants the wheel to land where the OS says should not
-    // have to turn the whole design's motion off to get it. Default ON, which
-    // is the behaviour every build so far has had.
+    // Smooth scrolling. Separate from reducedMotion so the wheel can land
+    // directly without disabling every animation. Default on.
     Q_PROPERTY(bool smoothScrolling READ smoothScrolling WRITE setSmoothScrolling
                    NOTIFY smoothScrollingChanged)
-    // Composer buttons the user has switched OFF, by stable key:
-    // "formatting", "emoji", "media" (GIFs and stickers), "voice",
-    // "sendOptions". Requested by a tester who wanted a plainer send bar.
-    //
-    // ONE LIST, not five booleans, and the list holds what is HIDDEN rather
-    // than what is shown: a key absent from a stored list is then visible,
-    // so a build that adds a sixth button shows it to everyone instead of
-    // hiding it from every existing user. Bound in QML as
-    // `visible: !app.settings.hiddenComposerButtons.includes("emoji")`,
-    // which is a real binding on a notifying property — a
-    // `Q_INVOKABLE bool visible(key)` would not re-evaluate.
-    //
-    // The attach button is deliberately NOT hideable: it carries files and
-    // polls, and in a narrow window it is also where the emoji and media
-    // actions are displaced to, so hiding it could stand between the user
-    // and an action they had not hidden.
+    // Composer buttons the user has hidden, by key: "formatting", "emoji",
+    // "media", "voice", "sendOptions". Stores what is hidden, so buttons added
+    // later are visible by default. A notifying list rather than an invokable
+    // so QML bindings re-evaluate. The attach button is not hideable: narrow
+    // windows displace other actions into it.
     Q_PROPERTY(QStringList hiddenComposerButtons READ hiddenComposerButtons
                    WRITE setHiddenComposerButtons
                    NOTIFY hiddenComposerButtonsChanged)
-    // Clock format for every timestamp Lightning renders: 0 = follow the
-    // system locale (the previous, fixed behaviour), 1 = 12-hour, 2 =
-    // 24-hour. Per account with a global fallback.
-    //
-    // WHY A THREE-WAY AND NOT A BOOL: "24-hour" as a bool has no state that
-    // means "whatever this machine is set to", so a user in a 24-hour locale
-    // would have to tick a box to keep what they already had, and a locale
-    // change would stop being followed. 0 is the default and is the old
-    // behaviour exactly.
+    // Clock format: 0 = follow the system locale (default), 1 = 12-hour,
+    // 2 = 24-hour. Per account with a global fallback.
     Q_PROPERTY(int clockFormat READ clockFormat WRITE setClockFormat
                    NOTIFY clockFormatChanged)
-    // The Qt time-format STRING the clock setting resolves to, so every
-    // timestamp in QML reads one property instead of branching on the mode.
-    //
-    // WHY A PROPERTY AND NOT AN INVOKABLE HELPER: a function call creates no
-    // binding dependency Qt can track, so `text: app.settings.formatClock(t)`
-    // would keep rendering the OLD format until the item was next created —
-    // the same trap the media-cache handlers hit by assigning Image.source
-    // imperatively. A property read is a real dependency, so changing the
-    // setting re-renders every timestamp on screen.
-    //
-    // Fixes a pre-existing inconsistency at the same time: message rows
-    // formatted with a literal "hh:mm" (always 24-hour, whatever the locale)
-    // while the room list, threads and Home used the locale's short format.
-    // Both now resolve here.
+    // The Qt time-format string the clock setting resolves to. A property
+    // rather than an invokable so timestamp bindings re-evaluate when the
+    // setting changes.
     Q_PROPERTY(QString clockTimeFormat READ clockTimeFormat
                    NOTIFY clockFormatChanged)
-    // Composer: Enter inserts a newline and Ctrl+Enter sends, instead of the
-    // default (Enter sends, Shift+Enter inserts a newline). Device-global —
-    // it describes how a keyboard is used, not who is logged in.
+    // Composer: Enter inserts a newline and Ctrl+Enter sends. Device-global.
     Q_PROPERTY(bool enterInsertsNewline READ enterInsertsNewline
                    WRITE setEnterInsertsNewline
                    NOTIFY enterInsertsNewlineChanged)
-    // v0.9 composer mode: "markdown" (the historical source editor) or
-    // "rich" (the WYSIWYG editor). Device-global like the Enter behaviour —
-    // it describes how this keyboard composes, not who is logged in. Any
-    // value but "rich" reads as markdown, so a downgrade can never strand
-    // the composer in a mode the build does not have.
+    // Composer mode: "markdown" or "rich". Device-global. Any value but "rich"
+    // reads as markdown.
     Q_PROPERTY(QString composerMode READ composerMode WRITE setComposerMode
                    NOTIFY composerModeChanged)
-    // v0.9 spell checking: an APPLICATION preference (never account data,
-    // never synced): whether the composer checks spelling, and which
-    // dictionary — "" is Automatic (the system's own language preference),
-    // otherwise a BCP-47 tag such as "lt-LT". Independent of the UI
-    // language on purpose: a user reading Lightning in English still types
-    // Lithuanian.
+    // Spell checking. Application preference, never synced. Language "" is
+    // Automatic, otherwise a BCP-47 tag; independent of the UI language.
     Q_PROPERTY(bool spellCheckEnabled READ spellCheckEnabled
                    WRITE setSpellCheckEnabled NOTIFY spellCheckEnabledChanged)
     Q_PROPERTY(QString spellCheckLanguage READ spellCheckLanguage
                    WRITE setSpellCheckLanguage NOTIFY spellCheckLanguageChanged)
-    // Composer: text typed alongside an attachment is sent as that
-    // attachment's CAPTION (one event) rather than as a separate message.
-    // The caption parameter has been plumbed to the SDK the whole time and
-    // the composer passed an empty string; this is the switch that fills it.
-    // Device-global for the same reason as the Enter behaviour.
+    // Composer: text typed alongside an attachment is sent as its caption
+    // rather than as a separate message. Device-global.
     Q_PROPERTY(bool sendTextAsCaption READ sendTextAsCaption
                    WRITE setSendTextAsCaption
                    NOTIFY sendTextAsCaptionChanged)
-    // v0.5.19: discrete mouse-wheel scroll speed for the timeline. Stored as a
-    // stable integer matching TimelineScrollController::WheelSpeed
-    // (0=Standard, 1=Fast, 2=Very fast). Default and safe fallback: Fast.
+    // Timeline mouse-wheel speed, matching TimelineScrollController::WheelSpeed
+    // (0 = Standard, 1 = Fast, 2 = Very fast). Default: Fast.
     Q_PROPERTY(int timelineWheelSpeed READ timelineWheelSpeed
                    WRITE setTimelineWheelSpeed NOTIFY timelineWheelSpeedChanged)
-    // 2026-08-18 tester report ("neatsimena audio preferencu uzdeda default
-    // visada"): inline media playback volume and speed are remembered across
-    // cards, rooms and restarts. GLOBAL, like the other playback policy
-    // settings — a per-account playback volume is not a thing users expect.
-    // Volume is a linear 0..1 factor; the rate is clamped to the same
-    // 0.25..4.0 band the player UI offers.
+    // Inline media playback volume (linear 0..1) and rate (0.25..4.0),
+    // remembered globally.
     Q_PROPERTY(qreal mediaVolume READ mediaVolume WRITE setMediaVolume
                    NOTIFY mediaVolumeChanged)
     Q_PROPERTY(qreal mediaPlaybackRate READ mediaPlaybackRate
                    WRITE setMediaPlaybackRate NOTIFY mediaPlaybackRateChanged)
-    // Whole-interface zoom percent (75..150). GLOBAL: main() turns it into
-    // QT_SCALE_FACTOR before the app object exists, so it cannot be
-    // per-account and only takes effect on the next launch — Qt reads the
-    // scale factor exactly once at startup.
+    // Whole-interface zoom percent (75..150). Global: main() turns it into
+    // QT_SCALE_FACTOR before the app exists, so it applies on next launch.
     Q_PROPERTY(int interfaceZoom READ interfaceZoom WRITE setInterfaceZoom
                    NOTIFY interfaceZoomChanged)
     Q_PROPERTY(bool hasSession READ hasSession NOTIFY sessionChanged)
@@ -496,10 +299,8 @@ class SettingsManager : public QObject
     Q_PROPERTY(bool secretsAreSecure READ secretsAreSecure NOTIFY secretBackendChanged)
 
 public:
-    // Semantic appearance presets. Ids are stable across releases so stored
-    // selections keep working; AppTheme.qml resolves each id to a full
-    // palette. DarkTheme (2) was a legacy alias of Midnight Blue before 0.7
-    // and is now the distinct Lightning Dark palette.
+    // Appearance presets. Ids are stable across releases; AppTheme.qml resolves
+    // each to a palette.
     enum Theme {
         SystemTheme = 0,
         LightTheme = 1,         // Lightning Light
@@ -513,9 +314,8 @@ public:
         IndigoNightTheme = 9,   // design-handoff dark
         DeepTealTheme = 10,     // design-handoff dark
         StormTheme = 11,        // brand navy + bolt yellow (0.6.5 Storm)
-        // A user-authored palette: a sparse set of role overrides on top of
-        // one of the presets above. The values live in CustomThemeStore, not
-        // here — this is only the id the picker persists.
+        // User-authored palette: role overrides on top of a preset. Values live
+        // in CustomThemeStore.
         CustomTheme = 12,
     };
     Q_ENUM(Theme)
@@ -526,10 +326,9 @@ public:
 
     explicit SettingsManager(QObject *parent = nullptr);
 
-    // Inject the process-wide SecretStore. Must be called once, immediately
-    // after construction, before any accessToken read/save. When set, any
-    // pre-existing plaintext access token in QSettings is migrated into the
-    // store and the plaintext key is deleted.
+    // Inject the process-wide SecretStore. Call once, right after
+    // construction. Migrates any plaintext access token from QSettings into
+    // the store.
     void setSecretStore(SecretStore *store);
     SecretStore *secretStore() const { return m_secretStore; }
 
@@ -542,8 +341,7 @@ public:
     Theme theme() const;
     void setTheme(Theme t);
 
-    // Message layout ids (see Q_PROPERTY note). Out-of-range values read
-    // back as Modern.
+    // Out-of-range message layout values read back as Modern.
     static constexpr int kMaxMessageLayout = 2;
     /// 0 Classic, 1 Channels.
     static constexpr int kMaxRoomNavigationLayout = 1;
@@ -562,21 +360,15 @@ public:
     void setUiFont(const QString &family);
     QString monoFont() const;
     void setMonoFont(const QString &family);
-    // The curated selectable UI families (bundled, OFL). Still the list the
-    // picker shows FIRST; it is no longer the only thing that may be stored.
+    // Curated bundled UI families, shown first in the picker.
     Q_INVOKABLE static QStringList uiFontChoices();
-    // A family name this class is willing to persist: trimmed, non-empty,
-    // bounded, and free of control characters and of the punctuation that
-    // would let a name mean something to a markup or style parser downstream.
-    // Returns the accepted name, or empty when the input is refused. It is
-    // deliberately NOT a "does this font exist" test — see the property.
+    // Returns the trimmed family name if it is safe to persist (bounded, no
+    // control characters or markup/style punctuation), else empty. Does not
+    // check that the font exists.
     static QString acceptableFontFamily(const QString &family);
 
-    // File names (basenames only) of the fonts the user imported by hand.
-    // DEVICE-GLOBAL, not per-account: an application font is process-wide and
-    // is registered before any account restores, exactly like the custom app
-    // icon. The files live in FontManager's own app-data directory; nothing
-    // here is ever a path the user typed.
+    // Basenames of user-imported fonts. Device-global: application fonts are
+    // registered before any account restores.
     QStringList importedFontFiles() const;
     void setImportedFontFiles(const QStringList &fileNames);
     void setTextScale(int percent);
@@ -593,10 +385,8 @@ public:
     int notificationPreview() const;
     int notificationPreviewEncrypted() const;
     void setNotificationPreviewEncrypted(int v);
-    /// The preview level to APPLY, given what is known about the room. When
-    /// encryption is unknown the STRICTER of the two wins: guessing
-    /// "unencrypted" would put a body on screen the user asked to withhold,
-    /// and the reverse only withholds one they would have allowed.
+    /// The preview level to apply. When encryption is unknown the stricter of
+    /// the two levels wins.
     Q_INVOKABLE int effectiveNotificationPreview(bool encrypted,
                                                  bool encryptionKnown) const;
     bool callPictureInPicture() const;
@@ -610,7 +400,7 @@ public:
     int notificationSound() const;
     void setNotificationSound(int mode);
     bool ringForCalls() const;
-    // Call sounds (see the Q_PROPERTY block). Volumes clamp to 0..100.
+    // Call sounds. Volumes clamp to 0..100.
     static constexpr int kDefaultCallSoundVolume = 70;
     static constexpr int kDefaultRingerVolume = 80;
     bool callSoundsEnabled() const;
@@ -633,89 +423,53 @@ public:
     void setPreferredCameraId(const QString &id);
     void setRingForCalls(bool enabled);
     void setNotificationPreview(int mode);
-    // v0.6.0 checkpoint 11: per-room notification mode (0 = all messages,
-    // 1 = mentions & keywords, 2 = mute). On backends WITHOUT server
-    // push-rule support this stays a pure this-device setting. On the Rust
-    // backend it is the device-local CACHE of the account's server
-    // push-rule mode: AppController::setRoomNotificationMode writes it
-    // optimistically with each user choice and reconciles it from the
-    // backend's USER-DEFINED roomNotificationModeChanged reports (server
-    // wins for explicit rules; resolved account defaults are never
-    // persisted). Stored per account with a lazy read-fallback to the
-    // legacy device-global key; mode 0 still removes the stored key where
-    // no legacy value needs shadowing (compact settings file). The
-    // explicit server rule lives in the account's push rules, never here.
+    // Per-room notification mode: 0 = all messages, 1 = mentions & keywords, 2
+    // = mute. On the Rust backend this is a local cache of the server push-rule
+    // mode (server wins for explicit rules). Stored per account with a
+    // read-fallback to the legacy device-global key.
     Q_INVOKABLE int roomNotificationMode(const QString &roomId) const;
     Q_INVOKABLE void setRoomNotificationMode(const QString &roomId, int mode);
-    // v0.9 (phase 10): the account's own status message, so a restart
-    // before the expiry can re-publish it and a restart after it can clear
-    // it. {emoji, text, expiresAtMs} — STRICTLY account-scoped, no global
-    // fallback; empty map = no status.
+    // The account's own status message {emoji, text, expiresAtMs}, so it can be
+    // re-published or cleared after a restart. Strictly account-scoped.
     QVariantMap ownPresenceStatus() const;
     void setOwnPresenceStatus(const QVariantMap &status);
-    // v0.9 (phase 11): the local scheduled-send queue, account-scoped.
-    // Rows for encrypted rooms are never handed here by the controller.
+    // Local scheduled-send queue, account-scoped. Never holds encrypted-room
+    // rows.
     QVariantList scheduledSends() const;
     void setScheduledSends(const QVariantList &rows);
-    // v0.9 (phase 2): the Activity Center's account-scoped state — the
-    // "seen up to" marker and the keyword list. Never an entry, never a
-    // preview.
+    // Activity Center state: the "seen up to" marker and keyword list.
     QVariantMap activityState() const;
     void setActivityState(const QVariantMap &state);
 
-    // v0.7.x composer drafts, UNENCRYPTED rooms only — DraftStore enforces
-    // that policy and never routes encrypted-room plaintext here (QSettings
-    // is weaker than even the CacheStore this project already refuses to
-    // put such plaintext in). Strictly account-scoped keys with NO global
-    // fallback (`accounts/<slug>/drafts/<sha16>`), bounded by an LRU index
-    // (the videoDims discipline); the whole family is wiped with the
-    // account group on removal/sign-out. An empty map removes the entry.
+    // Composer drafts for unencrypted rooms only (DraftStore enforces this).
+    // Strictly account-scoped, LRU-bounded, wiped with the account. An empty
+    // map removes the entry.
     QVariantMap roomDraft(const QString &draftKey) const;
     void setRoomDraft(const QString &draftKey, const QVariantMap &draft);
 
-    // v0.7: learned video dimensions for events whose Matrix metadata
-    // declares none (every Lightning-sent video before the send-metadata
-    // fix). Recorded when the poster extractor sees the real frame, so the
-    // timeline card takes its true shape from the FIRST render on every
-    // later visit instead of guessing 16:9 and resizing when the poster
-    // lands. Account-scoped, keyed by a hash of the media key (raw event
-    // ids never become settings keys), bounded by an LRU index — only
-    // dimensions are stored, never content. Returns an empty size when
-    // nothing is recorded.
+    // Video dimensions learned from the first decoded frame, for events whose
+    // metadata declares none, so the card has its real shape on later visits.
+    // Account-scoped, keyed by a hash of the media key, LRU-bounded. Empty size
+    // when unknown.
     Q_INVOKABLE QSize knownVideoDimensions(const QString &mediaKey) const;
     void setKnownVideoDimensions(const QString &mediaKey, int width,
                                  int height);
-    // Learned payload size (bytes) for media whose event declares none —
-    // recorded from the first real fetch, so the bounded speculative
-    // prefetch (and with it the poster) works on every later session for
-    // the pre-metadata-fix backlog after a single play. Same hashed-key +
-    // LRU discipline as the dimensions. 0 when unknown.
+    // Payload size learned from the first fetch, for media whose event declares
+    // none. Same hashed-key LRU storage. 0 when unknown.
     Q_INVOKABLE double knownMediaSizeBytes(const QString &mediaKey) const;
     void setKnownMediaSizeBytes(const QString &mediaKey, qint64 bytes);
 
-    // v0.6.7: remembered size of a user-resizable overlay picker (the GIF and
-    // emoji pickers, which carry a drag grip), stored as a SHARE of the space
-    // available to it — per mille, 50..1000 — never as a pixel count.
-    //
-    // A share is what makes the picker track the window as it is resized, keeps
-    // a size chosen on one display sensible on another, and lets both pickers
-    // remember ONE value despite having different proportions (they pass the
-    // same id, so resizing either resizes both).
-    //
-    // `id` is checked against a small WHITELIST before any key is composed, so
-    // a QML caller can never reach an arbitrary settings key; an unknown id
-    // reads 0 and writes nothing at all. 0 means "never resized — use the
-    // component's default share", which is also what an out-of-range stored
-    // value degrades to: a corrupted or hand-edited store must not be able to
-    // produce a degenerate or off-screen picker. These are plain local UI
-    // preferences and carry no account, room or Matrix data.
+    // Remembered size of a resizable picker (GIF/emoji) as a share of available
+    // space, per mille 50..1000. `id` is whitelisted so QML cannot reach
+    // arbitrary keys; unknown ids read 0 and write nothing. 0 means "use the
+    // component default", which is also what out-of-range values degrade to.
     Q_INVOKABLE int pickerWidthShare(const QString &id) const;
     Q_INVOKABLE int pickerHeightShare(const QString &id) const;
     Q_INVOKABLE void setPickerShare(const QString &id, int widthPerMille,
                                     int heightPerMille);
     void setNotificationsEnabled(bool v);
 
-    // v0.5.11: link-preview policy (see Q_PROPERTY block).
+    // Link-preview policy.
     bool autoLoadLinkPreviews() const;
 
     void setAutoLoadLinkPreviews(bool v);
@@ -723,20 +477,16 @@ public:
     void setLoadPreviewsInEncryptedRooms(bool v);
     bool animateGifPreviews() const;
     void setAnimateGifPreviews(bool v);
-    /// Screen-share ceiling, in scanlines: 720, 1080 or 1440. Width follows
-    /// from 16:9, and the source is never upscaled, so a smaller screen
-    /// still sends its own size under a larger ceiling.
+    /// Screen-share ceiling in scanlines: 720, 1080 or 1440. Never upscales.
     int shareMaxHeight() const;
     void setShareMaxHeight(int v);
     /// Screen-share frame rate: 15, 30 or 60.
     int shareFps() const;
     void setShareFps(int v);
-    /// Whether the chosen height and rate together are beyond what a
-    /// software VP8 encoder can sustain. See the definition for the sums.
+    /// Whether the chosen height and rate exceed what software VP8 sustains.
     bool shareQualityDemanding() const;
-    /// The same rule asked about a combination that is not the current one,
-    /// so a menu row can mark ITSELF rather than each surface re-deriving
-    /// the policy.
+    /// The same rule for an arbitrary combination, so a menu row can mark
+    /// itself.
     Q_INVOKABLE bool shareQualityDemandingAt(int maxHeight, int fps) const;
 
     bool sharePresence() const;
@@ -762,29 +512,19 @@ public:
     void setStartInTray(bool v);
     QRect initialWindowGeometry() const { return m_initialWindowGeometry; }
     bool initialWindowMaximized() const { return m_initialWindowMaximized; }
-    // Both refuse a value that could not be restored, rather than storing one
-    // that would be discarded on the next read. Qt reports transient 0x0
-    // geometry while a window is being shown, hidden into the tray or
-    // restored from minimized, and the tray path fires exactly when the last
-    // good value has to survive.
+    // Both refuse unrestorable values: Qt reports transient 0x0 geometry while
+    // a window is shown, hidden to the tray or restored.
     Q_INVOKABLE void saveWindowGeometry(int x, int y, int width, int height);
     Q_INVOKABLE void saveWindowMaximized(bool maximized);
-    // The bounds QML resizes within, so the clamp lives in ONE place rather
-    // than being retyped in a Layout binding that can drift from it.
+    // Resize bounds, kept here so QML cannot drift from the clamp.
     static constexpr int kRoomListMinWidth = 200;
     static constexpr int kRoomListMaxWidth = 560;
-    // The rail's floor is the width it was FIXED at until 2026-09-17: a 40px
-    // tile with 14px either side, which is exactly enough to centre an icon
-    // and nothing else. Widening it buys indentation, and indentation is what
-    // lets a nested Space tree read as nested — so the ceiling is set by how
-    // deep a tree is worth showing rather than by how wide a label would be.
+    // Rail floor: a 40px tile with 14px margins. The ceiling limits how much
+    // indentation a nested Space tree can use.
     static constexpr int kSpacesRailMinWidth = 68;
     static constexpr int kSpacesRailMaxWidth = 260;
-    /// Rail depth styles (see the Q_PROPERTY note). Clamped on READ as well
-    /// as on write, for the reason the widths are: an unknown value from a
-    /// hand-edited config, or from a NEWER build that had a third style,
-    /// must land on something this build can draw rather than on a rail with
-    /// no depth cue at all.
+    /// Rail depth styles. Clamped on read too: an unknown value (hand-edited,
+    /// or from a newer build) must land on a style this build can draw.
     static constexpr int kRailDepthRegions = 0;
     static constexpr int kRailDepthClassic = 1;
     static constexpr int kMaxSpacesRailDepthStyle = kRailDepthClassic;
@@ -799,7 +539,7 @@ public:
     bool verificationWarningDismissed() const;
     void setVerificationWarningDismissed(bool v);
     void setSharePresence(bool v);
-    // v0.6.1: GIF browser policy.
+    // GIF browser policy.
     int gifAutoplay() const;
     void setGifAutoplay(int mode);
     int gifSafeSearch() const;
@@ -814,8 +554,8 @@ public:
     void setShowMembershipEvents(bool v);
     bool showProfileChangeEvents() const;
     void setShowProfileChangeEvents(bool v);
-    /// Whether timeline attachments and loaded link previews render as one
-    /// summary line with a disclosure control. See the Q_PROPERTY block.
+    /// Whether attachments and loaded link previews render as a one-line
+    /// summary with a disclosure control.
     bool collapseEmbeds() const;
     void setCollapseEmbeds(bool v);
     bool reducedMotion() const;
@@ -823,74 +563,36 @@ public:
     void setSmoothScrolling(bool v);
     QStringList hiddenComposerButtons() const;
     void setHiddenComposerButtons(const QStringList &keys);
-    /// Convenience for the settings screen's checkboxes, which think in
-    /// "shown" while the stored list records what is hidden.
+    /// Convenience for the settings checkboxes, which think in "shown".
     Q_INVOKABLE void setComposerButtonShown(const QString &key, bool shown);
 
-    // ── Call volumes ──────────────────────────────────────────────────
-    //
-    // KEYED BY MATRIX USER ID, never by the SFU participant identity. An
-    // identity is `@user:server:DEVICE` in the legacy format and an unpadded
-    // base64 sha256 in the sticky one — per DEVICE and, for the sticky form,
-    // effectively per session. Keying by it would forget the setting the
-    // moment the same person rejoined, which is the opposite of what was
-    // asked for: "if a user A sets user B volume to 70% it stays the same in
-    // next call or other room".
-    //
-    // STRICTLY account-scoped, with NO global fallback — unlike
-    // appearanceValue, which deliberately mirrors into one. What you think a
-    // person's voice should sound like is your opinion from your account; it
-    // is not a fact about them, and it must not leak into another account's
-    // view of the same person.
-    //
-    // 0..200. Above 100 is real amplification, as Discord allows: the
-    // GStreamer `volume` element takes a linear factor and 2.0 is legal.
-    // Clipping above 100 is the user's own choice and is theirs to hear.
-    // Which images this account has hidden in the timeline.
-    //
-    // STRICTLY account-scoped with NO global fallback, for the same reason
-    // the per-person call volume is: what you chose not to look at is your
-    // choice from your account, and another account signing in on this
-    // machine must not inherit it. appearanceValue would mirror it into a
-    // shared fallback and do exactly that.
-    //
-    // Stored as a plain list of media keys. Bounded by the caller
-    // (MediaVisibilityStore's cap), so the store cannot grow without end.
+    // Images this account has hidden in the timeline. Strictly account-scoped
+    // with no global fallback. Bounded by MediaVisibilityStore's cap.
     QStringList hiddenMediaKeys() const;
     void setHiddenMediaKeys(const QStringList &keys);
 
+    // ── Call volumes ──────────────────────────────────────────────────
+    // Keyed by Matrix user id, never by SFU participant identity (which is per
+    // device or per session). Strictly account-scoped with no global fallback.
+    // 0..200; above 100 amplifies.
+
     /// This account's playback volume for one person, 0..200. 100 when unset.
     Q_INVOKABLE int callParticipantVolume(const QString &userId) const;
-    /// A person's SCREEN SHARE playback level, remembered under them.
-    ///
-    /// Separate from their microphone level on purpose: turning down someone
-    /// who is sharing a noisy game is not the same wish as turning down their
-    /// voice, and collapsing the two would make one control silently move the
-    /// other. Keyed by USER, never by share id — a share that stops and
-    /// restarts comes back under a new id, so a share-id key could never
-    /// survive even within one call, let alone across a restart.
+    /// A person's screen-share playback level. Separate from their microphone
+    /// level, and keyed by user because share ids change on every restart.
     Q_INVOKABLE int callShareVolume(const QString &userId) const;
     Q_INVOKABLE void setCallShareVolume(const QString &userId, int percent);
-    /// Persists it. Setting exactly 100 REMOVES the key rather than storing
-    /// the default, so "reset" is a real reset and the store does not grow a
-    /// row per person ever seen in a call.
+    /// Setting exactly 100 removes the key, so reset is a real reset.
     Q_INVOKABLE void setCallParticipantVolume(const QString &userId,
                                               int percent);
 
-    /// Own microphone gain, 0..200, applied to what OTHERS hear. Account
-    /// scoped WITH the global fallback, because unlike a per-person volume
-    /// this is a fact about your own hardware and is the same on every
-    /// account you sign into on this machine.
-    // v0.9.0: pop the call out into a small always-on-top window when the
-    // main window is minimised or closed to the tray. It never appears while
-    // the main window is on screen.
-    // Default OFF since 2026-09-05 (`8af148b`, "the automatic call pop-out is
-    // opt-in"): shipped on, it popped the call out the moment the main window
-    // was minimised. This comment still claimed "Default ON" afterwards — see
-    // callPictureInPicture() in the .cpp, which is authoritative.
+    // Pop the call out into a small always-on-top window when the main window
+    // is minimised or hidden to the tray. Default off.
     Q_PROPERTY(bool callPictureInPicture READ callPictureInPicture
                    WRITE setCallPictureInPicture
                    NOTIFY callPictureInPictureChanged)
+    /// Own microphone gain, 0..200, applied to what others hear. Account-scoped
+    /// with the global fallback: it describes this machine's hardware.
     Q_PROPERTY(int microphoneGain READ microphoneGain WRITE setMicrophoneGain
                    NOTIFY microphoneGainChanged)
     int microphoneGain() const;
@@ -898,8 +600,7 @@ public:
 
     void setReducedMotion(bool v);
 
-    // Clock format ids. Kept as named constants so the QML combo, the
-    // formatter and the clamp cannot drift apart.
+    // Clock format ids.
     static constexpr int kClockFormatSystem = 0;
     static constexpr int kClockFormat12Hour = 1;
     static constexpr int kClockFormat24Hour = 2;
@@ -920,19 +621,15 @@ public:
 
     // ── Rebindable keyboard shortcuts ────────────────────────────────────
     // Stored per action id as QKeySequence::PortableText, per account with a
-    // global fallback (the same rule theme/layout/text-scale use). An EMPTY
-    // return means "no override, use the default" — which is also what an
-    // id containing anything outside [A-Za-z0-9._-] returns, because such an
-    // id could otherwise walk out of its own QSettings group. ShortcutRegistry
-    // owns every default and every validation rule; this is storage only and
-    // deliberately validates nothing about the SEQUENCE, so a future registry
-    // can widen what it accepts without a migration.
+    // global fallback. Empty means "use the default", as does an id outside
+    // [A-Za-z0-9._-] (which could escape its QSettings group). ShortcutRegistry
+    // owns defaults and validation; this is storage only.
     QString shortcutSequence(const QString &actionId) const;
     void setShortcutSequence(const QString &actionId, const QString &portable);
     void clearShortcutSequence(const QString &actionId);
 
-    // v0.5.19: timeline discrete-wheel speed. 0=Standard, 1=Fast, 2=Very fast.
-    // An out-of-range or legacy value reads back as Fast (1).
+    // Timeline wheel speed: 0 = Standard, 1 = Fast, 2 = Very fast. Out-of-range
+    // values read back as Fast.
     static constexpr int kDefaultTimelineWheelSpeed = 1; // Fast
     static constexpr int kMinInterfaceZoom = 75;
     static constexpr int kMaxInterfaceZoom = 150;
@@ -953,120 +650,72 @@ public:
     QString preferredEmojiTone() const;
     void setPreferredEmojiTone(const QString &tone);
 
-    // Session storage.
-    //
-    // v0.4: accessToken lives in the SecretStore (libsecret when available,
-    // insecure QSettings fallback otherwise). Non-secret session metadata
-    // stays in QSettings — syncToken is not a credential but
-    // restart-recoverable state.
-    //
-    // v0.7: session metadata is stored per account under accounts/<slug>/
-    // so several signed-in accounts coexist; accounts/active names the one
-    // the UI is currently showing. userId()/deviceId()/syncToken() and
-    // accessToken() are views of the ACTIVE account. Tokens remain in the
-    // SecretStore keyed by the full Matrix user id, never in QSettings.
+    // Session storage. The access token lives in the SecretStore keyed by the
+    // full user id; non-secret metadata is stored per account under
+    // accounts/<slug>/, and accounts/active names the account shown. The
+    // accessors below describe the active account.
     bool hasSession() const;
     QString accessToken() const;
     QString userId() const;
     QString deviceId() const;
     QString syncToken() const;
 
-    // Multi-account registry.
-    //
-    // Records are keyed by the safe account slug derived from the full MXID
-    // (see matrix::app_data::safeUserSlug); a malformed or unsafe user id is
-    // rejected rather than guessed at. Ordering is oldest-added first.
+    // Multi-account registry. Records are keyed by safeUserSlug of the full
+    // MXID; unsafe ids are rejected. Ordered oldest-added first.
     QStringList savedAccountUserIds() const;
     bool hasSavedAccount(const QString &userId) const;
-    // True when a DIFFERENT saved account occupies this identity's slug —
-    // the slug substitution is not injective, and colliding identities
-    // would otherwise alias one settings record and one on-disk SDK store.
-    // Logins for a colliding identity must be refused.
+    // True when a different saved account occupies this identity's slug. The
+    // slug mapping is not injective, so such logins must be refused.
     bool accountSlugConflicts(const QString &userId) const;
-    // Map a TYPED login identity onto the server-canonical user id already
-    // saved for that account.
-    //
-    // Matrix localparts are case-sensitive, so `resolveAccountIdentity()`
-    // preserves the typed case while the homeserver answers a login with its
-    // own canonical id. A user who types "Mizerd" therefore produced a store
-    // under `Mizerd_<server>` and a record under `mizerd_<server>`, and every
-    // later restore looked for a store that was never there. Resolving the
-    // typed id against the saved records first makes repeat logins land on
-    // the account that already exists.
-    //
-    // Matching is exact on the (already normalized, lowercase) server name
-    // and case-insensitive on the localpart. Returns an empty string when no
-    // saved account matches OR when two or more do — an ambiguous match is
-    // never resolved by guessing. `ambiguous` distinguishes the two.
-    //
-    // Deliberately NOT folded into slugForSavedAccount()/hasSavedAccount():
-    // those must stay exact so deviceId(), syncToken() and the per-account
-    // appearance accessors cannot silently read another record.
+    // Map a typed login identity onto the server-canonical user id already
+    // saved for it. Localparts are case-sensitive, and the server's canonical
+    // id may differ in case from what the user typed. Matches the server name
+    // exactly and the localpart case-insensitively. Returns empty when nothing
+    // or more than one account matches; `ambiguous` distinguishes the two. Kept
+    // separate from slugForSavedAccount()/hasSavedAccount(), which must stay
+    // exact.
     QString canonicalUserIdForTypedIdentity(const QString &typedUserId,
                                             bool *ambiguous = nullptr) const;
-    // {userId, homeserver, deviceId, displayName, avatarUrl, addedAt}
-    // — empty map when the account is unknown. syncToken is deliberately
-    // not exposed here.
+    // {userId, homeserver, deviceId, displayName, avatarUrl, addedAt}, or empty
+    // when unknown. Never exposes the sync token.
     QVariantMap accountRecord(const QString &userId) const;
     // Access token for a specific saved account (SecretStore lookup).
     QString accessTokenFor(const QString &userId) const;
-    // OAuth session material. Both are CREDENTIALS kept in the SecretStore
-    // beside the access token; neither is a Q_PROPERTY and neither may reach
-    // QML. Empty is a normal answer — password sessions usually have no
-    // refresh token, and only OAuth accounts have a client id.
-    // Write back tokens the SDK rotated during an automatic refresh. Narrow
-    // on purpose — touches only the two credentials, never the sync token or
-    // the active-account pointer.
+    // OAuth session material. Credentials kept in the SecretStore; never
+    // exposed to QML. Empty is normal (password sessions often lack a refresh
+    // token). updateSessionTokens() writes back tokens the SDK rotated and
+    // touches nothing else.
     bool updateSessionTokens(const QString &userId,
                              const QString &accessToken,
                              const QString &refreshToken);
     QString refreshToken() const;
     QString refreshTokenFor(const QString &userId) const;
     QString oauthClientIdFor(const QString &userId) const;
-    // Which SDK API restores this account: "password" (matrix_auth) or
-    // "oauth". Not a secret — restore must be able to route correctly even
-    // when the keyring cannot be read, so this lives in QSettings. Accounts
-    // saved before OAuth existed report "password".
+    // "password" (matrix_auth) or "oauth". Kept in QSettings so restore can
+    // route even when the keyring is unreadable. Older accounts report
+    // "password".
     QString authTypeFor(const QString &userId) const;
     bool isOAuthAccount(const QString &userId) const;
 
-    // Where this account's Rust SDK store actually lives, as recorded at
-    // login from the directory that was really opened. Empty means "never
-    // recorded" — the canonical slug is then the best available guess.
-    //
-    // This mapping exists because it must NOT be derived twice: the store
-    // path used to come from the typed login name and the account record from
-    // the server-canonical user id, and when those disagreed (localpart
-    // casing, or a delegated .well-known server name) restore looked for a
-    // store that was never there, logout deleted a directory that did not
-    // exist while the real one survived, and reset cleared the wrong slug.
+    // Where this account's SDK store actually lives, as recorded at login.
+    // Empty means never recorded. The path must never be re-derived: the typed
+    // login name and the canonical user id can disagree (case, delegation).
     QString storeSlugFor(const QString &userId) const;
-    // The saved account that could legitimately own the store directory
-    // `storeSlug`, or empty when none can.
-    //
-    // Checks all three ways an account can be bound to a directory: its
-    // canonical slug, its recorded storeSlug, and the slug an older build
-    // would have derived for it from its homeserver URL
-    // (delegatedHomeserverStoreSlug). Anything that deletes a store MUST
-    // consult this first — "no record under the slug I derived" is not the
-    // same as "no account owns this directory", and treating them as
-    // equivalent is what destroyed a real crypto store.
+    // The saved account that could own store directory `storeSlug`, or empty.
+    // Checks the canonical slug, the recorded storeSlug and the legacy
+    // homeserver-derived slug. Anything that deletes a store must consult this.
     QString accountOwningStoreSlug(const QString &storeSlug) const;
-    // True when the secret backend cannot answer AT ALL — no store injected,
-    // keyring locked, session bus unavailable. Distinct from "this account
-    // has no token": an unreadable backend makes every lookup come back
-    // empty, and treating that as "the sign-in is gone" is the same
-    // conflation that let the login path destroy a live crypto store.
-    // Anything that classifies a missing token MUST consult this first.
+    // True when the secret backend cannot answer at all (no store, locked
+    // keyring, no session bus). Distinct from "this account has no token";
+    // anything classifying a missing token must check this first.
     bool secretBackendUnavailable() const;
-    /// Whether a MISS could be hiding a secret this store cannot see —
-    /// structural, and never softened by an individual read. Destructive
+    /// Whether a miss could hide a secret this store cannot see. Destructive
     /// decisions key on this; see SecretStore::missesAreInconclusive().
     bool secretMissesAreInconclusive() const;
     void setStoreSlugFor(const QString &userId, const QString &storeSlug);
-    // Resolve a saved account into a full identity whose on-disk paths point
-    // at the recorded store. Use this anywhere an account's files are read,
-    // deleted, or opened; re-deriving the path is the original defect.
+    // Resolve a saved account into an identity whose paths point at the
+    // recorded store. Use wherever an account's files are read, deleted or
+    // opened.
     bool resolveSavedIdentity(const QString &userId,
                               matrix::app_data::AccountIdentity *out) const;
     QString activeAccountUserId() const;
@@ -1079,17 +728,13 @@ public:
                               const QString &avatarUrl);
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-    // Development-only (screenshot demo): register a fictional account as
-    // NON-SECRET metadata only — it never writes a token and never touches the
-    // SecretStore. `order` fixes a deterministic addedAt so the account-switcher
-    // ordering is stable across launches. Everything lands in the isolated demo
-    // QSettings profile (the demo applicationName). Compiled out of every
-    // normal/release build.
+    // Screenshot demo only: register a fictional account as non-secret
+    // metadata, never touching the SecretStore. `order` fixes addedAt for a
+    // stable switcher order.
     void registerDemoAccount(const QString &homeserverUrl, const QString &userId,
                              const QString &displayName, const QString &avatarUrl,
                              int order);
-    // Development-only: drop all fictional demo account records (used before a
-    // deterministic re-registration and by "reset all demo state").
+    // Screenshot demo only: drop all fictional account records.
     void clearDemoAccounts();
 #endif
 
@@ -1097,15 +742,10 @@ public:
     bool secretsAreSecure() const;
     QString secretBackendName() const;
 
-    // `refreshToken` may be empty (a password session on a server that issues
-    // none). `authType` is "password" or "oauth" and decides which SDK API
-    // restores the account. `oauthClientId` is the dynamic-registration id and
-    // is only meaningful for OAuth accounts. The three trailing arguments are
-    // defaulted so every existing password-login call site keeps its meaning:
-    // password, no refresh token, no client id.
-    //
-    // refreshToken and oauthClientId are CREDENTIALS: they go to the
-    // SecretStore, never to QSettings, never to QML, and are never logged.
+    // `refreshToken` may be empty. `authType` is "password" or "oauth".
+    // `oauthClientId` applies to OAuth accounts only. refreshToken and
+    // oauthClientId are credentials: SecretStore only, never QSettings, QML or
+    // logs.
     void saveSession(const QString &homeserverUrl,
                      const QString &userId,
                      const QString &deviceId,
@@ -1119,26 +759,17 @@ public:
     // entries could not be removed; non-secret metadata is still cleared.
     bool clearSession();
 
-    // The two shell keys that store MATRIX objects rather than a preference
-    // about this computer: the Spaces rail's arrangement (Space room ids and
-    // the folder names the user typed for them) and which Space folders the
-    // Channels layout has collapsed. Named here, and not privately inside
-    // their own stores, because forgetDeviceGlobalAccountResidue() has to
-    // sweep exactly these — a second spelling in a second file is how a key
-    // survives the cleanup written for it.
+    // Shell keys that store Matrix objects (rail arrangement, collapsed Space
+    // folders). Declared here so forgetDeviceGlobalAccountResidue() sweeps the
+    // same spelling the stores write.
     static constexpr const char *kRailLayoutKey = "shell/railLayout";
     static constexpr const char *kChannelCollapsedKey = "shell/channelCollapsed";
 
-    // Account-scoped variant used by signed-out reset. It always clears
-    // secrets for `userId`, but removes the global active-session metadata
-    // only when that metadata belongs to the same account.
+    // Account-scoped clear used by signed-out reset. Always clears secrets for
+    // `userId`; clears the global session metadata only if it belongs to it.
     bool clearSessionForAccount(const QString &userId);
-    // Same, but reports whether a saved record was actually matched and
-    // removed. The plain overload cannot distinguish "cleared the account"
-    // from "matched nothing and did nothing": SecretStore backends treat a
-    // no-op clear as success, so a reset aimed at an unknown identity used to
-    // report "Local Lightning session reset" while the real record, token and
-    // active-account pointer stayed exactly where they were.
+    // Same, but reports whether a saved record was actually matched, since a
+    // no-op secret clear also reports success.
     bool clearSessionForAccount(const QString &userId, bool *matchedRecord);
 
 Q_SIGNALS:
@@ -1214,61 +845,31 @@ Q_SIGNALS:
     void accountsChanged();
 
 private:
-    // The custom theme is per-account appearance state like the theme, the
-    // layout and the text scale, so it goes through the same
-    // account-preferred / global-fallback helpers below rather than inventing
-    // a second storage rule. It is a friend instead of those helpers being
-    // made public, because nothing else should reach them.
+    // Per-account appearance state; friends so the private helpers stay
+    // private.
     friend class CustomThemeStore;
-    // The rail's arrangement is per-account appearance state for the same
-    // reason: which Spaces an account has, and how someone grouped them, are
-    // the same question. Same access, same rule.
     friend class RailLayoutStore;
-    // Which Space folders the Channels layout has collapsed is per-account
-    // appearance state for the same reason: it describes how one account's
-    // Spaces are arranged on screen, and applying it to the next account's
-    // rooms would be meaningless. Same access, same rule.
     friend class SpaceChannelModel;
 
     void migratePlaintextTokenIfPresent();
     void migrateInsecureSecretsGroup();
     void migrateLegacySessionRecord();
-    // Per-account appearance storage: reads prefer the active account's
-    // value, writes update the account AND the global fallback (so the
-    // logged-out shell keeps the most recent selection).
+    // Per-account appearance storage: reads prefer the active account, writes
+    // update the account and the global fallback used by the logged-out shell.
     QVariant appearanceValue(const char *globalKey,
                              const QVariant &fallback) const;
     void setAppearanceValue(const char *globalKey, const QVariant &value);
-    // STRICTLY per-account storage, for values that name Matrix objects
-    // rather than describe this computer.
-    //
-    // setAppearanceValue's dual write is right for a theme — the logged-out
-    // shell has to paint something, and the last colour anyone chose is the
-    // best answer available. It is WRONG for anything carrying room ids or
-    // user-typed labels for them: the mirrored device-global copy makes a
-    // fresh account inherit the previous account's Spaces, and it survives
-    // "remove this account from this computer" because removal only deletes
-    // accounts/<slug>.
-    //
-    // The write therefore goes to the account key ALONE while an account is
-    // active. The read still falls back to the bare global key, deliberately:
-    // that is where an upgrading user's existing arrangement lives, and
-    // dropping it would lose their layout on the release that fixes this.
-    // Nothing signed in ever writes that key again, so it can only hold
-    // pre-upgrade (or genuinely signed-out) state, and
-    // forgetDeviceGlobalAccountResidue() sweeps it once the last account is
-    // gone. A write with no active account keeps the old device-global
-    // behaviour — there is no account to scope it to, and the next sign-in
-    // reads it exactly once as its migration source.
+    // Strictly per-account storage for values that name Matrix objects (room
+    // ids, user-typed labels), which must not be mirrored into a device-global
+    // copy a new account would inherit. Writes go to the account key alone
+    // while an account is active; reads still fall back to the global key as
+    // the migration source for pre-upgrade data, which
+    // forgetDeviceGlobalAccountResidue() sweeps once no account remains.
     QVariant accountScopedValue(const char *globalKey,
                                 const QVariant &fallback) const;
     void setAccountScopedValue(const char *globalKey, const QVariant &value);
-    // Called from clearSessionForAccount when the LAST saved account record
-    // has just been removed: drops the device-global keys that name Matrix
-    // rooms/Spaces. They are per-device by history rather than by design and
-    // their read fallbacks exist for accounts that still exist; with none
-    // left they are just room ids outliving the user's "remove this account"
-    // by an unbounded time.
+    // Called when the last saved account is removed: drops the device-global
+    // keys that name Matrix rooms/Spaces.
     void forgetDeviceGlobalAccountResidue();
     QString accountKey(const QString &slug, const char *subKey) const;
     QString slugForSavedAccount(const QString &userId) const;
@@ -1276,24 +877,18 @@ private:
     // no account is active) and the legacy device-global fallback key.
     static QString roomNotificationModeGlobalKey(const QString &roomId);
     QString roomNotificationModeScopedKey(const QString &roomId) const;
-    // Learned-media store internals: one LRU index covers both the
-    // dimension and payload-size keys of an entry.
+    // Learned-media store: one LRU index covers dimension and size keys.
     static QString mediaInfoIndexKeyForSlug(const QString &slug);
     void touchMediaInfoIndex(const QString &slug, const QString &hash);
-    // Hot-path slug lookup: roomNotificationMode() runs for every appended
-    // remote event (NotificationManager context), so the active account's
-    // slug is cached keyed by the active user id. An account can only
-    // become active while its record exists (setActiveAccountUserId
-    // checks), and every removal path clears the active id, so keying by
-    // the user id is sufficient invalidation; setActiveAccountUserId also
-    // clears the cache explicitly, belt and braces.
+    // roomNotificationMode() runs for every appended remote event, so the
+    // active slug is cached keyed by user id. Every removal path clears the
+    // active id, and setActiveAccountUserId clears the cache explicitly.
     QString activeAccountSlugCached() const;
     // Reads and validates the stored window geometry once, from the
-    // constructor. See the CONSTANT properties above.
+    // constructor.
     void loadWindowGeometry();
-    // Main.qml's own minimums. Duplicated here rather than plumbed through,
-    // because the validation has to answer "could this be restored?" before
-    // any window exists to ask.
+    // Main.qml's minimums, duplicated because validation runs before any window
+    // exists.
     static constexpr int kWindowMinWidth = 640;
     static constexpr int kWindowMinHeight = 420;
     bool upsertAccountRecord(const QString &userId,
@@ -1302,8 +897,7 @@ private:
 
     std::unique_ptr<QSettings> m_store;
     SecretStore *m_secretStore = nullptr; // not owned; lifetime = process
-    // Captured and validated once, in the constructor: see the CONSTANT
-    // properties above for why these are not re-read.
+    // Captured once in the constructor; see the CONSTANT properties.
     QRect m_initialWindowGeometry;
     bool m_initialWindowMaximized = false;
     mutable QString m_activeSlugCacheUserId;

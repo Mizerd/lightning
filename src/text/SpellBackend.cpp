@@ -21,10 +21,8 @@ QString spellTagToPosix(const QString &tag)
 
 namespace {
 
-// The dictionary tags to try, in order, for a preferred tag. "en_GB" is asked
-// for first, then "en", because a distribution commonly ships one of the two
-// and never both; the plain language is the honest second choice rather than
-// silently checking British text against an American dictionary.
+// Tags to try in order: "en_GB", then "en", since distributions commonly ship
+// only one of the two.
 [[maybe_unused]] QStringList candidateTags(const QString &preferred)
 {
     QString wanted = spellTagToPosix(preferred);
@@ -38,11 +36,8 @@ namespace {
         if (sep > 0)
             tags << wanted.left(sep);
     }
-    // Last resort. Deliberately NOT a silent default for a user whose system
-    // language has a dictionary installed — it is only reached when theirs
-    // resolved to nothing at all, and --spell-status reports what was used.
-    // An EXPLICIT preference gets no fallback at all: a user who chose
-    // Lithuanian must not be checked against English behind their back.
+    // English as a last resort for the system preference only; an explicit
+    // choice is never silently checked against another language.
     if (preferred.isEmpty()) {
         if (!tags.contains(QStringLiteral("en_US")))
             tags << QStringLiteral("en_US");
@@ -67,17 +62,8 @@ namespace {
 
 #include <windows.h>
 
-// GUARDED, and the guard is the point. `spellcheck.h` is a Windows SDK header
-// mingw-w64 has carried for years — confirmed present with __CRT_UUID_DECL
-// for both interfaces in the mingw-w64 headers Debian ships, where this whole
-// file also passes `-fsyntax-only` under x86_64-w64-mingw32-g++ with Q_OS_WIN
-// defined. But a toolchain that lacks it must still BUILD; a release pipeline
-// is not the place to discover a missing header. Without it Windows simply
-// has no backend and `--spell-status` says so out loud, which is the check
-// that makes the absence visible instead of silent. (That is the standing
-// lesson from the packaged builds that shipped for months with no media
-// engine: a feature assembled at package time needs something that asks the
-// SHIPPED artifact whether it works.)
+// Guarded so a toolchain without <spellcheck.h> still builds; the backend is
+// then absent and `--spell-status` reports it.
 #if defined(__has_include)
 #  if __has_include(<spellcheck.h>)
 #    define LIGHTNING_HAVE_WIN_SPELLCHECK 1
@@ -89,28 +75,17 @@ namespace {
 
 namespace {
 
-// The coclass id is written out rather than taken from `__uuidof`. The
-// INTERFACE ids are NOT: they come from the header itself through
-// IID_PPV_ARGS, so the only value duplicated here is the one a coclass
-// declaration carries, which is the part whose spelling has historically
-// differed between toolchains.
-//
-// VERIFIED, not remembered. mingw-w64's own spellcheck.h carries
-// `DEFINE_GUID(CLSID_SpellCheckerFactory, 0x7ab36653, 0x1796, 0x484b,
-// 0xbd,0xfa, 0xe7,0x4f,0x1d,0xb7,0xc1,0xdc)` — byte for byte the constant
-// below. It is duplicated rather than used because DEFINE_GUID only DECLARES
-// the symbol unless INITGUID is defined first, and defining INITGUID would
-// emit every GUID in every header this file pulls in.
+// CLSID_SpellCheckerFactory, written out (it matches mingw-w64's
+// spellcheck.h): DEFINE_GUID only declares the symbol without INITGUID, and
+// INITGUID would emit every GUID in every included header. The interface ids
+// come from the header through IID_PPV_ARGS.
 const CLSID kSpellCheckerFactoryClsid = {
     0x7ab36653, 0x1796, 0x484b,
     { 0xbd, 0xfa, 0xe7, 0x4f, 0x1d, 0xb7, 0xc1, 0xdc }
 };
 
-// Every call below happens on the thread that created the checker (the GUI
-// thread in the application, the probe's main thread in --spell-status):
-// ISpellChecker is apartment-threaded and is never handed to another thread.
-// The checks are per WORD and cached by SpellChecker, so nothing here is
-// long enough to move off the GUI thread.
+// ISpellChecker is apartment-threaded; it is only used on the thread that
+// created it. Per-word checks are cheap and cached by SpellChecker.
 class WindowsSpellBackend final : public SpellBackend
 {
 public:
@@ -124,31 +99,14 @@ public:
             CoUninitialize();
     }
 
-    // Returns false when this machine has no checker for any candidate tag,
-    // which is normal on a Windows install carrying no proofing language.
+    // False when no candidate tag has a checker, which is normal without an
+    // installed proofing language.
     bool open(const QStringList &tags, SpellBackendFailure *failure)
     {
-        // COM MUST BE INITIALISED ON THIS THREAD, and assuming somebody else
-        // did it is how the one command that proves this works would report
-        // that it does not.
-        //
-        // In the running application Qt's Windows platform plugin calls
-        // OleInitialize, so this is a no-op that returns S_FALSE. But
-        // `--spell-status` deliberately builds a bare QCoreApplication — no
-        // QPA plugin, no window — precisely so it can be run against any
-        // packaged artifact, and on that path nothing has initialised COM at
-        // all. Without this the diagnostic would answer "no spell checker" on
-        // a Windows machine whose spell checker works perfectly.
-        //
-        // The three outcomes are distinct and all three matter:
-        //   S_OK              we initialised it, so we must undo it;
-        //   S_FALSE           already initialised on this thread, and the
-        //                     reference count was still incremented, so we
-        //                     must undo it too;
-        //   RPC_E_CHANGED_MODE  already initialised with the other
-        //                     concurrency model. COM is usable; calling
-        //                     CoUninitialize here would decrement a count
-        //                     that is not ours.
+        // Initialise COM ourselves: in the app the QPA plugin already has
+        // (S_FALSE), but `--spell-status` runs under a bare QCoreApplication
+        // where nothing has. S_OK and S_FALSE both need a matching
+        // CoUninitialize; RPC_E_CHANGED_MODE (other apartment model) does not.
         const HRESULT comInit =
             CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         m_ownsComInit = SUCCEEDED(comInit);
@@ -190,8 +148,7 @@ public:
         if (FAILED(m_checker->Check(wide.c_str(), &errors)) || !errors)
             return true;
         ISpellingError *error = nullptr;
-        // One error anywhere in a single word is enough; the enumerator is
-        // released either way so a misspelling cannot leak an interface.
+        // One error is enough; release both interfaces either way.
         const bool wrong = (errors->Next(&error) == S_OK) && error != nullptr;
         if (error)
             error->Release();
@@ -227,9 +184,7 @@ public:
         if (!m_checker)
             return;
         const std::wstring wide = word.toStdWString();
-        // The USER'S Windows custom dictionary, which every other Windows
-        // application then honours. Nothing is installed or registered: this
-        // is the same list the user edits in Windows Settings.
+        // The user's Windows custom dictionary, shared with other apps.
         m_checker->Add(wide.c_str());
     }
 
@@ -294,9 +249,7 @@ std::unique_ptr<SpellBackend> createPlatformSpellBackend(
 
 namespace {
 
-// Only the entry points a composer needs. Resolved by NAME through QLibrary
-// rather than linked, so the build gains no dependency and a machine with no
-// enchant answers "unavailable" instead of failing to start.
+// Resolved at runtime through QLibrary, so enchant is not a build dependency.
 struct EnchantApi
 {
     using BrokerInit = void *(*)();
@@ -339,15 +292,13 @@ public:
             m_api.freeDict(m_broker, m_dict);
         if (m_broker && m_api.brokerFree)
             m_api.brokerFree(m_broker);
-        // The QLibrary is deliberately NOT unloaded: enchant's providers are
-        // themselves dlopened plugins, and tearing the broker's own loader
-        // out from under them at process exit buys nothing.
+        // The QLibrary is not unloaded: enchant's providers are dlopened
+        // plugins of their own.
     }
 
     bool open(const QStringList &tags, SpellBackendFailure *failure)
     {
-        // Both spellings, because a distribution may ship only the versioned
-        // soname (no -dev package, hence no bare .so symlink).
+        // Without a -dev package only the versioned soname exists.
         static const char *const kNames[] = {
             "libenchant-2.so.2",
             "libenchant-2.so",
@@ -413,9 +364,8 @@ public:
         if (!m_dict)
             return true;
         const QByteArray utf8 = word.toUtf8();
-        // 0 = in the dictionary, positive = not, negative = the provider
-        // failed. A failure is NOT a misspelling: an engine that cannot
-        // answer must not underline the user's whole message.
+        // 0 = correct, positive = misspelled, negative = provider error. An
+        // error is not a misspelling.
         return m_api.check(m_dict, utf8.constData(),
                            static_cast<ssize_t>(utf8.size())) <= 0;
     }
@@ -444,8 +394,7 @@ public:
         if (!m_dict)
             return;
         const QByteArray utf8 = word.toUtf8();
-        // enchant_dict_add writes the user's own ~/.config/enchant word list,
-        // which every other enchant application on the desktop then reads.
+        // Writes the user's ~/.config/enchant word list.
         m_api.add(m_dict, utf8.constData(),
                   static_cast<ssize_t>(utf8.size()));
     }
@@ -470,8 +419,7 @@ private:
     {
         if (!m_api.listDicts)
             return;
-        // Provider order, one entry per tag: hunspell and aspell both
-        // carrying en_US is one dictionary to the picker.
+        // Provider order, deduplicated by tag.
         m_api.listDicts(m_broker, &EnchantSpellBackend::describeDict,
                         &m_languages);
     }

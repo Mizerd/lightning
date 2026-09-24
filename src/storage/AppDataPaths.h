@@ -3,28 +3,22 @@
 #include <QString>
 #include <QStringList>
 
-// Central resolver for the on-disk roots Lightning keeps per-account data
-// under. Two callers must agree on this layout or things break subtly:
+// Resolver for the on-disk roots Lightning keeps per-account data under. Two
+// callers must agree on this layout:
 //
-//   1. RustSdkMatrixClient — creates
+//   1. RustSdkMatrixClient creates
 //      <primaryRoot>/<safeUserId>/matrix-rust-sdk-store/ for real logins.
-//   2. --reset-crypto-store (preflight in src/main.cpp) — deletes those
-//      store directories WITHOUT constructing QGuiApplication first.
+//   2. --reset-crypto-store (preflight in src/main.cpp) deletes those store
+//      directories before QGuiApplication exists.
 //
-// Because reset runs before Qt is up, we cannot call
-// `QStandardPaths::writableLocation(AppLocalDataLocation)` there. This
-// helper computes the same path Qt would return from the environment and
-// the compile-time OrganizationName / ApplicationName pair that `main.cpp`
-// sets on `QCoreApplication`. The base directory is resolved per platform:
+// Reset runs before Qt is up, so this computes the path QStandardPaths would
+// return from the environment and the OrganizationName/ApplicationName pair
+// main.cpp sets. Base directory by platform:
 //   - $XDG_DATA_HOME if set (any platform);
 //   - on Windows, %LOCALAPPDATA% (or %USERPROFILE%\AppData\Local);
 //   - otherwise $HOME/.local/share.
-// Reading only POSIX $HOME/$XDG_DATA_HOME (the pre-fix behaviour) returned
-// an empty base on native Windows, which refused every account cache path.
 //
-// The helper also lists LEGACY roots that earlier v0.5.0-prep+3 / +4
-// builds wrote to (before this fix). Reset scans those as well so a
-// migrated user gets everything cleaned up.
+// Legacy roots written by older builds are also listed so reset cleans them.
 namespace matrix::app_data {
 
 struct AccountIdentity {
@@ -32,14 +26,11 @@ struct AccountIdentity {
     QString userId;
     // Canonical identity slug: always safeUserSlug(userId).
     QString slug;
-    // Where this account's SDK store ACTUALLY lives. Normally identical to
-    // `slug`, but it is recorded per account at login rather than re-derived,
-    // because the two rules that used to derive it disagree:
-    // resolveAccountIdentity() keeps the localpart the user typed, while the
-    // homeserver answers a login with its own canonical user id (and, under
-    // .well-known delegation, its own server name). Recording the real
-    // location is what keeps restore, logout, reset and removal pointed at
-    // one directory instead of two. Empty means "same as slug".
+    // Where this account's SDK store actually lives, recorded at login rather
+    // than re-derived: the typed localpart and the server-canonical user id
+    // (and, under .well-known delegation, the server name) can yield different
+    // slugs. Restore, logout, reset and removal all use this one directory.
+    // Empty means "same as slug".
     QString storeSlug;
     QString accountRoot;
     QString rustStorePath;
@@ -58,10 +49,9 @@ struct RemovalSummary {
     int failed = 0;
 
     bool ok() const { return failed == 0; }
-    // "We actually removed something." ok() alone is NOT evidence of work:
-    // a target that never existed counts as `missing`, which keeps cleanup
-    // idempotent but must never be reported to the user as a completed
-    // reset (see resetLocalSession in RustSdkMatrixClient).
+    // True only when something was actually removed. A missing target counts as
+    // `missing` (idempotent), which must never be reported as a completed
+    // reset.
     bool removedAnything() const { return deleted > 0; }
 };
 
@@ -79,14 +69,10 @@ QString primaryRoot();
 // XDG_DATA_HOME, then (Windows only) LOCALAPPDATA / USERPROFILE\AppData\Local,
 // then HOME/.local/share, then empty.
 //
-// `portableRoot` is lightning::portable::dataRoot() at the one real call site.
-// It is passed IN rather than queried inside this function on purpose: the
-// function stays pure and hermetic, so the unit tests can exercise the
-// precedence without a marker file, an executable directory, or a process-wide
-// cached decision. It wins over every environment source because a portable
-// installation must not be steerable by an inherited XDG_DATA_HOME or
-// LOCALAPPDATA — a portable copy that silently follows an environment
-// variable back into AppData is the defect portability is fixing.
+// `portableRoot` (lightning::portable::dataRoot()) is passed in to keep this
+// function pure and testable. It wins over every environment variable: a
+// portable installation must not be steered back into AppData by an inherited
+// XDG_DATA_HOME or LOCALAPPDATA.
 QString resolveAppDataBase(bool windows,
                            const QString &xdgDataHome,
                            const QString &localAppData,
@@ -96,23 +82,16 @@ QString resolveAppDataBase(bool windows,
 
 // Pure: the full app-data root for a resolved base.
 //
-// Installed builds keep Qt's own AppLocalDataLocation layout
-// (<base>/MatrixClient/matrix-client) so that behaviour is byte-identical to
-// every release so far. A portable tree drops the two vendor/app segments —
-// inside <program dir>/data the directory is already unambiguously Lightning's,
-// and repeating the vendor name would just make the folder harder to read on a
-// USB stick. Returns empty for an empty base.
+// Installed builds keep Qt's AppLocalDataLocation layout
+// (<base>/MatrixClient/matrix-client). A portable tree omits the vendor/app
+// segments; <program dir>/data is already Lightning's. Empty for an empty
+// base.
 QString composeAppDataRoot(const QString &base, bool portable);
 
-// The cache root Lightning owns: <portable dataRoot>/cache when portable, and
-// QStandardPaths::writableLocation(CacheLocation) otherwise (byte-identical to
-// what callers used to compute themselves). Centralized here so no caller has
-// to know which mode it is in.
-//
-// This is only for caches LIGHTNING owns. It is NOT for user-facing locations
-// such as a Save-As default or the user's Documents folder — redirecting those
-// into the program folder would break the file dialogs, not improve
-// portability.
+// The cache root Lightning owns: <portable dataRoot>/cache when portable,
+// otherwise QStandardPaths::writableLocation(CacheLocation). Only for
+// Lightning's own caches, never for user-facing locations such as Save As
+// defaults.
 QString cacheRoot();
 
 // Safe per-account directory slug used under the app data roots. Returns an
@@ -134,49 +113,29 @@ QString accountRoot(const QString &userId);
 // <accountRoot>/<matrix-rust-sdk-store>. Matches RustSdkMatrixClient.
 QString rustSdkStorePath(const QString &userId);
 
-// <accountRoot(userId)>/starred-gifs — the client-local "star a chat GIF"
-// store's directory (see GifStarredStore). Centralized here, rather than
-// each caller concatenating the literal itself, because GifStarredStore's
-// caller (AppController, when opening the store on login) and the sign-out
-// / account-removal cleanup paths (AppController::onLoggedOut,
-// AppController::removeAccount) all need the EXACT same path: the same
-// literal typed independently in more than one place is a silent-divergence
-// risk — get it wrong in the cleanup path and account removal reports
-// success while decrypted GIF bytes survive on disk. Always derived from
-// the CANONICAL accountRoot(userId), never from a recorded/divergent store
-// slug — GifStarredStore never opens or deletes anywhere else.
+// <accountRoot(userId)>/starred-gifs, the GifStarredStore directory. The
+// opener and the sign-out/removal cleanup must use the exact same path, or
+// removal reports success while decrypted bytes survive. Always derived from
+// the canonical accountRoot(userId), never a recorded store slug.
 QString starredGifsDir(const QString &userId);
 
-// <accountRoot(userId)>/bridge-labels.json — the remembered MSC2346 network
-// badge per room (see BridgeLabelStore). Centralized here for the same reason
-// starredGifsDir is: the opener (AppController, on login) and the sign-out /
-// account-removal cleanup paths must all name ONE path, or removal reports
-// success while the file survives. Always derived from the CANONICAL
-// accountRoot(userId), never from a recorded/divergent store slug.
+// <accountRoot(userId)>/bridge-labels.json (BridgeLabelStore). One path for
+// the opener and the cleanup, for the same reason as starredGifsDir.
 QString bridgeLabelsFile(const QString &userId);
 
-// <primaryRoot()>/branding/custom-app-icon.png — the normalized copy of the
-// user-selected custom application icon (Settings -> Appearance). Device-
-// global, deliberately NOT account-scoped: the window icon is process-wide
-// state that applies before any account is restored. The file is always a
-// normalized 512x512 circular PNG produced by appicon::normalizeIconBytes —
-// never a reference to the arbitrary external file the user picked (which
-// may be renamed or deleted later).
+// <primaryRoot()>/branding/custom-app-icon.png. Device-global, not
+// account-scoped: the window icon applies before any account is restored.
+// Always the normalized 512x512 PNG from appicon::normalizeIconBytes, never a
+// reference to the user's original file.
 QString customAppIconFile();
 
-// Outcome of removing ONE already-resolved app-data directory (currently
-// only starredGifsDir()). A simpler tri-state than RemovalSummary (which
-// tallies several files/dirs at once): this always concerns exactly one
-// directory, and the caller must report "deleted" and "absent" as distinct
-// outcomes rather than folding a no-op into "success".
+// Outcome of removing one resolved app-data directory. "Deleted" and "absent"
+// must be reported as distinct outcomes.
 enum class DirRemoval { Deleted, Absent, Failed };
 
-// Remove `dir` if it exists. A pure filesystem operation on an
-// already-resolved, already-scoped path — this function never derives,
-// validates, or re-resolves an account identity itself; the caller is
-// responsible for only ever passing a path built from
-// matrix::app_data::accountRoot()/starredGifsDir(). A path that is itself a
-// symlink has the link removed, never followed/recursed through.
+// Removes `dir` if it exists. Never derives an identity; the caller passes a
+// path from accountRoot()/starredGifsDir(). A symlink is removed, never
+// followed.
 DirRemoval removeAppDataDir(const QString &dir);
 
 // Smoke-only MatrixSession sidecar used by LIGHTNING_TEST_PERSISTENT_STORE=1.
@@ -197,37 +156,24 @@ bool isSafeAccountIdentity(const AccountIdentity &identity);
 // count as successful/idempotent cleanup.
 RemovalSummary removeAccountRustState(const AccountIdentity &identity);
 
-// Account-local cleanup for a REPAIR: the SDK store is moved aside by
-// quarantineRustStore() rather than deleted, while the smoke-session sidecars
-// (which carry an access token, not key material) are removed outright.
+// Account cleanup for a repair: the SDK store is quarantined (moved aside)
+// rather than deleted, and the smoke-session sidecars (an access token, no
+// key material) are removed. A repair acts on the app's belief that a store is
+// unusable, which can be wrong, so it must be reversible; sign-out and account
+// removal use removeAccountRustState() and delete.
 //
-// This is the counterpart to removeAccountRustState(), and the difference is
-// intent. A repair acts on the app's BELIEF that a store is unusable or
-// foreign — a belief that has been wrong — so it must stay reversible. An
-// explicit sign-out or account removal acts on the user's stated intent that
-// the account be gone, where leaving Megolm and device keys on disk would be
-// a data-at-rest defect; that path keeps deleting.
-//
-// A successfully quarantined store counts as `deleted` (removed from
-// service), so removedAnything() still distinguishes real work from a no-op.
+// A quarantined store counts as `deleted`, so removedAnything() still
+// distinguishes work from a no-op.
 RemovalSummary quarantineAccountRustState(const AccountIdentity &identity);
 
-// Move an account's SDK store aside instead of deleting it, as
-// `<rustStorePath>.orphaned-<UTC timestamp>` in the same account directory.
-// Returns the new path, or empty when there was nothing to move or the
-// rename failed.
-//
-// Used where the app believes a store is unclaimed. That belief has been
-// wrong before — a store whose account record was keyed under a different
-// slug looked orphaned and was recursively deleted, taking Megolm keys that
-// existed nowhere else. A verdict that can be wrong must not be irreversible,
-// so the store is renamed (one atomic same-directory rename) and left for the
-// user to recover or remove.
+// Moves an account's SDK store aside as `<rustStorePath>.orphaned-<UTC
+// timestamp>` in the same directory (one atomic rename). Returns the new path,
+// or empty when there was nothing to move or the rename failed. Used where the
+// app believes a store is unclaimed; that verdict can be wrong, and the store
+// may hold the only copy of Megolm keys.
 QString quarantineRustStore(const AccountIdentity &identity);
 
-// Legacy roots that pre-fix builds may have created directories under.
-// Currently just the "no org prefix" variant that the old reset code
-// scanned. Never overlaps with `primaryRoot()`.
+// Legacy roots older builds may have used. Never overlaps primaryRoot().
 QStringList legacyRoots();
 
 // primaryRoot() followed by legacyRoots(), deduplicated. Empty strings
@@ -247,38 +193,24 @@ QStringList findRustStoresIn(const QString &root);
 // location, which is how a recording is dropped.
 bool bindStoreSlug(AccountIdentity *identity, const QString &storeSlug);
 
-// Account slugs under primaryRoot() that hold a real Rust SDK store and whose
-// name differs from `identity.slug` ONLY by ASCII case. This is the recovery
-// set for stores written by builds that derived the store path from the TYPED
-// login name while persisting the account record under the server-canonical
-// user id.
+// Account slugs under primaryRoot() holding a Rust SDK store whose name
+// differs from `identity.slug` only by ASCII case: stores from builds that
+// derived the path from the typed login name.
 //
-// The exact-case slug is never returned — this lists only the divergent
-// siblings. More than one entry means ownership is contestable and the caller
-// MUST refuse to adopt rather than guess which store belongs to the account.
-//
-// Adoption itself is performed by RECORDING the chosen slug (see
-// bindStoreSlug and SettingsManager::setStoreSlugFor), never by relocating a
-// directory: the store holds the user's only copy of their Megolm keys, and
-// the SDK's own account-ownership check is the authority on whether the
-// adoption was right.
+// The exact-case slug is never returned. More than one entry means ownership
+// is contested and the caller must refuse to adopt. Adoption records the slug
+// (bindStoreSlug, SettingsManager::setStoreSlugFor) and never moves the
+// directory; the SDK's ownership check decides whether it was right.
 QStringList findCaseVariantStoreSlugs(const AccountIdentity &identity);
 
-// The slug an older build would have produced for this account when the user
-// typed a BARE LOCALPART against a delegated homeserver.
+// The slug older builds produced when the user typed a bare localpart against
+// a delegated homeserver: "alice" at https://matrix.example.com gave
+// `alice_matrix.example.com` while the record is `@alice:example.com`.
+// findCaseVariantStoreSlugs() cannot see this.
 //
-// `resolveAccountIdentity` pairs a bare localpart with the homeserver URL's
-// host, but under .well-known delegation the server answers with its real
-// server name: typing "alice" at https://matrix.example.com yields the store
-// slug `alice_matrix.example.com` while the record is saved as
-// `@alice:example.com`. That divergence involves no casing at all, so
-// findCaseVariantStoreSlugs() cannot see it.
-//
-// This is an exact reconstruction of what the old code computed from
-// `identity.homeserver` — not a similarity heuristic. Returns empty when it
-// would equal the canonical slug (no delegation in play). The caller still
-// has to establish that the directory exists, that no other account claims
-// it, and that the SDK accepts it.
+// An exact reconstruction, not a heuristic. Empty when equal to the canonical
+// slug. The caller must still check the directory exists, is unclaimed and is
+// accepted by the SDK.
 QString delegatedHomeserverStoreSlug(const AccountIdentity &identity);
 
 } // namespace matrix::app_data

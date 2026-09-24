@@ -20,18 +20,15 @@
 
 class GifTransport;
 
-// v0.6.1: shared, provider-agnostic GIF search controller (exposed to QML as
-// app.gif). Owns request lifecycle, debounce, cancellation, stale-result
-// rejection, the result-grid model, pagination and the active-provider +
-// safe-search state — everything shared across providers. Provider-specific
-// concerns (endpoints, key injection, parsing, attribution) live in GifProvider.
+// Provider-agnostic GIF search controller (`app.gif`). Owns request lifecycle,
+// debounce, cancellation, stale-result rejection, the result model,
+// pagination, active provider and safe-search state. Endpoints, key
+// injection, parsing and attribution live in GifProvider.
 //
-// API keys resolve as: runtime override (LIGHTNING_GIPHY_API_KEY /
-// LIGHTNING_KLIPY_API_KEY) -> key compiled into an official release build ->
-// unconfigured. Keys are never logged or exposed to QML; a provider with no key
-// is reported as unconfigured (MissingKey) and its picker section is disabled,
-// while the rest of messaging is unaffected. See gif::resolveProviderKeyDetailed
-// (process environment > local env file > build key > unconfigured).
+// API keys resolve via gif::resolveProviderKeyDetailed (environment > local
+// env file > build key > unconfigured). Keys are never logged or exposed to
+// QML; a provider without a key reports MissingKey and its picker section is
+// disabled.
 class GifSearchController : public QObject
 {
     Q_OBJECT
@@ -40,13 +37,10 @@ class GifSearchController : public QObject
     Q_PROPERTY(GifResultModel *results READ results CONSTANT)
     Q_PROPERTY(GifFavoritesModel *favorites READ favorites CONSTANT)
     Q_PROPERTY(GifRecentModel *recent READ recent CONSTANT)
-    // v0.6.7: client-local saved chat GIFs (see GifStarredStore) — the byte
-    // store, its caps, account scoping and deletion guarantees.
+    // Client-local saved chat images (see GifStarredStore).
     Q_PROPERTY(GifStarredStore *starredStore READ starredStore CONSTANT)
-    // v0.6.7: the picker's single user-visible "Saved" list — a presentation
-    // merge of the two collections above (see GifSavedModel). The stores stay
-    // separate; only the view is unified, because a star now means exactly one
-    // thing everywhere.
+    // The picker's single "Saved" list, a view over both collections (see
+    // GifSavedModel).
     Q_PROPERTY(GifSavedModel *saved READ saved CONSTANT)
     Q_PROPERTY(bool available READ available NOTIFY availableChanged)
     Q_PROPERTY(QStringList providerIds READ providerIds CONSTANT)
@@ -81,10 +75,8 @@ public:
     // Test / settings seam: override the environment key for a provider.
     // Overridden providers are pinned — refreshProviderKeys() skips them.
     void setApiKey(const QString &providerId, const QString &key);
-    // Re-resolve provider keys through the configuration source of truth
-    // (environment > local env file > build key). Invoked when the picker
-    // opens, so availability never sticks at "off" because the controller
-    // was constructed before the environment was ready.
+    // Re-resolves provider keys (environment > local env file > build key).
+    // Called when the picker opens so availability does not stick at "off".
     Q_INVOKABLE void refreshProviderKeys();
     // Debounce window (ms). Exposed for deterministic tests.
     void setDebounceMs(int ms) { m_debounceMs = ms; }
@@ -95,12 +87,9 @@ public:
     GifStarredStore *starredStore() const { return m_starred.get(); }
     GifSavedModel *saved() const { return m_saved.get(); }
 
-    // Account-scoped open/close for the local-starred store, called by
-    // AppController on login/switch/logout. `accountDir` is already
-    // account-scoped and safety-validated (matrix::app_data::accountRoot());
-    // see GifStarredStore's header for why this class never derives one
-    // itself. Kept as plain C++ (not Q_INVOKABLE): only AppController calls
-    // these, from the account-lifecycle path, never from QML.
+    // Opens/closes the local saved store for an account-scoped, validated
+    // directory (matrix::app_data::accountRoot()). Called only by AppController
+    // from the account lifecycle.
     void openStarredStoreFor(const QString &accountDir)
     { m_starred->openFor(accountDir); }
     void closeStarredStore() { m_starred->close(); }
@@ -130,49 +119,32 @@ public:
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void reset();  // cancel + clear (picker closed / logout)
 
-    // Mutual exclusion between independently-visible pickers that share
-    // this one controller (the room composer and the thread panel each own
-    // their own GifPicker, both bound to app.gif). A picker calls this as
-    // it opens; every OTHER open picker is expected to close itself on
-    // pickerOpenRequested (see GifPicker.qml) before touching `results`,
-    // so only one picker ever mutates the shared browse state at a time.
+    // Mutual exclusion between pickers sharing this controller (composer and
+    // thread panel). The opening picker calls this; every other picker closes
+    // on pickerOpenRequested before touching `results`.
     Q_INVOKABLE void notifyPickerOpening(const QString &target);
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-    // Development-only: hand the picker a fixed catalogue of locally-bundled
-    // rows and report it as a ready, configured provider result.
-    //
-    // Screenshot-demo mode has no network, no provider key and a mock
-    // transport that answers available() == false, so the picker could only
-    // ever render "GIFs are unavailable on this backend" — the one surface in
-    // the app that could not be photographed. This seeds `results` directly
-    // and pins the reported state, so the real picker UI (tabs, tiles, source
-    // tags, size badges, save stars) renders against real local images.
-    //
-    // It cannot exist in a shipped binary: the whole member and every caller
-    // sit behind the same compile guard as ScreenshotDemoController, and
-    // lightning-matrix --build-info reports screenshot_demo_compiled: false for a
-    // release build. Nothing here relaxes a validation rule — the rows never
-    // reach the persisted collections (GifStoredModel still accepts https
-    // only), and no request is ever issued.
+    // Development only: seeds `results` with locally bundled rows and reports a
+    // ready provider, so the picker can be captured in screenshot-demo mode (no
+    // network or keys). Compiled only with the screenshot-demo guard;
+    // `--build-info` reports it absent in releases. Rows never reach the
+    // persisted collections and no request is issued.
     void seedDemoCatalogue(const QList<gif::GifResult> &rows);
     bool demoCatalogueActive() const { return m_demoCatalogue; }
 #endif
 
-    // Favorite the search/favorites/recent result described by `resultMap`
-    // (a GifResultModel role map). Returns the new favorite state. Refreshes
-    // the grids so the star updates without a rebuild.
+    // Toggles the favorite state of a result (GifResultModel role map) and
+    // returns it; grids refresh so the star updates.
     Q_INVOKABLE bool toggleFavorite(const QVariantMap &resultMap);
-    // Record a successful send handoff into Recents (Phase GIF-7 calls this).
+    // Records a successful send in Recents.
     Q_INVOKABLE void recordSent(const QVariantMap &resultMap);
 
 Q_SIGNALS:
-    // Provider key availability was re-resolved (labels and enabled states
-    // must re-read providerConfigured()).
+    // Keys were re-resolved; re-read providerConfigured().
     void providerConfigurationChanged();
-    // A picker identified by `target` ("room"/"thread") is opening. Any
-    // OTHER picker instance bound to this controller must close itself —
-    // see notifyPickerOpening().
+    // The picker for `target` ("room"/"thread") is opening; all others must
+    // close.
     void pickerOpenRequested(const QString &target);
     void availableChanged();
     void providerChanged();
@@ -184,8 +156,8 @@ Q_SIGNALS:
 private:
     void onFinished(quint64 opId, bool ok, int httpStatus,
                     const QByteArray &body, const QString &category);
-    // Run a request at `page`, appending when page>0. `trending` selects the
-    // trending endpoint; otherwise the search endpoint (also used by category).
+    // Runs a request at `page` (appending when page > 0). `trending` selects
+    // the trending endpoint, otherwise search (also used for categories).
     void runRequest(bool trending, const QString &query, int page,
                     bool appending);
     void setState(RequestState state);
@@ -199,9 +171,8 @@ private:
     std::unique_ptr<GifFavoritesModel> m_favorites;
     std::unique_ptr<GifRecentModel> m_recent;
     std::unique_ptr<GifStarredStore> m_starred;
-    // Declared after both of its sources: it attaches to m_starred's model and
-    // to m_favorites, so member DESTRUCTION order must tear it down first (and
-    // the constructor's init list must build it last).
+    // Declared after both sources so it is constructed last and destroyed
+    // first.
     std::unique_ptr<GifSavedModel> m_saved;
     GifTransport *m_transport = nullptr;
 
@@ -225,8 +196,7 @@ private:
     QString m_pendingQuery;
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-    // Screenshot-demo only: the picker reports Ready/configured/available off
-    // a seeded local catalogue instead of a provider it can never reach.
+    // Screenshot demo only: report ready from the seeded catalogue.
     bool m_demoCatalogue = false;
     QList<gif::GifResult> m_demoRows;
 #endif

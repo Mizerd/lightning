@@ -8,15 +8,12 @@ namespace lightning::urls {
 QProcessEnvironment childEnvironment()
 {
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    // Not in an AppImage: hand back the environment untouched, so a normal
-    // install behaves exactly as it always has.
+    // Not in an AppImage.
     if (!env.contains(QStringLiteral("APPDIR")))
         return env;
 
-    // Restore the loader path the user's session had. The hook saved it; an
-    // empty saved value means the session had none, in which case the variable
-    // must be REMOVED rather than set to "" — an empty LD_LIBRARY_PATH entry
-    // is read as the current directory.
+    // Restore the session's loader path, saved by the AppRun hook. Remove it
+    // rather than set "", which would mean the current directory.
     const QString original =
         env.value(QStringLiteral("APPIMAGE_ORIGINAL_LD_LIBRARY_PATH"));
     if (original.isEmpty())
@@ -24,23 +21,10 @@ QProcessEnvironment childEnvironment()
     else
         env.insert(QStringLiteral("LD_LIBRARY_PATH"), original);
 
-    // Everything else that points into the mount. These are set by the AppRun
-    // hook for Lightning's own GStreamer and PipeWire clients; a browser
-    // inheriting them would look for plugins in a directory that disappears
-    // when Lightning exits.
-    //
-    // The AppRun hook preserves the SESSION's own value of each one it
-    // overrides as APPIMAGE_ORIGINAL_<NAME>. Where that exists and is
-    // non-empty the child gets it back -- a host that set its own
-    // GST_PLUGIN_PATH_1_0 keeps its codecs -- and otherwise the variable is
-    // REMOVED, never set to "" (an empty path entry means the current
-    // directory to most of these loaders).
-    // BOTH SPELLINGS OF THE SCANNER. The AppRun hook exports the versioned
-    // GST_PLUGIN_SCANNER_1_0 as well as the plain one -- GStreamer reads the
-    // versioned name FIRST -- and a child that inherited only half of that
-    // would be pointed at a helper inside a mount that may already be gone.
-    // The hook's preserve list and this restore list are one contract in two
-    // files; changing either alone is the bug.
+    // Everything else the AppRun hook points into the mount. The hook saves the
+    // session's value as APPIMAGE_ORIGINAL_<NAME>; restore it, or remove the
+    // variable (never set ""). Both scanner spellings are needed: GStreamer
+    // reads the versioned one first. This list must match the hook's.
     for (const char *key : { "GST_PLUGIN_SYSTEM_PATH_1_0", "GST_PLUGIN_PATH_1_0",
                              "GST_PLUGIN_SCANNER_1_0", "GST_PLUGIN_SCANNER",
                              "GST_REGISTRY_1_0",
@@ -65,11 +49,9 @@ bool isOpenableExternally(const QUrl &url)
 {
     if (!url.isValid() || url.isEmpty())
         return false;
-    // The only things this process ever hands to the desktop are web links
-    // and mail links. Everything else -- file:, javascript:, data:, and the
-    // Windows protocol handlers that have been RCE vectors (ms-msdt:,
-    // search-ms:) -- is refused HERE, at the one exit to ShellExecute /
-    // xdg-open, rather than at whichever caller remembered to check.
+    // Only web and mail links. Everything else (file:, javascript:, data:, and
+    // Windows handlers that have been RCE vectors such as ms-msdt:) is refused
+    // here, at the single exit to ShellExecute / xdg-open.
     const QString scheme = url.scheme().toLower();
     if (scheme == QLatin1String("http") || scheme == QLatin1String("https"))
         return !url.host().isEmpty() && url.userInfo().isEmpty();
@@ -87,17 +69,14 @@ bool openExternally(const QUrl &url)
     if (!env.contains(QStringLiteral("APPDIR")))
         return QDesktopServices::openUrl(url);
 
-    // xdg-open rather than QDesktopServices, because only a QProcess lets the
-    // child's environment be set. QDesktopServices would pass this process's.
+    // Only a QProcess lets the child's environment be set.
     QProcess opener;
     opener.setProgram(QStringLiteral("xdg-open"));
     opener.setArguments({ url.toString(QUrl::FullyEncoded) });
     opener.setProcessEnvironment(env);
     if (opener.startDetached())
         return true;
-    // A host with no xdg-open at all: better a browser started in the wrong
-    // environment than no browser. It may still work, and it is what every
-    // previous release did.
+    // No xdg-open: a browser in the wrong environment beats no browser.
     return QDesktopServices::openUrl(url);
 }
 

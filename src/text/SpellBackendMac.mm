@@ -1,20 +1,10 @@
-// macOS: AppKit's own spell checker, behind SpellBackend. Objective-C++ so
-// the common C++ never sees an AppKit header; compiled only on Apple (see the
-// APPLE block beside LIGHTNING_SPELL_SOURCES in CMakeLists.txt).
+// macOS SpellBackend over NSSpellChecker: system dictionaries, learned words
+// and automatic language identification. Objective-C++ so the common C++
+// never sees an AppKit header; compiled only on Apple.
 //
-// Everything here is NSSpellChecker's: the system dictionaries, the user's
-// learned words (`learnWord:` is exactly what "Learn Spelling" does in every
-// other Mac application), the user's preferred spelling languages and the
-// automatic language identification. Nothing is bundled and nothing leaves
-// the machine.
+// Used only from the thread that created it (the GUI thread).
 //
-// Threading: NSSpellChecker is AppKit and is used from the thread that
-// created this backend — the GUI thread in the application. The checks are
-// per word and cached by SpellChecker, so no call here is long.
-//
-// HONESTY: written against the documented AppKit API and compiled on Apple
-// only. It has not been exercised on a macOS host by the round that wrote
-// it; the macOS packaging lane is where it first meets a compiler.
+// Written against the documented AppKit API; not yet exercised on macOS.
 
 #include "text/SpellBackend.h"
 
@@ -42,22 +32,18 @@ public:
             for (NSString *lang in [checker availableLanguages])
                 m_languages << spellTagToBcp47(fromNSString(lang));
             if (preferredLanguage.isEmpty()) {
-                // "Automatic": AppKit's own language identification, which
-                // follows the user's preferred spelling languages. The
-                // resolved label is the first preferred language, for the
-                // Settings detail line.
+                // Automatic: AppKit identifies the language. Report the first
+                // preferred language as the resolved one.
                 m_automatic = true;
                 NSArray<NSString *> *preferred = [checker userPreferredLanguages];
                 m_language = preferred.count > 0
                     ? spellTagToBcp47(fromNSString(preferred.firstObject))
                     : QString();
             } else {
-                // An explicit choice must be one AppKit can check; anything
-                // else is "no dictionary", never a silent fallback. The
-                // EXACT tag is searched across the whole list first — a
-                // picker value always came from this list, so it matches —
-                // and only a tag the picker never offered (a hand-edited
-                // setting such as "en-XX") may fall back to its language.
+                // An explicit choice must be checkable, or it is "no
+                // dictionary". Exact tag first; only a tag the picker never
+                // offered (e.g. a hand-edited "en-XX") falls back to its
+                // language.
                 const QString posix = spellTagToPosix(preferredLanguage);
                 const QString bcp47 = spellTagToBcp47(preferredLanguage);
                 const QString languageOnly = bcp47.section(QLatin1Char('-'), 0, 0);

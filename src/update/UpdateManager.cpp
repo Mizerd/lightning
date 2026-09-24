@@ -41,23 +41,16 @@ constexpr char kSettingAutomaticChecks[] = "update/automaticChecks";
 constexpr char kSettingLastCheck[] = "update/lastCheckTime";
 constexpr char kSettingDismissedVersion[] = "update/dismissedVersion";
 
-// Whether THIS BUILD installs pre-releases. It never does: an installation
-// has no channel of its own, so the decision cannot be left to the manifest.
-// The previous rule ("the stable channel never offers a prerelease") read the
-// manifest's self-declared `channel` and so was bypassed by any manifest that
-// simply called itself something else -- an operator mistake, not an attack,
-// since the document is signed either way, but a guard that the guarded
-// document can switch off is not a guard.
+// This build never installs pre-releases. The decision is not left to the
+// manifest's self-declared `channel`, which the guarded document could change.
 constexpr bool kOffersPrereleases = false;
 
-// The status token both the helper (src/updater/main.cpp) and the
-// application write when the staged file no longer hashes to the signed
-// manifest's value. One spelling, so the next launch reads it the same way
-// whichever side refused.
+// Status written by both the helper and the application when the staged file
+// no longer matches the signed digest; one spelling for both.
 constexpr char kDigestMismatchStatus[] = "artifact-digest-mismatch";
 
-// The temp name a download streams into. The verified bytes are renamed to
-// the manifest's own filename before the helper ever sees them.
+// Downloads stream here; verified bytes are renamed to the manifest's filename
+// before the helper sees them.
 constexpr char kPartialArtifactTemplate[] = "lightning-update-XXXXXX.part";
 
 constexpr char kStatusFileName[] = "update-status.json";
@@ -67,9 +60,8 @@ constexpr char kLockFileName[] = "update.lock";
 constexpr char kSourceMirror[] = "mirror";
 constexpr char kSourceCanonical[] = "canonical";
 
-// The helper writes only enum-derived tokens here, but this string is shown
-// to a user, so it is bounded and stripped of anything that could rewrite a
-// line of UI. No path, token or command can be in it in the first place.
+// Shown to the user, so bounded and stripped of control characters even
+// though the helper writes only enum-derived tokens.
 QString sanitizedStatusToken(const QJsonValue &value)
 {
     if (!value.isString())
@@ -99,31 +91,23 @@ UpdateManager::UpdateManager(QObject *parent)
     m_processStart = QDateTime::currentDateTimeUtc();
 
     m_automaticChecksEnabled =
-        // v0.7.3: ON by default (maintainer decision). An installation that
-        // never learns a newer version exists is the worse outcome, and the
-        // check itself remains anonymous — see the copy in
-        // UpdatesSettingsSection.qml, README and docs/updates.md, all of
-        // which state this default and must be changed together with it.
+        // On by default; the check is anonymous. UpdatesSettingsSection.qml,
+        // README and docs/updates.md state this default and must change with
+        // it.
         m_settings.value(QLatin1String(kSettingAutomaticChecks), true).toBool();
     m_lastCheckTime = m_settings.value(QLatin1String(kSettingLastCheck)).toDateTime();
     m_dismissedVersion = m_settings.value(QLatin1String(kSettingDismissedVersion)).toString();
 
     m_launcher = [](const QString &program, const QStringList &args) {
-        // Argument VECTOR only. No shell, no command string, no
-        // interpolation of anything that came off the network.
-        //
-        // And the WORKING DIRECTORY is the helper's own, never inherited.
-        // On Windows the loader searches the working directory, so a staged
-        // helper that inherited Lightning's -- which is the installation --
-        // would map a missing library out of the very directory the
-        // installer is about to rewrite, silently undoing the staging.
+        // Argument vector only, no shell. The working directory is the helper's
+        // own: on Windows the loader searches it, and inheriting the
+        // installation directory would load libraries from the tree being
+        // replaced.
         return QProcess::startDetached(program, args,
                                        QFileInfo(program).absolutePath());
     };
 
-    // updateAvailableWarning is derived from three separate pieces of state;
-    // deriving the NOTIFY from their own signals means no future assignment
-    // can forget to raise it.
+    // Derived from three pieces of state; raise the NOTIFY from their signals.
     connect(this, &UpdateManager::stateChanged,
             this, &UpdateManager::updateAvailableWarningChanged);
     connect(this, &UpdateManager::dismissedVersionChanged,
@@ -131,8 +115,7 @@ UpdateManager::UpdateManager(QObject *parent)
     connect(this, &UpdateManager::updateInfoChanged,
             this, &UpdateManager::updateAvailableWarningChanged);
 
-    // The previous run may have handed an artifact to the helper and quit.
-    // Its outcome is a file on disk and nothing else reads it.
+    // A previous run may have handed off to the helper; read its outcome.
     initializeStagingState();
 }
 
@@ -143,9 +126,7 @@ UpdateManager::~UpdateManager()
 
 bool UpdateManager::updateAvailableWarning() const
 {
-    // The existing updateAvailable fact, minus the versions the user has
-    // already answered for. ReadyToInstall still counts — verified bytes
-    // waiting to be installed are still something being asked of them.
+    // updateAvailable minus versions the user dismissed. ReadyToInstall counts.
     if (m_state != UpdateAvailable && m_state != ReadyToInstall)
         return false;
     if (m_latestVersion.isEmpty())
@@ -160,10 +141,8 @@ QDateTime UpdateManager::now() const
 
 QByteArray UpdateManager::userAgent() const
 {
-    // Deliberately version-only: "Lightning/<version>", byte for byte the
-    // same string rust/src/lib.rs USER_AGENT and CppHttpMatrixClient already
-    // send. No platform, architecture, build id or locale token is added —
-    // an update check must not be more identifying than ordinary traffic.
+    // Version-only, identical to the Matrix clients' user agent: an update
+    // check must not be more identifying than ordinary traffic.
     return QByteArrayLiteral("Lightning/") + m_currentVersion.toLatin1();
 }
 
@@ -260,8 +239,7 @@ void UpdateManager::setCurrentVersionForTest(const QString &version)
 void UpdateManager::setStagingRootForTest(const QString &path)
 {
     m_stagingRootOverride = path;
-    // The constructor already ran against the real cache location; re-run the
-    // startup work so the override is what actually gets read and swept.
+    // Re-run startup work so the override is what gets read and swept.
     initializeStagingState();
 }
 
@@ -300,11 +278,8 @@ void UpdateManager::setStagedArtifactForTest(const QString &path)
 {
     m_stagedFile.reset();
     m_stagedPath = path;
-    // Mirror the real verified-download path exactly: once the bytes are
-    // trusted they are promoted to the manifest's filename. With no manifest
-    // artifact, or no file on disk, there is nothing to promote and the path
-    // is used as given (the install path then fails on its own existence
-    // check, which is the behaviour under test elsewhere).
+    // Mirror the real path: promote verified bytes to the manifest's filename
+    // when there is a manifest artifact and a file.
     if (m_artifact && QFileInfo::exists(path)) {
         QString error;
         if (!promoteStagedArtifact(&error)) {
@@ -312,11 +287,8 @@ void UpdateManager::setStagedArtifactForTest(const QString &path)
             return;
         }
     }
-    // The seam DECLARES these bytes verified, so the digest recorded is the
-    // file's own as of this moment (a fixture manifest carries a placeholder
-    // hash). The re-check before every launch then guards the seam exactly
-    // as it guards a real download: change the bytes afterwards and the
-    // install refuses.
+    // The seam declares the bytes verified, so record their current digest; the
+    // pre-launch re-check then guards the seam like a real download.
     m_stagedSha256 = updater::sha256HexOfFile(m_stagedPath);
     setState(ReadyToInstall);
 }
@@ -346,8 +318,7 @@ void UpdateManager::startCheck(bool automatic)
     if (isBusy())
         return;
 
-    // A new check invalidates the previous download's provenance; leaving it
-    // set would attribute the old bytes to whatever this check finds.
+    // A new check invalidates the previous download's provenance.
     setArtifactSource({});
     setErrorMessage({});
     setStatusDetail({});
@@ -401,11 +372,9 @@ void UpdateManager::fetchSignature()
 
 bool UpdateManager::retryMetadataFromMirror()
 {
-    // One fallback attempt, and only away from the canonical host. The
-    // signature is still verified against the compiled-in key, and the
-    // installed-version comparison still refuses anything not strictly
-    // newer, so this can only ever restore availability — see
-    // UpdateEndpoints.h for why that is the whole of the exposure.
+    // One fallback attempt away from the canonical host. The signature is still
+    // verified against the compiled-in key and only strictly newer versions are
+    // accepted, so this can only restore availability (see UpdateEndpoints.h).
     if (m_metadataFromMirror)
         return false;
     if (mirrorLatestManifestUrl().isEmpty()
@@ -427,11 +396,9 @@ void UpdateManager::fetchManifest()
                 if (m_state != Checking)
                     return;
                 if (!ok) {
-                    // Restart the PAIR from the mirror rather than mixing a
-                    // canonical signature with a mirrored manifest: the two
-                    // must describe the same release, and a signature that
-                    // does not match its manifest is a hard failure that
-                    // would read as tampering rather than an outage.
+                    // Restart the pair from the mirror: a canonical signature
+                    // over a mirrored manifest would fail as tampering rather
+                    // than read as an outage.
                     if (retryMetadataFromMirror())
                         return;
                     failWith(message);
@@ -467,17 +434,14 @@ void UpdateManager::applyCheckDocuments(const QByteArray &manifestBytes,
     m_artifact.reset();
     m_manifest = UpdateManifest();
 
-    // Signature over the raw bytes happens inside parseVerified, before any
-    // field of the document is trusted. There is no other way in.
+    // parseVerified checks the signature over the raw bytes before any field is
+    // trusted.
     const UpdateManifest::Result result =
         UpdateManifest::parseVerified(manifestBytes, sigBytes, *m_trust);
     if (!result.ok) {
-        // A canonical answer that does not VERIFY is, for this purpose, no
-        // answer: a lapsed-and-reregistered domain or a hijacking proxy
-        // returns 200 with the wrong bytes, and "unreachable" alone would
-        // leave the working mirror copy unread. One retry, once per check,
-        // and the mirror pair is held to this identical verification; a
-        // mirror answer that fails is the end of the road.
+        // A canonical answer that does not verify counts as no answer (a
+        // hijacked domain or proxy returns 200 with wrong bytes). Retry the
+        // mirror once; it is held to the same verification.
         if (retryMetadataFromMirror())
             return;
         Q_EMIT updateInfoChanged();
@@ -495,19 +459,10 @@ void UpdateManager::applyCheckDocuments(const QByteArray &manifestBytes,
 
     m_manifest = result.manifest;
 
-    // FRESHNESS is INFORMATION, never a lock. The signature proves the
-    // release authority produced this document; it cannot prove it is the
-    // CURRENT one, and a stale pair replayed to a client keeps it on an old
-    // release. That was, for one day, a failure past the signed `expires`.
-    // It is not any more, at the maintainer's direction: an installation
-    // must keep working -- and keep updating from the GitHub mirror -- if
-    // his servers lose power or vanish for good, with no action from him or
-    // from GitLab, and a date that turned into a failure would strand every
-    // client at exactly that moment. So past the expiry the decision below
-    // is made exactly as before, and a status line says the information was
-    // expected to be refreshed by then and the project may be offline. What
-    // a replay can never do is install anything the signing key did not
-    // sign, or downgrade anyone.
+    // Freshness is informational, never a lock: installations must keep
+    // updating from the mirror even if the project's servers disappear. Past
+    // `expires` the decision is unchanged and a status line notes the
+    // staleness. A replay can never install unsigned bytes or downgrade.
     decideFromManifest(*installed);
     const bool expired = m_manifest.expires().isValid() && m_manifest.expires() <= now();
     if ((expired || m_manifest.expiresMalformed()) && m_state != Failed) {
@@ -528,8 +483,6 @@ void UpdateManager::decideFromManifest(const Version &installed)
 {
     const Version &remote = m_manifest.version();
 
-    // This build never installs a pre-release, whatever the manifest calls
-    // its channel (see kOffersPrereleases).
     if (remote.isPrerelease() && !kOffersPrereleases) {
         setStatusDetail(QStringLiteral("A pre-release (%1) is published; this installation "
                                        "only installs releases.")
@@ -554,8 +507,8 @@ void UpdateManager::decideFromManifest(const Version &installed)
     m_releaseNotes = m_manifest.releaseNotes();
     m_releaseNotesUrl = m_manifest.releaseNotesUrl();
 
-    // Ecosystem-managed installs: only the channel block may say an update
-    // is actionable, and only when it is genuinely newer.
+    // Package-managed installs: only the channel block may declare an update,
+    // and only when it is genuinely newer.
     if (isPackageManaged(m_detection.type)) {
         const QString channelId = UpdateManifest::channelIdForInstallType(m_detection.type);
         if (!m_manifest.channelOffersUpdate(channelId, installed)) {
@@ -605,8 +558,7 @@ QNetworkAccessManager *UpdateManager::network()
 {
     if (!m_network) {
         auto *manager = new QNetworkAccessManager(this);
-        // No cookie jar contents survive, no disk cache, no redirects
-        // followed automatically (each hop is validated by the transfer).
+        // No automatic redirects; each hop is validated by the transfer.
         manager->setAutoDeleteReplies(false);
         manager->setRedirectPolicy(QNetworkRequest::ManualRedirectPolicy);
         m_network = manager;
@@ -618,17 +570,16 @@ QString UpdateManager::stagingRoot() const
 {
     if (!m_stagingRootOverride.isEmpty())
         return m_stagingRootOverride;
-    // Lightning-OWNED staging area — see materializedIconPath() in
-    // NotificationManager for the same reasoning. A portable copy stages its
-    // downloaded update inside its own folder, never in %LOCALAPPDATA%.
+    // Lightning-owned staging area. A portable copy stages inside its own
+    // folder.
     const QString base = matrix::app_data::cacheRoot();
     return base + QStringLiteral("/updates");
 }
 
 QString UpdateManager::statusFilePath() const
 {
-    // Non-account-scoped and free of anything sensitive by construction: the
-    // helper writes four fields, all derived from its own enums.
+    // Not account-scoped and free of sensitive data: the helper writes four
+    // enum-derived fields.
     return QDir(stagingRoot()).absoluteFilePath(QLatin1String(kStatusFileName));
 }
 
@@ -658,9 +609,7 @@ void UpdateManager::consumeUpdateStatusFile()
             if (parseError.error == QJsonParseError::NoError && document.isObject()) {
                 const QJsonObject object = document.object();
                 const QJsonValue okValue = object.value(QLatin1String("ok"));
-                // "ok" must be a real boolean. A missing or oddly typed field
-                // is not read as success, and is not read as failure either —
-                // it is simply no result.
+                // "ok" must be a real boolean; anything else is no result.
                 if (okValue.isBool()) {
                     result = okValue.toBool() ? InstallSucceeded : InstallFailed;
                     mode = sanitizedStatusToken(object.value(QLatin1String("mode")));
@@ -670,9 +619,7 @@ void UpdateManager::consumeUpdateStatusFile()
         }
     }
 
-    // Read once, then gone — including when it was garbage. A file that
-    // cannot be parsed must not be re-examined on every subsequent launch,
-    // and a real outcome must never be reported twice.
+    // Read once, then removed, even when unparseable.
     QFile::remove(path);
 
     if (result == NoResult)
@@ -703,21 +650,16 @@ void UpdateManager::sweepStaleStagedArtifacts()
     if (!dir.exists())
         return;
 
-    // Only sweep when no other Lightning is using this directory. Another
-    // instance may be holding a verified artifact, or part-way through a
-    // download, that is older than the staleness cutoff; deleting it would
-    // make its install fail. Probe the same lock the download path takes, and
-    // simply skip the sweep if it is held — a deferred clean-up costs nothing.
+    // Skip the sweep while another instance holds the staging lock: it may own
+    // an older verified artifact or an in-flight download.
     {
         QLockFile probe(QDir(root).absoluteFilePath(QLatin1String(kLockFileName)));
         probe.setStaleLockTime(60 * 60 * 1000);
         if (probe.tryLock(0)) {
             probe.unlock();
         } else {
-            // Defer ONLY to a lock we can attribute to a different live
-            // process. An unreadable or leftover lock file must not disable
-            // clean-up forever -- and the artifact this process is using is
-            // excluded by name below regardless.
+            // Defer only to a lock held by a different live process; a leftover
+            // lock must not disable cleanup forever.
             qint64 pid = 0;
             QString host;
             QString application;
@@ -728,16 +670,10 @@ void UpdateManager::sweepStaleStagedArtifacts()
         }
     }
 
-    // The staging root belongs exclusively to this class: it holds the
-    // single-instance lock, the helper's status file, the in-flight ".part"
-    // download and the promoted package. Anything else in it is a leftover
-    // from a run that verified an artifact and then never installed it —
-    // potentially a hundred megabytes sitting in the cache forever.
-    //
-    // Bounded and non-recursive by construction: entryInfoList lists this ONE
-    // directory, directories and symlinks are excluded, the lock and status
-    // files are excluded by name, at most kMaxSweepEntries entries are
-    // considered, and nothing outside the root is reachable from here.
+    // The staging root belongs to this class; anything but the lock, the status
+    // file, the in-flight ".part" and the promoted package is a leftover.
+    // Bounded and non-recursive: one directory, no symlinks or subdirectories,
+    // at most kMaxSweepEntries entries.
     const QFileInfoList entries =
         dir.entryInfoList(QDir::Files | QDir::NoSymLinks | QDir::NoDotAndDotDot,
                           QDir::Time);
@@ -769,13 +705,11 @@ bool UpdateManager::promoteStagedArtifact(QString *error)
     if (!m_artifact)
         return true; // nothing declares a name; leave the file where it is
 
-    // The digest the file must still carry at every later hand-over. It
-    // comes from the SIGNED manifest, never from the file.
+    // The digest comes from the signed manifest, never from the file.
     m_stagedSha256 = m_artifact->sha256;
 
     const QString filename = m_artifact->filename;
-    // Re-validate rather than trust the parse: this name is about to become a
-    // filesystem path and an argv element handed to a package manager.
+    // Re-validate: this name becomes a path and a package-manager argument.
     if (!isSafeArtifactFilename(filename)) {
         *error = QStringLiteral("The update information named a file that cannot be used.");
         return false;
@@ -783,9 +717,8 @@ bool UpdateManager::promoteStagedArtifact(QString *error)
 
     const QDir root(stagingRoot());
     const QString target = root.absoluteFilePath(filename);
-    // isSafeArtifactFilename already refuses separators and "..", so this can
-    // only fail if something upstream changed; check anyway, because the
-    // consequence would be a write outside the staging root.
+    // Redundant with isSafeArtifactFilename, but a failure here would write
+    // outside the staging root.
     if (QDir::cleanPath(QFileInfo(target).absolutePath())
         != QDir::cleanPath(root.absolutePath())) {
         *error = QStringLiteral("The update information named a file that cannot be used.");
@@ -794,8 +727,7 @@ bool UpdateManager::promoteStagedArtifact(QString *error)
     if (target == m_stagedPath)
         return true;
 
-    // The QTemporaryFile object must let go before the rename; it was created
-    // with setAutoRemove(false), so releasing it deletes nothing.
+    // Release the QTemporaryFile before renaming (autoRemove is off).
     if (m_stagedFile) {
         m_stagedFile->close();
         m_stagedFile.reset();
@@ -803,7 +735,7 @@ bool UpdateManager::promoteStagedArtifact(QString *error)
 
     const QFileInfo existing(target);
     if (existing.exists() || existing.isSymLink()) {
-        // A leftover from an earlier run inside our own staging directory.
+        // A leftover from an earlier run.
         if (!QFile::remove(target)) {
             *error = QStringLiteral("The verified update file could not be prepared for "
                                     "installation.");
@@ -829,10 +761,7 @@ bool UpdateManager::acquireLock()
     QDir dir;
     if (!dir.mkpath(stagingRoot()))
         return false;
-    // Owner-only. Nothing in here is writable by another user either way
-    // (the artifact and the partial file are 0600), but the promoted name
-    // discloses which version is staged, and the directory is the one
-    // predictable path in the whole hand-over.
+    // Owner-only: the promoted name discloses the staged version.
     QFile::setPermissions(stagingRoot(),
                           QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
     auto lock = std::make_unique<QLockFile>(
@@ -875,8 +804,8 @@ bool UpdateManager::stagedArtifactStillVerifies() const
 
 void UpdateManager::writeLocalStatusFailure(const QString &error)
 {
-    // The exact shape src/updater/main.cpp writeStatus() produces, so the
-    // next launch consumes it through the same reader.
+    // Same shape as src/updater/main.cpp writeStatus(), so the next launch
+    // reads it the same way.
     QJsonObject object;
     object.insert(QStringLiteral("ok"), false);
     object.insert(QStringLiteral("mode"), installTypeString());
@@ -914,9 +843,8 @@ void UpdateManager::downloadUpdate()
     m_fallbackPending = false;
     setArtifactSource({});
 
-    // Wired ONCE per download rather than once per attempt: the canonical
-    // fallback restarts this same downloader, and re-connecting it from
-    // inside its own finished() emission is a subtlety worth not having.
+    // Connected once per download: the canonical fallback restarts this same
+    // downloader, and reconnecting from inside finished() is best avoided.
     if (!m_downloader)
         m_downloader = new UpdateDownloader(network(), this);
     disconnect(m_downloader, nullptr, this, nullptr);
@@ -930,10 +858,9 @@ void UpdateManager::downloadUpdate()
     connect(m_downloader, &UpdateDownloader::finished, this,
             &UpdateManager::handleDownloadFinished);
 
-    // MIRROR FIRST when the signed manifest names one. The mirror is only a
-    // faster place to get bytes the manifest has already named, sized and
-    // hashed: it decides nothing, and it is verified against exactly the same
-    // sha256 as the canonical address.
+    // Mirror first when the signed manifest names one. It only supplies bytes
+    // the manifest already named, sized and hashed, verified against the same
+    // sha256.
     beginDownloadAttempt(m_artifact->mirrorUrl.isEmpty() ? ArtifactSource::Canonical
                                                          : ArtifactSource::Mirror);
 }
@@ -945,23 +872,17 @@ void UpdateManager::beginDownloadAttempt(ArtifactSource source)
 
     m_attemptSource = source;
     m_fallbackPending = false;
-    // An install armed for quit named the file this attempt is about to
-    // delete. Left armed, the quit would start the helper against a path
-    // that no longer exists and report a failure for an install the user had
-    // already superseded.
+    // A deferred install names the file this attempt is about to delete.
     m_deferredInstallPending = false;
 
-    // Nothing from a previous attempt survives into this one. The partial
-    // file is removed BEFORE a byte of the next source is written, so a
-    // failed mirror attempt leaves nothing behind and certainly cannot
-    // contribute bytes to the file that eventually gets installed.
+    // Remove the previous partial file before writing, so a failed mirror
+    // attempt can never contribute bytes to what gets installed.
     discardStagedArtifact();
 
     auto file = std::make_unique<QTemporaryFile>(
         QDir(stagingRoot()).absoluteFilePath(QLatin1String(kPartialArtifactTemplate)));
-    // QTemporaryFile creates with 0600 and an unpredictable name; the file
-    // must survive this scope, so auto-removal is disabled explicitly and
-    // every failure path removes it by hand.
+    // 0600 with an unpredictable name. Auto-removal is off because the file
+    // must outlive this scope; failure paths remove it by hand.
     file->setAutoRemove(false);
     if (!file->open()) {
         releaseLock();
@@ -972,8 +893,7 @@ void UpdateManager::beginDownloadAttempt(ArtifactSource source)
     m_stagedPath = file->fileName();
     m_stagedFile = std::move(file);
 
-    // Progress restarts from zero. A fallback must not double-count what the
-    // failed attempt already reported.
+    // Restart progress so a fallback does not double-count.
     m_downloadedBytes = 0;
     m_totalBytes = m_artifact->size;
     Q_EMIT downloadProgressChanged();
@@ -983,8 +903,8 @@ void UpdateManager::beginDownloadAttempt(ArtifactSource source)
 
     setState(Downloading);
     if (m_artifactByteSource) {
-        // Test seam. Same downloader, same file, same size and SHA-256
-        // enforcement — only the transport is absent.
+        // Test seam: same downloader, file, size and SHA-256 checks; no
+        // transport.
         m_downloader->deliverForTest(url, m_artifact->size, m_artifact->sha256,
                                      m_stagedFile.get(), m_artifactByteSource(url));
         return;
@@ -999,9 +919,8 @@ void UpdateManager::handleDownloadFinished(bool ok, TransferError error, const Q
         return;
 
     if (!ok) {
-        // Every failure — including a hash mismatch — deletes the bytes.
-        // There is no "install anyway" path, and there is no path that
-        // installs bytes one source produced and another verified.
+        // Every failure, including a hash mismatch, deletes the bytes. There is
+        // no "install anyway" path.
         discardStagedArtifact();
 
         if (error == TransferError::Cancelled) {
@@ -1014,13 +933,10 @@ void UpdateManager::handleDownloadFinished(bool ok, TransferError error, const Q
         }
 
         if (m_attemptSource == ArtifactSource::Mirror) {
-            // ONE retry, at the canonical address, verified against the same
-            // sha256 — a mirror failure never relaxes anything. There is no
-            // third attempt and the mirror is never retried afterwards.
-            //
-            // Queued, not immediate: restarting the downloader from inside
-            // its own finished() emission would re-enter a frame that is
-            // still unwinding. The lock is deliberately KEPT across the gap.
+            // One retry at the canonical address with the same sha256; never a
+            // third attempt. Queued so the downloader is not restarted from
+            // inside its own finished() emission. The lock is kept across the
+            // gap.
             m_mirrorFallbackUsed = true;
             m_fallbackPending = true;
             setStatusDetail(QStringLiteral(
@@ -1043,8 +959,7 @@ void UpdateManager::handleDownloadFinished(bool ok, TransferError error, const Q
     }
 
     setState(Verifying);
-    // The downloader verified size and SHA-256 while streaming; this
-    // re-checks what actually landed on disk.
+    // The downloader verified while streaming; re-check what landed on disk.
     if (m_stagedFile)
         m_stagedFile->close();
     const QFileInfo info(m_stagedPath);
@@ -1055,12 +970,9 @@ void UpdateManager::handleDownloadFinished(bool ok, TransferError error, const Q
         failWith(QStringLiteral("The downloaded file did not survive verification."));
         return;
     }
-    // Only NOW, with the bytes verified, does the file take the manifest's
-    // own name. It is downloaded under an unpredictable "*.part" name, and it
-    // is renamed inside the same staging directory, so nothing is exposed by
-    // the predictable name that was not already there — but the extension is
-    // what makes apt-get/dnf/msiexec treat the argument as a local package at
-    // all.
+    // Only now, verified, does the file take the manifest's name (renamed
+    // within the staging directory). The extension is what makes
+    // apt-get/dnf/msiexec treat the argument as a local package.
     QString promoteError;
     if (!promoteStagedArtifact(&promoteError)) {
         discardStagedArtifact();
@@ -1072,8 +984,7 @@ void UpdateManager::handleDownloadFinished(bool ok, TransferError error, const Q
     setArtifactSource(m_attemptSource == ArtifactSource::Mirror
                           ? QString::fromLatin1(kSourceMirror)
                           : QString::fromLatin1(kSourceCanonical));
-    // A mirror that keeps failing should be visible rather than silent, so
-    // the fallback is disclosed even though the update itself succeeded.
+    // Disclose a mirror fallback even when the update succeeded.
     setStatusDetail(m_mirrorFallbackUsed
                         ? QStringLiteral("The mirror copy could not be used, so this update "
                                          "was downloaded from the canonical source.")
@@ -1086,9 +997,8 @@ void UpdateManager::cancelDownload()
     if (m_state != Downloading)
         return;
     if (m_fallbackPending) {
-        // Cancelled in the window between a failed mirror attempt and the
-        // queued canonical retry. There is no live transfer to cancel here,
-        // so this path has to do it, or the fallback would start anyway.
+        // Cancelled between a failed mirror attempt and the queued canonical
+        // retry; no live transfer exists, so stop the fallback here.
         m_fallbackPending = false;
         discardStagedArtifact();
         releaseLock();
@@ -1117,28 +1027,17 @@ QString UpdateManager::helperProgramPath() const
 
 QString UpdateManager::explainInstallError(const QString &token)
 {
-    // WHAT THIS IS FOR. The helper reports failures as a short enum token so
-    // that nothing from a path, a command line or process output can reach
-    // the UI. That property is worth keeping, but the token was ALSO the
-    // whole message: a user whose update was blocked saw "The last update
-    // could not be installed (refused-unsafe-path)" and reported an unknown
-    // error, which is exactly what it is to anyone who has not read the
-    // updater's source. So the token stays the machine-readable fact and
-    // this supplies the sentence.
-    //
-    // Grouped by what the person should DO, not by where the token is raised.
-    // A token with no entry returns empty and the caller keeps its generic
-    // wording rather than guessing.
+    // The helper reports failures as enum tokens so no path, command line or
+    // process output reaches the UI. This maps each token to a sentence,
+    // grouped by what the user should do. Unknown tokens return empty and the
+    // caller keeps its generic wording.
     const QString key = token.trimmed().toLower();
     if (key.isEmpty())
         return QString();
 
-    // A per-machine ("for all users") installation, and Windows was not given
-    // administrator approval: the helper's own UAC prompt was declined
-    // (elevation-declined), or the setup EXE had to elevate itself and that
-    // prompt was declined (its exit code 1223, ERROR_CANCELLED). Nothing is
-    // wrong and nothing was changed; this has to come before the generic
-    // installer-exit wording, which would call it a refusal.
+    // Per-machine install and the UAC prompt was declined (by the helper, or by
+    // the setup EXE: exit 1223, ERROR_CANCELLED). Nothing changed; must precede
+    // the generic installer-exit wording.
     if (key == QLatin1String("elevation-declined")
         || key == QLatin1String("installer-exit-1223")) {
         return tr("Lightning is installed for all users of this computer, so "
@@ -1148,8 +1047,7 @@ QString UpdateManager::explainInstallError(const QString &token)
                   "update.");
     }
 
-    // The installer ran and refused. Its exit code is the only detail worth
-    // carrying, and it is the thing to quote in a report.
+    // The installer ran and refused; the exit code is the detail to report.
     if (key.startsWith(QLatin1String("installer-exit-"))) {
         const QString code = key.mid(QStringLiteral("installer-exit-").size());
         return tr("The Windows installer refused the update (code %1). "
@@ -1158,7 +1056,7 @@ QString UpdateManager::explainInstallError(const QString &token)
             .arg(code);
     }
 
-    // Integrity. Never soften these: the bytes did not match what was signed.
+    // Integrity: never soften these.
     if (key == QLatin1String("artifact-digest-mismatch")
         || key == QLatin1String("checksum-mismatch")
         || key == QLatin1String("invalid-digest")) {
@@ -1236,9 +1134,8 @@ QString UpdateManager::explainInstallError(const QString &token)
                   "was installed.");
     }
 
-    // Everything left is a safety refusal or an argument fault: the update
-    // was stopped by Lightning's own checks before anything moved. A user
-    // cannot act on those, and they mean a bug here.
+    // Safety refusals and argument faults: stopped before anything moved, and
+    // they indicate a bug in Lightning.
     if (key == QLatin1String("refused-unsafe-path")
         || key == QLatin1String("target-missing")
         || key == QLatin1String("source-missing")
@@ -1263,20 +1160,12 @@ QString UpdateManager::explainInstallError(const QString &token)
 
 QStringList UpdateManager::helperRuntimeLibraries()
 {
-    // THE CLOSURE, not the helper's direct imports.
+    // The full runtime closure, not just the helper's direct imports: the
+    // Windows loader resolves the whole graph before main(). A missing DLL
+    // either kills the staged copy silently, or is found in the installation
+    // directory and mapped there, blocking the installer again.
     //
-    // The first version of this list held the four DLLs the helper itself
-    // imports and was wrong by four more, because Qt6Core has imports of its
-    // own and the Windows loader resolves the whole graph BEFORE main().
-    // Missing one has two outcomes and both are silent: either the loader
-    // kills the staged copy before it runs, and startDetached has already
-    // reported success so the application quits, installs nothing and writes
-    // no status file at all; or the child inherits the installation as its
-    // working directory, finds the DLL there, maps it, and the installer is
-    // once again unable to overwrite a mapped image -- the very defect the
-    // staging exists to remove, moved to a different file.
-    //
-    // Read out of the shipped payload's own runtime-dependencies.json:
+    // From the payload's runtime-dependencies.json:
     //   lightning-updater.exe -> Qt6Core, libgcc_s_seh-1, libstdc++-6, zlib1
     //   Qt6Core.dll           -> icui18n77, icuuc77, libpcre2-16-0,
     //                            libwinpthread-1, libgcc_s_seh-1,
@@ -1284,14 +1173,9 @@ QStringList UpdateManager::helperRuntimeLibraries()
     //   icuuc77.dll           -> icudata77
     //   icui18n77.dll         -> icuuc77
     //
-    // ICU is the bulk of it (icudata77 alone is ~32 MB), which is the honest
-    // price of the helper linking Qt Core at all.
-    //
-    // The ICU soname carries Qt's ICU MAJOR version and will move. The list
-    // is therefore a floor, not a spec: stageHelperOutsideInstallation ALSO
-    // copies every DLL sitting beside the helper whose name matches one of
-    // these stems, and the Windows artifact validation walks the real import
-    // graph and fails the build if anything in it is not covered here.
+    // The ICU version will move, so this list is a floor: stems below are also
+    // matched, and the Windows artifact validation fails the build if the real
+    // import graph is not covered.
     return {
         QStringLiteral("Qt6Core.dll"),
         QStringLiteral("libgcc_s_seh-1.dll"),
@@ -1299,8 +1183,7 @@ QStringList UpdateManager::helperRuntimeLibraries()
         QStringLiteral("libwinpthread-1.dll"),
         QStringLiteral("zlib1.dll"),
         QStringLiteral("libpcre2-16-0.dll"),
-        // Versioned; matched by stem below as well, so an ICU bump does not
-        // silently drop them.
+        // Versioned; also matched by stem.
         QStringLiteral("icuuc77.dll"),
         QStringLiteral("icui18n77.dll"),
         QStringLiteral("icudata77.dll"),
@@ -1309,9 +1192,8 @@ QStringList UpdateManager::helperRuntimeLibraries()
 
 QStringList UpdateManager::helperRuntimeLibraryStems()
 {
-    // Name stems whose every match beside the helper travels with it. This is
-    // what keeps a version bump (icuuc77 -> icuuc78) from quietly breaking an
-    // update between the day Qt changes and the day someone notices.
+    // Every DLL beside the helper matching one of these stems is copied too, so
+    // an ICU version bump cannot break updates.
     return {
         QStringLiteral("icuuc"),
         QStringLiteral("icui18n"),
@@ -1324,26 +1206,12 @@ QString UpdateManager::stageHelperOutsideInstallation(const QString &helperPath,
                                                       const QString &installDir,
                                                       QString *error)
 {
-    // WHY THIS EXISTS.
-    //
-    // The MSI and the NSIS setup do not swap files themselves, they REWRITE
-    // the installation: `File /r "${STAGE_DIR}/*"` over $INSTDIR, and
-    // RemoveExistingProducts for the MSI. The helper that starts them lives
-    // in that same directory (applicationDirPath()/lightning-updater.exe) and
-    // is running, with Qt6Core.dll and its mingw runtime mapped beside it.
-    // Windows will not let anything overwrite or delete a mapped image, so
-    // the installer fails on the helper's own files and the update never
-    // happens. Reported against 0.9.1 as an unknown error after the restart,
-    // with the old build still installed.
-    //
-    // The portable path does NOT need this and does not use it: it moves
-    // entries one at a time, and RENAMING a mapped file is allowed where
-    // writing it is not.
-    //
-    // So copy the helper and the few libraries it loads somewhere the
-    // installer will not touch, and run THAT. The copy is deleted by the
-    // next run's mkpath of a fresh directory rather than by the helper
-    // itself, which cannot delete the image it is executing.
+    // The MSI and NSIS setup rewrite the installation directory, where the
+    // running helper and its Qt/mingw DLLs are mapped; Windows refuses to
+    // overwrite a mapped image, so the install would fail on the helper's own
+    // files. Copy the helper and its libraries outside the installation and run
+    // that copy. (The portable path renames entries, which Windows allows, and
+    // does not need this.) The next run's fresh directory replaces the copy.
     if (error)
         error->clear();
     const QFileInfo helperInfo(helperPath);
@@ -1364,7 +1232,7 @@ QString UpdateManager::stageHelperOutsideInstallation(const QString &helperPath,
         return QString();
     }
 
-    // It must NOT land inside the installation, or it defeats its own point.
+    // Must not land inside the installation.
     const QString cleanInstall =
         QDir::cleanPath(QDir(installDir).absolutePath());
     const QString cleanStaged = QDir::cleanPath(QDir(base).absolutePath());
@@ -1387,16 +1255,13 @@ QString UpdateManager::stageHelperOutsideInstallation(const QString &helperPath,
                           QFile::permissions(stagedHelper) | QFile::ExeOwner
                               | QFile::ReadOwner | QFile::WriteOwner);
 
-    // Its libraries travel with it, and a copy that FAILS is fatal: a staged
-    // helper missing one of them either dies in the loader before main() or
-    // maps the installation's copy instead, and both look like success from
-    // here. An absent source file is tolerated only because the same list
-    // serves every platform and a Linux tree has none of them; the Windows
-    // artifact validation is what proves the shipped payload carries them.
+    // A failed library copy is fatal: the staged helper would die in the loader
+    // or map the installation's copy, and both look like success from here. A
+    // missing source is tolerated because Linux trees have none; the Windows
+    // artifact validation proves the payload carries them.
     const QDir source(helperInfo.absolutePath());
     QStringList wanted = helperRuntimeLibraries();
-    // Everything beside the helper matching a versioned stem, so an ICU
-    // major bump cannot drop a library out of the set unnoticed.
+    // Plus everything matching a versioned stem.
     const QStringList stems = helperRuntimeLibraryStems();
     const QStringList beside =
         source.entryList(QStringList{ QStringLiteral("*.dll") }, QDir::Files);
@@ -1425,10 +1290,9 @@ QString UpdateManager::stageHelperOutsideInstallation(const QString &helperPath,
 
 namespace {
 
-// A per-machine upgrade raises a UAC prompt from the update helper, a
-// windowless process started as Lightning quits. Windows gives the foreground
-// only to a process the foreground one allowed, so without this the prompt may
-// only flash in the taskbar. Lightning is still the foreground process here.
+// A per-machine upgrade raises UAC from the windowless helper. Windows only
+// grants the foreground to a process the foreground one allowed, so without
+// this the prompt may only flash in the taskbar.
 void allowTheHelperToTakeTheForeground()
 {
 #ifdef Q_OS_WIN
@@ -1449,17 +1313,15 @@ QString UpdateManager::installTargetPath() const
 {
     switch (m_detection.type) {
     case InstallType::LinuxAppImage: {
-        // The AppImage strategy replaces the running .AppImage FILE.
+        // Replaces the running .AppImage file.
         const QString appImage = qEnvironmentVariable("APPIMAGE");
         if (!appImage.isEmpty())
             return appImage;
         break;
     }
     case InstallType::WindowsPortable:
-        // The portable strategy swaps the whole install DIRECTORY
-        // (swapDirectory needs the directory, and UpdaterArgs refuses a
-        // non-directory --target for this mode). Handing it the executable
-        // path killed every portable update at argument parsing.
+        // The portable strategy swaps the whole install directory; UpdaterArgs
+        // refuses a non-directory --target for this mode.
         return QCoreApplication::applicationDirPath();
     default:
         break;
@@ -1469,12 +1331,8 @@ QString UpdateManager::installTargetPath() const
 
 QString UpdateManager::relaunchProgramPath() const
 {
-    // Inside an AppImage, applicationFilePath() is the executable in the
-    // MOUNTED squashfs (/tmp/.mount_XXXX/usr/bin/...), not the .AppImage
-    // file. Relaunching that starts the image that is being replaced: the
-    // maintainer's first AppImage upgrade came back up reporting the OLD
-    // version, and only showed the new one after being closed and started
-    // again by hand. The file we just replaced is the one to run.
+    // Inside an AppImage, applicationFilePath() is in the mounted squashfs;
+    // relaunching it would start the old version. Run the replaced .AppImage.
     if (m_detection.type == InstallType::LinuxAppImage) {
         const QString appImage = qEnvironmentVariable("APPIMAGE");
         if (!appImage.isEmpty())
@@ -1498,7 +1356,7 @@ void UpdateManager::startInstall(bool restartAfterwards)
     if (m_state != ReadyToInstall)
         return;
 
-    // Policy refusal is terminal and has no override anywhere in this API.
+    // Policy refusal is terminal; there is no override.
     if (!m_detection.automaticInstallAllowed) {
         const QString reason = isPackageManaged(m_detection.type)
             ? QStringLiteral("Updates for this installation are managed by %1.")
@@ -1512,9 +1370,8 @@ void UpdateManager::startInstall(bool restartAfterwards)
         failWith(QStringLiteral("The verified update file is no longer available."));
         return;
     }
-    // The bytes were verified as they were downloaded; prove the file is
-    // STILL those bytes before its path is handed to anything that will act
-    // on it as root. See ArtifactDigest.h.
+    // Prove the file is still the verified bytes before handing its path to
+    // something running as root. See ArtifactDigest.h.
     if (!stagedArtifactStillVerifies()) {
         discardStagedArtifact();
         releaseLock();
@@ -1531,12 +1388,9 @@ void UpdateManager::startInstall(bool restartAfterwards)
         return;
     }
 
-    // The MSI and the setup EXE REWRITE the installation directory, and the
-    // helper is a running program inside it with its libraries mapped.
-    // Windows refuses to overwrite a mapped image, so the installer fails on
-    // the helper's own files and nothing is updated. Run a copy from outside
-    // instead. The portable and AppImage paths do their own file work and
-    // must keep running from where they are.
+    // The MSI and setup EXE rewrite the installation directory, where the
+    // helper is running (see stageHelperOutsideInstallation). Portable and
+    // AppImage do their own file work and run in place.
     if (m_detection.type == InstallType::WindowsMsi
         || m_detection.type == InstallType::WindowsSetup) {
         QString stageError;
@@ -1552,9 +1406,8 @@ void UpdateManager::startInstall(bool restartAfterwards)
         program = staged;
     }
 
-    // Paths are RESOLVED before they cross: the helper refuses a symbolic
-    // link on every path option, so a target or relaunch program reached
-    // through one is named by what it points at.
+    // Resolve symlinks first: the helper refuses a symlink on every path
+    // option.
     const auto resolved = [](const QString &path) {
         const QString canonical = QFileInfo(path).canonicalFilePath();
         return canonical.isEmpty() ? path : canonical;
@@ -1567,19 +1420,14 @@ void UpdateManager::startInstall(bool restartAfterwards)
         QStringLiteral("--status"),   statusFilePath(),
         QStringLiteral("--sha256"),   m_stagedSha256,
     };
-    // --relaunch is the helper's entire relaunch policy and it is passed ONLY
-    // here. installUpdate() means "apply this when I quit"; starting the
-    // application back up afterwards would be the opposite of what the user
-    // asked for.
+    // --relaunch only for "install and restart"; installUpdate() means "apply
+    // when I quit".
     if (restartAfterwards) {
         arguments << QStringLiteral("--relaunch") << resolved(relaunchProgramPath());
     }
-    // The two Windows installers can own an installation in either scope,
-    // and the upgrade must run in the SAME one: a per-machine MSI upgraded
-    // without ALLUSERS=1 does not find the old version and installs a second
-    // copy, and a per-machine setup run unelevated cannot write Program Files.
-    // Always explicit for these two modes -- the helper refuses the option
-    // for every other one.
+    // Upgrade in the installation's own scope: a per-machine MSI without
+    // ALLUSERS=1 installs a second copy, and an unelevated setup cannot write
+    // Program Files. The helper refuses this option for other modes.
     if (m_detection.type == InstallType::WindowsMsi
         || m_detection.type == InstallType::WindowsSetup) {
         arguments << QStringLiteral("--install-scope") << installScopeId(m_detection.scope);
@@ -1589,16 +1437,10 @@ void UpdateManager::startInstall(bool restartAfterwards)
     m_lastLaunchProgram = program;
     m_lastLaunchArguments = arguments;
 
-    // WHEN the helper is started is not a detail: once started it waits for
-    // this process to exit for at most kDefaultWaitTimeoutMs (two minutes,
-    // src/updater/ProcessWaiter.h) and then gives up. Starting it now for the
-    // "apply when I quit" path would promise something it cannot keep -- a
-    // user who keeps chatting for twenty minutes would find the helper had
-    // timed out long ago, with the UI still saying the update was queued.
-    //
-    // So: "Install and restart" launches now, because the quit follows
-    // immediately. "Install without restarting" defers the launch to
-    // aboutToQuit, which is exactly when the wait can succeed.
+    // The helper waits for this process to exit for at most
+    // kDefaultWaitTimeoutMs (src/updater/ProcessWaiter.h) and then gives up.
+    // "Install and restart" launches now because the quit follows immediately;
+    // "install without restarting" defers the launch to aboutToQuit.
     if (restartAfterwards) {
         if (installNeedsAdministrator())
             allowTheHelperToTakeTheForeground();
@@ -1621,11 +1463,8 @@ void UpdateManager::startInstall(bool restartAfterwards)
         }
     }
 
-    // The helper has been LAUNCHED (or armed for quit), not completed. It has
-    // installed nothing yet. Saying otherwise here is what M1 was: the state
-    // claimed an installation that had not happened, and no code read the
-    // helper's status file, so every post-handoff failure was invisible. The
-    // real outcome arrives on the next launch, via lastUpdateResult.
+    // The helper is launched (or armed), not finished. The real outcome arrives
+    // on the next launch via lastUpdateResult.
     m_handoffSummary = restartAfterwards
         ? QStringLiteral("Lightning will close now so the update can be applied, then "
                          "start again. Nothing has been installed yet.")
@@ -1642,10 +1481,8 @@ void UpdateManager::startInstall(bool restartAfterwards)
         Q_EMIT quitRequested();
 }
 
-// Runs from QCoreApplication::aboutToQuit for the "apply when I quit" path.
-// Starting the helper here, rather than at the click, is what makes the
-// promise in m_handoffSummary true: its bounded wait for this PID begins as
-// the process is actually going away.
+// aboutToQuit handler for "apply when I quit": the helper's bounded wait for
+// this PID starts as the process is actually exiting.
 void UpdateManager::launchDeferredInstall()
 {
     if (!m_deferredInstallPending)
@@ -1653,23 +1490,19 @@ void UpdateManager::launchDeferredInstall()
     m_deferredInstallPending = false;
     if (m_lastLaunchProgram.isEmpty() || !m_launcher)
         return;
-    // This is the long window: the file has sat at its predictable path for
-    // as long as the user kept the application open. Re-hash it now; on a
-    // mismatch the helper is never started, the file is removed, and the
-    // refusal is recorded in the status document the next launch reads --
-    // the UI is gone, so that file is the only way to say anything.
+    // The file has sat at a predictable path for the whole session; re-hash it.
+    // On mismatch the helper never starts, the file is removed, and the refusal
+    // goes to the status file (the UI is gone).
     if (!stagedArtifactStillVerifies()) {
-        // "Gone" and "changed" are different faults with different next
-        // steps, and the status file is the only channel left.
+        // "Gone" and "changed" need different next steps.
         writeLocalStatusFailure(QFileInfo::exists(m_stagedPath)
                                     ? QString::fromLatin1(kDigestMismatchStatus)
                                     : QStringLiteral("artifact-missing"));
         discardStagedArtifact();
         return;
     }
-    // A failure to start leaves the verified artifact in place and the
-    // status file absent, so the next launch simply shows no result rather
-    // than a false success.
+    // If the launch fails, no status file is written, so the next launch shows
+    // no result rather than a false success.
     if (installNeedsAdministrator())
         allowTheHelperToTakeTheForeground();
     m_launcher(m_lastLaunchProgram, m_lastLaunchArguments);

@@ -2,7 +2,7 @@
 
 #include "gif/GifStoredModel.h"
 
-// v0.6.1: locally-persisted "recently used" GIFs. An entry is added only after
+// Locally persisted "recently used" GIFs. An entry is added only after
 // a GIF is successfully handed to the Matrix send pipeline (never on preview or
 // a failed/cancelled send). Newest first, deduped by (provider,id), bounded.
 // Recording can be turned off; favorites are unaffected either way.

@@ -7,42 +7,34 @@
 
 #include "matrix/MatrixClient.h"
 
-// Profile banners (MSC4427 over MSC4133 extended profile fields).
+// Profile banners (MSC4427 over MSC4133 extended profile fields). The protocol
+// half is rust/src/banner.rs. Reads and writes both `m.banner_url` and the
+// deployed `chat.commet.profile_banner`, for interoperability with Commet,
+// Sable and Haven.
 //
-// The policy half of the feature; the protocol half is rust/src/banner.rs.
-// Interoperability is the whole point: the stable field is `m.banner_url` and
-// the deployed one is `chat.commet.profile_banner`, and Lightning reads both
-// and writes both, so a banner set in Commet, Sable or Haven shows up here and
-// one set here shows up there.
-//
-// Honesty rules, the same ones presence follows:
-//   * a user with no banner and a user we have not asked about are both
-//     rendered as NOTHING;
-//   * a homeserver that does not implement extended profile fields is
-//     `supported == false`, which is a different fact from "no banner" and
-//     is what hides the whole editing surface rather than offering a control
-//     that cannot work;
-//   * only an mxc:// URI is ever accepted (enforced in Rust as well), because
-//     a profile field is remote text and an http URL in one would make every
-//     viewer who opens a profile card fetch it from a host its owner controls.
+//   * No banner and not-yet-asked both render as nothing.
+//   * A server without extended profile fields is `supported == false`, which
+//     hides the editor.
+//   * Only mxc:// URIs are accepted (also enforced in Rust): an http URL in a
+//     remote field would make every viewer fetch from its owner's host.
 class ProfileBannerManager : public QObject
 {
     Q_OBJECT
 
     // The backend can read extended profile fields at all.
     Q_PROPERTY(bool available READ available NOTIFY availableChanged)
-    // ...and this homeserver actually answered one. False once the server has
-    // told us it does not know the endpoint.
+    // ...and this homeserver answered one; false once it reported the endpoint
+    // unknown.
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
-    // Bumped whenever any cached banner changes; QML bindings read it to
-    // re-evaluate bannerFor().
+    // Bumped when any cached banner changes, so bannerFor() bindings
+    // re-evaluate.
     Q_PROPERTY(int revision READ revision NOTIFY revisionChanged)
-    // The local account's own banner, or "" — the Settings card's model.
+    // The account's own banner, or "".
     Q_PROPERTY(QString ownBanner READ ownBanner NOTIFY revisionChanged)
     // A set/clear is in flight.
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
-    // The backend can carry a ROOM/Space banner (a custom state event).
+    // The backend can carry a room/Space banner (a custom state event).
     Q_PROPERTY(bool roomBannersAvailable READ roomBannersAvailable
                    NOTIFY availableChanged)
 
@@ -59,29 +51,23 @@ public:
     QString ownBanner() const;
     bool roomBannersAvailable() const;
 
-    // "" when unknown or absent. Pure read, safe in a binding; re-read on
-    // revisionChanged.
+    // "" when unknown or absent. Pure read.
     Q_INVOKABLE QString bannerFor(const QString &userId) const;
-    // Asks once per user per session. Idempotent and deduplicated: a profile
-    // popover opening twice must not cost two requests.
+    // Asks once per user per session; deduplicated.
     Q_INVOKABLE void request(const QString &userId);
-    // A local file, as a path OR a file:// URL — the conversion happens here
-    // so no caller can strip "file://" by hand and break Windows.
+    // A local path or file:// URL; converted here so callers cannot break
+    // Windows paths.
     Q_INVOKABLE void setOwnBanner(const QString &pathOrUrl);
     Q_INVOKABLE void clearOwnBanner();
 
     // --- Room / Space banners -------------------------------------------
-    // Same discipline as the profile half: "" is both "no banner" and "not
-    // asked yet", asked once per room per session, nothing applied
-    // optimistically. `revision` covers these too.
+    // Same rules as profile banners: "" means none or not asked, asked once per
+    // room per session, never optimistic. Covered by `revision`.
     Q_INVOKABLE QString roomBannerFor(const QString &roomId) const;
-    // Whether THIS account may change that room's banner — false until the
-    // room has been asked about, so the control is never offered on a guess.
+    // Whether this account may change the room's banner; false until asked.
     Q_INVOKABLE bool canSetRoomBanner(const QString &roomId) const;
     Q_INVOKABLE void requestRoom(const QString &roomId);
-    // Re-asks even if this room has been asked about already. For the case
-    // where the answer may have changed under us — a permission change, or
-    // a banner just written by this client.
+    // Re-asks regardless, e.g. after a permission change or our own write.
     Q_INVOKABLE void refreshRoom(const QString &roomId);
     Q_INVOKABLE void setRoomBanner(const QString &roomId,
                                    const QString &pathOrUrl);
@@ -106,7 +92,7 @@ private:
     void clearSession();
     void setLastError(const QString &error);
 
-    // Bounded: one entry per profile card anyone has opened this session.
+    // Bounded: one entry per profile card opened this session.
     static constexpr int kMaxCached = 256;
 
     MatrixClient *m_client = nullptr;

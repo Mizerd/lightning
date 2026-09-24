@@ -12,31 +12,23 @@ class QMediaCaptureSession;
 class QAudioInput;
 class QMediaRecorder;
 
-// v0.7 voice round: microphone capture for MSC3245 voice messages. Records
-// through Qt Multimedia into a session-scoped 0700 temp dir (OGG/Opus when
-// the backend encodes it — the Matrix convention — falling back to
-// AAC-in-MP4), then decodes its own recording once with QAudioDecoder to
-// derive the real amplitude waveform (0..=100 buckets, the scale the
-// receive path already renders). Nothing here is fabricated: no decodable
-// audio means an empty waveform and the receiver's plain progress track.
+// Microphone capture for MSC3245 voice messages. Records into a
+// session-scoped 0700 temp dir (OGG/Opus when available, the Matrix
+// convention, else AAC-in-MP4), then decodes the recording once to derive the
+// real amplitude waveform (0..=100 buckets). Nothing is fabricated: no
+// decodable audio means an empty waveform.
 //
-// The object is constructed lazily by AppController on the first mic
-// press, so the audio backend is never spun up for a session that never
-// records. File ownership transfers with ready(): the SDK reads the bytes
-// into the send queue at queueing time (it never re-reads the path), so
-// the consumer deletes the file as soon as its send op resolves; cancel
-// deletes immediately, and the temp dir sweep at destruction is only the
-// last-resort backstop.
+// Created lazily on the first mic press. File ownership transfers with
+// ready(): the SDK reads the bytes at queueing time and the consumer deletes
+// the file when the send resolves. Cancel deletes immediately; the temp dir
+// cleanup at destruction is only a backstop.
 class VoiceRecorder : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool recording READ recording NOTIFY stateChanged)
     Q_PROPERTY(bool processing READ processing NOTIFY stateChanged)
-    // 2026-08-18 tester report ("kai sendini audio messages nera pause arba
-    // done mygtuko"). A paused recording is still a RECORDING — it holds the
-    // capture chain, the owner and the file — so `recording` stays true and
-    // this is a separate bit rather than a fourth state the ownership rules
-    // would have to learn.
+    // A paused recording still holds the capture chain and the file, so
+    // `recording` stays true and this is a separate flag.
     Q_PROPERTY(bool paused READ paused NOTIFY stateChanged)
     Q_PROPERTY(qint64 durationMs READ durationMs NOTIFY durationChanged)
 
@@ -44,37 +36,27 @@ public:
     explicit VoiceRecorder(QObject *parent = nullptr);
     ~VoiceRecorder() override;
 
-    // True when an input device exists and a supported encoder resolved.
-    // A plain invokable, deliberately not a NOTIFYing property: nothing
-    // drives device-hotplug change signals, and a binding that can never
-    // update is a trap (review L3). A failed start() reports through
-    // failed() regardless.
+    // An input device exists and an encoder resolved. Not a property: nothing
+    // signals device hotplug. A failed start() reports through failed().
     Q_INVOKABLE bool available();
-    // These four are virtual ONLY so a test double can stand in for the
-    // capture chain (AppController::setVoiceRecorderForTest). The ownership
-    // rules that keep a live recording from being stolen — the defect that
-    // orphaned an open microphone — are otherwise unassertable without real
-    // hardware. Production has exactly one implementation.
+    // Virtual only so a test double can stand in for the capture chain
+    // (AppController::setVoiceRecorderForTest) to test the ownership rules.
     virtual bool recording() const { return m_state == State::Recording; }
     virtual bool processing() const { return m_state == State::Processing; }
     virtual bool paused() const { return m_paused; }
     qint64 durationMs() const;
 
-    // Suspend/continue capture. Both are no-ops (returning false) unless the
-    // recorder is in the matching state; the elapsed duration freezes while
-    // paused because QMediaRecorder stops advancing it.
+    // No-ops returning false unless in the matching state. Elapsed time freezes
+    // while paused.
     Q_INVOKABLE virtual bool pause();
     Q_INVOKABLE virtual bool resume();
-    // True when `path` is a file this recorder produced (i.e. lives in its
-    // own temp dir). The preview flow hands a finalized file to the UI, and
-    // the UI may discard it — this is the gate that keeps that deletion
-    // pointed at the recorder's own directory and nowhere else.
+    // True when `path` lives in this recorder's temp dir; gates UI-initiated
+    // deletion of a previewed file.
     Q_INVOKABLE bool ownsPath(const QString &path) const;
 
-    // Begin a new recording. Returns false — WITHOUT emitting failed() —
-    // when the recorder is not Idle, i.e. a recording is already running or
-    // finalizing; it does NOT supersede one. Returns false WITH failed()
-    // when no device or encoder is available.
+    // Returns false without failed() when not Idle (never supersedes a running
+    // or finalizing recording), and false with failed() when no device or
+    // encoder is available.
     Q_INVOKABLE virtual bool start();
     // Discard the active recording and its file.
     Q_INVOKABLE virtual void cancel();
@@ -82,30 +64,27 @@ public:
     // file, then emits ready(). No-op unless recording.
     Q_INVOKABLE void stop();
 
-    // Downsample a chunk-peak series (0..=1 floats) into at most
-    // maxBuckets 0..=100 integers, max-preserving per bucket. Pure and
-    // static for the unit test.
+    // Downsamples chunk peaks (0..=1) into at most maxBuckets values 0..=100,
+    // max-preserving.
     static QList<int> bucketsFromPeaks(const QList<float> &peaks,
                                        int maxBuckets);
 
     // Hard cap: a forgotten live mic must not record indefinitely.
     static constexpr qint64 kMaxDurationMs = 15 * 60 * 1000;
-    // One waveform bucket per this many ms, bounded to kMaxWaveformBuckets
-    // (MSC3245 recommends 30-120 values; the bridge caps at 1024).
+    // One bucket per this many ms, bounded to kMaxWaveformBuckets (MSC3245
+    // suggests 30-120; the bridge caps at 1024).
     static constexpr qint64 kBucketMs = 100;
     static constexpr int kMaxWaveformBuckets = 100;
 
 Q_SIGNALS:
     void stateChanged();
     void durationChanged();
-    // The finalized recording: a local file (0600, inside the recorder's
-    // 0700 temp dir), its real mimetype, real duration, and the derived
-    // waveform (possibly empty). The caller sends it via
-    // MessageComposer.sendVoiceMessage.
+    // The finalized recording: a 0600 file in the 0700 temp dir, its mimetype,
+    // duration and waveform (possibly empty).
     void ready(const QString &filePath, const QString &mime,
                qint64 durationMs, const QList<int> &waveform);
-    // A recording could not start or produced nothing usable. The message
-    // is presentation-safe (no paths).
+    // Could not start or produced nothing usable. The message contains no
+    // paths.
     void failed(const QString &message);
 
 private:
@@ -113,14 +92,10 @@ private:
 
     bool ensureCaptureChain();
     void beginWaveformExtraction();
-    /// Finish the waveform decode from the EVENT LOOP, not from inside the
-    /// decoder's own signal emission.
-    ///
-    /// finishWithWaveform() destroys the QAudioDecoder, and every caller is
-    /// reached from one of that decoder's signals — deleting a QObject while
-    /// it is emitting is a use-after-free of the emitting object. `tag`
-    /// identifies the decode, so a hop from an abandoned one is dropped and
-    /// two signals from the same decode deliver one ready().
+    /// Finishes the waveform decode from the event loop: finishWithWaveform()
+    /// destroys the decoder, and deleting a QObject during its own emission is
+    /// a use-after-free. `tag` drops hops from abandoned decodes and makes two
+    /// signals from one decode deliver a single ready().
     void finishLater(quint64 tag, const QList<int> &waveform);
     void finishWithWaveform(const QList<int> &waveform);
     void discardActiveFile();
@@ -139,9 +114,8 @@ private:
     bool m_cancelRequested = false;
     bool m_paused = false;
     bool m_decodeFormatMismatch = false;
-    /// Identifies the waveform decode in flight; see finishLater(). Bumped
-    /// when one starts, when one completes, and by anything that abandons
-    /// one (cancel, the finalization guard).
+    /// Identifies the decode in flight; bumped on start, completion and
+    /// abandonment.
     quint64 m_decodeTag = 0;
     int m_fileSerial = 0;
     // Per-chunk absolute peaks accumulated during waveform decode.

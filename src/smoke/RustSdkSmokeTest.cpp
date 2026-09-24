@@ -136,23 +136,22 @@ struct Counters {
     bool encryptedSendActive = false;
     bool finalised = false;
 
-    // LIGHTNING_TEST_EXPECT_TEXT — the caller sends a known marker
-    // from Element Classic into an encrypted room. We watch decrypted
-    // event bodies and record only whether we saw the marker, never
-    // the marker itself. Never printed.
+    // LIGHTNING_TEST_EXPECT_TEXT: a marker sent from another client into an
+    // encrypted room. Only whether it was seen is recorded; it is never
+    // printed.
     QString expectText;
     bool    requireExpect = false;
     QString expectResult = QStringLiteral("n/a");
     int     expectWaitSeconds = 90;
 
-    // v0.5.0-prep+7: wait loop after send/probe completes.
+    // Wait loop after send/probe completes.
     bool    waitingForExpect = false;
     bool    firstTimelineAfterExpect = false;
     int     encryptedEventsSinceExpect = 0;
     int     decryptedEventsSinceExpect = 0;
     int     undecryptableSinceExpect = 0;
 
-    // Phase A — key backup recovery via matrix-sdk.
+    // Key backup recovery via matrix-sdk.
     QString keyBackupResult = QStringLiteral("n/a");
     QString keyBackupReason;
 };
@@ -268,9 +267,8 @@ int runRustSdkSmokeTest(int argc, char *argv[])
             restoreAvailable = accountMatches;
         }
     } else {
-        // Fresh crypto store per run. QTemporaryDir defaults to autoRemove =
-        // true and lives longer than the client, so SDK background threads
-        // can stop before the directory cleanup runs.
+        // Fresh crypto store per run; it outlives the client so SDK background
+        // threads stop before cleanup.
         tempStore = std::make_unique<QTemporaryDir>(
             QDir::tempPath()
             + QStringLiteral("/lightning-rust-sdk-smoke-XXXXXX"));
@@ -285,8 +283,8 @@ int runRustSdkSmokeTest(int argc, char *argv[])
             + QStringLiteral("/matrix-rust-sdk-store");
     }
 
-    // No parent — we destroy the client explicitly before exec() returns
-    // so tempStore is still valid when SDK background threads shut down.
+    // No parent: destroyed explicitly before exec() returns, while tempStore is
+    // still valid.
     auto client = std::make_unique<RustSdkMatrixClient>(nullptr, nullptr);
     if (persistentStore)
         client->setPersistentSessionFile(sessionPath);
@@ -378,10 +376,8 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         QCoreApplication::exit(exitCodeFor(counters));
     };
 
-    // v0.5.0-prep+7. Post-send finalise: if EXPECT_TEXT is configured
-    // and we haven't seen the marker yet, enter a bounded wait phase
-    // instead of exiting immediately. Any decrypted event containing
-    // the marker cancels the wait and finalises early.
+    // After sending: if EXPECT_TEXT is set and not yet seen, wait (bounded). A
+    // decrypted event containing the marker ends the wait early.
     auto postSendFinalise = std::make_shared<std::function<void()>>();
     *postSendFinalise = [&, finalise]() {
         if (counters.finalised) return;
@@ -400,9 +396,8 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         say(QStringLiteral("expect_text=waiting timeout_s=%1")
                 .arg(counters.expectWaitSeconds));
 
-        // v0.5.0-prep+8: heartbeat every 30s during a long expect
-        // wait so a stalled sync is obvious without needing to
-        // watch matrix.rust log lines.
+        // Heartbeat every 30 s during a long expect wait so a stalled sync is
+        // visible.
         auto heartbeat = std::make_shared<QTimer>();
         heartbeat->setInterval(30 * 1000);
         heartbeat->setSingleShot(false);
@@ -442,11 +437,8 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         });
     };
 
-    // v0.5.0-prep+8: dynamic global budget. If EXPECT_TEXT is set,
-    // the harness needs to survive at least the full expect wait plus
-    // slack for shutdown; recovery-key restores add ~60s of headroom
-    // because the SDK downloads / imports secrets before the marker
-    // path can even begin.
+    // Global budget: with EXPECT_TEXT, cover the full expect wait plus shutdown
+    // slack; recovery-key restores need ~60 s more for secret import.
     int totalBudgetSec = 60;
     if (!expectText.isEmpty()) {
         totalBudgetSec = qMax(totalBudgetSec, expectWaitSeconds + 30);
@@ -637,8 +629,7 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         counters.encryptedSendActive = true;
         counters.encryptedSendMarker = QStringLiteral("SMK-%1")
             .arg(QDateTime::currentSecsSinceEpoch());
-        // The body embeds the marker but the marker is what we log.
-        // Body content is not printed by the harness.
+        // The body embeds the marker; the harness never prints bodies.
         const QString body = QStringLiteral(
             "Lightning encrypted-send probe %1")
             .arg(counters.encryptedSendMarker);
@@ -681,9 +672,8 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         (*postSendFinalise)();
     });
 
-    // Phase A — key backup recovery. Fires the moment login-then-sync
-    // stabilises (see initial_sync=done chain below). Never prints the
-    // recovery key or the imported key material.
+    // Key backup recovery, started once login and sync settle. Never prints the
+    // recovery key or imported key material.
     QObject::connect(client.get(),
                      &RustSdkMatrixClient::keyBackupResult, &app,
                      [&](const QString &state, const QString &message) {
@@ -707,9 +697,8 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         counters.syncResult = QStringLiteral("ok");
         say(QStringLiteral("initial_sync=done"));
 
-        // Phase A — kick off key backup recovery if a key was supplied
-        // via env. Runs in parallel with any send/probe; results arrive
-        // asynchronously on keyBackupResult.
+        // Start key backup recovery if a key was supplied; runs alongside
+        // send/probe.
         if (!recoveryKey.isEmpty()) {
             if (!persistentStore) {
                 counters.keyBackupResult = QStringLiteral("failed");
@@ -718,9 +707,8 @@ int runRustSdkSmokeTest(int argc, char *argv[])
                 say(QStringLiteral(
                     "key_backup=failed reason=persistent_store_required"));
             } else {
-                // v0.5.0-prep+8: don't print "key_backup=attempted"
-                // here — the Rust bridge emits that state first, and
-                // the keyBackupResult handler will print it once.
+                // The Rust bridge reports "attempted" itself; don't print it
+                // twice.
                 counters.keyBackupResult = QStringLiteral("attempted");
                 client->recoverFromBackup(recoveryKey);
             }
@@ -736,8 +724,8 @@ int runRustSdkSmokeTest(int argc, char *argv[])
 
         QTimer::singleShot(2000, &app, [&, postSendFinalise, attemptSend,
                                         attemptEncryptedProbe]() {
-            // Order: SEND / SEND_ENCRYPTED run first. postSendFinalise
-            // then either enters the EXPECT_TEXT wait phase or exits.
+            // Send/probe first; postSendFinalise then waits for EXPECT_TEXT or
+            // exits.
             if (doSendEncrypted) (*attemptEncryptedProbe)();
             else if (doSend)     (*attemptSend)();
             else                 (*postSendFinalise)();
@@ -756,10 +744,8 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         counters.roomCount = joined;
         counters.encryptedRoomCount = encrypted;
         counters.spaceCount = spaces;
-        // v0.5.0-prep+8: dedupe the "rooms joined=…" line — the Rust
-        // SDK sync callback fires many times during a long expect
-        // wait, all with identical counts. Only print when counts
-        // actually change.
+        // Print "rooms joined=..." only when the counts change; the sync
+        // callback fires repeatedly with identical counts.
         const QString line = QStringLiteral(
                 "rooms joined=%1 encrypted=%2 spaces=%3")
                 .arg(joined).arg(encrypted).arg(spaces);
@@ -787,8 +773,8 @@ int runRustSdkSmokeTest(int argc, char *argv[])
             if (ev.undecryptable) ++counters.undecryptableSinceExpect;
         }
 
-        // EXPECT_TEXT match runs against decrypted bodies only. We never
-        // echo the marker itself; only "seen" / "not_seen" is exposed.
+        // Matched against decrypted bodies only; only "seen"/"not_seen" is
+        // exposed.
         if (!counters.expectText.isEmpty()
             && ev.isDecrypted && !ev.undecryptable
             && !ev.body.isEmpty()
@@ -865,24 +851,12 @@ int runRustSdkSmokeTest(int argc, char *argv[])
 
     const int rc = QCoreApplication::exec();
 
-    // v0.5.0-prep+8: shutdown-leak-for-process-exit.
-    //
-    // matrix-sdk 0.18 uses deadpool-sqlite internally and its
-    // async-drop paths require a live Tokio runtime when the Client
-    // is dropped. Our per-call `run_async` builds a
-    // `current_thread` runtime that immediately drops when the
-    // future completes, so by the time C++ tears down
-    // RustSdkMatrixClient (during exec()'s stack unwind) there is
-    // no Tokio reactor around. Dropping the Client here panicked
-    // with `there is no reactor running, must be called from the
-    // context of a Tokio 1.x runtime` and aborted the process
-    // AFTER the summary line had already been printed.
-    //
-    // The smoke process is about to exit — we can safely stop sync
-    // and then leak the Rust handle. The OS reclaims all memory /
-    // FDs, and no destructor path is exercised. Only the smoke
-    // harness does this; the interactive GUI still calls mx_rust_destroy
-    // normally.
+    // Leak the Rust handle at exit. matrix-sdk's deadpool-sqlite async drop
+    // needs a live Tokio runtime, and run_async's per-call current_thread
+    // runtime is gone by the time the client is destroyed, so dropping it here
+    // panics with "there is no reactor running". The process is exiting, so
+    // stop sync and let the OS reclaim everything. The GUI still calls
+    // mx_rust_destroy normally.
     client->stopSync();
     QThread::msleep(300);
     say(QStringLiteral("shutdown=leaked_for_process_exit"));

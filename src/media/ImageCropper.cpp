@@ -28,18 +28,15 @@ CropPlan planCrop(const QSize &source, const QRectF &requested, int maxEdge)
         return plan;
     }
 
-    // Round each edge independently rather than QRectF::toRect(), which
-    // rounds the ORIGIN and then the SIZE relative to it — for a rect whose
-    // x is 0.5 that silently moves the right edge by a pixel.
+    // Round each edge independently: QRectF::toRect() rounds the origin and
+    // then the size, which can move the right edge by a pixel.
     const int x = qRound(requested.x());
     const int y = qRound(requested.y());
     const int w = qRound(requested.width());
     const int h = qRound(requested.height());
 
-    // Clamp rather than trust. QML computes this from a live transform; a
-    // rounding error at the edge of the image, or a caller that passes
-    // nonsense, must produce a smaller crop and never a read outside the
-    // decoded buffer.
+    // Clamp rather than trust: a rounding error or bad input must yield a
+    // smaller crop, never a read outside the decoded buffer.
     const QRect wanted(x, y, w, h);
     const QRect bounds(QPoint(0, 0), source);
     plan.sourceRect = wanted.intersected(bounds);
@@ -51,9 +48,7 @@ CropPlan planCrop(const QSize &source, const QRectF &requested, int maxEdge)
     }
 
     plan.outputSize = plan.sourceRect.size();
-    // Scale DOWN only. Enlarging a small crop to fill the cap produces a
-    // bigger file carrying exactly the same information, and on an avatar it
-    // makes a blurry picture look like a deliberate one.
+    // Scale down only; enlarging adds bytes, not information.
     if (maxEdge > 0
         && qMax(plan.outputSize.width(), plan.outputSize.height()) > maxEdge) {
         plan.outputSize = plan.outputSize.scaled(maxEdge, maxEdge,
@@ -84,11 +79,9 @@ QString sniffRasterMime(const QByteArray &bytes)
         return QStringLiteral("image/webp");
     if (starts("BM", 2))
         return QStringLiteral("image/bmp");
-    // JPEG XL, both shapes. The ISOBMFF CONTAINER is tested first and the bare
-    // codestream second: the container's own payload begins with the codestream
-    // signature, so checking the short form first would mis-report a container
-    // as a bare stream. Verified against real cjxl 0.12.0 output -- lossy and
-    // lossless both start ff0a, `--container=1` starts 0000000c4a584c200d0a870a.
+    // JPEG XL: test the container before the bare codestream, since the
+    // container's payload begins with the codestream signature. (cjxl output:
+    // ff0a for bare streams, 0000000c4a584c200d0a870a with --container=1.)
     if (starts("\x00\x00\x00\x0CJXL \r\n\x87\n", 12)
         || starts("\xff\x0a", 2))
         return QStringLiteral("image/jxl");
@@ -111,8 +104,7 @@ int maxEdgeForRole(const QString &role)
         return 1920;
     if (role == QLatin1String("avatar"))
         return 512;
-    // An unknown role gets the tighter of the two rather than "no cap": a
-    // typo in a call site must not silently uncap an upload.
+    // An unknown role gets the tighter cap, never none.
     return 512;
 }
 
@@ -125,8 +117,7 @@ ImageCropper::ImageCropper(QObject *parent)
 
 ImageCropper::~ImageCropper()
 {
-    // Drop the live-lock BEFORE the QTemporaryDir destructor removes the
-    // directory the lock file lives in (see holdScratchDirLive).
+    // Release the live lock before the QTemporaryDir removes its directory.
     if (m_outputDir)
         lightning::portable::releaseScratchDir(m_outputDir->path());
 }
@@ -154,8 +145,8 @@ QVariantMap ImageCropper::load(const QUrl &fileUrl)
     QVariantMap result;
     result.insert(QStringLiteral("ok"), false);
 
-    // Release whatever the previous open left behind FIRST, so a refused
-    // file cannot leave the last accepted one staged and croppable.
+    // Release the previous source first, so a refused file cannot leave the
+    // last accepted one staged.
     discard();
 
     const QString path = fileUrl.isLocalFile() ? fileUrl.toLocalFile()
@@ -182,9 +173,8 @@ QVariantMap ImageCropper::load(const QUrl &fileUrl)
     const QByteArray bytes = file.readAll();
     file.close();
 
-    // THE GATE. Magic bytes decide, before anything is decoded and before
-    // QML is given a URL to point an Image at. An SVG, an HTML error page,
-    // a video, or a .png that is not one fails here and goes no further.
+    // The gate: magic bytes decide before any decode and before QML gets a URL.
+    // SVG, HTML error pages, video and fake .png files stop here.
     const QString mime = imagecrop::sniffRasterMime(bytes);
     if (mime.isEmpty()) {
         setError(QStringLiteral("unsupported_image"));
@@ -205,10 +195,8 @@ QVariantMap ImageCropper::load(const QUrl &fileUrl)
     }
     QImage decoded = reader.read();
     if (decoded.isNull() || decoded.width() < 1 || decoded.height() < 1) {
-        // Identified by magic but the codec refused it — truncated, or a
-        // format whose plugin this build does not carry (WebP lives in
-        // qtimageformats). Distinct from "unsupported_image": the bytes ARE
-        // a format Lightning accepts, this build just cannot open them.
+        // Recognised by magic but the codec refused it (truncated, or e.g. WebP
+        // without qtimageformats). Distinct from "unsupported_image".
         setError(QStringLiteral("undecodable"));
         result.insert(QStringLiteral("error"), m_lastError);
         return result;
@@ -217,9 +205,7 @@ QVariantMap ImageCropper::load(const QUrl &fileUrl)
     if (m_stagedImages)
         m_previewToken = m_stagedImages->add(bytes);
     if (m_previewToken.isEmpty()) {
-        // No preview means no dialog: showing a crop frame over nothing is
-        // worse than refusing, and there is no fallback that does not hand
-        // QML the user's raw path.
+        // No preview, no dialog; every fallback would hand QML the raw path.
         setError(QStringLiteral("undecodable"));
         result.insert(QStringLiteral("error"), m_lastError);
         return result;
@@ -236,8 +222,7 @@ QVariantMap ImageCropper::load(const QUrl &fileUrl)
     result.insert(QStringLiteral("previewUrl"),
                   QStringLiteral("image://lightning-staged/") + m_previewToken);
     result.insert(QStringLiteral("error"), QString());
-    // Dimensions and the sniffed type only — never the path, which contains
-    // whatever the user's home directory is called.
+    // Dimensions and type only, never the path.
     qCInfo(lcCrop) << "crop source loaded" << m_source.width() << "x"
                    << m_source.height() << mime;
     return result;
@@ -247,12 +232,8 @@ QString ImageCropper::outputDirectory()
 {
     if (m_outputDir && m_outputDir->isValid())
         return m_outputDir->path();
-    // mediaScratchRoot(), never QDir::temp() directly. This was the one
-    // media path still reaching for the OS temp directory itself, which
-    // PortableMode names as the mistake that writes decrypted payloads
-    // outside a portable folder with nothing to report it — and it also put
-    // these re-encoded copies of a user-picked picture outside
-    // cleanStaleTempDirs()'s reach, so a crash left them in /tmp forever.
+    // Under mediaScratchRoot(), never QDir::temp(): keeps these files inside a
+    // portable folder and within cleanStaleTempDirs()'s reach after a crash.
     m_outputDir = std::make_unique<QTemporaryDir>(
         lightning::portable::mediaScratchRoot()
         + QStringLiteral("/lightning-crop-XXXXXX"));
@@ -260,15 +241,12 @@ QString ImageCropper::outputDirectory()
         m_outputDir.reset();
         return QString();
     }
-    // QTemporaryDir is 0700 already; say so explicitly rather than rely on
-    // it, the same way the playable-media path does.
+    // Explicitly 0700, as the playable-media path does.
     QFile::setPermissions(m_outputDir->path(),
                           QFile::ReadOwner | QFile::WriteOwner
                               | QFile::ExeOwner);
-    // Marked LIVE so a SECOND Lightning instance's startup sweep cannot
-    // delete this one's crop output from under an upload in flight — the
-    // sweep matches by prefix, and the names are unique per process but not
-    // per install.
+    // Marked live so another instance's startup sweep cannot delete output an
+    // upload is still reading.
     lightning::portable::holdScratchDirLive(m_outputDir->path());
     return m_outputDir->path();
 }
@@ -300,9 +278,8 @@ QUrl ImageCropper::crop(double x, double y, double w, double h, int maxEdge)
     const imagecrop::OutputFormat format =
         imagecrop::chooseOutputFormat(m_sourceMime, out.hasAlphaChannel());
     if (format.encoder == QLatin1String("jpeg")) {
-        // JPEG cannot carry alpha; the format choice above only reaches here
-        // when there is none, but an ARGB buffer would still be written by
-        // flattening onto an unspecified colour. Be explicit.
+        // No alpha reaches here, but an ARGB buffer would be flattened onto an
+        // unspecified colour; convert explicitly.
         out = out.convertToFormat(QImage::Format_RGB32);
     }
 
@@ -311,9 +288,8 @@ QUrl ImageCropper::crop(double x, double y, double w, double h, int maxEdge)
         setError(QStringLiteral("write_failed"));
         return {};
     }
-    // The name is a counter, not the source's file name: the chosen file's
-    // name is the user's and has no business being re-originated into a
-    // temp path that other code may log.
+    // A counter, not the source file name, which is the user's and may be
+    // logged.
     const QString path = QDir(dir).filePath(
         QStringLiteral("crop-%1.%2").arg(m_nextOutput++).arg(format.suffix));
 
@@ -341,9 +317,8 @@ QUrl ImageCropper::crop(double x, double y, double w, double h, int maxEdge)
         return {};
     }
 
-    // The sink reads this path asynchronously (the backend uploads it on its
-    // own schedule), so it must outlive the dialog. A small ring bounds the
-    // disk cost without ever removing the one just handed out.
+    // The sink reads this asynchronously, so it must outlive the dialog. A
+    // small ring bounds disk use without removing the path just handed out.
     m_written.append(path);
     while (m_written.size() > kRetainedOutputs)
         QFile::remove(m_written.takeFirst());
@@ -370,11 +345,10 @@ void ImageCropper::clearSession()
     for (const QString &path : std::as_const(m_written))
         QFile::remove(path);
     m_written.clear();
-    // Release the live-lock first: the descriptor must not outlive the
-    // directory the QTemporaryDir destructor is about to remove.
+    // Release the live lock before the directory is removed.
     if (m_outputDir)
         lightning::portable::releaseScratchDir(m_outputDir->path());
-    // The QTemporaryDir destructor removes the directory recursively.
+    // Removes the directory recursively.
     m_outputDir.reset();
     setError(QString());
 }

@@ -7,15 +7,9 @@
 
 class MatrixClient;
 
-// v0.7.x personal moderation: the account's ignored users
-// (m.ignored_user_list — SDK-owned Matrix account data, never a
-// Lightning-local database) and message reporting (stable /v3 endpoint).
-//
-// The ignored set has one source of truth: the account data. Local writes
-// and remote changes (another client) both land through the client's
-// ignoredUsersChanged push, and the cached set here exists only so
-// isIgnored() is cheap for menus and the notification race-window guard.
-// Cleared on sign-out so one account's list can never bleed into another.
+// Personal moderation: ignored users (m.ignored_user_list account data) and
+// message reporting. The account data is the only source of truth; the cached
+// set keeps isIgnored() cheap and is cleared on sign-out.
 class ModerationController : public QObject
 {
     Q_OBJECT
@@ -23,11 +17,9 @@ class ModerationController : public QObject
     Q_PROPERTY(bool reportSupported READ reportSupported NOTIFY stateChanged)
     Q_PROPERTY(QStringList ignoredUsers READ ignoredUsers NOTIFY stateChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
-    // Bump-on-change revision for QML surfaces that call isIgnored() —
-    // a plain binding cannot observe a Q_INVOKABLE's inputs.
+    // Reference in bindings that call isIgnored(), which QML cannot track.
     Q_PROPERTY(int revision READ revision NOTIFY stateChanged)
-    // The report prompt opens itself off this state (one dialog instance,
-    // reachable from every message menu).
+    // Drives the single report dialog instance.
     Q_PROPERTY(bool reportPromptActive READ reportPromptActive NOTIFY reportPromptChanged)
 
 public:
@@ -52,15 +44,9 @@ public:
     Q_INVOKABLE void submitReport(const QString &reason);
     Q_INVOKABLE void cancelReport();
 
-    /// Forget everything account-scoped, without a sign-out.
-    ///
-    /// The ignore list gates notification suppression and the incoming-call
-    /// ring, so carrying the previous account's list into the next one
-    /// silently suppresses people the new account never ignored and rings
-    /// for people it did. `onLoggedOut()` already does exactly this and is
-    /// the only thing that clears `m_initialListLoaded` — but the
-    /// ADD-ACCOUNT path never signs the previous account out, so it never
-    /// fires, and the load guard then short-circuits forever.
+    /// Forget everything account-scoped without a sign-out. Needed by the
+    /// add-account path, which never signs the previous account out: the
+    /// ignore list gates notifications and call ringing.
     void resetForAccountChange() { onLoggedOut(); }
 
 Q_SIGNALS:

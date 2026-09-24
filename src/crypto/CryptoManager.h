@@ -3,13 +3,10 @@
 #include <QObject>
 #include <QString>
 
-// v0.4: capability/status surface for the active Matrix backend. This class
-// does not implement cryptography; the truth about E2EE lives in whichever
-// MatrixClient is active (Mock / CppHttp cannot decrypt; RustSdkMatrixClient
-// via the Matrix Rust SDK does — see docs/threat-model.md).
-//
-// Signals are wired in AppController when the active backend is known so
-// QML shows an honest badge/warning.
+// Capability and status surface for the active Matrix backend. Implements no
+// cryptography; E2EE lives in the active MatrixClient (only the Rust SDK
+// backend can decrypt; see docs/threat-model.md). Wired by AppController once
+// the backend is known.
 class CryptoManager : public QObject
 {
     Q_OBJECT
@@ -24,8 +21,7 @@ class CryptoManager : public QObject
     // protocol level. HTTP and Mock always report false.
     Q_PROPERTY(bool supportsE2ee READ supportsE2ee NOTIFY backendChanged)
 
-    // v0.5 targets. Reported false until the corresponding capability is
-    // actually wired through the Rust SDK.
+    // Reported false until wired through the Rust SDK.
     Q_PROPERTY(bool supportsEncryptedMedia READ supportsEncryptedMedia NOTIFY backendChanged)
     Q_PROPERTY(bool supportsDeviceVerification READ supportsDeviceVerification NOTIFY backendChanged)
 
@@ -44,9 +40,8 @@ public:
     QString backendDescription() const;
     QString statusString() const;
 
-    // Non-functional in v0.4 for all backends. When Rust SDK crypto is
-    // wired, these will consult the SDK. QML must never gate crypto
-    // decisions on these — they exist for UX (verified badge).
+    // Currently always false. For UX badges only; QML must never gate crypto
+    // decisions on these.
     Q_INVOKABLE bool isDeviceVerified(const QString &userId, const QString &deviceId) const;
     Q_INVOKABLE bool isRoomEncrypted(const QString &roomId) const;
 

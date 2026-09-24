@@ -48,8 +48,8 @@ QString InsecureFallbackSecretStore::settingsKey(const QString &userId,
 
 bool InsecureFallbackSecretStore::hasAnySecretFor(const QString &userId) const
 {
-    // WHETHER THIS ACCOUNT'S RECORD LIVES HERE, which is the only thing that
-    // can make a miss under substitution conclusive. See lastReadFailed().
+    // Whether this account's record lives here; the only thing that can make a
+    // miss under substitution conclusive (see lastReadFailed()).
     m_store->beginGroup(accountGroup(userId));
     const bool any = !m_store->childKeys().isEmpty();
     m_store->endGroup();
@@ -74,27 +74,22 @@ QString InsecureFallbackSecretStore::readSecret(const QString &userId,
     m_lastReadFound = false;
     m_lastReadUserHasRecord = false;
     const QVariant value = m_store->value(settingsKey(userId, key));
-    // ASK, do not assume. QSettings reports an unreadable or unparsable
-    // backing file only through status(); value() itself answers an empty
-    // QVariant and nothing else. status() records the FIRST error and keeps
-    // it, which is the honest behaviour here: a corrupt config does not heal
-    // itself between two reads, and every answer from it stays untrusted.
+    // QSettings reports an unreadable backing file only through status(), which
+    // keeps the first error; value() just returns empty.
     const QSettings::Status status = m_store->status();
     if (status != QSettings::NoError) {
         m_lastReadFailed = true;
-        // Never the file's contents and never the key — this string reaches
-        // logs and the Settings screen.
+        // Never the file contents or key: this reaches logs and Settings.
         m_lastError = status == QSettings::AccessError
             ? QStringLiteral("the settings file could not be read")
             : QStringLiteral("the settings file is malformed");
         return {};
     }
-    // A VALUE IN HAND is what lets a substituted store vouch for this read.
-    // Empty is a MISS — not a failure, and not automatically unknowable
-    // either: see lastReadFailed() for what makes a miss conclusive.
+    // A value in hand lets a substituted store vouch for this read. Empty is a
+    // miss; see lastReadFailed().
     const QString secret = value.toString();
     m_lastReadFound = !secret.isEmpty();
-    // Only worth asking on a miss, and only the miss consults it.
+    // Only a miss consults it.
     m_lastReadUserHasRecord = m_lastReadFound || hasAnySecretFor(userId);
     return secret;
 }

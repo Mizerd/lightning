@@ -28,20 +28,16 @@ namespace lightning::update {
 class UpdateDocumentFetcher;
 class UpdateDownloader;
 
-// Lightning secure update system — the application-level state machine.
+// Application-level state machine for secure updates.
 //
-// Zero Matrix dependencies, by construction: this class knows nothing about
-// accounts, homeservers, tokens, rooms or the SDK, and its settings live in
-// the NON-account-scoped QSettings group "update/". Signing in, signing out
-// and switching accounts cannot alter update state, because there is no
-// path from any of them to this object.
+// No Matrix dependencies: settings live in the non-account-scoped "update/"
+// group, so sign-in, sign-out and account switches cannot affect it.
 //
-// The trust chain is: compiled-in public key -> signed manifest -> SHA-256
-// of the exact artifact -> verified bytes -> a compiled-in platform
-// strategy. Every step is terminal on failure; there is no "install anyway"
-// entry point anywhere in this API, and the manifest can never supply a
-// command — the helper is launched with a fixed program plus an argument
-// VECTOR, never a command string and never a shell.
+// Trust chain: compiled-in public key -> signed manifest -> SHA-256 of the
+// artifact -> verified bytes -> compiled-in platform strategy. Every step is
+// terminal on failure, there is no "install anyway" entry point, and the
+// manifest never supplies a command: the helper gets a fixed program and an
+// argument vector, never a shell.
 class UpdateManager : public QObject
 {
     Q_OBJECT
@@ -50,9 +46,8 @@ class UpdateManager : public QObject
     Q_PROPERTY(State state READ state NOTIFY stateChanged)
     Q_PROPERTY(QString currentVersion READ currentVersion NOTIFY currentVersionChanged)
     Q_PROPERTY(QString latestVersion READ latestVersion NOTIFY updateInfoChanged)
-    // The quiet, PERSISTENT fact: an update was found. Dismissing the corner
-    // card silences the CARD (updateAvailableWarning), never this — the rail
-    // badge is what is left saying an update is still waiting.
+    // Persistent: an update was found. Dismissing the corner card silences only
+    // updateAvailableWarning; the rail badge stays.
     Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY updateInfoChanged)
     Q_PROPERTY(qreal downloadProgress READ downloadProgress NOTIFY downloadProgressChanged)
     Q_PROPERTY(qint64 downloadedBytes READ downloadedBytes NOTIFY downloadProgressChanged)
@@ -63,37 +58,30 @@ class UpdateManager : public QObject
     // Non-error diagnostic: "not downgrading", "prerelease ignored",
     // "your package manager has not published this version yet".
     Q_PROPERTY(QString statusDetail READ statusDetail NOTIFY statusDetailChanged)
-    // Where the bytes now on disk came from: "mirror", "canonical", or empty
-    // when nothing is staged. A ROLE, never a host or a URL — it is a
-    // diagnostic, not an address book, and a persistently useless mirror is
-    // meant to be visible here rather than silent.
+    // Where the staged bytes came from: "mirror", "canonical", or empty. A
+    // role, never a host or URL.
     Q_PROPERTY(QString artifactSource READ artifactSource NOTIFY artifactSourceChanged)
     Q_PROPERTY(QString installType READ installTypeString NOTIFY installTypeChanged)
     Q_PROPERTY(QString installTypeLabel READ installTypeLabel NOTIFY installTypeChanged)
     Q_PROPERTY(bool canInstallAutomatically READ canInstallAutomatically NOTIFY installTypeChanged)
     Q_PROPERTY(bool packageManaged READ packageManaged NOTIFY installTypeChanged)
-    // True for a Windows MSI / setup installation made "for all users": its
-    // update needs administrator approval, which Windows asks for when the
-    // update is installed. The UI can say so before the person clicks.
+    // A Windows MSI/setup installation "for all users": installing needs
+    // administrator approval, so the UI can say so beforehand.
     Q_PROPERTY(bool installNeedsAdministrator READ installNeedsAdministrator
                    NOTIFY installTypeChanged)
     Q_PROPERTY(bool automaticChecksEnabled READ automaticChecksEnabled WRITE
                    setAutomaticChecksEnabled NOTIFY automaticChecksEnabledChanged)
     Q_PROPERTY(QDateTime lastCheckTime READ lastCheckTime NOTIFY lastCheckTimeChanged)
     Q_PROPERTY(QString dismissedVersion READ dismissedVersion NOTIFY dismissedVersionChanged)
-    // v0.7.3: an update is waiting for the user AND they have not dismissed
-    // THIS version. Drives the rail badge and the corner prompt, exactly as
-    // sessionVerificationWarning does for verification — dismissal is per
-    // version, so a later release asks again while the dismissed one stays
-    // quiet.
+    // An update is waiting and this version was not dismissed. Drives the rail
+    // badge and corner prompt; dismissal is per version.
     Q_PROPERTY(bool updateAvailableWarning READ updateAvailableWarning
                    NOTIFY updateAvailableWarningChanged)
 
-    // What the user must be told once the helper has been launched. See the
-    // RestartRequired note on the State enum: this NEVER claims success.
+    // Shown once the helper is launched; never claims success.
     Q_PROPERTY(QString handoffSummary READ handoffSummary NOTIFY stateChanged)
-    // The previous run's install outcome, recovered from the helper's status
-    // file at construction and consumed exactly once.
+    // The previous run's install outcome from the helper's status file,
+    // consumed once.
     Q_PROPERTY(LastResult lastUpdateResult READ lastUpdateResult NOTIFY lastUpdateResultChanged)
     Q_PROPERTY(QString lastUpdateError READ lastUpdateError NOTIFY lastUpdateResultChanged)
     Q_PROPERTY(QString lastUpdateMode READ lastUpdateMode NOTIFY lastUpdateResultChanged)
@@ -108,21 +96,17 @@ public:
         Verifying,
         ReadyToInstall,
         Installing,
-        // The verified artifact has been HANDED OFF to the updater helper,
-        // which waits for this process to exit and only then installs
-        // anything. It does NOT mean the update was applied: at this point
-        // the helper has not run the package manager, extracted an archive,
-        // or replaced a file. The outcome is only known on the NEXT launch,
-        // through lastUpdateResult. Render handoffSummary here, never a
-        // past-tense "installed".
+        // The verified artifact was handed to the helper, which installs only
+        // after this process exits. Nothing is applied yet; the outcome is
+        // known on the next launch via lastUpdateResult. Show handoffSummary,
+        // never "installed".
         RestartRequired,
         Failed,
     };
     Q_ENUM(State)
 
-    // Outcome of the PREVIOUS run's handoff, read back from the helper's
-    // status file. NoResult means there was no status file, or it was
-    // unreadable/garbage — never a silent success.
+    // Outcome of the previous run's handoff. NoResult means no status file or
+    // an unreadable one, never a silent success.
     enum LastResult {
         NoResult,
         InstallSucceeded,
@@ -130,7 +114,7 @@ public:
     };
     Q_ENUM(LastResult)
 
-    // program + argument vector. Never a command string, never a shell.
+    // Program plus argument vector; never a command string or a shell.
     using ProcessLauncher = std::function<bool(const QString &program, const QStringList &args)>;
 
     explicit UpdateManager(QObject *parent = nullptr);
@@ -169,94 +153,66 @@ public:
     Q_INVOKABLE void installUpdate();
     Q_INVOKABLE void installAndRestart();
     Q_INVOKABLE void dismissVersion();
-    // Acknowledge the previous run's outcome so it is not shown again. The
-    // status FILE is already gone by this point — it is deleted the moment it
-    // is read — so this only clears the in-memory copy.
+    // Acknowledges the previous outcome. The status file was deleted when read;
+    // this clears the in-memory copy.
     Q_INVOKABLE void clearLastUpdateResult();
-    // Emits managedUpdateHelpRequested with a copyable command and an
-    // explanation. It deliberately does NOT open anything itself: opening a
-    // URL is the UI layer's job, which keeps this class free of QtGui.
+    // Emits managedUpdateHelpRequested; opening anything is the UI's job.
     Q_INVOKABLE void openManagedUpdateHelp();
 
     // The command a Flatpak/Snap user runs themselves. Empty otherwise.
     Q_INVOKABLE QString managedUpdateCommand() const;
 
-    // The only identifying string any update request carries, and it is
-    // exactly "Lightning/<version>" — the same value the Rust SDK and the
-    // C++ HTTP client already send, with NO platform, architecture, build or
-    // locale token. Exposed so a test can assert that no Matrix data, and
-    // nothing else identifying, is attached.
+    // The only identifying string an update request carries: exactly
+    // "Lightning/<version>", matching the Matrix clients. Exposed for tests.
     Q_INVOKABLE QString userAgentString() const;
 
-    // Automatic checking: opt-in, at most once per 24 h, and never in the
-    // first 30 s of the process's life. Returns true when a check started.
+    // At most once per 24 h and never in the first 30 s. Returns true when a
+    // check started.
     Q_INVOKABLE bool maybeCheckAutomatically();
 
     static constexpr qint64 kAutomaticCheckIntervalMs = qint64(24) * 60 * 60 * 1000;
     static constexpr qint64 kStartupQuietPeriodMs = 30 * 1000;
-    // The helper's status file carries four short fields. Anything larger is
-    // not the file we wrote and is discarded rather than parsed.
+    // Anything larger is not the four-field file the helper writes.
     static constexpr qint64 kMaxStatusBytes = 8 * 1024;
-    // A staged artifact this old was verified but never installed; the run
-    // that downloaded it is long gone. Six hours is comfortably longer than
-    // any plausible download-then-quit gap.
+    // A staged artifact this old was verified but never installed.
     static constexpr qint64 kStaleArtifactAgeMs = qint64(6) * 60 * 60 * 1000;
-    // The sweep is bounded: it inspects at most this many entries and only
-    // ever inside the staging root.
+    // Bounded sweep, inside the staging root only.
     static constexpr int kMaxSweepEntries = 256;
 
     // --- test seams -----------------------------------------------------
-    // Every seam is additive and cannot relax a verification rule: a test
-    // may supply its own trust store (with a runtime-generated key), its
-    // own install detection, its own clock and its own process launcher,
-    // but signature and hash checking still run unmodified.
+    // Seams are additive and never relax verification: signature and hash
+    // checks always run.
     void setTrustStoreForTest(const TrustStore *trust);
     void setInstallDetectionForTest(const InstallDetection &detection);
     void setCurrentVersionForTest(const QString &version);
-    // Redirects the staging root AND re-runs the two things the constructor
-    // does against it: consuming the helper's status file and sweeping stale
-    // staged artifacts. Without the re-run a test could only ever exercise
-    // the real cache directory.
+    // Also re-runs the constructor's status-file read and stale-artifact sweep
+    // against the new root.
     void setStagingRootForTest(const QString &path);
     void setProcessLauncherForTest(ProcessLauncher launcher);
     void setHelperPathForTest(const QString &path);
     void setNowForTest(const QDateTime &now);
     void setProcessStartForTest(const QDateTime &started);
-    // Stops a check before it touches the network, so state-machine tests
-    // never issue a request. It cannot make an unverified update succeed.
+    // Stops a check before any network access; cannot make an unverified update
+    // succeed.
     void setNetworkDisabledForTest(bool disabled);
-    // Feed the two documents a check would have fetched. Used by tests and
-    // by the real fetch path alike, so both take the identical code path.
+    // The two documents a check would fetch; tests and the real path share it.
     void ingestCheckDocuments(const QByteArray &manifestBytes, const QByteArray &sigBytes);
-    // Supplies the artifact BYTES a download would have fetched, per URL, so
-    // the mirror-first order and its single canonical fallback are testable
-    // with no network. std::nullopt means that source was unreachable.
-    //
-    // It relaxes NOTHING: the bytes are streamed through the real
-    // UpdateDownloader into the real staging file, the URL is still checked
-    // against the artifact host policy, and the manifest's size and SHA-256
-    // are still what decide whether anything reaches ReadyToInstall. A source
-    // returning wrong bytes fails here exactly as it would in production.
+    // Artifact bytes per URL, so mirror-first ordering and the canonical
+    // fallback are testable offline; std::nullopt means unreachable. Relaxes
+    // nothing: the bytes go through the real downloader, host policy, size and
+    // SHA-256 checks.
     using ArtifactByteSource = std::function<std::optional<QByteArray>(const QUrl &)>;
     void setArtifactByteSourceForTest(ArtifactByteSource source);
-    // Pretend a verified artifact is staged at `path` (state ReadyToInstall)
-    // so install-refusal and argv construction are testable without a
-    // network. It takes the SAME promotion step the verified download path
-    // takes — the artifact is renamed to the manifest's validated filename —
-    // so a test observes the real staged name. It does NOT bypass
-    // verification for a real download.
+    // Pretends a verified artifact is staged at `path` (ReadyToInstall), using
+    // the same promotion to the manifest's filename as a real download.
     void setStagedArtifactForTest(const QString &path);
     QStringList lastLaunchArgumentsForTest() const { return m_lastLaunchArguments; }
     QString lastLaunchProgramForTest() const { return m_lastLaunchProgram; }
     QString stagedArtifactPathForTest() const { return m_stagedPath; }
-    // The digest the staged bytes were verified against. In production it is
-    // the signed manifest's value; setStagedArtifactForTest() without a
-    // manifest records the file's own digest at staging time, which is the
-    // same promise ("these bytes were checked") for the purposes of the
-    // re-check that every launch performs.
+    // The digest the staged bytes were verified against: the manifest's value,
+    // or without a manifest the file's own digest at staging time.
     QString stagedArtifactSha256ForTest() const { return m_stagedSha256; }
-    // Whether the current check has fallen back to the mirror's metadata
-    // pair (a canonical transfer failed, or its answer did not verify).
+    // Whether this check fell back to the mirror's metadata pair.
     bool metadataFromMirrorForTest() const { return m_metadataFromMirror; }
     QString stagingRootForTest() const { return stagingRoot(); }
 
@@ -274,18 +230,16 @@ Q_SIGNALS:
     void dismissedVersionChanged();
     void updateAvailableWarningChanged();
     void lastUpdateResultChanged();
-    // The install was refused by policy (managed install, development build,
-    // diagnostic override). Carries a user-facing reason; no override exists.
+    // Refused by policy, with a user-facing reason. No override exists.
     void installRefused(const QString &reason);
     void managedUpdateHelpRequested(const QString &command, const QString &explanation);
-    // installAndRestart() asks the application to quit so the helper — which
-    // waits for this PID — can proceed.
+    // Asks the application to quit so the helper (waiting on this PID)
+    // proceeds.
     void quitRequested();
 
 private:
-    // Which address of the ONE artifact an attempt is fetching. Both are
-    // verified against the same manifest sha256; the source only decides
-    // where the bytes are asked for.
+    // Which address of the one artifact is fetched; both verify against the
+    // same sha256.
     enum class ArtifactSource {
         Canonical,
         Mirror,
@@ -298,8 +252,7 @@ private:
     void failWith(const QString &message);
     bool isBusy() const;
 
-    // One download attempt: a fresh staging file, progress reset to zero, and
-    // the request issued at the chosen source's address.
+    // One attempt: fresh staging file, progress reset, request to that source.
     void beginDownloadAttempt(ArtifactSource source);
     void handleDownloadFinished(bool ok, TransferError error, const QString &message);
 
@@ -307,67 +260,53 @@ private:
     void fetchSignature();
     void fetchManifest();
     void applyCheckDocuments(const QByteArray &manifestBytes, const QByteArray &sigBytes);
-    // The version / channel / artifact decision for the verified m_manifest,
-    // ending in one of UpToDate, UpdateAvailable or Failed.
+    // Decides UpToDate, UpdateAvailable or Failed for the verified manifest.
     void decideFromManifest(const Version &installed);
 
     void startInstall(bool restartAfterwards);
-    // Starts the helper for the "apply when I quit" path, from aboutToQuit.
+    // Starts the helper from aboutToQuit ("apply when I quit").
     void launchDeferredInstall();
     QString helperProgramPath() const;
-    // Windows, MSI and Setup only: a copy of the helper OUTSIDE the
-    // installation, because the installer about to run rewrites every file in
-    // it. Returns an empty string and sets `error` when the copy cannot be
-    // made. Public for tests, which drive it on any platform.
+    // Windows MSI/setup only: copies the helper outside the installation the
+    // installer is about to rewrite. Empty and `error` set on failure. Public
+    // for tests.
 public:
     static QString stageHelperOutsideInstallation(const QString &helperPath,
                                                   const QString &installDir,
                                                   QString *error);
-    // The non-system libraries the helper itself loads. It is a short list
-    // because the helper links almost nothing, and the Windows artifact
-    // validation asserts the shipped binary imports nothing outside it.
+    // Non-system libraries the helper loads. The Windows artifact validation
+    // asserts the shipped binary imports nothing else.
     static QStringList helperRuntimeLibraries();
-    // Versioned name stems: every DLL beside the helper matching one travels
-    // with it, so an ICU major bump cannot silently drop a dependency.
+    // Versioned stems: every matching DLL beside the helper is copied too.
     static QStringList helperRuntimeLibraryStems();
 
-    // A sentence a person can act on, for one of the helper's failure tokens.
-    // The tokens are an internal enum ("refused-unsafe-path",
-    // "installer-exit-1603", ...) and were being shown to users verbatim,
-    // which is why a blocked update was reported as an "unknown error".
-    // Returns an empty string for a token with no specific explanation, so
-    // the caller can fall back rather than invent one.
+    // An actionable sentence for a helper failure token ("refused-unsafe-path",
+    // "installer-exit-1603", ...), or empty so the caller keeps its generic
+    // text.
     Q_INVOKABLE static QString explainInstallError(const QString &token);
 
 private:
     QString installTargetPath() const;
-    // What to start after a successful install; differs from the running
-    // executable for an AppImage. See the definition.
+    // What to start after installing; for an AppImage, not the running binary.
     QString relaunchProgramPath() const;
-    // One availability fallback for the manifest pair when the canonical
-    // host does not answer. Returns true when a retry was started.
+    // One mirror fallback for the manifest pair. True when a retry started.
     bool retryMetadataFromMirror();
     QString stagingRoot() const;
     QString statusFilePath() const;
-    // Reads and DELETES the helper's status file, then removes stale staged
-    // artifacts. Run from the constructor and from setStagingRootForTest().
+    // Reads and deletes the helper's status file, then sweeps stale artifacts.
     void initializeStagingState();
     void consumeUpdateStatusFile();
     void sweepStaleStagedArtifacts();
-    // Renames the verified temp file to the manifest's validated filename.
-    // The package managers key on the EXTENSION (apt-get only treats an
-    // argument as a local package when it contains '/' and ends in ".deb";
-    // dnf wants ".rpm"; msiexec /i wants ".msi"), so a "*.part" name reaches
-    // them as an unknown package NAME and the install fails after the user
-    // has already answered a PolicyKit prompt.
+    // Renames the verified temp file to the manifest's filename. Package
+    // managers key on the extension (apt-get needs '/' and ".deb", dnf ".rpm",
+    // msiexec ".msi"); a "*.part" name fails after the PolicyKit prompt was
+    // answered.
     bool promoteStagedArtifact(QString *error);
-    // Re-hashes the staged file and compares it with m_stagedSha256. The
-    // download verified the bytes as they streamed in; this proves the file
-    // at the path is STILL those bytes at the moment they are handed over.
+    // Re-hashes the staged file: proves the path still holds the verified bytes
+    // at hand-over.
     bool stagedArtifactStillVerifies() const;
-    // Writes the helper's status document ourselves, for the one failure the
-    // helper cannot report because it was never started: the pre-launch
-    // re-hash failing on the install-on-quit path, where the UI is gone.
+    // Writes the status file for the one failure the helper cannot report: the
+    // install-on-quit re-hash failing before it starts.
     void writeLocalStatusFailure(const QString &error);
     bool acquireLock();
     void releaseLock();
@@ -406,23 +345,19 @@ private:
     UpdateDocumentFetcher *m_fetcher = nullptr;
     UpdateDownloader *m_downloader = nullptr;
     QByteArray m_signatureDocument;
-    // True while this check is reading the MIRRORED manifest pair because
-    // the canonical host failed. Reset at the start of every check.
+    // Reading the mirrored manifest pair; reset per check.
     bool m_metadataFromMirror = false;
     std::unique_ptr<QFile> m_stagedFile;
     QString m_stagedPath;
-    // Lowercase hex SHA-256 the staged file must still hash to. Set with the
-    // path, cleared with it.
+    // Lowercase hex SHA-256 the staged file must match; set and cleared with
+    // the path.
     QString m_stagedSha256;
     std::unique_ptr<QLockFile> m_lock;
 
-    // Mirror-first download state. The mirror is attempted at most once and
-    // the canonical address at most once; there is no third attempt and no
-    // second mirror try after the canonical address fails.
+    // The mirror and the canonical address are each tried at most once.
     ArtifactSource m_attemptSource = ArtifactSource::Canonical;
     bool m_mirrorFallbackUsed = false;
-    // A fallback is queued but has not started yet. Cancelling in that window
-    // must still cancel, so it is a state of its own rather than a gap.
+    // A queued fallback that has not started; cancel must still work here.
     bool m_fallbackPending = false;
     ArtifactByteSource m_artifactByteSource;
 
@@ -430,8 +365,8 @@ private:
     QString m_helperPathOverride;
     ProcessLauncher m_launcher;
     QStringList m_lastLaunchArguments;
-    // The helper's wait for our PID is bounded, so for the no-restart path we
-    // hold the launch until the application is actually quitting.
+    // The helper's wait is bounded, so the no-restart path launches it only
+    // when the application is quitting.
     bool m_deferredInstallPending = false;
     bool m_deferredInstallConnected = false;
     QString m_lastLaunchProgram;

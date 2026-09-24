@@ -14,15 +14,13 @@
 class MatrixClient;
 class GifRecentModel;
 
-// v0.6.1: sends a chosen provider GIF as real Matrix media (app.gifSend).
-// It captures the exact destination (room or thread + ids) at selection time,
-// downloads + validates the GIF through the hardened Rust path, then hands the
-// bytes to the existing SDK attachment pipeline for the CAPTURED destination —
-// so a room/thread switch during the download can never reroute the send, and
-// a thread GIF always lands as a real m.thread reply (never an ordinary room
-// message). On a successful handoff the GIF is recorded in Recents; the SDK
-// local echo then owns upload/send state (and its own Retry). Never sends a
-// bare provider URL, never renames non-GIF bytes.
+// Sends a chosen GIF as real Matrix media (`app.gifSend`). The destination
+// (room or thread) is captured at selection time, the GIF is downloaded and
+// validated through the hardened Rust path, and the bytes go to the SDK
+// attachment pipeline for that captured destination, so switching rooms
+// mid-download cannot reroute the send and thread GIFs are always m.thread
+// replies. A successful handoff is recorded in Recents; the SDK local echo
+// owns send state and Retry. Never sends a bare provider URL.
 class GifSendController : public QObject
 {
     Q_OBJECT
@@ -38,11 +36,8 @@ public:
 
     void setClient(MatrixClient *client);
     void setRecentModel(GifRecentModel *recent) { m_recent = recent; }
-    // v0.6.6: reads the bytes for a starred local GIF's content hash (see
-    // GifStarredStore::readBytes) — reads fresh from disk at send time,
-    // never trusted from the captured snapshot, so a GIF unstarred/removed
-    // between activation and send is refused rather than sent from stale
-    // data. Empty return means "unavailable".
+    // Reads a saved local GIF by content hash, fresh from disk at send time, so
+    // a GIF removed after activation is refused. Empty means unavailable.
     using LocalGifReader = std::function<QByteArray(const QString &hash)>;
     void setLocalGifReader(LocalGifReader reader)
     { m_localGifReader = std::move(reader); }
@@ -72,35 +67,19 @@ private:
     };
 
     void start(Pending pending);
-    // Local-favorite send path: the "GIF" is a client-local starred file,
-    // not a provider URL. Synchronous end-to-end (disk read, validate, hand
-    // to the SDK attachment path) — there is no async in-flight window, so
-    // hasIdenticalPending()'s dedup backstop (built for the download-latency
-    // window below) does not apply here.
+    // Sends a client-local saved file. Synchronous end to end, so the in-flight
+    // dedup below does not apply.
     void startLocal(Pending pending);
-    // Authoritative de-duplication backstop: true if an IDENTICAL send
-    // (same destination + same provider-qualified GIF) is already in
-    // flight. GifPicker.qml's own one-shot `activated` latch is the first
-    // line of defense and closes the common case (a second click/Return
-    // landing while the popup is still visually closing), but that latch
-    // is QML-local, per-picker-instance state — it says nothing about any
-    // OTHER caller of sendToRoom()/sendToThread() (a future call site, a
-    // test, or two independently-instantiated pickers racing on the same
-    // shared GifSearchController). This check is what actually holds
-    // regardless of caller: two calls for the same target+GIF while the
-    // first is still downloading/sending collapse into one network
-    // operation. It does NOT block a genuine repeat send after the first
-    // one has already resolved (succeeded or failed) — that is normal user
-    // intent, not a duplicate activation.
+    // True when an identical send (same destination and GIF) is already in
+    // flight. The picker's own activation latch is per instance; this holds for
+    // every caller. A repeat after the first send resolved is not blocked.
     bool hasIdenticalPending(const Pending &candidate) const;
     void onGifDownloadFinished(quint64 opId, bool ok, const QByteArray &bytes,
                                const QString &mime, int width, int height,
                                qint64 size, const QString &category);
-    // `ext` defaults to "gif" (the provider path's only supported format —
-    // Rust re-validates GIF magic bytes on that path, so it stays GIF-only).
-    // The local-favorite path (startLocal) passes the byte-validated
-    // suffix, never a guessed or claimed one, so a saved PNG/JPEG/WebP
-    // round-trips with its real extension instead of a lying ".gif".
+    // `ext` defaults to "gif" (the provider path is GIF-only; Rust re-checks).
+    // The local path passes the byte-validated suffix so saved PNG/JPEG/WebP
+    // files keep their real extension.
     static QString safeFilename(const gif::GifResult &r,
                                 const QString &ext = QStringLiteral("gif"));
 

@@ -10,65 +10,24 @@
 class MatrixClient;
 class MediaBridge;
 
-// v0.7.x message forwarding (task #14). Matrix has no forward primitive —
-// matrix-sdk 0.18 exposes none either — so forwarding IS "read the source
-// event's content, send a NEW, UNRELATED event into the target room",
-// exactly like Element. See the contract this class follows (decisions
-// already made, not relitigated here):
+// Forwards a message by sending its content as a new, unrelated event; Matrix
+// has no forward primitive.
 //
-//   D1 media is RE-UPLOADED, never mxc-copied. Copying the source event's
-//      url/file block into another room is wrong twice over: under
-//      authenticated media the target room's members may not be entitled
-//      to fetch that mxc at all, and in an encrypted source the `file`
-//      block carries per-event decryption keys that would then exist in a
-//      room those keys were never negotiated for. Re-uploading through the
-//      normal attachment path (D2/D3) re-encrypts correctly for whatever
-//      the TARGET room is, in both the plain->encrypted and
-//      encrypted->plain directions.
-//   D4 text carries the plain body ONLY — never formatted_body. The source
-//      HTML can embed pills/permalinks naming the SOURCE room, and
-//      sanitising that correctly for an arbitrary target is its own
-//      problem; this round deliberately does not attempt it.
-//   D5 the forward NEVER carries a relation — not a reply, not m.thread —
-//      even when the source itself was a thread reply. CLAUDE.md §8: a
-//      stray m.thread relation landing in a room that never negotiated
-//      that thread is a real defect, not a cosmetic one. sendTextMessage(),
-//      sendAttachmentBytes() and sendAttachmentBytesToRoom() attach no
-//      relation by construction, so
-//      this holds simply by using those calls and nothing else.
-//   D6 nothing is optimistic: `forwarded()` — which AppController wires to
-//      opening the target room — fires only once the send has actually
-//      been DISPATCHED to the SDK: for text that is the ordinary
-//      fire-and-forget sendTextMessage() call (exactly like the composer's
-//      own send), for media it is a non-zero sendAttachmentBytes() op id.
-//      A failure BEFORE dispatch (media fetch failure, or a zero op id) is
-//      reported via `error` and the dialog stays open — never swallowed.
-//      A failure AFTER dispatch cannot use `error`: the picker has closed
-//      and the user has been navigated to the target. An attachment send is
-//      a direct upload rather than a queued one, and the target timeline
-//      was not open, so there is no local echo to fail visibly either —
-//      without explicit handling a server refusal (no permission, rate
-//      limit, over m.upload.size) would be completely silent. Those surface
-//      on forwardFailed() instead; see m_dispatchedSends.
-//   D7 redacted, local-echo, and undecrypted content is refused at
-//      begin(), before any network activity — none of it has anything
-//      safe to re-send.
+// - Media is re-uploaded, never mxc-copied: the target room's members may not
+//   be entitled to the source mxc, and an encrypted source's `file` block
+//   carries keys that must not reach another room. The normal attachment path
+//   re-encrypts for the target.
+// - Text carries the plain body only; formatted_body can hold pills and
+//   permalinks into the source room.
+// - The source's relation (reply, m.thread) is never carried over.
+// - forwarded() fires only once the send is dispatched. Failures before
+//   dispatch set `error`; a media send refused afterwards is reported through
+//   forwardFailed(), since the picker has already closed.
+// - Redacted, local-echo and undecryptable content is refused in begin().
 //
-// Selection identity: begin() takes an IMMUTABLE SNAPSHOT of the exact row
-// the user activated, built by the QML delegate directly from its own
-// `model` role data at the moment the menu item is clicked (see
-// MessageDelegate.qml's "Forward" item) — the same discipline the GIF
-// picker uses (GifSendController::sendToRoom/sendToThread take a captured
-// QVariantMap, never a live index). It deliberately does NOT re-resolve
-// the event later through TimelineModel: the model backing an open menu
-// can be replaced, reordered, or redacted between activation and the
-// user's eventual room choice, and re-resolving at forwardTo() time would
-// let a stale click send whatever now sits at that identity instead of
-// what was actually chosen. A `mediaKey` in the snapshot is still
-// re-fetched FRESH through MediaBridge (which itself decrypts through the
-// SDK, exactly like any other attachment) — only the classification
-// (kind/body/filename/mime/dimensions) is frozen at activation, never the
-// bytes themselves.
+// begin() takes an immutable snapshot of the activated row instead of
+// re-resolving it later, because the model can change before a target is
+// picked. Media bytes are still fetched fresh through MediaBridge.
 class ForwardController : public QObject
 {
     Q_OBJECT
@@ -92,12 +51,9 @@ class ForwardController : public QObject
 public:
     explicit ForwardController(QObject *parent = nullptr);
 
-    // Connects loggedOut so a forward in flight (or a still-open dialog)
-    // can never survive into a different account (matches GifSendController's
-    // own cancelAll()-on-loggedOut wiring).
+    // A forward in flight never survives into another account.
     void setClient(MatrixClient *client);
-    // Media re-fetch path (D1/D2) — the SAME decrypting fetch every other
-    // save/star action uses.
+    // Decrypting media fetch shared with save/star.
     void setMediaBridge(MediaBridge *bridge);
 
     bool active() const { return m_active; }
@@ -107,53 +63,35 @@ public:
     bool busy() const { return m_busy; }
     QString error() const { return m_error; }
 
-    // Opens the picker for the row the caller just activated. `sourceRoomId`
-    // must already be the REAL room id (TimelineModel::realRoomIdForEvent —
-    // the composite thread-timeline id must never reach this class; see
-    // MessageDelegate.qml's call site). `snapshot` is the immutable capture
-    // described in the class comment; see the keys read in the .cpp. Refuses
-    // (sets `error`, leaves `active` false) for redacted / local-echo /
-    // undecryptable content (D7) or an empty snapshot with nothing to send.
+    // Opens the picker. `sourceRoomId` must be the real room id, never the
+    // composite thread-timeline id. Sets `error` and stays inactive for
+    // content that cannot be forwarded.
     Q_INVOKABLE void begin(const QString &sourceRoomId,
                           const QString &sourceEventId,
                           const QVariantMap &snapshot);
-    // Closes the picker without sending.
     Q_INVOKABLE void cancel();
-    // The user picked a target room. Dispatches the text or media send for
-    // the frozen snapshot. Refuses silently while not active or already
-    // busy (the dialog disables its own controls on `busy`, this is
-    // defense in depth against a double-activation).
+    // Dispatches the send for the frozen snapshot. Ignored while inactive or
+    // busy, guarding against double activation.
     Q_INVOKABLE void forwardTo(const QString &targetRoomId);
 
-    // ── Multi-message, multi-destination forwarding (0.9) ────────────────
+    // ── Multi-message, multi-destination forwarding ─────────────────────
     //
-    // The single-message path above is unchanged and still used by the
-    // message context menu. This is the SELECTION path: N frozen snapshots
-    // to M destinations, which is a different problem — it can partially
-    // fail, and saying "sent" because one of twelve sends worked would be a
-    // lie the user acts on.
-    //
-    // Destinations are {roomId, threadRootId} pairs. A thread root turns the
-    // forward into a thread reply IN THE TARGET, which is a relation the
-    // target room negotiated — unlike D5's refusal to carry the SOURCE's
-    // relation, which named a thread the target knows nothing about.
-    /// Enter/leave interactive selection mode. The timeline reads
-    /// `selecting` to show its checkboxes and to stop a tap opening an image.
+    // N snapshots to M destinations; each pair succeeds or fails on its own.
+    // Destinations are {roomId, threadRootId}: a thread root makes the copy a
+    // thread reply in the target, a relation the target itself owns.
+    /// Enter/leave selection mode; the timeline shows checkboxes while set.
     Q_INVOKABLE void beginSelecting(const QString &sourceRoomId);
     Q_INVOKABLE void cancelSelecting();
-    /// Add or remove one message. The snapshot is captured HERE, at click
-    /// time, for the same reason begin() captures one: the model row is live
-    /// and the send may happen much later.
+    /// Add or remove one message, capturing its snapshot at click time.
     Q_INVOKABLE void toggleSelected(const QString &eventId,
                                     const QVariantMap &snapshot);
     Q_INVOKABLE bool isSelected(const QString &eventId) const;
 
     Q_INVOKABLE void beginSelection(const QString &sourceRoomId,
                                     const QVariantList &snapshots);
-    /// "content" (a clean copy) or "context" (attributed with the original
-    /// sender, room and time). Context is a CONSCIOUS choice: it discloses a
-    /// private room's name and a sender to whoever receives the copy, so it
-    /// is never the default.
+    /// "content" (a clean copy) or "context" (attributed with sender, room and
+    /// time). Context discloses the source room and sender, so it is never the
+    /// default.
     Q_INVOKABLE void setForwardMode(const QString &mode);
     Q_INVOKABLE void sendSelection(const QVariantList &targets);
     /// Re-dispatch only the pairs that failed.
@@ -169,39 +107,28 @@ public:
     int selectedCount() const { return int(m_selectionSnapshots.size()); }
 
 public:
-    // Exposed for tests: a forwarded attachment's name is re-originated
-    // under this account, so path structure and leading dots are stripped.
-    // Not Q_INVOKABLE — QML has no business renaming a forward.
+    // Strips path structure, control characters and leading dots. Public for
+    // tests.
     static QString sanitizedForwardFilename(const QString &raw);
 
 Q_SIGNALS:
     void changed();
-    // A forward was actually dispatched. AppController opens
-    // `targetRoomId`; this must never fire before that.
+    // Emitted only once the send is dispatched; AppController opens the room.
     void forwarded(const QString &targetRoomId);
-    // A forward that was DISPATCHED was then refused by the server. Carries
-    // the room it was aimed at, because by the time this arrives the picker
-    // has closed and the user has already been navigated there.
+    // A dispatched forward was refused by the server.
     void forwardFailed(const QString &targetRoomId, const QString &message);
 
 private Q_SLOTS:
-    // A media send this controller dispatched has finished. Matched by op
-    // id against m_dispatchedSends; inert for every other op in the app.
+    // Matched by op id against m_dispatchedSends; other ops are ignored.
     void onAttachmentQueueFinished(quint64 opId, const QString &roomId,
                                    bool ok, const QString &category);
-    // MediaBridge::mediaBytesForStar is broadcast to every listener for
-    // every media key in flight (star, save, and now forward can all be
-    // outstanding at once) — this filters to the ONE key this controller is
-    // currently waiting on.
+    // Broadcast for every key in flight; only the pending key is handled.
     void onMediaBytesForStar(const QString &mediaKey, bool ok,
                              const QByteArray &bytes, const QString &category);
 
 private:
-    // Clears to idle: bumps m_generation (invalidating any outstanding
-    // mediaBytesForStar wait — see the header comment on m_generation) and
-    // drops every piece of forward-in-progress state. Used by cancel(),
-    // by begin() (a second begin() must discard whatever the first one was
-    // waiting on), and by a successful finish.
+    // Drops all in-progress state and bumps m_generation, invalidating any
+    // outstanding media fetch.
     void resetToIdle();
     void setError(const QString &message);
     static bool snapshotIsMedia(const QVariantMap &snapshot);
@@ -221,13 +148,6 @@ private:
     // Frozen at begin() — never re-read from a live model.
     QVariantMap m_snapshot;
 
-    // Generation counter, bumped by every resetToIdle() (i.e. every
-    // begin()/cancel()/successful finish). Guards the async media fetch:
-    // an mediaBytesForStar answer is honoured only when it names the exact
-    // key THIS generation dispatched (m_pendingMediaKey) — a late answer
-    // for a forward the user has since cancelled or replaced with a new
-    // begin() is dropped instead of sending into whatever target the
-    // CURRENT forward's dialog now shows.
     // ── Selection state ──────────────────────────────────────────────
     struct Pending {
         QVariantMap snapshot;
@@ -249,18 +169,16 @@ private:
     QVariantList m_failures;
     int m_progressDone = 0;
     int m_progressTotal = 0;
-    /// ONE media send at a time. A selection of twenty images into three
-    /// rooms is sixty uploads, and dispatching them together is how a client
-    /// saturates a link and times its own sends out.
+    /// One send at a time, so a large selection cannot saturate the link.
     bool m_pumpBusy = false;
 
+    // Bumped by resetToIdle(); a media answer from an older generation is
+    // dropped rather than sent to the current target.
     quint64 m_generation = 0;
     quint64 m_pendingGeneration = 0;
     QString m_pendingMediaKey;
-    // Media sends already handed to the SDK, by op id -> target room. They
-    // survive resetToIdle(): the picker closes immediately but the send has
-    // not finished, and a refusal must still be reportable. Keyed rather
-    // than single-slot so a second forward cannot silence the first's.
+    // Dispatched media sends, op id -> target room. Survives resetToIdle() so
+    // a later refusal is still reported; one entry per send.
     QHash<quint64, QString> m_dispatchedSends;
     QString m_pendingTargetRoomId;
 };

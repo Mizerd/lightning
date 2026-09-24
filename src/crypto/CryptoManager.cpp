@@ -15,10 +15,8 @@ void CryptoManager::setBackendName(const QString &backendName)
 
 bool CryptoManager::supportsE2ee() const
 {
-    // Only the Rust SDK backend may eventually implement E2EE. Even when
-    // compiled in, it must report false until encrypted read and encrypted
-    // send both work end-to-end. This function is the single source of truth
-    // for the UI: no other layer may claim E2EE support.
+    // The single source of truth for whether the UI may claim E2EE support.
+    // False unless the Rust backend is compiled with RUST_SDK_E2EE_WIRED.
 #ifdef ENABLE_RUST_SDK_BACKEND
 #  ifdef RUST_SDK_E2EE_WIRED
     return m_backendName == QLatin1String("rust");
@@ -32,13 +30,13 @@ bool CryptoManager::supportsE2ee() const
 
 bool CryptoManager::supportsEncryptedMedia() const
 {
-    // Follows supportsE2ee(); documented v0.5+ target.
+    // Follows supportsE2ee().
     return supportsE2ee();
 }
 
 bool CryptoManager::supportsDeviceVerification() const
 {
-    // Rust SDK will drive SAS verification. Not wired in v0.4.
+    // Not wired through this class.
     return false;
 }
 
@@ -97,7 +95,6 @@ bool CryptoManager::isDeviceVerified(const QString &, const QString &) const
 
 bool CryptoManager::isRoomEncrypted(const QString &) const
 {
-    // The room list model's `encrypted` flag is the UI-side source of truth
-    // until Rust SDK exposes its own crypto state per room.
+    // The room list model's `encrypted` flag is the UI's source of truth.
     return false;
 }

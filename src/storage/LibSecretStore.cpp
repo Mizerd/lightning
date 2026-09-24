@@ -67,17 +67,11 @@ void LibSecretStore::probe()
     }
     g_object_unref(svc);
 
-    // Reaching the service is NOT permission to use it. Under Ubuntu Touch's
-    // AppArmor confinement gnome-keyring answers on the bus — so the call
-    // above succeeds — while every real operation is denied at
-    // Secret.Service.OpenSession, and there is no policy group a click can
-    // request to change that. Probing with the bus proxy alone therefore
-    // reported "backend ready" and the factory never fell back, so the token
-    // was written nowhere and the next launch could not restore the session.
-    //
-    // A real (harmless) lookup is the honest probe: it exercises the same
-    // session-opening path every read and write needs. A miss is success —
-    // the key is not expected to exist; only an ERROR means unusable.
+    // Reaching the service is not permission to use it: under Ubuntu Touch's
+    // AppArmor confinement gnome-keyring answers on the bus but denies
+    // Secret.Service.OpenSession. Probe with a real (harmless) lookup, which
+    // uses the same session path as every read and write; a miss is success,
+    // only an error means unusable.
     GError *probeErr = nullptr;
     gchar *probeValue = secret_password_lookup_sync(
         matrixClientSchema(), nullptr, &probeErr,
@@ -165,10 +159,8 @@ QString LibSecretStore::readSecret(const QString &userId,
     if (err) {
         setError(QString::fromUtf8(err->message));
         g_error_free(err);
-        // The backend could not answer — a locked collection, a dropped
-        // session bus. NOT "no such secret". Callers must be able to tell
-        // these apart before treating an empty result as evidence that an
-        // account has no saved sign-in.
+        // The backend could not answer (locked collection, dropped session
+        // bus): not "no such secret".
         m_lastReadFailed = true;
         qCWarning(lcLibSecret) << "readSecret failed:" << m_lastError;
         return {};

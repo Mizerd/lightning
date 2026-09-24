@@ -7,31 +7,20 @@
 #include <functional>
 #include <optional>
 
-// Lightning secure update system — how THIS binary was installed.
+// How this binary was installed. Decides whether Lightning may apply an update
+// and which compiled-in helper strategy runs. Never taken from the network.
 //
-// The install type decides whether an update can be applied by Lightning at
-// all, and which compiled-in strategy the updater helper is asked to run.
-// It is never taken from the network: the manifest cannot name a strategy,
-// and nothing here reads a remote value.
-//
-// Detection priority, as implemented in detectInstall():
-//   1. Runtime ecosystem evidence (Flatpak / Snap / AppImage) — the same
-//      binary really IS running under that runtime, so it overrides the
-//      compile-time value.
-//   2. The Windows installer's `.lightning-install-type` marker, and ONLY on
-//      Windows, and ONLY when it names one of the three Windows package
-//      types. That marker exists for exactly one reason: the MSI, the setup
-//      EXE and the portable ZIP are produced from ONE Windows build, so no
-//      compile-time value can tell them apart. Everywhere else a concrete
-//      compile-time value wins and a stray marker file is ignored — a marker
-//      that could downgrade a genuine `linux-appimage` install to
-//      `linux-deb` would provoke an unexpected PolicyKit prompt and install
-//      the wrong package.
-//   3. Compile-time LIGHTNING_INSTALL_TYPE when it names a concrete package
-//      type (set by the packaging pipeline per package job).
-//   4. LIGHTNING_INSTALL_TYPE_OVERRIDE env — TEST/DIAGNOSTIC ONLY. It never
-//      enables automatic installation (the detection carries a flag saying
-//      so, and installs are refused exactly as for a development build).
+// Detection priority (detectInstall()):
+//   1. Runtime ecosystem evidence (Flatpak / Snap / AppImage).
+//   2. The Windows installer's `.lightning-install-type` marker, only on
+//      Windows and only naming one of the three Windows package types: the
+//      MSI, setup EXE and portable ZIP come from one build, so no compile-time
+//      value can tell them apart. Elsewhere a stray marker is ignored, since
+//      it could turn an AppImage into a "deb" and raise a wrong PolicyKit
+//      prompt.
+//   3. Compile-time LIGHTNING_INSTALL_TYPE naming a concrete package type.
+//   4. LIGHTNING_INSTALL_TYPE_OVERRIDE, test/diagnostic only; it never enables
+//      automatic installation.
 //   5. Otherwise the compile-time value; `development` when unset.
 namespace lightning::update {
 
@@ -49,22 +38,17 @@ enum class InstallType {
     Unknown,
 };
 
-// Who a Windows MSI / setup-EXE installation belongs to. Every other install
-// type is User: the question only has two answers where Windows Installer or
-// the NSIS installer can place the same package in two contexts.
-//
-// It matters to the updater and to nothing else. A Machine installation lives
-// in Program Files with its registration under HKLM, so its upgrade must run
-// ELEVATED and in the SAME context -- an unelevated per-user upgrade of it is
-// not an upgrade at all, it installs a second copy beside the first (an MSI's
-// FindRelatedProducts only sees its own context).
+// Who a Windows MSI/setup installation belongs to; User for everything else.
+// A Machine installation (Program Files, HKLM) must be upgraded elevated in
+// the same context, or the MSI installs a second copy (FindRelatedProducts
+// only sees its own context).
 enum class InstallScope {
     User,
     Machine,
 };
 
-// "user" / "machine": the value the installers write into the scope marker
-// and the value of the helper's --install-scope option.
+// "user" / "machine": the scope marker value and the helper's
+// --install-scope value.
 QString installScopeId(InstallScope scope);
 
 // Canonical wire ids (spec §5). These are the artifact keys in the manifest.
@@ -74,124 +58,80 @@ QString installTypeLabel(InstallType type);
 // Strict id -> enum. Unknown text yields nullopt (never Unknown-by-guess).
 std::optional<InstallType> installTypeFromId(QStringView id);
 
-// False for flatpak, snap, macos-dmg, development and unknown. A false here
-// is a hard refusal: there is no override anywhere in the update API.
-//
-// macos-dmg is false because the updater helper has NO strategy for it
-// (updater::isSelfInstallable refuses UpdaterMode::MacosDmg and planForMode
-// returns UnsupportedPlatform). Advertising an automatic install that the
-// helper would then refuse is a promise the product cannot keep, so the two
-// sides are kept in step — and there is a test asserting exactly that.
+// False for flatpak, snap, macos-dmg, development and unknown; a hard refusal
+// with no override. macos-dmg is false because the helper has no strategy for
+// it; a test keeps the two sides in step.
 bool canInstallAutomatically(InstallType type);
 
-// True where another package manager owns updates for this installation.
-// Repo-managed .deb/.rpm installs are NOT detected here — claiming that
-// without evidence would be a guess, so those report false.
+// True where another package manager owns updates. Repo-managed .deb/.rpm
+// installs cannot be detected and report false.
 bool isPackageManaged(InstallType type);
 
-// Injectable inputs so every detection branch is testable without setenv
-// races. The defaults read the real process environment / filesystem.
+// Injectable inputs so every branch is testable without setenv races.
+// Defaults read the real environment and filesystem.
 struct InstallEnvironment {
     // Returns a null QString when the variable is unset.
     std::function<QString(const char *)> readEnv;
     std::function<bool(const QString &)> pathExists;
     // Compile-time LIGHTNING_INSTALL_TYPE; empty means "unset".
     QString compileTimeId;
-    // Contents of the install marker written next to the executable by the
-    // installer, or a null QString when there is none. This exists because the
-    // MSI, the setup EXE and the portable ZIP are all produced from ONE
-    // Windows build, so no compile-time value can tell them apart -- only the
-    // thing that installed the files knows which of the three it was.
-    //
-    // That is its ONLY justification, so that is its only scope: the marker is
-    // consulted only when `windowsPlatform` is true and only when it names one
-    // of the three Windows package types. On every other platform the
-    // compile-time value wins outright, because a marker is a file and files
-    // travel -- one copied into an AppImage's directory must never turn it
-    // into a .deb install and raise a PolicyKit prompt for the wrong package.
+    // Contents of the install marker beside the executable, or null. Only
+    // consulted on Windows and only when it names a Windows package type (see
+    // detection step 2).
     std::function<QString()> readInstallMarker;
-    // Contents of the SCOPE marker (`.lightning-install-scope`) beside the
-    // executable, or a null QString when there is none. Written by the NSIS
-    // installer at install time and carried by the MSI as one of two
-    // conditioned components. Consulted only on Windows and only for the MSI
-    // and setup-EXE types; anything but exactly "machine" -- including no
-    // marker at all, which is every installation made by 0.9.9 or older --
-    // means User.
-    //
-    // The marker ALONE is not trusted with "machine". In a per-user
-    // installation the user (and anything running as them) can write it, and
-    // a spoofed "machine" would make every update raise a UAC prompt the
-    // person is primed to approve -- for a program malware chose the moment
-    // of -- and upgrade into a second, per-machine copy. So "machine" also
-    // needs readMachineInstallDirs() to name THIS directory, and HKLM is
-    // writable only by an administrator.
+    // Contents of `.lightning-install-scope` beside the executable, or null.
+    // Consulted only on Windows for MSI/setup; anything but "machine"
+    // (including no marker) means User. "machine" also requires
+    // readMachineInstallDirs() to name this directory: the marker is
+    // user-writable in a per-user install, and a spoofed value would make every
+    // update raise a UAC prompt for a program malware chose.
     std::function<QString()> readInstallScopeMarker;
-    // The per-machine installation directories recorded under
-    // HKLM\Software\Mizerd\Lightning: "InstallDir" (setup EXE) and
-    // "MsiInstallDir" (MSI). Empty when there are none, and always empty off
-    // Windows. A hand-built environment that leaves this unset has none.
+    // Per-machine directories recorded under HKLM\Software\Mizerd\Lightning
+    // ("InstallDir" for setup, "MsiInstallDir" for MSI). Empty off Windows or
+    // when unset.
     std::function<QStringList()> readMachineInstallDirs;
     // The directory the running executable is in, compared against the above.
     QString applicationDir;
-    // True when the file at `path` carries the AppImage magic (an ELF whose
-    // bytes 8..10 read "AI" followed by type 1 or 2). $APPIMAGE is an
-    // environment variable, and the AppImage strategy chmods and REPLACES
-    // whatever it names -- so a runtime claim is accepted only for a file
-    // that is at least an AppImage, never for an arbitrary existing path.
-    // defaultInstallEnvironment() reads the bytes; a hand-built environment
-    // that leaves this unset accepts none.
+    // Whether `path` carries the AppImage magic (ELF with "AI" + type 1 or 2 at
+    // offset 8). $APPIMAGE becomes the file the strategy chmods and replaces,
+    // so it is accepted only for an actual AppImage. Unset accepts none.
     std::function<bool(const QString &)> looksLikeAppImage;
-    // Is the portable marker (`portable.marker`) beside the executable?
-    //
-    // The portable strategy RELOCATES the installation directory and is the
-    // most destructive of the three Windows paths, yet it is also the
-    // compiled-in default, because all three Windows packages are built from
-    // one tree. So an INSTALLED copy whose `.lightning-install-type` marker
-    // is missing -- the NSIS script writes it with no error check -- would
-    // fall through to portable and have its directory swapped out from under
-    // the installer that owns it, taking `.lightning-install-root` with it
-    // and leaving an entry that can never be uninstalled. This is the
-    // positive evidence that a portable copy really is portable.
+    // Whether `portable.marker` is beside the executable. Portable is the
+    // compiled-in default for all Windows packages, and its strategy swaps the
+    // installation directory; an installed copy missing its type marker must
+    // not fall through to it and break its uninstaller.
     std::function<bool()> portableMarkerPresent;
 
-    // True when the running platform is Windows. Injectable so both the
-    // marker-accepted and the marker-ignored branch are testable on one host.
-    // defaultInstallEnvironment() sets the real value; a hand-built
-    // environment defaults to false, i.e. "do not consult the marker".
+    // Injectable so both marker branches are testable on one host. Unset means
+    // "do not consult the marker".
     bool windowsPlatform = false;
 };
 
-// Reads the first bytes of `path` and reports whether they carry the AppImage
-// signature. Exposed so a test can hand it a real file.
+// Reports whether `path` starts with the AppImage signature. Public for tests.
 bool fileLooksLikeAppImage(const QString &path);
 
-// File name of that marker, written by the Windows installers into the
-// installation directory. One line, one canonical install-type id.
+// Written by the Windows installers into the installation directory: one line,
+// one install-type id.
 inline constexpr char kInstallMarkerFileName[] = ".lightning-install-type";
-// The scope marker's file name. The NSIS script and the WiX generator in
-// packaging-ci write exactly this name.
+// Written by the NSIS script and the WiX generator.
 inline constexpr char kInstallScopeMarkerFileName[] = ".lightning-install-scope";
 
 InstallEnvironment defaultInstallEnvironment();
 
-// True when a directory recorded in the registry names `applicationDir`.
-// Separators, a trailing separator and letter case are not significant (the
-// MSI records "[INSTALLFOLDER]" with a trailing backslash, Qt reports '/').
-// An empty value never matches.
+// True when a registry-recorded directory names `applicationDir`, ignoring
+// separators, a trailing separator and case. Empty never matches.
 bool sameInstallDirectory(const QString &registered, const QString &applicationDir);
 
 struct InstallDetection {
     InstallType type = InstallType::Unknown;
-    // The diagnostic env override supplied the type. Automatic installation
-    // stays refused in that case, exactly as for a development build.
+    // The type came from the diagnostic override; installation stays refused.
     bool diagnosticOverride = false;
     // Convenience: canInstallAutomatically(type) && !diagnosticOverride.
     bool automaticInstallAllowed = false;
     // A development build may only CHECK when the opt-in env var is set.
     bool developmentCheckAllowed = false;
-    // Machine only for a Windows MSI or setup-EXE installation whose scope
-    // marker says so AND whose directory is registered under HKLM. See
-    // InstallScope and InstallEnvironment::readInstallScopeMarker.
+    // Machine only when the scope marker says so and HKLM registers this
+    // directory.
     InstallScope scope = InstallScope::User;
 };
 

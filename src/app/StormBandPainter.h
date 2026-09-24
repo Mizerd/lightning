@@ -5,17 +5,12 @@
 #include <QQuickImageProvider>
 #include <QString>
 
-// The Storm Band tile/sprite painter — an EXACT port of the reference
-// implementation in storm-band-export.html (the maintainer-supplied,
-// dependency-free HTML export). Every painter reproduces the reference's
-// canvas code 1:1: the same mulberry32-style PRNG with the same seeds, the
-// same tile source dimensions (66px tall, rendered at 2x by QML), the same
-// per-pixel dithering conditions, and the same derivePalette() color math,
-// so a given (background, accent) pair produces the same scene as the HTML.
+// Storm Band tile/sprite painters: an exact port of the reference canvas code
+// in storm-band-export.html (same PRNG and seeds, tile sizes, dithering and
+// derivePalette() math), so a (background, accent) pair renders the same scene.
 //
-// QImage + QPainter only (pure software) — works under the offscreen test
-// platform and never touches the GPU at generation time. Tiles regenerate
-// only when the theme inputs change (the provider URL changes).
+// Pure software QImage/QPainter, so it works on the offscreen platform. Tiles
+// regenerate only when the theme inputs (the provider URL) change.
 namespace stormband {
 
 // Field names match the reference's palette object 1:1.
@@ -93,11 +88,8 @@ QImage imageForId(const QString &id);
 class StormBandImageProvider : public QQuickImageProvider
 {
 public:
-    // review M2: force asynchronous loading for every consumer — tile
-    // generation is real pixel work (the exact-port painters), and without
-    // this flag a plain Image without asynchronous:true generates on the
-    // GUI thread, stalling the very Appearance page a theme switch happens
-    // on.
+    // Forced asynchronous: tile generation is real pixel work and would
+    // otherwise run on the GUI thread for an Image without asynchronous:true.
     StormBandImageProvider()
         : QQuickImageProvider(QQuickImageProvider::Image,
                               QQmlImageProviderBase::ForceAsynchronousImageLoading)
