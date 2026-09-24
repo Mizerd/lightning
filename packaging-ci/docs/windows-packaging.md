@@ -307,12 +307,19 @@ with a property-setting action when `ALLUSERS=1`.
 **Validation status.** Structural checks (`validate-windows-artifacts.sh`) and
 Wine installs of both scopes (`smoke-windows-wine.sh`) run on every Windows
 build. Wine's `IsUserAnAdmin()` is always true, so it cannot exercise the UAC
-relaunch, and it is not Windows. Native per-machine install, uninstall, standard
-user launch from Program Files, and the per-machine in-app update are **NOT
-TESTED** until they are run on the Windows guest. A per-machine MSI uninstalled
-from Settings → Apps must remove `C:\Program Files\Lightning`: Wine cannot show
-it (it does not keep ALLUSERS=1 for a maintenance run), so that is a hard gate
-for the native test.
+relaunch, and it is not Windows.
+
+Native Windows 11 (26200, UAC on), 2026-09-24, installers from `9ccd9c6d`:
+**PASS** — per-user Setup and MSI (no prompt); "For all users" (one UAC prompt,
+Program Files, HKLM, all-users shortcuts); silent `/S /ALLUSERS`; per-machine
+MSI `ALLUSERS=1`; uninstall of the per-machine MSI from Settings → Apps removes
+`C:\Program Files\Lightning` (the hard gate Wine cannot show); a standard user
+runs it from Program Files with data only in their own profile; a declined
+prompt exits 1223; a `setup (1).exe` download name; another user's running copy
+blocks a per-machine Setup upgrade with exit 2. A non-elevated
+`msiexec … ALLUSERS=1` fails with 1925 rather than prompting, so it must be run
+elevated. **NOT TESTED:** the per-machine in-app update and the MSI upgrade
+while another user runs it (both need a newer signed build).
 
 ## Security decision
 
