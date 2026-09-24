@@ -9,30 +9,16 @@
 #include "app/SettingsManager.h"
 
 namespace {
-/// Which list a resolve is against. Kept local: the public API is three
-/// explicit accessors, so this never needs to be a shared enum.
+/// Which device list a resolve checks.
 enum DeviceKind { Microphone, Speaker, Camera };
 
-/// A pipeline description fragment. The id is already sanitized by
-/// SettingsManager (bounded, no control characters, no quote/backslash/`!`),
-/// which is what makes embedding it in a gst-parse description safe.
-/// Build a `<element> device="<id>"` fragment, or empty for "system default".
+/// Builds a `<element> device="<id>"` fragment, or empty for the system
+/// default.
 ///
-/// LINUX ONLY, and empty everywhere else ON PURPOSE. The element names here
-/// are PulseAudio's and do not exist on Windows or macOS, and the id is
-/// whatever `QAudioDevice::id()` returned — a Pulse device name on this
-/// backend, and something else entirely on WASAPI or CoreAudio. Handing a
-/// foreign id to `wasapi2src device=` or `osxaudiosrc device=` is a pipeline
-/// that fails to start, which is a worse outcome than using the system
-/// default: a call that cannot begin versus a call on the wrong microphone.
-///
-/// Returning empty makes the engine fall back to `autoaudiosrc`/
-/// `autoaudiosink`, which resolve to WASAPI and CoreAudio natively.
-///
-/// TRUE PARITY NEEDS GstDeviceMonitor, not a per-platform element name:
-/// only GStreamer's own enumeration yields an id its own elements accept.
-/// That is the same fix docs/matrixrtc.md's open item names for cameras, and
-/// it should do both at once.
+/// Linux only: these are PulseAudio element names, and QAudioDevice ids on
+/// WASAPI or CoreAudio are not what those GStreamer elements accept, so a
+/// foreign id would stop the call from starting. Empty falls back to
+/// `autoaudiosrc`/`autoaudiosink`. Real parity needs GstDeviceMonitor ids.
 QString platformDeviceElement(const QString &element, const QString &id)
 {
     if (id.isEmpty())
@@ -41,19 +27,11 @@ QString platformDeviceElement(const QString &element, const QString &id)
     Q_UNUSED(element);
     return QString();
 #else
-    // THIS STRING IS PARSED. It becomes part of a
-    // `gst_parse_bin_from_description` description, where a quote ends the
-    // value and `!` starts another element -- so a device id carrying either
-    // would break the parse and take the microphone out of the call, and in
-    // principle append elements nobody asked for. Device names are system
-    // data rather than remote input, which is why this is a robustness rule
-    // and not a vulnerability, but the safe answer is the same: a value that
-    // cannot be represented literally is refused, and the caller then uses
-    // the automatic element.
-    //
-    // The SFU engine does not go through here at all -- it sets the property
-    // on the parsed element instead, which is the shape with no quoting
-    // question (CaptureDeviceSelection.h).
+    // The result is parsed by gst_parse_bin_from_description, where a quote
+    // ends the value and `!` starts another element. Refuse ids that cannot
+    // be represented literally; the caller then uses the automatic element.
+    // (The SFU engine sets the property on the parsed element instead; see
+    // CaptureDeviceSelection.h.)
     for (const QChar c : id) {
         if (c == QLatin1Char('"') || c == QLatin1Char('\\')
             || c == QLatin1Char('!') || c.category() == QChar::Other_Control) {
@@ -67,13 +45,9 @@ QString platformDeviceElement(const QString &element, const QString &id)
 
 CallDeviceController::CallDeviceController(QObject *parent) : QObject(parent)
 {
-    // Deliberately EMPTY. Touching QMediaDevices — even to read a list —
-    // initialises the Qt Multimedia backend, which on a PipeWire desktop
-    // costs real startup time and prints SPA parse noise for every device on
-    // the system. Lightning already learned this once: the first QVideoSink
-    // in a process blocks ~931 ms (see VideoPosterExtractor). So nothing is
-    // enumerated until something actually asks — opening a device menu, or
-    // starting a call.
+    // Empty on purpose: touching QMediaDevices initialises the Qt Multimedia
+    // backend, which is slow and noisy on PipeWire. Nothing is enumerated
+    // until a device menu opens or a call starts.
 }
 
 void CallDeviceController::ensureBackend() const
@@ -82,9 +56,8 @@ void CallDeviceController::ensureBackend() const
         return;
     auto *self = const_cast<CallDeviceController *>(this);
     self->m_devices = new QMediaDevices(self);
-    // Hotplug. All three lists funnel into one handler, which re-resolves and
-    // only announces an ACTIVE change when the resolved device actually
-    // moved — plugging in an unrelated webcam must not restart audio.
+    // Hotplug for all three lists; an active change is announced only when
+    // the resolved device actually moved.
     connect(m_devices, &QMediaDevices::audioInputsChanged, self,
             &CallDeviceController::onDeviceListChanged);
     connect(m_devices, &QMediaDevices::audioOutputsChanged, self,
@@ -107,8 +80,7 @@ void CallDeviceController::setSettings(SettingsManager *settings)
         connect(m_settings, &SettingsManager::callDevicePreferenceChanged,
                 this, &CallDeviceController::onDeviceListChanged);
     }
-    // No enumeration here: setSettings runs at login, and warming the
-    // multimedia backend then is exactly the startup cost this class avoids.
+    // No enumeration here: this runs at login.
     Q_EMIT devicesChanged();
     Q_EMIT selectionChanged();
 }
@@ -116,9 +88,8 @@ void CallDeviceController::setSettings(SettingsManager *settings)
 QString CallDeviceController::resolveActive(const QString &preferred,
                                             int kind) const
 {
-    // An explicit "system default" (empty preference) stays empty: the
-    // caller then uses the automatic element, which follows the system
-    // default as it changes rather than pinning today's answer.
+    // An empty preference ("system default") stays empty, so the automatic
+    // element keeps following the default.
     if (preferred.isEmpty())
         return QString();
     const auto present = [&](const QString &id) {
@@ -143,9 +114,8 @@ QString CallDeviceController::resolveActive(const QString &preferred,
             return false;
         }
     };
-    // The preference is KEPT even when the device is absent (see the header):
-    // only the resolved ACTIVE value falls back, so reconnecting a headset
-    // restores the user's choice instead of having silently lost it.
+    // The preference is kept even when absent; only the active value falls
+    // back, so reconnecting a device restores the choice.
     return present(preferred) ? preferred : QString();
 }
 
@@ -173,8 +143,7 @@ bool CallDeviceController::preferredMicrophoneMissing() const
     if (!m_settings)
         return false;
     const QString preferred = m_settings->preferredMicrophoneId();
-    // Only a NON-EMPTY preference can be missing; "system default" always
-    // resolves.
+    // Only a non-empty preference can be missing.
     return !preferred.isEmpty() && activeMicrophoneId().isEmpty();
 }
 
@@ -213,9 +182,8 @@ QVariantList CallDeviceController::microphones() const
         row.insert(QStringLiteral("id"), id);
         row.insert(QStringLiteral("description"), device.description());
         row.insert(QStringLiteral("isDefault"), device.isDefault());
-        // "active" is what audio actually flows through; "chosen" is what
-        // the user picked. They differ exactly when a preferred device is
-        // unplugged, and the menu shows both truthfully.
+        // "active" is what audio flows through, "chosen" what the user
+        // picked; they differ when a preferred device is unplugged.
         row.insert(QStringLiteral("active"),
                    active.isEmpty() ? device.isDefault() : id == active);
         row.insert(QStringLiteral("chosen"), id == preferred);
@@ -286,9 +254,8 @@ void CallDeviceController::selectCamera(const QString &id)
 
 namespace {
 
-// The description Qt gives the device with this id, empty when it is gone.
-// Looked up rather than stored: a description is a driver string that can
-// change under a hotplug, and the id is the only thing worth persisting.
+// The description of the device with this id, or empty when gone. Looked up,
+// not stored: driver strings can change on hotplug.
 template <typename ListT>
 QString describe(const ListT &devices, const QString &id)
 {
@@ -326,9 +293,9 @@ CallDeviceController::Selection CallDeviceController::speakerSelection() const
 
 QString CallDeviceController::microphoneElement() const
 {
-    // pulsesrc rather than pipewiresrc: pipewire-pulse exposes exactly the
-    // node names QMediaDevices reports, so the id needs no translation. An
-    // empty result means "use autoaudiosrc" and follow the system default.
+    // pulsesrc rather than pipewiresrc: pipewire-pulse exposes the node names
+    // QMediaDevices reports, so no translation is needed. Empty means
+    // autoaudiosrc (system default).
     return platformDeviceElement(QStringLiteral("pulsesrc"),
                                  activeMicrophoneId());
 }
@@ -344,9 +311,8 @@ void CallDeviceController::onDeviceListChanged()
     Q_EMIT devicesChanged();
     Q_EMIT selectionChanged();
 
-    // Only announce an ACTIVE change when the resolved device really moved.
-    // A live call re-opens its capture on this signal, so firing it for an
-    // unrelated hotplug would interrupt audio for no reason.
+    // Announce an active change only when the resolved device moved: a live
+    // call re-opens its capture on this signal.
     const QString mic = activeMicrophoneId();
     const QString speaker = activeSpeakerId();
     const QString camera = activeCameraId();

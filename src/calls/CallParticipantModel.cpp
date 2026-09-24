@@ -7,17 +7,12 @@
 #include <utility>
 
 namespace {
-/// Below this, a level change is invisible on a ring a few pixels wide, and
-/// emitting for it turns every SpeakersChanged round into a signal storm
-/// across every row. The bool flipping always emits regardless of the band.
+/// Level changes below this are invisible on a thin ring, and signalling them
+/// would storm every row each speakers round. The speaking flag always emits.
 constexpr qreal kLevelDeadband = 0.02;
 
-/// 0..200, not 0..100. Above 100 is real amplification, which is what was
-/// asked for ("make it overclockable so i can do 200% volume like in
-/// discord") and what the GStreamer `volume` element does with a linear
-/// factor above 1.0. Clamping at 100 here silently discarded the entire
-/// upper half of every slider — the store keeps 0..200 and the engine accepts
-/// 0..200, so this was the one layer that would have thrown it away.
+/// 0..200: above 100 is real amplification, which the store and the engine
+/// both support.
 int clampVolume(int percent)
 {
     return percent < 0 ? 0 : (percent > 200 ? 200 : percent);
@@ -27,9 +22,8 @@ int clampVolume(int percent)
 CallParticipantModel::CallParticipantModel(QObject *parent)
     : QAbstractListModel(parent)
 {
-    // ONE timer for the whole model, single-shot, always armed to the
-    // earliest outstanding deadline. A repeating timer would tick for the
-    // whole call; a timer per row would be a QObject per participant.
+    // One single-shot timer for the model, armed to the earliest outstanding
+    // deadline (not a repeating timer, not one per row).
     m_reactionTimer.setSingleShot(true);
     connect(&m_reactionTimer, &QTimer::timeout, this, [this] {
         expireReactions(QDateTime::currentMSecsSinceEpoch());
@@ -100,17 +94,14 @@ QVariant CallParticipantModel::data(const QModelIndex &index, int role) const
         return entry.speaking;
     case SpeakingLevelRole:
         return entry.speakingLevel;
-    // BOTH OF THESE ARE ON THE WIRE, in element-call's own formats: a hand
-    // is an `m.reaction` annotating the raiser's own `m.call.member` state
-    // event, and a reaction is an `io.element.call.reaction` referencing it.
-    // Each is set only from an event that arrived AND was attributed to this
-    // participant, so a true here is never a guess. (This comment used to
-    // say hand raise was local-only and invisible to peers; that was true
-    // until the wire representation was read out of element-call's source.)
+    // Both come from element-call's wire formats (a hand is an `m.reaction`
+    // on the raiser's `m.call.member` event; a reaction is an
+    // `io.element.call.reaction` referencing it) and are set only from
+    // attributed events.
     case HandRaisedRole:
         return entry.handRaised;
-    // Empty is the ordinary state and it must render as NOTHING — see the
-    // Loader rule on the role's declaration.
+    // Empty is the normal state and must render as nothing; see the role's
+    // declaration.
     case ReactionEmojiRole:
         return entry.reactionEmoji;
     case VolumePercentRole:
@@ -155,9 +146,8 @@ QList<int> CallParticipantModel::mergeRow(Entry &entry,
                                           const CallParticipantRow &row)
 {
     QList<int> changed;
-    // `sid` carries no role: it is the SFU's routing key for the level and
-    // quality feeds, not something a tile draws. It still has to be kept
-    // current, and a change in it alone must not produce a dataChanged.
+    // `sid` has no role (it keys the level and quality feeds); keep it
+    // current without emitting dataChanged.
     entry.row.sid = row.sid;
     const auto note = [&changed](int role) { changed.append(role); };
     if (entry.row.userId != row.userId) {
@@ -212,7 +202,7 @@ void CallParticipantModel::applyParticipants(
 {
     const int before = m_rows.size();
 
-    // 1. REMOVALS, back to front so the indices stay valid as we go.
+    // 1. Removals, back to front so indices stay valid.
     {
         QHash<QString, int> wanted;
         wanted.reserve(desired.size());
@@ -227,8 +217,8 @@ void CallParticipantModel::applyParticipants(
         }
     }
 
-    // 2. INSERTS AND MOVES, front to back, so after step i the first i+1 rows
-    //    are exactly the first i+1 desired rows.
+    // 2. Inserts and moves, front to back: after step i the first i+1 rows
+    //    match the first i+1 desired rows.
     for (int i = 0; i < desired.size(); ++i) {
         const CallParticipantRow &row = desired.at(i);
         if (row.identity.isEmpty())
@@ -243,9 +233,8 @@ void CallParticipantModel::applyParticipants(
         if (at < 0) {
             Entry entry;
             entry.row = row;
-            // Local observation, NOT a Matrix fact: when THIS client first
-            // saw the participant in the call. It exists so a view can order
-            // stably; it must never be presented as "joined the call at".
+            // When this client first saw the participant, for stable
+            // ordering only; never present it as a join time.
             entry.joinedAtMs = QDateTime::currentMSecsSinceEpoch();
             beginInsertRows(QModelIndex(), i, i);
             m_rows.insert(i, entry);
@@ -253,9 +242,8 @@ void CallParticipantModel::applyParticipants(
             continue;
         }
         if (at != i) {
-            // A real move, so a view can ANIMATE it and the delegate holding
-            // a live VideoOutput survives. beginMoveRows' destination is the
-            // index the row lands at when moving up, which is exactly `i`.
+            // A real move, so views can animate it and a delegate holding a
+            // live VideoOutput survives. Moving up, the destination is `i`.
             beginMoveRows(QModelIndex(), at, at, QModelIndex(), i);
             m_rows.move(at, i);
             endMoveRows();
@@ -276,20 +264,17 @@ void CallParticipantModel::applySpeakers(
     for (int i = 0; i < m_rows.size(); ++i) {
         Entry &entry = m_rows[i];
         const QString &sid = entry.row.sid;
-        // Absence from the round IS the stop signal: LiveKit sends the set
-        // of speakers, so a sid that is not in it is not speaking. Reading
-        // "absent" as "unchanged" is how a ring gets stuck on.
+        // Absence from the round means not speaking: LiveKit sends the active
+        // set. Treating absence as "unchanged" leaves rings stuck on.
         qreal level = sid.isEmpty() ? 0.0 : levelBySid.value(sid, 0.0);
         if (level < 0.0)
             level = 0.0;
         if (level > 1.0)
             level = 1.0;
         const bool active = !sid.isEmpty() && activeBySid.value(sid, false);
-        // The UNION, deliberately. An SFU that reports only `active`
-        // degrades to a binary ring (level stays 0.0 and the view draws its
-        // minimum), and one that reports only a level still lights up. What
-        // is refused is the third option: manufacturing a level from a
-        // boolean, which would draw a confident amplitude nobody measured.
+        // The union: an SFU reporting only `active` gives a binary ring, one
+        // reporting only a level still lights up. A level is never invented
+        // from the flag.
         const bool speaking = active || level > 0.0;
 
         QList<int> changed;
@@ -297,9 +282,8 @@ void CallParticipantModel::applySpeakers(
             entry.speaking = speaking;
             changed.append(SpeakingRole);
         }
-        // A level that stopped speaking must fall to 0 exactly, or the ring
-        // keeps its last width forever; inside the band, only real motion
-        // signals.
+        // Snap to 0 on silence, or the ring keeps its last width; otherwise
+        // only changes beyond the deadband signal.
         const bool crossedToSilence = !speaking && entry.speakingLevel != 0.0;
         if (crossedToSilence
             || qAbs(entry.speakingLevel - level) >= kLevelDeadband) {
@@ -320,7 +304,7 @@ void CallParticipantModel::applyConnectionQuality(
             continue;
         const auto it = qualityBySid.constFind(entry.row.sid);
         if (it == qualityBySid.cend())
-            continue; // a delta: unmentioned keeps its last known value
+            continue; // a delta: unmentioned keeps its last value
         if (entry.connectionQuality == *it)
             continue;
         entry.connectionQuality = *it;
@@ -346,10 +330,9 @@ bool CallParticipantModel::setReaction(const QString &identity,
     const int at = indexOf(identity);
     if (at < 0)
         return false;
-    // STILL RUNNING? Then this one is dropped whole, and the one on screen
-    // keeps its original deadline. Refreshing it instead would let a sender
-    // hold a permanent badge by re-sending inside the window, which is the
-    // spam element-call's own reader refuses.
+    // One still showing: drop the new one and keep the original deadline.
+    // Refreshing would let a sender hold a permanent badge (element-call
+    // refuses the same way).
     if (!m_rows.at(at).reactionEmoji.isEmpty()
         && m_rows.at(at).reactionExpiresAtMs > nowMs) {
         return false;
@@ -389,10 +372,8 @@ void CallParticipantModel::rearmReactionTimer(qint64 nowMs)
         m_reactionTimer.stop();
         return;
     }
-    // A deadline already in the past gives 0, and a zero-interval timer
-    // fires on the next pass of the event loop — which is exactly what a
-    // reaction that has already ended deserves. Never negative, which QTimer
-    // would treat as "stop".
+    // A past deadline gives 0, firing on the next event-loop pass; never
+    // negative, which QTimer treats as stop.
     m_reactionTimer.start(static_cast<int>(qMax<qint64>(0, earliest - nowMs)));
 }
 
@@ -411,10 +392,8 @@ void CallParticipantModel::setVolumePercent(const QString &identity,
 
 void CallParticipantModel::clear()
 {
-    // NOTHING TRANSIENT MAY OUTLIVE THE CALL. The reactions themselves go
-    // with the rows; the timer is stopped explicitly because it is the one
-    // piece of this that is not a row and would otherwise fire into an empty
-    // model after the call ended.
+    // Stop the timer explicitly, or it fires into an empty model after the
+    // call.
     m_reactionTimer.stop();
     if (m_rows.isEmpty())
         return;

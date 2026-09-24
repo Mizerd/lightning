@@ -1,44 +1,24 @@
-// The call's people, as a REAL model.
+// The call's participants as a real list model.
 //
-// WHAT THIS REPLACES, AND WHY IT HAD TO GO.
+// Replaces a Q_INVOKABLE QVariantList that QML re-read and reassigned on every
+// change: a reassigned JS array is a model reset, and since speaker updates
+// arrive continuously, every syllable destroyed every tile and its
+// VideoOutput.
 //
-// Until this file existed the call stage read its participants from
-// `SfuCallController::participants()` — a `Q_INVOKABLE QVariantList` that QML
-// re-invoked whenever a hand-bumped `refreshTick` changed. QML cannot observe
-// a function call, so the whole list was rebuilt and reassigned as a plain JS
-// array, and a JS array bound to a view is a MODEL RESET: no insert, no move,
-// no dataChanged. Every delegate is destroyed and rebuilt.
+// Rules:
 //
-// That alone would be a performance smell. What made it a defect is WHEN it
-// fired: `onSfuSpeakers` emitted `participantsChanged()` on every LiveKit
-// SpeakersChanged, i.e. continuously while anybody talks. So every syllable
-// destroyed every tile, and with each tile its `VideoOutput` and the
-// attach()/detach() pair that routes a video track into it. A speaking ring
-// that reacts to amplitude is impossible on top of that, because the thing
-// that would animate does not survive the update that drives it.
+//   * The key is the SFU `identity`, stable for a participant within a call in
+//     both identity formats (legacy `@user:server:DEVICE` and sticky sha256).
+//     Never a row index or a parsed user id.
+//   * Membership changes use begin{Insert,Remove,Move}Rows.
+//   * Value changes are per-row dataChanged naming only the changed roles.
+//   * Nothing ever resets the model for a value update (a test pins
+//     `modelAboutToBeReset` at zero).
 //
-// This is the same lesson the Spaces rail learned on 2026-08-25 ("a JS array
-// bound to a ListView is a model RESET on every change"), in a place where
-// the cost is a live video surface rather than a drag gesture.
-//
-// THE RULES THIS CLASS EXISTS TO KEEP:
-//
-//   * The key is the SFU `identity` — stable for one participant for one
-//     call, in BOTH identity formats (the legacy `@user:server:DEVICE` and
-//     the sticky sha256 form). Never a row index, never a parsed user id.
-//   * Membership changes are begin{Insert,Remove,Move}Rows.
-//   * Value changes are per-row `dataChanged` naming ONLY the roles that
-//     actually changed.
-//   * There is NO path that resets the model for a value update. A
-//     QSignalSpy on `modelAboutToBeReset` must stay at zero across any
-//     number of speaker updates; the test pins exactly that.
-//
-// FIELD OWNERSHIP. Two feeds write here and they must not clobber each other:
-// `applyParticipants()` carries what the SFU states (identity, profile, track
-// state, track keys) and is the only writer of those; the speaking level,
-// connection quality, raised hand, transient reaction and local playback
-// volume arrive on their own signals and are preserved verbatim across a
-// participant update.
+// Field ownership: applyParticipants() is the only writer of what the SFU
+// states (identity, profile, track state, track keys). Speaking level,
+// connection quality, raised hand, reaction and local volume arrive on their
+// own feeds and are preserved across participant updates.
 #pragma once
 
 #include <QAbstractListModel>
@@ -49,13 +29,12 @@
 #include <QVector>
 #include <QtQml/qqmlregistration.h>
 
-/// One participant, as the SFU states them. Deliberately NOT the whole row:
-/// the level/quality/hand/volume fields are owned by other feeds and live
-/// only inside the model, so a participant update cannot reset them.
+/// One participant as the SFU states them; excludes fields owned by other
+/// feeds, so a participant update cannot reset those.
 struct CallParticipantRow {
     QString identity;
-    /// The LiveKit participant sid. Speaker levels and connection quality are
-    /// keyed on it, not on the identity, so the model has to hold it.
+    /// The LiveKit participant sid; speaker levels and connection quality are
+    /// keyed on it.
     QString sid;
     QString userId;
     QString displayName;
@@ -96,10 +75,9 @@ public:
         SpeakingRole,
         SpeakingLevelRole,
         HandRaisedRole,
-        /// The emoji of a TRANSIENT reaction, or "" when none is showing.
-        /// Empty is the ordinary state, so every surface that draws it must
-        /// do so behind a Loader (§16: a Label that can be created empty
-        /// keeps ItemObservesViewport forever).
+        /// The emoji of a transient reaction, or "" when none is showing.
+        /// Surfaces must draw it behind a Loader: a Label created empty keeps
+        /// ItemObservesViewport forever.
         ReactionEmojiRole,
         VolumePercentRole,
         ConnectionQualityRole,
@@ -113,82 +91,51 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    /// Reconcile the model against the SFU's current participant list.
-    ///
-    /// Diffed, never assigned: rows that disappeared are removed, rows that
-    /// appeared are inserted at their target position, rows that moved are
-    /// MOVED, and surviving rows get a `dataChanged` naming only the fields
-    /// that differ. Locally-owned fields (level, quality, hand, volume,
-    /// joinedAtMs) are carried across untouched.
+    /// Reconcile against the SFU's current participant list by diffing:
+    /// remove, insert, move, and per-role dataChanged for changed fields.
+    /// Locally owned fields (level, quality, hand, volume, joinedAtMs) are
+    /// preserved.
     void applyParticipants(const QVector<CallParticipantRow> &desired);
 
-    /// Apply one LiveKit SpeakersChanged round, keyed by participant sid.
-    ///
-    /// A sid ABSENT from the round is not speaking — LiveKit sends the active
-    /// set, so absence is the stop signal. `speaking` is the union of the
-    /// SFU's own `active` flag and a non-zero level, so an SFU that publishes
-    /// only `active` still lights a (binary) ring and one that publishes only
-    /// a level still lights an (amplitude) ring. Nothing is fabricated in
-    /// either direction: an unknown amplitude stays 0.0, and the view draws
-    /// its minimum ring rather than a made-up size.
-    ///
-    /// Levels move continuously, so a deadband suppresses `dataChanged` for
-    /// changes too small to see. Without it this is a per-round signal storm
-    /// across every row.
+    /// Apply one LiveKit SpeakersChanged round, keyed by sid. A sid absent from
+    /// the round is not speaking. `speaking` is the SFU's `active` flag or a
+    /// non-zero level; an unknown amplitude stays 0.0. A deadband suppresses
+    /// dataChanged for invisible level changes.
     void applySpeakers(const QHash<QString, bool> &activeBySid,
                        const QHash<QString, qreal> &levelBySid);
 
-    /// Merge a LiveKit ConnectionQuality round, keyed by participant sid.
-    /// A sid the round does not mention keeps its last known value — a
-    /// quality report is a delta, and "unmentioned" is not "unknown".
+    /// Merge a LiveKit ConnectionQuality round, keyed by sid. It is a delta:
+    /// an unmentioned sid keeps its last value.
     void applyConnectionQuality(const QHash<QString, QString> &qualityBySid);
 
-    /// Raise state for ONE participant.
-    ///
-    /// A hand IS on the wire (element-call's `m.reaction` annotating the
-    /// raiser's own membership state event), so this is true for remote rows
-    /// as well as the local one. It is only ever set from an event that was
-    /// attributed to that participant.
+    /// Raise state for one participant, set only from an attributed event
+    /// (element-call's `m.reaction` on the raiser's membership).
     void setHandRaised(const QString &identity, bool raised);
 
-    /// Show ONE transient reaction on a participant's row, expiring at
-    /// `nowMs + ttlMs`.
-    ///
-    /// Returns false and changes NOTHING when the identity is unknown, the
-    /// emoji is empty, or that participant already has a reaction still
-    /// running. That refusal is the duplicate rule, and it lives here rather
-    /// than in the caller so there is one place that knows whether a
-    /// reaction is live — element-call refuses the same way ("Got reaction
-    /// from ... but one is still playing"), which is what stops a sender
-    /// from holding a permanent badge on their own tile by re-sending.
+    /// Show one transient reaction, expiring at `nowMs + ttlMs`. Returns false
+    /// and changes nothing when the identity is unknown, the emoji is empty,
+    /// or a reaction is still showing for that participant (element-call's
+    /// "one is still playing" rule, which stops re-sending from pinning a
+    /// permanent badge).
     bool setReaction(const QString &identity, const QString &emoji,
                      qint64 nowMs, int ttlMs);
 
-    /// Clear every reaction whose deadline has passed at `nowMs`.
-    ///
-    /// Called by this model's own single-shot timer, and directly by tests
-    /// so expiry can be proven without waiting on wall-clock time. Bounded
-    /// by the row count, like every other sweep here.
+    /// Clear every reaction whose deadline has passed at `nowMs`. Called by
+    /// the model's timer, and directly by tests.
     void expireReactions(qint64 nowMs);
 
-    /// Local playback volume, 0..200 (100 is unity; above it is real
-    /// amplification, as Discord allows). Local-only: it reaches the audio
-    /// pipeline and nothing else. Held here so the control that sets it can
-    /// also READ it back — `SfuCallController::setParticipantVolume` was
-    /// write-only, so a volume slider had nothing to bind to.
+    /// Local playback volume, 0..200 (100 is unity). Local only; held here so
+    /// the control can read it back.
     void setVolumePercent(const QString &identity, int percent);
 
-    /// Everyone leaves. A membership change to zero, so it is
-    /// begin/endRemoveRows — still not a reset.
+    /// Remove every row (begin/endRemoveRows, not a reset).
     void clear();
 
-    /// The legacy `participants()` shape, read straight out of the rows.
-    /// ONE derivation: the invokable list and the model can no longer
-    /// disagree, because the list IS the model.
+    /// The `participants()` list shape, read from the rows, so the list and
+    /// the model cannot disagree.
     QVariantList toVariantList() const;
 
-    /// Row lookup for QML, so a control can address a participant by
-    /// identity without walking the view.
+    /// Row lookup by identity for QML.
     Q_INVOKABLE int indexOfIdentity(const QString &identity) const;
     Q_INVOKABLE QVariantMap get(int row) const;
 
@@ -198,28 +145,23 @@ Q_SIGNALS:
 private:
     struct Entry {
         CallParticipantRow row;
-        // Locally owned, preserved across every applyParticipants().
+        // Locally owned; preserved across applyParticipants().
         bool speaking = false;
         qreal speakingLevel = 0.0;
         bool handRaised = false;
-        /// The transient reaction currently showing, and when it stops.
-        /// Both are cleared together; a non-empty emoji with no deadline
-        /// would be a badge that never goes away.
+        /// The reaction showing and when it stops; always cleared together.
         QString reactionEmoji;
         qint64 reactionExpiresAtMs = 0;
         int volumePercent = 100;
-        QString connectionQuality; // "" = unknown; never rendered as a lie
+        QString connectionQuality; // "" = unknown
         qint64 joinedAtMs = 0;
     };
 
     int indexOf(const QString &identity) const;
-    /// Re-arm the expiry timer to the EARLIEST outstanding deadline, or stop
-    /// it when nothing is showing. One timer for the whole model: a timer
-    /// per row would be one QObject per participant per reaction.
+    /// Re-arm the single expiry timer to the earliest deadline, or stop it.
     void rearmReactionTimer(qint64 nowMs);
-    /// Copy the SFU-owned fields onto an existing entry, returning the roles
-    /// that actually changed. An empty result means no signal is emitted at
-    /// all, which is what keeps a steady call quiet.
+    /// Copy the SFU-owned fields onto an entry, returning the roles that
+    /// changed; empty means no signal.
     static QList<int> mergeRow(Entry &entry, const CallParticipantRow &row);
 
     QVector<Entry> m_rows;

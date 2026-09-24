@@ -1,44 +1,21 @@
-// MatrixRTC (MSC4143) session observation and transport discovery.
+// MatrixRTC (MSC4143) session observation and transport discovery. Answers
+// two questions for the UI: is there a call in this room and who is in it,
+// and could this account join one (and if not, why). It does not join
+// itself; SfuCallController does, gated on joinBlockReason().
 //
-// This controller answers two questions for the UI:
+// Cross-account isolation rests on three mechanisms:
+//   1. setClient() disconnects the previous client, so its late replies are
+//      never delivered.
+//   2. An account switch reuses the same client (detachSession() ->
+//      restoreSession()) and emits `loggedOut`, which drops every observed
+//      session and pending read here.
+//   3. Op ids come from a monotonic per-client counter.
+// An epoch field could never fire given (2), and a reply carries only an op
+// id; do not re-add one without carrying the account identity on the reply.
 //
-//   1. "Is there a call in this room, and who is in it?" — today that is
-//      the room's call banner and its facepile. `participants()` exposes
-//      the fuller per-device list for the phase-2 call stage; nothing
-//      renders it yet.
-//   2. "Could this account join one at all?"              — whether the
-//      homeserver offers a MatrixRTC transport, and if not, WHY.
-//
-// It deliberately cannot join. Publishing membership without a media
-// transport tells every other client in the room to open an SFU connection
-// that can never complete — a lie on the wire, not a stub, and the same
-// reason the legacy lane refuses to invite without an engine. So
-// `joinBlockReason()` always has something to say today, and the banner
-// renders it as an INLINE label rather than offering a dead button — a
-// disabled control receives no hover in Qt Quick, so a tooltip could never
-// have explained itself.
-//
-// Threading/lifecycle rules that matter here:
-//
-// * Cross-account isolation (§9) rests on three real mechanisms, none of
-//   them a version counter:
-//     1. `setClient()` disconnects the previous client, so a REPLACED
-//        client's late reply cannot be delivered at all.
-//     2. An account switch reuses the SAME client object
-//        (`detachSession()` → `restoreSession()`), and detach emits
-//        `loggedOut`, which drops every observed session and every pending
-//        read here.
-//     3. Op ids come from a monotonic per-client counter, so within one
-//        client instance an id is never reused across accounts.
-//   An epoch field was tried and removed: with (2) clearing the pending map
-//   on every switch it could never fire, and a reply carries only an op id,
-//   so it could not have discriminated a genuine collision anyway. Do not
-//   re-add one without also carrying the account identity on the reply.
-// * A membership change arrives as a payload-free poke and is answered by
-//   RE-READING, so a remote change and our own take the same parse path.
-//   Pokes are COALESCED: one Element joining a call rewrites one state
-//   event, but a group filling up rewrites many in a burst, and a read per
-//   event would be pure waste.
+// Membership changes arrive as payload-free pokes answered by re-reading, so
+// remote and local changes share one parse path. Pokes are coalesced, since
+// a filling call rewrites many state events in a burst.
 #pragma once
 
 #include <functional>
@@ -60,28 +37,25 @@ class MatrixClient;
 class RtcController : public QObject
 {
     Q_OBJECT
-    // Registered so QML can compare enums symbolically instead of by magic
-    // int (the PaginationController/CallController precedent). Never
-    // creatable: app.rtc is the one instance.
+    // Registered for symbolic enum comparison in QML; app.rtc is the only
+    // instance.
     QML_ELEMENT
     QML_UNCREATABLE("RtcController is exposed via app.rtc")
 
-    // Whether this backend speaks MatrixRTC at all (the mock and HTTP
-    // backends do not).
+    // Whether this backend speaks MatrixRTC at all (mock and HTTP do not).
     Q_PROPERTY(bool supported READ supported NOTIFY availabilityChanged)
-    // True only when a transport is actually reachable. NOT "the server
-    // might have one" — an unanswered discovery leaves this false.
+    // True only when a transport is actually reachable; an unanswered
+    // discovery leaves this false.
     Q_PROPERTY(bool callingAvailable READ callingAvailable
                    NOTIFY availabilityChanged)
-    // Closed-set category explaining an unavailable transport, for the
-    // user-facing message. Empty when calling is available.
+    // Closed-set category explaining an unavailable transport; empty when
+    // calling is available.
     Q_PROPERTY(QString availabilityCategory READ availabilityCategory
                    NOTIFY availabilityChanged)
 
 public:
-    /// Why joining is refused. A closed set so QML never renders a raw
-    /// server string, and so "we have not looked yet" stays distinct from
-    /// "we looked and there is nothing".
+    /// Why joining is refused. A closed set, so QML never renders a raw server
+    /// string and "not looked yet" stays distinct from "looked, found nothing".
     enum class JoinBlock {
         None,
         /// This backend has no MatrixRTC at all.
@@ -94,22 +68,15 @@ public:
         DiscoveryFailed,
         /// A slot state event says the session is closed.
         SessionClosed,
-        /// Everything on the Matrix side is fine, but this build has no SFU
-        /// media transport, so joining would publish a membership nobody
-        /// can connect to.
+        /// No SFU media engine in this build: a join would publish a
+        /// membership nobody can connect to.
         NoMediaTransport,
-        /// This account may not write `org.matrix.msc3401.call.member` in
-        /// this room, so a join could only ever be refused by the server.
-        /// A room with default power levels puts state events at 50, so
-        /// this is the ordinary member's case, not an exotic one — and it
-        /// was previously discovered only AFTER the publish came back
-        /// refused, with a message pointing at a permissions screen that
-        /// cannot set this key.
+        /// This account may not write `org.matrix.msc3401.call.member` here
+        /// (default power levels put state events at 50, so this is the
+        /// ordinary member's case), so the server would refuse the join.
         NoPermission,
-        /// The room is ENCRYPTED but call media E2EE is not active, so
-        /// joining would carry audio and video the SFU could read. Refused
-        /// rather than downgraded: §6 requires failing safely and saying so,
-        /// never silently weakening encryption.
+        /// The room is encrypted but call media E2EE is not active; refused
+        /// rather than joined in the clear.
         MediaEncryptionUnavailable,
     };
     Q_ENUM(JoinBlock)
@@ -119,61 +86,37 @@ public:
     void setClient(MatrixClient *client);
 
     bool supported() const;
-    /// Account-level: could a call be joined ANYWHERE. Room-specific
-    /// answers come from `joinBlock(roomId)`.
+    /// Account-level: could a call be joined anywhere. Room-specific answers
+    /// come from joinBlock().
     bool callingAvailable() const;
     QString availabilityCategory() const { return m_availabilityCategory; }
 
     /// Re-read one room's session. Safe to call repeatedly; reads for the
     /// same room coalesce.
     Q_INVOKABLE void refresh(const QString &roomId);
-    /// Re-read one room's session FROM THE HOMESERVER, bypassing the local
-    /// state store.
-    ///
-    /// For the caller that can prove the store's answer is wrong: the SFU
-    /// reports a participant and no membership accounts for them, so no
-    /// media key can be addressed to that device and none of their frames
-    /// can be decrypted. "The store has somebody live in it" is not
-    /// evidence that it has EVERYBODY, and until this existed there was no
-    /// route back from a store that was missing a peer -- the key lane
-    /// re-ran its resolution every tick against the same wrong answer.
-    ///
-    /// Costs one `/state` request, so it is rate limited per room: calls
-    /// inside the window are dropped, and the window itself grows while
-    /// forced reads keep changing nothing (see `m_serverReadStreak`).
+    /// Re-read one room's session from the homeserver, bypassing the local
+    /// store. For when the store is provably incomplete: the SFU reports a
+    /// participant no membership accounts for, so no key can reach them.
+    /// Costs a `/state` request, so it is rate-limited per room with a window
+    /// that grows while forced reads change nothing (m_serverReadStreak).
     Q_INVOKABLE void refreshFromServer(const QString &roomId);
     /// Run transport discovery. `roomId` may be empty.
     Q_INVOKABLE void discover(const QString &roomId);
 
-    /// Number of participant DEVICES currently in the room's call. 0 means
-    /// no call (or none observed yet).
+    /// Number of participant devices in the room's call; 0 means none (or not
+    /// observed yet).
     Q_INVOKABLE int participantCount(const QString &roomId) const;
     /// True when somebody is in the room's call and nothing closed it.
     Q_INVOKABLE bool hasLiveSession(const QString &roomId) const;
-    /// True when one of the local user's own devices is in the call — which
-    /// is how "you are in this call, from somewhere" is answered.
+    /// True when one of the local user's devices is in the call.
     Q_INVOKABLE bool ownUserInSession(const QString &roomId) const;
-    /// True when ROOM STATE HOLDS A MEMBERSHIP NAMING THIS DEVICE — which is
-    /// NOT the same question as "is this device in a call", and three surfaces
-    /// once got that wrong at the same time.
-    ///
-    /// A device id survives a restart. A client that exits while a call is
-    /// running leaves a membership behind that still names it, and for the
-    /// five minutes until that membership expires this returns true for a
-    /// device that is in no call at all. `RoomCallBanner`, `CallEventDelegate`
-    /// and `RoomCallGlyph` each used it to decide whether to offer Join, so a
-    /// user dropped out of a call by a crash was shown no way back into it —
-    /// reproduced live on 2026-09-12, and the banner reappeared by itself the
-    /// moment the ghost expired.
-    ///
-    /// **THE LOCAL CALL CONTROLLER IS THE AUTHORITY ON THAT QUESTION**
-    /// (`app.groupCall.active` with a matching `roomId`). All three surfaces
-    /// ask it now and none of them calls this any more. Keep it for what it
-    /// actually says — whose memberships are in the room — and do not reach
-    /// for it again to mean "am I in this call".
+    /// True when room state holds a membership naming this device. Not the
+    /// same as "this device is in a call": a crashed client leaves a
+    /// membership behind until it expires. Use the local call controller
+    /// (`app.groupCall.active` with a matching `roomId`) for that question.
     Q_INVOKABLE bool ownDeviceInSession(const QString &roomId) const;
     /// True when any participant declared a video intent. An intent, not a
-    /// live camera: never render this as "their camera is on".
+    /// live camera.
     Q_INVOKABLE bool hasVideoIntent(const QString &roomId) const;
 
     /// Participants for display, oldest-joined first. Each entry:
@@ -181,58 +124,44 @@ public:
     /// Bounded by `max` (<= 0 means all).
     Q_INVOKABLE QVariantList participants(const QString &roomId,
                                           int max = -1) const;
-    /// Distinct user ids in the call, oldest-joined first — for a facepile,
-    /// where the same person on two devices must appear ONCE.
+    /// Distinct user ids in the call, oldest-joined first, for a facepile
+    /// (one entry per person across devices).
     Q_INVOKABLE QStringList participantUserIds(const QString &roomId,
                                                int max = -1) const;
-    /// Same de-duplication, but carrying the room-resolved profile so a
-    /// facepile can draw real avatars instead of initials:
+    /// Same de-duplication with the room-resolved profile:
     /// {userId, displayName, avatarMxc}.
     Q_INVOKABLE QVariantList participantFaces(const QString &roomId,
                                               int max = -1) const;
 
-    /// Every OTHER device in the session, as the targets JSON the media-key
-    /// send takes: `[{"user_id":…,"device_id":…}, …]`.
-    ///
-    /// NOT Q_INVOKABLE and deliberately not a property: device ids are
-    /// compared, never rendered, and this is the one consumer that genuinely
-    /// needs them (an Olm-encrypted to-device message is addressed per
-    /// device). Our own device is excluded — we already hold our own key,
-    /// and sending it to ourselves would be one more copy on the wire.
+    /// Every other device in the session as media-key targets JSON:
+    /// `[{"user_id":...,"device_id":...}, ...]`. Not exposed to QML: device
+    /// ids are compared, never rendered. Our own device is excluded.
     QString mediaKeyTargetsJson(const QString &roomId) const;
 
-    /// The focus the room's OWN session advertises: `select_focus` over its
-    /// memberships, which is the oldest membership's first `foci_preferred`
-    /// entry — the same rule the reference implementation applies.
-    ///
-    /// This is the only focus that exists on a homeserver without MSC4143,
-    /// which is nearly all of them, so it is the PRIMARY source rather than
-    /// a fallback. It also has to win over our own homeserver's advertised
-    /// SFU when a session exists: joining a different SFU than everyone else
-    /// is a call with nobody in it.
+    /// The focus the room's own session advertises (`select_focus`: the
+    /// oldest membership's first `foci_preferred` entry, as in element-call).
+    /// Without MSC4143 (most homeservers) this is the only focus, and when a
+    /// session exists it must win over our own SFU, or we join an empty call.
     QString sessionFocusFor(const QString &roomId) const;
 
-    /// Whether the ACCOUNT-scoped discovery is worth running again. False
-    /// while one is in flight and once the server has answered either way.
-    /// The automatic room-change trigger consults this; an explicit
-    /// `discover()` is always honoured.
+    /// Whether account-scoped discovery is worth running again: false while
+    /// one is in flight and once the server has answered. Only the automatic
+    /// room-change trigger consults this.
     bool discoveryWorthRetrying() const;
 
-    /// The SFU service URL to use for this room: the homeserver's own
-    /// answer if it gave one, otherwise the focus this room's participants
-    /// advertise. Empty means no transport is known, which is a real answer
-    /// and not an error.
+    /// The SFU service URL for this room: the session's focus, else the
+    /// homeserver's answer, else the participant-advertised focus. Empty means
+    /// no transport is known.
     Q_INVOKABLE QString focusUrlFor(const QString &roomId) const;
 
     /// Why joining this room's call is refused right now.
     Q_INVOKABLE JoinBlock joinBlock(const QString &roomId) const;
 
-    /// Whether this account may write the room's call membership, as the
-    /// room snapshot reports it. Absent means "not known yet", which is
-    /// deliberately treated as permitted: a Join button must not be disabled
-    /// on a guess.
+    /// Whether this account may write the room's call membership, per the
+    /// room snapshot. Unknown is treated as permitted: Join must not be
+    /// disabled on a guess.
     void setCanPublishMembership(const QString &roomId, bool can);
-    /// The same answer as a stable, translatable-at-the-QML-layer token.
+    /// The same answer as a stable token, translated in QML.
     Q_INVOKABLE QString joinBlockReason(const QString &roomId) const;
 
     /// Test seam: the poke coalescing window. Production uses the default.
@@ -240,99 +169,64 @@ public:
     /// Test seam: how long an unanswered read holds its room.
     void setReadTimeoutMsForTest(int ms);
 
-    /// Whether call MEDIA can be encrypted end to end on this build.
-    ///
-    /// Distinct from the room's own encryption: a Matrix-encrypted room
-    /// hides message bodies, and says nothing about whether the SFU can
-    /// read the audio. Defaults FALSE — a boolean that cannot say "unknown"
-    /// must default to the safe answer.
+    /// Whether call media can be encrypted end to end in this build; distinct
+    /// from the room's own encryption. Defaults to false, the safe answer.
     void setMediaEncryptionAvailable(bool available);
-    /// Whether an SFU media engine exists in this build/run. Until it does,
-    /// joining would publish a membership no peer could connect to, so the
-    /// join block says exactly that.
+    /// Whether an SFU media engine exists. Without it a join would publish a
+    /// membership no peer could connect to.
     void setMediaAvailable(bool available);
     bool mediaAvailable() const { return m_mediaAvailable; }
     bool mediaEncryptionAvailable() const { return m_mediaEncryption; }
-    /// Tell the controller which rooms are encrypted. Supplied by the owner
-    /// rather than read here, so this class keeps no second opinion about
-    /// room encryption state.
+    /// Records a room's known encryption. Supplied by the owner so this class
+    /// keeps no second opinion.
     void setRoomEncrypted(const QString &roomId, bool encrypted);
-    /// The SFU identity one device uses in this room's session, or empty if
-    /// that device is not a participant.
-    ///
-    /// NOT Q_INVOKABLE: this is a wire identifier, not something to render.
-    /// It is DERIVED in Rust from the membership (a sha256 for the sticky
-    /// format), never recomputed here — the identity must match what Element
-    /// computes or the two clients disagree about which SFU participant is
-    /// which Matrix device.
+    /// The SFU identity one device uses in this room's session, or empty. A
+    /// wire identifier, not for display. Derived in Rust from the membership
+    /// (a sha256 for the sticky format) and never recomputed here, so it
+    /// matches what Element computes.
     QString rtcIdentityFor(const QString &roomId, const QString &userId,
                            const QString &deviceId) const;
 
-    /// The Matrix person behind one SFU participant identity:
+    /// The Matrix person behind an SFU identity:
     /// {userId, deviceId, displayName, avatarMxc, ownUser, ownDevice}, or an
-    /// empty map.
-    ///
-    /// The REVERSE of rtcIdentityFor, and the only correct way to label a
-    /// call tile. The identity was previously split on its last colon to
-    /// recover a user id, which works for the legacy `@user:server:DEVICE`
-    /// form and produces GARBAGE for the sticky format — whose identity is
-    /// an unpadded base64 sha256. That is why a remote participant rendered
-    /// as "a chunk of random symbols" with no name and no avatar.
+    /// empty map. The reverse of rtcIdentityFor() and the only correct way to
+    /// label a call tile; identities cannot be parsed (sticky format ones are
+    /// hashes).
     QVariantMap participantForIdentity(const QString &roomId,
                                       const QString &identity) const;
 
-    /// The SFU identity of whoever declared `membershipEventId` in `roomId`,
-    /// or empty.
-    ///
-    /// A raised hand is an `m.reaction` annotating the raiser's OWN
-    /// `m.call.member` state event, so this is how one is attributed to a
-    /// participant. `sender` MUST match that membership's user: anyone may
-    /// annotate anyone's state event, and without the check one user could
-    /// raise everybody's hand.
-    ///
-    /// Empty is the honest answer for a membership this client has not
-    /// observed, and it leaves the hand unattributed rather than guessed at.
+    /// The SFU identity of whoever declared `membershipEventId`, or empty.
+    /// Used to attribute raised hands (an `m.reaction` annotating the raiser's
+    /// own `m.call.member` event). `sender` must match the membership's user,
+    /// or one user could raise everybody's hand. Empty for a membership not
+    /// yet observed.
     QString identityForMembership(const QString &roomId,
                                   const QString &membershipEventId,
                                   const QString &sender) const;
-    /// Whether this room's observed session contains `membershipEventId` at
-    /// all, whoever owns it.
-    ///
-    /// `identityForMembership()` answers empty for TWO different facts — a
-    /// membership we have not read yet, and a sender who does not own the
-    /// one we did read — and only the first is worth waiting for. A caller
-    /// that parks an unresolved raise to retry it must be able to tell them
-    /// apart, or a forged annotation occupies that store until the call
-    /// ends and a real early raise can be crowded out of it.
+    /// Whether the observed session contains `membershipEventId` at all.
+    /// Distinguishes the two empty answers of identityForMembership() (not
+    /// read yet, which is worth waiting for, versus not owned by the sender),
+    /// so forged annotations cannot occupy the pending store.
     bool knowsMembership(const QString &roomId,
                          const QString &membershipEventId) const;
-    /// This device's own membership event id in `roomId`, or empty. What a
+    /// This device's own membership event id in `roomId`, or empty; what a
     /// raise annotates.
     QString ownMembershipEventId(const QString &roomId) const;
 
-    /// What is known about a room's encryption. A BOOL CANNOT SAY UNKNOWN,
+    /// What is known about a room's encryption. A bool cannot say unknown,
     /// and storing the fail-closed assumption as `true` made the downgrade
-    /// guard in setRoomEncrypted() latch it for the rest of the session — a
-    /// room that read unknown once could never be corrected to unencrypted.
+    /// guard latch it for the session.
     enum class RoomEncryption { Unknown, No, Yes };
 
-    /// Answers a room's encryption from whatever the owner considers
-    /// authoritative (AppController: the room list's encrypted /
-    /// encryptionKnown pair). Installed once; consulted on every read.
+    /// Answers a room's encryption from what the owner considers authoritative
+    /// (AppController: the room list's encrypted/encryptionKnown pair).
     using EncryptionResolver =
         std::function<RoomEncryption(const QString &roomId)>;
     void setEncryptionResolver(EncryptionResolver resolver);
 
-    /// Whether this room's media must be encrypted. UNKNOWN fails CLOSED to
-    /// true: a room we cannot prove is unencrypted is treated as encrypted,
-    /// so the honest failure is a refused call, never a cleartext one.
-    ///
-    /// IT ASKS, rather than reading a map somebody had to remember to fill.
-    /// The map's only writers were startCall() and setCurrentRoomId(), so a
-    /// join from the global incoming-call card — which opens no room — found
-    /// nothing and took the fail-closed default. Live 2026-09-18: the
-    /// answerer required encryption in an UNENCRYPTED room while the caller
-    /// correctly sent in the clear, and dropped every frame of their audio.
+    /// Whether this room's media must be encrypted. Unknown fails closed to
+    /// true, so the failure mode is a refused call, never a cleartext one.
+    /// Asks the resolver rather than relying on callers having pushed a value.
     bool roomEncrypted(const QString &roomId) const;
 
 Q_SIGNALS:
@@ -353,30 +247,26 @@ private:
     void clearForNewSession();
     void flushPokes();
     void reapStaleReads();
-    /// True when SOME transport is reachable for this room: the
-    /// homeserver's own answer, or a focus this room's participants
-    /// advertise.
+    /// True when some transport is reachable for this room: its session's
+    /// focus, the homeserver's answer, or a focus its participants advertise.
     bool transportReachableFor(const QString &roomId) const;
 
     QPointer<MatrixClient> m_client;
     QHash<QString, RtcSessionData> m_sessions;
-    /// SFU identities already reported as unresolvable — see
-    /// noteUnresolvedIdentity(). Mutable because the lookup that discovers
-    /// one is const and must stay const: it is read from the media key path.
+    /// Logs an SFU identity that stays unresolvable (see the definition).
+    /// Const because the lookup that discovers one is const.
     void noteUnresolvedIdentity(const QString &identity,
                                 const QString &reason) const;
 public:
-    /// Let a new call diagnose itself: see the implementation.
+    /// Reset the per-call diagnostic state.
     void forgetUnresolvedIdentityDiagnostics();
-    /// How long an identity must stay unresolvable before it is reported.
-    /// Exists so a test can assert BOTH halves of that rule without
-    /// sleeping through the real grace period; production never calls it.
+    /// Test-only: how long an identity must stay unresolvable before it is
+    /// reported.
     void setUnresolvedIdentityGraceMsForTest(qint64 ms)
     {
         m_unresolvedIdentityGraceMs = ms;
     }
-    /// Test hook: the minimum gap between two server-backed reads of one
-    /// room. Production keeps the default.
+    /// Test-only: minimum gap between two server-backed reads of one room.
     void setServerReadCooldownMsForTest(int ms)
     {
         m_serverReadCooldownMs = ms;
@@ -384,47 +274,36 @@ public:
 
 private:
     mutable QSet<QString> m_unresolvedIdentitiesLogged;
-    /// When each unresolved subject was FIRST seen, so a transient miss is
-    /// not reported as a permanent one — see noteUnresolvedIdentity().
+    /// When each unresolved subject was first seen, so a transient miss is not
+    /// reported as permanent.
     mutable QHash<QString, qint64> m_unresolvedIdentityFirstSeenMs;
-    /// Comfortably longer than a join's own settling and far shorter than a
-    /// user's patience with silence.
+    /// Longer than a join's own settling, far shorter than a user's patience.
     qint64 m_unresolvedIdentityGraceMs = 5000;
 
-    // Reads in flight. Each carries the epoch it was dispatched under, so a
-    // reply that outlives an account switch is dropped instead of writing
-    // one account's participants into another's room (§9 generation
-    // isolation). `m_roomsBeingRead` stops a poke burst dispatching N reads
-    // for the same room.
+    // Reads in flight. `m_roomsBeingRead` stops a poke burst dispatching
+    // several reads for one room.
     struct PendingRead {
         QString roomId;
-        /// Dispatch time. The Rust event queue DROPS the oldest event on
-        /// overflow, so a reply can legitimately never arrive; without a
-        /// bound the room would stay in `m_roomsBeingRead` forever, making
-        /// it permanently un-refreshable AND spinning the poke timer.
-        /// (`requestTurnServersIfStale` and ThreadManager learned this
-        /// same lesson.)
+        /// Dispatch time. The Rust event queue drops the oldest event on
+        /// overflow, so a reply may never arrive; without a timeout the room
+        /// would stay unrefreshable and the poke timer would spin.
         qint64 dispatchedAtMs = 0;
     };
     QHash<quint64, PendingRead> m_pendingReads;
     QSet<QString> m_roomsBeingRead;
 
-    // Server-backed reads. `m_serverReadWanted` survives a read that is
-    // already in flight — that read was dispatched against the store and
-    // cannot answer the question that forced this one, so the request is
-    // carried to the next dispatch rather than dropped.
+    // Server-backed reads. `m_serverReadWanted` survives a read already in
+    // flight (a store-backed one cannot answer this question), so the request
+    // carries to the next dispatch.
     QSet<QString> m_serverReadWanted;
     QHash<QString, qint64> m_lastServerReadMs;
-    /// Consecutive forced reads that did not change the answer, per room.
-    /// The cooldown doubles with it, so a participant this account will
-    /// NEVER be able to name — a client publishing a membership format this
-    /// build cannot parse, say — costs a handful of `/state` requests an
-    /// hour rather than one every ten seconds for the length of the call.
-    /// Reset the moment a read comes back different, so the next genuine
-    /// gap is still answered promptly.
+    /// Consecutive forced reads that changed nothing, per room. The cooldown
+    /// doubles with it, so an unnameable participant costs a few requests an
+    /// hour rather than one every ten seconds. Reset when a read changes the
+    /// answer.
     QHash<QString, int> m_serverReadStreak;
-    /// Long enough that a participant burst costs one request, short enough
-    /// that a peer who cannot be named is named within one refresh cycle.
+    /// One request per participant burst, yet an unnamed peer is retried
+    /// within one refresh cycle.
     int m_serverReadCooldownMs = 10000;
     /// The ceiling the doubling stops at.
     int m_serverReadCooldownMaxMs = 300000;
@@ -433,31 +312,27 @@ private:
     QSet<QString> m_pokedRooms;
     QTimer m_pokeTimer;
     int m_pokeCoalesceMs = 250;
-    /// How long a dispatched read may stay outstanding before the room is
-    /// released and becomes retryable again.
+    /// How long a dispatched read may stay outstanding before its room is
+    /// released.
     int m_readTimeoutMs = 30000;
 
-    // Discovery result. `m_discovered` distinguishes "not looked yet" from
-    // "looked and found nothing", which the UI must not conflate.
+    // Discovery result. `m_discovered` separates "not looked yet" from
+    // "looked and found nothing".
     bool m_discovered = false;
     bool m_serverAnswered = false;
-    /// Account-scoped: the homeserver's own answer applies to every room.
+    /// Account-scoped: the homeserver's answer applies to every room.
     QStringList m_serviceUrls;
-    /// Room-scoped, keyed by room id. A focus advertised by ROOM A's
-    /// participants says nothing about room B, so it must never decide
-    /// room B's availability or join-block wording.
+    /// Room-scoped: a focus advertised by one room's participants says
+    /// nothing about another room.
     QHash<QString, QString> m_participantFocus;
     QString m_discoveryRoomId;
     QString m_availabilityCategory;
     quint64 m_discoveryOp = 0;
-    /// False until an owner says otherwise: see setMediaEncryptionAvailable.
+    /// False until an owner says otherwise.
     bool m_mediaEncryption = false;
     bool m_mediaAvailable = false;
-    // `mutable` because roomEncrypted() is const and REMEMBERS a resolver
-    // answer of Yes — see its definition: the irreversibility guard has to
-    // cover every room this client has seen encrypted, not only the ones
-    // something pushed. The class already keeps two such caches
-    // (m_unresolvedIdentitiesLogged above) for the same reason.
+    // Mutable because the const roomEncrypted() remembers a resolver Yes, so
+    // the irreversibility guard covers every room seen encrypted.
     mutable QHash<QString, RoomEncryption> m_encryptedRooms;
     EncryptionResolver m_encryptionResolver;
     QHash<QString, bool> m_canPublishMembership;

@@ -143,10 +143,9 @@ void CallShareModel::applyShares(const QVector<CallShareRow> &desired)
             live.ownerDisplayName = row.ownerDisplayName;
             changed.append(OwnerDisplayNameRole);
         }
-        // The track key legitimately fills in LATER: the SFU announces a
-        // participant before it announces which track sid their share landed
-        // on. A tile watches this role and re-attaches, which is why it must
-        // be a dataChanged on an existing row rather than a remove/insert.
+        // The track key can fill in later (the SFU announces a participant
+        // before their share's track sid), so it is a dataChanged on the
+        // existing row; tiles re-attach on it.
         if (live.trackKey != row.trackKey) {
             live.trackKey = row.trackKey;
             changed.append(TrackKeyRole);
@@ -159,8 +158,7 @@ void CallShareModel::applyShares(const QVector<CallShareRow> &desired)
             Q_EMIT dataChanged(index(i), index(i), changed);
     }
 
-    // Announced AFTER the model settles, so a listener that reads the model
-    // from the slot sees the finished state.
+    // Emitted after the model settles, so listeners see the final state.
     for (const QString &id : std::as_const(ended))
         Q_EMIT shareEnded(id);
     for (const QString &id : std::as_const(appeared))

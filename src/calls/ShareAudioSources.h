@@ -5,146 +5,93 @@
 #include <QStringList>
 #include <QVariantMap>
 
-// Capturing what the computer is playing WITHOUT capturing ourselves.
+// Capturing what the computer is playing without capturing ourselves.
 //
-// THE DEFECT THIS EXISTS FOR (tester report 2026-09-06 §3, confirmed twice by
-// the maintainer): sharing a screen with sound sent the whole system output
-// back into the call, so remote participants heard themselves. The capture
-// took the DEFAULT SINK'S MONITOR — `pulsesrc device=@DEFAULT_MONITOR@` — and
-// a sink monitor is the post-mix output. Lightning's own playback of everyone
-// else is one of the contributors to that mix, and a monitor cannot subtract
-// a contributor: by the time the signal exists it has already been summed.
-// The only mitigation that ever existed was routing Lightning's own audio to
-// a different output device by hand.
+// A sink monitor (`pulsesrc device=@DEFAULT_MONITOR@`) is the post-mix
+// output, which includes Lightning's own playback of the other participants,
+// so sharing a screen with sound echoed the call back to everyone. This
+// captures each foreign application's stream instead. Verified on PipeWire
+// 1.6 (recipe in docs/voice-calls.md):
 //
-// WHAT WAS MEASURED BEFORE THIS WAS WRITTEN (2026-09-06, on a live PipeWire
-// 1.6.6 desktop; the recipe is in docs/voice-calls.md so the next round does
-// not have to guess):
+//  * The xdg ScreenCast portal carries no audio at all.
+//  * `pipewiresrc target-object=<object.serial>` captures exactly one
+//    application's playback. Targeting by `node.name` silently yields digital
+//    silence; only `object.serial` resolves a stream node.
+//  * `stream.capture.sink=true` is only for sink monitors, not stream nodes.
+//  * A capture with `autoconnect=false`, linked by hand, never negotiates, so
+//    OBS-style "one stream, many links" is impossible with this element. One
+//    `pipewiresrc` per application, summed by an `audiomixer`, works.
+//  * Enumeration needs no new dependency: GstDeviceMonitor reports
+//    `Stream/Output/Audio` devices via the PipeWire provider, with
+//    `object.serial`, `application.process.id`, `application.name` and
+//    `node.name`.
 //
-//  * The xdg-desktop-portal ScreenCast interface HAS NO AUDIO. Version 5 on
-//    this machine offers CreateSession/SelectSources/Start/OpenPipeWireRemote
-//    and nothing else, and upstream's own interface XML (version 6) documents
-//    no audio option and no audio stream. That route is closed, not pending.
-//  * `pipewiresrc target-object=<object.serial>` captures EXACTLY ONE
-//    application's playback: measured -9.03 dBFS from the targeted stream and
-//    digital silence (-700 dBFS) from a silent one, with pw-link showing the
-//    link landing on that node's own output ports.
-//  * TARGETING BY `node.name` DOES NOT WORK and does not say so. The same
-//    capture, given the stream's name instead of its serial, ran happily and
-//    produced digital silence. Only `object.serial` (or the deprecated
-//    `path=<node id>`) actually resolves a stream node. Do not "simplify"
-//    this to a name.
-//  * `stream.capture.sink=true` is NOT needed when the target is a stream
-//    node; it is the property for capturing a SINK's monitor.
-//  * A capture stream with `autoconnect=false`, linked by hand afterwards,
-//    IS A DEAD END: the element never negotiates a format and the pipeline
-//    never leaves PAUSED, before and after the links exist. So "one capture
-//    stream, many hand-made links" — which is how OBS does it — cannot be
-//    built out of GStreamer's element. One `pipewiresrc` per application,
-//    summed by an `audiomixer`, is the shape that works.
-//  * The enumeration needs NO new dependency. `GstDeviceMonitor` reports
-//    `Stream/Output/Audio` devices through the PipeWire device provider that
-//    ships with the same plugin the video share already uses, and
-//    `gst_device_get_properties()` carries `object.serial`,
-//    `application.process.id`, `application.name` and `node.name` —
-//    everything needed to target a stream and to recognise our own.
+// The selection policy is the pure function streamIsForeign(), unit-tested
+// without PipeWire or GStreamer.
 //
-// THE POLICY IS THE FIX AND IT IS PURE ON PURPOSE. Which streams the share
-// carries is one decision, `streamIsForeign()` below, taking a property map
-// and answering yes or no. It needs no PipeWire, no GStreamer and no call, so
-// it is unit-tested directly; everything around it is plumbing.
-//
-// SCOPE, HONESTLY. This is the Linux/PipeWire path only. Windows no longer
-// needs it: `wasapi2src` can exclude our own process tree at the OS level
-// (see shareAudioSourceDescription in SfuMediaEngine.cpp), which is a better
-// answer than enumerating applications. What is left uncovered is Linux
-// WITHOUT PipeWire, where `pulsesrc device=@DEFAULT_MONITOR@` is the endpoint
-// mix and has the same echo for the same reason; nothing here changes that,
-// and the picker
-// says so. macOS has no loopback capture at all.
+// Linux/PipeWire only. Windows excludes our process tree in `wasapi2src`
+// (see shareAudioSourceDescription in SfuMediaEngine.cpp). Linux without
+// PipeWire falls back to the echoing sink monitor, and the picker says so;
+// macOS has no loopback capture.
 namespace lightning::shareaudio {
 
 /// One application playback stream, as PipeWire describes it.
 struct Stream {
-    /// `object.serial`. The ONLY identifier `pipewiresrc target-object`
-    /// actually resolves for a stream node — see the header note. Digits
-    /// only, and validated as such before it is ever put in a parse string.
+    /// `object.serial`, the only identifier `pipewiresrc target-object`
+    /// resolves for a stream node. Validated as digits before use in a parse
+    /// string.
     QString serial;
-    /// `application.name`, for the log line. Presentation only, never a key.
+    /// `application.name`, for logging only.
     QString appName;
-    /// `node.name`, for the log line when there is no application name.
+    /// `node.name`, for logging when there is no application name.
     QString nodeName;
     /// `application.process.id`, or -1 when the node does not carry one.
     qint64 pid = -1;
 };
 
-/// Should the share carry this stream?
+/// Should the share carry this stream? `props` is a node's property map from
+/// gst_device_get_properties(). False for our own playback (the echo fix) and
+/// for anything that is not a targetable application stream.
 ///
-/// `props` is a PipeWire node's property map as `gst_device_get_properties()`
-/// reports it. `ourPid` is this process, `ourClientName` the name this
-/// process's own playback appears under.
-///
-/// False for our own playback — that exclusion IS the echo fix — and false
-/// for anything that cannot be targeted or is not an application.
-/// `ourNames` is every spelling this process might be recorded under, not
-/// one: MEASURED on a running Lightning, PipeWire files our playback under
-/// `application.name` = "lightning-matrix", the BINARY name, while
-/// QCoreApplication::applicationName() is "matrix-client". Passing only the
-/// latter left the name check unable to match anything it was written for.
+/// `ourNames` lists every name this process may appear under: PipeWire
+/// records our playback under the binary name ("lightning-matrix"), not
+/// QCoreApplication::applicationName().
 bool streamIsForeign(const QVariantMap &props, qint64 ourPid,
                      const QStringList &ourNames);
 
-/// Read one stream out of a property map. `serial` is empty when the map
-/// does not describe a targetable stream.
+/// Reads one stream from a property map; `serial` is empty when the map does
+/// not describe a targetable stream.
 Stream streamFromProperties(const QVariantMap &props);
 
-/// The per-application capture description, ending on the mixer so the
-/// caller can append its own encoder chain with `! `.
-///
-/// Always contains a silence floor. A share started before anything is
-/// playing, or one whose every application has since gone away, must keep
-/// handing the Opus encoder a timeline — otherwise the track publishes and
-/// then dies, which is a worse failure than the echo it replaces.
+/// The per-application capture description, ending on the mixer so the caller
+/// can append its encoder chain with `! `. Always includes a silence floor, so
+/// the encoder keeps a timeline when nothing is playing.
 QString mixedSourceDescription(const QList<Stream> &streams);
 
-/// One application's branch, for adding to a share already running. Ends on
-/// the caps the mixer expects; the caller links it to a requested pad.
+/// One application's branch, for adding to a running share. Ends on the caps
+/// the mixer expects; the caller links it to a requested pad.
 QString applicationBranchDescription(const Stream &stream, int index);
 
 /// The name the mixer is given in `mixedSourceDescription`.
 QString mixerElementName();
 
 /// The whole share-audio bin: a source description plus the encode and
-/// payload chain the publisher links to webrtcbin.
-///
-/// THIS EXISTS BECAUSE THE COMPOSITION IS THE PART THAT BROKE, and nothing
-/// could see it. `publishShareAudio()` used to build the string inline as
-/// `"%1 name=sharesrc ! queue ! ..."`, which is valid only while `%1` is a
-/// single element: `mixedSourceDescription()` ENDS IN A PAD REFERENCE
-/// (`shareaudiomix.`), and GStreamer's grammar takes no assignment after a
-/// reference. So every per-application share failed to parse with
-/// `unexpected reference "shareaudiomix" - ignoring`, the engine reported
-/// `share_audio_failed`, and the whole CALL was torn down — reported from a
-/// 0.9.5 flatpak on 2026-09-14. The existing parse test appended
-/// `" ! fakesink"` instead and therefore exercised a string production had
-/// never built.
-///
-/// Every source description names its own capture element, so nothing is
-/// appended to one here; see `name=sharesrc` in the candidates.
+/// payload chain linked to webrtcbin. Built here so tests parse exactly what
+/// production builds. mixedSourceDescription() ends in a pad reference
+/// (`shareaudiomix.`), which accepts no assignments, so every source
+/// description names its own capture element (`name=sharesrc`) and nothing is
+/// appended to it here.
 QString encodedTrackDescription(const QString &sourceDescription,
                                 quint32 ssrc);
 
-/// Can this machine capture per application at all?
-///
-/// Answered once and cached: it probes GStreamer and opens a PipeWire
-/// connection, and the UI asks it from a binding. False means the share falls
-/// back to the output monitor, which carries this call's own audio — so the
-/// picker can say which of the two the user is about to get instead of
-/// leaving them to find out from the far end.
+/// Can this machine capture per application? Answered once and cached (it
+/// probes GStreamer and PipeWire, and the UI asks from a binding). False means
+/// the share falls back to the output monitor, which includes this call's
+/// audio; the picker tells the user which they get.
 bool perApplicationCaptureAvailable();
 
-/// Live enumeration. Every method is safe to call on a build without the
-/// media engine, where `start()` simply answers false.
+/// Live enumeration. Safe on builds without the media engine, where start()
+/// returns false.
 class SourceMonitor
 {
 public:
@@ -153,21 +100,14 @@ public:
     SourceMonitor(const SourceMonitor &) = delete;
     SourceMonitor &operator=(const SourceMonitor &) = delete;
 
-    /// True when this machine can capture per application: the PipeWire
-    /// device provider is registered, `audiomixer` exists, and `pipewiresrc`
-    /// has `on-disconnect`. A property a packaged plugin may not have is
-    /// checked, never assumed (§16).
+    /// True when per-application capture is possible: the PipeWire device
+    /// provider is registered, `audiomixer` exists, and `pipewiresrc` has
+    /// `on-disconnect` (checked, since packaged plugin versions vary).
     ///
-    /// `on-disconnect=eos` is what makes a departing application retire its
-    /// own branch. Stated precisely, because an over-stated mechanism is how
-    /// a wrong generalisation gets made: this chain is LIVE (`audiotestsrc
-    /// is-live=true` plus `pipewiresrc`), and `GstAggregator` in a live
-    /// pipeline does not wait on a silent pad forever — it times out against
-    /// its latency deadline and substitutes silence. So the cost of a pad
-    /// that stops speaking without EOSing is added latency and a wasted pad,
-    /// not a dead track. Refusing per-application capture without the
-    /// property is conservatism, not necessity, and saying which it is
-    /// matters more than the refusal.
+    /// `on-disconnect=eos` lets a departing application retire its branch.
+    /// Without it, the live aggregator would substitute silence after its
+    /// latency deadline rather than stall, so requiring it is caution rather
+    /// than necessity.
     bool start();
     void stop();
     bool running() const { return m_monitor != nullptr; }

@@ -10,10 +10,8 @@ void SfuVideoRouter::attachSink(const QString &streamId, QVideoSink *sink)
     if (streamId.isEmpty())
         return;
     if (!sink) {
-        // A no-op, NOT a removal. See the header: "I have no sink yet" and
-        // "nobody may own this key" are different statements, and treating
-        // the first as the second let a half-built surface evict a working
-        // one.
+        // A no-op, not a removal: "I have no sink yet" must not evict a
+        // working surface.
         return;
     }
     QMutexLocker lock(&m_mutex);
@@ -26,9 +24,8 @@ void SfuVideoRouter::releaseSink(QVideoSink *sink)
         return;
     QMutexLocker lock(&m_mutex);
     for (auto it = m_sinks.begin(); it != m_sinks.end();) {
-        // Dead entries go with it. They belong to a surface that was
-        // destroyed without ever reaching its release, and nothing else
-        // sweeps them until a frame happens to arrive for that key.
+        // Also sweep dead entries left by surfaces destroyed without a
+        // release.
         if (it->isNull() || it->data() == sink)
             it = m_sinks.erase(it);
         else
@@ -46,8 +43,8 @@ bool SfuVideoRouter::watching(const QString &streamId) const
 {
     QMutexLocker lock(&m_mutex);
     const auto it = m_sinks.constFind(streamId);
-    // A QPointer that has gone null is not a watcher. Reporting it as one
-    // would make the engine copy a frame per frame for a destroyed tile.
+    // A nulled QPointer is not a watcher; otherwise the engine would copy
+    // frames for a destroyed tile.
     return it != m_sinks.cend() && !it->isNull();
 }
 
@@ -72,14 +69,12 @@ void SfuVideoRouter::deliverFrame(const QString &streamId,
             return;
         sink = it->data();
         if (!sink) {
-            // The tile went away while this frame was in flight. Drop the
-            // stale entry so the next frame does not pay the lookup again.
+            // The tile went away; drop the stale entry.
             m_sinks.remove(streamId);
             return;
         }
     }
-    // Outside the lock: setVideoFrame reaches into the render path, and
-    // holding a mutex the streaming thread also wants across it would stall
-    // the pipeline behind the compositor.
+    // Outside the lock: setVideoFrame reaches the render path, and holding a
+    // mutex the streaming thread wants would stall the pipeline.
     sink->setVideoFrame(frame);
 }

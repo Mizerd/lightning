@@ -18,17 +18,15 @@
 
 #include <mutex>
 
-// Coarse lifecycle/category lines only. NEVER log SDP, candidates, TURN
-// credentials, or GStreamer error detail strings that could embed them.
+// Coarse lifecycle/category lines only. Never log SDP, candidates, TURN
+// credentials, or GStreamer error details that could embed them.
 Q_LOGGING_CATEGORY(lcCallMedia, "matrix.calls.media")
 
 namespace {
 
-// GStreamer invokes callbacks on its own threads; marshalled lambdas must
-// never run against a destroyed backend. The registry makes "is this
-// backend still alive" answerable from any thread; the queued invocation
-// itself is tied to the backend as receiver, so anything still in flight
-// when the backend dies is dropped by Qt.
+// GStreamer calls back on its own threads; marshalled lambdas must never run
+// against a destroyed backend. The queued invocation uses the backend as
+// receiver, so anything in flight when it dies is dropped by Qt.
 QMutex g_aliveMutex;
 QSet<GstCallMediaBackend *> g_aliveBackends;
 
@@ -42,8 +40,8 @@ void marshal(GstCallMediaBackend *backend, Fn &&fn)
                               Qt::QueuedConnection);
 }
 
-// Context for promise callbacks: keeps the webrtcbin alive until the
-// promise settles and remembers which call the description belongs to.
+// Context for promise callbacks: keeps the webrtcbin alive until the promise
+// settles and records which call the description belongs to.
 struct PromiseCtx {
     GstCallMediaBackend *backend = nullptr;
     GstElement *webrtc = nullptr; // owns one ref
@@ -68,10 +66,8 @@ void promiseCtxFree(gpointer data)
     delete ctx;
 }
 
-// Takes the "offer"/"answer" description out of a settled promise, applies
-// it as the local description, and hands the serialized SDP back. Shared
-// by the offer and answer creation callbacks. Returns an empty string on
-// any failure (interrupted promise, missing field).
+// Applies the "offer"/"answer" description from a settled promise as the
+// local description and returns its SDP, or empty on any failure.
 QString applyCreatedDescription(GstPromise *promise, GstElement *webrtc,
                                 const char *field)
 {
@@ -96,8 +92,8 @@ QString applyCreatedDescription(GstPromise *promise, GstElement *webrtc,
 
 constexpr int kDefaultOpusPayloadType = 111;
 
-// The offerer's dynamic payload number for Opus, from its SDP's rtpmap
-// ("a=rtpmap:<pt> opus/48000[/2]"). RFC 3264: our answer must reuse it.
+// The offerer's dynamic Opus payload type from its rtpmap; an answer must
+// reuse it (RFC 3264).
 int opusPayloadTypeFromSdp(const QString &sdp)
 {
     static const QRegularExpression rtpmap(
@@ -128,10 +124,9 @@ GstBusSyncReply busSyncHandler(GstBus *bus, GstMessage *message,
     Q_UNUSED(bus);
     auto *ctx = static_cast<BusCtx *>(userData);
     if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_ERROR) {
-        // The error detail can embed device/address strings: category
-        // only. By-name queued invoke under the alive lock (the slot is
-        // private; the metaobject does not mind, and the queued call dies
-        // with the receiver).
+        // Error details can embed device or address strings: category only.
+        // Invoked by name under the alive lock; the queued call dies with the
+        // receiver.
         QMutexLocker lock(&g_aliveMutex);
         if (g_aliveBackends.contains(ctx->backend)) {
             QMetaObject::invokeMethod(
@@ -140,9 +135,8 @@ GstBusSyncReply busSyncHandler(GstBus *bus, GstMessage *message,
                 Q_ARG(QString, QStringLiteral("media_pipeline")));
         }
     }
-    // DROP after inspection: nothing drains this bus's async queue, so
-    // passing messages through would grow it for the call's whole
-    // duration (review round 3).
+    // Drop after inspection: nothing drains this bus, so passing messages
+    // would grow the queue for the whole call.
     gst_message_unref(message);
     return GST_BUS_DROP;
 }
@@ -151,26 +145,24 @@ GstBusSyncReply busSyncHandler(GstBus *bus, GstMessage *message,
 
 bool GstCallMediaBackend::runtimeAvailable(QString *whyNot)
 {
-    // ONE init for the process, plugin path included — see GstBootstrap.h.
-    // This backend is probed BEFORE the SFU engine, so when it did its own
-    // bare gst_init the bundled plugin path was never applied and every
-    // packaged build started with an empty registry.
+    // One process-wide init with the plugin path applied (GstBootstrap.h).
+    // This backend is probed before the SFU engine, so a bare gst_init here
+    // left packaged builds with an empty registry.
     const bool initOk = lightning::gst::ensureInitialised(whyNot);
     if (!initOk) {
         if (whyNot)
             *whyNot = QStringLiteral("gstreamer_init_failed");
         return false;
     }
-    // Everything the send/receive pipeline needs, including webrtcbin's
-    // own runtime requirements (nice transport, DTLS-SRTP).
+    // Everything the pipeline needs, including webrtcbin's own runtime
+    // elements (nice transport, DTLS-SRTP).
     static const char *const kRequired[] = {
         "webrtcbin",    "nicesrc",      "nicesink",     "dtlssrtpenc",
         "dtlssrtpdec",  "opusenc",      "opusdec",      "rtpopuspay",
         "rtpopusdepay", "audioconvert", "audioresample", "audiotestsrc",
         "fakesink",     "autoaudiosrc", "autoaudiosink", "queue",
-        // Mute is implemented with a real valve (send) and volume (receive)
-        // rather than by lowering gain, so both must resolve or the engine
-        // must not claim mute support.
+        // Mute uses a real valve (send) and volume (receive), so both must
+        // resolve for mute support.
         "valve",        "volume",
         "capsfilter",
     };
@@ -194,18 +186,16 @@ int GstCallMediaBackend::offerPromiseErrorReplyContextRefsForTest()
     GstElement *webrtc = gst_element_factory_make("webrtcbin", nullptr);
     if (!webrtc)
         return -1;
-    // Floating from the factory (one reference); promiseCtxNew takes the
-    // second. A null backend is deliberate: marshal() looks the pointer up
-    // in the alive registry, does not find it, and drops the hand-off — so
-    // this exercises the promise lifetime and nothing else.
+    // Floating from the factory (one ref); promiseCtxNew takes a second. A
+    // null backend makes marshal() drop the hand-off, so only the promise
+    // lifetime is exercised.
     GstPromise *promise = gst_promise_new_with_change_func(
         onOfferCreated,
         promiseCtxNew(nullptr, webrtc,
                       QStringLiteral("promise-ctx-lifetime-probe")),
         promiseCtxFree);
-    // What webrtcbin replies with when it cannot create a description: an
-    // "error" field and NO "offer". gst_promise_reply takes the structure
-    // and calls the change function inline.
+    // webrtcbin's error reply: an "error" field and no "offer".
+    // gst_promise_reply calls the change function inline.
     GError *error = g_error_new(g_quark_from_static_string("lightning-test"),
                                 0, "no description");
     gst_promise_reply(promise,
@@ -213,8 +203,8 @@ int GstCallMediaBackend::offerPromiseErrorReplyContextRefsForTest()
                                         "error", G_TYPE_ERROR, error,
                                         nullptr));
     g_clear_error(&error);
-    // NOT unreffed here: the change function consumed the last reference,
-    // exactly as it does in production.
+    // Not unreffed here: the change function consumed the last reference, as
+    // in production.
     const int refs = static_cast<int>(GST_OBJECT_REFCOUNT_VALUE(webrtc));
     gst_object_unref(webrtc);
     return refs;
@@ -230,8 +220,7 @@ GstCallMediaBackend::GstCallMediaBackend(QObject *parent)
 GstCallMediaBackend::~GstCallMediaBackend()
 {
     {
-        // Unregister FIRST: from here no new marshalled lambda targets us,
-        // and anything already queued dies with the QObject.
+        // Unregister first so no new marshalled lambda targets us.
         QMutexLocker lock(&g_aliveMutex);
         g_aliveBackends.remove(this);
     }
@@ -243,38 +232,31 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
                                        int opusPayloadType)
 {
     if (m_sessionActive) {
-        // One call at a time (matches CallController); a stale session here
-        // is a controller bug — refuse rather than leak the old pipeline.
+        // One call at a time; an existing session here is a controller bug, so
+        // refuse rather than leak the old pipeline.
         qCWarning(lcCallMedia) << "session already active; refusing new call";
         return false;
     }
     const QString source = m_testTone
         ? QStringLiteral(
               "audiotestsrc is-live=true wave=sine freq=440 volume=0.05")
-        // A chosen device, or autoaudiosrc when the user is on "system
-        // default" — which keeps following the default as it changes.
+        // A chosen device, or autoaudiosrc for "system default", which keeps
+        // following the default.
         : (m_audioSourceElement.isEmpty()
                ? QStringLiteral("autoaudiosrc")
                : m_audioSourceElement);
-    // As the OFFERER we pick 111 (the ecosystem convention). As the
-    // ANSWERER RFC 3264 requires reusing the OFFERER's number for the
-    // matched codec, so createAnswer() extracts it from the remote offer's
-    // rtpmap and passes it here (review round 3 — always re-asserting our
-    // own 111 in an answer is not spec-compliant reconciliation).
+    // As offerer we use 111 (the common convention); as answerer RFC 3264
+    // requires the offerer's number, which createAnswer() extracts.
     const int payload = qBound(96, opusPayloadType, 127);
     const QString description = QStringLiteral(
         "webrtcbin name=wb bundle-policy=max-bundle latency=100 "
-        // BOUNDED AND LEAKY. This is the SAME queue, in the OTHER LANE, as
-        // the one 0.9.7 fixed in SfuMediaEngine after a live report of ~1 s
-        // of one-directional delay -- and it was left at the GStreamer
-        // default, which holds a second and never drops any of it. Every 1:1
-        // call has shipped with it.
+        // Bounded and leaky: a default queue holds a second and never drains
+        // it, which becomes permanent latency.
         "%1 ! queue max-size-buffers=0 max-size-bytes=0 "
         "max-size-time=100000000 leaky=downstream "
         "! audioconvert ! audioresample "
-        // valve name=micvalve: drop=true stops buffers reaching the encoder,
-        // so NOTHING is published while muted. Lowering volume here would
-        // still send audio and is not mute.
+        // valve name=micvalve: drop=true stops buffers before the encoder, so
+        // nothing is published while muted (lowering volume would still send).
         "! valve name=micvalve drop=false ! opusenc "
         "! rtpopuspay pt=%2 "
         "! application/x-rtp,media=audio,encoding-name=OPUS,payload=%2 "
@@ -301,9 +283,7 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     m_session.pipeline = pipeline;
     m_session.webrtc = webrtc;
     m_session.offerer = offerer;
-    // Owned by the pipeline; borrowed here (gst_bin_get_by_name returns a
-    // ref, released immediately — the pipeline outlives the session struct
-    // and destroySessionLocked drops the whole pipeline).
+    // Borrowed: the pipeline owns the valve and outlives the session struct.
     if (GstElement *valve = gst_bin_get_by_name(GST_BIN(pipeline),
                                                 "micvalve")) {
         m_session.micValve = valve;
@@ -314,8 +294,8 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     applyIceConfigLocked();
 
     if (offerer) {
-        // Only the offerer answers negotiation-needed; the answerer's
-        // negotiation is driven explicitly by createAnswer().
+        // Only the offerer handles negotiation-needed; the answerer is driven
+        // by createAnswer().
         g_signal_connect(webrtc, "on-negotiation-needed",
                          G_CALLBACK(onNegotiationNeeded), this);
     }
@@ -364,9 +344,8 @@ void GstCallMediaBackend::destroySessionLocked()
     }
     m_session = Session();
     m_sessionActive = false;
-    // Engine state is PER SESSION. The user's deafen intent belongs to the
-    // controller, which re-applies it when the next call connects; leaving
-    // it latched here would silence a later call with no visible cause.
+    // Engine state is per session. The controller owns the deafen intent and
+    // re-applies it; a latched value would silence a later call.
     m_outputMuted.store(false);
     qCInfo(lcCallMedia) << "media session destroyed";
 }
@@ -375,18 +354,17 @@ void GstCallMediaBackend::applyIceConfigLocked()
 {
     if (!m_session.webrtc)
         return;
-    // Policy (see CallMediaBackend.h): only servers the homeserver named.
-    // First stun: URI becomes the stun-server property; every turn(s): URI
-    // is added with the short-lived credentials percent-encoded in.
+    // Only servers the homeserver named (see CallMediaBackend.h). The first
+    // stun: URI sets stun-server; each turn(s): URI is added with the
+    // credentials percent-encoded.
     bool stunApplied = false;
     const QByteArray user =
         QUrl::toPercentEncoding(m_iceUsername);
     const QByteArray password =
         QUrl::toPercentEncoding(m_icePassword);
-    // The uris come from OUR homeserver, but they are still remote input
-    // assembled into a credential-bearing URI: refuse anything that could
-    // smuggle structure past the userinfo we insert (an embedded '@' or
-    // '/'), or that carries whitespace/control characters.
+    // Homeserver-supplied but still remote input assembled into a
+    // credential-bearing URI: refuse '@', '/', '\\', whitespace and control
+    // characters.
     const auto saneServerUri = [](const QString &uri) {
         if (uri.size() > 512)
             return false;
@@ -419,7 +397,7 @@ void GstCallMediaBackend::applyIceConfigLocked()
             gboolean added = FALSE;
             g_signal_emit_by_name(m_session.webrtc, "add-turn-server",
                                   value.toUtf8().constData(), &added);
-            // `added` deliberately not logged with the URI — credentials.
+            // Never log the URI: it carries credentials.
         }
     }
 }
@@ -431,15 +409,14 @@ void GstCallMediaBackend::setIceServers(const QStringList &uris,
     m_iceUris = uris;
     m_iceUsername = username;
     m_icePassword = password;
-    // Applied to the NEXT session; a live call keeps the config it
-    // negotiated with.
+    // Applied to the next session; a live call keeps its negotiated config.
 }
 
 void GstCallMediaBackend::createOffer(const QString &callId)
 {
     if (!startSession(callId, /*offerer=*/true, kDefaultOpusPayloadType))
         Q_EMIT failed(callId, QStringLiteral("media_init"));
-    // The offer itself arrives via on-negotiation-needed → create-offer.
+    // The offer arrives via on-negotiation-needed -> create-offer.
 }
 
 void GstCallMediaBackend::createAnswer(const QString &callId,
@@ -451,8 +428,7 @@ void GstCallMediaBackend::createAnswer(const QString &callId,
         return;
     }
     GstSDPMessage *message = nullptr;
-    // gst's SDP parser is deliberately permissive (garbage "parses"), so
-    // additionally require at least one media section before trusting it.
+    // GStreamer's SDP parser accepts garbage, so also require a media section.
     if (gst_sdp_message_new_from_text(remoteOfferSdp.toUtf8().constData(),
                                       &message)
             != GST_SDP_OK
@@ -507,10 +483,10 @@ void GstCallMediaBackend::addRemoteCandidate(const QString &callId,
     if (!m_sessionActive || m_session.callId != callId || !m_session.webrtc)
         return;
     if (candidate.trimmed().isEmpty())
-        return; // MSC2746 end-of-candidates: nothing to feed
+        return; // MSC2746 end-of-candidates
     if (!m_session.remoteDescriptionSet) {
-        // Trickled candidates can outrun the description exchange; feed
-        // them once the remote description is applied. Bounded.
+        // Trickled candidates can outrun the description; apply them once it
+        // is set. Bounded.
         if (m_session.pendingRemoteCandidates.size() < 64)
             m_session.pendingRemoteCandidates.append(
                 qMakePair(sdpMLineIndex, candidate));
@@ -524,9 +500,8 @@ void GstCallMediaBackend::addRemoteCandidate(const QString &callId,
 void GstCallMediaBackend::setAudioDevices(const QString &sourceElement,
                                           const QString &sinkElement)
 {
-    // Stored for the NEXT session: swapping a capture element inside a live
-    // pipeline means tearing down and relinking the send branch, and a
-    // half-relinked pipeline is worse than a device change that waits.
+    // Stored for the next session: relinking a live send branch is riskier
+    // than waiting.
     m_audioSourceElement = sourceElement;
     m_audioSinkElement = sinkElement;
 }
@@ -539,8 +514,7 @@ void GstCallMediaBackend::setMicrophoneMuted(const QString &callId,
     m_session.micMuted = muted;
     if (!m_session.micValve)
         return;
-    // drop=true discards buffers BEFORE the encoder, so no RTP is produced
-    // and the peer receives nothing. This is a real mute, not attenuation.
+    // drop=true discards buffers before the encoder: a real mute, no RTP.
     g_object_set(m_session.micValve, "drop", muted ? TRUE : FALSE, nullptr);
 }
 
@@ -549,27 +523,21 @@ void GstCallMediaBackend::setOutputMuted(const QString &callId, bool muted)
     if (!m_sessionActive || m_session.callId != callId)
         return;
     m_session.outputMuted = muted;
-    // Published for onPadAdded, which runs on a GStreamer thread and must
-    // silence a track that arrives AFTER the user deafened.
+    // Read by onPadAdded on a GStreamer thread, so a track arriving while
+    // deafened comes up silenced.
     m_outputMuted.store(muted);
     if (!m_session.pipeline)
         return;
-    // Every receive bin has its own volume element, and a group call has one
-    // per remote track, so mute them ALL rather than the first found.
-    //
-    // Matched on the NAME we gave them ("outvol"), not on the "volume"
-    // factory: `autoaudiosrc`/`autoaudiosink` are bins that may contain a
-    // volume element of their own, and a recursive factory match would reach
-    // into the SEND chain. Muting our own capture here would be wrong even
-    // though deafen also mutes the mic, because the two controls must stay
-    // independent — undeafening would then fight the valve.
+    // Mute every receive volume element, matched by our name ("outvol"), not
+    // the "volume" factory: auto elements may contain their own volume, and a
+    // factory match could reach the send chain. Deafen and mic mute must stay
+    // independent controls.
     GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_session.pipeline));
     if (!it)
         return;
     GValue item = G_VALUE_INIT;
     bool done = false;
-    // A pipeline that keeps changing must not spin this loop forever; a
-    // handful of resyncs is far more than a track add needs.
+    // Bounded resyncs, so a constantly changing pipeline cannot spin forever.
     int resyncsLeft = 8;
     while (!done) {
         switch (gst_iterator_next(it, &item)) {
@@ -586,10 +554,8 @@ void GstCallMediaBackend::setOutputMuted(const QString &callId, bool muted)
             break;
         }
         case GST_ITERATOR_RESYNC:
-            // The pipeline changed under us — a remote track being added is
-            // exactly when that happens, and it is exactly when a missed
-            // element would stay audible while deafened. Restart rather than
-            // stop, but bounded.
+            // The pipeline changes exactly while a track is added, which is
+            // when a missed element would stay audible. Restart, bounded.
             if (resyncsLeft-- <= 0) {
                 done = true;
                 break;
@@ -709,30 +675,19 @@ void GstCallMediaBackend::onNegotiationNeeded(GstElement *webrtc,
                                               void *userData)
 {
     auto *backend = static_cast<GstCallMediaBackend *>(userData);
-    // Session identity travels as the EMITTING ELEMENT's pointer, held
-    // alive by the promise ctx's ref, so a stale offer for a closed call
-    // can never be attributed to a newer session (reading backend state
-    // from this thread would not be safe; the pointer needs no read).
+    // Session identity travels as the emitting element's pointer (kept alive
+    // by the promise ctx), so a stale offer cannot be attributed to a newer
+    // session without reading backend state on this thread.
     GstPromise *promise = gst_promise_new_with_change_func(
         onOfferCreated, promiseCtxNew(backend, webrtc, QString()),
         promiseCtxFree);
     g_signal_emit_by_name(webrtc, "create-offer", nullptr, promise);
 }
 
-// THE UNREF CAN BE THE PROMISE'S LAST, AND THE CONTEXT DIES WITH IT.
-//
-// `ctx` is the promise's user data and `promiseCtxFree` is its destroy
-// notify, so it runs when the promise is FINALIZED — including when the
-// gst_promise_unref() inside these change functions is the one that drops
-// the count to zero, which is what happens on webrtcbin's error-reply path
-// (it replies before anything else has taken a reference). Every `ctx->`
-// read below the unref was therefore a read of freed memory: a destroyed
-// QString for `callId`, and an element whose last reference the free had
-// just dropped.
-//
-// So each of the four reads every field it needs BEFORE the unref, and
-// onRemoteOfferSet, which goes on to USE the element, holds its own
-// reference across it. Nothing else about these functions changed.
+// promiseCtxFree is the promise's destroy notify, so the gst_promise_unref()
+// in these change functions can free ctx (webrtcbin's error-reply path holds
+// no other reference). Read every ctx field before the unref; a function
+// that keeps using the element takes its own reference.
 void GstCallMediaBackend::onOfferCreated(GstPromise *promise, void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
@@ -751,8 +706,7 @@ void GstCallMediaBackend::onRemoteOfferSet(GstPromise *promise,
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
     GstCallMediaBackend *backend = ctx->backend;
-    // OUR OWN reference, because the element has to survive the unref: the
-    // one the ctx holds is released by promiseCtxFree.
+    // Our own reference: the ctx's is released by promiseCtxFree.
     GstElement *webrtc = GST_ELEMENT(gst_object_ref(ctx->webrtc));
     const QString callId = ctx->callId;
     const quintptr token = reinterpret_cast<quintptr>(webrtc);
@@ -766,10 +720,8 @@ void GstCallMediaBackend::onRemoteOfferSet(GstPromise *promise,
     marshal(backend, [backend, token] {
         backend->handleRemoteDescriptionApplied(token);
     });
-    // Answer creation continues on this thread against the same element —
-    // safe even if the session closed meanwhile (it is ref-held here and by
-    // the new promise's ctx; the eventual answer is dropped by the Qt-side
-    // token check).
+    // Answer creation continues on this thread; the element is ref-held, and
+    // an answer for a closed session is dropped by the Qt-side token check.
     GstPromise *answerPromise = gst_promise_new_with_change_func(
         onAnswerCreated, promiseCtxNew(backend, webrtc, callId),
         promiseCtxFree);
@@ -860,23 +812,15 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
         GST_ELEMENT(gst_element_get_parent(webrtc)); // owns one ref
     if (!pipeline)
         return;
-    // The receive chain. m_testTone is set before any session and never
-    // mutated during one, so this cross-thread read is benign.
-    // m_audioSinkElement is set before any session and not mutated during
-    // one, so this cross-thread read is benign (same reasoning as m_testTone).
+    // m_testTone and m_audioSinkElement are set before any session and never
+    // changed during one, so reading them here is safe.
     const QString sink = backend->m_audioSinkElement.isEmpty()
         ? QStringLiteral("autoaudiosink")
         : backend->m_audioSinkElement;
-    // BOUNDED AND LEAKY, both modes. This is the RECEIVE side, which is the
-    // side a listener experiences delay on: a momentary stall on the
-    // listening machine fills a default queue with a second of audio that
-    // leaky=no can never give back. 200 ms because this queue is fed by
-    // webrtcbin's own jitter buffer and drained by a hardware clock, so it
-    // only has to absorb local scheduling jitter. Leaking is safe HERE and
-    // is deliberately not done on a video receive queue: an Opus frame is
-    // independent and the decoder conceals a dropped one, while dropping RTP
-    // in front of a VP8 depayloader corrupts the bitstream with no PLI to
-    // recover from.
+    // Bounded and leaky: the receive side is where a listener hears delay,
+    // and a default queue would keep a stall's second of audio forever. 200 ms
+    // absorbs local scheduling jitter. Leaking is safe for Opus (the decoder
+    // conceals a lost frame), unlike RTP in front of a video depayloader.
     const QString recvQueue = QStringLiteral(
         "queue max-size-buffers=0 max-size-bytes=0 "
         "max-size-time=200000000 leaky=downstream ");
@@ -906,17 +850,16 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
         return;
     }
     if (!gst_bin_add(GST_BIN(pipeline), bin)) {
-        // gst_bin_add sinks-and-drops the element on failure: bin may be
-        // FINALIZED here — report, never touch it again.
+        // gst_bin_add sinks and drops the element on failure: never touch bin
+        // again.
         gst_object_unref(pipeline);
         marshal(backend, [backend, token] {
             backend->handleFailure(token, QStringLiteral("media_receive"));
         });
         return;
     }
-    // Apply the CURRENT deafen state before the bin goes playing: a remote
-    // track can arrive after the user deafened, and coming up audible for
-    // even a moment defeats the control.
+    // Apply the current deafen state before the bin plays, so a new track is
+    // never briefly audible.
     if (GstElement *vol = gst_bin_get_by_name(GST_BIN(bin), "outvol")) {
         g_object_set(vol, "mute",
                      backend->m_outputMuted.load() ? TRUE : FALSE, nullptr);

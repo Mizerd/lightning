@@ -1,24 +1,17 @@
-// Voice-call state machine (2026-08-18 rounds 1-3).
+// Voice-call state machine for the legacy MSC2746 `m.call.*` lane.
 //
-// Consumes SDP-free CallSignal observations from the backend (see
-// CallSignal.h) and drives one MSC2746-shaped call session: glare
-// resolution, party-id locking, invite lifetime, cross-device
+// Consumes SDP-free CallSignal observations (CallSignal.h) and drives one
+// call session: glare resolution, party-id locking, invite lifetime,
 // answered/declined-elsewhere, busy auto-reject, and a bounded LRU of
-// finished call ids so a late event can never resurrect an ended call.
+// finished call ids so a late event cannot resurrect an ended call.
 //
-// MEDIA comes through the CallMediaBackend seam. WITH a registered engine
-// (GstCallMediaBackend — webrtcbin — when built and its runtime elements
-// resolve) placeCall()/answer() run real calls: offer/answer production,
-// trickled ICE both ways (batched sends with MSC2746's end marker), and
-// homeserver-provided TURN. WITHOUT one (packaged builds today) both
-// refuse honestly and inbound calls can only be observed/declined.
-// QML consumes this via app.calls (IncomingCallPrompt — the call card —
-// and the DM-gated startVoiceCallButton); SDP/candidates are structurally
-// unreachable from QML.
+// Media goes through the CallMediaBackend seam. With an engine registered
+// (GstCallMediaBackend), placeCall()/answer() run real calls with trickled
+// ICE and homeserver TURN; without one both refuse and inbound calls can only
+// be observed or declined. SDP and candidates never reach QML.
 //
-// Ring POLICY and ring STATE are separate: a muted room still produces
-// Ringing; only shouldRing() is false (NotificationManager's ring and the
-// missed-call notices consume it via AppController).
+// Ring policy is separate from ring state: a muted room still reaches
+// Ringing, but shouldRing() is false.
 #pragma once
 
 #include <QHash>
@@ -39,33 +32,23 @@ class MatrixClient;
 class CallController : public QObject
 {
     Q_OBJECT
-    // Registered so QML compares states SYMBOLICALLY
-    // (CallController.Ringing) instead of magic ints — the
-    // PaginationController precedent. Never creatable: app.calls is the
-    // one instance.
+    // Registered so QML can compare states symbolically; app.calls is the
+    // only instance.
     QML_ELEMENT
     QML_UNCREATABLE("CallController is exposed via app.calls")
     Q_PROPERTY(int state READ stateInt NOTIFY stateChanged)
     Q_PROPERTY(bool ringing READ ringing NOTIFY stateChanged)
-    /// True while the live ring came in over the MatrixRTC lane rather than
-    /// the legacy `m.call.*` one.
-    ///
-    /// Exposed because the two lanes are answered by DIFFERENT code: the
-    /// legacy ring by `answer()` here, an RTC ring by JOINING the room's SFU
-    /// session (`app.groupCall.join`) — the same action the room banner and
-    /// the timeline's call row already offer. Without this the card could not
-    /// tell them apart, so it gated Accept on `mediaBackendAvailable` (the
-    /// LEGACY engine) and offered a button that `answer()` structurally
-    /// refuses. Reported as "this accept does nothing".
+    /// True while the live ring came over the MatrixRTC lane. The lanes are
+    /// answered differently: a legacy ring by answer(), an RTC ring by joining
+    /// the SFU session (`app.groupCall.join`), so the card needs to know which.
     Q_PROPERTY(bool rtcRing READ rtcRing NOTIFY stateChanged)
     Q_PROPERTY(QString activeRoomId READ activeRoomId NOTIFY stateChanged)
     Q_PROPERTY(QString callerUserId READ activeSenderId NOTIFY stateChanged)
     Q_PROPERTY(QString activeCallId READ activeCallId NOTIFY stateChanged)
     Q_PROPERTY(bool mediaBackendAvailable READ mediaBackendAvailable
                    NOTIFY mediaBackendAvailableChanged)
-    // Mute / deafen. `muteControlAvailable` is what the UI gates on: a
-    // control that silently does nothing is worse than one that is absent,
-    // and the seam's default implementation is a no-op.
+    // `muteControlAvailable` gates the UI: the seam's default mute is a no-op,
+    // and a control that does nothing is worse than none.
     Q_PROPERTY(bool muteControlAvailable READ muteControlAvailable
                    NOTIFY mediaBackendAvailableChanged)
     Q_PROPERTY(bool microphoneMuted READ microphoneMuted
@@ -96,19 +79,14 @@ public:
     explicit CallController(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
-    // Test-only override of the local user's MXID for targeted-invite
-    // filtering. Production resolves it live from the client
-    // (currentUserId()), so account switches are followed automatically;
-    // the override exists because the mock is not logged in under test.
+    // Test-only override of the local MXID for targeted-invite filtering.
+    // Production reads it live from the client, following account switches.
     void setOwnUserId(const QString &userId);
 
     State state() const { return m_state; }
     int stateInt() const { return static_cast<int>(m_state); }
     bool ringing() const { return m_state == State::Ringing; }
-    /// See the Q_PROPERTY note. Deliberately false unless we are actually
-    /// RINGING: `m_session.rtc` outlives the ring inside the session record,
-    /// and a stale true would send the card down the join branch for a call
-    /// that is over.
+    /// False unless actually ringing: `m_session.rtc` outlives the ring.
     bool rtcRing() const
     {
         return m_state == State::Ringing && m_session.rtc;
@@ -119,93 +97,63 @@ public:
     QString activeSenderId() const;
     bool sessionLive() const;
 
-    // The media-engine seam (see CallMediaBackend.h). NOT owned; nullptr
-    // (the production state — no engine exists in the tree) keeps
-    // placeCall()/answer() refusing honestly. Registering also tells the
-    // backend bridge to start carrying SDP for this client (C++ memory
-    // only, never QML, never logs).
+    // The media-engine seam (see CallMediaBackend.h). Not owned; nullptr keeps
+    // placeCall()/answer() refusing. Registering also tells the bridge to
+    // carry SDP for this client (memory only, never QML or logs).
     void setMediaBackend(CallMediaBackend *backend);
-    // Defined in the .cpp DELIBERATELY. CallMediaBackend is only
-    // forward-declared here (that is the point of the seam), and comparing a
-    // QPointer<T> against nullptr instantiates QPointer<T>::data(), whose
-    // static_cast<T*> requires T to be COMPLETE. Qt 6.11 does not reach that
-    // path for this comparison; Qt 6.8 — which the Debian package build uses
-    // — does, and it failed the 0.7.4 release build with "invalid
-    // static_cast from QObject* to CallMediaBackend*". Keeping the body in
-    // the .cpp, where CallMediaBackend.h is included, is version-independent.
+    // Out of line: comparing a QPointer to a forward-declared type needs the
+    // complete type on Qt 6.8.
     bool mediaBackendAvailable() const;
 
-    // UI-facing entries. Both refuse without a media backend: a stubbed
-    // offer/answer would place or accept a call that dies at the peer.
-    // Mute the microphone. Real mute: the engine stops PUBLISHING, so the
-    // peer receives nothing (never a local gain change).
+    // Real mute: the engine stops publishing, so the peer receives nothing.
     Q_INVOKABLE void setMicrophoneMuted(bool muted);
     Q_INVOKABLE void toggleMicrophoneMuted();
-    // Deafen — silence incoming call audio. Following the familiar
-    // convention, deafening also mutes the microphone, and UNdeafening
-    // restores whatever the microphone state was BEFORE deafening rather
-    // than blindly unmuting: someone who was muted, then deafened, must not
-    // come back live.
+    // Deafen silences incoming audio and also mutes the microphone;
+    // undeafening restores the previous mute state rather than unmuting.
     Q_INVOKABLE void setDeafened(bool deafened);
     Q_INVOKABLE void toggleDeafened();
     bool muteControlAvailable() const;
     bool microphoneMuted() const { return m_microphoneMuted; }
     bool deafened() const { return m_deafened; }
 
-    /// `invitee` is the ONE user this call is for (MSC2746 `invitee`): the
-    /// invite names them so only they ring, and every later signal on the
-    /// session -- answer, hangup, reject, select_answer -- must come FROM
-    /// them. Without it a legacy session was matched on (room, call_id)
-    /// alone, and call_id is a plaintext field of the invite that every
-    /// member of the room can read: any member could hang up, suppress, or
-    /// ANSWER a call that was not theirs. Empty means "unknown until the
-    /// first answer", which is then locked as the peer.
+    /// `invitee` is the one user this call is for (MSC2746): only they ring,
+    /// and every later signal on the session must come from them, since
+    /// call_id is readable by every room member. Empty means the first
+    /// answerer is locked in as the peer.
     Q_INVOKABLE bool placeCall(const QString &roomId,
                                const QString &invitee = QString());
     Q_INVOKABLE bool answer();
-    /// Why the last placeCall()/answer() refused, as a closed-set token.
-    ///
-    /// Q_INVOKABLE since 2026-08-26: `answer()` returns a bool into a QML
-    /// call site that discarded it, and this getter was plain C++, so a
-    /// refusal was structurally unreportable — the button simply did
-    /// nothing. Reading it is now possible; the CARD maps the token to
-    /// wording and never renders the token itself.
+    /// Why the last placeCall()/answer() refused, as a closed-set token. The
+    /// card maps it to wording and never shows the token itself.
     Q_INVOKABLE QString lastRefusal() const { return m_lastRefusal; }
 
-    // The complete outbound pipe, fed by a future media backend (tests feed
-    // it a synthetic SDP). Sends a real m.call.invite.
+    // The outbound pipe given a ready offer (tests feed a synthetic SDP).
+    // Sends a real m.call.invite.
     bool placeCallWithOffer(const QString &roomId, const QString &offerSdp,
                             qint64 lifetimeMs = 60000,
                             const QString &invitee = QString());
 
     // Decline the ringing inbound call (legacy reject or m.rtc.decline).
     Q_INVOKABLE bool rejectIncoming();
-    /// The user answered this conversation through the OTHER lane in this
-    /// same app — they opened the room and pressed Join on the MatrixRTC
-    /// call instead of pressing Accept on the ring.
-    ///
-    /// Clears the local ring and puts NOTHING on the wire. It is emphatically
-    /// not rejectIncoming(): a decline would tell the caller "no" about a
-    /// call the user has just walked into. Reported as: the ring card and its
-    /// desktop notification stayed up after joining from the room, and had to
-    /// be dismissed by hand.
+    /// The user joined this conversation's MatrixRTC call in this app instead
+    /// of accepting the ring. Clears the local ring and sends nothing: a
+    /// decline would tell the caller "no" about a call the user just joined.
     void noteAnsweredByOtherLane(const QString &roomId);
-    // Hang up our own outbound call (Inviting/Connecting/Active).
+    // Hang up our own call (outbound from Inviting; inbound once answered).
     Q_INVOKABLE bool hangup();
 
-    // Missed-REASON subset. NOT sufficient alone: a completed (answered)
-    // call also ends RemoteHangup, so endSession additionally requires the
-    // call to still have been RINGING — the `missed` flag on
-    // incomingCallEnded is the authoritative answer (review round 2).
+    // Reasons that can mean "missed". Not sufficient alone: an answered call
+    // also ends with RemoteHangup, so the `missed` flag on incomingCallEnded
+    // (which also requires Ringing) is authoritative.
     static bool isMissedCallReason(EndReason reason)
     {
         return reason == EndReason::InviteTimeout
             || reason == EndReason::RemoteHangup;
     }
 
-    // Ring policy inputs. Backlog suppression defaults TRUE — a freshly
-    // started app must never ring for cold-start backlog; the sync
-    // lifecycle owner lowers it once live (NotificationManager pattern).
+    // Ring policy inputs. Backlog suppression defaults to true so a starting
+    // app never rings for cold-start backlog; the sync owner lowers it once
+    // live.
     void setBacklogSuppressed(bool suppressed);
     void setSenderIgnoredCheck(std::function<bool(const QString &)> check);
     void setRoomMutedCheck(std::function<bool(const QString &)> check);
@@ -215,16 +163,15 @@ Q_SIGNALS:
     void audioStateChanged();
     void stateChanged();
     void mediaBackendAvailableChanged();
-    // remainingMs is the invite's real remaining validity, so the ring's
-    // duration can follow the call instead of a hardcoded window.
+    // remainingMs is the invite's real remaining validity.
     void incomingCallStarted(const QString &roomId, const QString &callId,
                              const QString &senderId, qint64 remainingMs);
-    // `missed` is decided where the pre-end state is known: inbound, still
-    // Ringing, and ended by timeout or the caller giving up.
+    // `missed`: inbound, still Ringing, and ended by timeout or the caller
+    // giving up.
     void incomingCallEnded(const QString &roomId, const QString &callId,
                            int reason, bool missed);
-    // A dispatched signaling send was rejected by the server. Category is
-    // the coarse classify_room_error set; never raw error text.
+    // A signaling send was rejected by the server; category is the coarse
+    // classify_room_error set, never raw error text.
     void sendFailed(const QString &category);
 
 private:
@@ -236,9 +183,8 @@ private:
         QString ourPartyId;
         QString remotePartyId;
         QString senderId;
-        // The Matrix user every remote signal on this session must come
-        // from. Inbound: the invite's sender. Outbound: the invitee when one
-        // was named, otherwise the sender of the first answer.
+        // The user every remote signal must come from: the invite's sender
+        // (inbound), or the named invitee or first answerer (outbound).
         QString remoteUserId;
         QString inviteEventId;
         QString invitee;
@@ -251,15 +197,12 @@ private:
         bool offerPending = false;
         // Inbound: the media backend is producing the answer.
         bool answerPending = false;
-        // Outbound: the invite send was dispatched (used to decide whether
-        // a media failure needs a wire hangup or only a local end).
+        // Outbound: the invite was sent, so a media failure needs a wire
+        // hangup rather than only a local end.
         bool inviteDispatched = false;
-        // Inbound: candidates the caller trickled while we were RINGING —
-        // the engine has no session until answer(), and the caller starts
-        // trickling the moment they place the call, so dropping these
-        // loses most usable candidates whenever a human takes time to
-        // accept (review round 3 HIGH). Bounded; drained into the engine
-        // right after createAnswer().
+        // Inbound: candidates trickled while ringing, before the engine has a
+        // session; dropping them loses most usable candidates. Bounded and
+        // drained right after createAnswer().
         QVariantList earlyRemoteCandidates;
     };
 
@@ -275,8 +218,7 @@ private:
     void handleSelectAnswer(const CallSignal &signal);
     void handleRtcNotification(const CallSignal &signal);
     void handleRtcDecline(const CallSignal &signal);
-    // Slot (not inline lambda) so tests can drive expiry via
-    // QMetaObject::invokeMethod instead of waiting out real timers.
+    // A slot so tests can drive expiry via QMetaObject::invokeMethod.
     Q_SLOT void onLifetimeExpired();
     void onMediaOfferReady(const QString &callId, const QString &sdp);
     void onMediaAnswerReady(const QString &callId, const QString &sdp);
@@ -296,9 +238,8 @@ private:
     void requestTurnServersIfStale();
 
     bool matchesSession(const CallSignal &signal) const;
-    // True when `signal.sender` is the session's bound remote user, or no
-    // user is bound yet. See placeCall() for why (room, call_id) is not
-    // enough.
+    // True when `signal.sender` is the bound remote user, or none is bound
+    // yet. See placeCall().
     bool fromExpectedPeer(const CallSignal &signal) const;
     bool recentlyEnded(const QString &callId) const;
     void rememberEnded(const QString &callId);
@@ -312,43 +253,38 @@ private:
     static QString freshPartyId();
 
     MatrixClient *m_client = nullptr;
-    // QPointer: the backend is NOT owned, and a destroyed backend must
-    // read as absent, never as a dangling pointer in endSession's close().
+    // QPointer: not owned, and a destroyed backend must read as absent.
     QPointer<CallMediaBackend> m_mediaBackend;
     State m_state = State::Idle;
     EndReason m_endReason = EndReason::None;
     Session m_session;
     QTimer m_lifetimeTimer;
     QStringList m_recentEnded; // bounded LRU of finished call ids
-    // Dispatched send ops, each scoped to the call it belongs to, so a
-    // stale result from an ended call can never mutate or end the live
-    // session (review 2026-08-18).
+    // Send ops, each tied to its call, so a stale result cannot affect the
+    // live session.
     QHash<quint64, QString> m_pendingOps;
     QList<quint64> m_pendingOpOrder;
-    // Bound on unsolicited-invite auto-rejects per live session: without
-    // it any room member could make this client emit an unbounded stream
-    // of m.call.reject events with zero user interaction.
+    // Bounds busy auto-rejects per session, or any room member could make us
+    // send unbounded m.call.reject events.
     int m_busyRejectsThisSession = 0;
     QString m_ownUserId;
     void applyAudioStateToBackend();
     void resetAudioIntent();
 
     QString m_lastRefusal;
-    // Local audio intent. Owned here, not in the engine: the engine resets
-    // per session, while the user's choice must survive a reconnect and be
+    // Local audio intent, owned here because the engine resets per session;
     // re-applied when the next call connects.
     bool m_microphoneMuted = false;
     bool m_deafened = false;
     // The mic state to return to when undeafening.
     bool m_micMutedBeforeDeafen = false;
-    // Locally gathered candidates, batched (150 ms) into one
-    // m.call.candidates event; MSC2746's empty end-of-candidates marker
-    // rides the final batch.
+    // Local candidates, batched (150 ms) into m.call.candidates events;
+    // MSC2746's empty end marker rides the final batch.
     QVariantList m_pendingLocalCandidates;
     bool m_gatheringComplete = false;
     QTimer m_candidateFlushTimer;
-    // Homeserver TURN credentials cache for the engine's ICE config —
-    // memory only, refreshed before expiry, never logged.
+    // Homeserver TURN credential cache: memory only, refreshed before expiry,
+    // never logged.
     quint64 m_turnOp = 0;
     qint64 m_turnRequestedAtMs = 0;
     qint64 m_turnExpiryMs = 0;

@@ -21,11 +21,10 @@
 namespace {
 Q_LOGGING_CATEGORY(lcCameraPortal, "lightning.calls.portal")
 
-/// How long a portal request may stay outstanding. The user is answering a
-/// permission dialog, so this is deliberately long; it exists only so a
-/// request that will NEVER be answered cannot wedge the camera. Declared
-/// outside the D-Bus guard because the constructor arms the timer in every
-/// build.
+/// How long a portal request may stay outstanding. Long, because the user is
+/// answering a permission dialog; it only stops an unanswered request from
+/// wedging the camera. Outside the D-Bus guard because the timer exists in
+/// every build.
 constexpr int kRequestTimeoutMs = 120000;
 
 #ifdef HAVE_QT_DBUS
@@ -34,10 +33,7 @@ constexpr auto kPath = "/org/freedesktop/portal/desktop";
 constexpr auto kCamera = "org.freedesktop.portal.Camera";
 constexpr auto kRequest = "org.freedesktop.portal.Request";
 
-/// The portal wants a caller-unique token per request so it can predict the
-/// Request object path. Random rather than sequential, for the reason
-/// ScreenCastPortal records: the path is derived from it and a predictable
-/// path is guessable by another app on the same bus.
+/// A caller-unique, random token per request (see ScreenCastPortal).
 QString freshToken()
 {
     return QStringLiteral("lightning_%1")
@@ -48,11 +44,8 @@ QString freshToken()
 
 #ifdef HAVE_QT_DBUS
 /// One step of the handshake: subscribe to the Request's `Response`, deliver
-/// it once, unsubscribe. A near-twin of ScreenCastPortal.cpp's `PortalStep`
-/// and deliberately NOT shared with it — both are file-local QObjects with
-/// their own metaobject, and lifting one into a header to save thirty lines
-/// would put a third moc'd type into every target that includes it for
-/// nothing. Named differently so the two translation units cannot collide.
+/// it once, unsubscribe. A deliberate near-copy of ScreenCastPortal's
+/// PortalStep (file-local moc types); named differently to avoid collisions.
 class CameraPortalStep : public QObject
 {
     Q_OBJECT
@@ -72,7 +65,7 @@ public:
     }
 
 Q_SIGNALS:
-    /// response: 0 = granted, 1 = the user declined, 2 = ended some other way.
+    /// response: 0 = granted, 1 = user declined, 2 = ended some other way.
     void answered(uint response, const QVariantMap &results);
 
 private Q_SLOTS:
@@ -109,18 +102,14 @@ CameraPortal::~CameraPortal()
 bool CameraPortal::available()
 {
 #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-    // No portal, and nothing to ask one for: the capture element opens the
-    // device itself (ksvideosrc / avfvideosrc) and the OS gates it its own
-    // way. Reported false so the direct route stays in charge, which is the
-    // route those platforms have always used.
+    // No portal: the capture element opens the device itself and the OS gates
+    // access, so the direct route applies.
     return false;
 #elif defined(HAVE_QT_DBUS)
     if (!QDBusConnection::sessionBus().isConnected())
         return false;
-    // Ask for the interface's version. A desktop with no Camera portal
-    // answers with an error, which is the honest "not available" — better
-    // than assuming presence and failing at the moment the user presses the
-    // camera button.
+    // Probe the interface version; a desktop without the Camera portal
+    // answers with an error.
     QDBusMessage probe = QDBusMessage::createMethodCall(
         kService, kPath, "org.freedesktop.DBus.Properties",
         QStringLiteral("Get"));
@@ -148,7 +137,7 @@ bool CameraPortal::cameraPresent()
     if (reply.type() != QDBusMessage::ReplyMessage
         || reply.arguments().isEmpty())
         return false;
-    // The property comes back wrapped in a variant by Properties.Get.
+    // Properties.Get wraps the value in a variant.
     return reply.arguments().constFirst().value<QDBusVariant>()
         .variant().toBool();
 #else
@@ -161,10 +150,8 @@ void CameraPortal::cancel()
     ++m_generation;
     m_busy = false;
     m_requestTimeout.stop();
-    // NOTHING TO CLOSE. Unlike ScreenCast there is no session object here, so
-    // a cancelled request leaves no compositor state behind; the only thing
-    // that outlives it is the fd, and that belongs to whoever received
-    // `ready`.
+    // Nothing to close: the Camera portal has no session. The fd, if any,
+    // belongs to whoever received `ready`.
 }
 
 void CameraPortal::reset()
@@ -175,16 +162,14 @@ void CameraPortal::reset()
 #if !defined(HAVE_QT_DBUS) || defined(Q_OS_WIN) || defined(Q_OS_MACOS)
 void CameraPortal::requestAccess()
 {
-    // Reported, never silently ignored: a caller that asked for the portal
-    // route on a build or a platform that has none must fall back rather than
-    // sit waiting for a signal that cannot arrive.
+    // Report rather than ignore, so the caller falls back instead of waiting.
     Q_EMIT failed(QStringLiteral("no_portal"));
 }
 #else
 void CameraPortal::requestAccess()
 {
     if (m_busy) {
-        // A second request while the dialog is open would raise two.
+        // A second request would raise a second dialog.
         Q_EMIT failed(QStringLiteral("busy"));
         return;
     }
@@ -200,7 +185,7 @@ void CameraPortal::requestAccess()
         return generation != m_generation;
     };
 
-    // ── Step 1: AccessCamera — this is where the portal asks the user ──
+    // Step 1: AccessCamera, where the portal asks the user.
     const QString token = freshToken();
     const auto onAnswer = [this, stale](uint response, const QVariantMap &) {
         if (stale())
@@ -213,10 +198,8 @@ void CameraPortal::requestAccess()
         }
         openRemote();
     };
-    // SUBSCRIBED BEFORE THE CALL, never after its reply. With the permission
-    // already stored there is no dialog, and the portal sends the grant 0.4 ms
-    // behind the reply — gone before a subscription made on the reply could
-    // exist. That kept the camera dark in the published Flathub build; see
+    // Subscribed before the call: with the permission already stored there is
+    // no dialog, and the grant arrives right behind the reply. See
     // PortalRequest.h.
     auto subscription = portal::subscribeBeforeCall<CameraPortalStep>(
         this, QDBusConnection::sessionBus().baseService(), token, onAnswer);
@@ -239,8 +222,8 @@ void CameraPortal::requestAccess()
                     return;
                 }
                 if (reply.isError()) {
-                    // The error text can name the desktop and paths; only a
-                    // category leaves this scope.
+                    // Error text can name the desktop and paths; report a
+                    // category only.
                     portal::dropSubscription(subscription);
                     reset();
                     m_requestTimeout.stop();
@@ -254,12 +237,9 @@ void CameraPortal::requestAccess()
 
 void CameraPortal::openRemote()
 {
-    // OpenPipeWireRemote is the step that actually grants access to pixels.
-    // Without it there is no remote in which a camera node exists for this
-    // process at all — the ScreenCast lane shipped a black share once by
-    // treating the node id as sufficient, and here there is not even a node
-    // id to be misled by. It is a plain method call, not a Request: the reply
-    // carries the fd.
+    // OpenPipeWireRemote grants actual access to pixels; without it there is
+    // no remote containing a camera node for this process. A plain method
+    // call; the reply carries the fd.
     const quint64 generation = m_generation;
     QDBusMessage open = QDBusMessage::createMethodCall(
         kService, kPath, kCamera, QStringLiteral("OpenPipeWireRemote"));
@@ -274,8 +254,7 @@ void CameraPortal::openRemote()
                 if (generation != m_generation)
                     return;
                 if (reply.isError() || !reply.value().isValid()) {
-                    // The D-Bus error NAME only: a portal error message can
-                    // carry a device path.
+                    // Error name only: messages can carry a device path.
                     qCWarning(lcCameraPortal)
                         << "camera OpenPipeWireRemote failed error="
                         << (reply.isError() ? reply.error().name()
@@ -284,9 +263,8 @@ void CameraPortal::openRemote()
                     Q_EMIT failed(QStringLiteral("no_pipewire_remote"));
                     return;
                 }
-                // QDBusUnixFileDescriptor closes its descriptor when the last
-                // copy dies, so hand over a DUP that outlives it. The
-                // receiver owns the result.
+                // QDBusUnixFileDescriptor closes its fd with the last copy, so
+                // hand over a dup; the receiver owns it.
                 const int fd = ::dup(reply.value().fileDescriptor());
                 if (fd < 0) {
                     cancel();

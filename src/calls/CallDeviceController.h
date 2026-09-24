@@ -1,24 +1,14 @@
 // Audio and camera device selection for calls.
 //
-// Enumerates microphones, speakers and cameras through QMediaDevices (the
-// same source VoiceRecorder already uses), exposes them to QML, and hands the
-// chosen device to the media engine as a GStreamer device name.
+// Enumerates devices through QMediaDevices, exposes them to QML, and hands
+// the choice to the media engine. On Linux the QAudioDevice id is the
+// PipeWire/PulseAudio node name, which `pulsesrc device=` accepts directly.
 //
-// On Linux the QAudioDevice id IS the PipeWire/PulseAudio node name — e.g.
-// `alsa_input.usb-Roland_Rubix44-00.analog-surround-40` — which is exactly
-// what `pulsesrc device=` / `pulsesink device=` take. That is why selection
-// can be applied without a translation table.
+// A stored preferred id is kept even while that device is absent: the active
+// device falls back to the system default, and reconnecting restores the
+// choice. `preferredMissing` reports the difference.
 //
-// PERSISTENCE RULE, and the reason it is not the obvious one: the preferred
-// device is stored by ID, but a stored ID that is not currently present is
-// NOT discarded. Unplugging a headset must not silently and permanently
-// rewrite the user's choice to "whatever was default that day" — plugging it
-// back in has to restore it. So the stored value persists, the ACTIVE value
-// falls back to the system default, and `preferredMissing` reports the
-// difference honestly rather than hiding it.
-//
-// Nothing here logs a device id or description: on a shared machine a device
-// list is a small amount of hardware fingerprinting, and it buys nothing.
+// Device ids and descriptions are never logged (hardware fingerprinting).
 #pragma once
 
 #include <QObject>
@@ -39,14 +29,10 @@ class CallDeviceController : public QObject
     Q_PROPERTY(QVariantList microphones READ microphones NOTIFY devicesChanged)
     Q_PROPERTY(QVariantList speakers READ speakers NOTIFY devicesChanged)
     Q_PROPERTY(QVariantList cameras READ cameras NOTIFY devicesChanged)
-    /// True inside a Flatpak, where the sandbox has no /dev/video* and Qt
-    /// can list no camera at all — yet the camera WORKS, through the xdg
-    /// Camera portal, which picks the device itself. Without this the
-    /// Settings page told every Flatpak user "No camera was found." while a
-    /// call could still turn their camera on (reported from Debian 12,
-    /// 2026-09-23; measured on Fedora 44: videoInputs() is empty inside the
-    /// sandbox with /dev/video0-3 present on the host). Flatpak only: the
-    /// Snap's camera plug exposes the real device, so Qt can list it there.
+    /// True inside a Flatpak, where Qt lists no camera (no /dev/video*) yet
+    /// the camera works through the xdg Camera portal, which picks the
+    /// device. Lets Settings say so instead of "No camera was found". Not
+    /// Snap, whose camera plug exposes the real device.
     Q_PROPERTY(bool camerasChosenByDesktop READ camerasChosenByDesktop
                    CONSTANT)
     /// The device actually in use. Falls back to the system default when the
@@ -57,9 +43,8 @@ class CallDeviceController : public QObject
                    NOTIFY selectionChanged)
     Q_PROPERTY(QString activeCameraId READ activeCameraId
                    NOTIFY selectionChanged)
-    /// True when the user picked a device that is not currently connected, so
-    /// the UI can say "your choice is unavailable" instead of pretending the
-    /// fallback was chosen.
+    /// True when the chosen device is not connected, so the UI can say so
+    /// instead of implying the fallback was chosen.
     Q_PROPERTY(bool preferredMicrophoneMissing READ preferredMicrophoneMissing
                    NOTIFY selectionChanged)
     Q_PROPERTY(bool hasMicrophone READ hasMicrophone NOTIFY devicesChanged)
@@ -80,30 +65,24 @@ public:
     QString activeSpeakerId() const;
     QString activeCameraId() const;
     bool preferredMicrophoneMissing() const;
-    /// A machine with no microphone must not crash or refuse to start — it
-    /// joins receive-only, so the UI needs to know.
+    /// Without a microphone the app still joins, receive-only.
     bool hasMicrophone() const;
     bool hasCamera() const;
 
-    /// Empty selects "system default", which is a real choice and is stored
-    /// as such rather than as the resolved id of the day.
+    /// Empty selects "system default", stored as such rather than as the
+    /// currently resolved id.
     Q_INVOKABLE void selectMicrophone(const QString &id);
     Q_INVOKABLE void selectSpeaker(const QString &id);
     Q_INVOKABLE void selectCamera(const QString &id);
 
-    /// GStreamer source/sink descriptions for the active devices. Empty means
-    /// "use the automatic element", so a caller never has to special-case the
-    /// default.
+    /// GStreamer source/sink descriptions for the active devices; empty means
+    /// the automatic element.
     QString microphoneElement() const;
     QString speakerElement() const;
 
-    /// The ACTIVE device, id and human description together.
-    ///
-    /// The description is carried because Qt and GStreamer enumerate devices
-    /// through different subsystems and their ids are not one namespace: an
-    /// engine has to bridge them, and the driver-supplied name is what both
-    /// sides agree on when the ids do not (CaptureDeviceSelection.h). Empty
-    /// id means "system default"; the description is then meaningless.
+    /// The active device's id and description. Qt and GStreamer ids differ,
+    /// and the driver-supplied name is what both agree on
+    /// (CaptureDeviceSelection.h). An empty id means "system default".
     struct Selection {
         QString id;
         QString description;
@@ -124,17 +103,14 @@ private Q_SLOTS:
     void onDeviceListChanged();
 
 private:
-    /// Create the QMediaDevices instance and prime the cached actives on
-    /// FIRST USE. Kept lazy because touching Qt Multimedia at all initialises
-    /// its backend — real startup cost plus SPA log noise on PipeWire — and
-    /// most sessions never open a call.
+    /// Create QMediaDevices and prime the cached actives on first use; lazy
+    /// because touching Qt Multimedia initialises its backend.
     void ensureBackend() const;
     QString resolveActive(const QString &preferred, int kind) const;
 
     mutable QMediaDevices *m_devices = nullptr;
     QPointer<SettingsManager> m_settings;
-    // Cached so a hotplug can report what actually changed rather than
-    // making every consumer re-resolve.
+    // Cached so a hotplug can report what actually changed.
     QString m_lastActiveMic;
     QString m_lastActiveSpeaker;
     QString m_lastActiveCamera;

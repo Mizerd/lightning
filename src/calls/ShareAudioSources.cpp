@@ -15,10 +15,8 @@
 namespace {
 Q_LOGGING_CATEGORY(lcShareAudio, "lightning.calls.shareaudio")
 
-/// The one caps the mixer's inputs agree on. Stereo 48 kHz because that is
-/// what the share-audio encoder wants anyway (`opusenc` at 128 kbit/s with
-/// `audio-type=generic`), so every branch resamples once and the mixer sums
-/// without converting again.
+/// The caps all mixer inputs agree on: stereo 48 kHz, what the share-audio
+/// encoder wants, so each branch resamples once.
 constexpr const char *kMixCaps = "audio/x-raw,rate=48000,channels=2";
 
 QString propString(const QVariantMap &props, const char *key)
@@ -34,14 +32,10 @@ QString mixerElementName()
     return QStringLiteral("shareaudiomix");
 }
 
-/// Digits, and nothing else. See streamFromProperties(): this value is
-/// interpolated into a `gst_parse_bin_from_description` string, where a space
-/// or a `!` would not be a bad target but a different pipeline.
-///
-/// CHECKED HERE TOO, not only where a Stream is read from PipeWire. These
-/// builders are public and take a caller-built Stream; relying on every
-/// caller having gone through the reader is call-site discipline, and the
-/// point of a validation is that it does not depend on that.
+/// Digits only: the serial is interpolated into a
+/// `gst_parse_bin_from_description` string, where a space or `!` would change
+/// the pipeline. Checked here as well as in the reader because these builders
+/// are public.
 static bool serialIsTargetable(const QString &serial)
 {
     static const QRegularExpression digits(QStringLiteral("\\A[0-9]{1,19}\\z"));
@@ -52,11 +46,7 @@ Stream streamFromProperties(const QVariantMap &props)
 {
     Stream s;
     const QString serial = propString(props, "object.serial");
-    // DIGITS ONLY, and refused otherwise. This value is interpolated into a
-    // `gst_parse_bin_from_description` string, where a stray space or `!`
-    // would not be a bad target but a different pipeline. It is a local
-    // daemon's own counter and has never been anything but digits; the check
-    // costs nothing and removes the question.
+    // Digits only; see serialIsTargetable().
     if (serialIsTargetable(serial))
         s.serial = serial;
     s.appName = propString(props, "application.name");
@@ -70,40 +60,23 @@ Stream streamFromProperties(const QVariantMap &props)
 bool streamIsForeign(const QVariantMap &props, qint64 ourPid,
                      const QStringList &ourNames)
 {
-    // EXACTLY `Stream/Output/Audio`. The `/Internal` suffix is PipeWire's own
-    // plumbing — a split or converted node the session manager created — and
-    // capturing it would double-count audio we already take from the
-    // application that feeds it.
+    // Exactly `Stream/Output/Audio`: `/Internal` nodes are PipeWire's own
+    // plumbing and would double-count audio.
     if (propString(props, "media.class") != QLatin1String("Stream/Output/Audio"))
         return false;
 
     const Stream s = streamFromProperties(props);
-    // Nothing to target. `pipewiresrc` resolves a stream node by serial and
-    // by nothing else (measured — see the header), so a node without one is
-    // not capturable, and pretending otherwise yields a branch that runs and
-    // carries digital silence.
+    // No serial, nothing to target: pipewiresrc resolves stream nodes only by
+    // serial, and anything else captures silence.
     if (s.serial.isEmpty())
         return false;
 
-    // OURSELVES. This exclusion is the whole point of the file: Lightning's
-    // playback of the other participants is what the far end was hearing
-    // come back.
+    // Exclude ourselves: our playback of the other participants is the echo.
     if (ourPid > 0 && s.pid == ourPid)
         return false;
-    // The pid is the reliable half and the name is the belt: a node created
-    // through a path that does not fill `application.process.id` still
-    // carries a name, and shipping the echo again because one property was
-    // absent is not a trade worth making.
-    //
-    // IT TAKES EVERY SPELLING BECAUSE ONE WAS THE WRONG ONE. This used to
-    // compare against QCoreApplication::applicationName() alone, and the
-    // comment beside it admitted the value had never been captured from a
-    // running client. It has now: a live share on 2026-09-07 logged its own
-    // sources as `app= "lightning-matrix"`, the BINARY name, while
-    // applicationName() is "matrix-client" (src/main.cpp). So the belt could
-    // not match the one process it existed to exclude, and had the pid ever
-    // been missing the echo would have come straight back with a check in
-    // place that looked like it was working.
+    // The pid is the reliable check and the name a backup for nodes without
+    // `application.process.id`. Every spelling is compared because PipeWire
+    // uses the binary name ("lightning-matrix"), not applicationName().
     for (const QString &name : ourNames) {
         if (name.isEmpty())
             continue;
@@ -112,10 +85,9 @@ bool streamIsForeign(const QVariantMap &props, qint64 ourPid,
             return false;
     }
 
-    // Virtual plumbing, not an application. `pw-loopback`, `filter-chain` and
-    // friends mark both of their nodes with `node.link-group`; their playback
-    // side carries audio some real application already produced, so taking it
-    // as well would send the same sound twice.
+    // Virtual plumbing (`pw-loopback`, `filter-chain`) sets
+    // `node.link-group`; its playback side repeats audio an application
+    // already produced.
     if (!propString(props, "node.link-group").isEmpty())
         return false;
 
@@ -127,28 +99,16 @@ QString applicationBranchDescription(const Stream &stream, int index)
     if (!serialIsTargetable(stream.serial))
         return QString();
     return QStringLiteral(
-               // `min-buffers=1` is PINNED, never inherited: the default moved
-               // from 8 to 1 between gst-plugin-pipewire 1.4 and 1.6, and 8
-               // cannot negotiate against a source offering fewer (§16).
-               // `on-disconnect=eos` is what retires a branch when its
-               // application quits — the mixer then treats that pad as done
-               // instead of waiting on a source that will never speak again.
+               // `min-buffers=1` is pinned: the default changed from 8 to 1
+               // between gst-plugin-pipewire 1.4 and 1.6, and 8 fails to
+               // negotiate with sources offering fewer. `on-disconnect=eos`
+               // retires the branch when its application quits.
                "pipewiresrc name=shareapp%1 target-object=%2 min-buffers=1 "
                "do-timestamp=true on-disconnect=eos "
                "! queue max-size-time=200000000 leaky=downstream "
-               // AN EXPLICIT `capsfilter`, NOT A BARE CAPS STRING, and that
-               // is not a matter of taste. A description ENDING in
-               // `! audio/x-raw,...` parses only when something follows it —
-               // mixedSourceDescription() always appends `! sharemixer.`, so
-               // it worked there and hid this. The dynamic path in
-               // SfuMediaEngine::rescanShareAudioSources() hands this same
-               // string to gst_parse_bin_from_description() with nothing
-               // after it, and GStreamer then reads the caps as an ELEMENT
-               // NAME: observed live on 2026-09-07 as
-               // `could not build a branch for a new application: no element
-               // "audio"`, once for every application that began playing
-               // during a share. The initial set worked, so a share only ever
-               // carried what happened to be playing when it started.
+               // An explicit capsfilter, not bare caps: with nothing after
+               // it (as in rescanShareAudioSources()), gst_parse reads trailing
+               // caps as an element name ("no element \"audio\"").
                "! audioconvert ! audioresample ! capsfilter caps=\"%3\"")
         .arg(QString::number(index), stream.serial,
              QString::fromLatin1(kMixCaps));
@@ -158,12 +118,9 @@ QString mixedSourceDescription(const QList<Stream> &streams)
 {
     QStringList chains;
     chains << QStringLiteral("audiomixer name=%1").arg(mixerElementName());
-    // THE SILENCE FLOOR, and it is not decoration. `audiomixer` is an
-    // aggregator: with no sink pad that keeps producing, a share started
-    // before anything plays — or one whose last application has gone away —
-    // hands the encoder nothing, and a published track that carries no
-    // samples is a worse outcome than the echo this replaces. Silence sums to
-    // nothing, so it costs the far end exactly zero.
+    // Silence floor: the aggregator needs a source that keeps producing, or a
+    // share with nothing playing hands the encoder nothing. Silence adds
+    // nothing to the mix.
     chains << QStringLiteral("audiotestsrc is-live=true wave=silence "
                              "! %1 ! %2.")
                   .arg(QString::fromLatin1(kMixCaps), mixerElementName());
@@ -175,59 +132,35 @@ QString mixedSourceDescription(const QList<Stream> &streams)
         chains << QStringLiteral("%1 ! %2.").arg(branch, mixerElementName());
         ++index;
     }
-    // The mixer's own output goes LAST so the caller's `! queue ! …` continues
-    // this chain and not one of the sources above it. gst_parse takes the
-    // last-written chain as the current one.
+    // The mixer's output goes last so the caller's chain continues from it;
+    // gst_parse treats the last-written chain as current.
     chains << QStringLiteral("%1.").arg(mixerElementName());
     return chains.join(QLatin1Char('\n'));
 }
 
 QString encodedTrackDescription(const QString &sourceDescription, quint32 ssrc)
 {
-    // DELIBERATELY NOT THE MICROPHONE CHAIN, in three ways.
+    // Not the microphone chain: no `webrtcdsp` (AGC and noise suppression
+    // damage music), stereo rather than mono, and music-grade Opus
+    // (`audio-type=generic`, 128 kbit/s).
     //
-    //  * NO `webrtcdsp`. Its gain control and noise suppression exist to make
-    //    a voice intelligible; run over music or game audio they pump the
-    //    level and chew the quiet parts. The mic wants them and this does not.
-    //  * STEREO. The mic path pins channels=1 on purpose — voice is mono and
-    //    a Windows mic commonly reports two channels with signal in one. A
-    //    desktop mix is genuinely stereo and downmixing it would be a defect,
-    //    so this pins 2 rather than leaving the device to decide.
-    //  * MUSIC-GRADE OPUS. `audio-type=generic` and 128 kbit/s: opusenc's
-    //    default is voice-tuned at 64 kbit/s mono, which is audibly wrong on
-    //    a music bed.
-    //
-    // THE SOURCE IS APPENDED TO, NEVER ASSIGNED INTO. Nothing may follow
-    // `%1` but a link: the per-application description ends in the mixer's
-    // pad reference and a reference takes no assignments. The capture
-    // element's `name=sharesrc` therefore lives in the source descriptions
-    // themselves.
+    // Nothing may follow `%1` but a link: the per-application description
+    // ends in a pad reference, which accepts no assignments.
     return QStringLiteral(
-               // BOUNDED AND LEAKY, like every other live queue. A default
-               // `queue` is max-size-time=1s with leaky=no, so one moment of
-               // the encoder falling behind becomes permanent latency for the
-               // rest of the call. Its sibling at the top of this file was
-               // bounded and this one was not.
+               // Bounded and leaky, like every live queue: a default queue
+               // turns one encoder hiccup into permanent latency.
                "%1 ! queue max-size-buffers=0 max-size-bytes=0 "
                "max-size-time=100000000 leaky=downstream "
                "! audioconvert ! audioresample "
                "! audio/x-raw,channels=2,rate=48000 "
-               // Its own valve, so that muting the share's audio can never
-               // touch the microphone — they are two tracks and the user
-               // thinks of them as two things. NOT WIRED UP: nothing in the
-               // tree looks `sharevalve` up (the microphone's `micvalve` IS
-               // driven), so this is the seam for a control that does not
-               // exist yet, not a description of one that does. Pre-existing;
-               // noted here because moving the comment verbatim would restate
-               // a capability as shipped.
+               // Its own valve, so muting share audio can never touch the
+               // microphone. Not yet driven by any control.
                "! valve name=sharevalve drop=false "
                "! opusenc name=shareaudioenc audio-type=generic "
                "bitrate=128000 "
                "! rtpopuspay pt=111 ssrc=%2 "
-               // Same reasoning as the microphone bin: the caps webrtcbin
-               // READS to build the m= section, so the ssrc has to be stated
-               // or the offer carries no a=ssrc and the SFU cannot attribute
-               // the RTP to a transceiver.
+               // The ssrc must be in the caps, as for the microphone bin, or
+               // the offer has no a=ssrc and the SFU cannot attribute the RTP.
                "! capsfilter caps=\"application/x-rtp,media=audio,"
                "encoding-name=OPUS,payload=111,clock-rate=(int)48000,"
                "encoding-params=(string)2,ssrc=(uint)%2\"")
@@ -241,63 +174,29 @@ SourceMonitor::~SourceMonitor()
 
 bool perApplicationCaptureAvailable()
 {
-    // Cached, because the UI asks from a binding and the answer cannot change
-    // without the process restarting: it is a question about which plugins
-    // this build loaded and whether a PipeWire daemon is reachable.
-    //
-    // AND BOUNDED, because this runs on the GUI THREAD AT CALL JOIN.
-    // `SourceMonitor::start()` ends in `gst_device_monitor_start()`, which is
-    // synchronous and has no timeout: each provider decides for itself when
-    // it has an answer, and this monitor deliberately installs NO FILTER, so
-    // EVERY provider on the machine starts — the PulseAudio one included,
-    // which connects to the sound server and then waits on its own mainloop
-    // for the initial device list. `SfuCallController::shareAudioSupported()`
-    // and `shareAudioExcludesOwnPlayback()` are CONSTANT properties read by
-    // the call header's share menu the moment `groupCall.active` flips true.
-    //
-    // This call site predates the 0.9.4 device-preference work and so does
-    // NOT explain GitHub issue #12's version boundary (v0.9.3 already has it,
-    // unfiltered) — but it is the same hazard in the same path, and the
-    // bound in SfuMediaEngine's `monitorCandidates` would have left it as the
-    // remaining half. Deliberately a SECOND small implementation rather than
-    // a shared helper: that one needs a per-klass latch across many calls,
-    // this one is a single answer computed once, and a template shared
-    // between two translation units to save fifteen lines would be worth less
-    // than the two being readable on their own.
-    //
-    // Giving up answers FALSE, which is the existing "no per-application
-    // capture" state: the share falls back to the output monitor, carries the
-    // echo, and the picker already says so. A blocked probe cannot be
-    // cancelled — GStreamer offers no such call — so the worker is abandoned,
-    // and because the answer is cached it is abandoned at most once.
+    // Cached (the answer depends only on loaded plugins and the PipeWire
+    // daemon) and bounded, because it runs on the GUI thread at call join:
+    // SourceMonitor::start() ends in gst_device_monitor_start(), which is
+    // synchronous and unbounded, and this unfiltered monitor starts every
+    // provider, including PulseAudio's. Timing out answers false, the
+    // existing "no per-application capture" state. A blocked probe cannot be
+    // cancelled, so the worker is abandoned, at most once.
 #ifndef HAVE_LIGHTNING_WEBRTC
-    // No media engine, so `SourceMonitor::start()` is the stub below that
-    // answers false and GstBootstrap is not even compiled in. Answered here
-    // rather than by spawning a worker to be told the same thing.
+    // No media engine: SourceMonitor::start() is the stub that returns false.
     return false;
 #else
     static const bool available = [] {
-        // INITIALISED HERE, ON THE CALLER'S THREAD, and this line is the
-        // difference between a bound and a deadlock. `SourceMonitor::start()`
-        // opens with `ensureInitialised()`, which is a `std::call_once`: if
-        // the ABANDONED worker were the process's first caller and blocked
-        // inside `gst_init_check` — a plugin-registry scan, exactly the kind
-        // of thing that hangs in a sandbox — then every later
-        // `ensureInitialised()` on any thread would block on that once_flag
-        // for ever. The very next thing this function's caller does is
-        // `shareAudioSourceDescription()`, which calls it. The bound would
-        // have been defeated by the call it was added to bound. Its sibling
-        // in SfuMediaEngine hoists the same line for the same reason.
+        // Initialise on the caller's thread: ensureInitialised() is a
+        // call_once, and if an abandoned worker were the first caller and
+        // hung inside gst_init_check, every later caller would block on the
+        // once_flag forever.
         if (!lightning::gst::ensureInitialised())
             return false;
         auto slot = std::make_shared<std::promise<bool>>();
         auto answer = slot->get_future();
         std::thread([slot] {
-            // set_value INSIDE the try: an exception escaping a detached
-            // thread's function object is a std::terminate, and a broken
-            // promise rethrows on the GUI thread at get(). Neither can
-            // actually happen for a promise<bool>, and neither is worth
-            // leaving to that argument.
+        // set_value inside the try: an exception escaping a detached thread
+        // terminates, and a broken promise rethrows on the GUI thread.
             try {
                 SourceMonitor probe;
                 const bool ok = probe.start();
@@ -326,13 +225,8 @@ bool perApplicationCaptureAvailable()
 #ifdef HAVE_LIGHTNING_WEBRTC
 
 namespace {
-/// Does `pipewiresrc` carry the property the retirement path depends on?
-///
-/// Same discipline as the loopback-element probe in SfuMediaEngine: the
-/// element AND the property, because which plugin version a package ships is
-/// a packaging fact this code cannot see, and a description naming a property
-/// that does not exist fails to PARSE — taking the whole share down rather
-/// than degrading.
+/// Whether `pipewiresrc` has the `on-disconnect` property the retirement path
+/// needs. Checked because naming a missing property fails the whole parse.
 bool pipewireSrcCanRetireItself()
 {
     GstElementFactory *factory = gst_element_factory_find("pipewiresrc");
@@ -371,12 +265,9 @@ QVariantMap propertiesOf(GstDevice *device)
         const GValue *value = gst_structure_get_value(props, name);
         if (!value)
             continue;
-        // STRINGS ARE READ AS STRINGS. `gst_value_serialize()` produces the
-        // GStreamer LITERAL, which quotes and backslash-escapes anything
-        // containing a space — so `application.name` of `Google Chrome` came
-        // back as `"Google Chrome"`, quotes included. That is cosmetic in a
-        // log line and NOT cosmetic in the name comparison that excludes our
-        // own playback, which compares against an unquoted application name.
+        // Read strings as strings: gst_value_serialize() quotes values with
+        // spaces ("\"Google Chrome\""), which would break the name comparison
+        // that excludes our own playback.
         if (G_VALUE_HOLDS_STRING(value)) {
             const gchar *text = g_value_get_string(value);
             out.insert(QString::fromUtf8(name),
@@ -398,10 +289,8 @@ bool SourceMonitor::start()
 {
     if (m_monitor)
         return true;
-    // Ask GStreamer only after it exists. `gst_element_factory_find` answers a
-    // confident "no such element" when the registry has never been loaded,
-    // which would make this report "unsupported" on a machine that supports
-    // it perfectly well.
+    // Initialise first: before the registry loads, factory lookups report
+    // "no such element".
     lightning::gst::ensureInitialised();
 
     if (!gst_device_provider_factory_find("pipewiredeviceprovider")) {
@@ -422,21 +311,11 @@ bool SourceMonitor::start()
     }
 
     GstDeviceMonitor *monitor = gst_device_monitor_new();
-    // NO FILTER, AND THAT IS NOT LAZINESS. `gst_device_monitor_add_filter`
-    // matches a PROVIDER by the classes it advertises, not a device by its
-    // `media.class`: the PipeWire provider advertises Audio/Source,
-    // Audio/Sink and Video/Source, so a filter of "Stream/Output/Audio"
-    // matches no provider at all and `gst_device_monitor_start()` then
-    // returns FALSE. Measured on a live PipeWire 1.6.6 desktop with the
-    // provider, `audiomixer` and `on-disconnect` all present: the filtered
-    // monitor refused to start and every share silently took the old
-    // sink-monitor path — the feature was inert on the machine it was
-    // written for, and nothing said so.
-    //
-    // A caps filter would be wrong for a second reason: a stream node's caps
-    // are whatever its application negotiated, so filtering on them would
-    // drop the ones we most want. The selection is `streamIsForeign()`,
-    // which reads `media.class` off each device.
+    // No filter: gst_device_monitor_add_filter matches providers by their
+    // advertised classes, and the PipeWire provider does not advertise
+    // "Stream/Output/Audio", so such a filter makes start() fail. A caps
+    // filter would drop streams by their negotiated caps. streamIsForeign()
+    // selects by `media.class` instead.
     gst_device_monitor_add_filter(monitor, nullptr, nullptr);
     if (!gst_device_monitor_start(monitor)) {
         qCInfo(lcShareAudio) << "per-application share audio unavailable: the "
@@ -444,11 +323,9 @@ bool SourceMonitor::start()
         gst_object_unref(monitor);
         return false;
     }
-    // FLUSH THE BUS. `gst_device_monitor_start()` posts DEVICE_ADDED and
-    // DEVICE_REMOVED for every play and pause on the desktop, each message
-    // holding a ref on a GstDevice and its caps. Nothing here reads the bus —
-    // `streams()` asks the monitor for its current list — so without this a
-    // long share on a busy machine accumulates messages nobody will ever pop.
+    // Flush the bus: the monitor posts DEVICE_ADDED/REMOVED for every play and
+    // pause, each holding device refs, and nothing reads them (streams()
+    // queries the current list).
     if (GstBus *bus = gst_device_monitor_get_bus(monitor)) {
         gst_bus_set_flushing(bus, TRUE);
         gst_object_unref(bus);

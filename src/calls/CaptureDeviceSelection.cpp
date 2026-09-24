@@ -5,49 +5,35 @@
 namespace lightning::calls {
 namespace {
 
-// The property each capture element uses to select a device, and the device
-// properties that identify one. Every entry is the element's own documented
-// spelling: they disagree with each other on purpose (`device` vs
-// `device-path` vs `target-object`), which is precisely why a caller must not
-// guess.
+// Per element: the property that selects a device and the device properties
+// that identify one. Each uses the element's own documented spelling, which
+// differs between elements, so callers must not guess.
 struct ElementProfile {
     const char *element;
     const char *property;
-    // Identity keys, MOST SPECIFIC FIRST. A device may publish several; the
-    // first that matches wins, and the value that is set is the value of the
-    // key the property expects, not the key that matched.
+    // Identity keys, most specific first. The value set is the one under
+    // `valueKey`, not the key that matched.
     const char *valueKey;         // the key holding what `property` wants
     const char *identityKeys[4];  // keys whose value may equal the Qt id
-    /// The value to set IS the Qt id, rather than a key off the candidate.
-    ///
-    /// True for the PulseAudio elements and false for every other, because
-    /// pipewire-pulse names its devices exactly as QMediaDevices reports
-    /// them — so `device=` wants the id we already hold. Without this the
-    /// pulse entries could never bind on a PipeWire desktop at all: the
-    /// device monitor there enumerates through `pipewiredeviceprovider`,
-    /// whose candidates carry `node.name` and `object.serial` and NO
-    /// `device.name`, so both the identity match and the value lookup missed
-    /// and resolution fell through to `pipewiresrc`. Measured 2026-09-16:
-    /// putting pulsesrc first changed nothing until this was fixed too.
+    /// The value to set is the Qt id itself. True for the PulseAudio
+    /// elements: pipewire-pulse names devices exactly as QMediaDevices does,
+    /// while the PipeWire device provider's candidates carry no `device.name`,
+    /// so a candidate-derived value would never bind.
     bool valueIsQtId;
 };
 
 constexpr ElementProfile kProfiles[] = {
-    // Linux video. Qt's V4L2 camera id IS the node path, so identity usually
-    // matches on the first key.
+    // Linux video. Qt's V4L2 camera id is the node path.
     {"v4l2src", "device", "device.path",
      {"device.path", "api.v4l2.path", "object.path", nullptr}, false},
-    // Linux audio through PulseAudio (or pipewire-pulse).
-    // `node.name` is listed because that is the key a PipeWire desktop's
-    // monitor actually publishes, and pipewire-pulse exposes the same string
-    // as the Pulse device name.
+    // Linux audio through PulseAudio or pipewire-pulse. `node.name` is what a
+    // PipeWire desktop's monitor publishes, matching the Pulse device name.
     {"pulsesrc", "device", "device.name",
      {"device.name", "node.name", nullptr, nullptr}, true},
     {"pulsesink", "device", "device.name",
      {"device.name", "node.name", nullptr, nullptr}, true},
-    // Linux audio and video through PipeWire directly. The handle is a
-    // numeric node id that only this element understands, so a Qt id can
-    // never match it by identity -- the display name is the bridge.
+    // Linux through PipeWire directly. The handle is a numeric node id that no
+    // Qt id matches, so the display name is the bridge.
     {"pipewiresrc", "target-object", "object.serial",
      {"object.serial", "object.id", "node.name", nullptr}, false},
     {"pipewiresink", "target-object", "object.serial",
@@ -59,10 +45,9 @@ constexpr ElementProfile kProfiles[] = {
      {"device.strid", "device.id", nullptr, nullptr}, false},
     {"wasapisink", "device", "device.strid",
      {"device.strid", "device.id", nullptr, nullptr}, false},
-    // macOS. `device-index` is an integer the platform assigns, and Qt's id
-    // is an AVFoundation unique id string, so identity cannot match: the
-    // display name is the only bridge, and the value comes from the device's
-    // own index property.
+    // macOS. `device-index` is platform-assigned and Qt's id is an
+    // AVFoundation unique id, so the display name bridges them and the value
+    // comes from the device's index property.
     {"avfvideosrc", "device-index", "device.index",
      {"device.unique-id", "device.index", nullptr, nullptr}, false},
     {"osxaudiosrc", "device", "device.id",
@@ -80,9 +65,8 @@ const ElementProfile *profileFor(const QString &element)
     return nullptr;
 }
 
-// A value that reaches g_object_set is not parsed by anything, so quoting is
-// not the hazard -- a control character or an absurd length is, because it
-// means we matched garbage and are about to hand it to a driver.
+// Values go to g_object_set, not a parser, so quoting is not the hazard; a
+// control character or absurd length means we matched garbage.
 bool valueIsSane(const QString &value)
 {
     if (value.isEmpty() || value.size() > 512)
@@ -99,18 +83,15 @@ DeviceBinding bindingFrom(const ElementProfile &profile,
                           const QString &reason,
                           const QString &qtDeviceId)
 {
-    // See ElementProfile::valueIsQtId: for the pulse elements the id we were
-    // handed IS the value the property wants, and the candidate need not
-    // publish it at all.
+    // See ElementProfile::valueIsQtId.
     const QString value =
         profile.valueIsQtId
             ? qtDeviceId
             : candidate.properties.value(QString::fromLatin1(profile.valueKey));
     if (!valueIsSane(value))
         return {};
-    // `audio.channels` is what the monitor says the DEVICE captures, not
-    // what the pipeline will ask for. A device that does not publish it
-    // leaves 0, which every caller reads as "mix it the ordinary way".
+    // `audio.channels` is what the device captures, per the monitor; 0 when
+    // unpublished, meaning "mix normally".
     bool ok = false;
     const int channels =
         candidate.properties.value(QStringLiteral("audio.channels")).toInt(&ok);
@@ -122,16 +103,13 @@ DeviceBinding bindingFrom(const ElementProfile &profile,
 
 QString captureMixMatrix(int channels)
 {
-    // Two channels or fewer is a microphone; the existing downmix is right
-    // for it and is not touched. See the header for the measurement.
+    // Two channels or fewer is a microphone; leave the downmix alone.
     if (channels <= 2 || channels > 64)
         return QString();
     QStringList row;
     row.reserve(channels);
-    // Unity on the first input, silence on the rest: one output row, one
-    // coefficient per input. Written with an explicit `(float)` per entry
-    // because gst_parse infers int from a bare 1, and an int matrix is not
-    // the property's type.
+    // Unity on the first input, zero on the rest. Explicit `(float)` entries:
+    // gst_parse infers int from a bare 1.
     row << QStringLiteral("(float)1.0");
     for (int i = 1; i < channels; ++i)
         row << QStringLiteral("(float)0.0");
@@ -143,9 +121,8 @@ QString captureChannelCaps(int channels)
 {
     if (channels <= 2 || channels > 64)
         return QString();
-    // channel-mask=0 says UNPOSITIONED explicitly. These devices publish no
-    // mask at all, and audioconvert refuses more than two channels whose
-    // positions it cannot name.
+    // channel-mask=0 declares the channels unpositioned; audioconvert refuses
+    // more than two channels it cannot position.
     return QStringLiteral(
                "! audio/x-raw,channels=%1,channel-mask=(bitmask)0x0 ")
         .arg(channels);
@@ -175,16 +152,14 @@ DeviceBinding resolveDeviceBinding(CaptureKind kind, const QString &element,
                                    const QList<GstDeviceCandidate> &candidates)
 {
     Q_UNUSED(kind);
-    // "System default" is a real choice and it is the one that follows the
-    // platform as it changes. Never pin it to today's answer.
+    // "System default" follows the platform; never pin it.
     if (qtDeviceId.isEmpty())
         return {};
     const ElementProfile *profile = profileFor(element);
     if (!profile)
         return {};
 
-    // 1. IDENTITY. An exact match on a key both subsystems publish is proof
-    //    they mean the same device.
+    // 1. Identity: an exact match on a key both subsystems publish.
     for (const GstDeviceCandidate &candidate : candidates) {
         for (const char *key : profile->identityKeys) {
             if (!key)
@@ -201,10 +176,9 @@ DeviceBinding resolveDeviceBinding(CaptureKind kind, const QString &element,
         }
     }
 
-    // 2. DISPLAY NAME, which is where a Pulse-shaped Qt id meets a PipeWire
-    //    node. AMBIGUITY IS REFUSED: two devices with one name means we
-    //    cannot tell which the user picked, and opening the wrong one is
-    //    worse than opening the default.
+    // 2. Display name, where a Pulse-shaped Qt id meets a PipeWire node.
+    //    Ambiguity is refused: opening the wrong device is worse than the
+    //    default.
     if (!qtDescription.isEmpty()) {
         const QString wanted = qtDescription.trimmed();
         const GstDeviceCandidate *match = nullptr;
@@ -224,9 +198,8 @@ DeviceBinding resolveDeviceBinding(CaptureKind kind, const QString &element,
         }
     }
 
-    // 3. SHAPE, and ONLY with no candidates at all -- i.e. the monitor could
-    //    not answer. With candidates present, "not found" is an answer: the
-    //    device is gone, and the default is the right outcome.
+    // 3. Shape, only when the monitor returned no candidates at all. With
+    //    candidates, "not found" means the device is gone.
     if (!candidates.isEmpty())
         return {};
     if (element == QLatin1String("v4l2src")
@@ -248,10 +221,8 @@ ElementChoice chooseCaptureElement(CaptureKind kind,
     if (qtDeviceId.isEmpty())
         return {};
     for (const QString &element : preferenceOrder) {
-        // An element the build does not carry cannot be named in a
-        // description: `gst_parse_bin_from_description` fails to PARSE, which
-        // would take the microphone out entirely rather than leaving it on
-        // the default device.
+        // A missing element cannot be named in a description: the parse would
+        // fail and the microphone would be lost entirely.
         if (!availableElements.contains(element))
             continue;
         const DeviceBinding binding = resolveDeviceBinding(

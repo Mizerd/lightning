@@ -1,42 +1,16 @@
-// The call's SCREEN SHARES, one row each.
+// The call's screen shares, one row each.
 //
-// WHY A SHARE IS A ROW AND NOT A BOOLEAN ON A PERSON.
+// A share is its own object, not a flag on a person: it has an owner, a
+// routing key and a lifetime shorter than the owner's, and several people can
+// share at once. N sharers are N rows; the SFU already gives each screen-share
+// track its own sid, and SfuVideoRouter routes per track key.
 //
-// The stage used to ask "who is sharing?" and answer with the FIRST
-// participant whose `screenSharing` flag was set. Everything downstream —
-// which surface goes on the spotlight, what the strip excludes, whether a
-// "watch this" affordance exists — hung off that single person. Two people
-// sharing at once was therefore not merely unrendered, it was
-// unrepresentable: there was no second thing to name, click, or route.
+// The id is the track sid (from SfuCallController::trackKeyForSource), which
+// matters for dismissal: a restarted share is a new track with a new sid, so
+// a dismissal never outlives its share and never suppresses a restart.
 //
-// A share is its own object. It has an owner, a routing key, and a lifetime
-// that is NOT the owner's lifetime — a person can stop and restart a share
-// several times inside one call. Modelling it as a row makes N simultaneous
-// sharers N rows and needs no change on the wire at all: the SFU already
-// gives every screen-share track its own sid, and SfuVideoRouter already
-// routes per track key.
-//
-// THE ID IS THE TRACK SID, AND THAT IS LOAD-BEARING FOR DISMISSAL.
-//
-// `SfuCallController::trackKeyForSource(identity, "screen_share")` returns
-// the TRACK's sid (not the participant sid and not the `mid` — a mid belongs
-// to the publisher's connection and means nothing on ours). A share that
-// stops and starts again is a NEW published track and therefore a NEW sid.
-//
-// That is exactly the property the stage's "dismiss this share from the
-// spotlight" state needs. Dismissal is keyed by share id, so:
-//
-//   * dismissing a share cannot outlive it, and
-//   * a sharer who stops and restarts is offered again rather than being
-//     silently suppressed because the user waved away the previous one.
-//
-// Inheriting dismissal across a restart would be the worse failure: the user
-// would have no way to know why nothing appeared.
-//
-// THE LOCAL SHARE gets an id of its own (`local:<n>`), because our own share
-// exists the moment the portal grants it and the SFU may not have announced
-// a sid for it yet. The counter makes each local share a distinct id for the
-// same reason a remote restart gets a new sid.
+// The local share gets its own id (`local:<n>`), since it exists before the
+// SFU announces a sid; the counter gives each local share a distinct id.
 #pragma once
 
 #include <QAbstractListModel>
@@ -50,10 +24,9 @@ struct CallShareRow {
     QString shareId;
     QString ownerIdentity;
     QString ownerDisplayName;
-    /// What a VideoOutput attaches to. EMPTY is legitimate and transient for
-    /// a local share the SFU has not yet stated a track for — the row still
-    /// exists, and QML routes a local share through the local capture sink
-    /// rather than through this key.
+    /// What a VideoOutput attaches to. May be empty for a local share the SFU
+    /// has not named yet; QML routes local shares through the local capture
+    /// sink.
     QString trackKey;
     bool local = false;
 };
@@ -82,33 +55,24 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    /// Reconcile against the live set of shares. Diffed exactly like the
-    /// participant model: removals, then inserts/moves, then per-role
-    /// dataChanged. Never a reset — a share tile owns a VideoOutput too.
-    ///
-    /// ORDER IS ARRIVAL ORDER, and the newest share is therefore the LAST
-    /// row. `CallStageState` promotes the newest non-dismissed share, so
-    /// this ordering is part of that contract.
+    /// Reconcile against the live shares by diffing, like the participant
+    /// model; never a reset (share tiles own VideoOutputs). Rows keep arrival
+    /// order, so the newest share is last, which CallStageState relies on.
     void applyShares(const QVector<CallShareRow> &desired);
 
     void clear();
 
     Q_INVOKABLE int indexOfShare(const QString &shareId) const;
-    /// Who is publishing this share. Needed to find the share's own audio
-    /// track, which belongs to that participant and is not the share id.
+    /// Who publishes this share; needed to find its audio track.
     Q_INVOKABLE QString ownerIdentityFor(const QString &shareId) const;
     Q_INVOKABLE QVariantMap get(int row) const;
-    /// Every live share id, oldest first. Used by CallStageState to prune
-    /// dismissals of shares that have ended and to answer "is anything
-    /// still reachable?".
+    /// Every live share id, oldest first.
     QStringList shareIds() const;
 
 Q_SIGNALS:
     void countChanged();
-    /// A share that was not here a moment ago. CallStageState listens so a
-    /// NEW share can re-arm the automatic spotlight even after the user
-    /// pressed "back to grid" — the old code latched a layout mode instead,
-    /// and nothing ever wrote it back.
+    /// A new share. CallStageState uses it to re-arm the automatic spotlight
+    /// even after "back to grid".
     void shareAppeared(const QString &shareId);
     void shareEnded(const QString &shareId);
 

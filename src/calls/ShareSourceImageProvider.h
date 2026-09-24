@@ -1,29 +1,22 @@
 // Preview tiles for the screen-share picker, under
 // image://lightning-sharesource/<id>.
 //
-// WHY A PROVIDER AND NOT A FILE. These images do not exist until they are
-// asked for: each one is a live grab of a window or a display taken at the
-// moment the picker draws its row. Nothing is written to disk — a still of
-// whatever the user has on screen is exactly the kind of thing that must not
-// outlive the dialog that asked for it.
+// Each image is a live grab taken when the picker draws its row; nothing is
+// written to disk, since a still of the user's screen must not outlive the
+// dialog.
 //
-// ID FORMAT, deliberately two shapes rather than one opaque token:
-//   `w<handle>`  a window, by HWND
-//   `s<index>`   a display, by the picker's row index
-// The picker builds these from the same fields the CONTROLLER reads when it
-// starts the capture, so a tile and the share it previews cannot disagree
-// about which thing they mean.
+// Ids: `w<handle>` (a window, by HWND) or `s<index>` (a display, by the
+// picker's row index), built from the same fields the controller uses to
+// start the capture, so a tile always previews what would be shared.
 //
-// Off Windows this always returns a null image: Linux has the xdg portal,
-// which draws its own picker with its own previews, and the macOS list is
-// displays only. The picker falls back to its glyph, which is what it showed
-// before previews existed.
+// Off Windows this always returns a null image (Linux uses the portal's own
+// picker; macOS lists displays only), and the picker shows its glyph.
 #pragma once
 
 #include <QQuickImageProvider>
 
-// A grab of the user's screen is content, not decoration. It is produced on
-// demand, handed to one QML Image, and never cached, stored or logged.
+// Screen grabs are content: produced on demand for one QML Image and never
+// cached, stored or logged.
 class ShareSourceImageProvider : public QQuickImageProvider
 {
 public:

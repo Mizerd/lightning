@@ -1,11 +1,9 @@
-// Bounded, single-shot, memory-only store for remote call session
-// descriptions (2026-08-18 round 2). Populated by the backend bridge ONLY
-// in media-capable mode; consumed once by CallController when producing an
-// answer or completing an outbound handshake.
+// Bounded, single-shot, memory-only store for remote session descriptions.
+// Filled by the backend bridge in media-capable mode and consumed once by
+// CallController when answering or completing an outbound handshake.
 //
-// SDP carries host IPs: nothing here may be logged, persisted, or exposed
-// to QML. take() removes on read so a description lives exactly as long as
-// call setup needs it; clear() runs on sign-out/detach.
+// SDP carries host IPs: never log, persist or expose it to QML. take()
+// removes on read; clear() runs on sign-out/detach.
 #pragma once
 
 #include <QHash>

@@ -1,62 +1,34 @@
-// The MatrixRTC group-call lifecycle (phase 2).
+// The MatrixRTC group-call lifecycle. Binds the three halves that must agree:
 //
-// One object binds the three halves that must agree for a call to work:
+//   Matrix: publish our membership, refresh it, retract it on leave.
+//   SFU:    authorize, connect, negotiate two peer connections.
+//   Media:  SfuMediaEngine, which owns the RTP.
 //
-//   Matrix   — publish our membership so other clients see us, refresh it,
-//              and retract it on leave.
-//   SFU      — authorize, connect, and negotiate two peer connections.
-//   Media    — SfuMediaEngine, which owns the actual RTP.
+// Join order: discover a focus (RtcController); publish the membership first,
+// carrying it (others pick their SFU from the oldest membership); connect to
+// the SFU and negotiate; only then publish tracks. Leaving runs in reverse and
+// every step is idempotent, since leave is also the failure path.
 //
-// The ORDER matters and is the main thing this class exists to get right:
+// Leaving relies on three mechanisms, each covering what the others cannot:
 //
-//   1. Discover a focus (phase 1's RtcController).
-//   2. Publish membership FIRST, carrying that focus. Other clients pick
-//      their SFU from the oldest membership, so ours has to be on the wire
-//      before we start expecting anyone to meet us there.
-//   3. Connect to the SFU and negotiate.
-//   4. Only then publish tracks.
+//   * The retraction sent on a clean leave; its answer is observed and
+//     transient failures are retried, bounded.
+//   * The MSC4140 delayed retraction held by the server, the only cleanup
+//     that survives a crash. Restarted on a heartbeat; a failed restart is
+//     repaired by re-publishing.
+//   * The membership's own `expires`. Without MSC4140 (Synapse's default)
+//     Rust publishes a short one and this class re-publishes on a cadence so
+//     live participants never age out.
 //
-// Leaving runs in reverse, and every step is idempotent, because the leave
-// path is also the failure path: anything that goes wrong mid-join has to be
-// able to unwind from wherever it got to.
+// A membership that is never retracted poisons the room: media keys go to a
+// ghost device, and others see a member "waiting for media".
 //
-// LEAVING IS THE HARD HALF, and it is the half this class got wrong for a
-// long time. Three separate mechanisms have to agree, and each covers a
-// failure the others cannot:
+// Safety:
 //
-//   * The RETRACTION we send on a clean leave. It is a network request like
-//     any other and it can fail — being offline at the moment of hang-up is
-//     the ordinary case, not an exotic one. Its answer is now observed and a
-//     transient failure is retried, bounded; before that it was
-//     fire-and-forget with literally nothing connected to the result signal.
-//   * The MSC4140 DELAYED RETRACTION the server holds on our behalf. This is
-//     the only cleanup that survives a kill, a crash or a lost network,
-//     because those run no code of ours. It is restarted on a heartbeat, and
-//     a restart that FAILS is repaired by re-publishing (which arms a fresh
-//     one) rather than by restarting an id the server may already have
-//     consumed.
-//   * The membership's own `expires`. On a homeserver without MSC4140 — which
-//     is the default Synapse configuration — this is the ONLY cleanup that
-//     exists at all. Rust therefore publishes a short one in that case, and
-//     this class re-publishes the state event on a cadence so a LIVE
-//     participant never ages out of it. Neither half is optional: a short
-//     expiry without the re-publish would start removing people mid-sentence.
-//
-// A membership that never retracts does not merely look untidy. It poisons
-// the room for every other client: element-call addresses its media keys per
-// device, so a ghost device is sent keys nobody can use, and a member with a
-// membership and no media is what "waiting for media" means.
-//
-// SAFETY, and the reason this class refuses more than it accepts:
-//
-//   * An ENCRYPTED room whose call media cannot be encrypted is refused.
-//     Joining would carry audio the SFU can read, in a room the user was
-//     told is end-to-end encrypted. §6 requires failing safely and saying
-//     so, never silently downgrading.
-//   * One call at a time, globally. A second join tears the first down
-//     explicitly rather than leaving two engines holding the microphone.
-//   * Every asynchronous reply is checked against a join generation, so a
-//     late answer from a call the user already left cannot resurrect it.
+//   * An encrypted room whose call media cannot be encrypted is refused,
+//     never silently downgraded.
+//   * One call at a time; a second join tears the first down explicitly.
+//   * Every asynchronous reply is checked against a join generation.
 #pragma once
 
 #include <QElapsedTimer>
@@ -71,12 +43,8 @@
 #include <QVariantList>
 #include <QtQml/qqmlregistration.h>
 
-// INCLUDED, not forward-declared. These three are Q_PROPERTY types, and
-// moc compiles moc_SfuCallController.cpp as its own translation unit that
-// sees this header and nothing else — a pointer property whose type is
-// incomplete there needs a complete QMetaType and fails in ways that depend
-// on the Qt version (§16's QPointer-of-incomplete-type trap is the same
-// family, and it cost a release pipeline).
+// Included, not forward-declared: these are Q_PROPERTY types, and
+// moc_SfuCallController.cpp sees only this header, so they must be complete.
 #include "calls/CallParticipantModel.h"
 #include "calls/CallShareModel.h"
 #include "calls/CallStageState.h"
@@ -108,61 +76,38 @@ class SfuCallController : public QObject
     Q_PROPERTY(bool deafened READ deafened NOTIFY mediaStateChanged)
     Q_PROPERTY(bool cameraOn READ cameraOn NOTIFY mediaStateChanged)
     Q_PROPERTY(bool screenSharing READ screenSharing NOTIFY mediaStateChanged)
-    /// Whether a NEW share will carry the computer's audio, and whether this
-    /// machine can capture it at all. Two properties because they answer
-    /// different questions: the user's preference survives a platform that
-    /// cannot honour it, so switching to one that can does not silently lose
-    /// their choice.
+    /// Whether a new share will carry the computer's audio, and whether this
+    /// machine can capture it. Separate so the preference survives a platform
+    /// that cannot honour it.
     Q_PROPERTY(bool shareAudioEnabled READ shareAudioEnabled
                    WRITE setShareAudioEnabled NOTIFY mediaStateChanged)
     Q_PROPERTY(bool shareAudioSupported READ shareAudioSupported CONSTANT)
-    /// Whether a share's audio will LEAVE OUT this call's own playback.
-    ///
-    /// True where the share captures each playing application on its own
-    /// (Linux with PipeWire); false where it can only take the output mix,
-    /// which necessarily contains what Lightning is playing, so the other
-    /// participants hear themselves. The picker says which one the user is
-    /// about to get rather than letting them discover it from the far end.
+    /// Whether share audio excludes this call's own playback: true with
+    /// per-application capture (Linux with PipeWire), false where only the
+    /// output mix is available. The picker tells the user which they get.
     Q_PROPERTY(bool shareAudioExcludesOwnPlayback
                    READ shareAudioExcludesOwnPlayback CONSTANT)
     Q_PROPERTY(bool handRaised READ handRaised NOTIFY mediaStateChanged)
     Q_PROPERTY(bool mediaEncrypted READ mediaEncrypted NOTIFY mediaStateChanged)
-    /// WHETHER ANY REMOTE PARTICIPANT'S FRAMES ARE BEING THROWN AWAY.
-    ///
-    /// The engine has always detected a stream whose frames arrive and cannot
-    /// be decrypted, and only ever logged it, so the call header drew a green
-    /// padlock over someone the user could not hear. Encrypted is true and
-    /// "fine" is not, and the badge said both. B026.
+    /// Whether any remote participant's frames are arriving undecryptable.
     Q_PROPERTY(bool remoteMediaBlocked READ remoteMediaBlocked
                    NOTIFY remoteMediaBlockedChanged)
-    /// OUR OWN CAPTURE IS PUBLISHING SILENCE.
-    ///
-    /// The mirror image of `remoteMediaBlocked`, and it went unbuilt for
-    /// longer: nothing in this client could tell a live microphone from a
-    /// dead one, because every counter downstream of the encoder treats
-    /// silence and speech identically. See SfuMediaEngine::localAudioSilent.
+    /// Our own capture is publishing silence. See
+    /// SfuMediaEngine::localAudioSilent.
     Q_PROPERTY(bool microphoneSilent READ microphoneSilent
                    NOTIFY microphoneSilentChanged)
-    /// NOTIFY is the MODEL's own countChanged, forwarded, and not
-    /// `participantsChanged`. This reader now answers out of
-    /// `CallParticipantModel::rowCount()`, and the model is rebuilt from
-    /// paths that do not all emit `participantsChanged` (`onSfuJoined`, and
-    /// every `mediaStateChanged`) — so a surface binding this saw a stale
-    /// count. Forwarding the model's own signal cannot go stale and cannot
-    /// storm: the model emits it only when the row count really changed.
+    /// NOTIFY is the model's own countChanged, forwarded: the model is rebuilt
+    /// from paths that do not all emit participantsChanged.
     Q_PROPERTY(int participantCount READ participantCount
                    NOTIFY participantCountChanged)
-    /// THE call's people. CONSTANT because the object lives as long as the
-    /// controller does — it is emptied on leave, never replaced, so a view
-    /// bound to it is never re-bound and never reset.
+    /// The call's participants. CONSTANT: emptied on leave, never replaced,
+    /// so bound views are never reset.
     Q_PROPERTY(CallParticipantModel *participantModel READ participantModel
                    CONSTANT)
-    /// ONE ROW PER ACTIVE SCREEN SHARE. N simultaneous sharers are N rows;
-    /// nothing about the wire changes to support that.
+    /// One row per active screen share.
     Q_PROPERTY(CallShareModel *shareModel READ shareModel CONSTANT)
-    /// Call-scoped VIEW state (pin, dismissed shares, layout preference).
-    /// Here rather than in the QML component because a room switch destroys
-    /// the component and this belongs to the call.
+    /// Call-scoped view state (pin, dismissed shares, layout). Lives here
+    /// because a room switch destroys the QML component.
     Q_PROPERTY(CallStageState *stageState READ stageState CONSTANT)
 
 public:
@@ -191,105 +136,52 @@ public:
 
     void setClient(MatrixClient *client);
     void setRtcController(RtcController *rtc);
-    /// Not owned. Absent means calling refuses honestly rather than
-    /// pretending — the same discipline as the 1:1 lane's media seam.
+    /// Not owned. Absent means calling refuses honestly.
     void setMediaEngine(SfuMediaEngine *engine);
     /// Not owned. Absent means screen sharing refuses honestly.
     void setScreenCastPortal(ScreenCastPortal *portal);
-    /// Not owned. Absent means the camera keeps the DIRECT route it has
-    /// always taken — which is correct on a desktop and is no camera at all
-    /// inside a sandbox, where there is no device node to open. Registered by
-    /// AppController only when a Camera portal answers on the session bus.
+    /// Not owned. Absent means the camera takes the direct route, which is
+    /// no camera at all inside a sandbox. Set by AppController only when a
+    /// Camera portal answers on the session bus.
     void setCameraPortal(CameraPortal *portal);
-    /// Not owned. WHERE THE VOLUMES LIVE.
-    ///
-    /// Absent means volumes still WORK for the duration of a call — the
-    /// engine and the model are told, the slider moves — but nothing is
-    /// remembered, which is an honest degradation rather than a dead control.
-    /// The maintainer asked for the opposite of that ("make the value saved so
-    /// if a user A sets user B volume to 70% it stays the same in next call or
-    /// other room"), so a build without this seam wired is a wiring bug, not a
-    /// supported mode.
+    /// Not owned; persists per-person volumes. Without it volumes still work
+    /// for the call but are not remembered, which is a wiring bug rather than
+    /// a supported mode.
     void setSettings(SettingsManager *settings);
 
-    /// Attach a QML `VideoOutput`'s sink to one participant's video.
-    ///
-    /// Keyed on the SFU participant `identity` the stage already has, NOT on
-    /// (userId, deviceId). The participant rows derive those two by
-    /// splitting the identity on ':', which is right for the legacy
-    /// `@user:server:DEVICE` form and GARBAGE for the sticky form, whose
-    /// identity is a sha256 — so a modern Element participant would resolve
-    /// to nothing and simply never show video. The identity is authoritative
-    /// in both formats.
-    ///
-    /// An identity we cannot resolve to a stream routes nothing at all: a
-    /// guess would put one participant's frames in another's tile.
+    /// Attach a QML `VideoOutput`'s sink to one participant's camera video.
+    /// Keyed on the SFU participant `identity`, which is authoritative in both
+    /// the legacy and the sticky (hashed) identity formats. An identity that
+    /// cannot be resolved routes nothing rather than guessing.
     Q_INVOKABLE void attachVideoSink(const QString &identity,
                                      QObject *videoSink);
-    /// Attach a sink to one participant's SCREEN SHARE, which is a second,
-    /// separate video track from the same person.
-    ///
-    /// This needs its own entry point precisely because it is a second track:
-    /// routing keyed on the participant alone can only ever feed ONE surface,
-    /// so a camera and a share from the same person landed on the same key and
-    /// only one of them could render. Resolution goes through the track's
-    /// media-section id (`mid`), which LiveKit states per track.
+    /// Attach a sink to one participant's screen share, a separate track from
+    /// their camera, resolved by its own track sid.
     Q_INVOKABLE void attachScreenSink(const QString &identity,
                                       QObject *videoSink);
-    /// Attach a sink to OUR OWN CAMERA, straight off the capture pipeline.
-    /// Our camera is published, never received, so this self-view is the only
-    /// local camera video there is — without it a local tile can only show an
-    /// avatar while the capture light is on.
+    /// Attach a sink to our own camera's self-view (our camera is published,
+    /// never received).
     Q_INVOKABLE void attachLocalCameraSink(QObject *videoSink);
-    /// Attach a sink to OUR OWN screen share, straight off the capture
-    /// pipeline. Nothing is sent for this and nothing is decrypted: it is the
-    /// only way the sharer can see that their share is carrying pixels.
+    /// Attach a sink to our own screen share's self-view, so the sharer can
+    /// see that pixels are being carried.
     Q_INVOKABLE void attachLocalScreenSink(QObject *videoSink);
 
-    /// ONE detach, and it names the SINK rather than a key. This is the whole
-    /// correction of 2026-08-27 and it replaced four per-key detaches
-    /// (`detachVideoSink`/`detachScreenSink`/`detachLocalCameraSink`/
-    /// `detachLocalScreenSink`), which are gone rather than deprecated.
-    ///
-    /// Two things were wrong with naming a key here, and both bit:
-    ///
-    ///  * The key was DERIVED at call time — `trackKeyForSource()` reads the
-    ///    live participant list, and `local`/`mediaKind` are tile properties
-    ///    that can change — so a tile could compute a different key at
-    ///    destruction than it did at creation and release the wrong one.
-    ///  * Far worse, a key-named release removed whatever was there. Qt
-    ///    destroys a replaced surface AFTER building its replacement
-    ///    (deleteLater vs. synchronous create), so on every layout swap and
-    ///    every Repeater regenerate the dying tile unhooked the living one
-    ///    and the video never came back.
-    ///
-    /// A sink cannot be named wrongly: a surface releases exactly what it
-    /// holds. A null or non-QVideoSink argument is a NO-OP, deliberately —
-    /// the old code treated "no sink" as "remove the key", which is the same
-    /// defect wearing a different hat.
+    /// Release whatever route `videoSink` holds. Names the sink, not a key:
+    /// keys are derived from live state and can differ at destruction, and Qt
+    /// destroys a replaced surface after building its replacement, so a
+    /// key-named release would unhook the new one. A null or non-QVideoSink
+    /// argument is a no-op.
     Q_INVOKABLE void detachSink(QObject *videoSink);
 
-    /// Diagnostic: is anything currently watching this routing key?
-    ///
-    /// Exists so a test can assert the ROUTER's state across a layout change
-    /// rather than a QML property, which is the whole failure — a tile can
-    /// report "attached" while the router disagrees. §16 records twice what a
-    /// test that never reaches production is worth.
+    /// Diagnostic: is anything watching this routing key? Lets tests assert
+    /// the router's state rather than a QML property.
     Q_INVOKABLE bool isRoutingVideoTo(const QString &streamId) const;
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-    /// DEVELOPMENT-ONLY: stage a call that exists only in this process, for
-    /// promotional screenshots on the mock backend.
-    ///
-    /// It publishes NO membership, contacts NO SFU, opens NO microphone or
-    /// camera, and sends nothing anywhere. It reports Connected and fills the
-    /// participant model with fictional people so the call surface — the
-    /// stage, the grid, the strip, the dock, the nameplates, raised hands —
-    /// can be photographed without a homeserver, a focus and a second human.
-    ///
-    /// Compiled out of every release binary by the same option that gates the
-    /// rest of the demo, so this cannot become a way to show a call that is
-    /// not happening. `endDemoCall()` returns the controller to Idle.
+    /// Development only: stage a call that exists only in this process, for
+    /// screenshots on the mock backend. Publishes no membership, contacts no
+    /// SFU and opens no device; fills the model with fictional people.
+    /// Compiled out of release builds. endDemoCall() returns to Idle.
     void startDemoCall(const QString &roomId, bool withScreenShare);
     void endDemoCall();
 #endif
@@ -308,20 +200,17 @@ public:
     bool shareAudioSupported() const;
     bool shareAudioExcludesOwnPlayback() const;
 
-    // Does this engine-failure category concern the SHARE'S SOUND alone?
-    // Static and public so the policy is testable without a call: a share
-    // audio failure must never end the session (see onEngineFailed).
+    // Whether an engine failure concerns only the share's sound. Such a
+    // failure must never end the session (see onEngineFailed).
     static bool categoryIsShareAudioOnly(const QString &category);
     bool handRaised() const { return m_handRaised; }
     /// True only when every frame we publish is encrypted. Never optimistic.
     bool mediaEncrypted() const { return m_mediaEncrypted; }
     bool remoteMediaBlocked() const { return !m_blockedStreams.isEmpty(); }
     bool microphoneSilent() const { return m_microphoneSilent; }
-    /// Whether THIS participant's media is the blocked one, for a per-tile
-    /// mark. Empty identity answers false.
+    /// Whether this participant's media is blocked, for a per-tile mark.
     Q_INVOKABLE bool mediaBlockedFor(const QString &identity) const;
-    /// Read from the MODEL, not from the raw SFU list, so the count and the
-    /// tiles can never disagree — the model is the one derivation.
+    /// Read from the model, so the count and the tiles always agree.
     int participantCount() const;
     CallParticipantModel *participantModel() const
     {
@@ -330,9 +219,9 @@ public:
     CallShareModel *shareModel() const { return m_shareModel; }
     CallStageState *stageState() const { return m_stageState; }
 
-    /// Join the room's call. Refuses (and says why through `lastError`) when
-    /// the room is encrypted and media E2EE is unavailable, when no focus is
-    /// known, or when there is no media engine.
+    /// Join the room's call. Refuses (with `lastError`) when the room is
+    /// encrypted and media E2EE is unavailable, when no focus is known, or
+    /// without a media engine.
     Q_INVOKABLE bool join(const QString &roomId, bool withVideo = false);
     /// Leave. Safe to call in any state, including mid-join.
     Q_INVOKABLE void leave();
@@ -343,46 +232,22 @@ public:
     Q_INVOKABLE void toggleDeafened();
     Q_INVOKABLE void setCameraOn(bool on);
     Q_INVOKABLE void toggleCamera();
-    /// Offer the user a source and start sharing what they pick. The one
-    /// entry point the UI uses on every platform.
-    ///
-    /// The desktop portal owns the picker wherever it is reachable, which is
-    /// the preferred path and the only one on Wayland. Where it is not —
-    /// Windows, macOS, and an X11 session with no portal installed —
-    /// Lightning draws its OWN picker over `screenShareSources`. Lightning
-    /// never enumerates WINDOWS on Linux in either case: see
-    /// `LinuxShareRoute` for what the fallback offers and what it refuses.
+    /// Offer a source and share what the user picks; the one entry point on
+    /// every platform. The desktop portal owns the picker where reachable (the
+    /// only option on Wayland); on Windows, macOS and portal-less X11,
+    /// Lightning draws its own over `screenShareSources`. See
+    /// `LinuxShareRoute`.
     Q_INVOKABLE void requestScreenShare();
-    /// The displays a share could capture, on the platforms and sessions
-    /// with no portal.
+    /// Sources a share could capture where there is no portal. Empty on Linux
+    /// when the portal is reachable. On portal-less X11 it lists displays only.
     ///
-    /// EMPTY ON LINUX WHENEVER THE PORTAL IS REACHABLE, which is the normal
-    /// case and the preferred one: the xdg portal owns the picker there,
-    /// shows its own dialog and hands back a node for whatever was chosen.
-    /// Drawing a second picker over it would be two dialogs for one gesture.
-    ///
-    /// It is NOT empty on an X11 session with no portal at all, where the
-    /// alternative was no way to share and no way to choose. See
-    /// `LinuxShareRoute`: that fallback offers DISPLAYS ONLY, and on Wayland
-    /// there is no fallback at all because without the portal there is
-    /// nothing a client is entitled to capture.
-    ///
-    /// Each entry: {index, name, geometry, primary, current}. `current` is
-    /// the display the app is on — what the share would take if the user
-    /// simply confirms.
+    /// Each entry: {index, name, geometry, primary, current}; `current` is
+    /// the display the app is on.
     Q_PROPERTY(QVariantList screenShareSources READ screenShareSources
                    NOTIFY screenShareSourcesChanged)
     QVariantList screenShareSources() const { return m_screenShareSources; }
-    /// Whether this BUILD can list windows at all, which is not the same
-    /// question as whether any are open.
-    ///
-    /// Window enumeration is Windows-only (WindowCaptureSrc.h), so on macOS
-    /// the Applications tab can never have a row. Without this the picker had
-    /// no way to tell "you have no windows open" from "Lightning cannot see
-    /// windows on this platform", and it stated the first — a sentence that is
-    /// simply false on a Mac with three apps running. The repository's own
-    /// rule elsewhere is that unknown renders nothing rather than a fabricated
-    /// fact; this is the same rule for a capability.
+    /// Whether this build can list windows at all (Windows only), so the
+    /// picker can tell "no windows open" from "not supported here".
     Q_PROPERTY(bool windowCaptureSupported READ windowCaptureSupported
                    CONSTANT)
     bool windowCaptureSupported() const
@@ -390,60 +255,41 @@ public:
 #ifdef HAVE_LIGHTNING_WEBRTC
         return lightning::wincap::available();
 #else
-        // No media engine means no capture at all, so no window list — and
-        // `WindowCaptureSrc.cpp` is not compiled into this build either, so
-        // calling it would not link. An inline accessor in a header creates a
-        // link dependency in EVERY target that includes it; that is the same
-        // shape as the `QPointer`-of-an-incomplete-type lesson in §16, and it
-        // is what broke `build-deb` for 0.8.0.
+        // No media engine: WindowCaptureSrc.cpp is not built, so an inline
+        // call would not link.
         return false;
 #endif
     }
     /// Start the share on one of `screenShareSources`. Ignored when the list
-    /// is empty — on Linux with a portal, that means the portal has already
-    /// chosen and nothing here has anything to add.
+    /// is empty (the portal already chose).
     Q_INVOKABLE void chooseScreenShareSource(int index);
 
-    /// WHERE A LINUX SCREEN SHARE GETS ITS SOURCE.
-    ///
-    /// One decision, as one pure function, because every clause of it is a
-    /// claim about what the machine can honestly capture and each has to be
-    /// testable without that machine. The order is the contract:
-    /// the portal wins whenever it is there, and Wayland refuses BEFORE any
-    /// X11 clause is consulted.
+    /// Where a Linux screen share gets its source. The order is the contract:
+    /// the portal wins whenever present, and Wayland refuses before any X11
+    /// clause.
     enum class LinuxShareRoute {
-        /// xdg-desktop-portal. The preferred path on every Linux session and
-        /// the only safe one on Wayland: the portal draws its own picker, so
-        /// Lightning enumerates nothing and receives a node for exactly what
-        /// the user chose.
+        /// xdg-desktop-portal: preferred everywhere and the only safe path on
+        /// Wayland. The portal draws the picker.
         Portal,
-        /// No portal, X11 session, capture element present: Lightning's own
-        /// picker, offering whole displays.
+        /// No portal, X11, capture element present: Lightning's own picker,
+        /// whole displays only.
         FallbackDisplays,
-        /// No portal, Wayland session. NOTHING can capture here and saying
-        /// so with the reason is the whole value of this state — a client
-        /// that cannot reach the portal on Wayland has no entitlement to the
-        /// screen, by design, and the user's fix is to install or start it.
+        /// No portal on Wayland: nothing can capture; the fix is to install or
+        /// start the portal.
         RefuseWaylandNeedsPortal,
-        /// X11, but the capture element is not in the running GStreamer
-        /// registry. Refused HERE rather than at PLAYING, where it would
-        /// look like a share that started and carried nothing.
+        /// X11 without the capture element in the running registry; refused
+        /// up front rather than at PLAYING.
         RefuseNoCaptureElement,
         /// Neither display server is reachable at all.
         RefuseNoDisplayServer,
     };
 
-    /// Classify the session. Pure, compiled on every platform, and every
-    /// input passed IN — including the element probe as a plain bool, so
-    /// this carries no GStreamer dependency and holds in a build with no
-    /// media engine at all.
+    /// Classify the session. Pure, with every input passed in (including the
+    /// element probe), so it has no GStreamer dependency.
     ///
-    /// WAYLAND IS DECIDED BEFORE X11 AND DELIBERATELY CATCHES XWAYLAND. A Qt
-    /// app on the `xcb` platform plugin inside a Wayland session has a
-    /// perfectly good `DISPLAY`, and capturing its root window yields a
-    /// black rectangle at the right resolution (measured: 99.999% of pixels
-    /// zero on a KDE Wayland session). `WAYLAND_DISPLAY` being set is what
-    /// distinguishes it, so any one of the three signals is enough.
+    /// Wayland is decided before X11 and catches XWayland: an `xcb` app in a
+    /// Wayland session has a working DISPLAY whose root window is black. Any
+    /// of the three signals is enough.
     static LinuxShareRoute linuxShareRoute(bool portalAvailable,
                                            const QString &platformName,
                                            const QString &sessionType,
@@ -451,129 +297,64 @@ public:
                                            const QString &x11Display,
                                            bool captureElementPresent);
 
-    /// What the user is told for a route that refuses, and empty for one that
-    /// does not.
-    ///
-    /// Separate and pure so the WORDS are held to account by a test. "Screen
-    /// sharing isn't available on this desktop" names no cause and offers no
-    /// action; the Wayland refusal has exactly one useful thing to say and
-    /// must keep saying it.
-    ///
-    /// `sandboxed` changes the MISSING-ELEMENT advice and nothing else. A
-    /// Flatpak or Snap loads GStreamer plugins from its runtime or its own
-    /// bundle, never from the host, so "install gst-plugins-good" sends the
-    /// user to install a distribution package the app cannot see — reported
-    /// from a Debian 12 Flatpak that had the package installed. The KDE 6.11
-    /// runtime ships no `ximagesrc` (measured: `gst-inspect-1.0 ximagesrc`
-    /// inside the Flathub build finds nothing), so there the portal is the
-    /// only route and the advice has to name it.
+    /// The user-facing refusal for a route, or empty. Pure so the wording is
+    /// tested. `sandboxed` changes only the missing-element advice: a Flatpak
+    /// or Snap cannot use host GStreamer plugins, and the KDE runtime ships no
+    /// `ximagesrc`.
     static QString linuxShareRefusal(LinuxShareRoute route,
                                      bool sandboxed = false);
 
-    /// WHERE A LINUX CAMERA GETS ITS PIXELS.
-    ///
-    /// The screen-share sibling above, for the capture that has always gone
-    /// straight at the device. Two routes and no refusal state: unlike a
-    /// screen share, `v4l2src` is always a thing that can be attempted, and a
-    /// camera that fails to open reports itself.
+    /// Where a Linux camera gets its pixels. No refusal state: `v4l2src` can
+    /// always be attempted and reports its own failure.
     enum class LinuxCameraRoute {
-        /// `v4l2src` on the device node. What every desktop build has always
-        /// done and the only route that has ever been live-validated.
+        /// `v4l2src` on the device node; the default desktop route.
         Direct,
-        /// A PipeWire remote from `org.freedesktop.portal.Camera`. Required
-        /// inside a sandbox, where there is no `/dev/video*` to open at all.
+        /// A PipeWire remote from `org.freedesktop.portal.Camera`; required in
+        /// a sandbox, which has no `/dev/video*`.
         Portal,
     };
 
-    /// Choose between them. Pure, every input passed in, compiled on every
-    /// platform — same discipline as `linuxShareRoute`, and for the same
-    /// reason: each clause is a claim about the machine and none of them can
-    /// be tested on the machine that made it.
+    /// Choose the camera route. Pure, every input passed in. In order:
     ///
-    /// The clauses, in order, and why each one is where it is:
+    ///  1. Sandboxed always takes the portal, even if it looks unusable:
+    ///     Flathub allows no device access, and a portal error is actionable.
+    ///  2. A visible device node keeps the direct route.
+    ///  3. No device node and a usable portal: the portal.
+    ///  4. Otherwise direct, including its honest failure.
     ///
-    ///  1. SANDBOXED ALWAYS TAKES THE PORTAL, even when the portal looks
-    ///     unusable. A Flatpak has no camera-only device permission and
-    ///     `--device=all` is the only static route to one, which Flathub
-    ///     rejects — so the direct element cannot work there under any
-    ///     circumstances, and choosing it would trade a portal error the user
-    ///     can act on ("allow the camera") for a device-open failure they
-    ///     cannot.
-    ///  2. A VISIBLE DEVICE NODE KEEPS THE DIRECT ROUTE. This is the path
-    ///     that works today; the portal must not take it over on a machine
-    ///     where nothing was wrong.
-    ///  3. NO DEVICE NODE AND A USABLE PORTAL takes the portal. There is
-    ///     nothing to regress — the direct element has no device to open —
-    ///     and the portal may reach a camera the caller cannot see directly.
-    ///  4. Otherwise Direct, which is exactly today's behaviour including
-    ///     today's honest failure.
-    ///
-    /// `portalUsable` folds two separate probes (`CameraPortal::available()`
-    /// and `CameraPortal::cameraPresent()`) because a portal that reports no
-    /// camera cannot help clause 3, and raising a permission dialog for a
-    /// camera that does not exist is worse than the failure it replaces. Both
-    /// probes are logged at the call site, so the fold costs no diagnosis.
+    /// `portalUsable` folds `CameraPortal::available()` and
+    /// `CameraPortal::cameraPresent()`: a permission dialog for a camera that
+    /// does not exist is worse than the failure it replaces. Both are logged
+    /// at the call site.
     static LinuxCameraRoute linuxCameraRoute(bool sandboxed, bool portalUsable,
                                              bool directDeviceVisible);
 
-    /// Accept a NATIVE screen rectangle for use as an X11 capture region, or
-    /// reject it.
-    ///
-    /// Pure, and it deliberately does no arithmetic: the rectangle must
-    /// arrive already in native, root-relative pixels from the platform (see
-    /// `nativeScreenRect`). Everything this function does is refuse the
-    /// shapes `ximagesrc` cannot be given.
-    ///
-    /// Returns an INVALID rect for anything an X11 root rectangle cannot be.
-    /// `ximagesrc`'s coordinate properties are UNSIGNED, so a negative origin
-    /// would not fail — it would wrap and capture somewhere else entirely.
+    /// Accepts a native, root-relative screen rectangle as an X11 capture
+    /// region, or returns an invalid rect. No arithmetic (see
+    /// nativeScreenRect()). ximagesrc's coordinates are unsigned, so a
+    /// negative origin would wrap rather than fail.
     static QRect validX11CaptureRect(const QRect &nativeGeometry);
 
-    /// One screen's NATIVE, root-relative rectangle — the coordinate space
-    /// `ximagesrc` addresses — or an invalid rect when it cannot be had.
+    /// One screen's native, root-relative rectangle (what `ximagesrc`
+    /// addresses), or an invalid rect.
     ///
-    /// TAKEN FROM THE PLATFORM, NEVER DERIVED, and the previous revision of
-    /// this code got that wrong twice over. `QScreen::geometry()` cannot be
-    /// converted into a native rectangle by any arithmetic:
-    ///
-    ///   * Qt leaves the TOP-LEFT in native pixels and scales only the SIZE
-    ///     (`QScreenPrivate::updateGeometry()` builds
-    ///     `QRect(nativeGeometry.topLeft(), fromNative(size, factor))`), so
-    ///     scaling the origin inflates a number that was never scaled.
-    ///   * `devicePixelRatio()` is a rounded presentation value, not the
-    ///     native/logical factor, so scaling the SIZE by it is wrong too.
-    ///
-    /// Both measured on a real two-monitor 4K desktop. Under the `xcb`
-    /// plugin Qt reports DP-3 as `QRect(3840,0 2560x1440)` with dpr 1.5 while
-    /// its true rectangle is `QRect(3840,0 3840x2160)`: the old code produced
-    /// an origin of 3840*1.5 = 5760 for a monitor that BEGINS at 3840, which
-    /// lands the capture 1920 px inside the neighbouring display — sharing a
-    /// screen the user did not choose. Under the Wayland plugin the same
-    /// monitors report dpr 2.00 against a true scale of 1.5, so the size was
-    /// wrong as well.
-    ///
-    /// `QScreen::handle()->geometry()` is that rectangle exactly; on XCB it
-    /// comes straight from the XRandR CRTC.
+    /// Taken from the platform, never derived from QScreen::geometry(): Qt
+    /// keeps the top-left in native pixels and scales only the size, and
+    /// devicePixelRatio() is a rounded presentation value, so arithmetic
+    /// lands inside a neighbouring monitor on mixed-DPI setups.
+    /// `QScreen::handle()->geometry()` is exact (on XCB it comes from the
+    /// XRandR CRTC).
     static QRect nativeScreenRect(const QScreen *screen);
     /// Abandon the picker without sharing.
     Q_INVOKABLE void cancelScreenShareSelection();
-    /// Start sharing a PipeWire node the portal already granted. A negative
-    /// id is REFUSED rather than defaulted — "whatever PipeWire feels like"
-    /// is how you publish the wrong monitor.
-    /// Publish a screen share the desktop portal has already granted.
+    /// Publish a screen share. Exactly one source kind applies:
+    /// `pipewireNodeId` (a portal node; a display index off Linux),
+    /// `windowHandle` (a Windows HWND for a single window), or `captureRect`
+    /// (an X11 root-window rectangle, Linux no-portal fallback). Without any
+    /// of them the share is refused rather than defaulted.
     ///
-    /// `pipewireFd` is the descriptor from OpenPipeWireRemote and OWNERSHIP
-    /// PASSES to the media engine on success; on any refusal the caller still
-    /// owns it and must close it. -1 means "no remote", which only the test
-    /// source path accepts.
-    ///
-    /// `windowHandle` is a Windows HWND, widened, and non-zero only when the
-    /// user picked a single WINDOW rather than a display. It is exclusive
-    /// with `pipewireNodeId`, which then means nothing.
-    ///
-    /// `captureRect` is the Linux no-portal fallback's chosen display, as a
-    /// rectangle of the X11 root window in physical pixels. Valid only on
-    /// that path, and exclusive with both of the above.
+    /// `pipewireFd` is the OpenPipeWireRemote descriptor; ownership passes to
+    /// the media engine on success, and on refusal the caller must close it.
     Q_INVOKABLE bool startScreenShare(int pipewireNodeId,
                                       int pipewireFd = -1,
                                       quint64 windowHandle = 0,
@@ -581,82 +362,48 @@ public:
     Q_INVOKABLE void stopScreenShare();
     Q_INVOKABLE void setHandRaised(bool raised);
     Q_INVOKABLE void toggleHandRaised();
-    /// Send ONE transient call reaction, in element-call's own format:
-    /// `io.element.call.reaction` referencing THIS DEVICE'S OWN
-    /// `m.call.member` state event by `m.reference`.
+    /// Send one transient call reaction in element-call's format:
+    /// `io.element.call.reaction` referencing this device's own
+    /// `m.call.member` event by `m.reference`. `name` is element-call's key
+    /// for the emoji; rust/src/rtc.rs checks the pair against its
+    /// `ReactionSet`.
     ///
-    /// `name` is element-call's own key for the emoji ("thumbsup", "party",
-    /// …) and is what an Element client looks its sound up by; the pair is
-    /// checked against element-call's `ReactionSet` in rust/src/rtc.rs and
-    /// refused there if it is not one of theirs.
-    ///
-    /// DELIBERATELY NOT OPTIMISTIC. Unlike the raise-hand toggle — a control
-    /// the user is watching, whose state has to survive a failure — a
-    /// reaction is drawn only from an event that actually arrived and was
-    /// attributed, exactly like a remote one. A local echo would show the
-    /// sender a reaction that may never have left the machine, and it would
-    /// need its own de-duplication against the copy that comes back.
+    /// Not optimistic: our reaction is drawn only when the event comes back,
+    /// like a remote one, so a failed send never shows.
     Q_INVOKABLE void sendCallReaction(const QString &emoji,
                                       const QString &name);
 
-    /// HOW LONG A TRANSIENT REACTION STAYS ON A TILE — the one constant this
-    /// feature has, and not a taste decision.
-    ///
-    /// element-call's `src/reactions/ReactionsReader.ts` sets
-    /// `REACTION_ACTIVE_TIME_MS = 3000` and expires its own reactions on
-    /// exactly that, so both clients show the same reaction for the same
-    /// length of time. It is ALSO the window inside which a second reaction
-    /// from the same sender is dropped (their "one is still playing" rule),
-    /// which is what stops a peer pinning a permanent badge on their own
-    /// tile by re-sending, and the window inside which THIS device refuses
-    /// to send a second one.
+    /// How long a reaction stays on a tile. element-call's
+    /// `src/reactions/ReactionsReader.ts` sets
+    /// `REACTION_ACTIVE_TIME_MS = 3000`; matching it keeps both clients in
+    /// step. Also the window in which a second reaction from the same sender
+    /// is dropped, and in which this device refuses to send another.
     static constexpr int kReactionActiveMs = 3000;
-    /// Local-only playback volume for one participant, 0..200.
-    ///
-    /// 200 rather than 100 because amplification was the request. Nothing is
-    /// sent to anyone: it changes one `volume` element in OUR receive chain.
-    ///
-    /// The value is PERSISTED against the person's MATRIX USER ID, which is
-    /// resolved from the identity through the membership — never by splitting
-    /// the identity on ':'. An identity is per-device in the legacy format and
-    /// an unpadded-base64 sha256 in the sticky one, so keying storage on it
-    /// would forget the setting the moment the same person rejoined.
+    /// Local-only playback volume for one participant, 0..200. Nothing is
+    /// sent. Persisted against the person's Matrix user id, resolved through
+    /// the membership, never by parsing the per-device identity.
     Q_INVOKABLE void setParticipantVolume(const QString &identity,
                                           int percent);
-    /// The stored volume for one participant, 0..200, or 100 when nothing is
-    /// stored (or nothing can be resolved). Exists so a slider can be BORN at
-    /// the right value rather than jumping there after the first write.
+    /// The stored volume for one participant, or 100 when none can be
+    /// resolved, so a slider starts at the right value.
     Q_INVOKABLE int participantVolume(const QString &identity) const;
 
-    /// A SCREEN SHARE'S OWN LEVEL, separate from its owner's microphone.
-    ///
-    /// The two are different tracks — SCREEN_SHARE_AUDIO and MICROPHONE from
-    /// one participant — and a viewer wants them independently: turn a game
-    /// down without silencing the person playing it. Addressed by share id
-    /// so a surface never has to know which track carries the sound.
+    /// A screen share's own level, separate from its owner's microphone (a
+    /// different track), addressed by share id.
     Q_INVOKABLE void setShareVolume(const QString &shareId, int percent);
     Q_INVOKABLE int shareVolume(const QString &shareId) const;
-    /// Whether this share carries sound at all. A volume control that can
-    /// move nothing is worse than none, so the tile asks before offering it.
+    /// Whether this share carries sound; the tile offers a volume only if so.
     Q_INVOKABLE bool shareHasAudio(const QString &shareId) const;
 
-    /// Participants for the call stage, in the shape callers already expect.
-    ///
-    /// KEPT because other surfaces (the speaker bubbles, the banner facepile)
-    /// still read it — but it is now READ OUT OF THE MODEL rather than
-    /// rebuilt from the SFU list, so there is exactly one derivation and the
-    /// two can never drift. New surfaces should bind `participantModel`.
+    /// Participants for the call stage as a list, read out of the model so
+    /// there is one derivation. New surfaces should bind `participantModel`.
     Q_INVOKABLE QVariantList participants() const;
 
-    // --- TEST SEAMS -------------------------------------------------------
+    // --- Test seams ---
     //
-    // The stage could not be instantiated in a test at all: every existing
-    // CallStage assertion is a source scan, because driving the real surface
-    // needs participants and participants needed a live SFU. These inject
-    // exactly the payloads the SFU slots receive, through exactly the same
-    // private merge helpers, WITHOUT the `active()` gate the slots keep — so
-    // production behaviour is unchanged and a test does not have to fake a
-    // call lifecycle to get a populated model.
+    // Inject exactly the SFU payloads the slots receive, through the same
+    // private merge helpers but without the slots' `active()` gate, so a test
+    // gets a populated model without faking a call lifecycle.
 
     /// Inject a LiveKit ParticipantUpdate payload (a DELTA, merged by
     /// identity, `state: "disconnected"` removes).
@@ -667,31 +414,18 @@ public:
     void ingestConnectionQualityForTest(const QVariantList &updates);
     /// Name the local device's SFU identity, as onSfuJoined would.
     void setOwnIdentityForTest(const QString &identity);
-    /// Does joining with these room participants (RtcController::
-    /// participants rows) START the call, so it must be announced? True
-    /// when nobody but this device's own stale membership is present.
+    /// Whether joining with these room participants (RtcController rows)
+    /// starts the call and must be announced: true when only this device's
+    /// own stale membership is present.
     static bool startsCallForAnnouncement(const QVariantList &participants);
-    /// How many times the refresh tick has reconciled the key lane. The
-    /// reconciliation itself is inside HAVE_LIGHTNING_WEBRTC and so compiles
-    /// out of this test target; the COUNTER does not, which is what lets a
-    /// test prove the timer reaches it at all -- the defect was that nothing
-    /// did.
+    /// How often the refresh tick reconciled the key lane. The reconciliation
+    /// is compiled out without WebRTC; this counter is not, so tests can see
+    /// the timer reach it.
     int keyLaneReconcilesForTest() const { return m_keyLaneReconciles; }
-    /// WHAT THE MEDIA ENGINE WAS LAST TOLD for one participant, by identity,
-    /// and -1 for one it was never told about at all. Same for a share, by
-    /// share id.
-    ///
-    /// These exist because the defect they pin is an ORDERING one and the
-    /// suite that can drive that ordering is built with NO media engine, so
-    /// the real `m_engine->…` call is compiled out of it. The record is
-    /// therefore kept outside the media guard, beside the call it shadows.
-    ///
-    /// ASSERTING ON `participantVolume()` OR `shareVolume()` INSTEAD CANNOT
-    /// WORK, and that is not a style preference: both fall back to the store,
-    /// so both answer correctly on code where nothing ever reached the audio
-    /// graph. That fallback is exactly how a stored level that never reached
-    /// an element survived a hand-driven check — the popup read 200%, which
-    /// is the half that was never broken.
+    /// What the media engine was last told for a participant (by identity)
+    /// or a share (by share id), or -1 if never. Kept outside the media guard
+    /// for tests built without an engine. participantVolume() and
+    /// shareVolume() cannot substitute: they fall back to the store.
     int engineParticipantVolumeForTest(const QString &identity) const
     {
         return m_engineParticipantVolume.value(identity, -1);
@@ -700,35 +434,24 @@ public:
     {
         return m_engineShareVolume.value(shareId, -1);
     }
-    /// Drive the refresh tick without waiting five seconds for it. Starts the
-    /// REAL timer at `ms`, so what a test observes is the real connection.
+    /// Starts the real refresh timer at `ms`.
     void startRefreshTickForTest(int ms)
     {
         m_refreshTimer.setInterval(ms);
         m_refreshTimer.start();
     }
-    /// Put the controller in a call STATE, so the `active()` gates that guard
-    /// every wire-touching path behave as they do in a real call.
+    /// Put the controller in a call state, so `active()` gates behave as in a
+    /// real call.
     void setCallStateForTest(State state);
-    /// Name the room this call is in and the MSC4140 delay id the server gave
-    /// us, as a successful `rtcPublishMembership` answer would.
-    ///
-    /// An EMPTY delay id is the important case, not a degenerate one: it is
-    /// what a homeserver without MSC4140 produces — Synapse's default — and
-    /// it is the whole of the maintainer's report. Without this seam neither
-    /// the leave path nor the refresh heartbeat could be reached at all,
-    /// which is exactly why neither had ever been tested.
+    /// Set the room and the MSC4140 delay id as a successful publish would.
+    /// An empty delay id (a homeserver without MSC4140, Synapse's default) is
+    /// the important case for the leave path and the refresh heartbeat.
     void setMembershipForTest(const QString &roomId, const QString &delayId);
     /// Diagnostic: why no delayed retraction is armed, or empty when one is.
-    /// Read by the tests and by anyone reading a support export; it is a
-    /// closed category vocabulary and never carries server text.
+    /// A closed category vocabulary, never server text.
     QString delayedRefusalReason() const { return m_delayedCategory; }
-    /// Arm the share-audio track id a running share would hold.
-    ///
-    /// Reaching it for real needs a portal, an engine and a live SFU; what
-    /// the cleanup branch in onEngineFailed needs to be tested against is
-    /// just the cid being present, which is the state the ordering fix in
-    /// startScreenShare exists to guarantee.
+    /// Arm the share-audio cid a running share would hold, so the cleanup in
+    /// onEngineFailed can be tested without a portal, engine or SFU.
     void setShareAudioCidForTest(const QString &cid)
     {
         m_shareAudioCid = cid;
@@ -736,10 +459,7 @@ public:
             m_publishedTrackIds.append(cid);
     }
     QString shareAudioCidForTest() const { return m_shareAudioCid; }
-    /// Test-only: how many media keys are parked waiting for the call to
-    /// start. The bound and the replay are both invisible without it, and
-    /// the first cut of this feature was PROVABLY a no-op because join()
-    /// cleared the list before applyParkedKeys() could ever see it.
+    /// Test-only: parked media keys waiting for the call to start.
     int parkedKeyCountForTest() const { return m_parkedKeys.size(); }
     bool hasParkedKeyForTest(const QString &sender) const
     {
@@ -749,37 +469,20 @@ public:
         }
         return false;
     }
-    /// Put the controller exactly where a real `join()` leaves it while the
-    /// homeserver decides: state Preparing, the room and focus recorded, and
-    /// a REAL `rtcPublishMembership` in flight, whose op id is returned so
-    /// the answer can be delivered on the real signal.
-    ///
-    /// A CONSCIOUS extension of the seam. Everything join() does before this
-    /// step — the media engine, the encryption gate, focus discovery — needs
-    /// a live SfuMediaEngine and therefore a GStreamer pipeline, so the
-    /// publish ANSWER had no reachable test at any layer: neither the
-    /// refusal's classification nor the state it leaves behind had ever been
-    /// exercised. This runs the same last three statements join() does.
+    /// Put the controller where join() leaves it while the homeserver decides:
+    /// Preparing, room and focus recorded, and a real rtcPublishMembership in
+    /// flight (its op id is returned). Runs join()'s last steps, which are
+    /// the only ones reachable without a media engine.
     quint64 beginMembershipPublishForTest(const QString &roomId,
                                           const QString &focusUrl);
-    /// Shorten the reaction window so its expiry, its duplicate rule and the
-    /// staleness clause on a parked reaction can be exercised without three
-    /// seconds of wall clock each. Nothing is faked: the REAL model timer and
-    /// the REAL clauses run, only sooner.
+    /// Shorten the reaction window so its expiry, duplicate rule and parked
+    /// staleness run quickly; the real timer and clauses still run.
     void setReactionWindowMsForTest(int ms)
     {
         m_reactionWindowMs = ms > 0 ? ms : 1;
     }
-    /// Drive the local device's camera / screen-share INTENT the way the
-    /// buttons do, minus the media engine.
-    ///
-    /// A CONSCIOUS extension of the seam, not a convenience: `setCameraOn`
-    /// and `startScreenShare`/`stopScreenShare` publish through
-    /// SfuMediaEngine, which needs a real GStreamer pipeline — so the one
-    /// behaviour that matters here (a local STOP must clear the local row and
-    /// must reach the SFU, even while the server still reports the track
-    /// live) had no way to be exercised at any layer. This routes through the
-    /// same private applyVideoState() production does.
+    /// Drive the local camera/share intent as the buttons do, minus the media
+    /// engine, through the same private applyVideoState().
     void setLocalMediaStateForTest(bool cameraOn, bool screenSharing);
 
 Q_SIGNALS:
@@ -791,24 +494,17 @@ Q_SIGNALS:
     /// Forwarded from CallParticipantModel::countChanged. See the property.
     void participantCountChanged();
     void shareVolumeChanged(const QString &shareId, int percent);
-    /// The picker has something to show. Raised only where there is no
-    /// portal; on Linux the portal's own dialog is the picker.
+    /// The picker has something to show. Only where there is no portal.
     void screenShareSourcesChanged();
     void screenShareSourcesAvailable();
-    /// A user-facing failure, already reduced to plain wording.
-    ///
-    /// AN EMPTY MESSAGE WITHDRAWS THE LAST ONE. It is emitted when a later
-    /// attempt gets past the gate that refused, and it means "the failure I
-    /// reported no longer applies" — the same idiom AppController already
-    /// uses when it emits `errorReported(QString{})` to clear the status
-    /// strip. A receiver that shows the message must therefore also clear on
-    /// an empty one; dropping empties leaves a stale refusal on screen,
-    /// which is the defect this exists to close.
+    /// A user-facing failure in plain wording. An empty message withdraws the
+    /// previous one (a later attempt got past the gate that refused), the same
+    /// idiom as AppController's `errorReported(QString{})`; receivers must
+    /// clear on it.
     void callFailed(const QString &message);
 
 private Q_SLOTS:
-    /// Our own raise/lower completed. A refusal puts the control back —
-    /// nothing but our own row is ever optimistic.
+    /// Our own raise/lower completed; a refusal reverts the control.
     void onHandResult(quint64 opId, bool ok, bool raised,
                       const QString &category, const QString &eventId);
     /// Somebody's hand went up or down, from the sync loop.
@@ -818,15 +514,12 @@ private Q_SLOTS:
     /// The join-time sweep over hands raised before we arrived.
     void onHandsReceived(quint64 opId, const QString &roomId,
                          const QVariantList &hands);
-    /// A transient reaction arrived from the sync loop. Attributed exactly
-    /// as a raise is — through the membership it references, whose owner
-    /// must be the sender.
+    /// A transient reaction from sync, attributed like a raise: through the
+    /// membership it references, whose owner must be the sender.
     void onCallReactionReceived(const QString &roomId, const QString &sender,
                                 const QString &membershipEventId,
                                 const QString &emoji);
-    /// The generic RTC send answer. Only our own reaction sends are matched
-    /// here (by op id); everything else on this signal belongs to somebody
-    /// else and is ignored.
+    /// The generic RTC send answer; only our own reaction op is matched.
     void onRtcSendFinished(quint64 opId, bool ok, const QString &category,
                            const QString &eventId);
     void onMembershipPublished(quint64 opId, bool ok, const QString &category,
@@ -850,282 +543,187 @@ private Q_SLOTS:
                                   const QString &sdp);
     void onEngineLocalCandidate(int target, const QString &candidateInit);
     void onEngineFailed(const QString &category);
-    /// ONE track could not carry media. Turns that control back off and says
-    /// so; the call is NOT ended. See SfuMediaEngine::publishFailed.
+    /// One track could not carry media: turn that control off and say so. The
+    /// call is not ended. See SfuMediaEngine::publishFailed.
     void onEnginePublishFailed(const QString &cid, const QString &category);
     void onMediaKeyReceived(const QString &roomId, const QString &sender,
                             const QString &claimedDeviceId, int keyIndex,
                             const QString &keyBase64);
-    /// The one answer for BOTH `rtc_membership_retracted` and
-    /// `rtc_delayed_updated` — the bridge routes them onto one signal, and
-    /// they are told apart by OP ID, which is the only thing that can tell
-    /// them apart. Until this existed nothing in the whole application was
-    /// connected to it: a retraction that failed failed SILENTLY, and a
-    /// delayed-leave restart that 404'd was equally invisible.
+    /// Answers for both `rtc_membership_retracted` and `rtc_delayed_updated`,
+    /// which the bridge routes onto one signal; the op id tells them apart.
     void onMembershipRetracted(quint64 opId, bool ok, const QString &category);
     void refreshMembership();
-    /// Re-run the key lane's own reconciliation on the refresh tick.
-    ///
-    /// distributeKeyIfNeeded() has exactly ONE other caller: RtcController's
-    /// sessionChanged handler. That signal is deliberately SUPPRESSED when a
-    /// membership read comes back identical (RtcController.cpp: `if (changed)`),
-    /// which is right for avoiding poke storms and wrong for the key lane --
-    /// a distribution that failed, or that found nobody addressable, clears
-    /// m_lastKeyTargets to arm a retry that then had nothing to reach it.
-    /// matrix-js-sdk runs its equivalent on EVERY recalculation and says so
-    /// in a comment ("This also needs to be done if changed = false").
-    /// Idempotent: distributeKeyIfNeeded() acts only when the addressable set
-    /// differs from what actually holds the current key.
+    /// Re-run key-lane reconciliation on the refresh tick. The only other
+    /// trigger, RtcController::sessionChanged, is suppressed when a membership
+    /// read is unchanged, so a failed distribution's retry would never run.
+    /// matrix-js-sdk likewise reconciles on every recalculation. Idempotent.
     void reconcileKeyLane();
-    /// Re-issue a retraction that failed transiently. Separate from the
-    /// timer's slot so the retry is a real, bounded, observable path.
+    /// Re-issue a transiently failed retraction.
     void retryRetraction();
 
 private:
-    /// Fill `m_screenShareSources` with this session's displays for the Linux
-    /// no-portal fallback. False when there is not one to offer, which is a
-    /// refusal and not an empty picker.
+    /// Fill `m_screenShareSources` with displays for the Linux no-portal
+    /// fallback. False when there is none to offer (a refusal).
     bool populateLinuxDisplaySources();
-    /// The physical root rectangle of the screen the platform calls `name`,
-    /// or an invalid rect when no such screen is connected NOW.
-    ///
-    /// Resolved by NAME rather than by the row's index, and re-resolved at
-    /// the moment of the choice rather than remembered from the moment of the
-    /// listing. Both for the same reason: a monitor can be unplugged while
-    /// the dialog is open, after which every index past it means a different
-    /// display — which is how a picker ends up naming one screen and sharing
-    /// another. The same lesson `wincap::displayForDeviceName` records.
+    /// The native root rectangle of the screen named `name`, or invalid if it
+    /// is not connected now. Resolved by name at choice time, since an
+    /// unplugged monitor renumbers the others.
     static QRect physicalRectForScreenNamed(const QString &name);
 
     void setState(State state, const QString &error = QString());
     void teardown(State finalState, const QString &error = QString());
-    /// Ask the server to remove our membership, and REMEMBER the attempt so
-    /// its answer can be judged and retried. `teardown()` clears m_roomId, so
-    /// the target is captured here rather than re-read later.
+    /// Ask the server to remove our membership and remember the attempt for
+    /// retries. The room is captured here because teardown() clears m_roomId.
     void dispatchRetraction(const QString &roomId, const QString &delayId);
     /// Re-send the membership state event, which also arms a fresh delayed
-    /// retraction. This is the ONLY refresh mechanism on a homeserver without
-    /// MSC4140, and it is the repair for a delayed-leave restart that failed.
+    /// retraction. The only refresh without MSC4140, and the repair for a
+    /// failed delayed-leave restart.
     void republishMembership();
     void publishTracks();
     void applyAudioState();
     /// The LiveKit stream id (participant sid) for one SFU identity.
     QString streamIdForIdentity(const QString &identity) const;
-    /// The devices a media key should go to: the SFU's live participants,
-    /// resolved to Matrix devices through the membership. The INTERSECTION,
-    /// because a membership alone includes ghosts — devices that died without
-    /// retracting and cannot receive anything.
+    /// Devices a media key should go to: the SFU's live participants resolved
+    /// to Matrix devices through the membership. The intersection, because
+    /// memberships alone include ghost devices.
     QString mediaKeyTargets() const;
-    /// The name one sending DEVICE's media-key ring is stored under. Derived
-    /// from the to-device sender, so it is knowable the moment a key arrives
-    /// and never depends on the SFU or the membership having caught up.
+    /// The name a sending device's key ring is stored under, derived from the
+    /// to-device sender so it is known as soon as a key arrives.
     static QString mediaKeyRingName(const QString &userId,
                                     const QString &deviceId);
     /// Bind every resolvable (sid, sending device) pair in the engine, so a
-    /// media key addressed to a Matrix device reaches the ring the arriving
-    /// FRAMES consult. Re-run on every participant update and every key: a
-    /// sid does not exist until the SFU announces the participant, which can
-    /// be long after that participant's key arrived.
+    /// device-addressed key reaches the ring arriving frames consult. Re-run
+    /// on every participant update and key.
     void noteParticipantIdentities();
-    /// Mark one participant's hand up, from a reaction event id we now know
-    /// the owner of. Shared by the live handler and the pending-raise retry
-    /// so the "it is OUR hand" half cannot drift between them.
+    /// Mark a participant's hand up. Shared by the live handler and the
+    /// pending retry so the own-hand handling cannot drift.
     void applyRaisedHand(const QString &reactionEventId,
                          const QString &identity);
-    /// Show one transient reaction on a participant's row. Shared by the
-    /// live handler and the pending retry, so the window and the duplicate
-    /// rule cannot drift between them.
+    /// Show one transient reaction. Shared by the live handler and the pending
+    /// retry.
     void applyCallReaction(const QString &identity, const QString &emoji);
-    /// Re-attribute annotations whose membership had not arrived when they
-    /// did — raises and reactions alike. Called where that membership lands;
-    /// a no-op with nothing parked.
+    /// Re-attribute parked annotations (raises and reactions) once their
+    /// membership arrives.
     void retryPendingAnnotations();
-    /// The routing key for one participant's track of `source`
-    /// ("camera" / "screen_share"): the TRACK's sid when the SFU stated one,
-    /// else empty. Never the PARTICIPANT sid — that is where the camera
-    /// lands, so substituting it would point a screen-share surface at a
-    /// camera. (This comment used to say `mid`; it has been the track sid
-    /// since the interop round, because a `mid` belongs to the publisher's
-    /// connection and our subscriber transceiver is numbered independently.)
+    /// The routing key for a participant's `source` track ("camera" /
+    /// "screen_share"): the track sid if the SFU stated one, else empty. Never
+    /// the participant sid, which is where the camera lands.
     QString trackKeyForSource(const QString &identity,
                               const QString &source) const;
 
-    /// Merge one LiveKit ParticipantUpdate delta into `m_participants` and
-    /// rebuild the models. Returns true when the identity SET changed, which
-    /// is what must rotate the media key. Carries NO `active()` gate: the
-    /// slot owns that, and the test seam deliberately bypasses it.
+    /// Merge one LiveKit ParticipantUpdate delta and rebuild the models.
+    /// Returns true when the identity set changed (which rotates the key). No
+    /// `active()` gate; the slot owns that.
     bool mergeParticipants(const QVariantList &updates);
-    /// Log each REMOTE track's mute transitions as the SFU reports them.
-    ///
-    /// A sender's mute makes the SFU inject 50 blank frames into that track
-    /// (SfuMediaEngine::framesServerInjected), and nothing in this client's
-    /// log said WHEN a remote participant muted -- so a burst of those
-    /// frames could not be matched to its cause. Sids and a boolean only.
+    /// Log remote tracks' mute transitions, so SFU-injected frame bursts can
+    /// be matched to a mute. Sids and a boolean only.
     void noteRemoteTrackMutes(const QVariantList &updates);
-    /// Push the current SFU list through to `m_participantModel` and
-    /// `m_shareModel` as a DIFF. The single derivation of both.
+    /// Diff the SFU list into the participant and share models; the single
+    /// derivation of both.
     void rebuildModels();
-    /// The share rows implied by the current participants plus our own live
-    /// share. Separated out so it is readable and so the local-share rule is
-    /// in one place.
+    /// Share rows from the current participants plus our own live share.
     void rebuildShareModel();
 
-    /// Redistribute the media key IF the set of devices we can address has
-    /// grown since the last distribution.
-    ///
-    /// The membership and the SFU participant list are independent feeds and
-    /// nothing orders them, so a peer is routinely on the SFU before their
-    /// membership has been read — and a key can only be addressed to a
-    /// membership. Idempotent by comparison against `m_lastKeyTargets`.
+    /// Redistribute the media key if the addressable device set changed since
+    /// the last distribution (membership and SFU list arrive independently).
+    /// Idempotent via `m_lastKeyTargets`.
     void distributeKeyIfNeeded();
-    /// Rotate and redistribute the media key. Called on join and whenever
-    /// the participant set changes, because a leaver must not keep being
-    /// able to decrypt.
+    /// Rotate and redistribute the media key: on join and whenever the
+    /// participant set changes, so a leaver cannot keep decrypting.
     void rotateAndDistributeKey();
-    /// Unpublish `cid` and clear it. Takes the member by reference so the
-    /// slot cannot be left naming a track that no longer exists.
+    /// Unpublish `cid` and clear it (by reference, so it cannot go stale).
     void unpublishTrack(QString &cid);
     /// Our own row in the SFU participant list, or an empty map.
     QVariantMap ownParticipantRow() const;
-    /// Tell the SFU whether our microphone track is muted, so every other
-    /// client's mic indicator matches ours. Goes BOTH ways, which only the
-    /// microphone can: it is published once per call and never republished,
-    /// so our row carries at most one of them. It compares against the state
-    /// the server currently reports and sends only on a difference, so it
-    /// converges and cannot loop.
+    /// Sync our microphone's mute state to the SFU in both directions, so
+    /// other clients' indicators match. Compares with what the server reports
+    /// and sends only on a difference, so it converges.
     void syncMicMuteToSfu();
-    /// The Matrix user id behind one SFU identity, or empty when the
-    /// membership has not been read yet. Empty means UNKNOWN: nothing is
-    /// stored under a guess, and nothing is read back under one either.
+    /// The Matrix user id behind an SFU identity, or empty (unknown) until the
+    /// membership is read. Nothing is stored or read under a guess.
     QString userIdForIdentity(const QString &identity) const;
-    /// Push every stored per-person volume into the engine and the model.
-    /// Called whenever the participant set changes, because a row that has
-    /// just appeared is born at unity and a person the user turned down two
-    /// calls ago must not come back loud.
+    /// Push stored per-person volumes into the engine and the model whenever
+    /// the participant set changes; new rows start at unity.
     void applyStoredVolumes();
     void applyStoredShareVolumes();
-    /// THE ONE PLACE a participant level reaches the audio graph, and the one
-    /// place that fact is recorded. Does nothing when the stream id is not
-    /// known yet, which is the state every guard above it has to survive.
-    /// Returns whether the ENGINE was actually told — false when the stream
-    /// id is not known yet, and false in a build with no media engine.
+    /// The one place a participant level reaches the audio graph, and where
+    /// that is recorded. Returns whether the engine was told (false when the
+    /// stream id is unknown or there is no engine).
     bool applyEngineParticipantVolume(const QString &identity, int percent);
-    /// Its share sibling. A share's audio is a DIFFERENT track from the
-    /// sharer's microphone, so it is addressed by track key as well as by
-    /// stream id, and either being unknown means there is nothing to set yet.
+    /// Share counterpart: addressed by track key as well as stream id; does
+    /// nothing until both are known.
     void applyEngineShareVolume(const QString &shareId,
                                 const QString &identity, int percent);
-    /// Mute every track of `source` ("camera" / "screen_share") that the SFU
-    /// still reports as LIVE. MUTE ONLY — it never unmutes, deliberately.
-    ///
-    /// A stop is a mute on this wire rather than a removal, so the corpse of a
-    /// stopped track stays listed; its sid is server-assigned and nothing maps
-    /// it back to the cid we published, so an unmute could name the dead one
-    /// and put a track producing no RTP back on the wire. Nothing is lost:
-    /// video is published fresh every time and a fresh track is reported
-    /// unmuted. See the definition.
+    /// Mute every track of `source` the SFU still reports live. Never unmutes;
+    /// see the definition.
     void muteOwnTrackIfLive(const QString &source);
-    /// The video mirror of applyAudioState(): push our camera / screen-share
-    /// intent to the SFU.
-    ///
-    /// This exists because NOTHING ELSE tells the server a video track ended.
-    /// The client seam has only `sfuAddTrack` and `sfuMuteTrack`, and the
-    /// Rust bridge sends no unpublish message of any kind, so stopping a
-    /// share used to tear down the local pipeline and leave the SFU still
-    /// listing an unmuted screen_share track for us — forwarded to everyone
-    /// else, and read back by rebuildModels() as "still sharing".
+    /// Push our camera/share intent to the SFU. Nothing else tells the server
+    /// a video track ended: the wire has only AddTrack and Mute.
     void applyVideoState();
-    /// Begin capturing the camera, by whichever route this machine needs.
-    ///
-    /// Synchronous on the DIRECT route, which is every desktop build and the
-    /// only one that has ever been live-validated. On the PORTAL route it
-    /// dispatches an `AccessCamera` request and returns: the publish happens
-    /// in the portal's `ready` handler, so `m_cameraOn` is true with no track
-    /// published for as long as the user takes to answer the dialog. That
-    /// window is what `m_cameraAwaitingPortal` exists for — a second press,
-    /// a leave, or a cancelled dialog all have to be able to unwind it.
+    /// Begin capturing the camera by the route this machine needs. Direct is
+    /// synchronous. The portal route sends an AccessCamera request and
+    /// publishes in the `ready` handler; until then `m_cameraOn` is true with
+    /// no track, tracked by `m_cameraAwaitingPortal`.
     void startCameraCapture();
     /// Declare and publish the camera track. `pipewireFd` is a portal
-    /// descriptor, or -1 for a direct capture; OWNERSHIP PASSES to the engine
-    /// (SfuMediaEngine::publishVideo), which closes it when the bin goes.
+    /// descriptor or -1; ownership passes to SfuMediaEngine::publishVideo().
     void publishCameraTrack(int pipewireFd);
-    /// Give up on a camera that was turned on and never published — a
-    /// declined portal dialog, a failed one, or a call that ended while it
-    /// was open. Puts `cameraOn` back to false and tells the SFU, or the
-    /// button stays lit over a camera that is not running.
+    /// Give up on a camera turned on but never published (declined or failed
+    /// dialog, call ended): reset `cameraOn` and tell the SFU.
     void abandonPendingCamera();
-    /// Hand one LOCAL self-view surface an empty frame, so it stops painting
-    /// the last picture the capture gave it. See the definition.
+    /// Hand a local self-view surface an empty frame; see the definition.
     void clearLocalVideoSurface(const QString &streamId);
     QString userFacingError(const QString &category) const;
-    /// Plain wording for one `RtcController::joinBlockReason` token, for the
-    /// case where `join()` is reached with a block standing. Static because
-    /// it depends on nothing but the token. See the definition for why a
-    /// fourth copy of this mapping is deliberate.
+    /// Plain wording for a `RtcController::joinBlockReason` token when join()
+    /// is reached with a block standing.
     static QString joinRefusalMessage(const QString &block);
 
     QPointer<MatrixClient> m_client;
     QPointer<RtcController> m_rtc;
-    /// Owned. Created eagerly because a tile can attach before any media
-    /// exists, and dropping those attachments would mean the first frames of
-    /// every call go nowhere.
+    /// Owned. Created eagerly because tiles can attach before any media
+    /// exists.
     SfuVideoRouter *m_videoRouter = nullptr;
     QPointer<SfuMediaEngine> m_engine;
     QPointer<ScreenCastPortal> m_portal;
     QPointer<CameraPortal> m_cameraPortal;
-    /// A camera the user has switched ON whose portal grant has not come back
-    /// yet. `m_cameraOn` is already true (the control must respond), but no
-    /// track is declared and none is published.
+    /// The camera is on but its portal grant has not arrived: `m_cameraOn` is
+    /// true, but nothing is declared or published.
     bool m_cameraAwaitingPortal = false;
     QPointer<SettingsManager> m_settings;
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-    /// A demo call is staged, so `rebuildModels()` must leave the participant
-    /// model alone: it reconciles against the SFU, and in a demo there is no
-    /// SFU, so every rebuild would wipe the fictional people back to nothing.
+    /// A demo call is staged; rebuildModels() must leave the model alone.
     bool m_demoCall = false;
 #endif
     State m_state = State::Idle;
     QString m_roomId;
     QString m_lastError;
-    /// A user-facing call failure has been announced and not yet withdrawn.
-    ///
-    /// `callFailed` is a one-shot notice the shell copies into the status
-    /// strip, so without this the refusal from a failed join stayed on
-    /// screen through the successful join that replaced it. Set wherever a
-    /// state carries a reason; cleared — with an empty `callFailed` — the
-    /// moment a later attempt gets past the gate that refused. See
+    /// A user-facing failure has been announced and not yet withdrawn; see
     /// setState().
     bool m_failureAnnounced = false;
     QString m_focusUrl;
     QString m_membershipEventId;
-    /// Per-share level, 0..200, for the slider to read back its own
-    /// position. Cleared with the call. NOT a standing preference: nothing
-    /// re-applies it to a track that appears later, and a restarted share
-    /// gets a new id.
+    /// Per-share levels chosen during this call, so the slider reads back its
+    /// position; cleared with the call. The persistent preference is stored
+    /// per owner in settings.
     QHash<QString, int> m_shareVolumes;
-    /// Shadow records of what reached the engine. See
-    /// engineParticipantVolumeForTest(). Bounded by the number of people in
-    /// the call and cleared with it.
+    /// What reached the engine; see engineParticipantVolumeForTest(). Cleared
+    /// with the call.
     QHash<QString, int> m_engineParticipantVolume;
     QHash<QString, int> m_engineShareVolume;
-    /// Sampled BEFORE our membership publishes: were we the first in?
-    /// Announce only then, or every joiner posts a "started a call" row.
+    /// Sampled before our membership publishes: were we first in? Only then
+    /// is the call announced.
     bool m_announceOnPublish = false;
-    /// "video" or "audio" — the intent the announcement carries, which is
-    /// what decides whether a receiver offers a video answer.
+    /// "video" or "audio": the announcement's intent.
     QString m_announceIntent;
     QString m_delayId;
-    /// WHY `m_delayId` is empty, in rtc.rs's own vocabulary; empty when a
-    /// delayed retraction IS armed. `unrecognized`/`not_found`/`no_delay_id`
-    /// mean the homeserver has no usable MSC4140 endpoint and there is
-    /// nothing to retry; anything else is transient or room-specific.
+    /// Why `m_delayId` is empty, in rtc.rs's vocabulary; empty when armed.
+    /// `unrecognized`/`not_found`/`no_delay_id` mean no usable MSC4140
+    /// endpoint; anything else is transient or room-specific.
     QString m_delayedCategory;
     QString m_ownIdentity;
-    /// Populated while the picker is open; cleared when a source is chosen
-    /// or the gesture is abandoned. On Linux this is populated ONLY on the
-    /// no-portal X11 fallback — with a portal it stays empty, because the
-    /// portal's own dialog is the picker.
+    /// Populated while the picker is open. On Linux only on the no-portal X11
+    /// fallback.
     QVariantList m_screenShareSources;
     bool m_withVideo = false;
 
@@ -1134,74 +732,43 @@ private:
     bool m_micMutedBeforeDeafen = false;
     bool m_cameraOn = false;
     bool m_screenSharing = false;
-    /// Whether a new share should carry the computer's audio. Defaults ON:
-    /// sharing a video with no sound is the surprising outcome, and the
-    /// capture is only ever armed while a share is actually running.
+    /// Whether a new share carries the computer's audio. Defaults on: a
+    /// silent video share is the surprising outcome.
     bool m_shareAudioEnabled = true;
     bool m_handRaised = false;
-    /// The `m.reaction` OUR raise produced. A hand can only be lowered by
-    /// redacting the specific event that raised it, and this device is the
-    /// only thing that knows which one that was.
+    /// The `m.reaction` our raise produced; lowering redacts exactly this.
     QString m_handReactionId;
     quint64 m_handOp = 0;
-    /// reaction event id -> the SFU identity whose hand it is.
-    ///
-    /// A redaction names only what it removed — the reaction itself is gone —
-    /// so this is the only way to answer "whose hand just went down". It is
-    /// also what makes forwarding every redaction in every room cheap: one
-    /// hash lookup rejects the ones that are not ours.
+    /// Reaction event id -> SFU identity whose hand it is. A redaction names
+    /// only what it removed, so this answers whose hand went down (and
+    /// rejects unrelated redactions with one lookup).
     QHash<QString, QString> m_handReactions;
-    /// Raises whose membership had not been read yet, kept to be retried.
-    ///
-    /// A hand is attributed through the `m.call.member` state event it
-    /// annotates, and the reaction can perfectly well arrive first — the
-    /// membership arrives over the sync/session read, the reaction over the
-    /// sync handler, and nothing orders the two (the same race the media-key
-    /// lane already has its own repair for). A raise that lost that race was
-    /// simply DROPPED, and only the once-per-join backlog sweep could have
-    /// caught it, so a hand raised a moment before we finished joining was
-    /// invisible for the rest of the call.
-    ///
-    /// BOUNDED, and only genuinely-unknown memberships are parked
-    /// (RtcController::knowsMembership): an annotation of a membership whose
-    /// owner is somebody else is a forgery and is refused outright, so it
-    /// cannot fill this. Retried from the sessionChanged handler, which is
-    /// where the membership that resolves it arrives.
-    ///
-    /// ONE LANE, TWO KINDS. A transient reaction loses exactly the same race
-    /// and is parked in the same store rather than in a second one beside
-    /// it: an empty `emoji` is a raise, a non-empty one is a reaction. A
-    /// parked reaction also carries WHEN IT ARRIVED, because it must not be
-    /// drawn after its own window has already passed — a membership read can
-    /// land seconds later, and a reaction that fired ten seconds ago
-    /// appearing now is a lie about the present.
+    /// Annotations whose membership had not been read yet, retried from the
+    /// sessionChanged handler. Raises and reactions share this store (an empty
+    /// `emoji` is a raise). Bounded; only genuinely unknown memberships are
+    /// parked, so forgeries cannot fill it. Reactions also carry their arrival
+    /// time and are not drawn once their window has passed.
     struct PendingAnnotation {
         QString sender;
         QString membershipEventId;
         /// Empty for a raised hand; the reaction's emoji otherwise.
         QString emoji;
-        /// Monotonic-ish arrival time, for the reaction window only.
+        /// Arrival time, for the reaction window only.
         qint64 receivedAtMs = 0;
     };
-    /// Keyed by the annotating event's id (a reaction event id for a raise,
-    /// the reaction event's own id for a reaction).
+    /// Keyed by the annotating reaction event id for raises; see
+    /// onCallReactionReceived() for reactions.
     QHash<QString, PendingAnnotation> m_pendingAnnotations;
-    /// The live reaction window. `kReactionActiveMs` in production; a test
-    /// may shorten it (setReactionWindowMsForTest) and nothing else writes it.
+    /// The reaction window: `kReactionActiveMs`, or shorter in tests.
     int m_reactionWindowMs = kReactionActiveMs;
-    /// The op id of our own in-flight reaction send, so its answer can be
-    /// told from every other send on the shared result signal.
+    /// Our in-flight reaction send, to recognise its answer.
     quint64 m_reactionOp = 0;
-    /// When this device last sent a reaction. Sending again inside the
-    /// display window is refused locally rather than put on the wire:
-    /// element-call refuses the same way, every other client would drop the
-    /// duplicate on arrival anyway, and a held-down control must not become
-    /// a room-wide event storm.
+    /// When this device last sent a reaction; another inside the window is
+    /// refused locally.
     qint64 m_lastReactionSentMs = 0;
     bool m_mediaEncrypted = false;
-    // Streams whose frames are arriving and being dropped, by LiveKit sid.
-    // Cleared per stream when one of its frames decrypts again, and wholly
-    // on teardown, so a badge cannot outlive the call that raised it.
+    // Streams whose frames are being dropped, by LiveKit sid. Cleared per
+    // stream on recovery and entirely on teardown.
     QSet<QString> m_blockedStreams;
     /// Remote track sid -> last reported mute state; see
     /// noteRemoteTrackMutes(). Bounded; cleared with the participants.
@@ -1211,119 +778,87 @@ private:
     };
     QHash<QString, RemoteTrackMute> m_remoteTrackMuted;
     bool m_microphoneSilent = false;
-    /// Whether the ROOM is encrypted, so call media must be too. Captured at
-    /// join from the tri-state the client reports, and UNKNOWN fails closed
-    /// to true — a call in a room we cannot prove is unencrypted encrypts.
+    /// Whether the room is encrypted, so call media must be. Captured at join;
+    /// unknown fails closed to true.
     bool m_roomEncrypted = true;
 
-    /// Bumped on every join/leave. Every async reply carries the generation
-    /// it was dispatched under; a mismatch is dropped.
+    /// Bumped on every join/leave; async replies from another generation are
+    /// dropped.
     quint64 m_generation = 0;
     quint64 m_publishOp = 0;
-    /// A membership publish that was still IN FLIGHT when the call was torn
-    /// down, and the room it was for.
-    ///
-    /// Leaving during `Preparing` used to zero `m_publishOp`, so the answer
-    /// arrived, matched nothing and was discarded unread — no log, no
-    /// retraction, no delay-id cancellation. The server can perfectly well
-    /// apply that publish AFTER the leave's retraction, which re-creates a
-    /// live membership for a device that is not in the call and leaves the
-    /// delayed retraction it armed uncancelled. The header of this file says
-    /// what that costs everyone else: media keys addressed to a device that
-    /// cannot use them, and a participant "waiting for media" forever.
-    ///
-    /// These deliberately OUTLIVE the call, exactly as `m_retract*` do.
+    /// A membership publish still in flight when the call was torn down, and
+    /// its room. If the server applies it after our retraction, it recreates
+    /// a ghost membership, so its answer is retracted. Outlives the call, like
+    /// `m_retract*`.
     quint64 m_abandonedPublishOp = 0;
     QString m_abandonedPublishRoomId;
-    /// Whether a membership state event was actually WRITTEN for this call.
-    ///
-    /// Retracting is a state-event write of its own, so issuing one when
-    /// nothing was ever published is a doomed request whose failure is then
-    /// reported as "this device stays in the room's call membership until
-    /// the server's delayed retraction fires" — about a membership that
-    /// never existed. Set whenever the server named an event id, INCLUDING
-    /// on a reported failure: rtc.rs reports `ok=false` when the long-expiry
-    /// write landed and the short-expiry replacement did not, and that first
-    /// write is a live membership.
+    /// Whether a membership state event was actually written, so teardown
+    /// does not issue a doomed retraction. Set whenever the server named an
+    /// event id, including on a reported failure (see onMembershipPublished).
     bool m_membershipPublished = false;
-    /// A membership RE-publish issued by the refresh heartbeat. Distinct from
-    /// m_publishOp because its answer must not re-run the join sequence.
+    /// A heartbeat re-publish; its answer must not re-run the join sequence.
     quint64 m_refreshOp = 0;
     /// The in-flight delayed-leave restart, so its failure is actionable.
     quint64 m_delayedRestartOp = 0;
-    /// The in-flight retraction, and everything needed to re-issue it. These
-    /// deliberately OUTLIVE the call: teardown() clears m_roomId, and a
-    /// retraction that has not been acknowledged is still owed to the room.
+    /// The in-flight retraction and what is needed to re-issue it. Outlives
+    /// the call: an unacknowledged retraction is still owed to the room.
     quint64 m_retractOp = 0;
     QString m_retractRoomId;
     QString m_retractDelayId;
     int m_retractAttempts = 0;
-    /// When the membership state event was last (re-)published, so the
-    /// re-publish cadence is independent of the 5 s delayed-restart tick.
+    /// When the membership was last (re-)published, for the re-publish
+    /// cadence, independent of the 5 s delayed-restart tick.
     qint64 m_lastPublishMs = 0;
 
     QVariantList m_participants;
-    /// The LAST SpeakersChanged round, kept so a participant update can
-    /// re-apply it to a row that has only just appeared.
-    ///
-    /// Both halves are kept. `level` (LiveKit's SpeakerInfo carries it,
-    /// 0..1, loudest first) is what makes a volume-reactive ring possible at
-    /// all — Discord's own protocol has no such field, its speaking payload
-    /// being a bitmask. `active` is kept alongside it so an SFU that reports
-    /// only the flag still lights a binary ring instead of a dead one. What
-    /// is NOT done is inventing a level from the flag.
+    /// The last SpeakersChanged round, re-applied to newly appeared rows.
+    /// `level` (0..1) drives the volume-reactive ring; `active` still lights
+    /// a binary ring for an SFU that reports only the flag. A level is never
+    /// invented from the flag.
     QHash<QString, bool> m_speaking;
     QHash<QString, qreal> m_speakingLevel;
     QHash<QString, QString> m_connectionQuality;
 
-    /// Owned. Created once and emptied on leave — never replaced, so a bound
-    /// view is never re-bound.
+    /// Owned. Created once and emptied on leave, never replaced.
     CallParticipantModel *m_participantModel = nullptr;
     CallShareModel *m_shareModel = nullptr;
     CallStageState *m_stageState = nullptr;
 
-    /// Bumped every time WE start sharing, so each local share gets a
-    /// distinct id (`local:<n>`). Our own share exists the moment the portal
-    /// grants it, before the SFU has stated a track sid for it, so it cannot
-    /// be keyed on the sid the way a remote share is — and reusing one id
-    /// across a stop/start would let a dismissal from the first share
-    /// silently suppress the second.
+    /// Bumped each time we start sharing, giving local shares distinct ids
+    /// (`local:<n>`): our share exists before the SFU names its track, and a
+    /// reused id would let an old dismissal suppress a new share.
     quint64 m_localShareEpoch = 0;
 
-    /// Membership must be refreshed before it expires, and the delayed
-    /// retraction restarted, or the server cleans us out mid-call.
+    /// Refreshes the membership and restarts the delayed retraction.
     QTimer m_refreshTimer;
-    /// Bounded retry for a retraction the server did not accept. Leaving a
-    /// call over a flaky connection is the ordinary case, and until this
-    /// existed the only attempt was fire-and-forget.
+    /// Bounded retry for a retraction the server did not accept.
     QTimer m_retractRetryTimer;
     /// Track ids we published, so leave can unpublish them.
     QStringList m_publishedTrackIds;
-    /// cid -> the sid LiveKit assigned, filled from its TrackPublished
-    /// reply. A cid that never appears here was declared and never published.
+    /// cid -> sid LiveKit assigned (TrackPublished). A cid missing here was
+    /// declared but never published.
     QHash<QString, QString> m_publishedTrackSids;
 
-    /// A media key delivered before this controller was in the call. Held in
-    /// memory only and replayed on join; see onMediaKeyReceived().
+    /// A media key delivered before we were in the call; held in memory and
+    /// replayed on join. See onMediaKeyReceived().
     struct ParkedKey {
         QString roomId;
         QString sender;
         QString deviceId;
         int index = 0;
         QString keyBase64;
-        /// Monotonic, from m_parkClock. Wall-clock milliseconds would make
-        /// the age limit a lie across an NTP step.
+        /// Monotonic, from m_parkClock, so the age limit survives clock steps.
         qint64 arrivedMs = 0;
     };
     static constexpr int kMaxParkedKeys = 8;
-    /// At most two indices held for any one sending device, so no sender can
-    /// crowd out another's key.
+    /// At most two indices per sending device, so no sender crowds out
+    /// another.
     static constexpr int kMaxParkedKeysPerDevice = 2;
     /// A key nobody claimed within this long was not for a call we joined.
     static constexpr qint64 kParkedKeyTtlMs = 120000;
     QList<ParkedKey> m_parkedKeys;
     QElapsedTimer m_parkClock;
-    /// Keep a validated key that arrived too early. Bounded; see the call site.
+    /// Keep a validated key that arrived too early. Bounded.
     void parkMediaKey(const QString &roomId, const QString &sender,
                       const QString &deviceId, int index,
                       const QString &keyBase64);
@@ -1331,30 +866,23 @@ private:
     void expireParkedKeys();
     /// Replay whatever arrived early, then forget it.
     void applyParkedKeys();
-    /// The published track id PER KIND. One list plus "unpublish the last
-    /// one" cannot express this: with a camera and a screen share live at
-    /// once, stopping either one took whichever was published second.
+    /// The published track id per kind, so stopping one never stops another.
     QString m_audioCid;
     QString m_cameraCid;
     QString m_screenCid;
-    /// The share's AUDIO track, empty when the share carries none. Kept
-    /// separately from m_screenCid because the two retire together but are
-    /// two tracks on the wire and either may be absent.
+    /// The share's audio track, empty when there is none. Retires with the
+    /// share but is a separate track.
     QString m_shareAudioCid;
     int m_keyIndex = 0;
-    /// The newest outbound key index we KNOW reached at least one device.
-    ///
-    /// -1 until a distribution is confirmed delivered. It is the difference
-    /// between "nobody needs our key yet" and "somebody is holding one", and
-    /// that distinction decides whether a FAILED distribution may become the
-    /// key our frames go out under. See rotateAndDistributeKey().
+    /// The newest outbound key index known to have reached a device, or -1.
+    /// Decides whether an undelivered key may be adopted; see
+    /// rotateAndDistributeKey().
     int m_deliveredKeyIndex = -1;
-    /// The addressable-device set the last media key actually reached. See
-    /// distributeKeyIfNeeded(); an empty set is never recorded.
+    /// The device set the last media key reached; see distributeKeyIfNeeded().
+    /// An empty set is never recorded.
     QString m_lastKeyTargets;
     int m_keyLaneReconciles = 0;
-    /// Local ICE candidates produced this session. Diagnostic only — zero on
-    /// the publisher means the peer connection never started, which is what
-    /// LiveKit's 60 s JOIN_FAILURE timeout is reporting.
+    /// Local ICE candidates this session. Zero on the publisher means the peer
+    /// connection never started (LiveKit's 60 s JOIN_FAILURE).
     int m_candidatesSent = 0;
 };

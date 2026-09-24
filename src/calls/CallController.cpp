@@ -18,20 +18,17 @@ constexpr int kRecentEndedCap = 32;
 constexpr qint64 kSenderClockSkewToleranceMs = 10000;
 constexpr qint64 kMinLifetimeMs = 5000;
 constexpr qint64 kMaxLifetimeMs = 300000;
-// At most this many busy auto-rejects per live session; beyond it,
-// unsolicited invites are dropped silently (still no ring, no state
-// change) so a hostile sender cannot pump outbound sends.
+// At most this many busy auto-rejects per session; further unsolicited
+// invites are dropped silently so a hostile sender cannot pump outbound sends.
 constexpr int kMaxBusyRejectsPerSession = 8;
 constexpr int kMaxPendingOps = 64;
-// Bound on the media backend producing an offer/answer: a hung engine must
-// not wedge the session in Inviting/Ringing forever.
+// Bound on offer/answer production, so a hung engine cannot wedge the session.
 constexpr qint64 kMediaProductionTimeoutMs = 15000;
 
 QString glareWinner(const QString &a, const QString &b)
 {
-    // MSC2746 glare rule as implemented by matrix-js-sdk: the
-    // lexicographically smaller call id survives, so both peers reach
-    // opposite, consistent conclusions and exactly one call lives.
+    // MSC2746 glare rule as in matrix-js-sdk: the lexicographically smaller
+    // call id survives, so both peers agree on which call lives.
     return a.compare(b) <= 0 ? a : b;
 }
 } // namespace
@@ -52,8 +49,8 @@ void CallController::onLifetimeExpired()
 {
     if (!sessionLive())
         return;
-    // Media production timed out before anything reached the wire: purely
-    // local failure, nothing to announce.
+    // Media production timed out before anything was sent: a local failure,
+    // nothing to announce.
     if (m_session.offerPending || m_session.answerPending) {
         endSession(EndReason::MediaFailed);
         return;
@@ -66,8 +63,7 @@ void CallController::onLifetimeExpired()
                                      QStringLiteral("invite_timeout")),
                 m_session.callId);
     }
-    // Inbound expiry just stops ringing — the caller's own timer is
-    // authoritative for the wire.
+    // Inbound expiry just stops ringing; the caller's timer is authoritative.
     endSession(EndReason::InviteTimeout);
 }
 
@@ -78,9 +74,8 @@ void CallController::setClient(MatrixClient *client)
     if (m_client)
         disconnect(m_client, nullptr, this, nullptr);
     m_client = client;
-    // A different client means a different homeserver relationship: the
-    // TURN cache and any in-flight fetch belong to the old one (review
-    // round 3 — a stranded m_turnOp would block every future fetch).
+    // A new client is a new homeserver: drop the TURN cache and any in-flight
+    // fetch, or a stale m_turnOp would block every future fetch.
     m_turnOp = 0;
     m_turnExpiryMs = 0;
     m_turnUris.clear();
@@ -99,25 +94,20 @@ void CallController::setClient(MatrixClient *client)
             &CallController::onRemoteCandidates);
     connect(m_client, &MatrixClient::callTurnServersReceived, this,
             &CallController::onTurnServers);
-    // Tell the bridge whether SDP transport is wanted. With no backend
-    // (production today) the Rust side never puts an SDP on the poll lane
-    // at all.
+    // Tell the bridge whether SDP transport is wanted; without a backend the
+    // Rust side never queues SDP.
     m_client->setCallMediaCapable(m_mediaBackend != nullptr);
-    // Registration order is not guaranteed (AppController registers the
-    // engine BEFORE the client): whichever of setClient/setMediaBackend
-    // completes the pair kicks the TURN pre-fetch, so the FIRST call of a
-    // session already has relay servers (review round 3 HIGH — without
-    // this, a cold cache meant host-candidates-only for the whole first
-    // call, with no ICE restart to recover).
+    // Registration order is not guaranteed, so whichever of setClient and
+    // setMediaBackend completes the pair pre-fetches TURN; otherwise the first
+    // call would have host candidates only.
     if (m_mediaBackend)
         requestTurnServersIfStale();
 }
 
 bool CallController::muteControlAvailable() const
 {
-    // Two conditions, both required: an engine exists AND it actually
-    // implements mute. The seam's default is a no-op, so an engine that
-    // does not override it must not light up the control.
+    // Needs an engine that actually implements mute; the seam's default is a
+    // no-op.
     return !m_mediaBackend.isNull()
         && m_mediaBackend->supportsMuteControl();
 }
@@ -127,9 +117,7 @@ void CallController::setMicrophoneMuted(bool muted)
     if (m_microphoneMuted == muted)
         return;
     m_microphoneMuted = muted;
-    // Unmuting by hand while deafened is contradictory (deafen implies a
-    // muted mic), so it also lifts the deafen rather than leaving the user
-    // in a state where the button says live and the engine says silent.
+    // Unmuting while deafened lifts the deafen too.
     if (!muted && m_deafened) {
         m_deafened = false;
         applyAudioStateToBackend();
@@ -150,8 +138,7 @@ void CallController::setDeafened(bool deafened)
     if (m_deafened == deafened)
         return;
     if (deafened) {
-        // Remember what to come back to: a user who was already muted must
-        // not be published live again by undeafening.
+        // Remember the prior mute so undeafening restores it.
         m_micMutedBeforeDeafen = m_microphoneMuted;
         m_deafened = true;
         m_microphoneMuted = true;
@@ -167,11 +154,9 @@ void CallController::toggleDeafened() { setDeafened(!m_deafened); }
 
 void CallController::resetAudioIntent()
 {
-    // The audio intent deliberately survives call-to-call (the familiar
-    // convention), but NOT an account change. Everything else on these two
-    // paths is cleared for the next account, and a deafened state carried
-    // silently across a sign-out would leave the next account unable to
-    // hear with no visible cause.
+    // Audio intent survives between calls but not an account change: a
+    // deafened state carried across sign-out would leave the next account
+    // unable to hear.
     if (!m_microphoneMuted && !m_deafened && !m_micMutedBeforeDeafen)
         return;
     m_microphoneMuted = false;
@@ -182,8 +167,7 @@ void CallController::resetAudioIntent()
 
 void CallController::applyAudioStateToBackend()
 {
-    // Nothing to apply without a live session; the intent is kept and
-    // re-applied when one starts (see onMediaConnected).
+    // Without a live session the intent is kept and applied when one starts.
     if (m_mediaBackend.isNull() || !sessionLive()
         || m_session.callId.isEmpty())
         return;
@@ -201,8 +185,7 @@ void CallController::setMediaBackend(CallMediaBackend *backend)
     if (m_mediaBackend == backend)
         return;
     if (m_mediaBackend) {
-        // A live call's media job belongs to the OLD backend — close it
-        // there; endSession later must not close it on the new one.
+        // A live call's media job belongs to the old backend: close it there.
         if (sessionLive())
             m_mediaBackend->close(m_session.callId);
         disconnect(m_mediaBackend, nullptr, this, nullptr);
@@ -235,14 +218,13 @@ void CallController::requestTurnServersIfStale()
         return;
     const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
     if (m_turnOp != 0) {
-        // A dropped result event (poll-queue overflow) must not strand
-        // the op forever and silently disable TURN for the session.
+        // A lost result event must not strand the op and disable TURN.
         if (nowMs - m_turnRequestedAtMs < 30000)
             return; // one fetch in flight
         m_turnOp = 0;
     }
     if (m_turnExpiryMs > nowMs + 60000) {
-        // Cache still comfortably valid: (re)apply it to the engine.
+        // Cache still valid: (re)apply it.
         m_mediaBackend->setIceServers(m_turnUris, m_turnUsername,
                                       m_turnPassword);
         return;
@@ -262,15 +244,13 @@ void CallController::onTurnServers(quint64 opId, bool ok,
         return;
     m_turnOp = 0;
     if (!ok) {
-        // Honest degradation: host candidates only. Never a third-party
-        // STUN fallback. Category only — never credentials — may be
-        // logged.
+        // Degrade to host candidates; never a third-party STUN fallback. Log
+        // the category only, never credentials.
         qCInfo(lcCalls) << "TURN fetch failed category=" << category;
         return;
     }
-    // Defensive bounds on the homeserver's answer (same philosophy as the
-    // candidate caps): a hostile/broken server must not stall the GUI
-    // thread with a giant list or oversized credentials.
+    // Bound the homeserver's answer so a broken server cannot stall the GUI
+    // thread with huge lists or credentials.
     m_turnUris = uris.mid(0, 16);
     m_turnUsername = username.left(1024);
     m_turnPassword = password.left(1024);
@@ -291,17 +271,15 @@ void CallController::onRemoteCandidates(const QString &roomId,
     if (!m_mediaBackend || !sessionLive() || m_session.rtc
         || roomId != m_session.roomId || callId != m_session.callId)
         return;
-    // Once the remote party is known, only its candidates are trickled into
-    // the engine: a candidate is a STUN check to an address of the sender's
-    // choosing, and this signal carries no sender for a user match, so the
-    // party id -- locked from the invite or the first answer -- is the
-    // discriminator. Before that lock (outbound, nobody has answered) any
-    // answering device may legitimately trickle, per MSC2746.
+    // Once the remote party is known (from the invite or first answer), only
+    // its candidates are used: each is a STUN check to an address of the
+    // sender's choosing. Before that, any answering device may trickle
+    // (MSC2746).
     if (!m_session.remotePartyId.isEmpty()
         && partyId != m_session.remotePartyId)
         return;
-    // Inbound + still ringing: the engine has no session yet (it starts
-    // in answer()); hold the caller's trickle until then. Bounded.
+    // Inbound and still ringing: the engine has no session until answer(), so
+    // hold the trickle. Bounded.
     if (m_session.direction == Direction::Inbound
         && m_state == State::Ringing && !m_session.answerPending) {
         for (const QVariant &value : candidates) {
@@ -337,7 +315,7 @@ void CallController::onMediaLocalCandidate(const QString &callId,
         entry.insert(QStringLiteral("sdpMid"), sdpMid);
     entry.insert(QStringLiteral("sdpMLineIndex"), sdpMLineIndex);
     m_pendingLocalCandidates.append(entry);
-    // Bounded: a runaway engine cannot queue unbounded batches.
+    // Bounded against a runaway engine.
     while (m_pendingLocalCandidates.size() > 64)
         m_pendingLocalCandidates.removeFirst();
     if (!m_candidateFlushTimer.isActive())
@@ -366,9 +344,7 @@ void CallController::flushLocalCandidates()
     }
     if (m_pendingLocalCandidates.isEmpty())
         return;
-    // The Rust side rejects batches over 32 entries WHOLE (its
-    // hostile-input bound); chunk so a fat gathering burst can never be
-    // silently lost (review round 3).
+    // The Rust side rejects batches over 32 entries whole; chunk them.
     constexpr int kMaxPerEvent = 32;
     while (!m_pendingLocalCandidates.isEmpty()) {
         const QVariantList chunk = m_pendingLocalCandidates.mid(0, kMaxPerEvent);
@@ -419,9 +395,8 @@ bool CallController::placeCall(const QString &roomId, const QString &invitee)
 {
     m_lastRefusal.clear();
     if (!m_mediaBackend) {
-        // Honest refusal: no media backend exists in the tree, so there is
-        // nothing that can produce an offer SDP. A stubbed offer would
-        // place a call that dies at the peer — worse than refusing.
+        // No backend can produce an offer; a stubbed one would place a call
+        // that dies at the peer.
         m_lastRefusal = QStringLiteral("no_media_backend");
         return false;
     }
@@ -451,17 +426,13 @@ bool CallController::placeCall(const QString &roomId, const QString &invitee)
     m_endReason = EndReason::None;
     setState(State::Inviting);
     requestTurnServersIfStale();
-    // The invite is dispatched when the backend delivers the offer; until
-    // then the timer bounds offer PRODUCTION, and re-arms for the wire
-    // lifetime once the invite is out.
+    // The invite is sent once the backend delivers the offer; until then the
+    // timer bounds offer production, then re-arms for the wire lifetime.
     armLifetimeTimer(kMediaProductionTimeoutMs);
     m_mediaBackend->createOffer(m_session.callId);
-    // Seed the engine with the user's standing intent NOW, not on connect.
-    // createOffer builds the pipeline, whose valve starts open and whose
-    // receive volume starts unmuted, and `connected` reaches us through a
-    // QUEUED marshal — i.e. at least one event-loop turn AFTER RTP is
-    // already flowing. Applying only there publishes a muted user live, and
-    // lets a deafened user hear, for the opening window of every call.
+    // Apply the user's mute/deafen intent now: the pipeline starts unmuted and
+    // `connected` arrives through a queued signal after RTP is already
+    // flowing.
     applyAudioStateToBackend();
     return true;
 }
@@ -478,25 +449,11 @@ bool CallController::answer()
         return false;
     }
     if (m_session.rtc) {
-        // WRONG LANE — and the reason this refusal exists has CHANGED.
-        //
-        // What it used to believe: "a MatrixRTC ring needs SFU membership we
-        // deliberately do not publish". That premise died with the 2026-08-24
-        // interop round. Lightning publishes membership, joins the SFU, and
-        // carries audio and screen share against Element.
-        //
-        // The refusal is still correct, because this method IS the legacy
-        // `m.call.*` lane: it takes a remote SDP offer out of the single-shot
-        // store and drives CallMediaBackend. An RTC ring has no offer and no
-        // party to answer — it announces a SESSION, which is answered by
-        // JOINING it (SfuCallController::join, the same action the room
-        // banner and the timeline's call row already offer).
-        //
-        // So this must never "fall back" to the legacy path: an m.call.invite
-        // sent in reply to an RTC ring would ring every member of the room.
-        // Lane selection belongs to the surface (IncomingCallPrompt reads
-        // `rtcRing` and routes), not to a fallback here. The token is kept
-        // as-is because CallControllerTest pins it.
+        // A MatrixRTC ring is answered by joining the session
+        // (SfuCallController::join), not through this legacy `m.call.*` path:
+        // there is no offer to answer, and an m.call.invite in reply would
+        // ring every member of the room. The surface routes by `rtcRing`.
+        // CallControllerTest pins this token.
         m_lastRefusal = QStringLiteral("rtc_unsupported");
         return false;
     }
@@ -504,8 +461,8 @@ bool CallController::answer()
         m_lastRefusal = QStringLiteral("unsupported_backend");
         return false;
     }
-    // Single-shot take: the remote offer exists in C++ memory only for the
-    // duration of answer production.
+    // Single-shot take: the remote offer lives in memory only while the
+    // answer is produced.
     const QString remoteOffer =
         m_client->takeCallSessionDescription(m_session.inviteEventId);
     if (remoteOffer.trimmed().isEmpty()) {
@@ -514,15 +471,12 @@ bool CallController::answer()
     }
     m_session.answerPending = true;
     requestTurnServersIfStale();
-    // The user acted, so invite expiry no longer applies; the timer now
-    // bounds answer production instead.
+    // The user acted, so the timer now bounds answer production instead.
     armLifetimeTimer(kMediaProductionTimeoutMs);
     m_mediaBackend->createAnswer(m_session.callId, remoteOffer);
-    // Same reasoning as the outbound path: seed before media can flow.
+    // Seed the audio intent before media can flow, as for outbound.
     applyAudioStateToBackend();
-    // Now the engine has a session: drain everything the caller trickled
-    // while we were ringing (the engine buffers internally until the
-    // remote description is applied).
+    // Drain candidates the caller trickled while we were ringing.
     const QVariantList early = m_session.earlyRemoteCandidates;
     m_session.earlyRemoteCandidates.clear();
     for (const QVariant &value : early) {
@@ -604,17 +558,14 @@ bool CallController::rejectIncoming()
 
 void CallController::noteAnsweredByOtherLane(const QString &roomId)
 {
-    // Only an unanswered RING is affected. An already-connected legacy call
-    // is a real call in its own right and must not be torn down because a
-    // group call started in the same room.
+    // Only an unanswered ring is affected; a connected legacy call is not torn
+    // down because a group call started in the same room.
     if (m_state != State::Ringing || roomId.isEmpty())
         return;
     if (m_session.roomId != roomId)
         return;
     qCInfo(lcCalls) << "ring cleared: answered through the MatrixRTC lane";
-    // AnsweredElsewhere is deliberately reused: it is exactly this fact, and
-    // it is already excluded from isMissedCallReason(), so joining a call
-    // cannot leave a "missed call" notice behind.
+    // AnsweredElsewhere is exactly this fact and is not a missed call.
     endSession(EndReason::AnsweredElsewhere);
 }
 
@@ -622,16 +573,14 @@ bool CallController::hangup()
 {
     if (!m_client || !sessionLive())
         return false;
-    // Outbound calls are hangup-able from Inviting on; an INBOUND call
-    // becomes hangup-able once answered (Connecting/Active) — before that
-    // the honest action is rejectIncoming() (review round 2: an answered
-    // inbound call previously could not be ended locally at all).
+    // Outbound calls can hang up from Inviting on; an inbound call only once
+    // answered (before that, use rejectIncoming()).
     const bool answerable = m_session.direction == Direction::Outbound
         || m_state == State::Connecting || m_state == State::Active;
     if (!answerable)
         return false;
-    // Nothing was ever put on the wire for an offer still in production:
-    // a hangup would name a call no peer was invited to.
+    // An offer still in production was never sent; there is nothing to hang
+    // up on the wire.
     const bool announced = m_session.inviteDispatched
         || m_session.direction == Direction::Inbound;
     if (announced) {
@@ -696,9 +645,8 @@ void CallController::onCallSendFinished(quint64 opId, bool ok,
     const auto it = m_pendingOps.constFind(opId);
     if (it == m_pendingOps.constEnd())
         return; // not ours / stale
-    // The call this op was dispatched FOR — never trust the echo to name
-    // the live session (a stale result from an ended call must not mutate
-    // or end the current one; review 2026-08-18).
+    // Use the call this op was dispatched for, never the echo: a stale result
+    // from an ended call must not touch the current one.
     const QString opCallId = it.value();
     m_pendingOps.erase(it);
     m_pendingOpOrder.removeOne(opId);
@@ -733,11 +681,8 @@ void CallController::onLoggedOut()
     m_turnUris.clear();
     m_turnUsername.clear();
     m_turnPassword.clear();
-    // Push the clear DOWN. The backend keeps its own copy and applies it to
-    // the next session; without this the first call on the next account
-    // started with the previous account's homeserver TURN credentials
-    // already on webrtcbin, relaying account B's call through account A's
-    // server until B's own fetch returned.
+    // Clear the backend's TURN credentials too, or the next account's first
+    // call would relay through the previous account's server.
     if (m_mediaBackend)
         m_mediaBackend->setIceServers({}, {}, {});
     resetAudioIntent();
@@ -748,42 +693,32 @@ void CallController::onLoggedOut()
         m_endReason = EndReason::None;
         setState(State::Idle);
     }
-    // AFTER ending: endSession records the id in the retired-call LRU, and
-    // that memory must not survive into the next account's session.
+    // After ending: endSession records the id, and that memory must not
+    // survive into the next account.
     m_recentEnded.clear();
 }
 
 void CallController::handleInvite(const CallSignal &signal)
 {
     if (signal.own)
-        return; // our own outbound invite echoing back, or another device's
+        return; // our own invite echoing back, or another device's
     if (recentlyEnded(signal.callId))
         return;
-    // An ignored sender must elicit NOTHING from us — not a ring, and not
-    // a reject either: any outbound event would confirm we are online
-    // during the window before the server stops delivering their events
-    // (the same race NotificationManager::senderIsIgnored closes).
+    // An ignored sender gets nothing from us, not even a reject: any outbound
+    // event would confirm we are online (see
+    // NotificationManager::senderIsIgnored).
     if (m_senderIgnoredCheck && m_senderIgnoredCheck(signal.sender))
         return;
-    // Re-delivery of the invite we are already handling (sync can deliver
-    // an event more than once, e.g. via the active-room subscription) is
-    // idempotent — without this, the busy branch below would REJECT our
-    // own live call while we kept ringing it.
+    // Sync can re-deliver the invite we are already handling; without this
+    // the busy branch would reject our own live call.
     if (sessionLive() && signal.roomId == m_session.roomId
         && signal.callId == m_session.callId)
         return;
-    // A dual-stack caller may announce ONE call on both lanes: an
-    // m.rtc.notification AND a legacy m.call.invite. Their ids can never
-    // match (an RTC session is keyed on the notification event id), so the
-    // guard above does not catch it and the busy branch below would send
-    // m.call.reject — telling the caller "declined" while we are, in fact,
-    // ringing the user for exactly that person in exactly that room. Two
-    // wrongs at once: the caller sees a decline that never happened, and
-    // the user may answer a call the caller has already given up on.
-    // Treat it as the same conversation and stay silent: no second ring, no
-    // wire event. (Adopting the legacy leg instead would make an otherwise
-    // unanswerable RTC ring answerable; that is a deliberate follow-up, not
-    // done here, because it would change session identity mid-ring.)
+    // A dual-stack caller may announce one call on both lanes (an
+    // m.rtc.notification and an m.call.invite, with different ids). Treat it
+    // as the same conversation: no second ring and no busy reject telling the
+    // caller "declined". Adopting the legacy leg would change session
+    // identity mid-ring and is not done.
     if (m_state == State::Ringing && m_session.rtc
         && signal.roomId == m_session.roomId
         && !signal.sender.isEmpty() && signal.sender == m_session.senderId)
@@ -796,8 +731,8 @@ void CallController::handleInvite(const CallSignal &signal)
     const qint64 remaining = remainingInviteMs(
         signal.originServerTs, 0, signal.lifetimeMs);
     if (remaining <= 0) {
-        // Cold-start backlog: an expired invite is dropped without ringing
-        // and without any event sent (NotificationManager's backlog rule).
+        // Cold-start backlog: an expired invite is dropped without ringing or
+        // sending anything.
         return;
     }
     if (sessionLive()) {
@@ -805,9 +740,8 @@ void CallController::handleInvite(const CallSignal &signal)
             // Glare: both sides invited each other. Smaller call id wins.
             if (glareWinner(m_session.callId, signal.callId)
                 == signal.callId) {
-                // Theirs survives: retire ours on the wire — but only if
-                // our invite actually went out; an offer still in
-                // production never reached any peer (review round 2).
+                // Theirs survives: retire ours on the wire, but only if our
+                // invite actually went out.
                 if (m_client && m_session.inviteDispatched) {
                     trackOp(m_client->callHangup(
                                 m_session.roomId, m_session.callId,
@@ -827,10 +761,9 @@ void CallController::handleInvite(const CallSignal &signal)
                 return;
             }
         } else {
-            // Busy: exactly one live session. Reject without touching it —
-            // BOUNDED per session, because this send is remotely triggered
-            // with zero user interaction; beyond the cap the invite is
-            // dropped silently (still no ring, no state change).
+            // Busy: reject without touching the live session. Bounded per
+            // session because this send is remotely triggered; beyond the cap
+            // the invite is dropped silently.
             if (m_client
                 && m_busyRejectsThisSession < kMaxBusyRejectsPerSession) {
                 ++m_busyRejectsThisSession;
@@ -877,9 +810,8 @@ void CallController::handleAnswer(const CallSignal &signal)
     if (!fromExpectedPeer(signal))
         return;
     if (m_session.remotePartyId.isEmpty()) {
-        // First answer locks the party (MSC2746 multi-device rule) and is
-        // named on the wire exactly once -- and locks the USER, so a later
-        // signal from anyone else in the room is not this call's.
+        // The first answer locks the party (MSC2746) and the user, and is
+        // selected on the wire exactly once.
         m_session.remotePartyId = signal.partyId;
         m_session.remoteUserId = signal.sender;
         if (m_client && !m_session.selectAnswerSent) {
@@ -891,9 +823,8 @@ void CallController::handleAnswer(const CallSignal &signal)
         }
         m_lifetimeTimer.stop();
         setState(State::Connecting);
-        // Hand the peer's answer to the media backend (single-shot take
-        // from the bridge's bounded store; empty without a backend, since
-        // the bridge only carries SDP in media-capable mode).
+        // Hand the peer's answer to the media backend (single-shot take from
+        // the bridge; empty without a backend).
         if (m_mediaBackend && m_client) {
             const QString remoteAnswer =
                 m_client->takeCallSessionDescription(signal.eventId);
@@ -916,9 +847,8 @@ void CallController::handleHangup(const CallSignal &signal)
             endSession(EndReason::DeclinedElsewhere);
         return;
     }
-    // A hangup from anyone but the peer is not a hangup. While ringing it
-    // would also have synthesised a "missed call" from someone who never
-    // called.
+    // Only the peer can hang up; otherwise a stranger could end the call or,
+    // while ringing, fake a missed call.
     if (!fromExpectedPeer(signal))
         return;
     endSession(EndReason::RemoteHangup);
@@ -944,13 +874,9 @@ void CallController::handleSelectAnswer(const CallSignal &signal)
 {
     if (!matchesSession(signal))
         return;
-    // The caller locked onto some party's answer. If we are STILL ringing
-    // it cannot have been us — answering moves this device to Connecting
-    // atomically with sending its m.call.answer — so the call settled
-    // elsewhere.
-    //
-    // Only the CALLER selects an answer. A select_answer from any other
-    // member would otherwise silence the ring on every device at once.
+    // The caller locked onto some answer. If we are still ringing it was not
+    // ours (answering moves us to Connecting when the answer is sent), so the
+    // call settled elsewhere. Only the caller may select an answer.
     if (!signal.own && !fromExpectedPeer(signal))
         return;
     if (m_state == State::Ringing
@@ -971,9 +897,8 @@ void CallController::handleRtcNotification(const CallSignal &signal)
     if (remaining <= 0)
         return;
     if (sessionLive()) {
-        // Deliberately NO auto-decline: an m.rtc.decline is a user action
-        // that stops the ring on EVERY device of ours. Being busy on this
-        // device must not silence the others.
+        // No auto-decline: an m.rtc.decline stops the ring on every one of our
+        // devices, and being busy here must not silence the others.
         return;
     }
     Session session;
@@ -1055,11 +980,8 @@ void CallController::onMediaConnected(const QString &callId)
     if (m_state != State::Connecting || callId != m_session.callId)
         return;
     setState(State::Active);
-    // The engine's mute state is per session and starts clean, so the
-    // user's standing intent — possibly chosen during a previous call, or
-    // before this one finished connecting — has to be pushed down here.
-    // Without this a muted user is published live the moment a call
-    // connects.
+    // The engine's mute state starts clean per session, so push the user's
+    // intent down, or a muted user is live on connect.
     applyAudioStateToBackend();
 }
 
@@ -1069,9 +991,9 @@ void CallController::onMediaFailed(const QString &callId,
     Q_UNUSED(category); // coarse label; the end reason is the record
     if (!sessionLive() || callId != m_session.callId)
         return;
-    // Announce on the wire when the peer could still be waiting on us: an
-    // outbound invite already sent, or an inbound call we started to
-    // answer. user_media_failed is MSC2746's reason for exactly this.
+    // Announce when the peer may still be waiting on us (an invite sent, or
+    // an inbound call we began answering). user_media_failed is MSC2746's
+    // reason for this.
     const bool announced = m_session.inviteDispatched
         || m_state == State::Connecting || m_state == State::Active
         || (m_state == State::Ringing && m_session.answerPending);
@@ -1093,11 +1015,9 @@ bool CallController::matchesSession(const CallSignal &signal) const
 
 bool CallController::fromExpectedPeer(const CallSignal &signal) const
 {
-    // (room, call_id) says which CALL a signal is about; it does not say
-    // WHO may speak for the other side, and call_id is readable by every
-    // member of the room. Once the peer is known, only they are the peer.
-    // matrix-js-sdk makes the same check (`getSender() !==
-    // getOpponentMember()`).
+    // (room, call_id) identifies the call, not who may speak for the other
+    // side (call_id is readable by every room member). Once known, only the
+    // peer counts, as in matrix-js-sdk (`getSender() !== getOpponentMember()`).
     if (m_session.remoteUserId.isEmpty())
         return true; // outbound, no invitee, no answer yet: nobody to bind to
     return signal.sender == m_session.remoteUserId;
@@ -1127,12 +1047,11 @@ void CallController::endSession(EndReason reason)
     const QString callId = m_session.callId;
     const QString roomId = m_session.roomId;
     const bool wasInbound = m_session.direction == Direction::Inbound;
-    // Decided HERE, where the pre-end state is known: an answered call
-    // that the peer hung up is a completed call, never a missed one.
+    // Decided here while the pre-end state is known: an answered call is
+    // never missed.
     const bool missed = wasInbound && m_state == State::Ringing
         && isMissedCallReason(reason);
-    // Drop any unconsumed remote offer: the description must not outlive
-    // the call it belonged to (single-shot take doubles as discard).
+    // Discard any unconsumed remote offer; it must not outlive its call.
     if (m_client && !m_session.inviteEventId.isEmpty())
         m_client->takeCallSessionDescription(m_session.inviteEventId);
     m_candidateFlushTimer.stop();
@@ -1158,7 +1077,7 @@ void CallController::setState(State state)
 
 void CallController::armLifetimeTimer(qint64 remainingMs)
 {
-    // Clamped so clock skew can never arm a wild timer.
+    // Clamped so clock skew cannot arm a wild timer.
     const qint64 bounded =
         qBound<qint64>(0, remainingMs, kMaxLifetimeMs);
     m_lifetimeTimer.start(static_cast<int>(bounded));
@@ -1179,7 +1098,7 @@ qint64 CallController::remainingInviteMs(qint64 originServerTs,
             || qAbs(senderTs - originServerTs) <= kSenderClockSkewToleranceMs))
         base = senderTs;
     if (base <= 0)
-        return lifetime; // no usable timestamp: assume fresh, full window
+        return lifetime; // no usable timestamp: assume fresh
     const qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - base;
     return qBound<qint64>(0, lifetime - elapsed, lifetime);
 }
@@ -1203,6 +1122,6 @@ QString CallController::ownUserId() const
 
 QString CallController::freshPartyId()
 {
-    // Opaque random VoIP id — never the device id (which is identifying).
+    // Opaque random VoIP id, never the (identifying) device id.
     return QUuid::createUuid().toString(QUuid::Id128).left(16);
 }

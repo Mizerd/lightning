@@ -5,20 +5,15 @@
 #include "calls/CallShareModel.h"
 
 namespace {
-/// One per participant is the ceiling a call can produce; the extra headroom
-/// covers a sharer stopping and restarting inside one call, which mints a new
-/// id each time.
+/// One per participant is the natural ceiling; headroom covers sharers
+/// restarting within a call (each restart mints a new id).
 constexpr int kMaxDismissedShareIds = 128;
 } // namespace
 
 CallStageState::CallStageState(QObject *parent) : QObject(parent)
 {
-    // Read ONCE. A debug flag a process gains halfway through is a flag that
-    // describes two different runs, and the property is CONSTANT so QML can
-    // read it in a binding without a notify that would never fire.
-    //
-    // Any non-empty value enables it, matching the repo's other opt-in
-    // traces (LIGHTNING_SCROLL_TRACE, LIGHTNING_GUI_STALL_TRACE).
+    // Read once: the property is CONSTANT. Any non-empty value enables it,
+    // like the other opt-in traces.
     m_traceEnabled = !qEnvironmentVariableIsEmpty("LIGHTNING_CALL_TRACE");
 }
 
@@ -44,9 +39,8 @@ QString CallStageState::spotlightShareId() const
 {
     if (m_shares.isNull())
         return {};
-    // NEWEST first. CallShareModel keeps arrival order, so the last row is
-    // the most recent share — the one a person who just started sharing
-    // expects everyone to be looking at.
+    // Newest first: rows are in arrival order, so the last row is the most
+    // recent share.
     const QStringList ids = m_shares->shareIds();
     for (int i = ids.size() - 1; i >= 0; --i) {
         if (!m_dismissedShareIds.contains(ids.at(i)))
@@ -84,9 +78,7 @@ void CallStageState::onSharesChanged()
 {
     const QString spotlight = spotlightShareId();
     const bool restorable = restorableShareAvailable();
-    // The full-screen guard runs whether or not anything else changed: it
-    // reads the same two facts, and an early return that skipped it would
-    // leave a full-screen window showing a share that had ended.
+    // Always run the full-screen guard, even when nothing else changed.
     enforceFullScreenHasSurface();
     if (spotlight == m_lastSpotlightShareId && restorable == m_lastRestorable)
         return;
@@ -110,9 +102,8 @@ void CallStageState::enforceFullScreenHasSurface()
 
 void CallStageState::setFullScreen(bool fullScreen)
 {
-    // Nothing focused, nothing to fill a screen with. Refused rather than
-    // stored: the alternative is a black monitor with a control bar on it and
-    // no obvious way back.
+    // Refused with nothing focused: a full-screen black window is the worst
+    // outcome.
     if (fullScreen && !hasFocusedSurface())
         return;
     if (m_fullScreen == fullScreen)
@@ -131,17 +122,10 @@ void CallStageState::setPictureInPicture(bool pip)
     if (m_pictureInPicture == pip)
         return;
     m_pictureInPicture = pip;
-    // Exclusive with full screen, in one direction only that matters:
-    // entering PiP leaves full screen. Both render the focused surface, and
-    // the video router hands one sink to whoever attached LAST — so the two
-    // together would leave one of them showing a black rectangle, and which
-    // one would depend on event-loop ordering.
-    //
-    // Deliberately NOT symmetric: setFullScreen() does not clear PiP,
-    // because full screen already refuses to enter without a focused surface
-    // and the PiP window stands its own surface down when it is not visible.
-    // Adding the reverse clause would mean two flags each clearing the other
-    // and one call sequence that oscillates.
+    // Entering PiP leaves full screen: both render the focused surface, and
+    // the video router gives one sink to whoever attached last, so one would
+    // go black. Deliberately one-directional (full screen already needs a
+    // focused surface), so the two flags cannot oscillate.
     if (pip && m_fullScreen) {
         m_fullScreen = false;
         Q_EMIT fullScreenChanged();
@@ -162,14 +146,9 @@ void CallStageState::onShareEnded(const QString &shareId)
 
 void CallStageState::onShareAppeared(const QString &shareId)
 {
-    // A NEW share is not the one the user dismissed. Re-arming "auto" here is
-    // the deliberate opposite of the old behaviour, where "back to grid"
-    // wrote a mode nothing ever wrote back and every later share was
-    // therefore silently suppressed for the rest of the call.
-    //
-    // Note this cannot resurrect a dismissal: dismissed ids are pruned when
-    // their share ends, and a restarted share carries a NEW id, so it arrives
-    // undismissed by construction.
+    // A new share is not the one the user dismissed, so re-arm "auto". This
+    // cannot resurrect a dismissal: ended shares are pruned and a restart has
+    // a new id.
     Q_UNUSED(shareId);
     if (m_layoutPreference != QLatin1String("auto")) {
         m_layoutPreference = QStringLiteral("auto");
@@ -183,9 +162,8 @@ void CallStageState::dismissShare(const QString &shareId)
     if (shareId.isEmpty() || m_dismissedShareIds.contains(shareId))
         return;
     if (m_dismissedShareIds.size() >= kMaxDismissedShareIds) {
-        // Refuse rather than evict. Evicting an arbitrary id would silently
-        // un-dismiss a share the user waved away; refusing leaves the newest
-        // one on the spotlight, which is visible and recoverable.
+        // Refuse rather than evict: evicting would silently un-dismiss a
+        // share.
         return;
     }
     m_dismissedShareIds.insert(shareId);
@@ -196,8 +174,8 @@ void CallStageState::restoreShare(const QString &shareId)
 {
     if (!m_dismissedShareIds.remove(shareId))
         return;
-    // Restoring is an explicit request to look at it, so the preference must
-    // not keep the grid pinned over the top of it.
+    // Restoring asks to see the share, so a "grid" preference must not hide
+    // it.
     if (m_layoutPreference == QLatin1String("grid")) {
         m_layoutPreference = QStringLiteral("auto");
         Q_EMIT layoutPreferenceChanged();
@@ -228,8 +206,7 @@ void CallStageState::pin(const QString &identity)
         return;
     m_pinnedIdentity = identity;
     Q_EMIT pinnedIdentityChanged();
-    // Clearing the pin can be the thing that empties the spotlight, and
-    // "Back to grid" does exactly that while full screen may be up.
+    // Clearing the pin can empty the spotlight while full screen is up.
     enforceFullScreenHasSurface();
 }
 
@@ -242,7 +219,7 @@ void CallStageState::setLayoutPreference(const QString &mode)
 {
     if (mode != QLatin1String("auto") && mode != QLatin1String("grid")
         && mode != QLatin1String("spotlight")) {
-        return; // refused, not stored — an unknown mode is how the latch bit
+        return; // unknown modes are refused, never stored
     }
     if (m_layoutPreference == mode)
         return;
@@ -259,11 +236,9 @@ void CallStageState::clear()
     m_pinnedIdentity.clear();
     m_layoutPreference = QStringLiteral("auto");
     m_dismissedShareIds.clear();
-    // The call ended. A full-screen window outliving it would cover the
-    // desktop with a call that is over.
+    // The call ended; a full-screen window must not outlive it.
     m_fullScreen = false;
-    // Same reasoning: a floating call window outliving the call is a window
-    // the user has to dismiss for a conversation that is already over.
+    // Nor a floating call window.
     m_pictureInPicture = false;
     if (hadPip)
         Q_EMIT pictureInPictureChanged();

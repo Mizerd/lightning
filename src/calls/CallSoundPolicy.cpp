@@ -123,17 +123,17 @@ QList<Cue> Policy::groupPhaseChanged(GroupPhase phase, qint64 nowMs)
     switch (phase) {
     case GroupPhase::Joining:
         if (old == GroupPhase::Idle || old == GroupPhase::Ended) {
-            // A new call starts from nothing: whoever is there is the
-            // baseline, and our own share cannot be live yet — KNOWN not
-            // live, so the first share of the call is announced.
+            // A new call starts from nothing: those present are the baseline,
+            // and our own share is known not live, so the first share is
+            // announced.
             m_roster.clear();
             m_localShareKnown = true;
             m_localSharing = false;
         }
         break;
     case GroupPhase::Connected:
-        // Connected and reconnected are one cue: either way the user is now
-        // in the call, and the roster that follows is a baseline.
+        // Connected and reconnected share one cue; the roster that follows is
+        // a baseline.
         m_connectedAtMs = nowMs;
         if (old == GroupPhase::Joining || old == GroupPhase::Reconnecting)
             cues.append(Cue::Connected);
@@ -157,9 +157,8 @@ QList<Cue> Policy::groupPhaseChanged(GroupPhase phase, qint64 nowMs)
 QList<Cue> Policy::rosterChanged(const Roster &remotes, qint64 nowMs)
 {
     // Outside a settled, connected call every roster is a baseline: before
-    // we connect, during a reconnect (people vanish and come back without
-    // having gone anywhere), and for kSettleMs after connecting, when the
-    // whole existing room arrives at once.
+    // connecting, during a reconnect, and for kSettleMs after connecting when
+    // the whole room arrives at once.
     if (m_group != GroupPhase::Connected
         || nowMs - m_connectedAtMs < kSettleMs) {
         m_roster = remotes;
@@ -177,10 +176,8 @@ QList<Cue> Policy::rosterChanged(const Roster &remotes, qint64 nowMs)
             joined = true;
             continue;
         }
-        // Share and hand transitions only for someone present on both
-        // sides: a person who arrives already sharing is announced by the
-        // join, and one who leaves mid-share by the leave — never two cues
-        // for one event.
+        // Share and hand transitions only for someone present in both rosters,
+        // so one event never produces two cues.
         if (it->handRaised && !before->handRaised)
             handRaised = true;
         if (it->sharing && !before->sharing)
@@ -199,8 +196,7 @@ QList<Cue> Policy::rosterChanged(const Roster &remotes, qint64 nowMs)
     const bool smallCall =
         remotes.size() + 1 <= kMaxCallSizeForPresence;
     QList<Cue> cues;
-    // The allowed() test comes first so a suppressed cue does not consume
-    // the throttle window of one that would have played.
+    // Check allowed() first so a suppressed cue does not consume the throttle.
     auto offer = [&](bool happened, Cue cue) {
         if (happened && allowed(cue, /*remote=*/true)
             && !throttled(cue, nowMs))
@@ -242,16 +238,13 @@ QList<Cue> Policy::localAudioChanged(Lane lane, bool micMuted, bool deafened)
     state.known = true;
     state.muted = micMuted;
     state.deafened = deafened;
-    // Outside a call the controls are still settable (the lobby), and a
-    // controller may reset them on the way out; neither is an action the
-    // user needs to hear confirmed.
+    // Outside a call (lobby, or a reset on the way out) control changes are
+    // not confirmed.
     if (!live || !before.known)
         return {};
 
     QList<Cue> cues;
-    // Deafen implies mute and undeafen restores the previous mute, so one
-    // press moves both flags. It is ONE action and gets ONE cue: the deafen
-    // pair wins over the mute pair.
+    // Deafen also moves mute; one press gets one cue, and deafen wins.
     if (deafened != before.deafened)
         cues.append(deafened ? Cue::Deafen : Cue::Undeafen);
     else if (micMuted != before.muted)

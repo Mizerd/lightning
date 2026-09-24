@@ -9,26 +9,14 @@
 #include <openssl/params.h>
 
 namespace {
-/// LiveKit's own salt string. Changing it makes us incompatible with every
-/// other client; it is not a tunable.
+/// LiveKit's salt string; changing it breaks interoperability.
 constexpr char kSalt[] = "LKFrameEncryptionKey";
 /// AES-128-GCM: 16-byte key, 12-byte IV, 16-byte tag.
 constexpr int kKeyBytes = 16;
-/// The RAW key both ends of the protocol agree on, before HKDF.
-// The raw key lengths this protocol actually uses on the wire.
-//
-// NOT a single value. element-call mints a **16-byte** key
-// (`new Uint8Array(16)` in matrix-js-sdk's RTCEncryptionManager) while
-// livekit-client's own `createE2EEKey()` mints 32. HKDF accepts either and
-// derives the same 16-byte AES-128 key, so both are legitimate — and
-// requiring 32 meant every key Element sent was REJECTED for its length.
-// The symptom was total: the key arrived, was discarded, and every frame
-// from that participant dropped for want of a key, so an Element peer could
-// never be heard or seen while our own media reached them normally.
-//
-// Still a CLOSED set rather than "any length": the check exists so a 7-byte
-// key cannot derive cleanly and light up `encryptionActive()` under material
-// no other participant could have.
+// Accepted raw key lengths: element-call mints 16 bytes (matrix-js-sdk
+// RTCEncryptionManager), livekit-client 32; HKDF derives the same AES-128 key
+// from either. A closed set, so a malformed key cannot derive and make
+// encryptionActive() true under material no peer has.
 constexpr int kRawKeyBytesElement = 16;
 constexpr int kRawKeyBytesLivekit = 32;
 
@@ -40,12 +28,12 @@ constexpr int kIvBytes = 12;
 constexpr int kTagBytes = 16;
 /// { IV length, key index }.
 constexpr int kTrailerBytes = 2;
-/// HKDF `info` is 128 ZERO bytes in the reference (`new ArrayBuffer(128)`),
-/// not an empty info. An empty info derives a different key and would fail
-/// to interoperate while looking perfectly reasonable.
+/// HKDF `info` is 128 zero bytes in the reference (`new ArrayBuffer(128)`),
+/// not empty; an empty info derives a different key.
 constexpr int kInfoBytes = 128;
 
-/// Best-effort zeroing before release (the allocator may already have copied).
+/// Best-effort zeroing before release (the allocator may already have
+/// copied).
 void scrub(QByteArray &key)
 {
     if (key.isEmpty())
@@ -79,9 +67,8 @@ bool CallFrameCryptor::looksEncrypted(const char *wire, qsizetype size,
 {
     if (!wire)
         return false;
-    // THE SAME THREE CHECKS `decryptFrame` MAKES BEFORE IT INDEXES, and
-    // deliberately derived from the same constants rather than restated: a
-    // second copy of the wire layout is a second thing to forget to update.
+    // The same checks decryptFrame() makes before indexing, derived from the
+    // same constants.
     const qsizetype floorBytes =
         headerBytes(kind) + kTagBytes + kIvBytes + kTrailerBytes;
     if (size < floorBytes)
@@ -89,12 +76,9 @@ bool CallFrameCryptor::looksEncrypted(const char *wire, qsizetype size,
     const int ivLength = static_cast<unsigned char>(wire[size - 2]);
     if (ivLength != kIvBytes)
         return false;
-    // `hasKey` bounds on the same number. With a 256-entry ring every byte
-    // value is a legal index, so this is now always true and the IV-length
-    // byte above is the whole structural test (roughly 1 frame in 256 for
-    // uniform bytes, not 1 in 4096 as it was with 16 slots -- still far
-    // inside the windowed verdict's 25% clear threshold). Kept as a named
-    // check so the reader and the writer stay derived from one constant.
+    // With a 256-entry ring every byte is a legal index, so the IV-length byte
+    // is effectively the whole test; kept so reader and writer share one
+    // constant.
     const int keyIndex = static_cast<unsigned char>(wire[size - 1]);
     return keyIndex >= 0 && keyIndex < kKeyRingSize;
 }
@@ -102,13 +86,11 @@ bool CallFrameCryptor::looksEncrypted(const char *wire, qsizetype size,
 bool CallFrameCryptor::endsWithServerTrailer(const char *wire, qsizetype size,
                                              const QByteArray &trailer)
 {
-    // Not armed, or armed with something no SFU we accept would send.
+    // Not armed, or armed with something no accepted SFU would send.
     if (!wire || trailer.isEmpty() || trailer.size() > kMaxServerTrailerBytes)
         return false;
-    // STRICTLY LONGER than the trailer: a frame that is nothing BUT the
-    // trailer carries no payload the SFU could have meant, and livekit-client
-    // compares a slice that would then be the whole frame. Requiring at least
-    // one byte before it keeps "the frame is the trailer" out of the match.
+    // Strictly longer than the trailer: a frame that is only the trailer
+    // carries no payload.
     if (size <= trailer.size())
         return false;
     return std::memcmp(wire + size - trailer.size(), trailer.constData(),
@@ -133,8 +115,8 @@ bool CallFrameCryptor::isUsableServerTrailer(const QByteArray &trailer)
 bool CallFrameCryptor::startsWithOpusSilenceFrame(const char *wire,
                                                   qsizetype size)
 {
-    // livekit-server `OpusSilenceFrame` (pkg/sfu/downtrack.go), the same
-    // bytes livekit-client's sifPayload.ts whitelists: f8 ff fe, 77 zeros.
+    // livekit-server `OpusSilenceFrame` (pkg/sfu/downtrack.go), as whitelisted
+    // by livekit-client's sifPayload.ts: f8 ff fe, then 77 zeros.
     constexpr qsizetype kSilenceBytes = 80;
     if (!wire || size < kSilenceBytes)
         return false;
@@ -195,26 +177,23 @@ CallFrameCryptor::CallFrameCryptor() = default;
 bool CallFrameCryptor::setKey(int index, const QByteArray &rawKey)
 {
     QMutexLocker lock(&m_mutex);
-    // REMOTE INPUT (a received key names its own index), so bounded before
-    // anything is kept: at most kKeyRingSize entries can ever exist.
+    // Remote input (a received key names its index): bound it first.
     if (index < 0 || index >= kKeyRingSize)
         return false;
-    // The INPUT size, not just the derived one. HKDF turns any length into
-    // 16 bytes, so validating only the output accepted a 7-byte key: it
-    // derived cleanly, `encryptionActive()` then reported true, and every
-    // frame went out under a key no other participant could possibly have.
-    // See isSupportedRawKeyLength() for why this is a SET and not one value.
+    // Validate the input size, not just the derived one: HKDF accepts any
+    // length, so a bogus key would otherwise derive cleanly. See
+    // isSupportedRawKeyLength().
     if (!isSupportedRawKeyLength(rawKey.size()))
         return false;
     const QByteArray derived = deriveKey(rawKey);
     if (derived.size() != kKeyBytes)
         return false;
-    // Most-recent order, so the cap below evicts the oldest key.
+    // Most-recent order, so the cap evicts the oldest.
     m_keyOrder.removeOne(index);
     m_keyOrder.append(index);
     m_keys.insert(index, derived);
     while (m_keys.size() > kMaxKeysPerRing) {
-        // Never the key our own frames are going out under.
+        // Never evict the key our own frames use.
         int victim = -1;
         for (const int candidate : std::as_const(m_keyOrder)) {
             if (candidate != m_currentIndex) {
@@ -234,8 +213,7 @@ bool CallFrameCryptor::setKey(int index, const QByteArray &rawKey)
 bool CallFrameCryptor::hasAnyKey() const
 {
     QMutexLocker lock(&m_mutex);
-    // Only setKey() inserts, and only a key that derived to kKeyBytes, so a
-    // present entry IS a usable key.
+    // Only setKey() inserts, and only usable keys.
     return !m_keys.isEmpty();
 }
 
@@ -251,8 +229,7 @@ bool CallFrameCryptor::hasKey(int index) const
     QMutexLocker lock(&m_mutex);
     if (index < 0 || index >= kKeyRingSize)
         return false;
-    // constFind, never operator[]: a lookup must not insert an empty slot,
-    // which would make hasAnyKey() lie about a ring nobody keyed.
+    // constFind, never operator[]: a lookup must not insert an empty slot.
     const auto it = m_keys.constFind(index);
     return it != m_keys.cend() && it.value().size() == kKeyBytes;
 }
@@ -275,10 +252,8 @@ QByteArray CallFrameCryptor::makeIvForTest(quint32 ssrc, quint32 rtpTimestamp,
     auto *out = reinterpret_cast<unsigned char *>(iv.data());
     writeBigEndian32(out, ssrc);
     writeBigEndian32(out + 4, rtpTimestamp);
-    // The reference computes `timestamp - (sendCount % 0xffff)` in JS, where
-    // the subtraction happens on doubles and is then truncated to uint32 by
-    // DataView.setUint32. Unsigned wraparound in C++ produces the same 32-bit
-    // result for every input, including when sendCount exceeds timestamp.
+    // The reference computes `timestamp - (sendCount % 0xffff)` in JS doubles
+    // truncated to uint32; C++ unsigned wraparound gives the same 32 bits.
     writeBigEndian32(out + 8, rtpTimestamp - (sendCount % 0xffff));
     return iv;
 }
@@ -288,14 +263,13 @@ QByteArray CallFrameCryptor::ivFor(quint32 ssrc, quint32 rtpTimestamp)
     QMutexLocker lock(&m_mutex);
     auto it = m_sendCounts.find(ssrc);
     if (it == m_sendCounts.end()) {
-        // Seeded at a random offset, as the reference does, so two calls on
-        // the same SSRC do not start from the same counter.
+        // Random initial offset, as in the reference.
         it = m_sendCounts.insert(
             ssrc, QRandomGenerator::global()->bounded(0xffff));
     }
     const quint32 count = it.value();
-    // Monotonic per SSRC. AES-GCM IV reuse is a total break, so this must
-    // never be reset while a key is in use.
+    // Monotonic per SSRC and never reset while a key is in use: IV reuse
+    // breaks AES-GCM.
     it.value() = count + 1;
     return makeIvForTest(ssrc, rtpTimestamp, count);
 }
@@ -310,20 +284,19 @@ QByteArray CallFrameCryptor::encryptFrame(const QByteArray &payload,
                                           FrameKind kind, quint32 ssrc,
                                           quint32 rtpTimestamp)
 {
-    // Held across the WHOLE frame: the key ring must not be rotated out
-    // from under a frame between choosing the index and using the key, and
-    // the nested hasKey()/ivFor() calls re-enter this same recursive mutex.
+    // Held for the whole frame so the ring cannot rotate between choosing the
+    // index and using the key; nested hasKey()/ivFor() re-enter the recursive
+    // mutex.
     QMutexLocker lock(&m_mutex);
     const int header = headerBytes(kind);
     if (payload.size() < header)
-        return {}; // too short to carry its own header: refuse, never guess
+        return {}; // too short for its header: refuse
     if (!hasKey(m_currentIndex))
-        return {}; // no key: the caller must drop, never send cleartext
+        return {}; // no key: the caller drops, never sends cleartext
 
     const QByteArray iv = ivFor(ssrc, rtpTimestamp);
-    // A COPY (implicitly shared, so a refcount, not the bytes): held under
-    // the mutex, and a reference into the hash is exactly the kind of thing a
-    // later edit invalidates by inserting while it is live.
+    // A (shared) copy rather than a reference into the hash, which a later
+    // insert could invalidate.
     const QByteArray key = m_keys.value(m_currentIndex);
 
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
@@ -343,8 +316,8 @@ QByteArray CallFrameCryptor::encryptFrame(const QByteArray &payload,
             == 1;
 
     if (ok) {
-        // The cleartext header is AUTHENTICATED (AAD) but not encrypted, so
-        // an SFU can still route on it while a tampered header fails the tag.
+        // The cleartext header is authenticated (AAD) but not encrypted: the
+        // SFU can route on it, and tampering fails the tag.
         int aadLen = 0;
         ok = EVP_EncryptUpdate(
                  ctx, nullptr, &aadLen,
@@ -412,9 +385,8 @@ QByteArray CallFrameCryptor::decryptFrame(const QByteArray &wire,
                                           FrameKind kind,
                                           DecryptDiagnosis *why)
 {
-    // A local diagnosis so every early return can name itself without
-    // testing the pointer, and the caller's is written once at the end of
-    // each path. `fail` is the only way out that is not a plaintext.
+    // Local diagnosis written to `why` on every exit; `fail` is the only
+    // non-plaintext exit.
     DecryptDiagnosis diag;
     const auto fail = [&](DecryptFailure reason) {
         diag.reason = reason;
@@ -430,8 +402,8 @@ QByteArray CallFrameCryptor::decryptFrame(const QByteArray &wire,
     if (wire.size() < header + kTagBytes + kIvBytes + kTrailerBytes)
         return fail(DecryptFailure::ShortWire);
 
-    // The trailer names the IV length and the key index. Both are remote
-    // input, so both are validated before being used as offsets.
+    // IV length and key index come from the remote trailer; validate both
+    // before using them as offsets.
     const int ivLength =
         static_cast<unsigned char>(wire.at(wire.size() - 2));
     const int keyIndex =
@@ -440,9 +412,8 @@ QByteArray CallFrameCryptor::decryptFrame(const QByteArray &wire,
     if (ivLength != kIvBytes)
         return fail(DecryptFailure::BadIvLength);
     if (!hasKey(keyIndex))
-        // Unknown key: drop, never render cleartext. This is the reason that
-        // was being read as "the two ends hold different keys" — it is not;
-        // it is "nothing was ever installed at the index this frame names".
+        // Nothing installed at the index this frame names (not a key
+        // mismatch). Drop.
         return fail(DecryptFailure::NoKeyForIndex);
 
     const int suffix = ivLength + kTrailerBytes;
@@ -494,8 +465,7 @@ QByteArray CallFrameCryptor::decryptFrame(const QByteArray &wire,
     }
     int finalLen = 0;
     if (ok) {
-        // A failed tag lands HERE. This is the whole point: a frame that
-        // does not authenticate is discarded, never passed on.
+        // Tag verification happens here; a frame that fails is discarded.
         ok = EVP_DecryptFinal_ex(
                  ctx,
                  reinterpret_cast<unsigned char *>(plain.data()) + plainLen,
@@ -504,10 +474,8 @@ QByteArray CallFrameCryptor::decryptFrame(const QByteArray &wire,
     }
     EVP_CIPHER_CTX_free(ctx);
     if (!ok)
-        // Everything from DecryptInit to the tag check lands here. In
-        // practice it is the tag: the three init calls fail only if OpenSSL
-        // itself is broken, and by this point the key and IV are both the
-        // right length.
+        // In practice a tag failure: the init calls only fail if OpenSSL
+        // itself is broken.
         return fail(DecryptFailure::AuthTag);
     plain.resize(plainLen + finalLen);
 

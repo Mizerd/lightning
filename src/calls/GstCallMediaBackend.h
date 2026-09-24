@@ -1,22 +1,17 @@
-// The real voice-call media engine (2026-08-18 round 3): GStreamer's
-// webrtcbin — full WebRTC (ICE via libnice, DTLS-SRTP, Opus), audio-only.
+// The 1:1 voice-call media engine: GStreamer webrtcbin (ICE via libnice,
+// DTLS-SRTP, Opus), audio only.
 //
-// Compiled only when the GStreamer WebRTC dev files are present
-// (HAVE_LIGHTNING_WEBRTC); registered at runtime only when
-// runtimeAvailable() confirms every required element factory resolves, so
-// a packaged build without the plugins keeps CallController's honest
-// refusal instead of a call that dies at the peer.
+// Compiled only with the GStreamer WebRTC dev files (HAVE_LIGHTNING_WEBRTC)
+// and registered only when runtimeAvailable() finds every required element,
+// so a build without the plugins keeps CallController's honest refusal.
 //
-// Threading: GStreamer invokes callbacks on its own streaming/ICE threads.
-// Every callback marshals into this object's (GUI) thread via queued
-// invocation guarded by a process-global alive-registry, and Qt-side
-// handlers re-check the active call id — a late callback for a closed
-// call is a no-op, never a signal.
+// Threading: callbacks arrive on GStreamer threads and marshal to this
+// object's thread through a process-global alive registry; Qt-side handlers
+// re-check the session, so a late callback for a closed call does nothing.
 //
-// Privacy: SDP and ICE candidates carry host IPs. Nothing here logs
-// either; failures surface as coarse category strings only. ICE servers
-// come exclusively from the homeserver's /voip/turnServer (applied via
-// setIceServers) — no third-party STUN fallback.
+// Privacy: SDP and candidates carry host IPs and are never logged. ICE
+// servers come only from the homeserver's /voip/turnServer; no third-party
+// STUN fallback.
 #pragma once
 
 #include <atomic>
@@ -34,44 +29,29 @@ class GstCallMediaBackend : public CallMediaBackend
     Q_OBJECT
 
 public:
-    // One-time probe: GStreamer initializes and every element the pipeline
-    // needs resolves. `whyNot` (optional) receives a short, safe reason.
+    // One-time probe: GStreamer initialises and every required element
+    // resolves. `whyNot` receives a short, safe reason.
     static bool runtimeAvailable(QString *whyNot = nullptr);
 
-    /// Test-only: drive ONE create-offer promise change function through the
-    /// error reply webrtcbin sends when it cannot build a description, with
-    /// no second reference held on the promise.
-    ///
-    /// That is the shape in which the `gst_promise_unref()` inside the
-    /// change function is the promise's LAST reference, so the promise's
-    /// destroy notify (promiseCtxFree) destroys the callback context while
-    /// the change function is still running — the precondition the hoisted
-    /// reads in those four functions exist for. The promise type and the
-    /// context are both file-local, so a test cannot assemble this itself.
-    ///
-    /// Returns how many references remain on the element the context pinned,
-    /// counted immediately after the reply: 1 (ours) means the context was
-    /// destroyed synchronously inside the change function; a larger number
-    /// means it outlived it. -1 when webrtcbin cannot be instantiated.
+    /// Test-only: drives one create-offer change function through webrtcbin's
+    /// error reply with no other reference on the promise, so the
+    /// gst_promise_unref() inside it is the last one and frees the callback
+    /// context mid-function. Returns the references left on the pinned
+    /// element right after the reply: 1 means the context was destroyed
+    /// synchronously; -1 when webrtcbin is unavailable.
     static int offerPromiseErrorReplyContextRefsForTest();
 
     explicit GstCallMediaBackend(QObject *parent = nullptr);
     ~GstCallMediaBackend() override;
 
-    // Test mode: audiotestsrc (quiet sine) and fakesink instead of the
-    // microphone and speakers, so headless CI can run a REAL loopback
-    // WebRTC handshake with no audio devices. Set before the first call.
+    // Test mode: a quiet sine and a fakesink instead of real devices, so
+    // headless CI can run a real loopback handshake. Set before the first
+    // call.
     void setTestToneMode(bool on) { m_testTone = on; }
 
     /// Capture/playback element descriptions from CallDeviceController, e.g.
-    /// `pulsesrc device="alsa_input.…"`. EMPTY means "use the automatic
-    /// element", which follows the system default as it changes instead of
-    /// pinning today's answer — so an empty string is a real setting, not a
-    /// missing one.
-    ///
-    /// Applied to the NEXT call. Changing a device mid-call would require
-    /// rebuilding the capture branch inside a live pipeline; the controller
-    /// reports the change and the next call picks it up.
+    /// `pulsesrc device="alsa_input...."`. Empty means the automatic element,
+    /// which follows the system default. Applied to the next call.
     void setAudioDevices(const QString &sourceElement,
                          const QString &sinkElement);
 
@@ -86,8 +66,7 @@ public:
                        const QString &password) override;
     void setMicrophoneMuted(const QString &callId, bool muted) override;
     void setOutputMuted(const QString &callId, bool muted) override;
-    // A real valve/volume pair exists in the pipeline, so this engine can
-    // honestly claim mute support.
+    // A real valve/volume pair exists, so mute is genuinely supported.
     bool supportsMuteControl() const override { return true; }
     void close(const QString &callId) override;
 
@@ -99,12 +78,11 @@ private:
         bool offerer = false;
         bool remoteDescriptionSet = false;
         QList<QPair<int, QString>> pendingRemoteCandidates;
-        // Named send-side valve: drop=true stops buffers reaching the
-        // encoder, so no RTP is produced at all. That is a real mute.
+        // Send-side valve: drop=true stops buffers before the encoder, so no
+        // RTP is produced (a real mute).
         GstElement *micValve = nullptr;
-        // Desired states, kept on the session because a receive bin can be
-        // created AFTER the user deafens — a late remote track must come up
-        // already silenced rather than briefly audible.
+        // Desired states, kept so a receive bin created after deafening comes
+        // up already silenced.
         bool micMuted = false;
         bool outputMuted = false;
     };
@@ -115,18 +93,14 @@ private:
     void applyIceConfigLocked();
     void flushPendingCandidatesLocked();
 
-    // Qt-thread handlers the GStreamer-thread callbacks marshal into
-    // (slots so the file-local bus handler can queue by name too).
+    // Qt-thread handlers the GStreamer callbacks marshal into (slots, so the
+    // bus handler can queue by name).
     //
-    // SESSION IDENTITY (review round 3, HIGH): the engine is ONE object
-    // reused call after call, and a GStreamer-thread event already queued
-    // when a call is closed must never be attributed to the next call.
-    // Every handler therefore carries a `token` — the pointer value of the
-    // GstElement that emitted the event (webrtcbin, or the pipeline for
-    // bus errors), which every session allocates fresh — and acts only
-    // when it matches the live session. Promise-driven paths hold a REF on
-    // that element, so its address cannot be recycled while their events
-    // are in flight.
+    // The engine is reused across calls, so each handler carries a `token`:
+    // the pointer of the element that emitted the event (webrtcbin, or the
+    // pipeline for bus errors), allocated fresh per session. Handlers act only
+    // when it matches the live session; promise paths hold a ref so the
+    // address cannot be recycled meanwhile.
     Q_SLOT void handleLocalDescription(quintptr token, bool offer,
                                        const QString &sdp);
     Q_SLOT void handleRemoteDescriptionApplied(quintptr token);
@@ -137,7 +111,7 @@ private:
     Q_SLOT void handleFailure(quintptr token, const QString &category);
     bool tokenMatchesLiveSession(quintptr token) const;
 
-    // GStreamer C callbacks (static; user_data = backend).
+    // GStreamer C callbacks (user_data = backend).
     static void onNegotiationNeeded(GstElement *webrtc, void *userData);
     static void onOfferCreated(GstPromise *promise, void *userData);
     static void onAnswerCreated(GstPromise *promise, void *userData);
@@ -150,17 +124,14 @@ private:
     static void onConnectionNotify(GstElement *webrtc, void *pspec,
                                    void *userData);
     static void onPadAdded(GstElement *webrtc, void *pad, void *userData);
-    // (The bus sync handler is a file-local function in the .cpp — its
-    // GStreamer signature types stay out of this header.)
+    // The bus sync handler is file-local in the .cpp, keeping GStreamer types
+    // out of this header.
 
     Session m_session; // exactly one live call, matching CallController
     bool m_sessionActive = false;
-    // Read from the GStreamer streaming thread in onPadAdded (a remote
-    // track can arrive while deafened and must come up already silenced),
-    // written from the Qt thread. Atomic because those are different
-    // threads and this engine has no lock — every other cross-thread hop
-    // here goes through marshal(), which a pad-added handler cannot use
-    // without letting the track go audible first.
+    // Read on a GStreamer thread in onPadAdded, written on the Qt thread;
+    // atomic because pad-added cannot marshal without the track going audible
+    // first.
     std::atomic<bool> m_outputMuted{false};
     bool m_testTone = false;
     QString m_audioSourceElement;

@@ -1,16 +1,11 @@
-// The media-engine seam for voice calls (2026-08-18 round 2).
+// The media-engine seam for 1:1 voice calls. GstCallMediaBackend implements
+// it when built with WebRTC; tests drive CallController through a fake.
+// Without a registered backend, placeCall()/answer() refuse (see
+// CallController).
 //
-// NO implementation exists in the tree: Lightning has no WebRTC stack, and
-// per the locked-dependency rule none can be added incidentally. This
-// interface is the typed contract a future engine implements; tests drive
-// the full CallController state machine through a fake. Registering a
-// backend is what makes placeCall()/answer() reachable — without one they
-// refuse honestly (see CallController).
-//
-// SDP handling contract: SDP strings passed through this interface carry
-// host IPs and must never be logged, persisted, or exposed to QML. They
-// exist in memory for the duration of call setup only. Implementations own
-// all RTC negotiation state; CallController only correlates by callId.
+// SDP passed through this interface carries host IPs: never log, persist or
+// expose it to QML; it lives in memory only during setup. Implementations own
+// all negotiation state; CallController correlates by callId only.
 #pragma once
 
 #include <QObject>
@@ -38,45 +33,36 @@ public:
                                  const QString &remoteAnswerSdp) = 0;
 
     // Feed one remote ICE candidate (trickled via m.call.candidates). The
-    // implementation buffers candidates that arrive before the remote
-    // description is applied. An empty `candidate` is MSC2746's
-    // end-of-candidates marker.
+    // implementation buffers candidates that precede the remote description.
+    // An empty `candidate` is MSC2746's end-of-candidates marker.
     virtual void addRemoteCandidate(const QString &callId,
                                     const QString &candidate,
                                     const QString &sdpMid,
                                     int sdpMLineIndex) = 0;
 
-    // ICE server configuration from the HOMESERVER's /voip/turnServer —
-    // policy: Lightning's engine contacts only servers the homeserver
-    // names (no third-party STUN that would leak the user's IP). The
-    // credentials are short-lived TURN secrets: apply, never log/persist.
+    // ICE servers from the homeserver's /voip/turnServer only (no third-party
+    // STUN that would leak the user's IP). The credentials are short-lived
+    // TURN secrets: apply, never log or persist.
     virtual void setIceServers(const QStringList &uris,
                                const QString &username,
                                const QString &password) = 0;
 
-    // Microphone mute. This must STOP PUBLISHING, not lower a local
-    // volume: the peer must receive nothing while muted. (Lowering local
-    // gain still sends audio and is explicitly not mute.)
-    //
-    // Default no-op so an engine that genuinely cannot mute stays
-    // buildable; `supportsMuteControl()` is what the UI consults, so a
-    // no-op default can never present a working-looking mute button.
+    // Microphone mute must stop publishing, not lower a local volume: the peer
+    // must receive nothing. The default no-op is safe because the UI gates on
+    // supportsMuteControl().
     virtual void setMicrophoneMuted(const QString &callId, bool muted)
     { Q_UNUSED(callId); Q_UNUSED(muted); }
 
-    // Local output mute ("deafen"): silence incoming call audio only. This
-    // legitimately IS a local volume operation — there is no upstream to
-    // stop — and must not touch media playback outside the call.
+    // Local output mute ("deafen"): silence incoming call audio only; this one
+    // is legitimately a local volume change.
     virtual void setOutputMuted(const QString &callId, bool muted)
     { Q_UNUSED(callId); Q_UNUSED(muted); }
 
-    // Whether the two controls above actually do something in this engine.
-    // The UI must gate on this rather than assume, so a control is never
-    // offered that silently does nothing.
+    // Whether the two controls above work in this engine; the UI gates on it.
     virtual bool supportsMuteControl() const { return false; }
 
-    // Tear down all session state for the call. Must be idempotent and
-    // must not emit further signals for this callId afterwards.
+    // Tear down all session state for the call. Idempotent; no further signals
+    // for this callId afterwards.
     virtual void close(const QString &callId) = 0;
 
 Q_SIGNALS:
@@ -85,12 +71,12 @@ Q_SIGNALS:
     // A locally gathered ICE candidate to trickle to the peer.
     void localCandidate(const QString &callId, const QString &candidate,
                         const QString &sdpMid, int sdpMLineIndex);
-    // Local gathering finished: the controller sends MSC2746's empty
+    // Local gathering finished; the controller sends MSC2746's empty
     // end-of-candidates marker.
     void gatheringComplete(const QString &callId);
-    // Media is flowing — the call is Active.
+    // Media is flowing; the call is Active.
     void connected(const QString &callId);
-    // Terminal failure for this call. `category` is a coarse label safe to
-    // log (never SDP or device detail).
+    // Terminal failure. `category` is a coarse label safe to log (never SDP or
+    // device details).
     void failed(const QString &callId, const QString &category);
 };

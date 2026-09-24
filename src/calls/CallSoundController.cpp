@@ -15,9 +15,8 @@ using callsound::LegacyPhase;
 using callsound::Loop;
 
 namespace {
-// An announced ring cannot outlive the longest invite the ring path honours
-// (AppController bounds it at 300 s). This is a backstop for a stop signal
-// that never comes, not the ordinary way a ring ends.
+// Backstop for a stop signal that never comes: no announced ring outlives the
+// longest invite AppController honours (300 s).
 constexpr int kRingCapMs = 300 * 1000;
 } // namespace
 
@@ -25,11 +24,10 @@ CallSoundController::CallSoundController(QObject *parent)
     : QObject(parent)
 {
     m_clock.start();
-    // ONE evaluation per burst of model signals, and — the reason it is
-    // deferred at all — AFTER the controller finishes what it is doing. On
-    // leave, SfuCallController clears its participant model BEFORE it moves
-    // to Ended; read synchronously, that clear is everyone leaving at once.
-    // Deferred, the evaluation sees the call already over and stays silent.
+    // One deferred evaluation per burst of model signals. Deferred so it runs
+    // after the controller finishes: on leave the participant model is
+    // cleared before the state moves to Ended, which read synchronously would
+    // look like everyone leaving.
     m_rosterTimer.setSingleShot(true);
     m_rosterTimer.setInterval(0);
     connect(&m_rosterTimer, &QTimer::timeout, this,
@@ -74,8 +72,8 @@ void CallSoundController::onSettingsChanged()
         prefs.shareAndHand = m_settings->callSoundsShareAndHand();
     }
     m_policy.setPreferences(prefs);
-    // A loop already playing picks up a new volume, and the ringback stops
-    // at once when the master switch goes off.
+    // A playing loop picks up a new volume, and the ringback stops at once
+    // when the master switch goes off.
     applyLoop();
 }
 
@@ -91,8 +89,8 @@ void CallSoundController::setGroupCall(SfuCallController *groupCall)
     connect(m_groupCall, &SfuCallController::mediaStateChanged, this,
             &CallSoundController::onGroupMedia);
     if (CallParticipantModel *model = m_groupCall->participantModel()) {
-        // Every way the roster can move: people in and out, a hand or a
-        // share flag on an existing row, and a wholesale rebuild.
+        // Every way the roster can change: rows in and out, hand or share flags,
+        // and rebuilds.
         connect(model, &QAbstractItemModel::rowsInserted, this,
                 &CallSoundController::scheduleRoster);
         connect(model, &QAbstractItemModel::rowsRemoved, this,
@@ -104,8 +102,7 @@ void CallSoundController::setGroupCall(SfuCallController *groupCall)
         connect(model, &QAbstractItemModel::layoutChanged, this,
                 &CallSoundController::scheduleRoster);
     }
-    // Baseline without sound: whatever the call is doing right now is not
-    // news.
+    // Baseline silently: the call's current state is not news.
     m_policy.localAudioChanged(callsound::Lane::Group,
                                m_groupCall->microphoneMuted(),
                                m_groupCall->deafened());
@@ -143,15 +140,10 @@ bool CallSoundController::ringerAvailable() const
 
 void CallSoundController::refreshOutputCapture()
 {
-    // A share carrying this computer's WHOLE output mix would carry our
-    // cues to everyone in the call. Where the share captures each
-    // application on its own and leaves Lightning out, nothing leaks.
-    //
-    // ORDER MATTERS: the two capability probes can start a GStreamer device
-    // monitor the first time they are asked (bounded, but on this thread),
-    // so they are reached only while a share with audio is actually live —
-    // by which point the share menu has already asked and the answer is
-    // cached.
+    // A share carrying this computer's whole output mix would carry our cues
+    // to everyone; per-application capture excludes Lightning. The capability
+    // probes may start a device monitor, so they are only reached while a
+    // share with audio is live (by then the answer is cached).
     bool captured = false;
     if (m_groupCall) {
         captured = m_groupCall->screenSharing()
@@ -175,8 +167,8 @@ void CallSoundController::onGroupState()
     case SfuCallController::State::Preparing:
     case SfuCallController::State::Authorizing:
     case SfuCallController::State::Connecting:
-        // The SFU re-signalling under a call that was already up is a
-        // reconnect, and must not replay the join cue as if new.
+        // Re-signalling under a call that was up is a reconnect; do not replay
+        // the join cue.
         phase = m_groupWasConnected ? GroupPhase::Reconnecting
                                     : GroupPhase::Joining;
         break;
@@ -199,8 +191,7 @@ void CallSoundController::onGroupState()
     const GroupPhase before = m_policy.groupPhase();
     emitCues(m_policy.groupPhaseChanged(phase, now()));
     if (phase == GroupPhase::Connected && before != GroupPhase::Connected) {
-        // The room as it stands at connect is the baseline; read it now
-        // rather than waiting for the next model signal.
+        // The room at connect is the baseline; read it now.
         evaluateRoster();
     }
     applyLoop();
@@ -210,8 +201,8 @@ void CallSoundController::onGroupMedia()
 {
     if (!m_groupCall)
         return;
-    // Before the share cue: a share that starts capturing the output mix
-    // must not announce itself through that mix.
+    // Before the share cue: a share that starts capturing the output mix must
+    // not announce itself through it.
     refreshOutputCapture();
     emitCues(m_policy.localAudioChanged(callsound::Lane::Group,
                                         m_groupCall->microphoneMuted(),
@@ -279,8 +270,8 @@ void CallSoundController::onLegacyState()
         || reason == CallController::EndReason::Busy;
     emitCues(m_policy.legacyPhaseChanged(phase, remoteEndedOutgoing));
 
-    // The announced ring ends the moment that call stops ringing, whatever
-    // ended it.
+    // The announced ring ends as soon as that call stops ringing, however it
+    // ended.
     if (!m_ringCallId.isEmpty()
         && (!m_calls->ringing() || m_calls->activeCallId() != m_ringCallId))
         stopIncomingRing();
@@ -308,20 +299,17 @@ void CallSoundController::startIncomingRing(const QString &callId)
 {
     if (callId.isEmpty())
         return;
-    // A ring for a call that is not (or no longer) ringing would never be
-    // stopped by onLegacyState, because nothing would change.
+    // A ring for a call not ringing would never be stopped by onLegacyState.
     if (m_calls
         && (!m_calls->ringing() || m_calls->activeCallId() != callId))
         return;
-    // The user already silenced THIS call. A re-announcement of it (the
-    // announcing path can run again for the same call) must not undo that.
+    // The user silenced this call; a re-announcement must not undo that.
     if (isRingSilenced(callId))
         return;
     m_policy.setIncomingRing(true);
     m_ringCap.start();
     applyLoop();
-    // Last, so a QML binding reading ringingCallId sees the loop already
-    // asserted rather than a ring that is announced and not yet playing.
+    // Last, so ringingCallId is only set once the loop is playing.
     setRingCallId(callId);
 }
 
@@ -339,11 +327,9 @@ bool CallSoundController::silenceRing(const QString &callId)
 {
     if (callId.isEmpty())
         return false;
-    // ONLY the call ringing now. With the legacy lane attached that is
-    // CallController's own answer — which also covers the fallback case,
-    // where the desktop's themed sound rings and our loop never started, so
-    // m_ringCallId is empty. Without it (no call lane at all) our own ring
-    // is the only thing that can be silenced.
+    // Only the call ringing now. With the legacy lane, CallController answers
+    // (covering the desktop's themed ring, where our loop never started);
+    // without it, only our own ring can be silenced.
     const bool current = m_calls
         ? (m_calls->ringing() && m_calls->activeCallId() == callId)
         : callId == m_ringCallId;
@@ -354,9 +340,8 @@ bool CallSoundController::silenceRing(const QString &callId)
     }
     if (isRingSilenced(callId))
         return true;
-    // Recorded BEFORE anything is emitted: stopIncomingRing() and the
-    // signal below both run their handlers synchronously, and any of them
-    // that re-announces this call must already find it silenced.
+    // Record before emitting: handlers run synchronously and a re-announcement
+    // must already see it silenced.
     m_silencedCallId = callId;
     qCInfo(lcCallSound) << "call ring silenced by the user ours="
                         << (m_ringCallId == callId ? "yes" : "no");
@@ -384,9 +369,8 @@ void CallSoundController::emitCues(const QList<Cue> &cues)
 {
     for (Cue cue : cues) {
         const QString name = callsound::soundName(cue);
-        // The cue NAME only: never a room, a person or an identity. This is
-        // the line a tester's log uses to tell "the sound was triggered"
-        // from "the sound was heard", which only a person can confirm.
+        // Cue name only, never a room or person; distinguishes "triggered"
+        // from "heard" in a tester's log.
         qCInfo(lcCallSound) << "call sound cue=" << name
                             << "sink=" << (m_sink ? "yes" : "none");
         if (m_sink)
@@ -398,9 +382,9 @@ void CallSoundController::applyLoop()
 {
     const Loop wanted = m_policy.desiredLoop();
     const bool ringing = wanted == Loop::Ring || wanted == Loop::CallWaiting;
-    // The ringer plays on the system default output — the machine should
-    // ring where its owner will hear it, not in a headset on the desk. What
-    // plays DURING a call (call waiting, ringback) goes where the call goes.
+    // The ringer uses the system default output, so the machine rings where
+    // its owner will hear it; in-call sounds (call waiting, ringback) follow
+    // the call's output.
     const bool inCall = wanted != Loop::Ring;
     const qreal volume = ringing ? ringVolume() : cueVolume();
     if (wanted != m_loop)

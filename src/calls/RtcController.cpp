@@ -13,8 +13,7 @@
 
 namespace {
 Q_LOGGING_CATEGORY(lcRtc, "lightning.calls.rtc")
-/// Facepiles and banners never need more than a handful, and the Rust side
-/// already caps a session at 128 devices. This is the presentation bound.
+/// Presentation bound; the Rust side already caps a session at 128 devices.
 constexpr int kMaxPresentedParticipants = 64;
 } // namespace
 
@@ -32,8 +31,7 @@ void RtcController::setClient(MatrixClient *client)
         disconnect(m_client, nullptr, this, nullptr);
     }
     m_client = client;
-    // A new client is a new account (or none). Everything observed belonged
-    // to the previous one.
+    // A new client is a new account (or none): forget what was observed.
     clearForNewSession();
     if (m_client) {
         connect(m_client, &MatrixClient::rtcSessionReceived, this,
@@ -42,9 +40,8 @@ void RtcController::setClient(MatrixClient *client)
                 &RtcController::onSessionPoked);
         connect(m_client, &MatrixClient::rtcTransportsReceived, this,
                 &RtcController::onTransportsReceived);
-        // Sign-out must forget observed calls immediately: a participant
-        // list is other people's presence in a room this account may no
-        // longer be in.
+    // Forget observed calls on sign-out: participant lists are other
+    // people's presence in rooms this account may leave.
         connect(m_client, &MatrixClient::loggedOut, this,
                 [this]() { clearForNewSession(); });
     }
@@ -54,18 +51,14 @@ void RtcController::setClient(MatrixClient *client)
 void RtcController::clearForNewSession()
 {
     m_sessions.clear();
-    // A new session diagnoses itself: carrying the last one's "already said
-    // that" set forward would silence the second attempt, which is usually
-    // the one someone is watching.
+    // Diagnostics are per session, so a retry can report again.
     m_unresolvedIdentitiesLogged.clear();
-    // Every outstanding read belonged to the account that is going away.
-    // This IS the isolation (see the header): an account switch reuses the
-    // same client and emits loggedOut, which lands here.
+    // Outstanding reads belonged to the previous account. An account switch
+    // reuses the client and emits loggedOut, which lands here.
     m_pendingReads.clear();
     m_roomsBeingRead.clear();
     m_pokedRooms.clear();
-    // ...and so did every forced read and the cooldown that paces them: the
-    // new account starts able to ask immediately.
+    // Also forced reads and their cooldowns: the new account may ask at once.
     m_serverReadWanted.clear();
     m_lastServerReadMs.clear();
     m_serverReadStreak.clear();
@@ -76,13 +69,8 @@ void RtcController::clearForNewSession()
     m_participantFocus.clear();
     m_availabilityCategory.clear();
     m_discoveryOp = 0;
-    // Room encryption belongs to the account that is going away.
-    //
-    // The RESOLVER is deliberately kept. It captures the owner, which
-    // outlives every account and answers from whatever room list is current,
-    // so clearing it here would leave the next account back where this
-    // record started: pushed-only, and empty for every room nothing has
-    // opened.
+    // Room encryption belongs to the previous account. The resolver is kept:
+    // it answers from whatever room list is current.
     m_encryptedRooms.clear();
     Q_EMIT availabilityChanged();
 }
@@ -94,10 +82,9 @@ void RtcController::setReadTimeoutMsForTest(int ms)
 
 void RtcController::reapStaleReads()
 {
-    // A reply can legitimately never arrive: the Rust event queue drops the
-    // oldest event on overflow. Without this, the room stays in
-    // m_roomsBeingRead forever (never refreshable again) and flushPokes
-    // re-arms the timer every tick for the rest of the session.
+    // A reply may never arrive (the Rust event queue drops the oldest on
+    // overflow). Without reaping, the room would stay unrefreshable and
+    // flushPokes would re-arm forever.
     if (m_readTimeoutMs <= 0)
         return;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
@@ -118,12 +105,8 @@ bool RtcController::supported() const
 
 bool RtcController::callingAvailable() const
 {
-    // Availability is a POSITIVE fact: a transport was actually named. An
-    // unanswered or failed discovery is not availability, and neither is a
-    // server that answered with an empty list.
-    // A session that names a focus is a transport we can actually reach, and
-    // it does not depend on discovery having completed — so it counts here
-    // even when the homeserver has no MSC4143 endpoint to answer.
+    // Availability is a positive fact: a transport was actually named. A
+    // session that names a focus counts even without MSC4143 discovery.
     bool sessionNamesAFocus = false;
     for (auto it = m_sessions.cbegin(); it != m_sessions.cend(); ++it) {
         if (!it->slotClosed && !it->focusServiceUrl.isEmpty()) {
@@ -139,19 +122,12 @@ bool RtcController::callingAvailable() const
 
 bool RtcController::discoveryWorthRetrying() const
 {
-    // The bound for the AUTOMATIC (room-change) trigger, deliberately not
-    // inside discover() itself: an explicit request must always be honoured,
-    // and putting the policy in the primitive turned a caller's discover()
-    // into a silent no-op.
-    //
-    // One in flight is enough — a second request cannot learn anything the
-    // first will not, and the op-id guard would discard its reply anyway.
+    // Bounds the automatic (room-change) trigger only; an explicit discover()
+    // is always honoured. One request in flight is enough.
     if (m_discoveryOp != 0)
         return false;
-    // A server that ANSWERED has settled the account-scoped question in
-    // either direction: it named transports, or it named none because it has
-    // no MatrixRTC. Neither changes within a session, so re-asking on every
-    // room change would be a poll against a constant.
+    // Once the server has answered either way, the account-scoped answer is
+    // settled for the session.
     return !m_serverAnswered;
 }
 
@@ -165,21 +141,10 @@ QString RtcController::sessionFocusFor(const QString &roomId) const
 
 bool RtcController::transportReachableFor(const QString &roomId) const
 {
-    // The ROOM's own session first. It carries the focus the participants
-    // are actually on, it arrives with every session read, and on a
-    // homeserver with no MSC4143 endpoint — which is nearly all of them — it
-    // is the only focus that exists.
-    //
-    // This used to consult only `m_serviceUrls` and `m_participantFocus`,
-    // and `m_participantFocus` is populated by a per-room DISCOVERY that
-    // runs exactly once, on the initial-sync edge, for whatever room was
-    // open at that moment — which is none. So a room could show "3 people in
-    // call" from memberships that plainly carried a focus, and the join gate
-    // still reported `discovery_failed`. Joining was impossible in every
-    // room, always, on any server without MSC4143.
-    //
+    // The room's own session focus first: it is where the participants are,
+    // and without MSC4143 (most homeservers) it is the only focus there is.
     // The homeserver's answer applies everywhere; a participant-advertised
-    // focus applies ONLY to the room whose participants advertised it.
+    // focus only to its own room.
     return !sessionFocusFor(roomId).isEmpty()
         || !m_serviceUrls.isEmpty()
         || !m_participantFocus.value(roomId).isEmpty();
@@ -206,21 +171,11 @@ void RtcController::setEncryptionResolver(EncryptionResolver resolver)
     m_encryptionResolver = std::move(resolver);
 }
 
-/// ASKS FIRST, and only then falls back to what it was told.
-///
-/// The stored map had exactly two writers — AppController::startCall() and
-/// setCurrentRoomId() — so it was filled only for a room the user had OPENED
-/// or called FROM. Three of the four surfaces that reach join() are in-room
-/// and happened to satisfy that; the fourth, the global incoming-call card,
-/// is an overlay that opens nothing, and its join found no entry and took
-/// the fail-closed default. Live 2026-09-18, in a room with no
-/// `m.room.encryption` at all: the answerer published encrypted and required
-/// encryption inbound, the caller correctly published in the clear, and the
-/// answerer dropped every frame — one-way audio whose only diagnostic said
-/// "the sender's key never reached this device".
-///
-/// Pulling removes the class rather than the instance: a surface added
-/// tomorrow cannot forget to push, because there is nothing to push.
+/// Asks the resolver first, then falls back to the stored record. The record
+/// was only filled for rooms that were opened or called from, so a join
+/// from the incoming-call card took the fail-closed default in an
+/// unencrypted room and dropped every frame. Pulling means no surface can
+/// forget to push.
 bool RtcController::roomEncrypted(const QString &roomId) const
 {
     const RoomEncryption stored =
@@ -228,25 +183,19 @@ bool RtcController::roomEncrypted(const QString &roomId) const
     if (m_encryptionResolver) {
         switch (m_encryptionResolver(roomId)) {
         case RoomEncryption::Yes:
-            // REMEMBERED, so the irreversibility guard below covers every
-            // room this client has ever seen encrypted and not merely the
-            // ones something happened to push. Without this the guard's own
-            // claim — "a KNOWN Yes still wins" — would hold only for rooms
-            // that were opened or called from, which is the very gap this
-            // resolver exists to close. One record, not two: a second cache
-            // is how two answers start to disagree.
+            // Remember it, so the irreversibility guard covers every room
+            // ever seen encrypted. One record, not two caches.
             m_encryptedRooms.insert(roomId, RoomEncryption::Yes);
             return true;
         case RoomEncryption::No:
-            // A KNOWN Yes still wins. Encryption cannot be removed in
-            // Matrix, so a live read of "no" against a room we have seen
-            // encrypted is a stale or partial view — see setRoomEncrypted.
+            // A known Yes still wins: encryption cannot be removed in Matrix,
+            // so a "no" here is a stale view (see setRoomEncrypted).
             return stored == RoomEncryption::Yes;
         case RoomEncryption::Unknown:
             break;
         }
     }
-    // Unknown fails CLOSED, exactly as the bare map default did.
+    // Unknown fails closed.
     return stored != RoomEncryption::No;
 }
 
@@ -259,32 +208,12 @@ void RtcController::setRoomEncrypted(const QString &roomId, bool encrypted)
         encrypted ? RoomEncryption::Yes : RoomEncryption::No;
     if (it != m_encryptedRooms.cend() && it.value() == wanted)
         return;
-    // ENCRYPTION IS IRREVERSIBLE IN MATRIX, SO THIS RECORD ONLY EVER MOVES
-    // ONE WAY.
-    //
-    // `m.room.encryption` cannot be removed once set: the spec has no
-    // un-encrypt, and every client treats the flag as permanent. A read that
-    // says a room we already know to be encrypted is now PLAINTEXT is
-    // therefore not news, it is a stale or incomplete view -- and obeying it
-    // makes the next call join in the clear.
-    //
-    // Measured live 2026-09-16: the same room read encrypted on one run and
-    // unencrypted on the next, and the unencrypted run sent every frame as
-    // cleartext while the peer ran its decryptor over it. No audio arrived,
-    // and the peer's UI reported the sender as "not encrypted" -- a silent
-    // downgrade of a promise the user was given, which section 6 forbids
-    // outright.
-    //
-    // Refusing the downgrade is the conservative direction in both senses:
-    // the worst case is a call that insists on encryption in a room that
-    // genuinely is not encrypted, which fails LOUDLY and cannot leak.
-    //
-    // ONLY FROM A KNOWN Yes. The callers USED TO pass `!known || encrypted`,
-    // so an UNKNOWN room was stored as `true` and latched here — the
-    // fail-closed assumption made itself permanent and the correct later
-    // answer was refused for the rest of the session. They record only a
-    // known answer now, and the tri-state is what lets this guard mean what
-    // its text says.
+    // Encryption is irreversible in Matrix, so this record only moves one
+    // way. A read claiming a known-encrypted room is now plaintext is stale
+    // or partial, and obeying it would make the next call join in the clear.
+    // The worst case of refusing is a call that insists on encryption and
+    // fails loudly. Only a known Yes blocks a downgrade; callers record only
+    // known answers.
     if (!encrypted && it != m_encryptedRooms.cend()
         && it.value() == RoomEncryption::Yes) {
         qCWarning(lcRtc)
@@ -306,8 +235,8 @@ void RtcController::setCanPublishMembership(const QString &roomId, bool can)
     if (it != m_canPublishMembership.cend() && it.value() == can)
         return;
     m_canPublishMembership.insert(roomId, can);
-    // Same signal the encryption fact uses: the banner and the call row both
-    // re-read their block reason from it.
+    // Same signal as the encryption fact; the banner and call row re-read
+    // their block reason from it.
     Q_EMIT sessionChanged(roomId);
 }
 
@@ -320,15 +249,13 @@ void RtcController::refresh(const QString &roomId)
 {
     if (roomId.isEmpty() || !supported())
         return;
-    // One read per room at a time: a poke burst must not fan out into N
-    // identical reads. The burst is still not lost — flushPokes() re-pokes
-    // a room whose read was in flight.
+    // One read per room at a time; flushPokes() re-pokes a room whose read
+    // was in flight, so a burst is not lost.
     reapStaleReads();
     if (m_roomsBeingRead.contains(roomId))
         return;
-    // A forced read is a request that OUTLIVES the call that made it: it is
-    // consumed here, at the moment the read is actually dispatched, so a
-    // request made while another read was in flight still reaches the wire.
+    // A forced-read request is consumed only when a read is dispatched, so a
+    // request made during another read still reaches the wire.
     const bool preferServer = m_serverReadWanted.contains(roomId);
     const quint64 opId = m_client->rtcSession(roomId, preferServer);
     if (opId == 0)
@@ -344,10 +271,9 @@ void RtcController::refreshFromServer(const QString &roomId)
     if (roomId.isEmpty() || !supported())
         return;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    // The gap doubles for every forced read in a row that changed nothing,
-    // because a participant this build simply cannot name is a permanent
-    // condition and asking the server about it every ten seconds for the
-    // length of a call is a request storm with no answer at the end of it.
+    // The gap doubles for each forced read in a row that changed nothing: a
+    // participant we cannot name is a permanent condition, and polling the
+    // server about it would be a request storm.
     const int streak = m_serverReadStreak.value(roomId);
     qint64 cooldown = m_serverReadCooldownMs;
     for (int i = 0; i < streak && cooldown < m_serverReadCooldownMaxMs; ++i)
@@ -356,8 +282,7 @@ void RtcController::refreshFromServer(const QString &roomId)
     const auto last = m_lastServerReadMs.constFind(roomId);
     if (last != m_lastServerReadMs.cend() && now - *last < cooldown)
         return;
-    // Bounded: the callers are per-room and a session's rooms are few, but
-    // this map outlives individual calls, so it may not grow without end.
+    // Bounded: this map outlives calls.
     if (m_lastServerReadMs.size() >= 64 && !m_lastServerReadMs.contains(roomId)) {
         m_lastServerReadMs.clear();
         m_serverReadStreak.clear();
@@ -366,9 +291,8 @@ void RtcController::refreshFromServer(const QString &roomId)
     m_serverReadStreak.insert(roomId, streak + 1);
     m_serverReadWanted.insert(roomId);
     if (m_roomsBeingRead.contains(roomId)) {
-        // A store-backed read is already in flight and will answer with the
-        // very state that prompted this. Poke so the forced read follows it
-        // instead of being lost.
+        // A store-backed read is in flight; poke so the forced read follows
+        // it rather than being lost.
         m_pokedRooms.insert(roomId);
         if (m_pokeCoalesceMs > 0)
             m_pokeTimer.start(m_pokeCoalesceMs);
@@ -386,10 +310,7 @@ void RtcController::discover(const QString &roomId)
     const quint64 opId = m_client->rtcTransports(roomId);
     if (opId == 0)
         return;
-    // Only the newest discovery counts; an older reply must not overwrite
-    // it. The epoch is carried too, for the same reason reads carry one: a
-    // replacement client restarts its op counter, so an id match alone
-    // cannot prove the reply belongs to this account.
+    // Only the newest discovery counts; an older reply must not overwrite it.
     m_discoveryOp = opId;
     m_discoveryRoomId = roomId;
 }
@@ -403,8 +324,7 @@ void RtcController::onSessionPoked(const QString &roomId)
         flushPokes();
         return;
     }
-    // Restarting the timer on every poke coalesces a burst into ONE read
-    // once the burst stops, instead of reading once per membership event.
+    // Restarting the timer coalesces a burst into one read.
     m_pokeTimer.start(m_pokeCoalesceMs);
 }
 
@@ -415,10 +335,8 @@ void RtcController::flushPokes()
     reapStaleReads();
     for (const QString &roomId : rooms) {
         if (m_roomsBeingRead.contains(roomId)) {
-            // A read is already in flight and will return state from BEFORE
-            // this poke. Re-poke so the change is not lost. Bounded by the
-            // reap above: a read whose reply never arrives releases its
-            // room instead of re-arming this timer forever.
+            // A read in flight returns pre-poke state; re-poke. Bounded by the
+            // reap above.
             m_pokedRooms.insert(roomId);
             continue;
         }
@@ -433,28 +351,26 @@ void RtcController::onSessionReceived(quint64 opId,
 {
     const auto pending = m_pendingReads.constFind(opId);
     if (pending == m_pendingReads.cend())
-        return; // not ours, or already superseded
+        return; // not ours, or superseded
     const PendingRead read = *pending;
     m_pendingReads.erase(pending);
     m_roomsBeingRead.remove(read.roomId);
-    // The room the reply names must be the room we asked about.
+    // The reply must be for the room we asked about.
     if (session.roomId != read.roomId)
         return;
 
     const RtcSessionData previous = m_sessions.value(session.roomId);
     m_sessions.insert(session.roomId, session);
-    // COUNTS ONLY — never an id, a name or a device. How many memberships a
-    // read actually found is the difference between "nobody else is in this
-    // call" and "we cannot address anyone, so no media key goes anywhere",
-    // and nothing distinguished those two before.
+    // Counts only, never ids: distinguishes "nobody else here" from "nobody
+    // addressable".
     qCInfo(lcRtc) << "session read room participants=" << session.participants.size()
                   << "source=" << session.source
                   << "rawEvents=" << session.rawMembershipEvents
                   << "slotPresent=" << session.slotPresent
                   << "slotClosed=" << session.slotClosed;
 
-    // Only announce a real change: a poke storm on an unchanged call would
-    // otherwise re-render every banner and facepile for nothing.
+    // Announce only a real change, so a poke storm does not re-render every
+    // banner and facepile.
     const bool changed = previous.participants.size()
             != session.participants.size()
         || previous.slotClosed != session.slotClosed
@@ -464,10 +380,8 @@ void RtcController::onSessionReceived(quint64 opId,
                        previous.participants.cend(),
                        session.participants.cbegin(),
                        [](const RtcParticipant &a, const RtcParticipant &b) {
-                           // Profile fields are compared too: they are what
-                           // the facepile DRAWS, and a name or avatar that
-                           // resolved after the first read would otherwise
-                           // stay stale until some unrelated change fired.
+                           // Profile fields too: the facepile draws them, and
+                           // a late-resolved name would otherwise stay stale.
                            return a.userId == b.userId
                                && a.deviceId == b.deviceId
                                && a.intent == b.intent
@@ -475,9 +389,7 @@ void RtcController::onSessionReceived(quint64 opId,
                                && a.avatarMxc == b.avatarMxc;
                        });
     if (changed) {
-        // A read that moved the answer earned the next one its full speed:
-        // the escalating gap exists for the case where asking again cannot
-        // help, and this is the proof that it can.
+        // A read that changed the answer resets the escalating gap.
         m_serverReadStreak.remove(session.roomId);
         Q_EMIT sessionChanged(session.roomId);
     }
@@ -501,9 +413,7 @@ void RtcController::onTransportsReceived(quint64 opId, bool serverAnswered,
         else
             m_participantFocus.insert(discoveredRoom, participantFocusUrl);
     }
-    // The category explains an ABSENCE. When a transport was found there is
-    // nothing to explain, so it is cleared rather than left to leak a stale
-    // failure into a working state.
+    // The category explains an absence; clear it when a transport was found.
     m_availabilityCategory =
         (!serverServiceUrls.isEmpty() || !participantFocusUrl.isEmpty())
         ? QString()
@@ -567,8 +477,8 @@ QString RtcController::identityForMembership(
     for (const RtcParticipant &participant : it->participants) {
         if (participant.membershipEventId != membershipEventId)
             continue;
-        // THE SENDER MUST OWN THE MEMBERSHIP. Anyone may annotate anyone's
-        // state event; only the owner raising their own hand means anything.
+        // The sender must own the membership: anyone may annotate anyone's
+        // state event.
         if (participant.userId != sender)
             return {};
         return participant.rtcIdentity;
@@ -616,9 +526,7 @@ QVariantList RtcController::participants(const QString &roomId, int max) const
             break;
         QVariantMap row;
         row.insert(QStringLiteral("userId"), participant.userId);
-        // deviceId deliberately NOT exposed: RtcSession.h states it is
-        // compared, never rendered, and nothing in QML needs it. A second
-        // device shows as a second tile by position, not by its id.
+        // deviceId is not exposed (RtcSession.h: compared, never rendered).
         row.insert(QStringLiteral("intent"), participant.intent);
         row.insert(QStringLiteral("displayName"), participant.displayName);
         row.insert(QStringLiteral("avatarMxc"), participant.avatarMxc);
@@ -656,8 +564,7 @@ QVariantMap RtcController::participantForIdentity(
         return out;
     const auto it = m_sessions.constFind(roomId);
     if (it == m_sessions.cend() || it->slotClosed) {
-        // See the note on the loop below: an empty answer here is what makes
-        // a participant unkeyable, and it used to leave no trace at all.
+        // An empty answer makes a participant unkeyable; record it.
         noteUnresolvedIdentity(identity, QStringLiteral("no live session"));
         return out;
     }
@@ -665,81 +572,47 @@ QVariantMap RtcController::participantForIdentity(
         if (participant.rtcIdentity != identity)
             continue;
         out.insert(QStringLiteral("userId"), participant.userId);
-        // The DEVICE, not just the person. A media key is addressed to one
-        // device and one device's key ring, and the same human on a laptop
-        // and a phone is two senders with two different keys — collapsing
-        // them would decrypt one with the other's material. A public Matrix
-        // device id, which already crosses in mediaKeyTargetsJson().
+        // The device, not just the person: keys are per device, and one
+        // person's laptop and phone are separate senders. A public Matrix
+        // device id, as in mediaKeyTargetsJson().
         out.insert(QStringLiteral("deviceId"), participant.deviceId);
-        // Room-resolved profile. Empty means "not known here", which the UI
-        // degrades to initials rather than inventing a name.
+        // Room-resolved profile; empty degrades to initials.
         out.insert(QStringLiteral("displayName"), participant.displayName);
         out.insert(QStringLiteral("avatarMxc"), participant.avatarMxc);
         out.insert(QStringLiteral("ownUser"), participant.ownUser);
         out.insert(QStringLiteral("ownDevice"), participant.ownDevice);
         return out;
     }
-    // NOTHING LOGGED THE EMPTY LOOKUP — docs/voice-calls.md says so in as
-    // many words, and its only visible trace was `unresolved=` on the media
-    // key line, which is an arithmetic difference rather than a name.
-    //
-    // This lookup is what turns a LiveKit identity into the Matrix user and
-    // device a media key is addressed to. When it comes back empty, that
-    // participant is not sent a key and their ring is never bound — so they
-    // hear us and we cannot hear them, which is the exact shape of the
-    // report this exists for. Once per identity per session: the caller runs
-    // on a refresh tick.
+    // An empty lookup means the participant gets no key and their ring is
+    // never bound (they hear us, we cannot hear them). Logged once per
+    // identity per session; the caller runs on a tick.
     noteUnresolvedIdentity(identity,
                            QStringLiteral("no membership matched it"));
     return out;
 }
 
-/// Say once that an SFU identity could not be resolved to a Matrix device.
+/// Logs once that an SFU identity could not be resolved to a Matrix device.
 ///
-/// WHAT THIS PUTS IN A LOG, stated accurately rather than waved away. The
-/// identity is NOT opaque: `SfuCallController`'s default is literally
-/// `<user id>:<device id>`, so this line carries a third-party Matrix id,
-/// and no line in `src/calls/` did that before — the existing ones log
-/// counts and categories, and the received-track line deliberately logs
-/// whether a stream id is empty rather than what it is.
-///
-/// It is here anyway because the four facts this round exists to make
-/// visible cannot be correlated without knowing WHICH participant each one
-/// is about, and because the alternative — a hash — cannot be matched
-/// against the user ids in the rest of the log. It carries no key material,
-/// no token and no room content, and it is a local log; see docs/privacy.md,
-/// which records this as a deliberate widening, and note that the
-/// support-diagnostics EXPORT is a different surface held to a stricter bar.
+/// The identity is not opaque (by default `<user id>:<device id>`), so this
+/// local log line carries a third-party Matrix id: a deliberate widening
+/// recorded in docs/privacy.md, needed to correlate diagnostics. No key
+/// material, tokens or room content; the support-diagnostics export is held
+/// to a stricter bar.
 void RtcController::noteUnresolvedIdentity(const QString &identity,
                                            const QString &reason) const
 {
-    // KEYED ON BOTH, not on the identity alone. "There is no session yet" is
-    // a transient state at the start of a call and "no membership matched
-    // it" is a real fault; an identity that hit the first must still be able
-    // to report the second, or the diagnostic silences the one that matters.
+    // Keyed on identity and reason: "no session yet" is transient at call
+    // start and must not silence the real "no membership matched it".
     const QString subject = identity + QChar(0x1f) + reason;
-    // Bounded: identities arrive from the SFU, so the set they can create
-    // must not be.
+    // Bounded: identities come from the SFU.
     if (m_unresolvedIdentitiesLogged.size() >= 256
         || m_unresolvedIdentitiesLogged.contains(subject)) {
         return;
     }
-    // A MISS AT JOIN IS NORMAL AND IS NOT WHAT THIS LINE IS FOR.
-    //
-    // The client reaches the SFU before its OWN membership state event has
-    // come back through sync, so the first lookups of a call resolve
-    // nothing — including, every single time, the local device. Observed on
-    // both ends of a live call on 2026-09-07: each client reported its own
-    // identity as unresolvable at `sfu joined` and resolved it moments
-    // later, and the other client's identity resolved first time. That made
-    // the loudest line in the call log a false alarm, and it is precisely
-    // the line a user would quote when reporting that they cannot hear
-    // anyone.
-    //
-    // What the diagnostic is for is a participant who stays unresolvable, so
-    // it now requires the fault to PERSIST. The set is re-tested by
-    // reconcileKeyLane() on its own tick, and a subject that resolves in the
-    // meantime never reaches this branch again.
+    // A miss at join is normal: the SFU is reached before our own membership
+    // syncs back, so early lookups (including our own device) fail briefly.
+    // Only a fault that persists past the grace period is logged;
+    // reconcileKeyLane() re-tests on its tick.
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const auto firstSeen = m_unresolvedIdentityFirstSeenMs.constFind(subject);
     if (firstSeen == m_unresolvedIdentityFirstSeenMs.cend()) {
@@ -759,11 +632,7 @@ void RtcController::noteUnresolvedIdentity(const QString &identity,
 
 void RtcController::forgetUnresolvedIdentityDiagnostics()
 {
-    // PER CALL, not per account. SFU identities are stable for a user and
-    // device, so a set that lived for the whole login meant the second call
-    // of the day reported nothing at all — the same reasoning the media
-    // engine's stop() already applies to its own once-set, and it belongs
-    // here for the same reason.
+    // Per call, not per account: identities repeat across calls.
     m_unresolvedIdentitiesLogged.clear();
     m_unresolvedIdentityFirstSeenMs.clear();
 }
@@ -802,9 +671,8 @@ QStringList RtcController::participantUserIds(const QString &roomId,
     for (const RtcParticipant &participant : it->participants) {
         if (out.size() >= limit)
             break;
-        // One entry per PERSON here: the same account on a laptop and a
-        // phone is two participants but one face, and a facepile showing
-        // the same avatar twice with no explanation reads as a bug.
+        // One entry per person: a user's laptop and phone are two participants
+        // but one face.
         if (!out.contains(participant.userId))
             out.append(participant.userId);
     }
@@ -824,9 +692,7 @@ QVariantList RtcController::participantFaces(const QString &roomId,
     for (const RtcParticipant &participant : it->participants) {
         if (out.size() >= limit)
             break;
-        // One face per PERSON: the same account on a laptop and a phone is
-        // two participants but one face, and a repeated avatar with no
-        // explanation reads as a bug.
+        // One face per person, as above.
         if (seen.contains(participant.userId))
             continue;
         seen.append(participant.userId);
@@ -841,15 +707,10 @@ QVariantList RtcController::participantFaces(const QString &roomId,
 
 QString RtcController::focusUrlFor(const QString &roomId) const
 {
-    // An EXISTING session's focus wins, and the order matters more than it
-    // looks. When a call is already running, its participants are on the
-    // focus the oldest membership named; picking our own homeserver's SFU
-    // instead would put us alone on a different server while the room says
-    // three people are in the call. The reference implementation resolves it
-    // the same way, which is what keeps Lightning and Element in one call.
-    //
-    // The homeserver's own answer is for STARTING a call, where there is no
-    // session to agree with yet.
+    // An existing session's focus wins: its participants are on the focus the
+    // oldest membership named, and choosing our own SFU would put us alone on
+    // another server. Matches element-call. The homeserver's answer is for
+    // starting a call.
     const QString session = sessionFocusFor(roomId);
     if (!session.isEmpty())
         return session;
@@ -865,51 +726,30 @@ RtcController::JoinBlock RtcController::joinBlock(const QString &roomId) const
     const auto it = m_sessions.constFind(roomId);
     if (it != m_sessions.cend() && it->slotClosed)
         return JoinBlock::SessionClosed;
-    // Reachability BEFORE the discovery state. A room whose session names a
-    // focus is joinable whether or not the account-scoped discovery ever
-    // answered, and gating on `m_discovered` first reported "still checking"
-    // (or, once a failed discovery had set it, "couldn't check") for a call
-    // the client could see three people in and had a focus for.
+    // Reachability before discovery state: a room whose session names a
+    // focus is joinable even if discovery never answered.
     if (!transportReachableFor(roomId)) {
         if (!m_discovered)
             return JoinBlock::Undiscovered;
-        // A server that answered and named nothing is a different fact from
-        // a discovery that never completed, and the user-facing wording
-        // differs: "this homeserver has no calling" versus "couldn't check".
+        // "No calling on this homeserver" (answered, nothing named) differs
+        // from "couldn't check".
         return m_serverAnswered ? JoinBlock::NoTransport
                                 : JoinBlock::DiscoveryFailed;
     }
-    // An ENCRYPTED room whose call media cannot be encrypted is refused
-    // outright. Joining would publish audio and video the SFU could read,
-    // in a room the user was told is end-to-end encrypted — §6's "fail
-    // safely and tell the user" rather than silently weaken it.
-    //
-    // Checked BEFORE the media-transport blocker so the reason the user
-    // sees is the one that would actually matter to them.
-    // UNKNOWN is treated as encrypted. The safe answer to "might this be
-    // encrypted?" is yes — assuming unencrypted would be the silent
-    // downgrade §6 forbids. The owner is ASKED for the real answer
-    // (AppController's resolver, from the room's own encrypted /
-    // encryptionKnown pair); it used to have to remember to tell us, and
-    // two of the surfaces that reach a join never did.
+    // An encrypted room whose call media cannot be encrypted is refused;
+    // checked before the media-transport block so the more relevant reason is
+    // shown. Unknown counts as encrypted; the owner's resolver supplies the
+    // real answer.
     if (roomEncrypted(roomId) && !m_mediaEncryption)
         return JoinBlock::MediaEncryptionUnavailable;
-    // No SFU media engine: joining would publish a membership no peer could
-    // connect to, which is the one thing this controller must never do.
+    // No SFU media engine: never publish a membership nobody can connect to.
     if (!m_mediaAvailable)
         return JoinBlock::NoMediaTransport;
-    // AND WHETHER THE SERVER WOULD EVEN ACCEPT THE MEMBERSHIP. Checked last,
-    // because everything above is a fact about this build or this homeserver
-    // and this one is about this ROOM: a user who could not join anywhere
-    // should hear the wider reason first.
-    //
-    // Default TRUE, and for the opposite reason to the encryption default
-    // above: a room we have not been told about must not have its Join
-    // button disabled on a guess. An unknown capability is "let them try",
-    // which is exactly today's behaviour; a KNOWN refusal is what this adds.
+    // Whether the server would accept our membership, checked last since it
+    // is room-specific. Defaults to true: an unknown capability must not
+    // disable Join; only a known refusal does.
     if (!m_canPublishMembership.value(roomId, true))
         return JoinBlock::NoPermission;
-    // Everything checks out — the call is joinable.
     return JoinBlock::None;
 }
 
