@@ -2270,9 +2270,17 @@ Rectangle {
     // binding — rehighlighting nudges the input's layout/cursor signals and
     // a cursorPosition-reading binding would loop (and reopen the popup
     // Escape just closed); same rationale as the room composer.
+    // Copied out of the C++ property, never stored as read: on Qt 6.8 a
+    // stored QVariantList stays a live reference to the property, so the
+    // comparison below always saw the new value and the previous message's
+    // mention stayed inked. See MessageComposerBar.qml's
+    // refreshMentionHighlight.
     property var threadMentionHighlightRanges: []
     function refreshThreadMentionHighlight() {
-        var ranges = app.thread.mentionRanges
+        var ranges = []
+        var live = app.thread.mentionRanges
+        for (var k = 0; k < live.length; ++k)
+            ranges.push({ start: live[k].start, length: live[k].length })
         if (threadMentionPopup.visible && panel.threadMentionTokenStart >= 0) {
             var len = threadComposerInput.cursorPosition
                       - panel.threadMentionTokenStart

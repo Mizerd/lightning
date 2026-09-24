@@ -28,6 +28,8 @@
 #include <QSignalSpy>
 #include <QtTest/QtTest>
 
+#include <memory>
+
 namespace {
 
 QString read(const QString &path)
@@ -37,6 +39,56 @@ QString read(const QString &path)
         return {};
     return QString::fromUtf8(f.readAll());
 }
+
+// The text of `function <name>() { ... }` in a QML source, braces matched.
+QString extractFunction(const QString &src, const QString &name)
+{
+    const int at = src.indexOf(QStringLiteral("function %1(").arg(name));
+    if (at < 0)
+        return {};
+    const int open = src.indexOf(QLatin1Char('{'), at);
+    if (open < 0)
+        return {};
+    int depth = 0;
+    for (int i = open; i < src.size(); ++i) {
+        if (src.at(i) == QLatin1Char('{'))
+            ++depth;
+        else if (src.at(i) == QLatin1Char('}') && --depth == 0)
+            return src.mid(at, i - at + 1);
+    }
+    return {};
+}
+
+// Stand-in for a composer, holding ONLY what a refresh function reads. The
+// C++ ranges property is played by `live`: ONE array object that the test
+// changes in place, which is how Qt 6.8 hands QML a QVariantList property --
+// a reference that re-reads the property on every access.
+const char *kRefreshScene = R"QML(
+import QtQuick
+import MatrixClient
+
+Item {
+    id: %1
+    property var live: []
+    property QtObject app: QtObject {
+        property QtObject composer: QtObject { property var mentionRanges: %1.live }
+        property QtObject thread: QtObject { property var mentionRanges: %1.live }
+    }
+    property int mentionTokenStart: -1
+    property int threadMentionTokenStart: -1
+    property var mentionHighlightRanges: []
+    property var threadMentionHighlightRanges: []
+    QtObject { id: mentionPopup; property bool visible: false }
+    QtObject { id: threadMentionPopup; property bool visible: false }
+    QtObject { id: input; property int cursorPosition: 0 }
+    QtObject { id: threadComposerInput; property int cursorPosition: 0 }
+    MentionHighlighter { objectName: "highlighter"; ranges: %1.%2 }
+
+    function remember() { %1.live = [{ start: 0, length: 16 }] }
+    function forget() { %1.live.length = 0 }
+    %3
+}
+)QML";
 
 // Test-driven member snapshot delivery — mirrors
 // tests/MentionSuggestionModelTest.cpp's MemberMock, kept self-contained per
@@ -411,6 +463,73 @@ private Q_SLOTS:
         QCOMPARE(popup->property("currentIndex").toInt(), 2); // wraps backward
 
         delete root;
+    }
+
+    // Reported against the 0.9.9 AppImage: after sending a message with a
+    // mention, every NEW message began with an accent-inked run exactly as
+    // long as that mention. It was visual only (the next event went out as a
+    // plain body), and it came from the refresh functions: they stored the
+    // C++ ranges list AS READ, and on Qt 6.8 that is a live reference, so the
+    // stored copy always equalled the new value, the "nothing changed" check
+    // returned early, and the highlighter never received the empty list. Qt
+    // 6.11 detaches the list on store, so the real composer cannot show it in
+    // a local build; each composer's OWN refresh function is run here against
+    // a ranges list that behaves the way Qt 6.8's does.
+    void aForgottenMentionStopsInkingTheComposer_data()
+    {
+        QTest::addColumn<QString>("file");
+        QTest::addColumn<QString>("function");
+        QTest::addColumn<QString>("rootId");
+        QTest::addColumn<QString>("mirror");
+        QTest::newRow("room composer")
+            << QStringLiteral("MessageComposerBar.qml")
+            << QStringLiteral("refreshMentionHighlight")
+            << QStringLiteral("root")
+            << QStringLiteral("mentionHighlightRanges");
+        QTest::newRow("thread composer")
+            << QStringLiteral("ThreadPanel.qml")
+            << QStringLiteral("refreshThreadMentionHighlight")
+            << QStringLiteral("panel")
+            << QStringLiteral("threadMentionHighlightRanges");
+    }
+
+    void aForgottenMentionStopsInkingTheComposer()
+    {
+        QFETCH(QString, file);
+        QFETCH(QString, function);
+        QFETCH(QString, rootId);
+        QFETCH(QString, mirror);
+        const QString body = extractFunction(
+            read(QStringLiteral(QML_DIR "/") + file), function);
+        QVERIFY2(!body.isEmpty(),
+                 qPrintable(QStringLiteral("%1 has no %2()").arg(file, function)));
+
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(QString::fromLatin1(kRefreshScene)
+                              .arg(rootId, mirror, body)
+                              .toUtf8(),
+                          QUrl(QStringLiteral("refreshscene.qml")));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *highlighter =
+            root->findChild<QObject *>(QStringLiteral("highlighter"));
+        QVERIFY(highlighter != nullptr);
+        const QByteArray fn = function.toLatin1();
+        const auto inked = [&] {
+            return highlighter->property("ranges").toList().size();
+        };
+
+        // A mention was inserted: the highlighter inks it.
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "remember"));
+        QVERIFY(QMetaObject::invokeMethod(root.get(), fn.constData()));
+        QCOMPARE(inked(), 1);
+
+        // The message was sent and the composer forgot the mention. The
+        // highlighter must forget it too, or the next message is inked.
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "forget"));
+        QVERIFY(QMetaObject::invokeMethod(root.get(), fn.constData()));
+        QCOMPARE(inked(), 0);
     }
 };
 

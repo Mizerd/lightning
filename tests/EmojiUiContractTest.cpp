@@ -98,6 +98,24 @@ private Q_SLOTS:
                  "the monochrome fallback must come after the colour faces");
     }
 
+    // Naming the face per surface missed every QML text that sets
+    // `font.family` to one face (room names, headers, sender names, reply
+    // quotes, member rows): on Qt 6.8 their emoji came out monochrome in the
+    // 0.9.9 AppImage. The startup path must register the resolved face as
+    // Qt's own fallback, before the QML engine exists.
+    void startupRegistersTheEmojiFaceAsQtsFallback()
+    {
+        const QString mainSource =
+            read(QStringLiteral(QML_DIR "/../src/main.cpp"));
+        QVERIFY(!mainSource.isEmpty());
+        const int install = mainSource.indexOf(QLatin1String(
+            "FontManager::installEmojiFallback(FontManager::emojiFamily())"));
+        QVERIFY2(install >= 0, "main.cpp never registers the emoji fallback");
+        const int engine = mainSource.indexOf(QLatin1String("QQmlApplicationEngine engine"));
+        QVERIFY2(engine >= 0 && install < engine,
+                 "the emoji fallback must be registered before the QML engine");
+    }
+
     void integrationContract()
     {
         const QString delegate = read(QStringLiteral(QML_DIR "/MessageDelegate.qml"));

@@ -571,6 +571,22 @@ QString FontManager::emojiFamily()
     return family;
 }
 
+bool FontManager::installEmojiFallback(const QString &family)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    if (family.isEmpty())
+        return false;
+    if (QFontDatabase::applicationFallbackFontFamilies(QChar::Script_Common)
+            .contains(family))
+        return true;
+    QFontDatabase::addApplicationFallbackFontFamily(QChar::Script_Common, family);
+    return true;
+#else
+    Q_UNUSED(family);
+    return false;
+#endif
+}
+
 QFont FontManager::withEmojiFallback(const QString &family, int pixelSize)
 {
     QFont font(family);

@@ -225,6 +225,33 @@ private Q_SLOTS:
         QCOMPARE(fonts.uiFamily(), real);
     }
 
+    // Reported against the 0.9.9 AppImage (Qt 6.8.2): room names, the room
+    // header, sender names, reply quotes and the member list drew emoji in
+    // monochrome, because a QML `font.family` replaces the families list and
+    // Qt 6.8's own fallback picks a monochrome face. The emoji face is now
+    // registered as Qt's fallback for the Common script, where emoji live.
+    void theEmojiFaceBecomesQtsFallbackForCommonScript()
+    {
+#if QT_VERSION < QT_VERSION_CHECK(6, 8, 0)
+        QSKIP("QFontDatabase fallback families need Qt 6.8");
+#else
+        // Any name will do: Qt records the family, it does not resolve it.
+        const QString face = QStringLiteral("Lightning Test Emoji");
+        QVERIFY(!QFontDatabase::applicationFallbackFontFamilies(QChar::Script_Common)
+                     .contains(face));
+        QVERIFY(!FontManager::installEmojiFallback(QString()));
+        QVERIFY(FontManager::installEmojiFallback(face));
+        QCOMPARE(QFontDatabase::applicationFallbackFontFamilies(QChar::Script_Common)
+                     .count(face), 1);
+        // Idempotent. (Qt applies a Common-script fallback to every script,
+        // so it also appears in the Latin list; it only fills missing glyphs.)
+        QVERIFY(FontManager::installEmojiFallback(face));
+        QCOMPARE(QFontDatabase::applicationFallbackFontFamilies(QChar::Script_Common)
+                     .count(face), 1);
+        QFontDatabase::removeApplicationFallbackFontFamily(QChar::Script_Common, face);
+#endif
+    }
+
     // 2026-09-02, from a live report: every digit in the app rendered as an
     // emoji glyph because "Noto Color Emoji" was offered in the MONOSPACE
     // picker and chosen. Qt says isFixedPitch = true for it (every emoji is

@@ -114,6 +114,20 @@ public:
     static QString emojiFamily();
     // `family` first, the emoji face second (when there is one).
     static QFont withEmojiFallback(const QString &family, int pixelSize);
+    // Makes `family` the face Qt falls back to for characters of the Common
+    // script (where emoji live) that the requested font lacks. Returns false
+    // when `family` is empty or Qt predates the API (6.8).
+    //
+    // Naming the emoji face per surface did not reach every surface: any QML
+    // text with `font.family: <one face>` replaces the whole families list,
+    // so on Qt 6.8 its emoji fell back to a MONOCHROME face that claims the
+    // codepoint. Measured on the 0.9.9 AppImage: room names, the room header
+    // and topic, sender names, thread summaries, reply quotes and the member
+    // list all drew emoji with zero coloured pixels while message bodies drew
+    // them in colour. Registering the face as Qt's own fallback fixes every
+    // such surface at once. Letters are unaffected: a character the requested
+    // font has never falls back.
+    static bool installEmojiFallback(const QString &family);
 
     explicit FontManager(SettingsManager *settings, QObject *parent = nullptr);
 

@@ -787,9 +787,21 @@ Item {
     // cursorPosition would then re-evaluate in a loop (and reopen the
     // popup Escape just closed). Explicit assignment from the two real
     // change sources breaks the cycle.
+    //
+    // The ranges are COPIED out of the C++ property, never stored as read.
+    // On Qt 6.8 (the AppImage's and Debian's Qt) a QVariantList read from a
+    // property stays a live reference that re-reads the property on every
+    // access, so a stored list always equalled the new one, the comparison
+    // below returned early, and the highlighter kept the last sent message's
+    // mention range: every following message began with an inked run exactly
+    // as long as that mention. Qt 6.11 detaches the list on store, which is
+    // why no local build showed it.
     property var mentionHighlightRanges: []
     function refreshMentionHighlight() {
-        var ranges = app.composer.mentionRanges
+        var ranges = []
+        var live = app.composer.mentionRanges
+        for (var k = 0; k < live.length; ++k)
+            ranges.push({ start: live[k].start, length: live[k].length })
         if (mentionPopup.visible && root.mentionTokenStart >= 0) {
             var len = input.cursorPosition - root.mentionTokenStart
             if (len > 0)
