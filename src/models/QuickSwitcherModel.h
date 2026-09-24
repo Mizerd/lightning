@@ -11,18 +11,13 @@
 class MatrixClient;
 class SpaceManager;
 
-// v0.6.1: the quick switcher's result model (Ctrl+K).
+// Result model for the quick switcher (Ctrl+K).
 //
-// A read-only, keyboard-driven filter over the ALREADY-available local room
-// presentation data (MatrixClient::rooms()). It never issues a network
-// search and never persists decrypted message text — matching is over room
-// names, direct-message participant ids, and canonical aliases only. Rooms,
-// direct messages, Spaces, and pending invites are all searchable; selecting
-// a result routes through the app's normal navigation (open room / select
-// Space / open invite context — never auto-accept).
-//
-// Results are recomputed on demand (setQuery / refresh) and bounded so a
-// huge account can never produce an unbounded list.
+// A read-only filter over local room data (MatrixClient::rooms()). No network
+// search and no message text: it matches room names, DM participant ids and
+// canonical aliases. Rooms, DMs, Spaces and invites are searchable; selecting
+// a result uses normal navigation (an invite opens its context, never
+// auto-accepts). Results are recomputed on demand and bounded.
 class QuickSwitcherModel : public QAbstractListModel
 {
     Q_OBJECT

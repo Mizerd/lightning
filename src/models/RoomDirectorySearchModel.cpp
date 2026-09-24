@@ -143,8 +143,8 @@ void RoomDirectorySearchModel::dispatch(bool nextPage)
         m_client->searchPublicRooms(m_query.trimmed(), m_server, since,
                                     kPageSize);
     if (opId == 0) {
-        // A synchronous refusal with a server override typed is the bad
-        // server name, not connectivity (review L6) — tell the user which.
+        // A synchronous refusal with a server override means a bad server name,
+        // not connectivity; say which.
         m_errorCategory = m_server.isEmpty()
                               ? QStringLiteral("network")
                               : QStringLiteral("invalid_server");

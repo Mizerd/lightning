@@ -36,15 +36,10 @@ void MentionHighlighter::setAccentColor(const QColor &color)
     rehighlight();
 }
 
-// WHAT COUNTS AS AN EMOJI HERE, and why this is a codepoint test rather than a
-// catalogue lookup. The catalogue lives in EmojiCatalog, which is linked
-// against Qt6::Core alone by its own test target and knows nothing about fonts;
-// pulling it in for a font decision would couple two unrelated things. The
-// question is narrow — "would Qt's fallback pick the wrong face here" — and
-// that is true of the pictographic blocks and nothing else. Variation
-// selectors and ZWJ are INCLUDED so a sequence keeps ONE face across its
-// joiners: a run that changed family mid-sequence would break the ligature the
-// colour font provides.
+// A codepoint test rather than a catalogue lookup: the question is only
+// whether Qt's fallback would pick the wrong face, which applies to the
+// pictographic blocks. Variation selectors and ZWJ are included so a sequence
+// keeps one face across its joiners and the colour font's ligature holds.
 static bool isEmojiCodepoint(char32_t cp)
 {
     return (cp >= 0x1F000 && cp <= 0x1FAFF)   // pictographs, symbols, faces
@@ -57,23 +52,17 @@ static bool isEmojiCodepoint(char32_t cp)
 
 void MentionHighlighter::highlightBlock(const QString &text)
 {
-    // THE EMOJI PASS RUNS FIRST, AND DELIBERATELY NOT BEHIND THE RETURN BELOW.
-    // A composer with no mention in it still types emoji; gating this on
-    // m_ranges would skip them in exactly the common case.
+    // The emoji pass runs before the early return below: composers without
+    // mentions still contain emoji.
     if (!m_emojiFamily.isEmpty()) {
         QTextCharFormat emojiFormat;
-        // BOTH APIs, deliberately. setFontFamilies() is the Qt 6 list form and
-        // is what a QTextDocument round-trips, but QQuickTextEdit's layout
-        // consults the SINGULAR FontFamily property when it resolves a run's
-        // face — setting only the list left the composer rendering emoji in
-        // the default face while the picker (a plain font.family binding) was
-        // already correct, which is exactly how this was reported: "good in
-        // catalog, bad in the text box".
+        // Set both APIs: setFontFamilies() is what QTextDocument round-trips,
+        // but QQuickTextEdit's layout resolves a run's face from the singular
+        // FontFamily property.
         emojiFormat.setFontFamilies({ m_emojiFamily });
         emojiFormat.setFontFamily(m_emojiFamily);
-        // Walk UTF-16 indices, because setFormat() takes them and an astral
-        // emoji is a surrogate PAIR — formatting by codepoint index would
-        // drift by one for every emoji already passed.
+        // Walk UTF-16 indices: setFormat() takes them, and astral emoji are
+        // surrogate pairs.
         int i = 0;
         while (i < text.length()) {
             const int start = i;
@@ -99,15 +88,6 @@ void MentionHighlighter::highlightBlock(const QString &text)
         }
     }
 
-    // GONE, 2026-09-20: `softColor` used to be declared here, stored, and
-    // consulted by nothing — it was the mention CHIP's surface, which this
-    // product retired (TimelineModel says the same of its own vestigial
-    // parameter), and it had also gated this early return, so a theme that
-    // pushed only an ink silently lost mention styling in the composer. It
-    // outlived that fix only because a QML file assigning a property the
-    // type does not have is a hard component-load error and the two
-    // composers were "not this class's to edit"; both assignments are
-    // removed in the same change, which is what makes the deletion safe.
     if (m_ranges.isEmpty() || !m_accent.isValid())
         return;
     const int blockStart = currentBlock().position();

@@ -114,10 +114,8 @@ QVariantMap QuickSwitcherModel::resultAt(int row) const
     map.insert(QStringLiteral("category"), r.category);
     map.insert(QStringLiteral("isSpace"), r.isSpace);
     map.insert(QStringLiteral("isInvite"), r.isInvite);
-    // v0.6.5: additive fields so QML can build a presentation-safe filtered
-    // copy of the result set (SPEC 1k Rooms/People scope chips) without a
-    // second C++ model. Existing callers that only read the four fields
-    // above are unaffected.
+    // Extra fields so QML can build a filtered copy for the scope chips without
+    // a second C++ model.
     map.insert(QStringLiteral("name"), r.name);
     map.insert(QStringLiteral("subtitle"), r.subtitle);
     map.insert(QStringLiteral("avatarUrl"), r.avatarUrl);
@@ -218,13 +216,10 @@ void QuickSwitcherModel::rebuild()
         }
     }
 
-    // v0.6.5: category is the PRIMARY sort key so the quick switcher can
-    // render contiguous ROOMS / PEOPLE / SPACES / INVITES sections (SPEC
-    // 1j). Order matches the design's visual hierarchy — rooms, then
-    // people, spaces, and invites last (invites are visually distinct
-    // already and Enter on one only opens its accept/decline view, so
-    // trailing them is safe). Every existing tie-break inside a category
-    // is preserved exactly.
+    // Category is the primary sort key so the switcher renders contiguous
+    // sections: rooms, people, spaces, then invites (Enter on an invite only
+    // opens its accept/decline view). Tie-breaks within a category are
+    // unchanged.
     static const auto categoryRank = [](const Result &r) {
         if (r.category == QStringLiteral("room"))  return 0;
         if (r.category == QStringLiteral("dm"))     return 1;

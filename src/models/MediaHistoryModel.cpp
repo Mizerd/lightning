@@ -7,14 +7,12 @@
 #include <QUrl>
 
 namespace {
-/// One page. Big enough that a grid fills in a couple of round trips, small
-/// enough that a slow homeserver answers before the user gives up — and the
-/// walk is UNFILTERED, so a page of 60 events may contribute no rows at all
-/// in a chatty room. `loadMore()` is what keeps going.
+/// Events per page. The walk is unfiltered, so a page may add no rows in a
+/// chatty room; loadMore() keeps going.
 constexpr int kPageSize = 60;
 
-/// Newest first, and stable: two attachments in the same message share a
-/// timestamp, and a grid that reorders them between pages looks broken.
+/// Newest first, stable: attachments in one message share a timestamp and
+/// must not reorder between pages.
 bool newerFirst(qint64 a, qint64 b) { return a > b; }
 } // namespace
 
@@ -36,8 +34,7 @@ void MediaHistoryModel::setClient(MatrixClient *client)
                 this, &MediaHistoryModel::onPage);
         connect(m_client, &MatrixClient::mediaHistoryFailed,
                 this, &MediaHistoryModel::onFailed);
-        // A browse belongs to the account that opened it. Signing out must
-        // not leave one account's attachments listed under the next.
+        // A browse belongs to the account that opened it; clear on sign-out.
         connect(m_client, &MatrixClient::loggedOut, this,
                 [this] {
                     m_roomId.clear();
@@ -45,10 +42,8 @@ void MediaHistoryModel::setClient(MatrixClient *client)
                     Q_EMIT roomIdChanged();
                     Q_EMIT availableChanged();
                 });
-        // `available` depends on the backend having a live Rust handle, and
-        // that appears at LOGIN — long after setClient(). Without this the
-        // QML binding keeps the value it was given at construction and the
-        // browser says "this backend cannot browse room history" forever.
+        // `available` depends on a live Rust handle, which appears at login,
+        // well after setClient(); re-announce it then.
         connect(m_client, &MatrixClient::loginSucceeded, this,
                 [this] { Q_EMIT availableChanged(); });
     }
@@ -113,8 +108,8 @@ QVariant MediaHistoryModel::data(const QModelIndex &index, int role) const
     case UrlRole: return e.url;
     case HostRole: return e.host;
     case DateGroupRole: {
-        // Resolved against the VIEWER's own time zone and locale, not the
-        // sender's: "Yesterday" has to mean yesterday where the reader is.
+        // Resolved in the viewer's time zone and locale: "Yesterday" means the
+        // reader's yesterday.
         const QDateTime when =
             QDateTime::fromMSecsSinceEpoch(e.timestampMs).toLocalTime();
         const QDate day = when.date();
@@ -127,8 +122,7 @@ QVariant MediaHistoryModel::data(const QModelIndex &index, int role) const
             return tr("This week");
         if (day.year() == today.year() && day.month() == today.month())
             return tr("This month");
-        // "March 2026" in the viewer's locale — never a hand-built string,
-        // because month order and name are not ours to assume.
+        // Month order and names come from the viewer's locale.
         return QLocale().toString(day, QStringLiteral("MMMM yyyy"));
     }
     default: return {};
@@ -142,9 +136,8 @@ void MediaHistoryModel::setRoomId(const QString &roomId)
     m_roomId = roomId;
     clearAll();
     Q_EMIT roomIdChanged();
-    // Deliberately NOT auto-loading: the panel opens on Overview, and
-    // walking history for a tab nobody looked at is a request the user did
-    // not ask for. QML calls loadMore() when the browser becomes visible.
+    // No auto-load: walking history for a tab nobody opened is an unrequested
+    // request. QML calls loadMore() when the browser becomes visible.
 }
 
 void MediaHistoryModel::setCategory(const QString &category)
@@ -194,9 +187,8 @@ void MediaHistoryModel::setToDate(const QDateTime &to)
 
 void MediaHistoryModel::loadMore()
 {
-    // One request at a time, and none once the walk is done. A grid calls
-    // this from onContentYChanged, so without both guards a fast scroll is a
-    // request storm against the homeserver.
+    // One request at a time and none once complete; a grid calls this on every
+    // scroll.
     if (!available() || m_roomId.isEmpty() || m_pendingOp != 0 || m_complete)
         return;
     m_lastError.clear();
@@ -246,9 +238,8 @@ QVariantList MediaHistoryModel::imageEntries() const
         if (e.kind != QLatin1String("image") || e.mediaKey.isEmpty())
             continue;
         QVariantMap entry;
-        // `row` is the SHOWN row this entry came from, so a consumer can map
-        // back to the browser's own list. TimelineModel puts its raw event
-        // row here; both are "the row in the list that produced me".
+        // `row` is the shown row this entry came from, as TimelineModel's
+        // entries carry their row.
         entry.insert(QStringLiteral("row"), row);
         entry.insert(QStringLiteral("mediaKey"), e.mediaKey);
         entry.insert(QStringLiteral("filename"),
@@ -258,8 +249,8 @@ QVariantList MediaHistoryModel::imageEntries() const
                      QDateTime::fromMSecsSinceEpoch(e.timestampMs));
         entry.insert(QStringLiteral("mime"), e.mimetype);
         // No HTTP fallback: this walk exists only on the Rust backend, where
-        // every byte is fetched through the authenticated media bridge. An
-        // unauthenticated download URL must never be synthesised here.
+        // bytes go through the authenticated media bridge. Never synthesise an
+        // unauthenticated URL here.
         entry.insert(QStringLiteral("httpUrl"), QUrl{});
         entry.insert(QStringLiteral("isImage"), true);
         entry.insert(QStringLiteral("isVideo"), false);
@@ -310,10 +301,8 @@ void MediaHistoryModel::onPage(quint64 opId, const QString &roomId,
                                bool complete, bool encryptedRoom)
 {
     Q_UNUSED(scanned);
-    // A page for another room, or for a walk that has been superseded, must
-    // not land here — the panel can be pointed at a new room while a request
-    // is in flight, and this is what stops one room's media appearing under
-    // another's name.
+    // Drop pages for another room or a superseded walk, so one room's media
+    // never appears under another's name.
     if (opId != m_pendingOp || roomId != m_roomId)
         return;
     m_pendingOp = 0;
@@ -330,10 +319,9 @@ void MediaHistoryModel::onPage(quint64 opId, const QString &roomId,
         e.eventId = row.value(QStringLiteral("eventId")).toString();
         e.kind = row.value(QStringLiteral("kind")).toString();
         e.url = row.value(QStringLiteral("url")).toString();
-        // A link event contributes one row PER URL, so the event id alone is
-        // not the identity — the pair is.
-        // Unit separator: an event id cannot contain one, so the pair
-        // cannot collide with a different pair.
+        // A link event contributes one row per URL, so identity is the (event,
+        // URL) pair, joined with a unit separator that cannot occur in an event
+        // id.
         const QString identity = e.eventId + QChar(0x1F) + e.url;
         if (e.eventId.isEmpty() || m_seen.contains(identity))
             continue;
@@ -357,10 +345,8 @@ void MediaHistoryModel::onPage(quint64 opId, const QString &roomId,
 
     if (!added.isEmpty()) {
         m_all.append(added);
-        // The walk is backwards, so pages arrive newest-page-first and each
-        // page is itself newest-first; a plain append is already ordered.
-        // Sorting anyway costs little and survives a server that answers out
-        // of order, which the spec does not forbid.
+        // Pages already arrive in order; the sort also covers a server
+        // answering out of order.
         std::stable_sort(m_all.begin(), m_all.end(),
                          [](const Entry &a, const Entry &b) {
                              return newerFirst(a.timestampMs, b.timestampMs);
@@ -377,9 +363,8 @@ void MediaHistoryModel::onFailed(quint64 opId, const QString &roomId,
     if (opId != m_pendingOp || roomId != m_roomId)
         return;
     m_pendingOp = 0;
-    // NOT `complete`. A server error means the rest of history is unknown,
-    // and saying "that is everything" because a request failed is exactly the
-    // false completeness this model exists to avoid. The view offers a retry.
+    // Not `complete`: after an error the rest of history is unknown, and the
+    // view offers a retry.
     m_lastError = message;
     Q_EMIT stateChanged();
 }
@@ -392,9 +377,7 @@ bool MediaHistoryModel::matches(const Entry &e) const
                 && e.kind != QLatin1String("video"))
                 return false;
         } else if (m_category == QLatin1String("audio")) {
-            // The Audio tab holds recordings as well as files: a voice
-            // message is an m.audio and a reader looking for "that voice
-            // note" looks here.
+            // Voice messages are m.audio and belong in the Audio tab.
             if (e.kind != QLatin1String("audio")
                 && e.kind != QLatin1String("voice"))
                 return false;

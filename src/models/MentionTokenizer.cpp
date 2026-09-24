@@ -109,12 +109,9 @@ Token activeToken(const QString &text, int cursorPos)
             at = i;
             break;
         }
-        // ONE space at most: "@John Sm" is still a name being typed, but a
-        // second space means the reader has moved on to the sentence, and a
-        // popup matching "SpongeMan as a true profes…" against nobody sat
-        // over the composer until the message was sent (2026-09-05 report).
-        // Element allows no space at all; one keeps two-word names
-        // completable.
+        // At most one space: "@John Sm" is still a name, but a second space
+        // means the user is writing the sentence. Element allows none; one
+        // keeps two-word names completable.
         if (c.isSpace() && ++spaces > 1)
             return tok;
         if (!isQueryChar(c))
@@ -226,11 +223,9 @@ Expansion expand(const QString &text, const QList<MentionRef> &refs)
     QString body = text;
     for (int i = valid.size() - 1; i >= 0; --i) {
         const MentionRef &ref = valid.at(i);
-        // The whole-room mention is NOT a link. There is no matrix.to URL for
-        // "everyone here", and inventing one would put a dead link in the
-        // body of every @room message. It stays the literal "@room", exactly
-        // as Element sends it, and the notification comes from
-        // m.mentions.room — which the id in userIds carries to the bridge.
+        // @room is not a link: matrix.to has no URL for "everyone here". It
+        // stays the literal "@room" as Element sends it; the notification comes
+        // from m.mentions.room, carried by the id in userIds.
         if (ref.userId == QLatin1String("@room"))
             continue;
         const QString link = QLatin1Char('[') + escapeLinkLabel(ref.displayText)
@@ -300,8 +295,8 @@ QList<MentionRef> refsFromSanitizedHtml(const QString &plainBody,
     QList<MentionRef> refs;
     if (plainBody.isEmpty() || sanitizedHtml.isEmpty())
         return refs;
-    // MessageHtml::sanitize emits mention anchors as
-    //   <a href="mention:@user:hs" [style="…"]>[&nbsp;][<b>]@Label[</b>][&nbsp;]</a>
+    // MessageHtml::sanitize emits mention anchors as <a href="mention:@user:hs"
+    // [style="…"]>[&nbsp;][<b>]@Label[</b>][&nbsp;]</a>
     static const QRegularExpression anchor(QStringLiteral(
         "<a href=\"mention:([^\"]{1,255})\"[^>]{0,512}>(.{0,300}?)</a>"));
     int searchFrom = 0;

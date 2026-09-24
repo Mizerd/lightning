@@ -18,40 +18,23 @@ class RoomListModel : public QAbstractListModel
     Q_OBJECT
     Q_PROPERTY(QString searchQuery READ searchQuery WRITE setSearchQuery NOTIFY searchQueryChanged)
     Q_PROPERTY(quint64 filterGeneration READ filterGeneration NOTIFY filterGenerationChanged)
-    // Element-style list filter: 0 = All, 1 = People (DMs), 2 = Rooms,
-    // 3 = Unreads. Invites always pass (they need action), and in Unreads
-    // mode the pinned (currently open) room stays visible so reading a
-    // room does not yank its row out from under the selection.
+    // Element-style list filter: 0 All, 1 People (DMs), 2 Rooms, 3 Unreads.
+    // Invites always pass, and in Unreads mode the pinned (open) room stays
+    // visible so reading it does not remove the selected row.
     Q_PROPERTY(int filterMode READ filterMode WRITE setFilterMode NOTIFY filterModeChanged)
-    // False on a backend that cannot write room tags. The affordance is then
-    // not offered at all: a device-local "favourite" would silently disagree
-    // with the account every other client reads.
+    // False on a backend that cannot write room tags; the action is then not
+    // offered, since a device-local favourite would disagree with other
+    // clients.
     Q_PROPERTY(bool roomFavouritesSupported READ roomFavouritesSupported
                    NOTIFY roomFavouritesSupportedChanged)
-    // The id of the LAST favourited room, and only while something follows
-    // it — the room the group rule is drawn under. Empty when there are no
-    // favourites, or when favourites are the whole list and a trailing rule
-    // would hang off the bottom of it.
-    //
-    // It lives in the model rather than in the view because the view's
-    // answer is not reliable: RoomDelegate derived it from
-    // ListView.section / ListView.nextSection, which go stale under
-    // `reuseItems` and row MOVES, so opening an older room (which re-sorts
-    // the list) made the rule disappear until something else redrew it.
-    // The model re-sorts; the model knows.
+    // Retired: always empty now that favourites have their own section header.
+    // Kept so existing bindings keep working (see updateFavouritesBoundary()).
     Q_PROPERTY(QString favouritesBoundaryRoomId READ favouritesBoundaryRoomId
                    NOTIFY favouritesBoundaryRoomIdChanged)
-    /// How many joined conversations are unread, and how many of those name
-    /// the user. ACCOUNT-WIDE and deliberately immune to the filter chips and
-    /// the Space scope: this is what the window title and the tray carry, and
-    /// a total that changed when the user picked a chip would be reporting
-    /// the view rather than the account.
-    ///
-    /// Rooms, not messages. "Three conversations want you" is what a person
-    /// acts on; a summed message count is a number nobody can do anything
-    /// with, and on Matrix it is frequently 0 for a room that is genuinely
-    /// unread — which is exactly how an unread direct message became
-    /// invisible.
+    /// Joined conversations that are unread, and how many of those mention the
+    /// user. Account-wide and immune to the chips and Space scope: this feeds
+    /// the window title and tray. Counts rooms, not messages, since Matrix
+    /// message counts are often 0 for genuinely unread rooms.
     Q_PROPERTY(int unreadRoomCount READ unreadRoomCount
                    NOTIFY unreadTotalsChanged)
     Q_PROPERTY(int highlightRoomCount READ highlightRoomCount
@@ -68,32 +51,29 @@ public:
         EncryptedRole,
         IsSpaceRole,
         MemberCountRole, // display/diagnostics only; never used for DM classification
-        CategoryRole,    // "invite" | "dm" | "room"; DM is authoritative m.direct
+        CategoryRole,    // "invite" | "favourite" | "conversation"; see orderRankOf()
         HighlightCountRole,
         MarkedUnreadRole,
         HasUnreadRole,
         MembershipRole,
         IsDirectRole,
-        // Matrix `m.favourite` room tag. Account state shared with every
-        // other client, never a Lightning-local list.
+        // Matrix `m.favourite` room tag: account state shared with other
+        // clients.
         IsFavouriteRole,
         DirectUserIdRole,
         InviterRole,
         InvitePendingRole,
         InviteErrorRole,
         CanonicalAliasRole,
-        // identityColorKey(RoomInfo): partner MXID for unambiguous 1:1
-        // DMs, room id otherwise — the single fallback-colour policy.
+        // identityColorKey(RoomInfo): partner MXID for unambiguous 1:1 DMs,
+        // room id otherwise.
         IdentityColorKeyRole,
-        // v0.7.x room upgrades. The successor of a tombstoned room, empty
-        // otherwise, and whether that successor is one the user can
-        // ACTUALLY reach — the row is de-emphasized only on the latter.
+        // The successor of a tombstoned room (empty otherwise), and whether the
+        // user can actually reach it; only then is the row de-emphasized.
         SuccessorRoomIdRole,
         SupersededByAccessibleSuccessorRole,
-        // Unified-inbox metadata: which bridged network this conversation
-        // belongs to, derived from the DM partner's ghost id or the room's
-        // alias. Empty for a native Matrix room, which is what the UI
-        // renders as no badge. Presentation only — never routing.
+        // Which bridged network this conversation belongs to. Empty for a
+        // native Matrix room (no badge). Presentation only, never routing.
         NetworkRole,
         NetworkLabelRole,
     };
@@ -102,77 +82,54 @@ public:
 
     void setClient(MatrixClient *client);
 
-    // Optional Space filter. When bound, only rooms belonging to
+    // Optional Space filter: when bound, only rooms in
     // SpaceManager::activeSpaceId() are shown. Space rooms themselves are
-    // always filtered out (they render in the Space chip row, not the
-    // room list).
+    // always excluded (they belong to the rail).
     void setSpaceManager(SpaceManager *spaces);
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    // Convenience for QML: look up a room by id and get a small map with the
-    // fields the UI actually needs (name, topic, encrypted). Returns an
-    // empty map if the room is not present.
+    // Look up a room by id and return the small map of fields the UI needs, or
+    // an empty map.
     Q_INVOKABLE QVariantMap findRoom(const QString &roomId) const;
 
-    /// Record what a room's bridge ADVERTISES about itself (MSC2346), as
-    /// resolved by matrix::bridge::labelForAdvertisedBridge.
-    ///
-    /// This exists because `data()` must stay synchronous and must never
-    /// fetch: NetworkLabelRole is computed on every call, for every visible
-    /// row, and the MSC2346 answer needs a `/state` read
-    /// (src/matrix/BridgeNetwork.h explains why sliding sync cannot carry
-    /// it). So the read is driven by user action elsewhere — AppController on
-    /// room open, and the room info panel — and lands HERE. `data()` reads
-    /// this cache first and falls back to the ghost-mxid/alias inference,
-    /// which still answers for every DM whose bridge advertises nothing.
-    ///
-    /// An empty `label` REMOVES the entry: "this room advertises no bridge"
-    /// must not erase a DM inference that is still correct.
+    /// Record what a room's bridge advertises (MSC2346), as resolved by
+    /// matrix::bridge::labelForAdvertisedBridge. data() must stay synchronous
+    /// and never fetch, so the /state read is driven elsewhere (room open, room
+    /// info panel) and lands here; data() falls back to the ghost-mxid/alias
+    /// inference. An empty `label` removes the entry without erasing a
+    /// still-correct DM inference.
     void setAdvertisedBridge(const QString &roomId, const QString &networkId,
                              const QString &label);
     /// Account-scoped: another account's rooms are not these rooms.
     void clearAdvertisedBridges();
-    // v0.7.1: the most recent joined conversations (Spaces excluded) for the
-    // Home surface, as a bounded list of {roomId,name,avatarUrl,isDirect,
-    // hasUnread,unreadCount} maps, reusing the model's activity ordering.
+    // The most recent joined conversations (Spaces excluded) for Home, as up to
+    // `max` {roomId,name,avatarUrl,isDirect,hasUnread,unreadCount} maps in
+    // activity order.
     Q_INVOKABLE QVariantList recentRooms(int max = 6) const;
-    // v0.7 Home: joined Spaces (presentation fields only) for the Spaces
-    // shortcut strip.
+    // Joined Spaces (presentation fields only) for Home's shortcut strip.
     Q_INVOKABLE QVariantList spacesSummary(int max = 8) const;
     Q_INVOKABLE void acceptInvite(const QString &roomId);
     Q_INVOKABLE void rejectInvite(const QString &roomId);
     Q_INVOKABLE void markRoomRead(const QString &roomId);
-    /// Every joined room with something unread, in one action. Returns how
-    /// many were marked, so a caller can say nothing happened rather than
-    /// imply something did.
+    /// Mark every unread joined room read. Returns how many were marked.
     ///
-    /// It clears the bell along with the list: the receipt this sends per
-    /// room is what ActivityModel::markRoomReadUpTo listens for, so the two
-    /// badges come down together instead of one being left behind.
-    ///
-    /// ONLY ROOMS THAT ARE ACTUALLY UNREAD are touched. A receipt per joined
-    /// room would be one request per room on every invocation, most of them
-    /// telling the server what it already knows. Invites are skipped: an
-    /// invite is a decision, not unread mail, and marking it read would hide
-    /// it. So is `markedUnread` — that flag is the user's own "leave this one
-    /// for later", and a sweep aimed at the rooms they had not got to must
-    /// not overrule the one they deliberately kept.
+    /// The per-room receipt is what ActivityModel::markRoomReadUpTo listens
+    /// for, so the bell clears too. Only unread rooms are touched; invites are
+    /// skipped (a decision, not unread mail), and so are `markedUnread` rooms,
+    /// which the user deliberately kept for later.
     Q_INVOKABLE int markAllRoomsRead();
     Q_INVOKABLE void markRoomUnread(const QString &roomId);
-    // Element-parity favourites (Matrix `m.favourite` room tag). The toggle
-    // is NOT applied locally — see the .cpp. isRoomFavourite() answers from
-    // the client's room set, so it is correct for a room the active Space
-    // filter is currently hiding.
+    // Favourites (Matrix `m.favourite` tag). The toggle is not applied locally;
+    // see the .cpp. isRoomFavourite() reads the client's full room set, so it
+    // works for rooms the Space filter hides.
     Q_INVOKABLE bool isRoomFavourite(const QString &roomId) const;
     Q_INVOKABLE void setRoomFavourite(const QString &roomId, bool favourite);
-    // v0.6.5 (SPEC 1d): pure formatting helper for "Copy room link" — prefers
-    // the canonical alias over the bare room id, matching
-    // TimelineModel::messagePermalink's existing percent-encoding convention
-    // (! $ : @ excluded) so room and message links read consistently. No
-    // server behavior; static so it is trivially unit-testable.
+    // "Copy room link": prefers the canonical alias over the room id, with
+    // TimelineModel::messagePermalink's percent-encoding (! $ : @ excluded).
+    // Static for unit testing.
     Q_INVOKABLE static QString roomPermalink(const QString &roomId,
                                              const QString &canonicalAlias = QString());
     QString searchQuery() const { return m_searchQuery; }
@@ -180,20 +137,20 @@ public:
     quint64 filterGeneration() const { return m_filterGeneration; }
     int filterMode() const { return m_filterMode; }
     void setFilterMode(int mode);
-    // The currently open room; kept visible in Unreads mode (see the
-    // filterMode property comment). Set by AppController on room switch.
+    // The open room, kept visible in Unreads mode. Set by AppController on room
+    // switch.
     void setPinnedRoomId(const QString &roomId);
 
-    // v0.7 account switching: drop DM profile lookups resolved under the
-    // previous account's authority, then rebuild from the client.
+    // Account switch: drop DM profile lookups made under the previous account,
+    // then rebuild.
     void clearProfileCaches();
 
     bool roomFavouritesSupported() const;
     QString favouritesBoundaryRoomId() const { return m_favouritesBoundaryRoomId; }
     int unreadRoomCount() const { return m_unreadRoomCount; }
     int highlightRoomCount() const { return m_highlightRoomCount; }
-    // The one classification: section string and sort group read the same
-    // function so a category can never be split across two runs.
+    // The one classification: the section string and the sort read the same
+    // function, so a category is never split across two runs.
     static int orderRankOf(const RoomInfo &room);
     static QString categoryOf(const RoomInfo &room);
 
@@ -220,24 +177,19 @@ private:
     bool passesFilter(const RoomInfo &r) const;
     QList<RoomInfo> desiredRooms(const QSet<QString> &superseded) const;
     void reconcileRooms();
-    // Rooms that have been replaced by a successor the user can actually
-    // reach. "Actually reach" is the maintainer's condition for
-    // de-emphasizing the old room, and it means all three of: a successor
-    // exists, we HOLD a record for it with membership Joined or Invited,
-    // and that record's predecessor points BACK at this room. An
-    // unverifiable chain leaves the row alone.
+    // Rooms replaced by a successor the user can reach: a successor exists, we
+    // hold a Joined or Invited record for it, and its predecessor points back
+    // here. An unverifiable chain leaves the row alone.
     QSet<QString> computeSupersededRoomIds() const;
     void resolveMissingDirectAvatars();
-    // The badge a row shows: the advertised answer when there is one, the
-    // ghost-mxid/alias inference otherwise. One place, so the room list and
-    // findRoom() (which the room info panel reads) can never disagree.
+    // The badge a row shows: the advertised answer, else the inference. One
+    // place, so the list and findRoom() agree.
     struct BridgeBadge {
         QString networkId;
         QString label;
     };
     BridgeBadge badgeFor(const RoomInfo &r) const;
-    // Recomputed from m_rooms on every structural or data change; see
-    // the favouritesBoundaryRoomId property comment.
+    // Retired; see favouritesBoundaryRoomId.
     void updateFavouritesBoundary();
 
     QString m_favouritesBoundaryRoomId;
@@ -247,10 +199,8 @@ private:
     MatrixClient *m_client = nullptr;
     SpaceManager *m_spaces = nullptr;
     QList<RoomInfo> m_rooms; // Filtered subset actually shown.
-    // Rooms whose successor the user can actually reach. Recomputed once
-    // per reconcile from the client's FULL room set (the successor may be
-    // filtered out of the visible list, or in another Space), because
-    // deriving it per data() call would be quadratic in the room count.
+    // Rooms whose successor the user can reach, recomputed once per reconcile
+    // from the client's full room set (the successor may be filtered out).
     QSet<QString> m_supersededRoomIds;
     QString m_searchQuery;
     QString m_pendingSearchQuery;
@@ -261,8 +211,8 @@ private:
     // Coalesces per-event refreshRoom() calls into one reconcile per turn.
     QTimer m_reconcileCoalesce;
     DirectAvatarResolver m_directAvatars;
-    // roomId -> what its bridge advertises (MSC2346). Populated by
-    // setAdvertisedBridge; never fetched from here.
+    // roomId -> what its bridge advertises (MSC2346), filled by
+    // setAdvertisedBridge; never fetched here.
     QHash<QString, BridgeBadge> m_advertisedBridges;
 
 Q_SIGNALS:

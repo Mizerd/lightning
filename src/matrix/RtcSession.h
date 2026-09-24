@@ -1,67 +1,52 @@
-// MatrixRTC session facts crossing the backend boundary.
+// MatrixRTC session facts crossing the backend boundary. A backend value type
+// carried by MatrixClient's signals (like CallSignal.h), so it lives under
+// matrix/ rather than calls/.
 //
-// Lives under matrix/ beside CallSignal.h for the same reason: this is a
-// BACKEND value type that MatrixClient's signals carry, not a piece of the
-// calls/ subsystem. Putting it under calls/ made the Matrix bridge header
-// depend on calls/, inverting the ownership.
+// These are observations: who the homeserver says is in a room's call and
+// whether a transport is reachable. No media state: a membership never says
+// whether a microphone is live; that comes from the SFU, so media fields on
+// RtcParticipant stay "unknown" until something authoritative fills them.
 //
-// These are OBSERVATIONS of a room's call: who the homeserver says is in it,
-// and whether a media transport is reachable. They deliberately carry no
-// media state — an observed membership tells you a device joined, never
-// whether its microphone is live. Media state arrives from the SFU, which is
-// a separate layer, so every media field on RtcParticipant stays at its
-// "unknown" default until something authoritative fills it.
-//
-// Everything here originated as remote JSON and was bounded and sanitized in
-// rust/src/rtc.rs. `intent` is a closed set. `rtcIdentity`, `deviceId` and
-// the transport URL are opaque: compared, never logged, never rendered.
+// Everything here was bounded and sanitized in rust/src/rtc.rs. `intent` is a
+// closed set; `rtcIdentity`, `deviceId` and the transport URL are opaque:
+// compared, never logged or rendered.
 #pragma once
 
 #include <QMetaType>
 #include <QString>
 #include <QVector>
 
-/// One participant device in a MatrixRTC session.
-///
-/// The unit is a DEVICE, not a user: the same person joining from a laptop
-/// and a phone is two participants, which is what every other client shows
-/// and what the SFU sees.
+/// One participant device in a MatrixRTC session. The unit is a device, not a
+/// user, as in other clients and on the SFU.
 struct RtcParticipant {
     QString userId;
     QString deviceId;
     /// Identity this device uses on the SFU. Derived in Rust from the
     /// membership; used to match a media track to a Matrix device.
     QString rtcIdentity;
-    /// "audio" or "video" — the sender's declared intent, already collapsed
-    /// to that closed set. NOT a statement that a camera is on.
+    /// "audio" or "video": the declared intent, collapsed to that closed set.
+    /// Not a statement that a camera is on.
     QString intent;
-    /// Room-resolved profile. A membership state event carries no profile,
-    /// so these come from the room's member state; empty means "not known
-    /// here", which the UI degrades to initials rather than inventing.
+    /// Room-resolved profile (a membership event carries none). Empty means not
+    /// known here; the UI falls back to initials.
     QString displayName;
     QString avatarMxc;
-    /// When this device joined, ms since epoch. Drives "oldest membership"
-    /// ordering, so it is meaningful even before any media exists.
+    /// When this device joined (ms since epoch). Drives "oldest membership"
+    /// ordering.
     qint64 joinedAtMs = 0;
     /// Absolute membership expiry, ms since epoch.
     qint64 expiresAtMs = 0;
     /// Wire format the membership was read from ("session" / "rtc").
     /// Diagnostics only — never shown in normal UI.
     QString wireFormat;
-    /// The `m.call.member` STATE EVENT that declared this membership.
-    ///
-    /// element-call addresses a raised hand to it — the hand is an
-    /// `m.reaction` annotating the raiser's own membership event — so this is
-    /// the only thing that ties one to a participant. Opaque: compared
-    /// against ids we already hold, never rendered, never logged.
-    ///
-    /// Empty is a real answer (a membership read from a source with no
-    /// envelope), and it reads as "no hand can be matched to this device",
-    /// never as a match.
+    /// The `m.call.member` state event that declared this membership.
+    /// element-call's raised hand is an `m.reaction` annotating it, so this
+    /// ties a hand to a participant. Opaque: compared, never rendered or
+    /// logged. Empty means no hand can be matched to this device.
     QString membershipEventId;
     /// True when this is one of the local user's own devices.
     bool ownUser = false;
-    /// True when this is specifically THIS device.
+    /// True when this is specifically this device.
     bool ownDevice = false;
 };
 
@@ -72,23 +57,21 @@ struct RtcSessionData {
 
     /// A `org.matrix.msc4143.rtc.slot` state event existed.
     bool slotPresent = false;
-    /// ...and it said the session is closed. Absence is NOT closed: almost
-    /// no deployment publishes a slot, so treating a missing one as closed
-    /// would hide every real call.
+    /// ...and it said the session is closed. Absence is not closed: almost no
+    /// deployment publishes a slot.
     bool slotClosed = false;
 
-    /// The focus the participants advertise, when any do. Empty is a real
-    /// answer: a call can be in progress that this client has no route into.
+    /// The focus the participants advertise, if any. Empty is a real answer: a
+    /// call may be running that this client has no route into.
     QString focusServiceUrl;
 
-    /// Server clock, ms. Used so a stale reply cannot overwrite a newer one.
+    /// Server clock, ms, so a stale reply cannot overwrite a newer one.
     qint64 observedAtMs = 0;
 
     /// Where the memberships came from: "store", "server", "server-none"
-    /// (asked, and the room has no membership state at all) or
-    /// "store-fallback" (asked, and the request did not get through).
-    /// Diagnostic only, and it is the line that tells a stale local store
-    /// apart from a room where nobody is really published.
+    /// (asked; no membership state at all) or "store-fallback" (the request
+    /// failed). Diagnostic only; tells a stale local store from a room with
+    /// nobody in it.
     QString source;
     /// How many raw membership state events the read considered, before
     /// parsing, expiry and dedup.

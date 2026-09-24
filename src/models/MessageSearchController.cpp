@@ -55,12 +55,8 @@ void MessageSearchController::setClient(MatrixClient *client)
     });
     connect(m_client, &MatrixClient::searchIndexSwept, this,
             [this](quint64, int, int, qint64 messages, qint64 rooms) {
-        // THE SWEEP RUNS WHILE RESULTS ARE ON SCREEN. It is on a five-minute
-        // timer, so a message that arrives with the find bar open is indexed
-        // underneath a list that then keeps showing the answer from before
-        // it existed — including "No messages found" for a message the index
-        // now holds. Re-run only when the index actually GREW, so a sweep
-        // that wrote nothing costs nothing.
+        // The periodic sweep can index a message while results are on screen;
+        // re-run the query only when the index actually grew.
         const bool grew = messages > m_indexedMessages;
         m_indexedMessages = messages;
         m_indexedRooms = rooms;
@@ -81,16 +77,9 @@ void MessageSearchController::setClient(MatrixClient *client)
         Q_EMIT indexingChanged();
         Q_EMIT indexStatsChanged();
         Q_EMIT roomHistoryIndexed(roomId, ok, reachedStart, written);
-        // Re-run the query against what just arrived. Indexing a room while
-        // its results are on screen and NOT refreshing them would leave the
-        // user looking at the answer from before they asked for more.
-        //
-        // NOT gated on `written`. This is a button the user pressed, and
-        // "this operation added nothing new" is a different claim from "what
-        // is on screen is current" — the periodic sweep may have indexed the
-        // message seconds earlier, which is exactly how this was found live:
-        // the coverage line went 31 -> 32 while the list below it still said
-        // "No messages found in this room's history".
+        // Re-run the query against what arrived. Not gated on `written`: the
+        // user asked, and the periodic sweep may already have indexed the new
+        // message.
         if (ok && !m_query.trimmed().isEmpty()
             && effectiveSource() == QLatin1String("local")) {
             dispatch(false);
@@ -104,13 +93,8 @@ void MessageSearchController::setClient(MatrixClient *client)
 
 QString MessageSearchController::effectiveSource() const
 {
-    // THE PREFERENCE IS NOT THE ANSWER. "local" is the default because it is
-    // the better one where it exists — it works in encrypted rooms and needs
-    // no round trip — but a backend without an index (the HTTP and mock
-    // backends, and any future one) must fall back rather than go dead. A
-    // controller that reported "unsupported" for a preference the user never
-    // expressed would be a search box that silently stopped working when the
-    // backend changed under it.
+    // "local" is preferred where it exists (works in encrypted rooms, no round
+    // trip), but a backend without an index must fall back rather than go dead.
     if (m_source == QLatin1String("local") && m_client
         && m_client->supportsLocalSearch()) {
         return QStringLiteral("local");
@@ -122,9 +106,8 @@ bool MessageSearchController::supported() const
 {
     if (!m_client)
         return false;
-    // Local search is supported wherever the index is, INCLUDING encrypted
-    // rooms — which is the whole reason it exists. Server search is supported
-    // only where the server can read the room.
+    // Local search works wherever the index does, including encrypted rooms;
+    // server search only where the server can read the room.
     if (effectiveSource() == QLatin1String("local"))
         return true;
     return m_client->supportsMessageSearch();
@@ -137,9 +120,8 @@ bool MessageSearchController::localAvailable() const
 
 void MessageSearchController::setSource(const QString &source)
 {
-    // Validated against the known set, like setFilter elsewhere: an unknown
-    // value would leave dispatch() choosing neither branch and the search box
-    // silently dead.
+    // Validated against the known set: an unknown value would leave dispatch()
+    // choosing neither branch.
     const QString next = source == QLatin1String("server")
         ? QStringLiteral("server") : QStringLiteral("local");
     if (next == m_source)
@@ -193,22 +175,20 @@ void MessageSearchController::onLocalSearchFinished(
     if (opId != m_pendingOp)
         return;   // stale: the query moved on while this was in flight
     m_pendingOp = 0;
-    // What THIS page asked for. Local paging has no cursor: "load more"
-    // re-runs the query with a BIGGER limit and replaces the rows, so the
-    // page size is not a constant and the exhaustion test cannot be one.
+    // What this page asked for. Local paging re-runs the query with a bigger
+    // limit and replaces the rows, so the exhaustion test compares against
+    // this.
     const int requested = m_pendingLocalLimit > 0 ? m_pendingLocalLimit
                                                   : kLocalPage;
     m_pendingLocalLimit = 0;
-    // The RAW size of this page, kept for the next request's limit.
+    // Raw size of this page, used for the next request's limit.
     m_lastLocalRawCount = static_cast<int>(results.size());
     if (minChars > 0 && minChars != m_minLocalChars)
         m_minLocalChars = minChars;
 
     if (!ok) {
-        // "too_short" is NOT an error and NOT "no results": the query cannot
-        // match the tokenizer at all, and the user can act on that by typing
-        // one more character. Reporting it as either of the others would tell
-        // them nothing they can use.
+        // "too_short" is neither an error nor "no results": the query cannot
+        // match the tokenizer, and one more character fixes it.
         beginResetModel();
         m_rows.clear();
         endResetModel();
@@ -223,8 +203,8 @@ void MessageSearchController::onLocalSearchFinished(
     rows.reserve(results.size());
     for (const QVariant &value : results) {
         QVariantMap row = value.toMap();
-        // The same client-side filters the server path applies, so switching
-        // source does not silently change which rows a filter removes.
+        // Same client-side filters as the server path, so switching source does
+        // not change which rows a filter removes.
         if (!matchesFilters(row))
             continue;
         if (m_client) {
@@ -239,20 +219,10 @@ void MessageSearchController::onLocalSearchFinished(
     m_rows = std::move(rows);
     endResetModel();
     m_totalCount = static_cast<quint64>(m_rows.size());
-    // A local page has no server cursor. "More" exists when the page came
-    // back full, which is the only evidence available that there is more —
-    // and FULL means "as many rows as this request asked for", not
-    // kLocalPage. Comparing against the constant made every page after the
-    // first test 100 (or 150, or 200) rows against 50: once the index held
-    // 50 matches the short page that PROVES exhaustion read as a full one,
-    // canLoadMore stayed true forever, and the list's onAtYEndChanged kept
-    // firing loadMore — each redundant page replacing the rows inside
-    // begin/endResetModel, which drops contentY to 0 and re-satisfies
-    // atYEnd. A spin, not a stall.
-    //
-    // Counted in RAW results, before matchesFilters(): the filters run
-    // here, so the filtered row count says nothing about whether the index
-    // had more to give.
+    // No cursor: more exists only if the page came back full, where full means
+    // the limit this request asked for (not kLocalPage), otherwise canLoadMore
+    // never clears and loadMore spins. Counted in raw results, before
+    // matchesFilters().
     m_nextBatch = results.size() >= requested
         ? QStringLiteral("local") : QString();
     setState(m_rows.isEmpty() ? QStringLiteral("no_results")
@@ -280,8 +250,7 @@ void MessageSearchController::setRoomId(const QString &roomId)
         return;
     m_roomId = roomId;
     Q_EMIT roomIdChanged();
-    // A different scope answers a different question: drop everything the
-    // old scope produced rather than letting it repaint under a new label.
+    // A different scope answers a different question: drop the old results.
     clear();
 }
 
@@ -292,8 +261,8 @@ void MessageSearchController::setFilters(const QVariantMap &filters)
     m_filters = filters;
     rebuildFilterSets();
     Q_EMIT filtersChanged();
-    // Applied criteria define a new result set. Search is explicit so a
-    // multi-control Apply produces one request, never one request per field.
+    // Applied criteria define a new result set; searching explicitly keeps a
+    // multi-control Apply to one request.
     clear();
 }
 
@@ -385,16 +354,10 @@ void MessageSearchController::dispatch(bool nextPage)
 void MessageSearchController::requestPage(bool append)
 {
     if (effectiveSource() == QLatin1String("local")) {
-        // No cursor: ask for a bigger page and replace. Paging by OFFSET
-        // against a live index would drop or repeat rows whenever indexing
-        // wrote a newer message between two pages, and this index is written
-        // to while a search is on screen.
-        // GROWN FROM THE LAST RAW PAGE, not from m_rows. m_rows is what
-        // survived matchesFilters(), and the exhaustion test below compares
-        // RAW results against this limit — so deriving it from the filtered
-        // count mixes two populations. With filters that drop a whole page
-        // (raw 50, filtered 0) the limit would never grow, results.size() >=
-        // requested would stay true, and canLoadMore() could never clear.
+        // No cursor: request a bigger page and replace. Offset paging against
+        // an index being written would drop or repeat rows. Grown from the last
+        // raw page, not from filtered m_rows, or a fully filtered page would
+        // freeze the limit.
         const int limit = append ? m_lastLocalRawCount + kLocalPage : kLocalPage;
         const quint64 opId = m_client->localSearch(m_query.trimmed(), m_roomId,
                                                    limit, 0);
@@ -402,9 +365,7 @@ void MessageSearchController::requestPage(bool append)
             setState(QStringLiteral("error"));
             return;
         }
-        // Remembered beside the op: the completion decides whether the
-        // index is exhausted by comparing what came back against what THIS
-        // request asked for.
+        // The completion compares what came back against this request's limit.
         m_pendingLocalLimit = limit;
         m_pendingOp = opId;
         m_pendingIsNextPage = append;
@@ -448,8 +409,7 @@ void MessageSearchController::onSearchFinished(quint64 opId, bool ok,
         setState(QStringLiteral("error"));
         return;
     }
-    // Room display names resolve locally — the account is in every room
-    // the server searched for it.
+    // Room names resolve locally; the account is in every room searched.
     QList<QVariantMap> rows;
     rows.reserve(results.size());
     for (const QVariant &value : results) {
@@ -476,8 +436,8 @@ void MessageSearchController::onSearchFinished(quint64 opId, bool ok,
     m_nextBatch = nextBatch;
     m_totalCount = count;
     // The Matrix search API cannot express mentions, dates, content kinds,
-    // links, or pinned state. Scan a small bounded number of server pages so
-    // a filtered page is useful without ever walking complete room history.
+    // links or pinned state. Scan a small bounded number of server pages so a
+    // filtered page is useful without walking whole histories.
     const bool hasClientFilters = !m_mentionUsers.isEmpty()
         || !m_contentTypes.isEmpty()
         || m_pinnedMode == QLatin1String("pinned")

@@ -15,26 +15,14 @@ class SettingsManager;
 class CacheStore;
 class QJsonObject;
 
-// Pure-C++ Matrix backend against the Client-Server r0/v3 HTTP API.
+// Experimental pure-C++ backend against the Client-Server HTTP API: login,
+// /sync, room list and timeline, backfill, local echo resolution, per-room
+// member names, media send/receive, replies, edits, redactions, reactions,
+// typing, read receipts, Spaces, thread replies, and a local SQLite cache.
 //
-// v0.3 scope:
-//   - v0.2 features (login, whoami, /sync, room list, timeline for
-//     m.room.message text/notice/emote, send text, logout).
-//   - Backfill via GET /rooms/{id}/messages?dir=b (pagination).
-//   - Local echo resolution: PUT-response event_id replaces "local:<txn>" id.
-//   - Sender display-name lookup from m.room.member state (per-room cache).
-//   - Media receive: m.image / m.file (mxc:// resolved to HTTP URLs).
-//   - Media send: POST /_matrix/media/v3/upload + send m.image / m.file.
-//   - Replies (m.in_reply_to), edits (m.replace), redactions.
-//   - Reactions (m.reaction / m.annotation) with toggle-off via redact.
-//   - Typing: PUT /rooms/{id}/typing/{userId} with debounce.
-//   - Read receipts: POST /rooms/{id}/receipt/m.read/{eventId}.
-//   - Local SQLite cache (rooms + last N events per room + members).
-//
-// Still out of scope for v0.3:
-//   - E2EE. Encrypted rooms remain read-only placeholders; sends are blocked.
-//   - Sliding sync, SSO/OIDC, invites, spaces, threads, multi-account.
-//   - Authenticated media endpoints (uses legacy unauthenticated /media/v3).
+// Not authoritative for modern Matrix: no E2EE (encrypted rooms are
+// read-only placeholders), no sliding sync, and legacy unauthenticated media
+// URLs.
 class CppHttpMatrixClient : public MatrixClient
 {
     Q_OBJECT
@@ -72,9 +60,8 @@ public:
     void sendReply(const QString &roomId,
                    const QString &replyToEventId,
                    const QString &body) override;
-    // v0.4.4: real m.thread relation (MSC3440 / stable in v11). Overrides the
-    // interface default (which fell back to sendReply) so the message is
-    // delivered as a proper thread event rather than a plain in-reply-to.
+    // Real m.thread relation, delivered as a thread event rather than a plain
+    // in-reply-to.
     void sendThreadReply(const QString &roomId,
                          const QString &threadRootEventId,
                          const QString &body) override;
@@ -162,9 +149,8 @@ private:
     QPointer<QNetworkReply> m_syncReply;
     QTimer m_syncRetryTimer;
     int m_syncBackoffMs = 5000;
-    // v0.4.6: flips true after the first /sync response is fully parsed.
-    // Reset on login/logout. Consumed via initialSyncDone() override so
-    // QML can show "Loading rooms…" until the first response lands.
+    // True after the first /sync response is parsed; reset on login/logout.
+    // Lets QML show "Loading rooms…" until then.
     bool m_initialSyncDone = false;
 
     QHash<QString, RoomInfo> m_rooms;
@@ -173,8 +159,8 @@ private:
     QHash<QString, QString> m_lastReceiptSent;  // roomId → last eventId we sent a receipt for
 
     // txn_id -> (roomId, currentEventId). currentEventId starts as
-    // "local:<txn>" and is upgraded to the real event_id from the PUT
-    // response, so /sync-side dedup still finds it.
+    // "local:<txn>" and becomes the real event_id from the PUT response, so
+    // /sync dedup finds it.
     QHash<QString, QPair<QString, QString>> m_pendingSends;
 
     quint64 m_txnCounter = 0;

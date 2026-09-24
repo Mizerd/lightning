@@ -7,23 +7,20 @@
 
 #include <functional>
 
-// Composer slash commands: the registry and the parser, pure and
-// QObject-free so every rule is unit-testable without a composer.
+// Composer slash commands: registry and parser, pure and QObject-free so
+// every rule is unit-testable.
 //
-// This is deliberately NOT the Ctrl+K command palette's registry — that one
-// holds app-level ACTIONS (navigate, toggle panels) with no arguments and
-// excludes room-scoped moderation by its own design comment. A slash command
-// is a different thing: a typed, argument-carrying, room-scoped verb. The
-// two stay separate; EXECUTION reuses the existing MatrixClient moderation
-// and send APIs rather than growing a third path.
+// Separate from the Ctrl+K command palette, which holds argument-free app
+// actions. A slash command is a typed, argument-carrying, room-scoped verb;
+// execution reuses the existing MatrixClient moderation and send APIs.
 //
-// Parse rules (matching Element's observable behaviour):
-//   * only a message BEGINNING with "/" can be a command;
-//   * "//rest" is the escape: it sends "/rest" as literal text;
+// Parse rules (Element's observable behaviour):
+//   * only a message beginning with "/" can be a command;
+//   * "//rest" is the escape and sends "/rest" as literal text;
 //   * "/word args…" splits on the first whitespace; the name is
 //     case-insensitive;
-//   * "/" followed by anything but a letter is ordinary text (e.g. "/ ",
-//     "/1", an emoticon) — never a command and never an error.
+//   * "/" followed by anything but a letter ("/ ", "/1", an emoticon) is
+//     ordinary text, never a command or an error.
 namespace SlashCommands {
 
 struct Command {
@@ -32,9 +29,8 @@ struct Command {
     QString description; // one line for the completion popup
     bool requiresArgs = false;
     // Key into the permissions map QML supplies (RoomInfoController's can*
-    // booleans). Empty = always available. A missing key counts as ALLOWED:
-    // permission hints are a courtesy, the server is the enforcer, and
-    // hiding a command on unknown data would be lying the other way.
+    // booleans); empty means always available. A missing key counts as allowed:
+    // the server enforces, and hiding a command on unknown data would mislead.
     QString permissionKey;
 };
 
@@ -66,15 +62,13 @@ QList<Command> completions(const QString &text);
 
 // ---- Execution, shared by every composer.
 //
-// The room composer (MessageComposer) and the thread panel's composer
-// (ThreadController) each own a different SEND lane and a different context,
-// so execution is expressed against callbacks rather than a client: the
-// command semantics live here once, and each host supplies how its content
-// goes out. Callbacks the host leaves empty make that command refuse with an
-// honest error instead of silently doing nothing.
+// The room composer and the thread composer own different send lanes, so
+// execution is expressed against callbacks: command semantics live here once
+// and each host supplies how content goes out. A callback left empty makes
+// its command refuse with an error rather than silently doing nothing.
 struct Actions {
-    // Send composed content through the host's current context. `spec` is
-    // the v0.9 body spec ({format, html, msgtype}); empty = markdown.
+    // Send composed content through the host's context. `spec` is the body spec
+    // ({format, html, msgtype}); empty means markdown.
     std::function<void(const QString &body, const QStringList &mentionIds,
                        const QVariantMap &spec)> send;
     std::function<void(const QString &target)> join;

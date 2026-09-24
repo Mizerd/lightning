@@ -1,8 +1,7 @@
-// One inbound call-signaling observation crossing the backend boundary
-// (2026-08-18 voice-call pipes). Deliberately SDP-free: the Rust side
-// forwards has_offer/has_answer booleans and sanitized closed-set strings
-// only, so this struct is structurally incapable of leaking a session
-// description (which carries host IPs) toward QML or logs.
+// One inbound call-signaling observation crossing the backend boundary.
+// Deliberately SDP-free: Rust forwards has_offer/has_answer booleans and
+// sanitized closed-set strings only, so this struct cannot leak a session
+// description (which carries host IPs) to QML or logs.
 #pragma once
 
 #include <QMetaType>
@@ -26,10 +25,9 @@ struct CallSignal {
     // True when the sender is the local user (possibly another device).
     bool own = false;
 
-    // Legacy m.call.* fields. callId/partyId are SENDER-CHOSEN opaque
-    // text (ruma validates nothing about a VoipId): bounded at the Rust
-    // edge (length + control characters), but still never to be logged or
-    // rendered — only compared. Empty when not applicable to the kind.
+    // Legacy m.call.* fields. callId/partyId are sender-chosen opaque text
+    // (ruma does not validate a VoipId): bounded at the Rust edge, but only
+    // ever compared, never logged or rendered. Empty when not applicable.
     QString callId;
     QString partyId;
     // Invite only: the targeted user (empty = any), lifetime, server ts,

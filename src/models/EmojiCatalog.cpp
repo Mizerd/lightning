@@ -29,26 +29,11 @@ EmojiCatalog::EmojiCatalog(SettingsManager *settings, QObject *parent)
     : QAbstractListModel(parent), m_settings(settings)
 {
     load();
-    // AN EMPTY "RECENTLY USED" IS NOT A PLACE TO OPEN A PICKER.
-    //
-    // The default category is kCategories[0], "Recently Used", and rebuild()
-    // has no fallback — so on a fresh account the first press of the emoji
-    // button drew an EMPTY grid under "No recently used emoji", with the
-    // whole catalogue one click away and none of it on screen. Every
-    // comparable client falls back to Smileys.
-    //
-    // Decided ONCE here, not in rebuild(): a rebuild()-level fallback would
-    // put Smileys under the "Recently Used" heading, which is the same lie
-    // the other way round — the tab would become indistinguishable from the
-    // Smileys tab and "No recently used emoji" would be unreachable. The tab
-    // keeps its place in the rail, keeps its empty state, and is still the
-    // category the catalogue starts on the moment there is one recent emoji
-    // to show.
-    //
-    // Tested against the RESOLVED recents, not the raw settings list:
-    // rebuild() drops any entry that is not in the catalogue, so a stale or
-    // corrupted settings value would otherwise count as a recent and hand
-    // the user the empty grid this exists to prevent.
+    // Don't open on an empty "Recently Used" grid: fall back to Smileys when
+    // there are no resolvable recents. Decided once here rather than in
+    // rebuild(), so the Recently Used tab keeps its own empty state. Tested
+    // against resolved recents, since rebuild() drops entries not in the
+    // catalogue.
     if (m_category == kCategories.constFirst() && !hasResolvableRecents()
         && kCategories.size() > 1) {
         m_category = kCategories.at(1);
@@ -80,9 +65,8 @@ void EmojiCatalog::load()
         QString line = QString::fromUtf8(file.readLine());
         while (line.endsWith(QLatin1Char('\n')) || line.endsWith(QLatin1Char('\r')))
             line.chop(1);
-        // Comments are "# " lines. A bare '#' prefix is NOT a comment: the
-        // keycap sequence #️⃣ ('#' U+FE0F U+20E3) is a data row, and the
-        // old prefix test silently dropped it from the catalogue.
+        // Comments are "# " lines. A bare '#' prefix is data: the keycap
+        // sequence #️⃣ ('#' U+FE0F U+20E3) starts with it.
         if (line.isEmpty() || line.startsWith(QLatin1String("# ")))
             continue;
         const QStringList fields = line.split(QLatin1Char('\t'), Qt::KeepEmptyParts);
@@ -110,17 +94,15 @@ void EmojiCatalog::load()
                 m_entries[index].hasSkinTones = true;
         }
     }
-    // v0.7: per-category index buckets, computed exactly once. Category
-    // switches swap the visible list from the bucket instead of rescanning
-    // the whole catalogue, so tab changes are a constant-time list swap.
+    // Per-category index buckets, built once, so a category switch is a list
+    // swap rather than a catalogue rescan.
     for (int i = 0; i < m_entries.size(); ++i) {
         const Entry &entry = m_entries.at(i);
         if (entry.emoji == entry.baseEmoji)
             m_categoryBuckets[entry.category].append(i);
     }
-    // Presentation-selector-tolerant lookup set for emojiOnlySequenceCount,
-    // built exactly once: senders disagree about U+FE0F, so a received
-    // cluster is matched against the VS16-stripped catalogue form.
+    // Lookup set for emojiOnlySequenceCount, built once: senders disagree about
+    // U+FE0F, so clusters are matched against the VS16-stripped form.
     for (const Entry &entry : std::as_const(m_entries)) {
         QString stripped = entry.emoji;
         stripped.remove(QChar(0xFE0F));
@@ -197,8 +179,7 @@ void EmojiCatalog::rebuild()
             }
         }
     } else if (query.isEmpty()) {
-        // v0.7: category switches swap the precomputed bucket built once at
-        // load — no per-switch scan over the whole catalogue.
+        // Swap in the precomputed bucket; no catalogue scan.
         m_visible = m_categoryBuckets.value(m_category);
     } else {
         for (int i = 0; i < m_entries.size(); ++i) {
@@ -241,10 +222,8 @@ int EmojiCatalog::emojiOnlySequenceCount(const QString &text) const
 {
     if (text.isEmpty() || m_entries.isEmpty())
         return 0;
-    // Cheap length gate: QTextBoundaryFinder pays O(n) up front for the
-    // whole string, and this runs in a per-delegate binding. Three emoji
-    // sequences fit well inside this bound even with generous whitespace;
-    // a longer body cannot be a 1-3-emoji message worth enlarging.
+    // Cheap length gate: QTextBoundaryFinder is O(n) up front and this runs in
+    // a per-delegate binding. A longer body cannot be a 1-3 emoji message.
     if (text.size() > 256)
         return 0;
     int count = 0;
@@ -314,9 +293,9 @@ void EmojiCatalog::clearRecent()
 
 QStringList EmojiCatalog::recentEmoji() const
 {
-    // v0.6.5: the raw MRU list for consumers that want it directly (the
-    // quick-react strip), filtered through the same validity check rebuild()
-    // uses so a corrupted or legacy settings entry can never reach one.
+    // The raw MRU list (for the quick-react strip), filtered by the same
+    // validity check rebuild() uses so corrupted or legacy entries never reach
+    // a consumer.
     QStringList out;
     if (!m_settings)
         return out;

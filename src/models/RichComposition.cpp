@@ -12,9 +12,9 @@ namespace RichComposition {
 
 namespace {
 
-// The inline formats one text run can carry, in the fixed nesting order the
-// serializer emits. A fixed order is what keeps output deterministic across
-// Qt versions — the document model stores properties, not tag order.
+// Inline formats one run can carry, in the fixed nesting order the serializer
+// emits; the document stores properties, not tag order, so a fixed order
+// keeps output deterministic.
 struct InlineFlags {
     bool anchor = false;
     QString href;
@@ -46,10 +46,8 @@ InlineFlags flagsFor(const QTextCharFormat &format)
     return f;
 }
 
-// A matrix.to user permalink -> the "@user:server" id, else empty. Same
-// shape as MessageHtml's — duplicated deliberately: that one lives behind
-// an anonymous namespace, and a two-line parse is cheaper than a new
-// shared header.
+// A matrix.to user permalink -> "@user:server", else empty. Duplicates
+// MessageHtml's private helper rather than adding a shared header.
 QString matrixToUserId(const QString &href)
 {
     const QUrl u(href);
@@ -83,9 +81,8 @@ QString inlineHtml(const QTextBlock &block, QStringList *mentionIds,
         if (!fragment.isValid())
             continue;
         QString text = fragment.text();
-        // Inline objects (images etc.) serialize to nothing: the composer
-        // never inserts them and a pasted one has no Matrix representation
-        // the attachment pipeline does not do better.
+        // Inline objects serialize to nothing: the composer never inserts them
+        // and pasted ones have no Matrix representation.
         text.remove(QChar::ObjectReplacementCharacter);
         if (text.isEmpty())
             continue;
@@ -294,15 +291,12 @@ Composed compose(const QTextDocument &document)
     setQuoteLevel(0);
 
     result.plainBody = plainLines.join(QLatin1Char('\n'));
-    // Formatted only when the document actually carries formatting — an
-    // unformatted message stays a plain m.text event, matching the markdown
-    // path's plain-text behaviour. A single unformatted paragraph is the
-    // ordinary message; multiple plain paragraphs are newlines in the plain
-    // body, not markup.
+    // Formatted only when the document carries formatting, matching the
+    // markdown path. Multiple plain paragraphs are newlines in the plain body,
+    // not markup.
     if (sawFormatting) {
         result.html = structural;
-        // The single-paragraph case reads better unwrapped ("<strong>x"
-        // rather than "<p><strong>x</strong></p>"), and it is what the
+        // A single paragraph reads better unwrapped, and matches what the
         // markdown converter emits for one-line input.
         if (result.html.startsWith(QLatin1String("<p>"))
             && result.html.endsWith(QLatin1String("</p>"))
@@ -323,9 +317,8 @@ void toggleFormat(QTextDocument *document, int selectionStart,
     cursor.setPosition(qMax(0, qMin(selectionStart, selectionEnd)));
     cursor.setPosition(qMax(selectionStart, selectionEnd),
                        QTextCursor::KeepAnchor);
-    // An empty selection formats the word under the caret — the closest
-    // honest equivalent of "start typing bold", which QML's TextEdit gives
-    // us no per-keystroke format hook for.
+    // An empty selection formats the word under the caret; QML's TextEdit has
+    // no per-keystroke format hook for "start typing bold".
     if (!cursor.hasSelection()) {
         cursor.select(QTextCursor::WordUnderCursor);
         if (!cursor.hasSelection() && format != QLatin1String("quote")
@@ -349,8 +342,8 @@ void toggleFormat(QTextDocument *document, int selectionStart,
     } else if (format == QLatin1String("code")) {
         const bool on = !state.value(format).toBool();
         charDelta.setFontFixedPitch(on);
-        // A visible family change is what makes inline code READ as code in
-        // the editor; the serializer keys on fixed pitch alone.
+        // A visible family change makes inline code read as code in the editor;
+        // the serializer keys on fixed pitch alone.
         if (on)
             charDelta.setFontFamilies({ QStringLiteral("monospace") });
         else
@@ -481,10 +474,8 @@ void RichComposition::replaceRange(QTextDocument *document, int start, int lengt
     QTextCursor cursor(document);
     cursor.setPosition(start);
     cursor.setPosition(start + length, QTextCursor::KeepAnchor);
-    // The format of the range's FIRST character, read before the selection
-    // is replaced: insertText with an explicit format keeps a bold or linked
-    // word bold or linked, where the cursor's own format could be the one
-    // just past the word.
+    // Take the range's first character format before replacing, so a bold or
+    // linked word stays bold or linked.
     QTextCursor probe(document);
     probe.setPosition(start + 1);
     const QTextCharFormat keep = probe.charFormat();
@@ -498,8 +489,8 @@ bool RichComposition::documentIsBlank(const QTextDocument &document)
     for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
         if (!block.text().isEmpty())
             return false;
-        // Structure with no text in it is still something on screen: a list
-        // marker, a quote bar, a code slab, a heading's own metrics.
+        // Structure without text is still visible: a list marker, a quote bar,
+        // a code slab, a heading's metrics.
         if (block.textList() != nullptr)
             return false;
         const QTextBlockFormat bf = block.blockFormat();

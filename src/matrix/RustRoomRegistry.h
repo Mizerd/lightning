@@ -9,33 +9,27 @@
 #include <QString>
 #include <QStringList>
 
-// Pure translation layer between the Rust bridge's room-list JSON protocol
-// and the C++ room registry. No Qt models, no FFI, no I/O — unit-testable
-// without cargo or a homeserver, exactly like matrix::rust_timeline next to
-// it.
+// Pure translation between the Rust bridge's room-list JSON and the C++ room
+// registry. No Qt models, FFI or I/O, so it is unit-testable like
+// matrix::rust_timeline.
 //
-// THE ONE INVARIANT THIS FILE EXISTS TO HOLD: `order` is the SDK's own room
-// list, ONE FOR ONE, because every Set / Insert / Remove / Truncate diff
-// addresses it BY INDEX. Only the producer that owns that index space — the
-// sliding-sync dynamic adapter, through `room_list_*` diffs and its own
-// `room_list_reset` — may define, grow, shrink or renumber it.
+// Invariant: `order` mirrors the SDK's room list one-for-one, because every
+// Set / Insert / Remove / Truncate diff addresses it by index. Only the
+// sliding-sync dynamic adapter (its `room_list_*` diffs and `room_list_reset`)
+// may define or renumber it.
 //
-// `rooms` is the id-keyed map everything else reads, and it holds MORE than
-// the index space does: Spaces (which are not in the SDK's room list at all)
-// and, on the classic-sync fallback, every room there is.
+// `rooms` is the id-keyed map everything else reads, and holds more than the
+// index space: Spaces (not in the SDK's room list) and, on the classic-sync
+// fallback, every room.
 //
-// A `room_snapshot` is a walk of the SDK's whole state store — a different
-// vector, differently filtered, differently ordered, and a different length
-// (the sliding list starts at 20 rooms and grows in pages of 100). It
-// therefore updates `rooms` and NEVER touches `order`. Emitting it as a
-// `room_list_reset` is what made the "room_list malformed diff rejected"
-// storm self-sustaining: any of a dozen ordinary user actions rebuilt the
-// index base from the wrong vector, the adapter's next Set{index} addressed a
-// different room, was rejected, and the rejection asked for another snapshot.
+// A `room_snapshot` walks the SDK's whole state store: a different vector in
+// membership, order and length. It updates `rooms` and never touches `order`;
+// rebuilding the index base from it misaddresses the next Set{index} and
+// feeds a reject/resnapshot loop.
 namespace matrix::rust_rooms {
 
-// A view over the client's two members, so the pure functions can be driven
-// from a test with two local variables and from production with no copying.
+// A view over the client's two members, so the pure functions work on test
+// locals and production state without copying.
 struct Registry {
     QHash<QString, RoomInfo> &rooms;
     QStringList &order;
@@ -46,59 +40,38 @@ struct Registry {
 // present-but-empty value is meaningful; see the field comments.
 RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous);
 
-// Apply a `room_list_reset` (or the legacy `rooms` envelope): the index base.
-// Replaces both `rooms` and `order` wholesale, carrying Spaces over because
-// the SDK's room list does not mention them.
+// Apply a `room_list_reset` (or the legacy `rooms` envelope), the index base.
+// Replaces `rooms` and `order` wholesale, carrying Spaces over since the SDK
+// room list never mentions them.
 void applyIndexReset(Registry registry, const QJsonArray &rooms);
 
-// Apply a `room_snapshot`: the SDK state-store walk. Updates and adds rooms,
-// drops rooms no producer still names, and never touches `order`.
-//
-// The removal rule is one rule in both lanes: an id absent from the snapshot
-// is dropped UNLESS it is a Space (not in the SDK's list) or the index space
-// still names it (only a diff may remove one of those). With an empty `order`
-// — the classic lane, which has no diffs — that reduces exactly to "the
-// snapshot is the room set", which is what that lane needs.
+// Apply a `room_snapshot`: updates and adds rooms, drops rooms no producer
+// still names, never touches `order`. An absent id is dropped unless it is a
+// Space or the index space still names it (only a diff may remove those).
+// With an empty `order` (classic sync) the snapshot is simply the room set.
 void applySnapshot(Registry registry, const QJsonArray &rooms);
 
-// One room-list diff, validated against the registry before anything is
-// mutated. Returns false — leaving the registry untouched — when the diff
-// does not match, so the caller can ask the index space's owner to re-emit
-// rather than corrupting the registry.
+// One room-list diff, validated before anything is mutated. Returns false,
+// leaving the registry untouched, on a mismatch so the caller can ask the
+// index space's owner to re-emit.
 bool applyRoomListDiff(Registry registry, const QJsonObject &event);
 
-// Apply a `room_activity` payload: response-harvested conversation recency,
-// `{ id, last_activity_ms }` per room. Returns the ids whose activity ACTUALLY
-// moved, so the caller signals only those and a quiet payload costs nothing.
+// Apply a `room_activity` payload: response-harvested recency,
+// `{ id, last_activity_ms }` per room. Returns only the ids whose activity
+// moved.
 //
-// WHY A SECOND PRODUCER OF THIS FIELD EXISTS AT ALL. Every other room payload
-// derives `last_activity_ms` from matrix-sdk's lazily-computed
-// `Room::latest_event()`. When that value stops moving — and it can, for
-// several reasons, none of them visible from here — the room-list payload
-// keeps re-sending the same old stamp, `RoomInfo::raiseActivity` is monotonic
-// so nothing changes, and the row sits at a stale time and a stale position
-// until the user opens the room. This producer reads the sync responses
-// themselves and needs no SDK-side computation.
-//
-// It carries TIMESTAMPS ONLY — no preview text, no sender, no event id — so a
-// room can be ordered correctly by it while its preview still waits on the
-// SDK. Being monotonic, it can only ever agree with the other producer or
-// improve on it.
+// Every other payload derives last_activity_ms from matrix-sdk's lazily
+// computed Room::latest_event(), which can stop moving and leave a row at a
+// stale time and position until the room is opened. This reads the sync
+// responses directly. Timestamps only; being monotonic it can only agree with
+// or improve on the other producer.
 QStringList applyRoomActivity(Registry registry, const QJsonArray &rooms);
 
-// Apply the removal half of a `space_list_reset`: `present` is the COMPLETE
-// set of Space ids the account is joined to, so a Space entry the map holds
-// and `present` does not is one the user has LEFT. Returns how many entries
-// were erased.
-//
-// The counterpart to the two Space exemptions above, and the reason they do
-// not conflict: `applyIndexReset` and `applySnapshot` carry Spaces over
-// because the ROOM LIST producer never mentions them, so absence from ITS
-// payload is not evidence of anything. This is the Space producer's own
-// payload, and here absence IS the fact.
-//
-// A Space the INDEX SPACE still names is blanked, never erased — see the
-// implementation.
+// The removal half of a `space_list_reset`: `present` is the complete set of
+// joined Space ids, so a Space entry absent from it has been left. Returns how
+// many entries were erased. Unlike the room-list producer's payloads (see the
+// Space exemptions above), absence here is evidence. A Space the index space
+// still names is blanked, never erased.
 int retireAbsentSpaces(Registry registry, const QSet<QString> &present);
 
 } // namespace matrix::rust_rooms

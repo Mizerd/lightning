@@ -47,8 +47,8 @@ void ReadReceiptCoordinator::setTimelineModel(TimelineModel *model)
     if (m_model) {
         connect(m_model, &TimelineModel::roomIdChanged,
                 this, &ReadReceiptCoordinator::onRoomChanged);
-        // Content changes (arrival, reset, prepend, in-place update) all
-        // funnel through countChanged / model reset in TimelineModel.
+        // Arrivals, resets, prepends and in-place updates all funnel through
+        // countChanged or a model reset.
         connect(m_model, &TimelineModel::countChanged,
                 this, &ReadReceiptCoordinator::reevaluate);
         connect(m_model, &TimelineModel::modelReset,
@@ -134,11 +134,9 @@ void ReadReceiptCoordinator::reevaluate()
 
 void ReadReceiptCoordinator::onDebounceElapsed()
 {
-    // Everything is re-validated at fire time: the room must still be the
-    // one the timer was armed for, the generation must not have moved
-    // (no room switch / reset / sign-out in between), and the conditions
-    // and candidate are recomputed fresh — the newest eligible event wins
-    // even when it arrived during the debounce.
+    // Re-validate at fire time: same room, unchanged generation, conditions
+    // still hold, and the newest eligible event (possibly newer than when
+    // armed) wins.
     if (!conditionsHold())
         return;
     if (m_armedGeneration != m_generation
@@ -162,9 +160,8 @@ void ReadReceiptCoordinator::sendNow(const QString &eventId, qint64 timestampMs)
 
 void ReadReceiptCoordinator::onRoomChanged()
 {
-    // A pending receipt belonged to the previous room. State restarts;
-    // the per-room last-sent map keeps suppressing duplicates when the
-    // user returns to a room already acked this session.
+    // Drop any pending receipt from the previous room; the per-room last-sent
+    // map still suppresses duplicates on return.
     m_debounce.stop();
     ++m_generation;
     reevaluate();

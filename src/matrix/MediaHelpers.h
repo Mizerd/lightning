@@ -3,13 +3,9 @@
 #include <QString>
 #include <QUrl>
 
-// Small helpers for Matrix media URLs.
-//
-// v0.3 uses the legacy unauthenticated /_matrix/media/v3/{download,thumbnail}
-// endpoints because they work across most existing homeservers without
-// per-request auth juggling. TODO(v0.4+): switch to the authenticated
-// /_matrix/client/v1/media/{download,thumbnail} endpoints once the
-// authenticated media flow is required (MSC3916 / Matrix v1.11).
+// Small helpers for Matrix media URLs, used by the non-Rust backends. They
+// build legacy unauthenticated /_matrix/media/v3 URLs; the Rust backend goes
+// through the SDK's authenticated media API instead.
 namespace matrix::media {
 
 // Parses `mxc://server.name/mediaId` into (serverName, mediaId).
@@ -32,8 +28,8 @@ QString mimetypeForFile(const QString &localPath);
 // True if mimetype starts with "image/".
 bool isImageMimetype(const QString &mimetype);
 
-// Trim body to a single line, capped at `maxChars` characters.
-// Used to build reply previews and last-message previews.
+// Trim body to a single line, capped at `maxChars`, for reply and
+// last-message previews.
 QString previewSnippet(const QString &body, int maxChars = 80);
 
 } // namespace matrix::media

@@ -21,12 +21,10 @@ void AttachmentQueueModel::setClient(MatrixClient *client)
     m_client = client;
 }
 
-// 0 means the limit is UNKNOWN — the homeserver advertises no m.upload.size,
-// the capability lookup has not answered yet, or it failed. It does NOT mean
-// "unlimited", and it is deliberately not replaced by a client-side default:
-// an invented ceiling would refuse files this server would have accepted, and
-// would be indistinguishable downstream from a real advertised limit. When
-// the limit is unknown, no preflight happens and the SDK/server decides.
+// 0 means the limit is unknown (not advertised, not answered yet, or failed),
+// not unlimited. No client-side default is invented: it would refuse files
+// the server accepts and be indistinguishable from a real limit. With no known
+// limit there is no preflight and the server decides.
 qint64 AttachmentQueueModel::uploadLimit() const
 {
     const qint64 server = m_client ? m_client->maxUploadSize() : 0;
@@ -60,21 +58,15 @@ QString AttachmentQueueModel::humanSize(qint64 bytes)
     return QStringLiteral("%1 GB").arg(mb / 1024.0, 0, 'f', 2);
 }
 
-// Upload-path diagnostics. Quiet by default (warnings only fire on a
-// refusal); enable everything with QT_LOGGING_RULES='lightning.attach=true'.
+// Upload-path diagnostics; warnings fire only on refusal. Enable everything
+// with QT_LOGGING_RULES='lightning.attach=true'.
 Q_LOGGING_CATEGORY(lcAttach, "lightning.attach")
 
 namespace {
 
-// Why an attachment was refused, in a form that can be pasted into a bug
-// report. Deliberately NOT the path: a Windows path contains the user's
-// account name, and this is the one upload log a user is likely to share.
-//
-// What it carries instead is the path's SHAPE, which is what the outstanding
-// "uploads fail from the MSI, but the Setup EXE and the portable ZIP work"
-// report needs to distinguish: spaces, non-ASCII and UNC prefixes are the
-// classic Windows path hazards, and knowing which of the five rejections
-// fired says whether the file was even reachable.
+// Why an attachment was refused, safe to paste into a bug report. Never the
+// path (it contains the user's account name); only its shape: spaces,
+// non-ASCII and UNC prefixes, the classic Windows path hazards.
 QString pathShape(const QString &path)
 {
     bool nonAscii = false;
@@ -111,9 +103,8 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
         return tr("Folders cannot be attached.");
     }
     if (!info.isFile() || !info.isReadable()) {
-        // The one most likely to be an environment problem rather than a user
-        // mistake: exists() and isReadable() disagreeing is a permissions or
-        // path-translation failure, not a wrong click.
+        // exists() and isReadable() disagreeing points to permissions or path
+        // translation, not a user mistake.
         qCWarning(lcAttach) << "attachment refused reason=unreadable"
                             << "exists=" << info.exists()
                             << "isFile=" << info.isFile()
@@ -142,8 +133,8 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
     entry.fileName = info.fileName();
     entry.sizeBytes = info.size();
 
-    // MIME from content first, extension as tie-breaker — an mislabelled
-    // extension must not pick the send path.
+    // MIME from content first, extension only as tie-breaker, so a mislabelled
+    // extension cannot pick the send path.
     const QMimeDatabase db;
     const QMimeType mime = db.mimeTypeForFile(info, QMimeDatabase::MatchContent);
     entry.mime = mime.isValid() && !mime.isDefault()
@@ -163,15 +154,9 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
             entry.height = size.height();
         }
     }
-    // AUDIO IS DECODED TOO, and not for a picture.
-    //
-    // An audio file has no frame to grab, so this job returns an empty
-    // poster — but the decoder still reports the CLIP LENGTH, which is the
-    // one piece of metadata an audio attachment was going out without. That
-    // is why a card for a perfectly good song read "0:00": nothing on the
-    // send side ever asked how long it was. The extractor emits the duration
-    // even when it has no frame (see VideoPosterExtractor's contract), and
-    // applyPoster() already stores a duration independently of the poster.
+    // Audio is decoded too, not for a picture but for its duration, which audio
+    // attachments would otherwise lack. The extractor reports duration without
+    // a frame, and applyPoster() stores it independently.
     entry.isAudio = entry.mime.startsWith(QLatin1String("audio/"));
     if (entry.isVideo || entry.isAudio) {
         entry.posterPending = true;
@@ -183,9 +168,8 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
     m_entries.append(entry);
     endInsertRows();
     Q_EMIT countChanged();
-    // Started only AFTER the row exists: a poster outcome may come back
-    // synchronously (the test hook, or an extractor that fails on the
-    // spot), and applyPoster() has to find the entry it belongs to.
+    // Started only after the row exists: an outcome may arrive synchronously
+    // and applyPoster() must find its entry.
     if (m_entries.at(row).posterPending)
         startPosterJob(row);
     return {};
@@ -240,9 +224,8 @@ void AttachmentQueueModel::applyPoster(const QString &tag,
         entry.posterWidth = posterSize.width();
         entry.posterHeight = posterSize.height();
     }
-    // The decoded frame is the only honest source of the video's own
-    // dimensions on the send side; QMimeDatabase cannot supply them and
-    // fabricating them would make every receiver lay the video out wrong.
+    // The decoded frame is the only source of the video's dimensions on the
+    // send side; fabricated ones would make receivers lay it out wrong.
     if (sourceSize.isValid() && !sourceSize.isEmpty()) {
         entry.width = sourceSize.width();
         entry.height = sourceSize.height();
@@ -270,8 +253,8 @@ QString AttachmentQueueModel::addImageData(const QByteArray &bytes,
     entry.width = width;
     entry.height = height;
     entry.isImage = true;
-    // No file exists for a paste, so the bytes are registered for preview.
-    // A full store just means no thumbnail — never a refused paste.
+    // Pasted bytes have no file, so register them for preview. A full store
+    // only means no thumbnail.
     if (m_stagedImages)
         entry.stagedToken = m_stagedImages->add(bytes);
 
@@ -324,8 +307,8 @@ void AttachmentQueueModel::retryAt(int row)
     entry.state = QStringLiteral("queued");
     entry.error.clear();
     entry.opId = 0;
-    // A retry is a fresh send decision: the entry waits for the user to
-    // press send again rather than dispatching off a stale request.
+    // A retry waits for the user to send again rather than dispatching off a
+    // stale request.
     entry.sendRequested = false;
     updateEntry(row);
 }

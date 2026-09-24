@@ -56,23 +56,15 @@ void ScheduledSendController::setClient(MatrixClient *client)
                 e.delayId = delayId;
                 e.status = QStringLiteral("pending");
                 e.error.clear();
-                // Anything asked for while the schedule was in flight is
-                // applied now that the server can be told about it.
+                // Apply changes requested while the schedule was in flight.
                 applyDeferredChanges(e);
             } else if (category == QLatin1String("encrypted_unsupported")) {
-                // The server would hold the plaintext: fall back to the
-                // local queue and say so.
-                //
-                // THIS VERDICT IS ALSO AN ENCRYPTION ANSWER, and it overrides
-                // ours. `isVolatile` was decided at schedule() time from the
-                // C++ RoomInfo cache; the Rust side consults the SDK's own
-                // Room::encryption_state(), and this category is exactly the
-                // case where the two disagreed. Taking only the routing half
-                // of the answer and leaving the disk half meant §6's
-                // "encrypted-room plaintext remains memory-only" was decided
-                // by the weaker of two sources. persist() below rewrites the
-                // whole list and skips volatile rows, so flipping the flag
-                // here also REMOVES the row schedule() already wrote.
+                // The server would hold the plaintext: fall back to the local
+                // queue and say so. This is also an encryption verdict from the
+                // SDK's own Room::encryption_state(), which overrides the
+                // RoomInfo cache used at schedule() time; marking the entry
+                // volatile makes persist() drop the row schedule() already
+                // wrote, so encrypted plaintext stays memory-only.
                 e.isVolatile = true;
                 becomeLocal(e);
                 e.error = tr("Kept in Lightning instead: the server cannot "
@@ -99,13 +91,13 @@ void ScheduledSendController::setClient(MatrixClient *client)
             e.op = 0;
             if (action == QLatin1String("cancel")) {
                 if (!ok) {
-                    // NEVER resubmit after a failed cancel: the server may
-                    // still hold (or already have sent) the original, and a
-                    // replacement would deliver the message twice.
+                    // Never resubmit after a failed cancel: the server may
+                    // still hold (or have sent) the original, and a replacement
+                    // would deliver it twice.
                     e.status = QStringLiteral("failed");
                     if (category == QLatin1String("not_found")) {
-                        // Nothing left on the server to cancel later: a
-                        // later Cancel is a plain local removal.
+                        // Nothing left on the server; a later Cancel is a local
+                        // removal.
                         e.delayId.clear();
                         e.error = tr("The server no longer holds this message; it "
                                      "may already have been sent. Check the room "
@@ -354,9 +346,9 @@ void ScheduledSendController::load()
             continue;
         if (e.mode == QLatin1String("server")) {
             if (e.delayId.isEmpty()) {
-                // Persisted before the server answered and never confirmed:
-                // it cannot be cancelled and may or may not exist. Reported,
-                // never re-submitted on a guess.
+                // Persisted before the server answered and never confirmed: it
+                // may or may not exist and cannot be cancelled. Reported, never
+                // resubmitted on a guess.
                 if (e.status != QLatin1String("failed")) {
                     e.status = QStringLiteral("failed");
                     e.error = tr("Lightning closed before the server confirmed "
@@ -365,14 +357,14 @@ void ScheduledSendController::load()
                     changed = true;
                 }
             } else if (e.sendAtMs + kServerRetireGraceMs < now) {
-                // The server sent it at the deadline; there is nothing left
-                // to hold or cancel.
+                // The server sent it at the deadline; nothing left to hold or
+                // cancel.
                 changed = true;
                 continue;
             }
         } else if (e.status == QLatin1String("sending")) {
-            // A row caught mid-dispatch by a crash is NOT re-fired: it is
-            // reported so the user decides, never sent twice on a guess.
+            // A row caught mid-dispatch by a crash is reported for the user to
+            // decide, never sent twice on a guess.
             e.status = QStringLiteral("failed");
             e.error = tr("Lightning closed while sending this. Check the room "
                          "before sending it again.");
@@ -491,8 +483,8 @@ void ScheduledSendController::cancel(const QString &id)
         return;
     if (e->mode == QLatin1String("server")) {
         if (e->op != 0 && e->delayId.isEmpty()) {
-            // The schedule itself is still in flight: cancel once the
-            // server has told us what to cancel.
+            // The schedule is still in flight: cancel once the server says what
+            // to cancel.
             e->cancelRequested = true;
             e->status = QStringLiteral("sending");
             Q_EMIT pendingChanged();
@@ -531,13 +523,11 @@ void ScheduledSendController::sendNow(const QString &id)
             Q_EMIT pendingChanged();
             return;
         }
-        // The server holds this message and we could not reach it. Falling
-        // through to the local queue here would call becomeLocal(), which
-        // CLEARS delayId — discarding the only handle to the server-held
-        // event while the homeserver still sends it at its deadline. That is
-        // the double delivery this class's own contract forbids, and it also
-        // makes the server copy uncancellable. Refuse, keep the delay id, and
-        // say so; the schedule is still live.
+        // The server holds this message and is unreachable. Falling through to
+        // the local queue would clear delayId, losing the only handle to an
+        // event the server will still send at its deadline (double delivery,
+        // and no way to cancel). Refuse and keep the delay id; the schedule is
+        // still live.
         e->error = tr("Lightning could not reach the server to send this now. "
                       "It is still scheduled.");
         Q_EMIT pendingChanged();
@@ -565,9 +555,9 @@ void ScheduledSendController::reschedule(const QString &id, qint64 sendAtMs)
         if (busy(*e))
             return;
         if (!e->delayId.isEmpty()) {
-            // MSC4140's restart only re-arms the ORIGINAL timeout: a new
-            // deadline is a cancel plus a fresh delayed event — and the
-            // fresh one is created only once the cancel has succeeded.
+            // MSC4140's restart only re-arms the original timeout: a new
+            // deadline is a cancel plus a fresh delayed event, created only
+            // once the cancel succeeds.
             e->nextSendAtMs = sendAtMs;
             e->resubmitAfterCancel = true;
             beginServerCancel(*e);
@@ -575,8 +565,8 @@ void ScheduledSendController::reschedule(const QString &id, qint64 sendAtMs)
             Q_EMIT pendingChanged();
             return;
         }
-        // A failed server entry holds nothing on the server: it becomes a
-        // local entry, which the timer can actually fire.
+        // A failed server entry holds nothing on the server; make it local so
+        // the timer can fire it.
         becomeLocal(*e);
     } else if (e->sendOp != 0) {
         return;
@@ -607,8 +597,7 @@ void ScheduledSendController::updateText(const QString &id, const QString &body,
         if (busy(*e))
             return;
         if (!e->delayId.isEmpty()) {
-            // The server holds the OLD content: replace the delayed event,
-            // cancel first.
+            // The server holds the old content: cancel, then replace.
             e->hasNextText = true;
             e->nextBody = trimmed;
             e->nextHtml = html;
@@ -653,8 +642,8 @@ void ScheduledSendController::armTimer()
 void ScheduledSendController::fireDue()
 {
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    // Server-held entries past their deadline were sent by the server;
-    // retire them whether or not we are connected.
+    // Server-held entries past their deadline were sent by the server; retire
+    // them even while disconnected.
     bool retired = false;
     for (int i = m_entries.size() - 1; i >= 0; --i) {
         const Entry &e = m_entries.at(i);
@@ -694,23 +683,23 @@ void ScheduledSendController::dispatchLocal(Entry &e)
         Q_EMIT pendingChanged();
         return;
     }
-    // Marked and persisted BEFORE the send: the one guard against a double
-    // dispatch across a crash or a reconnect.
+    // Marked and persisted before the send: the guard against a double dispatch
+    // across a crash or reconnect.
     e.status = QStringLiteral("sending");
     e.error.clear();
     persist();
     Q_EMIT pendingChanged();
     const QVariantMap spec = bodySpecFor(e);
-    // The ROOM-level send works for any room, open or not, and answers on
-    // roomSendFinished; the entry leaves only on the room's acceptance.
+    // The room-level send works for any room and answers on roomSendFinished;
+    // the entry leaves only once the room accepts it.
     const quint64 op = m_client->sendRoomMessage(e.roomId, e.body, spec, e.mentionIds,
                                                  e.replyToEventId, e.threadRootId);
     if (op != 0) {
         e.sendOp = op;
         return;
     }
-    // A backend without the room-level send (mock / HTTP): the historical
-    // timeline sends, which report nothing back.
+    // Backends without the room-level send (mock / HTTP) use the timeline
+    // sends, which report nothing back.
     if (!e.threadRootId.isEmpty())
         m_client->sendThreadReplyTo(e.roomId, e.threadRootId, e.replyToEventId,
                                     e.body, e.mentionIds, spec);

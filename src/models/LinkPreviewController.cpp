@@ -17,12 +17,10 @@ LinkPreviewController::LinkPreviewController(QObject *parent)
 
 QString LinkPreviewController::linkifiedBody(const QString &body) const
 {
-    // This is the timeline's RENDER path for a message with no formatted
-    // body, and the counterpart of MessageHtml::sanitize() for one that has
-    // it. Inline emoji are enlarged here for the same reason and by the same
-    // function, so the two paths cannot show the same emoji at two sizes.
-    // linkifiedMessageHtml() escapes everything it does not build itself, so
-    // what markEmoji() receives is already safe.
+    // Render path for a message without a formatted body, the counterpart of
+    // MessageHtml::sanitize(). Emoji are enlarged by the same function so both
+    // paths agree. linkifiedMessageHtml() escapes everything it does not build,
+    // so markEmoji() receives safe input.
     return MessageHtml::markEmoji(
         matrix::link_preview::linkifiedMessageHtml(body));
 }
@@ -86,11 +84,9 @@ QVariantMap LinkPreviewController::previewFor(const QString &itemKey,
     if (item.url.isEmpty())
         return { { QStringLiteral("state"), QStringLiteral("none") } };
 
-    // Dismissed rows resolve to "none" so the card's Loader deactivates and
-    // the row reclaims the space — see dismissPreview(). Checked BEFORE the
-    // dispatch below, so a dismissal also stops an automatic re-fetch when
-    // the row is rebuilt; and the url/host are still reported so the row can
-    // offer to bring the preview back without re-parsing the body.
+    // Dismissed rows resolve to "none" so the card deactivates. Checked before
+    // dispatch so a rebuilt row does not re-fetch; url/host are still reported
+    // so the row can offer to restore the preview.
     if (m_dismissed.contains(itemKey)) {
         return {
             { QStringLiteral("state"), QStringLiteral("none") },
@@ -138,12 +134,10 @@ QVariantMap LinkPreviewController::previewForEvent(const QString &roomId,
         && (existing->url != canonicalUrl || existing->encrypted != roomEncrypted)) {
         m_urlItems[existing->url].removeAll(key);
         m_items.erase(existing);
-        // The row now points somewhere else (an edit changed the link, or the
-        // room's encryption flag moved). Consent is already dropped with the
-        // entry, and a dismissal has to go the same way for the same reason:
-        // the reader dismissed a preview OF THE OLD URL, and that says nothing
-        // about the new one. Silent, because previewFor() is about to return
-        // the fresh state to this very caller.
+        // The row now points elsewhere (edited link or changed encryption
+        // flag). Consent and dismissal both applied to the old URL, so drop
+        // them. Silent, since previewFor() is about to return the fresh state
+        // to this caller.
         forgetDismissal(key);
     }
     return previewFor(key, body, roomEncrypted);
@@ -154,8 +148,8 @@ void LinkPreviewController::requestPreview(const QString &itemKey)
     auto it = m_items.find(itemKey);
     if (it == m_items.end() || it->url.isEmpty() || !supported())
         return;
-    // Explicit user gesture: this is the encrypted-room consent path. The
-    // linked website is contacted only from here on.
+    // Explicit user gesture (the encrypted-room consent path); the site is
+    // contacted only from here on.
     it->consented = true;
     if (!m_urlItems[it->url].contains(itemKey))
         m_urlItems[it->url].append(itemKey);
@@ -199,9 +193,8 @@ void LinkPreviewController::dismissPreview(const QString &itemKey)
         return;
     m_dismissed.insert(itemKey);
     m_dismissedOrder.append(itemKey);
-    // At the cap the OLDEST dismissal is released, never the newest refused
-    // (MediaVisibilityStore's rule, and for its reason). The released row is
-    // announced on its own key so its card comes back live.
+    // At the cap the oldest dismissal is released; its card is announced so it
+    // comes back live.
     while (m_dismissedOrder.size() > kMaxDismissed) {
         const QString evicted = m_dismissedOrder.takeFirst();
         if (m_dismissed.remove(evicted))
@@ -221,9 +214,8 @@ void LinkPreviewController::restorePreview(const QString &itemKey)
     if (itemKey.isEmpty() || !m_dismissed.remove(itemKey))
         return;
     m_dismissedOrder.removeAll(itemKey);
-    // Deliberately does NOT set consented: undoing a dismissal must not also
-    // be an agreement to contact the site. previewFor() re-applies the
-    // ordinary policy, so an unconsented row returns to the consent gate.
+    // Does not set consented: undoing a dismissal is not consent to contact the
+    // site.
     Q_EMIT previewChanged(itemKey);
 }
 
@@ -274,8 +266,7 @@ void LinkPreviewController::dispatch(const QString &url)
 void LinkPreviewController::evictIfNeeded()
 {
     while (m_urls.size() > m_urlCacheLimit) {
-        // Oldest entry that is not in flight; in-flight entries must stay
-        // resolvable for their completion.
+        // Oldest entry not in flight; in-flight entries must stay resolvable.
         int victimIndex = -1;
         for (int i = 0; i < m_urlOrder.size(); ++i) {
             if (m_urls.value(m_urlOrder.at(i)).state
@@ -301,8 +292,8 @@ QVariantMap LinkPreviewController::stateFor(const ItemEntry &item) const
 
     const auto urlIt = m_urls.constFind(item.url);
     if (urlIt == m_urls.constEnd()) {
-        // Not requested: either awaiting explicit consent or auto-loading
-        // is disabled for this room class.
+        // Not requested: awaiting consent, or auto-loading is off for this room
+        // class.
         out.insert(QStringLiteral("state"), QStringLiteral("requires_action"));
         return out;
     }
@@ -365,11 +356,9 @@ void LinkPreviewController::onPreviewFinished(quint64 opId, bool ok,
         urlIt->state = QStringLiteral("failed");
         urlIt->category = category;
     }
-    // Sanitized diagnostics only: hostname, coarse HTTP status, redirect
-    // count, and failure category — never the URL path/query, response
-    // body, or headers. httpStatus/redirectCount are 0 on success or when
-    // the failure never reached an HTTP response (DNS, timeout, blocked
-    // destination).
+    // Sanitized diagnostics: hostname, HTTP status, redirect count and failure
+    // category; never the URL path/query, body or headers. Status and redirect
+    // count are 0 on success or when no HTTP response was reached.
     qCInfo(lcPreview) << "url preview completed host="
                       << matrix::link_preview::sanitizedHost(url)
                       << "result=" << (ok ? QStringLiteral("loaded") : category)
@@ -388,16 +377,16 @@ void LinkPreviewController::clear()
     m_urlOrder.clear();
     m_inflight.clear();
     m_urlItems.clear();
-    // What one account's reader dismissed is not a statement about the next
-    // account's rooms; this is reached from onLoggedOut() and setClient().
+    // Dismissals do not carry over to another account (reached from
+    // onLoggedOut() and setClient()).
     m_dismissed.clear();
     m_dismissedOrder.clear();
 }
 
 void LinkPreviewController::onLoggedOut()
 {
-    // Account partition: no URL, preview text, or pending completion may
-    // survive into the next session. Nothing was ever persisted to disk.
+    // Account partition: no URL, preview text or pending completion survives
+    // into the next session.
     clear();
     qCInfo(lcPreview) << "url previews cleared on sign-out";
 }

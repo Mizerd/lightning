@@ -38,9 +38,8 @@ QString oneLineSummary(const TimelineEvent &event)
         return QStringLiteral("Message removed");
     if (event.undecryptable)
         return QStringLiteral("Unable to decrypt");
-    // An MSC4274 gallery: the sender's caption, else what it holds. Its row
-    // media fields name only the primary picture, and "before.png" is not a
-    // summary of two screenshots.
+    // An MSC4274 gallery: the sender's caption, else what it holds. The row's
+    // media fields name only the primary item.
     if (event.galleryItems.size() > 1) {
         const QString caption = normalizePreviewText(event.body);
         if (!caption.isEmpty())
@@ -78,9 +77,8 @@ QString oneLineSummary(const TimelineEvent &event)
     case TimelineEvent::Sticker:
         return QStringLiteral("Sticker");
     case TimelineEvent::Poll: {
-        // Never the MSC3381 multi-line fallback (question + one line per
-        // answer). Prefer the typed question; degrade to the fallback's
-        // first line.
+        // Never the MSC3381 multi-line fallback; prefer the typed question,
+        // else the fallback's first line.
         QString question = event.pollQuestion;
         if (question.isEmpty())
             question = event.body.section(QLatin1Char('\n'), 0, 0);

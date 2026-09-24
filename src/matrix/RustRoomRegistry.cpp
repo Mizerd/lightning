@@ -34,22 +34,18 @@ RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous)
     room.topic = obj.value(QStringLiteral("topic")).toString(room.topic);
     room.canonicalAlias = obj.value(QStringLiteral("canonical_alias")).toString(room.canonicalAlias);
     room.avatarUrl = obj.value(QStringLiteral("avatar_url")).toString(room.avatarUrl);
-    // A present-but-empty preview must not clobber one we already learned
-    // from the open timeline or a live event: Rust legitimately sends ""
-    // whenever the SDK has no latest event for the room yet, and room-list
-    // set/insert diffs arrive on every unread/order change — pre-0.7 this
-    // raced previews back to empty until the room was reopened.
+    // A present-but-empty preview must not clobber one learned from the open
+    // timeline or a live event: Rust sends "" whenever the SDK has no latest
+    // event yet, and room-list diffs arrive on every unread/order change.
     {
-        // The Rust latest-event path sends plain text (typed summaries are
-        // built Rust-side); normalization still guards legacy multi-line
+        // Rust sends plain text here; normalization still guards multi-line
         // bodies and mention markdown.
         const QString incomingPreview = matrix::preview::normalizePreviewText(
             obj.value(QStringLiteral("last_message_preview")).toString());
         if (!incomingPreview.isEmpty())
             room.lastMessagePreview = incomingPreview;
     }
-    // RoomInfo::raiseActivity is monotonic; see its comment. Every writer of
-    // the room list's sort key goes through it.
+    // raiseActivity is monotonic and the only writer of the sort key.
     room.raiseActivity(timestampFromMs(static_cast<qint64>(
         obj.value(QStringLiteral("last_activity_ms")).toDouble(0))));
     room.unreadCount = obj.value(QStringLiteral("unread_count")).toInt(room.unreadCount);
@@ -58,15 +54,13 @@ RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous)
     room.hasUnreadMessages = obj.value(QStringLiteral("has_unread_messages"))
                                  .toBool(room.hasUnreadMessages || room.unreadCount > 0);
     room.encrypted = obj.value(QStringLiteral("encrypted")).toBool(room.encrypted);
-    // Review H1: EncryptionState::Unknown must never read as "not
-    // encrypted" — absent field defaults to NOT known (fail closed).
+    // EncryptionState::Unknown must never read as "not encrypted": an absent
+    // field means not known (fail closed).
     room.encryptionKnown =
         obj.value(QStringLiteral("encryption_known")).toBool(false);
     room.isSpace = obj.value(QStringLiteral("is_space")).toBool(room.isSpace);
-    // Defaults to FALSE, not to the previous value, exactly like is_direct
-    // below: un-favouriting a room must actually clear the flag. Defaulting
-    // to the old value would latch a favourite on for the rest of the
-    // session the moment one payload arrived without the field.
+    // Defaults to false, not the previous value (as is_direct does), so
+    // un-favouriting clears the flag instead of latching it.
     room.isFavourite = obj.value(QStringLiteral("is_favourite")).toBool(false);
     room.isDirect = obj.value(QStringLiteral("is_direct")).toBool(false);
     room.directUserId = obj.value(QStringLiteral("direct_user_id")).toString();
@@ -77,13 +71,9 @@ RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous)
     room.prevBatchToken = obj.value(QStringLiteral("prev_batch")).toString(room.prevBatchToken);
     room.inviterUserId = obj.value(QStringLiteral("inviter_user_id")).toString();
     room.inviterDisplayName = obj.value(QStringLiteral("inviter_display_name")).toString();
-    // v0.7.x room upgrades. The defaulting form is deliberate and does the
-    // right thing in both directions: an ABSENT field (a payload built by
-    // an older path, or a backend with no tombstone support) keeps what we
-    // already knew, while a PRESENT-but-empty one clears it, because Rust
-    // computes these from SDK state on every emission and empty there means
-    // the room genuinely has no successor. Both are room ids parsed by
-    // ruma; neither is ever free text.
+    // Room upgrades. An absent field keeps what we knew; a present-but-empty
+    // one clears it, since Rust computes these from SDK state on every
+    // emission. Both are ruma-parsed room ids, never free text.
     room.successorRoomId =
         obj.value(QStringLiteral("successor_room_id")).toString(room.successorRoomId);
     room.predecessorRoomId =
@@ -111,11 +101,8 @@ void applyIndexReset(Registry registry, const QJsonArray &rooms)
         nextRooms.insert(id, roomInfoFromJson(obj, registry.rooms.value(id)));
         nextOrder.append(id);
     }
-    // Spaces are NOT in the SDK's room list, so a reset of that list does not
-    // mention them — and replacing the whole map wholesale therefore dropped
-    // the entire Space hierarchy until the next spaces event happened to
-    // arrive. Carried over instead: they are keyed separately in `rooms` and
-    // deliberately absent from `order` (see the header).
+    // Spaces are not in the SDK's room list, so its reset does not mention
+    // them; carry them over (they live in `rooms` only, never in `order`).
     for (auto it = registry.rooms.cbegin(); it != registry.rooms.cend(); ++it) {
         if (it->isSpace && !seen.contains(it.key()))
             nextRooms.insert(it.key(), *it);
@@ -136,9 +123,7 @@ void applySnapshot(Registry registry, const QJsonArray &rooms)
         registry.rooms.insert(id, roomInfoFromJson(obj, registry.rooms.value(id)));
     }
 
-    // O(1) membership rather than QStringList::contains() per room: with a
-    // thousand rooms the linear form is a million string comparisons on a
-    // path a dozen ordinary user actions reach.
+    // O(1) membership instead of QStringList::contains() per room.
     QSet<QString> indexed;
     indexed.reserve(registry.order.size());
     for (const auto &id : registry.order)
@@ -159,10 +144,9 @@ bool applyRoomListDiff(Registry registry, const QJsonObject &event)
 {
     const QString type = event.value(QStringLiteral("type")).toString();
 
-    // Insert at `index`. The duplicate check is against the INDEX SPACE, not
-    // against the room map: the map legitimately holds rooms the index space
-    // does not (every Space, and any room a snapshot learned about before its
-    // diff arrived), and rejecting on those refused a perfectly good diff.
+    // Duplicate check against the index space, not the room map: the map
+    // legitimately holds rooms the index space does not (Spaces, rooms a
+    // snapshot learned about first).
     auto addRoom = [&registry](int index, const QJsonObject &object) {
         const QString id = roomIdOf(object);
         if (id.isEmpty() || index < 0 || index > registry.order.size())
@@ -174,10 +158,9 @@ bool applyRoomListDiff(Registry registry, const QJsonObject &event)
         return true;
     };
 
-    // The room the producer says occupies `index`, for the ops that carry no
-    // room of their own. Empty means the producer could not confirm it, which
-    // is itself a mismatch: a positional delete that nobody can name is
-    // exactly the shape that deleted the wrong room.
+    // The room the producer says occupies `index`, for ops that carry no room.
+    // Empty is itself a mismatch: a positional delete nobody can name is how
+    // the wrong room gets deleted.
     auto expectedIdMatches = [&registry, &event](int index) {
         const QString expected =
             event.value(QStringLiteral("expected_id")).toString();
@@ -213,8 +196,8 @@ bool applyRoomListDiff(Registry registry, const QJsonObject &event)
         if (index < 0 || index >= registry.order.size() || id.isEmpty())
             return false;
         const QString oldId = registry.order.at(index);
-        // A Set that renames a slot to an id the index space already holds
-        // elsewhere would put the same room in two positions.
+        // Renaming a slot to an id the index space holds elsewhere would put
+        // one room in two positions.
         if (id != oldId && registry.order.contains(id))
             return false;
         if (id != oldId)
@@ -243,8 +226,7 @@ bool applyRoomListDiff(Registry registry, const QJsonObject &event)
         return true;
     }
     if (type == QLatin1String("room_list_clear")) {
-        // Only the index space is cleared. Spaces live in the map alone and
-        // this diff says nothing about them.
+        // Only the index space is cleared; Spaces live in the map alone.
         for (const auto &id : registry.order)
             registry.rooms.remove(id);
         registry.order.clear();
@@ -268,106 +250,56 @@ QStringList applyRoomActivity(Registry registry, const QJsonArray &rooms)
         const QString id = roomIdOf(obj);
         if (id.isEmpty())
             continue;
-        // ONLY A ROOM THE REGISTRY ALREADY KNOWS. This payload carries a
-        // timestamp and nothing else, so a row created from it would have no
-        // name, no membership and no avatar — and `order` is the SDK's index
-        // space, which nothing but a room-list diff may grow.
-        //
-        // AND THE STAMP IS THEN LOST, which an earlier version of this comment
-        // glossed by saying the room "gets its stamp from its own first
-        // payload". That payload's stamp is `room_ordering_timestamp_ms` —
-        // precisely the value this round proved can be 0 or stale, which is
-        // the whole reason the harvest exists. The Rust side holds a
-        // high-water mark, so nothing re-emits: a room that enters the
-        // registry AFTER its stamp was harvested keeps the stale value until
-        // somebody speaks in it again.
-        //
-        // Accepted rather than fixed, and the exposure is narrow: on the first
-        // response the SDK has just computed `latest_event_value` from that
-        // same response, so an ordinary cold start is fine. What is exposed is
-        // a room scrolled into the sliding window later. Closing it means
-        // `room_payload` taking the max of its own stamp and the harvested
-        // mark, which couples the payload builder to the sync loop's state —
-        // worth doing deliberately, not as a footnote to this one.
+        // Only rooms the registry already knows: this payload carries only a
+        // timestamp, and `order` may only grow through room-list diffs. Known
+        // gap: the harvested stamp is then lost, and Rust's high-water mark
+        // means it is not re-emitted, so a room entering the registry later
+        // keeps its possibly stale room_ordering_timestamp_ms until new
+        // activity. Cold starts are unaffected. Fixing it means room_payload
+        // taking the max with the harvested mark.
         auto it = registry.rooms.find(id);
         if (it == registry.rooms.end())
             continue;
-        // TWO PRODUCERS WRITE THIS FIELD AND THEY USE OPPOSITE MECHANISMS.
-        // The C++ live path is a DENY-list over a `TimelineEvent` enum
-        // (`!isVirtual && != StateChange && != CallEvent`); the Rust harvest
-        // is an ALLOW-list of wire type names. Both are monotonic raises, so
-        // the effective policy is their UNION and the stricter side buys
-        // nothing wherever the looser one already raises — which is why this
-        // is benign today and why the new producer cannot make ordering worse.
-        //
-        // It is written down because it is FRAGILE, not because it is broken:
-        // that enum has already moved once (calls left `StateChange` for
-        // `CallEvent`, as its own comment records), the two rules live in two
-        // files and two languages, and only the Rust half has a test. A new
-        // row kind would start raising on one side and not the other, in
-        // silence.
+        // Two producers write this field with opposite mechanisms: the C++ live
+        // path is a deny-list over TimelineEvent types (!isVirtual, !=
+        // StateChange, != CallEvent), the Rust harvest an allow-list of wire
+        // type names. Both only raise, so the effective policy is their union.
+        // Fragile: a new row kind can start raising on one side only, and only
+        // the Rust half is tested.
         const auto ms = static_cast<qint64>(
             obj.value(QStringLiteral("last_activity_ms")).toDouble(0));
-        // raiseActivity is the one writer of the sort key and it is monotonic
-        // (see RoomInfo.h): an older stamp, an absent one, or a replay of the
-        // same one all answer false and move nothing.
+        // Monotonic (see RoomInfo.h): older, absent or repeated stamps move
+        // nothing.
         if (it->raiseActivity(timestampFromMs(ms)))
             moved.append(id);
     }
     return moved;
 }
 
-// A SPACE THE USER HAS LEFT IS ERASED, NOT BLANKED.
+// A Space the user has left is erased, not blanked. `space_list_reset` is a
+// complete list (client.joined_space_rooms(), see enqueue_spaces in
+// rust/src/lib.rs), so absence here means no longer joined. A blanked entry
+// kept isSpace and Joined, which SpaceManager::rebuild still lists as a tile.
 //
-// `space_list_reset` is a COMPLETE list — Rust builds it from
-// client.joined_space_rooms() (rust/src/lib.rs, enqueue_spaces) — so a Space
-// the map holds and the payload does not is one this account is no longer
-// joined to. Until 2026-09-10 this only cleared the entry's child and parent
-// lists, and every other field the rail reads is written unconditionally by
-// the loop above it, so the entry kept `isSpace = true` and
-// `membership = Joined`. SpaceManager::rebuild lists a tile for exactly that
-// pair, so a Space the user had left stayed on the rail until the next
-// sign-in.
-//
-// It does NOT weaken the Space exemptions in applyIndexReset() and
-// applySnapshot() (pinned by spacesSurviveBothAResetAndASnapshot): those
-// exist because the ROOM LIST producer never mentions Spaces, so absence
-// from its reset or snapshot is not evidence and must not delete one. This
-// is the Space producer's own payload; absence here is the fact.
-// AN EMPTY `present` IS EVIDENCE, NOT NOISE — do not add a guard for it.
-// Review proposed skipping retirement while `present` is empty and the map
-// still holds Joined Spaces, against a transient short list. Refused, with a
-// counter-case: a user who leaves their ONLY Space produces a legitimately
-// empty payload, and that guard would skip exactly the retirement this
-// function exists to perform. enqueue_spaces() does emit an empty array
-// (rust/src/lib.rs), so the shape is reachable — but the transient it would
-// protect against has never been observed, and an entry erased by one is
-// re-created by the next space list or by room_snapshot's walk of
-// client.rooms(). Blanking was cheaper to be wrong about than erasing; being
-// wrong in the other direction is what left the tile on the rail.
+// This does not weaken the Space exemptions in applyIndexReset() and
+// applySnapshot(): the room-list producer never mentions Spaces, so absence
+// there is not evidence. Here it is.
+// An empty `present` is evidence too: leaving one's only Space produces a
+// legitimately empty payload, so do not guard against it. An entry erased by
+// a transient short list is re-created by the next space list or snapshot.
 int retireAbsentSpaces(Registry registry, const QSet<QString> &present)
 {
-    // THE INDEX-SPACE GUARD, and it is the whole reason this is not a plain
-    // erase. `order` is addressed BY INDEX by every room-list diff, so
-    // nothing may leave `rooms` while `order` still names it — removing an
-    // indexed entry from the map alone leaves a position pointing at nothing
-    // and is the shape of the wrong-room deletion this project has already
-    // shipped once. Spaces are deliberately never appended to `order`, so
-    // the guard is NORMALLY VACUOUS; it is here so that if a producer ever
-    // does index one, its retirement stays with the diffs that own it
-    // (room_list_remove / pop / truncate), and such an entry is blanked
-    // exactly as the old code blanked every one of them.
+    // Index-space guard: `order` is addressed by index by every room-list diff,
+    // so nothing may leave `rooms` while `order` names it. Spaces are never
+    // appended to `order`, so this is normally vacuous; an indexed entry is
+    // only blanked and left to the diffs that own it.
     QSet<QString> indexed(registry.order.cbegin(), registry.order.cend());
     int erased = 0;
     for (auto it = registry.rooms.begin(); it != registry.rooms.end();) {
-        // JOINED ONLY. `present` is built from the Rust side's
-        // `joined_space_rooms()`, so an INVITED Space is absent from it by
-        // construction — erasing on absence alone would create the invite row
-        // from the room payload and destroy it again on the very next space
-        // list, so a Space invitation could never be seen or accepted. It is
-        // not in `m_roomOrder` either, so the index guard below is vacuous for
-        // it. The left-Space entry this function exists for is still recorded
-        // as Joined, so the fix costs the feature nothing. Raised in review.
+        // Joined only: `present` comes from joined_space_rooms(), so an invited
+        // Space is always absent, and erasing it would make invitations
+        // impossible to see or accept. Left Spaces are still recorded as
+        // Joined.
         if (it->isSpace && it->membership == RoomInfo::Joined
             && !present.contains(it.key())) {
             if (!indexed.contains(it.key())) {

@@ -24,21 +24,14 @@ struct RoomInfo {
     QString topic;
     QString avatarUrl;
     QString lastMessagePreview;
-    // The room list's sort key. Write it ONLY through raiseActivity().
+    // The room list's sort key. Write it only through raiseActivity().
     QDateTime lastActivity;
 
-    // Moves lastActivity forward, never backwards. Returns true when it
-    // actually moved.
-    //
-    // Four different places used to assign this field, and a room jumped
-    // whenever any two of them disagreed — the repeatedly reported "clicking
-    // an older room moves it upwards in the room order, then it drops back
-    // down to where it was". Events only ever get newer, so a DECREASE is
-    // always an artefact: a summary that has not caught up, or a room whose
-    // timeline was loaded (bringing state events into the SDK's "latest
-    // event of any kind") and then unloaded again. The one genuine decrease
-    // — redacting the newest message in a room — costs nothing but the room
-    // keeping its place.
+    // Moves lastActivity forward, never backwards; returns true when it moved.
+    // Events only get newer, so a decrease is an artefact (a lagging summary,
+    // or state events from a timeline that was loaded and unloaded) and would
+    // make the room jump. The one genuine decrease, redacting the newest
+    // message, just leaves the room in place.
     bool raiseActivity(const QDateTime &when)
     {
         if (!when.isValid())
@@ -53,27 +46,21 @@ struct RoomInfo {
     bool markedUnread = false;
     bool hasUnreadMessages = false;
     bool encrypted = false;
-    // v0.7.x: whether `encrypted` is a KNOWN fact rather than a not-yet-
-    // synced default. The Rust bridge sets it from the SDK's tri-state
-    // EncryptionState; Mock/HTTP construct rooms with definitive state, so
-    // the default is true and the Rust payload overrides it explicitly.
-    // Anything security-relevant (draft persistence, server-search offers)
-    // must fail closed while this is false.
+    // Whether `encrypted` is known rather than a not-yet-synced default. The
+    // Rust bridge sets it from the SDK's tri-state EncryptionState; Mock/HTTP
+    // rooms are definitive, hence the default. Security-relevant decisions
+    // (draft persistence, server-search offers) must fail closed while false.
     bool encryptionKnown = true;
     bool isSpace = false;
-    // Element-parity favourites, backed by the Matrix `m.favourite` room
-    // tag. Lightning keeps NO list of its own — a room favourited in
-    // Element is favourite here and vice versa. False on a backend that
-    // does not carry tags, which is honest: absent, not "not favourite by
-    // decision".
+    // Favourites backed by the Matrix `m.favourite` room tag; Lightning keeps
+    // no list of its own. False on backends without tags.
     bool isFavourite = false;
     bool isDirect = false;
     QString directUserId;
-    // Every target user this room's m.direct account-data mapping lists —
-    // authoritative for "is this an unambiguous 1:1 DM". A group DM (or a
-    // stale/ambiguous m.direct mapping) lists more than one and must not
-    // get an arbitrary member's avatar. Populated alongside directUserId;
-    // empty on backends that only ever provide the singular field.
+    // Every target user this room's m.direct mapping lists; authoritative for
+    // "is this an unambiguous 1:1 DM". A group DM or ambiguous mapping lists
+    // more than one and must not take an arbitrary member's avatar. Empty on
+    // backends that only provide directUserId.
     QStringList directUserIds;
     QString canonicalAlias;
     QString inviterUserId;
@@ -89,43 +76,26 @@ struct RoomInfo {
     QString prevBatchToken;
     bool paginationExhausted = false;
 
-    // v0.3: per-room member cache (display name / avatar). Matrix display
-    // names can be room-specific, so this belongs to the room, not to a
-    // global address book.
+    // Per-room member cache: display names can be room-specific.
     QHash<QString, MemberInfo> members;
 
-    // v0.3: users currently typing, sourced from the ephemeral m.typing
-    // event in /sync.
+    // Users currently typing, from the ephemeral m.typing event.
     QStringList typingUserIds;
 
-    // v0.4.1: the DIRECT children of this room as a Space — rooms AND
-    // subspaces — in the order the Space's own `m.space.child` state declares
-    // (order key first, room id as the tiebreak). Only populated when
-    // isSpace == true. Sourced from m.space.child state events on every
-    // backend: read from state (HTTP), hardcoded (Mock), or read from the
-    // SDK's state store (Rust).
-    //
-    // DIRECT, not transitive, and that distinction is load-bearing: the
-    // Rust backend used to fill this from its payload's `descendants` list
-    // (the transitive closure), which is why anything reading it as the
-    // direct list — the rail's subspace nesting, the Channels layout —
-    // listed a subspace's rooms twice and showed no structure at all.
-    // SpaceManager::rebuild() walks these to derive the transitive
-    // membership it needs; nothing else should assume transitivity.
-    //
-    // Rooms may appear in multiple Spaces (Matrix allows it) — SpaceManager
-    // assigns one deterministic PRIMARY parent per Space for display.
+    // The direct children of this Space (rooms and subspaces) in the Space's
+    // own m.space.child order (order key, then room id). Only set when isSpace.
+    // Direct, not transitive: the rail's nesting and the Channels layout depend
+    // on it. SpaceManager::rebuild() derives transitive membership; nothing
+    // else should assume it. A room may be in several Spaces; SpaceManager
+    // picks one primary parent for display.
     QStringList childRoomIds;
     QStringList parentSpaceIds;
 
-    // v0.7.x room upgrades. Both are ROOM IDS, never free text: the Rust
-    // bridge fills them from the SDK's typed successor_room() /
-    // predecessor_room(), which parse through ruma. Empty means "this room
-    // has not been upgraded" / "this room replaces nothing".
-    //
-    // The tombstone's own body deliberately does not exist on this struct.
-    // It is attacker-chosen text destined for a banner the user is invited
-    // to click, so it never crosses the bridge at all.
+    // Room upgrades. Both are room ids from the SDK's typed successor_room() /
+    // predecessor_room(), never free text; empty means not upgraded / replaces
+    // nothing. The tombstone body is deliberately absent: it is attacker-chosen
+    // text for a banner the user is invited to click, so it never crosses the
+    // bridge.
     QString successorRoomId;
     QString predecessorRoomId;
 };
@@ -136,10 +106,8 @@ inline bool operator==(const MemberInfo &a, const MemberInfo &b)
         && a.avatarMxcUrl == b.avatarMxcUrl;
 }
 
-// Full-field equality so RoomListModel::replaceRoom can skip the
-// dataChanged storm for a room nothing actually changed on. Cheap in
-// practice: unchanged copies flow from the same mirror objects, so the
-// implicitly-shared members short-circuit on d-pointer identity.
+// Full-field equality so RoomListModel::replaceRoom can skip dataChanged for
+// an unchanged room. Cheap: unchanged copies share d-pointers.
 inline bool operator==(const RoomInfo &a, const RoomInfo &b)
 {
     return a.id == b.id && a.name == b.name && a.topic == b.topic
@@ -153,12 +121,9 @@ inline bool operator==(const RoomInfo &a, const RoomInfo &b)
         && a.encrypted == b.encrypted
         && a.encryptionKnown == b.encryptionKnown
         && a.isSpace == b.isSpace
-        // Omitting this had exactly the failure the tombstone note below
-        // describes: a room whose m.favourite tag just changed compared
-        // equal to its pre-tag self, replaceRoom skipped the dataChanged,
-        // and the row MOVED into the Favourites section while still
-        // reporting its old category — so the section header and the rows
-        // under it disagreed until something else about the room changed.
+        // Without this a changed m.favourite tag compares equal, replaceRoom
+        // skips dataChanged, and the row moves section while reporting its old
+        // category.
         && a.isFavourite == b.isFavourite
         && a.isDirect == b.isDirect && a.directUserId == b.directUserId
         && a.directUserIds == b.directUserIds
@@ -173,10 +138,8 @@ inline bool operator==(const RoomInfo &a, const RoomInfo &b)
         && a.members == b.members && a.typingUserIds == b.typingUserIds
         && a.childRoomIds == b.childRoomIds
         && a.parentSpaceIds == b.parentSpaceIds
-        // Omitting these would mean a room that JUST got tombstoned
-        // compares equal to its pre-tombstone self, replaceRoom skips the
-        // dataChanged, and the upgrade banner does not appear until
-        // something unrelated about the room happens to change.
+        // Without these a newly tombstoned room compares equal and the upgrade
+        // banner does not appear until something else changes.
         && a.successorRoomId == b.successorRoomId
         && a.predecessorRoomId == b.predecessorRoomId;
 }
@@ -186,14 +149,10 @@ inline bool operator!=(const RoomInfo &a, const RoomInfo &b)
     return !(a == b);
 }
 
-// The ONE identity key a room's fallback-avatar colour hashes from — the
-// same policy as effectiveAvatarUrl's mxc choice: an unambiguous 1:1 DM is
-// coloured as the PERSON (their MXID, matching every user-keyed surface —
-// message rows, receipt chips, member list), everything else as the room.
-// A group DM or ambiguous m.direct mapping (more than one target) must not
-// adopt an arbitrary member's identity. Live report 2026-08-14: the same
-// person rendered purple in one surface and green in another because DM
-// rows hashed the room id while user rows hashed the MXID.
+// The identity key a room's fallback-avatar colour hashes from, matching
+// effectiveAvatarUrl: an unambiguous 1:1 DM is coloured as the person (their
+// MXID, like every user-keyed surface), everything else as the room. A group
+// DM or ambiguous m.direct mapping must not adopt a member's identity.
 inline QString identityColorKey(const RoomInfo &r)
 {
     if (r.isDirect && r.directUserIds.size() <= 1 && !r.directUserId.isEmpty())

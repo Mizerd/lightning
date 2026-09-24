@@ -9,35 +9,12 @@
 #include <utility>
 
 namespace {
-// The release schedule is a TIME BUDGET, not a row count.
-//
-// A fixed count cannot work, because the cost of a row is not fixed: a one
-// line message and a quoted reply with a media card and a reaction strip
-// differ by an order of magnitude. Releasing three rows per 8 ms tick was
-// still handing the view more work than the interval allowed, so ticks
-// overran, the next fired immediately, and the event loop never got a turn —
-// which is the timeline "locking" rather than simply refusing to scroll past
-// the end of what has loaded.
-//
-// Instead: release rows one at a time until the budget is spent, then yield —
-// and, critically, size the GAP from what the work actually cost.
-//
-// A fixed interval cannot bound the duty cycle. At least one row has to be
-// built per tick or the queue never drains, so if a single row costs more than
-// the interval the loop is saturated no matter how small the budget is. That
-// is the state the user reported as input being queued and applied late: the
-// timeline was not refusing to scroll, nothing was running.
-//
-// So after each tick the next one is scheduled at kIdleFactor times the time
-// just spent. Whatever a row costs, construction gets at most 1/kIdleFactor of
-// the wall clock and the rest belongs to input and painting. Cheap history
-// drains almost immediately; expensive history takes longer but never locks
-// the UI.
-//
-// The visible consequence is the intended one: the far edge of loaded history
-// advances steadily instead of arriving in a lump, the reader can always move
-// away from it, and scrolling INTO it stops at the edge — a boundary, not a
-// freeze.
+// Row release is paced by a time budget, not a row count: row costs vary by an
+// order of magnitude, and a fixed count per tick can overrun and starve the
+// event loop. Release rows until the budget is spent, then schedule the next
+// tick at kIdleFactor times the time just spent, so construction takes at most
+// 1/kIdleFactor of wall clock whatever a row costs. Loaded history grows
+// steadily and scrolling into it stops at the edge instead of freezing.
 constexpr int kRevealBudgetMs = 3;
 constexpr int kRevealMinIntervalMs = 16;
 constexpr int kRevealMaxIntervalMs = 250;
@@ -58,10 +35,8 @@ int ReverseListProxyModel::sourceRowTotal() const
     return sourceModel() ? sourceModel()->rowCount() : 0;
 }
 
-// How many rows pacing is allowed to expose. Without the cap the reveal timer
-// would immediately undo a window the pane just set — pacing is a delivery
-// schedule for rows the reader has not reached, and the window is a statement
-// about which rows those are.
+// How many rows pacing may expose. The cap keeps the reveal timer from undoing
+// a window the pane just set.
 bool ReverseListProxyModel::revealIdle() const
 {
     return m_revealedRows >= revealTarget();
@@ -73,32 +48,15 @@ int ReverseListProxyModel::revealTarget() const
     return m_windowCap > 0 ? std::min(m_windowCap, available) : available;
 }
 
-// THE single writer of m_windowSkip, and the single emitter of
-// windowChanged().
+// The single writer of m_windowSkip and the single emitter of
+// windowChanged(). QML's `rowWindowSkip` binding depends only on this notify,
+// so a write that does not emit leaves a stale skip (and atBottomEdge() false
+// at the true live edge). Funnelling every write through here keeps that safe.
 //
-// Why a funnel rather than an emit beside each assignment: the skip was being
-// written in eight places and five of them never notified at all — the
-// modelReset lambda, setSourceModel, a live insert landing newer than the
-// window, a removal newer than the window, and the rowsRemoved clamp. QML's
-// `rowWindowSkip` is a NOTIFY-gated binding whose only other dependency is a
-// constant, so after a room switch or a jump-to-live trim it kept the previous
-// room's skip indefinitely, and atBottomEdge() — which refuses while the skip
-// is non-zero, correctly, because a windowed view's physical bottom is not the
-// newest message — then reported false at the TRUE live edge. The jump pill
-// stayed up and follow-latest never re-engaged. clearWindow() could not repair
-// it either: it guards its work on `m_windowSkip != 0`, which is already false
-// in that state. A ninth write site will exist one day; funnelling is what
-// makes that safe.
-//
-// Emitting only on a real change matters as much as emitting at all: this runs
-// from inside source-signal handlers, and a notify on every removal that left
-// the skip alone would re-run the pane's binding for nothing.
-//
-// Call sites finish updating m_revealedRows BEFORE calling this where both
-// move together, so rowCount() is already coherent when the notify runs. The
-// two reset paths deliberately notify from inside their
-// beginResetModel/endResetModel bracket: the skip has to be correct before
-// endResetModel() or the view rebuilds against the outgoing room's window.
+// Emits only on a real change, since this runs inside source-signal handlers.
+// Callers update m_revealedRows first so rowCount() is coherent when the notify
+// runs. The reset paths notify inside their begin/endResetModel bracket so the
+// view never rebuilds against the outgoing room's window.
 void ReverseListProxyModel::setWindowSkip(int skip)
 {
     if (m_windowSkip == skip)
@@ -119,9 +77,8 @@ void ReverseListProxyModel::scheduleReveal()
 
 void ReverseListProxyModel::releaseAll()
 {
-    // A jump needs to address ANY row, so this lifts the cap as well as the
-    // backlog — the window is re-established by the pane once the reader
-    // settles again.
+    // A jump must reach any row, so lift the cap as well as the backlog; the
+    // pane re-establishes the window once the reader settles.
     m_windowCap = 0;
     const int total = sourceRowTotal() - m_windowSkip;
     if (m_revealedRows >= total)
@@ -140,17 +97,10 @@ void ReverseListProxyModel::revealNextChunk()
         return;
     }
 
-    // The backlog is always the OLDEST source rows, which map to the proxy's
-    // tail — the far/top edge of the rotated view. Releasing them therefore
-    // appends, and cannot move a row the reader is already looking at.
-    //
-    // endInsertRows() builds the row synchronously, so elapsed() measures the
-    // real construction cost and the budget adapts to whatever this particular
-    // history happens to contain.
-    // Attributed for stall tracing (2026-08-19): a live capture showed GUI
-    // stalls of 333/369/1062 ms categorised "unattributed" while pagination
-    // ran, and endInsertRows() below builds a full message delegate
-    // synchronously — the single largest candidate. No-op unless
+    // The backlog is always the oldest source rows, i.e. the proxy's tail (the
+    // far edge of the rotated view), so releasing them appends and cannot move
+    // a visible row. endInsertRows() builds rows synchronously, so elapsed()
+    // measures real construction cost. The stall scope is a no-op unless
     // LIGHTNING_GUI_STALL_TRACE is set.
     stalltrace::Scope stallScope("row-reveal");
     QElapsedTimer spent;
@@ -161,18 +111,12 @@ void ReverseListProxyModel::revealNextChunk()
         ++m_revealedRows;
         endInsertRows();
         ++released;
-        // Bound on revealTarget(), NOT sourceRowTotal(). The guard at
-        // the top of this function stops the timer from STARTING past the
-        // cap, but with sourceRowTotal() here a single tick kept releasing
-        // straight through it — which is exactly the "pacing undoes the
-        // window" failure m_windowCap exists to prevent, reachable in every
-        // trimmed window (cap < available).
+        // Bound on revealTarget(), not sourceRowTotal(), or a single tick would
+        // release straight through the window cap.
     } while (m_revealedRows < revealTarget()
              && spent.elapsed() < kRevealBudgetMs);
 
-    // Counts and milliseconds only — no room, event or message content. This
-    // is the number every scroll-performance guess so far has been missing:
-    // what one timeline row actually costs to build.
+    // Counts and milliseconds only: what one timeline row costs to build.
     static const bool traceEnabled =
         qEnvironmentVariableIsSet("LIGHTNING_SCROLL_TRACE");
     if (traceEnabled) {
@@ -188,8 +132,7 @@ void ReverseListProxyModel::revealNextChunk()
         return;
     }
 
-    // Yield for proportionally longer than the work just took, so the duty
-    // cycle holds no matter how expensive this room's rows turn out to be.
+    // Yield proportionally to the work just done so the duty cycle holds.
     const int elapsed = static_cast<int>(spent.elapsed());
     m_revealTimer.setInterval(std::clamp(elapsed * kIdleFactor,
                                          kRevealMinIntervalMs,
@@ -227,20 +170,15 @@ void ReverseListProxyModel::setSourceModel(QAbstractItemModel *model)
                     return;
                 const int inserted = last - first + 1;
                 const int totalAfter = sourceRowTotal() + inserted;
-                // A row landing NEWER than the window's newest edge is
-                // outside it: the window must keep covering the same source
-                // rows, so absorb it by growing the skip instead of showing
-                // it. This is the live-message case while the reader is deep
-                // in history — without it the whole window would slide one
-                // row older on every incoming message.
+                // A row newer than the window's newest edge is outside it: grow
+                // the skip so the window keeps covering the same rows (a live
+                // message while the reader is deep in history).
                 if (m_windowSkip > 0 && first > totalAfter - 1 - m_windowSkip) {
                     setWindowSkip(m_windowSkip + inserted);
                     return;
                 }
-                // Rows landing entirely inside the not-yet-released oldest
-                // region change nothing the view can see. Stay silent and let
-                // the reveal timer pace them out; this is the backward
-                // pagination case, and it is why loading no longer blocks.
+                // Rows entirely inside the unreleased region are invisible; the
+                // reveal timer paces them out (backward pagination).
                 if (last < totalAfter - m_windowSkip - m_revealedRows)
                     return;
                 const int proxyFirst = totalAfter - 1 - m_windowSkip - last;
@@ -271,15 +209,15 @@ void ReverseListProxyModel::setSourceModel(QAbstractItemModel *model)
                 const int totalBefore = sourceRowTotal();
                 int proxyFirst = totalBefore - 1 - m_windowSkip - last;
                 int proxyLast = totalBefore - 1 - m_windowSkip - first;
-                // Rows removed NEWER than the window shrink the skip, not the
-                // exposed slice: the window keeps covering the same rows.
+                // Removals newer than the window shrink the skip, not the
+                // exposed slice.
                 if (proxyLast < 0) {
                     setWindowSkip(m_windowSkip
                                   - std::min(m_windowSkip, last - first + 1));
                     return;
                 }
                 // Entirely inside the unreleased backlog: the view never saw
-                // these rows, so there is nothing to remove from it.
+                // these rows.
                 if (proxyFirst >= rowCount())
                     return;
                 proxyFirst = std::max(proxyFirst, 0);
@@ -299,7 +237,7 @@ void ReverseListProxyModel::setSourceModel(QAbstractItemModel *model)
                     endRemoveRows();
                 }
                 // A removal can only shrink the backlog; never leave the
-                // released count above what the source still holds.
+                // released count above what the source holds.
                 setWindowSkip(std::min(m_windowSkip, sourceRowTotal()));
                 m_revealedRows =
                     std::min(m_revealedRows, sourceRowTotal() - m_windowSkip);
@@ -311,22 +249,14 @@ void ReverseListProxyModel::setSourceModel(QAbstractItemModel *model)
                    const QList<int> &roles) {
                 if (topLeft.parent().isValid() || bottomRight.parent().isValid())
                     return;
-                // MINUS THE WINDOW SKIP, exactly like mapFromSource. Every
-                // other mapping in this file subtracts it; this one did not,
-                // so with a window held (a live capture recorded skip=380) a
-                // change to the row the reader is looking at was announced
-                // 380 rows away. The wrong row repaints and re-reads
-                // correctly, so nothing LOOKS broken, while the row that
-                // actually changed is never told to re-read: an edit, a
-                // redaction or a late decryption never lands. That is the
-                // recorded "a skip change renumbers every view row" class,
-                // and the first instance of it inside the proxy itself.
+                // Subtract the window skip, as every other mapping does;
+                // otherwise a change is announced on the wrong row and edits,
+                // redactions and late decryptions never repaint.
                 const int total = sourceRowTotal();
                 int proxyFirst = total - 1 - m_windowSkip - bottomRight.row();
                 int proxyLast = total - 1 - m_windowSkip - topLeft.row();
-                // Clamp to what the view has actually been given; a change to
-                // a still-unreleased row needs no signal, because the row will
-                // be read fresh when it is released.
+                // Changes to unreleased rows need no signal; those rows are
+                // read fresh on release.
                 if (proxyLast < 0 || proxyFirst >= m_revealedRows)
                     return;
                 proxyFirst = std::max(proxyFirst, 0);
@@ -344,12 +274,9 @@ void ReverseListProxyModel::setSourceModel(QAbstractItemModel *model)
         m_sourceConnections.append(connect(
             model, &QAbstractItemModel::modelReset,
             this, [this] {
-                // A reset is a room switch or a fresh snapshot: release it
-                // whole. The set is small (an initial timeline, not a paged
-                // backlog) and the presentation gate covers it either way.
-                // The window goes with it — a fresh snapshot has no reader
-                // position to be windowed around, and leaving a stale skip
-                // would hide the live edge of the new room.
+                // A reset (room switch or fresh snapshot) is released whole,
+                // and the window goes with it: a stale skip would hide the new
+                // room's live edge.
                 setWindowSkip(0);
                 m_windowCap = 0;
                 m_revealedRows = sourceRowTotal();
@@ -371,11 +298,10 @@ void ReverseListProxyModel::setSourceModel(QAbstractItemModel *model)
     endResetModel();
 }
 
-// Both directions key off the SOURCE total, not the released count: proxy row
-// 0 is the newest source row the WINDOW includes, and the unreleased backlog
-// is the tail. Using rowCount() here would silently renumber every visible
-// row whenever a page arrived. `m_windowSkip` shifts the newest edge: it is 0
-// in every state where the reader can reach the bottom of the view.
+// Both directions key off the source total, not the released count: proxy
+// row 0 is the newest row the window includes and the unreleased backlog is
+// the tail. `m_windowSkip` shifts the newest edge; it is 0 whenever the reader
+// can reach the bottom.
 QModelIndex ReverseListProxyModel::mapToSource(
     const QModelIndex &proxyIndex) const
 {
@@ -406,9 +332,9 @@ int ReverseListProxyModel::oldestExposedSourceRow() const
     return sourceRowTotal() - m_windowSkip - rows;
 }
 
-// One structural op per end, oldest end first so proxy indices stay valid
-// through the transition. Each op is a plain insert or remove at ONE end —
-// there is no path here that renumbers rows in the middle.
+// One structural op per end, oldest end first so proxy indices stay valid.
+// Each op inserts or removes at one end; rows in the middle are never
+// renumbered.
 void ReverseListProxyModel::setWindow(int skipNewest, int rows)
 {
     if (!sourceModel())
@@ -417,8 +343,8 @@ void ReverseListProxyModel::setWindow(int skipNewest, int rows)
     const int skip = std::clamp(skipNewest, 0, std::max(0, total));
     const int wanted = std::clamp(rows, 0, std::max(0, total - skip));
 
-    // (1) The OLDEST end, at the current skip. Free of any reader-visible
-    //     movement: this is the tail of the Column.
+    // (1) The oldest end, at the current skip: the tail of the Column, so
+    // nothing visible moves.
     const int keptAtCurrentSkip =
         std::clamp(wanted + (skip - m_windowSkip), 0,
                    std::max(0, total - m_windowSkip));
@@ -433,9 +359,8 @@ void ReverseListProxyModel::setWindow(int skipNewest, int rows)
         endInsertRows();
     }
 
-    // (2) The NEWEST end. Raising the skip removes rows from the HEAD, which
-    //     shifts every kept row — the pane compensates contentY by the exact
-    //     height delta. Lowering it inserts at the head.
+    // (2) The newest end. Raising the skip removes rows from the head (the pane
+    //     compensates contentY by the height delta); lowering it inserts there.
     if (skip > m_windowSkip) {
         const int drop = std::min(skip - m_windowSkip, rowCount());
         if (drop > 0) {
@@ -454,24 +379,21 @@ void ReverseListProxyModel::setWindow(int skipNewest, int rows)
         endInsertRows();
     }
 
-    // Pacing must not undo the window: cap it at what we now expose, unless
-    // the window reaches the live edge and everything is out (uncapped).
+    // Pacing must not undo the window: cap it at what is now exposed, unless
+    // the window reaches the live edge with everything out (uncapped).
     m_windowCap = (m_windowSkip == 0 && m_revealedRows >= total)
                       ? 0 : rowCount();
     scheduleReveal();
-    // No emit here: setWindowSkip() above has already notified if the skip
-    // moved, and a second unconditional emit would fire on every settle-time
-    // window that only trimmed the OLD end — where the property this signal
-    // notifies is unchanged and the exposed count is already announced by the
-    // model's own rowsInserted/rowsRemoved.
+    // No emit here: setWindowSkip() already notified if the skip moved, and the
+    // exposed count is announced by rowsInserted/rowsRemoved.
 }
 
 bool ReverseListProxyModel::extendWindowAtOldEnd(int extraRows)
 {
     if (extraRows <= 0 || !sourceModel())
         return false;
-    // ONLY the window's cap counts here. m_windowCap == 0 means uncapped, so
-    // whatever is unexposed is the pacing backlog, which releases itself.
+    // Only the window cap counts. m_windowCap == 0 means uncapped; anything
+    // unexposed is pacing backlog that releases itself.
     if (m_windowCap <= 0)
         return false;
     const int available = std::max(0, sourceRowTotal() - m_windowSkip);
@@ -489,33 +411,25 @@ bool ReverseListProxyModel::extendWindowAtNewEnd(int extraRows)
 {
     if (extraRows <= 0 || !sourceModel())
         return false;
-    // Nothing to give: the window already includes the live edge, and the
-    // caller needs that answer rather than a silent no-op insert — it is what
-    // tells the pane the bottom of the view is now honestly the bottom.
+    // Nothing to give: the window already includes the live edge. The caller
+    // needs that answer, since it tells the pane the view's bottom is the real
+    // bottom.
     if (m_windowSkip <= 0)
         return false;
 
-    // ONE insert at the head, never a reset and never a mid-list renumbering:
-    // the pane compensates contentY by the exact summed height of these rows,
-    // and a reset would destroy both the measurement and every delegate the
-    // window exists to avoid rebuilding.
+    // One insert at the head, never a reset or a mid-list renumbering: the pane
+    // compensates contentY by these rows' summed height.
     const int add = std::min(extraRows, m_windowSkip);
     beginInsertRows({}, 0, add - 1);
     m_revealedRows += add;
     setWindowSkip(m_windowSkip - add);
     endInsertRows();
 
-    // Pacing must still not undo the window — setWindow()'s rule, expressed
-    // as a delta instead of as `rowCount()`. Assigning the exposed count here
-    // would silently retire whatever the OLD end still owes: pacing may not
-    // have reached the cap setWindow established, and lowering the cap to
-    // whatever happens to be out at this instant would strand those rows for
-    // good. Growing it by exactly what was just restored keeps both ends'
-    // promises intact.
+    // Grow the cap by exactly what was restored rather than assigning the
+    // exposed count, which could strand rows pacing still owes the old end.
     if (m_windowCap > 0)
         m_windowCap += add;
-    // The one uncapped state is unchanged: the window reaches the live edge
-    // with everything exposed, which is simply "no window".
+    // Window reaches the live edge with everything exposed: no window.
     if (m_windowSkip == 0 && m_revealedRows >= sourceRowTotal())
         m_windowCap = 0;
 
@@ -554,9 +468,8 @@ int ReverseListProxyModel::rowCount(const QModelIndex &parent) const
 {
     if (!sourceModel() || parent.isValid())
         return 0;
-    // The released slice, not the source total. The clamp guards against a
-    // source that shrank without a signal we could act on, and against a
-    // skip that outran what is left.
+    // The released slice, clamped against a source that shrank without a usable
+    // signal and a skip that outran what is left.
     return std::clamp(m_revealedRows, 0,
                       std::max(0, sourceModel()->rowCount() - m_windowSkip));
 }

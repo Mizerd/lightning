@@ -9,46 +9,37 @@
 
 class QTextDocument;
 
-// v0.9 rich composer: the QTextDocument -> Matrix serializer and the
-// formatting operations behind the rich-mode toolbar.
+// Rich composer: the QTextDocument -> Matrix serializer and the formatting
+// operations behind the rich-mode toolbar.
 //
-// THE document is the canonical representation. Both wire bodies are
-// derived from it in one pass — the Matrix-subset HTML for formatted_body
-// and the readable plain fallback for body — so the two cannot diverge,
-// which is the requirement naive tag-stripping cannot meet.
+// The document is canonical. Both wire bodies (Matrix-subset HTML for
+// formatted_body and the plain fallback for body) are derived from it in one
+// pass, so they cannot diverge.
 //
-// SECURITY MODEL, in order:
-//   1. Pasted rich content lands in a QTextDocument, which stores
-//      FORMATTING, not markup — scripts, event handlers and iframes do not
-//      exist in its model at all.
-//   2. This serializer is a WHITELIST EMITTER: it walks the document's own
-//      structure and can only ever produce the tags written in this file.
-//      Nothing in the input can make it emit a tag it does not know.
-//   3. Link targets are scheme-validated here (http/https/mailto/matrix/
+// Security, in order:
+//   1. Pasted rich content lands in a QTextDocument, which stores formatting,
+//      not markup: scripts, handlers and iframes do not exist in its model.
+//   2. This serializer is a whitelist emitter over the document structure;
+//      it can only produce the tags written in this file.
+//   3. Link targets are scheme-validated (http/https/mailto/matrix/
 //      matrix.to); anything else serializes as plain text.
-//   4. The Rust boundary strict-sanitizes the HTML again (ruma) — belt and
-//      braces, so even a regression here cannot reach the wire.
+//   4. Rust sanitizes the HTML again (ruma) before it reaches the wire.
 //
-// Version note: this walks QTextDocument's block/fragment model directly
-// instead of using Qt's toHtml()/toMarkdown(), because those emitters have
-// version-dependent output (the dev shell is Qt 6.11, the packaged fleet
-// 6.8) and toHtml() is not remotely Matrix-safe. Qt's setMarkdown()/
-// toMarkdown() ARE used for draft-only mode switching, where a cosmetic
-// difference between Qt versions cannot reach the protocol.
+// The document model is walked directly rather than via toHtml()/
+// toMarkdown(): their output varies across Qt versions and toHtml() is not
+// Matrix-safe. setMarkdown()/toMarkdown() are used only for draft mode
+// switching, which never reaches the protocol.
 namespace RichComposition {
 
-// v0.9 spell checking in rich mode. Ranges of the document's plain text
-// (`QTextDocument::toRawText` positions == cursor positions) that are NOT
-// natural language and must never be underlined: fenced code blocks, inline
-// code fragments (fixed pitch) and mention pills (anchors to a user). Link
-// anchor TEXT is checked — the destination is not in the text at all.
+// Spell checking in rich mode: ranges of the document's plain text
+// (`QTextDocument::toRawText` positions == cursor positions) that must never
+// be underlined: fenced code blocks, inline code (fixed pitch) and mention
+// pills. Link anchor text is checked; the destination is not in the text.
 QVariantList spellSkipRanges(const QTextDocument &document);
-// True when the document holds nothing a reader would see. NOT the same as
-// "no characters": a list item, a quote or a code block is empty of text and
-// still draws — Qt paints "1." for an empty ordered-list item — while
-// QQuickTextEdit's `length` counts characters only, so a TextArea whose
-// placeholder is bound to the usual emptiness keeps drawing it UNDER the
-// list marker. Structure counts as content here.
+// True when the document holds nothing visible. Not the same as "no
+// characters": an empty list item, quote or code block still draws (Qt
+// paints "1." for an empty ordered item), while TextEdit's `length` counts
+// characters only, so a placeholder bound to it would draw under the marker.
 bool documentIsBlank(const QTextDocument &document);
 // Replaces exactly [start, start+length) with `replacement`, keeping the
 // character format the range started with, so a suggestion applied inside a
@@ -60,13 +51,11 @@ struct Composed {
     // The plain m.text fallback: list markers ("- ", "1. "), "> " quote
     // prefixes and newlines, readable in any client.
     QString plainBody;
-    // Matrix-subset HTML, or EMPTY when the document carries no formatting
-    // at all — an unformatted message stays a plain m.text event, exactly
-    // like the markdown path's behaviour for plain text.
+    // Matrix-subset HTML, or empty when the document carries no formatting, so
+    // an unformatted message stays a plain m.text event.
     QString html;
-    // MXIDs of matrix.to user links found in the document (mention anchors
-    // the popup inserted), deduped in first-appearance order — the
-    // m.mentions input.
+    // MXIDs of matrix.to user links (inserted mention anchors), deduplicated in
+    // first-appearance order; the m.mentions input.
     QStringList mentionUserIds;
 };
 

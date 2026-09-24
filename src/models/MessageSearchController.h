@@ -9,20 +9,16 @@
 
 class MatrixClient;
 
-// v0.7.x: server-side message-history search (room-scoped or global).
+// Message-history search, room-scoped or global.
 //
-// QML binds `query` (and `roomId` for the in-room mode); the model
-// debounces (400 ms), dispatches through MatrixClient::searchMessages,
-// pages with the server's `next_batch` token, and rejects stale
-// completions by operation id. Cleared on logout so one account's results
-// can never surface under another.
+// QML binds `query` (and `roomId` for in-room mode); the model debounces,
+// dispatches to the local index or MatrixClient::searchMessages, pages, and
+// rejects stale completions by op id. Cleared on logout so one account's
+// results never surface under another.
 //
-// E2EE: the homeserver can only search what it can read, so results cover
-// UNENCRYPTED rooms only — every UI surface bound to this model discloses
-// that, and inside an encrypted room the loaded-timeline find remains the
-// only search. The typed search term is the only content sent to the
-// server. Result bodies may still be sensitive (they are message text):
-// they live in this model's memory only and are never persisted or logged.
+// E2EE: server search covers unencrypted rooms only, and every surface bound
+// to this model must say so. Result bodies are message text (possibly
+// decrypted): memory only, never persisted or logged.
 class MessageSearchController : public QAbstractListModel
 {
     Q_OBJECT
@@ -42,29 +38,26 @@ class MessageSearchController : public QAbstractListModel
                    NOTIFY filtersChanged)
     // ── Where the results come from ──────────────────────────────────────
     //
-    // "local"  — Lightning's own FTS5 index over the plaintext it holds.
-    //            Works in ENCRYPTED rooms, which server search cannot, and
-    //            answers without a round trip. Covers what has been indexed.
-    // "server" — POST /_matrix/client/v3/search. Covers the server's whole
-    //            history, and only for rooms the server can READ.
+    // "local"  — Lightning's FTS5 index over plaintext it holds. Works in
+    // encrypted rooms and needs no round trip; covers what is indexed. "server"
+    // — POST /_matrix/client/v3/search. The server's whole history, for rooms
+    // it can read.
     //
-    // Two genuinely different answers, so this is a visible mode rather than
-    // a fallback: a search that silently changed which of them it ran would
-    // make "no results" mean two different things on consecutive keystrokes.
+    // A visible mode rather than a silent fallback, so "no results" always
+    // means one thing.
     Q_PROPERTY(QString source READ source WRITE setSource NOTIFY sourceChanged)
-    /// Whether a local index exists at all on this backend. Lets a surface
-    /// offer the choice only where there is one.
+    /// Whether this backend has a local index, so the choice is offered only
+    /// where it exists.
     Q_PROPERTY(bool localAvailable READ localAvailable NOTIFY sourceChanged)
     /// What the local index holds, so a surface can say what local search
-    /// covers instead of implying it covers everything.
+    /// covers.
     Q_PROPERTY(qint64 indexedMessages READ indexedMessages
                    NOTIFY indexStatsChanged)
     Q_PROPERTY(qint64 indexedRooms READ indexedRooms NOTIFY indexStatsChanged)
     /// True while a deep index is paging a room's history in.
     Q_PROPERTY(bool indexing READ indexing NOTIFY indexingChanged)
-    /// Shortest query the local tokenizer can match, 0 until the backend has
-    /// said. Surfaces show it rather than reporting "no results" for a query
-    /// that could never have matched.
+    /// Shortest query the local tokenizer can match (0 until known), shown
+    /// instead of "no results" for a query that can never match.
     Q_PROPERTY(int minLocalChars READ minLocalChars NOTIFY stateChanged)
 
 public:
@@ -99,8 +92,7 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    /// The source actually in use — the preference NARROWED by what the
-    /// backend can do. A surface binds to this, so what it shows is what runs.
+    /// The source actually in use: the preference narrowed by backend support.
     QString source() const { return effectiveSource(); }
     /// The preference as set, before that narrowing.
     QString preferredSource() const { return m_source; }
@@ -115,8 +107,7 @@ public:
     Q_INVOKABLE void refreshIndexStats();
     /// Walk cached events into the index across every joined room.
     Q_INVOKABLE void sweepIndex();
-    /// Page ONE room's history in and index it — the action that turns
-    /// "search what you have read" into "search this room".
+    /// Page one room's history in and index it ("search this room").
     Q_INVOKABLE void indexRoomHistory(const QString &roomId);
     Q_INVOKABLE void clearIndex();
 
@@ -136,10 +127,8 @@ Q_SIGNALS:
     void sourceChanged();
     void indexStatsChanged();
     void indexingChanged();
-    /// A deep index finished. `reachedStart` says whether the room's whole
-    /// history is now indexed or the page budget ran out first — a surface
-    /// that reported "done" for both would be claiming completeness it does
-    /// not have.
+    /// A deep index finished. `reachedStart` says whether the whole history is
+    /// indexed or the page budget ran out.
     void roomHistoryIndexed(const QString &roomId, bool ok, bool reachedStart,
                             int written);
 
@@ -169,15 +158,11 @@ private:
     quint64 m_totalCount = 0;
     quint64 m_pendingOp = 0;
     bool m_pendingIsNextPage = false;
-    /// The LIMIT the in-flight local request asked for. Local paging grows
-    /// the limit instead of carrying a cursor, so "was the page full?" — the
-    /// only evidence that more exists — has to be answered against this, not
-    /// against kLocalPage. 0 when nothing is in flight.
+    /// Limit of the in-flight local request; "was the page full?" is answered
+    /// against this. 0 when nothing is in flight.
     int m_pendingLocalLimit = 0;
-    /// The RAW result count of the last completed local page, before
-    /// matchesFilters(). The next page's limit grows from THIS, never from
-    /// m_rows: the two are different populations, and deriving the limit from
-    /// the filtered count lets a fully-filtered page freeze it forever.
+    /// Raw count of the last local page, before matchesFilters(). The next
+    /// limit grows from this, never from filtered m_rows.
     int m_lastLocalRawCount = 0;
     QVariantMap m_filters;
     QSet<QString> m_fromUsers;
@@ -194,7 +179,6 @@ private:
     qint64 m_indexedRooms = 0;
     quint64 m_deepOp = 0;
     int m_minLocalChars = 0;
-    /// Rows a local page returns. Local search has no server cursor, so
-    /// "load more" is a larger LIMIT rather than a next-batch token.
+    /// Rows per local page; "load more" raises the limit (there is no cursor).
     static constexpr int kLocalPage = 50;
 };

@@ -20,11 +20,9 @@ class EmojiCatalog : public QAbstractListModel
     Q_PROPERTY(QString dataVersion READ dataVersion CONSTANT)
     Q_PROPERTY(QStringList categories READ categories CONSTANT)
     Q_PROPERTY(QString preferredTone READ preferredTone WRITE setPreferredTone NOTIFY preferredToneChanged)
-    // v0.6.5: the persisted MRU recent-emoji list (settings key emoji/recent),
-    // exposed read-only for consumers that want the raw ordered list directly
-    // (the quick-react strip) rather than the filtered/paged GridView model.
-    // Filtered through the same validity check rebuild() uses, so a corrupted
-    // or legacy settings entry can never reach a consumer.
+    // The persisted MRU recent-emoji list (settings key emoji/recent),
+    // read-only, for consumers wanting the raw ordered list (the quick-react
+    // strip). Filtered through rebuild()'s validity check.
     Q_PROPERTY(QStringList recentEmoji READ recentEmoji NOTIFY recentEmojiChanged)
 
 public:
@@ -90,10 +88,8 @@ private:
 
     void load();
     void rebuild();
-    // Whether the persisted MRU holds at least one emoji this catalogue can
-    // actually resolve — the same validity test rebuild() applies, so
-    // "there are recents" and "the Recently Used grid has rows" cannot
-    // disagree.
+    // Whether the MRU holds at least one emoji this catalogue can resolve,
+    // using rebuild()'s test so it agrees with the Recently Used grid.
     bool hasResolvableRecents() const;
     int indexOf(const QString &emoji) const;
     bool isKnownEmojiCluster(const QString &cluster) const;
@@ -105,8 +101,7 @@ private:
     // Clients disagree about emitting U+FE0F presentation selectors; a
     // cluster missing (or carrying extra) VS16 still matches its sequence.
     QSet<QString> m_sequencesNoVs16;
-    // v0.7: base-emoji indices per category, built once at load so a
-    // category switch is a bucket swap, never a full-catalogue rescan.
+    // Base-emoji indices per category, built once at load.
     QHash<QString, QList<int>> m_categoryBuckets;
     QHash<QString, QList<int>> m_variants;
     QList<int> m_visible;

@@ -17,18 +17,12 @@ void DirectAvatarResolver::setClient(MatrixClient *client)
         return;
     connect(m_client, &MatrixClient::userProfileFinished, this,
             &DirectAvatarResolver::onUserProfileFinished);
-    // A user-id-keyed avatar cache is ACCOUNT-SCOPED memory: sign-out, and the
-    // account switch that emits the same signal, must drop it rather than let
-    // one account's faces describe the next account's peers. Owners that clear
-    // it themselves make this idempotent, not duplicated.
+    // The avatar cache is account-scoped: drop it on sign-out and account
+    // switch (same signal). Owners clearing it too is harmless.
     connect(m_client, &MatrixClient::loggedOut, this,
             &DirectAvatarResolver::clear);
-    // A destroyed client must leave a NULL here, not a pointer to freed
-    // memory. resolveMissing() and directPeer() both dereference m_client, and
-    // an owner that outlives the client (destruction order inside
-    // AppController is by declaration, and nothing enforces one here) would
-    // otherwise deref it on the next rebuild. Clearing the caches too: they
-    // are account-scoped, and the account is gone.
+    // A destroyed client must leave null here, not a dangling pointer; nothing
+    // enforces destruction order. The caches go too, being account-scoped.
     connect(m_client, &QObject::destroyed, this, [this] {
         m_client = nullptr;
         clear();
@@ -50,12 +44,9 @@ QString DirectAvatarResolver::directPeer(const RoomInfo &room) const
     if (!room.isDirect || room.directUserId.isEmpty())
         return {};
 
-    // The Rust backend never populates the per-room member snapshot below (it
-    // is fetched separately, on demand, only for the Room Information "People"
-    // tab) — it instead reports the authoritative m.direct target list
-    // directly, which is exactly the "unambiguous 1:1" signal this needs and
-    // requires no member fetch at all. Backends that only ever populate
-    // `members` (Mock/HTTP) derive the same signal from there.
+    // The Rust backend does not populate the member snapshot (fetched on demand
+    // for Room Information only) but reports the m.direct targets, which is
+    // exactly the 1:1 signal needed. Mock/HTTP derive it from `members`.
     if (!room.directUserIds.isEmpty()) {
         if (room.directUserIds.size() > 1)
             return {};
@@ -116,40 +107,26 @@ void DirectAvatarResolver::onUserProfileFinished(quint64 opId, bool ok,
 {
     Q_UNUSED(displayName);
     Q_UNUSED(category);
-    // Always release the pending marker for the op that completed, keyed by
-    // BOTH what we requested and what the SDK reports. An early return
-    // whenever the requested and returned ids differ (SDK id normalization)
-    // leaves the target stuck pending forever, so nothing ever re-fetches it
-    // and the DM avatar is wedged on initials. That regression is why this
-    // takes both keys.
+    // Release the pending marker under both the requested and the reported id:
+    // SDK normalisation can make them differ, and a stuck marker means the peer
+    // is never fetched again.
     const QString requestedUser = m_ops.take(opId);
     if (!requestedUser.isEmpty())
         m_pending.remove(requestedUser);
     if (!userId.isEmpty())
         m_pending.remove(userId);
 
-    // Cache under the SDK's authoritative user id, and accept results even for
-    // ops we did not start — every consumer shares this one client signal.
-    // That is what lets a self-DM row, whose direct target is our OWN user id,
-    // adopt the signed-in account's own avatar (fetched for the account
-    // switcher) instead of resolving to an initial forever.
-    //
-    // The id to file the answer under: the SDK's when it named one, otherwise
-    // the one we asked about. An answer that names NEITHER (a foreign op that
-    // reports no user) describes nobody and is dropped. The previous code
-    // returned on an empty `userId` alone, which for OUR OWN op meant the
-    // pending marker was released and nothing was remembered — so the next
-    // rebuild asked again, which is the request-per-sync loop this cache
-    // exists to stop, reached by the one route it did not cover.
+    // Cache under the SDK's authoritative id, and accept answers to ops we did
+    // not start: every consumer shares this signal (e.g. a self-DM adopts the
+    // account's own avatar fetched for the switcher). File under the SDK's id,
+    // else the requested one; an answer naming neither is dropped, and our own
+    // op must still be remembered so the next rebuild does not ask again.
     const QString subject = userId.isEmpty() ? requestedUser : userId;
     if (subject.isEmpty())
         return;
     if (ok && !avatarUrl.isEmpty()) {
-        // Filed under BOTH ids for the same reason the pending release above
-        // takes both: the SDK may normalise what we asked about, and the
-        // owners look this up by the ROOM's `directUserId` — the id we asked
-        // with. Caching only the SDK's would leave the row on initials with
-        // the face sitting in the cache under a key nobody queries.
+        // Filed under both ids: owners look up by the room's `directUserId`,
+        // which is the id we asked with.
         m_avatars.insert(subject, avatarUrl);
         m_noAvatar.remove(subject);
         if (!requestedUser.isEmpty() && requestedUser != subject) {
@@ -157,35 +134,18 @@ void DirectAvatarResolver::onUserProfileFinished(quint64 opId, bool ok,
             m_noAvatar.remove(requestedUser);
             Q_EMIT avatarResolved(requestedUser);
         }
-        // ONLY a learned face is announced. Announcing every answer is what
-        // closed the loop: an owner that rebuilds on this signal re-entered
-        // resolveMissing(), which found the peer neither cached nor pending
-        // and asked again, forever. "Nothing was learned" changes no row, so
-        // there is nothing for a consumer to repaint either.
+        // Announce only a learned face. Announcing every answer let owners
+        // rebuild, re-enter resolveMissing() and ask again forever.
         Q_EMIT avatarResolved(subject);
         return;
     }
 
-    // Two very different answers arrive here, and only one of them is a fact
-    // about the USER.
-    //
-    // `ok` with an empty avatar url means the profile WAS read and there is no
-    // picture. That is true no matter who asked, so it is remembered whoever
-    // asked, and the next rebuild rightly does not ask again.
-    //
-    // A FAILURE is a fact about one REQUEST — a timeout, a refusal, a 404 for
-    // a user this resolver has never heard of. Recording a failure that some
-    // OTHER consumer of this shared client signal suffered was a wedge:
-    // resolveMissing() skips a cached negative, so a DM whose peer we had
-    // never asked about rendered initials for the rest of the session because
-    // an unrelated profile fetch elsewhere had one bad round trip. We only
-    // remember failures we actually incurred.
-    //
-    // Our OWN failure is still remembered, deliberately: retrying it on every
-    // rebuild is the same unbounded loop by another route. It is session
-    // memory, cleared by clear() on sign-out and on an account switch, and
-    // avatarFor() consults the room's member snapshot first — so a face
-    // arriving on a member event still wins over it.
+    // `ok` with no avatar URL is a fact about the user and is remembered
+    // whoever asked. A failure is a fact about one request: record only our own
+    // (so we do not retry every rebuild), never another consumer's, or an
+    // unrelated bad round trip would pin a DM to initials for the session.
+    // avatarFor() checks the member snapshot first, so a face from a member
+    // event still wins.
     if (ok) {
         m_noAvatar.insert(subject);
         if (!requestedUser.isEmpty())

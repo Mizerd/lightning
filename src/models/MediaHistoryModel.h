@@ -8,30 +8,17 @@
 
 #include "matrix/MatrixClient.h"
 
-/// The room's media, files and links, browsed INDEPENDENTLY of the timeline.
+/// A room's media, files and links, browsed independently of the timeline via
+/// its own backwards walk (rust/src/mediahistory.rs), so older attachments are
+/// reachable without moving the reader.
 ///
-/// The Media tab used to render `app.timeline.mediaEntries()` — whatever the
-/// open timeline had paginated in — so finding an attachment from March meant
-/// scrolling the conversation back to March. This owns its own backwards walk
-/// (rust/src/mediahistory.rs) and can reach the start of accessible history
-/// without moving the reader anywhere.
-///
-/// # Completeness is a first-class answer
-///
-/// `loadedCount` is not `total`, and this model never pretends otherwise.
+/// Completeness is reported, never implied: `loadedCount` is not a total;
 /// `complete` means the walk reached the start of accessible history;
-/// `scannedTotal` is how many events were EXAMINED, which is what makes
-/// "nothing here" honest on a room where 2,000 events have been read and no
-/// image found. `undecryptableCount` is history that exists and cannot be
-/// read — a third state, and the one that would otherwise silently shorten
-/// the list in an encrypted room whose keys are missing.
+/// `scannedTotal` counts events examined; `undecryptableCount` counts history
+/// that exists but cannot be read.
 ///
-/// # Filtering is local, and that is a deliberate limit
-///
-/// Category, sender and text filters run over what has been LOADED, because
-/// the server cannot filter an encrypted room and a client-side filter over
-/// unloaded history would be a lie. The UI says so: a filtered view still
-/// reports how much of history it has seen.
+/// Filters run over what has been loaded (the server cannot filter encrypted
+/// rooms), and the UI says how much history a filtered view has seen.
 class MediaHistoryModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -136,20 +123,12 @@ public:
     /// The row's entry as a map, for handing to the media/jump paths.
     Q_INVOKABLE QVariantMap entryAt(int row) const;
 
-    /// Every SHOWN image row, in view order, shaped exactly like
-    /// `TimelineModel::imageEntries()`.
-    ///
-    /// WHY THE SHAPE MATTERS. ImageViewerOverlay used to take a media key
-    /// alone and look it up in `app.timeline.imageEntries()` — the images the
-    /// open TIMELINE has paginated. This model exists precisely to reach media
-    /// the timeline has never loaded, so that lookup missed by construction
-    /// and the viewer fell back to the last entry of the timeline's list: the
-    /// user clicked a picture from March and got the newest loaded one. The
-    /// viewer now takes the list AND the index, and this is that list.
+    /// Every shown image row, in view order, shaped like
+    /// TimelineModel::imageEntries(). The image viewer takes this list and an
+    /// index, since this model reaches media the timeline never loaded.
     Q_INVOKABLE QVariantList imageEntries() const;
-    /// Index into `imageEntries()` of the shown row `row`, or -1 when that row
-    /// is not an image. Computed here rather than searched for in QML so the
-    /// two can never disagree about ordering.
+    /// Index into imageEntries() of shown row `row`, or -1 if it is not an
+    /// image. Computed here so ordering cannot disagree with QML.
     Q_INVOKABLE int imageIndexForRow(int row) const;
 
 Q_SIGNALS:
@@ -174,8 +153,8 @@ private:
         qint64 durationMs = 0;
         QString mxc;
         QString thumbnailMxc;
-        /// The media registry key a tile fetches through — the event id, as
-        /// the Rust scanner registered it. Empty for rows without a source.
+        /// Media registry key a tile fetches through (the event id as the Rust
+        /// scanner registered it); empty for rows without a source.
         QString mediaKey;
         bool encrypted = false;
         QString url;
@@ -207,7 +186,7 @@ private:
     qint64 m_scannedTotal = 0;
     qint64 m_undecryptable = 0;
     QString m_lastError;
-    /// Guards against the same event arriving twice — a page boundary can
-    /// overlap, and a link event contributes one row per URL.
+    /// Guards against duplicates: pages can overlap, and a link event yields
+    /// one row per URL.
     QSet<QString> m_seen;
 };

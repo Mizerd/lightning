@@ -10,38 +10,28 @@
 class MatrixClient;
 class SettingsManager;
 
-// v0.9 (phase 11): "Send later".
+// "Send later", with two mechanisms never presented as one:
+//   * SERVER: an MSC4140 delayed event. The homeserver sends it at the
+//     deadline whether or not Lightning runs. Used only when supported
+//     (probed), the room is known to be unencrypted (the server stores the
+//     content as given, see rooms.rs), and there is no thread/reply
+//     relation. Delayed events cannot be listed later, so a server-held
+//     entry is retired once its deadline has passed.
+//   * LOCAL: a queue in this client; Lightning must be running and connected
+//     at the time. Unencrypted-room entries persist per account (a missed
+//     deadline fires once on next start). Encrypted-room entries are
+//     memory-only: their plaintext is never written to disk, and the UI says
+//     so.
 //
-// TWO mechanisms, never presented as one:
-//   * SERVER — an MSC4140 delayed message event. The homeserver holds the
-//     message and sends it at the deadline whether or not Lightning is
-//     running. Used only when the server supports it (probed), the room is
-//     KNOWN to be unencrypted (the endpoint stores the content as given —
-//     see rooms.rs), and the message is a plain room message (no thread /
-//     reply relation). The client keeps the delay id; there is no endpoint
-//     to list delayed events after the fact, so a server-held entry is
-//     RETIRED once its deadline has passed (the server sent it).
-//   * LOCAL — a queue in this client. Honest label: Lightning must be
-//     running and connected at the scheduled time. Entries for
-//     UNENCRYPTED rooms persist account-scoped across restarts (a missed
-//     deadline fires once on the next start); entries for ENCRYPTED rooms
-//     are MEMORY-ONLY — plaintext scheduled for an encrypted room is never
-//     written to disk (CLAUDE.md §6) — and the UI says so.
+// Server-side mutations are serialized on the entry's single in-flight op: a
+// reschedule or edit cancels first and replaces only after the server
+// confirms. A failed cancel is reported and never followed by a second
+// delayed event (double delivery). Changes requested while the original
+// schedule is in flight apply once the delay id arrives.
 //
-// Every server-side mutation is SERIALIZED on the entry's single in-flight
-// op: a reschedule or edit of a server-held message cancels first, and
-// only the server's "cancelled" answer triggers the replacement — a failed
-// cancel is reported and never followed by a second delayed event (that
-// would deliver the message twice). Changes asked for while the original
-// schedule is still in flight are applied once the delay id arrives.
-//
-// A local dispatch goes through the ROOM-level send (`sendRoomMessage`),
-// which works for any room, not only the open timeline, and answers with a
-// real result: the entry stays "sending" until the room accepted the
-// message, and reports failure instead of pretending. Duplicate-send
-// protection: an entry is marked "sending" and persisted BEFORE its
-// dispatch, so a crash between the two leaves a "sending" row that is
-// reported as unsent rather than re-fired.
+// Local dispatch uses the room-level sendRoomMessage, which works for any room
+// and reports a real result. An entry is marked "sending" and persisted
+// before dispatch, so a crash leaves a row reported as unsent, not re-fired.
 class ScheduledSendController : public QObject
 {
     Q_OBJECT
@@ -63,10 +53,10 @@ public:
     int serverScheduling() const { return m_serverScheduling; }
 
     Q_INVOKABLE void probeSupport();
-    // `message` is MessageComposer::composedMessage() (or the rich bridge's
-    // composeDocument merged onto it): {roomId, body, html, mentionIds,
-    // threadRootId, replyToEventId}. Returns the entry id, or "" when
-    // refused (empty body, past deadline, no room).
+    // `message` is MessageComposer::composedMessage() (optionally merged with
+    // the rich bridge's composeDocument): {roomId, body, html, mentionIds,
+    // threadRootId, replyToEventId}. Returns the entry id, or "" when refused
+    // (empty body, past deadline, no room).
     Q_INVOKABLE QString schedule(const QVariantMap &message, qint64 sendAtMs);
     Q_INVOKABLE void cancel(const QString &id);
     Q_INVOKABLE void sendNow(const QString &id);
@@ -80,8 +70,8 @@ public:
                                     const QString &replyToEventId) const;
     Q_INVOKABLE bool roomIsEncrypted(const QString &roomId) const;
 
-    // A server-held entry whose deadline is this far in the past is taken
-    // as sent by the server and retired.
+    // A server-held entry this far past its deadline is taken as sent and
+    // retired.
     static constexpr qint64 kServerRetireGraceMs = 60 * 1000;
 
 Q_SIGNALS:

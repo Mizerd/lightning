@@ -19,9 +19,8 @@ QString userFacingError(const QString &action)
         return QCoreApplication::translate(
             "matrix::room_action", "Could not change this room's unread mark.");
     }
-    // read_receipt, and anything a future Rust change adds before this table
-    // learns about it. Saying nothing is better than saying the wrong thing,
-    // and read_receipt is silent on purpose (see the header).
+    // read_receipt, and anything the table does not know yet: saying nothing
+    // beats saying the wrong thing (see the header).
     return {};
 }
 

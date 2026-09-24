@@ -29,11 +29,9 @@ StoreBlockReason passwordLoginBlockReason(
     if (targetSavedDeviceId.trimmed().isEmpty())
         return StoreBlockReason::MissingDeviceId;
 
-    // Password login asks the homeserver for a new device. An existing SDK
-    // store can only be safely opened by restoring the exact saved device;
-    // attaching the new device to it is precisely the ownership bug fixed in
-    // v0.5.5. With multi-account this account should be activated from the
-    // account switcher instead of logged in again.
+    // Password login creates a new device, and an existing SDK store may only
+    // be opened by restoring its exact saved device. The account should be
+    // activated from the switcher instead.
     return StoreBlockReason::ExistingStoreNeedsRestore;
 }
 
@@ -59,22 +57,21 @@ StoreBlockReason oauthLoginBlockReason(
     if (saved.isEmpty())
         return StoreBlockReason::MissingDeviceId;
 
-    // The authorization server must have named the device. Without it we
-    // cannot tell re-authorization from a brand-new device, and guessing here
-    // is precisely what must never happen.
+    // The authorization server must name the device; without it
+    // re-authorization cannot be told from a new device, and guessing is not
+    // allowed.
     const QString fresh = newDeviceId.trimmed();
     if (fresh.isEmpty())
         return StoreBlockReason::MissingDeviceId;
 
-    // Re-authorizing the SAME device that owns this store: restoring the new
-    // tokens into it is correct and is the ordinary "my session expired, sign
-    // in again" path. Device IDs are case-sensitive opaque server strings, so
-    // this is an exact comparison.
+    // Re-authorizing the device that owns this store (an expired session signed
+    // in again): restoring into it is correct. Device ids are opaque
+    // case-sensitive strings, so compare exactly.
     if (saved == fresh)
         return StoreBlockReason::None;
 
-    // A genuinely new device. The existing store belongs to the old one and
-    // must not be adopted.
+    // A new device: the existing store belongs to the old one and must not be
+    // adopted.
     return StoreBlockReason::ExistingStoreNeedsRestore;
 }
 
@@ -112,8 +109,8 @@ QString diagnosticName(StoreBlockReason reason)
     case StoreBlockReason::SecretBackendUnavailable:
         return QStringLiteral("secret_backend_unavailable");
     case StoreBlockReason::InvalidSavedIdentity:
-        // Unchanged token: this string was already emitted as a raw literal
-        // from restoreSession(), and the UI keys off it.
+        // Stable token: restoreSession() emits it as a literal and the UI keys
+        // off it.
         return QStringLiteral("invalid_saved_account_identity");
     }
     return QStringLiteral("unknown");
@@ -121,11 +118,9 @@ QString diagnosticName(StoreBlockReason reason)
 
 QString userMessage(StoreBlockReason reason)
 {
-    // NOT named `tr`: lupdate reads a bare msg( call as a QObject member and
-    // warns that this namespace "lacks Q_OBJECT macro", which invites the
-    // wrong fix. The strings are extracted correctly either way — the
-    // context is spelled out in the translate() call — but the warning is
-    // noise in every localization build.
+    // Not named `tr`: lupdate would warn that this namespace "lacks Q_OBJECT
+    // macro". The context is explicit in translate(), so extraction works
+    // either way.
     const auto msg = [](const char *text) {
         return QCoreApplication::translate("matrix::rust_session", text);
     };
@@ -133,9 +128,8 @@ QString userMessage(StoreBlockReason reason)
     case StoreBlockReason::None:
         return {};
     case StoreBlockReason::MissingStoreForSavedSession:
-        // The historical bug: this said the store "belongs to a different
-        // session or device" and offered to reset it — a store that is not
-        // there. Signing in again is the whole remedy.
+        // The store is not there, so there is nothing to reset; signing in
+        // again is the remedy.
         return msg("Lightning has a saved sign-in for this account but its "
                   "local encryption store is missing. Sign in again to "
                   "recreate it. Messages already on the server are not "
@@ -195,8 +189,8 @@ bool suggestsLocalReset(StoreBlockReason reason)
     case StoreBlockReason::AmbiguousStoreCandidates:
     case StoreBlockReason::AccessTokenRevoked:
     case StoreBlockReason::ExistingStoreNeedsRestore:
-    // The sign-in may be perfectly fine and merely unreadable. Deleting the
-    // store to "fix" a locked keyring destroys room keys to solve nothing.
+    // The sign-in may be fine and merely unreadable; deleting the store for a
+    // locked keyring destroys room keys for nothing.
     case StoreBlockReason::SecretBackendUnavailable:
         return false;
     }
@@ -221,7 +215,7 @@ bool suggestsLocalResetForCode(const QString &reasonCode)
             return suggestsLocalReset(reason);
     }
     // Codes emitted outside the enum. `cleanup_incomplete` means a previous
-    // repair did not finish, so retrying it is exactly the remedy.
+    // repair did not finish, so retrying it is the remedy.
     if (code == QLatin1String("cleanup_incomplete"))
         return true;
     if (code == QLatin1String("sdk_store_ownership_mismatch"))

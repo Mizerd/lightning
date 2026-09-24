@@ -11,18 +11,16 @@
 
 #include <algorithm>
 
-// Bounded, sanitized receipt-movement diagnostics (off by default). A live
-// "receipts disappeared" report needs to distinguish a Set that legitimately
-// moved a receipt from one the SDK never delivered; this logs COUNTS only —
-// never user ids, bodies, or event content.
+// Receipt-movement diagnostics (off by default). Logs counts only, never
+// user ids, bodies or event content, to tell a legitimate receipt move from
+// one the SDK never delivered.
 Q_LOGGING_CATEGORY(lcReceiptDiag, "matrix.receipts", QtWarningMsg)
 
 namespace matrix::rust_timeline {
 
 namespace {
 
-// Matches GALLERY_ITEM_CAP in rust/src/timeline.rs: the most attachments one
-// MSC4274 gallery row may carry across the bridge.
+// Matches GALLERY_ITEM_CAP in rust/src/timeline.rs.
 constexpr int kMaxGalleryItems = 32;
 
 QDateTime timestampFromMs(qint64 ms)
@@ -32,17 +30,10 @@ QDateTime timestampFromMs(qint64 ms)
     return QDateTime::fromMSecsSinceEpoch(ms, QTimeZone::UTC);
 }
 
-// Profile-change display names are UNTRUSTED text and already arrive
-// bounded (the Rust bridge caps them at 255 code points). Bound them here
-// too: this layer is a pure translator over arbitrary JSON, and it must not
-// hand the model an unbounded string merely because the usual producer is
-// well behaved.
-//
-// Counted in CODE POINTS, not QChars, and deliberately so — a name made of
-// emoji is two QChars per character, and a plain left(255) would cut
-// between a surrogate pair and produce an INVALID string rather than a
-// merely short one. Matching the Rust unit means a bridge-bounded name is
-// never truncated a second time here.
+// Untrusted display names, already capped at 255 code points in Rust; bound
+// them here too since this is a pure translator over arbitrary JSON. Counted
+// in code points so a cut never splits a surrogate pair, and so a
+// bridge-bounded name is never truncated twice.
 QString boundedCodePoints(const QString &name, int maxCodePoints)
 {
     qsizetype units = 0;
@@ -62,8 +53,8 @@ QString boundedProfileName(const QString &name)
     return boundedCodePoints(name, 255);
 }
 
-// Attachment names and types are sender-chosen too, and a gallery multiplies
-// them by its item count. Same unit and same reason as the profile names.
+// Attachment names are sender-chosen too; same unit and reason as profile
+// names.
 QString boundedFilename(const QString &name)
 {
     return boundedCodePoints(name, 255);
@@ -96,12 +87,11 @@ TimelineEvent::Type rowTypeForMsgtype(const QString &msgtype)
         return TimelineEvent::Poll;
     if (msgtype == QLatin1String("state"))
         return TimelineEvent::StateChange;
-    // 2026-08-26: its own row kind. It used to arrive as "state", which is
-    // what folded a call into the "N room updates" group.
+    // Calls get their own row kind rather than "state", so they are not folded
+    // into the room-updates group.
     if (msgtype == QLatin1String("call"))
         return TimelineEvent::CallEvent;
-    // v0.9.0: a shared place. Its own kind, because it renders as a place
-    // with a map link rather than as text.
+    // A shared place: rendered with a map link rather than as text.
     if (msgtype == QLatin1String("location"))
         return TimelineEvent::Location;
     if (msgtype == QLatin1String("text"))
@@ -142,21 +132,17 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.senderAvatarUrl =
         item.value(QStringLiteral("sender_avatar_url")).toString();
     e.body = item.value(QStringLiteral("body")).toString();
-    // The sanitized-HTML rendering path (MessageHtml::sanitize behind
-    // FormattedBodyRole) is fed from here; dropping this field would make
-    // every live-timeline row fall back to the plain body — for mention
-    // sends that is the raw markdown source.
+    // Feeds the sanitized-HTML path (MessageHtml::sanitize via
+    // FormattedBodyRole); without it rows fall back to the plain body, which
+    // for mentions is raw markdown.
     e.formattedBody = item.value(QStringLiteral("formatted_body")).toString();
     e.stateKind = item.value(QStringLiteral("state_kind")).toString();
     e.membershipChange =
         item.value(QStringLiteral("membership_change")).toString();
     e.stateTarget = item.value(QStringLiteral("state_target")).toString();
-    // Typed member-profile change. Rust sends null for profile_name_change
-    // when the event carried no real rename (an avatar-only change, or an
-    // old value equal to the new one) — toString() maps that to the empty
-    // default, which is exactly "no name change". Absent old/new fields
-    // likewise stay empty; the sentence builder falls back rather than
-    // printing empty quotes.
+    // Rust sends null profile_name_change when there was no real rename, which
+    // toString() maps to "" (no name change). Absent old/new names stay empty
+    // and the sentence builder falls back.
     e.profileNameChange =
         item.value(QStringLiteral("profile_name_change")).toString();
     e.profileNameOld = boundedProfileName(
@@ -165,18 +151,15 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
         item.value(QStringLiteral("profile_name_new")).toString());
     e.profileAvatarChanged =
         item.value(QStringLiteral("profile_avatar_changed")).toBool(false);
-    // Typed call row. `call_kind` is a CLOSED SET at the bridge; anything
-    // else is dropped rather than forwarded, because this string decides
-    // which sentence a row carrying a Join button prints. An unknown kind
-    // still renders (the sentence falls back to the generic call wording) —
-    // it simply cannot introduce a spelling this side never agreed to.
+    // `call_kind` is a closed set: anything else is dropped, because it picks
+    // the sentence on a row carrying a Join button. An unknown kind still
+    // renders with the generic wording.
     const QString callKind = item.value(QStringLiteral("call_kind")).toString();
     if (callKind == QLatin1String("invite")
         || callKind == QLatin1String("notification"))
         e.callEventKind = callKind;
     e.callIsVideo = item.value(QStringLiteral("call_video")).toBool(false);
-    // Clamped at 0: a negative count is not a thing, and this number is
-    // rendered as "N declined".
+    // Clamped at 0; rendered as "N declined".
     e.callDeclinedCount = std::max(
         0, item.value(QStringLiteral("call_declined_count")).toInt(0));
     e.timestamp = timestampFromMs(static_cast<qint64>(
@@ -201,9 +184,8 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     else
         e.status = TimelineEvent::Sent;
     e.sendErrorCategory = item.value(QStringLiteral("send_error")).toString();
-    // Media-upload progress, present only while the SDK is actually
-    // uploading. Absent fields stay 0/0, which the delegate reads as
-    // "uploading, extent unknown" rather than as 0%.
+    // Upload progress, present only while the SDK uploads. Absent fields stay
+    // 0/0, read as "extent unknown" rather than 0%.
     e.uploadedBytes = static_cast<qint64>(
         item.value(QStringLiteral("send_upload_current")).toDouble(0));
     e.uploadTotalBytes = static_cast<qint64>(
@@ -213,18 +195,13 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.replyToSender = item.value(QStringLiteral("reply_to_sender")).toString();
     e.replyToSenderId =
         item.value(QStringLiteral("reply_to_sender_id")).toString();
-    // The SDK's embedded reply preview is the PLAIN body, which for a
-    // Lightning-sent mention contains the matrix.to markdown link verbatim
-    // ("[Grok AI](https://matrix.to/#/@…)" rendered raw in the quote —
-    // live-feedback screenshot). Route it through the same normalizing
-    // choke point the room-list previews already use. Empty previews (the
-    // overwhelming majority of items) skip the regex pass entirely.
+    // The SDK's reply preview is the plain body, which for a mention carries
+    // the matrix.to markdown link verbatim; normalize it like room-list
+    // previews. Empty previews skip the regex pass.
     const QString rawReplyPreview =
         item.value(QStringLiteral("reply_to_preview")).toString();
-    // The cap is the REPLY QUOTE's, not the room list's. normalizePreviewText
-    // defaults to 120, which would undo the wider budget Rust just applied and
-    // put the cut back on a constant instead of on the window; the QML label
-    // elides to the width actually available, so this only bounds the string.
+    // The reply quote's own cap: normalizePreviewText's default of 120 would
+    // undo Rust's wider budget. The QML label elides to the available width.
     e.replyToPreview =
         rawReplyPreview.isEmpty()
             ? rawReplyPreview
@@ -232,11 +209,9 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
                   rawReplyPreview, matrix::preview::kReplyPreviewMaxChars);
     e.replyToMediaKey =
         item.value(QStringLiteral("reply_to_media_key")).toString();
-    // A CLOSED SET, like call_kind above: this string picks the label the
-    // quote prints, so a spelling this side never agreed to is dropped rather
-    // than forwarded. The count is a gallery's and is clamped to the Rust
-    // side's own item cap (GALLERY_ITEM_CAP), so it can never print a number
-    // the row cannot show.
+    // Closed set like call_kind: this picks the quote's label. The gallery
+    // count is clamped to GALLERY_ITEM_CAP so it never exceeds what the row can
+    // show.
     static const QStringList kReplyKinds = {
         QStringLiteral("text"),     QStringLiteral("notice"),
         QStringLiteral("emote"),    QStringLiteral("image"),
@@ -253,16 +228,13 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
         kMaxGalleryItems);
     e.threadRootId = item.value(QStringLiteral("thread_root_id")).toString();
 
-    // v0.6.0: SDK thread summary on thread root events (absent fields keep
-    // the "-1 = unknown" contract so non-SDK backends fall back to local
-    // counting).
+    // SDK thread summary on roots; absent fields keep "-1 = unknown" so non-SDK
+    // backends count locally.
     e.isThreadRoot = item.value(QStringLiteral("is_thread_root")).toBool(false);
     e.threadReplyCount = item.contains(QStringLiteral("thread_reply_count"))
         ? item.value(QStringLiteral("thread_reply_count")).toInt(-1)
         : -1;
-    // Same plain-body provenance as reply_to_preview (both come from the
-    // Rust side's content_preview()) — a mention-bearing latest reply would
-    // otherwise render its matrix.to markdown raw in the summary card.
+    // Same plain-body source as reply_to_preview; normalize the markdown links.
     const QString rawThreadPreview =
         item.value(QStringLiteral("thread_latest_preview")).toString();
     e.threadLatestPreview = rawThreadPreview.isEmpty()
@@ -291,9 +263,8 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     const QString rawFilename =
         item.value(QStringLiteral("media_filename")).toString();
     e.mediaFilename = boundedFilename(rawFilename);
-    // A body that IS the name must stay equal to the (bounded) name, or the
-    // cap alone would turn it into a "caption" — the delegate shows a body
-    // that differs from the filename as one (mediaCaptionBody).
+    // A body equal to the name must stay equal to the bounded name, or the
+    // delegate would show it as a caption (mediaCaptionBody).
     if (e.mediaFilename.size() != rawFilename.size()
         && e.body.trimmed().compare(rawFilename.trimmed(), Qt::CaseInsensitive) == 0)
         e.body = e.mediaFilename;
@@ -312,19 +283,15 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
             e.mediaWaveform.append(amp);
     }
 
-    // v0.5.9: media-bridge retrieval key + availability flags (set for both
-    // plain and encrypted sources; the source itself stays inside Rust).
+    // Media-bridge key and availability flags; the source itself stays in Rust.
     e.mediaKey = item.value(QStringLiteral("media_key")).toString();
     e.mediaSourceAvailable =
         item.value(QStringLiteral("media_source_available")).toBool(false);
     e.mediaThumbAvailable =
         item.value(QStringLiteral("media_thumb_available")).toBool(false);
-    // MSC4274 gallery items. Bounded HERE as well as in Rust, for the same
-    // reason the reaction senders are: this is a pure translator over
-    // arbitrary JSON. An item with no key cannot be fetched and an item of a
-    // kind outside the closed set cannot be drawn, so both are dropped; fewer
-    // than two survivors is not a gallery at all, and the row stays the
-    // single attachment its own media fields already describe.
+    // MSC4274 gallery items, bounded here as well as in Rust. Items without a
+    // key or with a kind outside the closed set are dropped; fewer than two
+    // survivors is not a gallery, and the row stays a single attachment.
     const QJsonArray galleryItems =
         item.value(QStringLiteral("gallery_items")).toArray();
     for (const auto &value : galleryItems) {
@@ -364,19 +331,11 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
         r.key = obj.value(QStringLiteral("key")).toString();
         r.count = obj.value(QStringLiteral("count")).toInt(0);
         r.byMe = obj.value(QStringLiteral("by_me")).toBool(false);
-        // Reactor ids: a bounded window in the SDK's own insertion order
-        // (Rust caps at 16 and puts the local user first) alongside the
-        // uncapped `count`. An entry that is not a non-empty string is
-        // malformed and dropped — never an empty-identity name in a
-        // tooltip. Order is preserved: the tooltip reads "You and …" off
-        // position 0 rather than re-scanning for the local user.
-        // Bounded HERE as well as in Rust, for the same reason the profile
-        // names above are: this function is a pure translator over arbitrary
-        // JSON, and it must not hand the model an unbounded list merely
-        // because the usual producer is well behaved. The cap matches
-        // REACTION_SENDER_CAP in rust/src/timeline.rs; the uncapped total
-        // still travels in `count`, so nothing downstream has to infer it
-        // from the list length.
+        // Reactor ids: a bounded window in SDK order (local user first) beside
+        // the uncapped `count`. Non-string or empty entries are dropped. Order
+        // is kept so the tooltip can read "You and …" from position 0. Bounded
+        // here as well as in Rust; the cap matches REACTION_SENDER_CAP in
+        // rust/src/timeline.rs.
         constexpr int kMaxReactionSenders = 16;
         const QJsonArray senders = obj.value(QStringLiteral("senders")).toArray();
         r.senders.reserve(std::min<int>(senders.size(), kMaxReactionSenders));
@@ -391,15 +350,11 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
             e.reactions.append(r);
     }
 
-    // Read receipts on this event (absent fields => empty list). Only the
-    // reader's user id and the receipt timestamp cross the FFI; an entry
-    // without a user id is malformed and dropped, a null/absent ts keeps
-    // the 0 = "no timestamp" default. Receipts move between rows through
-    // ordinary Set diffs (full-row replacement carries the new list).
-    // read_by is a bounded newest-first window (Rust caps at 16);
-    // read_by_total is the uncapped count — absent or inconsistent totals
-    // clamp to the delivered list size so "+N" can never undercount what
-    // is visibly present.
+    // Read receipts: only the reader's user id and timestamp cross the FFI.
+    // Entries without a user id are dropped; a missing ts keeps 0 ("no
+    // timestamp"). read_by is a bounded newest-first window (16); read_by_total
+    // is the uncapped count, clamped to at least the delivered list so "+N"
+    // never undercounts.
     const QJsonArray readBy = item.value(QStringLiteral("read_by")).toArray();
     for (const auto &value : readBy) {
         const QJsonObject obj = value.toObject();
@@ -413,11 +368,9 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.readByTotal = qMax(item.value(QStringLiteral("read_by_total")).toInt(0),
                          static_cast<int>(e.readBy.size()));
 
-    // v0.9.0: a shared place. The coordinates are only read when the bridge
-    // supplied BOTH — it omits them when the geo URI did not parse or named
-    // somewhere that is not on Earth, and `contains` is what distinguishes
-    // "absent" from a legitimate 0.0 (the equator, and the prime meridian,
-    // are real places).
+    // Coordinates are read only when the bridge supplied both. It omits them
+    // when the geo URI did not parse or was not on Earth; `contains` separates
+    // absent from a legitimate 0.0.
     if (e.type == TimelineEvent::Location) {
         const bool hasLat = item.contains(QStringLiteral("locationLat"));
         const bool hasLon = item.contains(QStringLiteral("locationLon"));
@@ -437,8 +390,8 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
             item.value(QStringLiteral("locationLiveActive")).toBool(false);
     }
 
-    // v0.7: MSC3381 poll presentation. Counts arrive pre-gated from Rust
-    // (0 for a running undisclosed poll); nothing here re-aggregates.
+    // MSC3381 poll presentation. Counts arrive pre-gated from Rust (0 for a
+    // running undisclosed poll); nothing is re-aggregated here.
     if (e.type == TimelineEvent::Poll) {
         e.pollQuestion = item.value(QStringLiteral("poll_question")).toString();
         e.pollKind = item.value(QStringLiteral("poll_kind")).toString();
@@ -461,8 +414,8 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
         }
     }
 
-    // Honest placeholder for undecryptable rows — the FFI contract sends an
-    // empty body and never ciphertext.
+    // Placeholder for undecryptable rows; the FFI sends an empty body, never
+    // ciphertext.
     if (e.undecryptable && e.body.isEmpty()) {
         e.body = QCoreApplication::translate("RustTimeline",
                                              "[unable to decrypt yet]");
@@ -480,40 +433,18 @@ QList<TimelineEvent> eventsFromItemArray(const QJsonArray &items,
     for (const auto &value : items)
         out.append(eventFromItemJson(value.toObject(), roomId));
 
-    // A SNAPSHOT CAN CARRY THE SAME MESSAGE TWICE — ONCE AS A LOCAL ECHO AND
-    // ONCE AS THE REMOTE EVENT. Reported 2026-09-20 as "a message got
-    // duplicated on my end even though only one went out".
+    // A snapshot can carry the same message twice: once as a local echo and
+    // once as the remote event. On a timeline rebuild matrix-sdk-ui loads
+    // remote events first and then pushes still-queued local echoes
+    // unconditionally (the dedup in recycle_local_or_create_item only runs on
+    // the remote path). The queue can still owe an echo because matrix-sdk
+    // disables a room's send queue after a send error (see
+    // rust/src/timeline.rs).
     //
-    // The mechanism is in matrix-sdk-ui and it only bites on a timeline
-    // REBUILD. `TimelineBuilder` calls `init_focus()` first, which loads the
-    // remote events out of the event cache, and THEN subscribes to the send
-    // queue, whose still-queued local echoes are each fed to
-    // `handle_local_echo`. That path (`event_handler.rs`, the `Flow::Local`
-    // arm) does an unconditional `items.push_local(item)`. The dedup that
-    // would catch it, `recycle_local_or_create_item`, matches on event id or
-    // transaction id but is reachable ONLY from the `Flow::Remote` arms — and
-    // on a rebuild the order is inverted, so it never runs. The SDK's own
-    // self-heal fires on a send-state update, which a rebuild does not
-    // deliver.
-    //
-    // The queue stays owing an echo for a message the server already has
-    // because matrix-sdk disables a room's send queue after any send error
-    // (see rust/src/timeline.rs) — a state this repo already documents as
-    // "the timeline says a local echo is still in flight while the server
-    // already has the event", previously resolved "only by a room switch".
-    //
-    // MATCHED ON EVENT ID, NOT TRANSACTION ID. The obvious pairing is the
-    // transaction id, and it cannot work: `EventTimelineItem::transaction_id()`
-    // is `as_variant!(kind, Local(local) => ...)`, i.e. `Some` for a local
-    // echo and `None` for every remote item, so the field is always empty on
-    // the half we would have to match against. `event_id()` is `Some` on BOTH
-    // — the SDK documents that a local echo knows its id "from the response
-    // of the send request that created the event". Two items sharing an event
-    // id are the same message by definition, so this cannot mis-fire.
-    //
-    // The REMOTE row wins: it is authoritative, carries the server timestamp
-    // and its full state. An echo with no event id yet is a genuine pending
-    // row and is left alone.
+    // Matched on event id, not transaction id: transaction_id() is None for
+    // every remote item, while event_id() is set on both once the send request
+    // returned. Two items sharing an event id are the same message. The remote
+    // row wins; an echo without an event id is genuinely pending and kept.
     QSet<QString> remoteIds;
     for (const auto &e : std::as_const(out)) {
         if (!e.isLocalEcho && !e.eventId.isEmpty())
@@ -543,7 +474,7 @@ DiffOutcome applyTimelineDiff(QList<TimelineEvent> &mirror,
     if (op == QLatin1String("append")) {
         const QJsonArray items = diff.value(QStringLiteral("items")).toArray();
         out.items = eventsFromItemArray(items, roomId);
-        // An empty append is a harmless no-op, not a corruption signal.
+        // An empty append is a no-op, not a corruption signal.
         mirror.append(out.items);
         out.kind = DiffOutcome::Appended;
         return out;

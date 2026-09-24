@@ -11,33 +11,25 @@ struct Reaction {
     int count = 0;           // Total distinct senders that reacted with this key.
     bool byMe = false;       // True if the current user is one of them.
     QString myEventId;       // If byMe: the event_id of our reaction, needed to redact.
-    // Who reacted, as stable user ids — the Rust bridge sends a bounded
-    // window (16, the read-receipt cap) with the local user first, while
-    // `count` above stays the UNCAPPED total. Presentation resolves these
-    // to room display names at role-read time; the ids themselves are what
-    // the SDK reported, never a name the bridge guessed. Empty on the mock
-    // and HTTP backends, which report no reactor identities.
+    // Reactor user ids. The Rust bridge sends a bounded window (16) with the
+    // local user first; `count` stays the uncapped total. Presentation resolves
+    // names at read time. Empty on the mock and HTTP backends.
     QStringList senders;
 };
 
-// One user's read receipt on the event (Rust backend, SDK receipt
-// tracking). Carries ONLY the public receipt metadata the server already
-// shares: the reader's stable user id and the receipt timestamp (0 when
-// the receipt carried none). The SDK attaches each user's receipt to the
-// LATEST message-like event it applies to, so receipts advance between
-// rows via ordinary Set diffs. Thread-timeline rows always carry an empty
-// list: Lightning's thread builders deliberately leave receipt tracking
-// Disabled, because the SDK's receipt handling is not thread-aware and
-// enabling it there would attach the room's unthreaded receipts to thread
-// rows (wrong data, not merely missing data).
+// One user's read receipt (Rust backend): the reader's user id and the
+// receipt timestamp (0 when absent). The SDK attaches each receipt to the
+// latest message-like event it applies to. Thread rows always carry none:
+// the thread builders disable receipt tracking because the SDK's receipt
+// handling is not thread-aware and would attach room receipts to thread rows.
 struct ReadReceipt {
     QString userId;
     qint64 tsMs = 0;
 };
 
-// One MSC3381 poll answer with its SDK-aggregated tally (v0.7). `count` is
-// 0 for undisclosed polls that have not ended — hidden tallies never cross
-// the FFI. `byMe` reflects the user's latest valid response.
+// One MSC3381 poll answer with its SDK-aggregated tally. `count` is 0 for
+// undisclosed polls that have not ended; hidden tallies never cross the FFI.
+// `byMe` reflects the user's latest valid response.
 struct PollAnswer {
     QString id;              // Stable answer id from the poll-start event.
     QString text;
@@ -46,10 +38,9 @@ struct PollAnswer {
 };
 
 // One attachment of an MSC4274 media gallery (Rust backend). Metadata only:
-// `mediaKey` addresses the item's source in the Rust media registry exactly as
-// a single attachment's row key does, and the source itself (content keys
-// included, in an encrypted room) never leaves Rust. `kind` is a CLOSED SET —
-// "image", "video", "audio" or "file" — enforced at ingest.
+// `mediaKey` addresses the source in the Rust media registry, and the source
+// (with content keys in encrypted rooms) never leaves Rust. `kind` is a
+// closed set enforced at ingest: "image", "video", "audio" or "file".
 struct GalleryItem {
     QString mediaKey;
     QString kind;
@@ -71,32 +62,26 @@ struct TimelineEvent {
         File,
         StateChange,
         Unknown,
-        // v0.5.7: virtual SDK timeline rows. Appended after Unknown so the
-        // integer values CacheStore persisted for the HTTP backend stay
-        // stable. Virtual rows are never persisted.
+        // Virtual SDK timeline rows, never persisted. New kinds are appended so
+        // the integer values CacheStore persisted stay stable.
         DateDivider,
         ReadMarker,
         TimelineStart,
-        // v0.7: typed media rows (previously collapsed into File/Unknown).
-        // Appended last so persisted integer values stay stable.
+        // Typed media rows; appended to keep persisted values stable.
         Video,
         Audio,
         Sticker,
-        // v0.7: MSC3381 polls (Rust backend only). Appended last so
-        // persisted integer values stay stable.
+        // MSC3381 polls (Rust backend only); appended to keep persisted values
+        // stable.
         Poll,
-        // 2026-08-26: a call somebody started (SDK CallInvite /
-        // RtcNotification). Its own row kind, NOT a StateChange: riding
-        // `state` put it inside the collapsed room-activity group, where one
-        // call rendered as "1 room update" expanding to the literal words
-        // "call event". Appended last so every persisted integer value above
-        // stays stable.
+        // A call somebody started (SDK CallInvite / RtcNotification). Its own
+        // kind rather than a StateChange, so it is not folded into the
+        // collapsed room-activity group. Appended to keep persisted values
+        // stable.
         CallEvent,
-        // v0.9.0: a shared place — static `m.location` (MSC3488) or a live
-        // beacon (MSC3672). Its own kind rather than a File or a Notice
-        // because it renders as a place with a map link and a live one
-        // carries whether it is still current. Appended last so every
-        // persisted integer value above stays stable.
+        // A shared place: static `m.location` (MSC3488) or a live beacon
+        // (MSC3672), rendered with a map link. Appended to keep persisted
+        // values stable.
         Location,
     };
 
@@ -116,46 +101,31 @@ struct TimelineEvent {
     // Typed room-activity target (for example the affected member's display
     // name or MXID). State presentation never needs raw event JSON.
     QString stateTarget;
-    // What a `membership` state row actually did, as a CLOSED SET:
-    // "" (unknown) / "joined" / "left" / "invited" / "kicked" / "banned" /
-    // "unbanned" / "revoked".
-    //
-    // Beside the sentence rather than inside it, so the presentation layer
-    // can draw a glyph per action without parsing a translated sentence back
-    // apart. Unknown stays unknown: a wrong glyph is a wrong claim about what
-    // somebody did.
+    // What a membership state row did, as a closed set: "" (unknown) / "joined"
+    // / "left" / "invited" / "kicked" / "banned" / "unbanned" / "revoked". Kept
+    // separate from the sentence so presentation can pick a glyph without
+    // parsing translated text. Unknown stays unknown.
     QString membershipChange;
     // m.room.member profile change (stateKind == "member_profile"), typed so
-    // the presentation layer can translate it instead of receiving an
-    // English sentence built in the bridge — which could neither be
-    // translated nor use the actor's resolved display name.
-    // profileNameChange: "" (no name change) / "set" / "changed" /
-    // "cleared". The old/new names are bounded at 255 chars in Rust and are
-    // UNTRUSTED plain text: render them as PlainText, never as rich text.
-    // Only the avatar FACT crosses — never the mxc URI.
+    // presentation can translate it with the actor's resolved name.
+    // profileNameChange: "" (none) / "set" / "changed" / "cleared". The names
+    // are bounded to 255 chars in Rust and are untrusted plain text: render as
+    // PlainText, never rich text. Only the avatar fact crosses, never the mxc.
     QString profileNameChange;
     QString profileNameOld;
     QString profileNameNew;
     bool profileAvatarChanged = false;
 
-    // 2026-08-26: typed call row (type == CallEvent). Every field is
-    // PRESENTATION-SAFE and closed-set — no free text chosen by a sender
-    // reaches this row, because the row carries a Join control and the
-    // tombstone rule applies: what a remote user wrote must never label a
-    // control the reader is invited to click.
+    // Typed call row (type == CallEvent). Every field is presentation-safe and
+    // closed-set: the row carries a Join control, and sender-written text must
+    // never label a control the reader is invited to click.
     //   callEventKind: "invite" (legacy m.call.invite) | "notification"
-    //                  (MatrixRTC m.rtc.notification). Empty on a backend
-    //                  that states no kind. Carried but NOT branched on
-    //                  today: both read "started a call", and the row's Join
-    //                  control is gated on the room having a LIVE MatrixRTC
-    //                  session rather than on which row you clicked — that
-    //                  is the honest gate for either kind, and it is the
-    //                  same one RoomCallBanner uses.
-    //   callIsVideo:   the caller's stated VIDEO intent. False means "not
-    //                  known to be video", never "audio only" — the legacy
-    //                  invite states no intent at all, and the sentence
-    //                  ("started a call") is true either way.
-    //   callDeclinedCount: how many people declined. A COUNT, never the ids.
+    //                  (MatrixRTC m.rtc.notification), empty when unstated. Not
+    //                  branched on: Join is gated on the room having a live
+    //                  MatrixRTC session, as in RoomCallBanner.
+    //   callIsVideo:   the caller's stated video intent. False means "not
+    //                  known to be video", never "audio only".
+    //   callDeclinedCount: how many people declined; a count, never the ids.
     QString callEventKind;
     bool callIsVideo = false;
     int callDeclinedCount = 0;
@@ -166,36 +136,30 @@ struct TimelineEvent {
     bool edited = false;
     bool redacted = false;
 
-    // Relations (v0.3).
+    // Relations.
     QString threadRootId;
     QString replyToEventId;
     QString replyToSender;
-    // The replied-to sender's MXID, kept beside the label. The Rust backend
-    // resolves the display name at the source (the SDK carries the embedded
-    // event's own profile) and sends the id separately, so the quote can be
-    // coloured by the SAME identity hash the message header uses. Backends
-    // that only know the id leave this empty and put the id in replyToSender,
-    // which is the older shape and still resolved below.
+    // The replied-to sender's MXID. The Rust backend resolves the display name
+    // at the source and sends the id separately so the quote uses the same
+    // identity colour as the header. Backends that only know the id leave this
+    // empty and put the id in replyToSender.
     QString replyToSenderId;
     QString replyToPreview;    // Short preview of the replied-to body, best-effort.
-    // 2026-08-18: media-bridge key for an IMAGE reply target (empty
-    // otherwise) — the embedded event's media is registered in the Rust
-    // registry under this key, exactly like a row's own media.
+    // Media-bridge key for an image reply target (empty otherwise), registered
+    // in the Rust registry like a row's own media.
     QString replyToMediaKey;
-    // 2026-09-23: what the replied-to event IS, when there are no words to
-    // quote — "image", "gif", "video", "audio", "file", "sticker", "poll",
-    // "text" …, the vocabulary of threadLatestKind — and how many attachments
-    // it carries when it is a gallery (0 otherwise). The quote says "Image"
-    // or "2 images" from these instead of "(original message not loaded)",
-    // which is what an image with an empty body (Sable) used to read as.
+    // What the replied-to event is when there are no words to quote ("image",
+    // "gif", "video", "audio", "file", "sticker", "poll", "text" …, as in
+    // threadLatestKind), and its attachment count for a gallery (0 otherwise),
+    // so the quote can say "Image" or "2 images".
     QString replyToKind;
     int replyToCount = 0;
 
-    // v0.6.0: SDK-provided thread summary on thread ROOT events. The reply
-    // count is the server's bundled aggregation (authoritative, kept live by
-    // sync); -1 means "no SDK summary" and the model falls back to counting
-    // locally loaded replies (mock/HTTP backends). threadUnread is a
-    // conservative receipt-based hint, never an exact count.
+    // SDK thread summary on thread roots. The reply count is the server's
+    // bundled aggregation; -1 means none and the model counts loaded replies
+    // instead (mock/HTTP). threadUnread is a conservative receipt-based hint,
+    // never an exact count.
     bool isThreadRoot = false;
     int threadReplyCount = -1;
     QString threadLatestPreview;
@@ -206,13 +170,12 @@ struct TimelineEvent {
     QDateTime threadLatestTimestamp;
     bool threadUnread = false;
 
-    // v0.6.0 checkpoint 11: authoritative mention metadata from the event's
-    // m.mentions (SDK-parsed) — never derived by substring matching.
+    // Mention metadata from the event's m.mentions (SDK-parsed), never derived
+    // by substring matching.
     bool mentionsMe = false;
     bool mentionsRoom = false;
 
-    // Media (v0.3). Non-empty only for media events (Image/File and the
-    // v0.7 typed Video/Audio/Sticker rows).
+    // Media. Non-empty only for media rows (Image/File/Video/Audio/Sticker).
     QString mediaMxcUrl;
     QString mediaMimetype;
     QString mediaFilename;
@@ -220,54 +183,46 @@ struct TimelineEvent {
     int     mediaWidth = 0;
     int     mediaHeight = 0;
     QString mediaThumbnailMxcUrl;
-    // v0.7: duration (audio/video) and the MSC3245 voice-message marker,
-    // straight from Matrix `info` metadata — the UI reserves type-correct
-    // geometry before any bytes arrive.
+    // Duration (audio/video) and the MSC3245 voice-message marker from Matrix
+    // `info` metadata, so the UI can reserve geometry before bytes arrive.
     qint64  mediaDurationMs = 0;
     bool    mediaIsVoice = false;
-    // v0.7: real MSC3245 waveform envelope (bridge-normalized 0..=100,
-    // at most 96 buckets). Empty when the event carried none — the UI
-    // then shows a plain progress track, never a fabricated waveform.
+    // MSC3245 waveform (bridge-normalized 0..=100, at most 96 buckets). Empty
+    // when absent; the UI then shows a plain progress track, never a fabricated
+    // waveform.
     QList<int> mediaWaveform;
 
-    // Media bridge (v0.5.9, Rust backend only). `mediaKey` identifies the
-    // item's media for MatrixClient::fetchMedia; the actual source (which
-    // for encrypted rooms embeds content keys) never leaves Rust. The flags
-    // tell the UI whether bytes can be fetched and whether a server-side
-    // thumbnail exists.
+    // Media bridge (Rust backend only). `mediaKey` identifies the item for
+    // MatrixClient::fetchMedia; the actual source (which embeds content keys in
+    // encrypted rooms) never leaves Rust. The flags say whether bytes and a
+    // server thumbnail are available.
     QString mediaKey;
     bool    mediaSourceAvailable = false;
     bool    mediaThumbAvailable = false;
-    // 2026-09-23: an MSC4274 gallery (two or more attachments in ONE event,
-    // which is what Sable sends for several pictures). The row's own media
-    // fields above describe its PRIMARY item — the first picture — so every
-    // surface that knows only single attachments stays truthful; this lists
-    // every item, primary included, in the sender's order. Empty for every
-    // other row, and a one-item gallery is simply a single attachment.
+    // An MSC4274 gallery (two or more attachments in one event). The media
+    // fields above describe the primary item so single-attachment surfaces stay
+    // truthful; this lists every item, primary included, in sender order. Empty
+    // for other rows; a one-item gallery is a single attachment.
     QList<GalleryItem> galleryItems;
 
-    // v0.5.9: SDK-reported display-name ambiguity for the sender (two
-    // active members share the name). UI appends a compact MXID
-    // disambiguator; identity always remains the user id.
+    // SDK-reported display-name ambiguity (two active members share the name).
+    // The UI appends a compact MXID; identity is always the user id.
     bool    senderNameAmbiguous = false;
 
-    // Reactions attached to this event (v0.3).
+    // Reactions attached to this event.
     QList<Reaction> reactions;
 
-    // Read receipts of every user whose receipt points at this event,
-    // including the local user (see struct ReadReceipt). Presentation
-    // excludes the local user and the row's sender (Element convention) in
-    // TimelineModel, not here — the mirror stays a faithful copy of what
-    // the SDK reported. The Rust bridge sends a bounded newest-first
-    // window (16 entries); readByTotal below keeps the uncapped count.
+    // Receipts of every user whose receipt points at this event, including the
+    // local user. TimelineModel excludes the local user and the sender; the
+    // mirror stays faithful to the SDK. The Rust bridge sends a bounded
+    // newest-first window (16); readByTotal keeps the uncapped count.
     QList<ReadReceipt> readBy;
-    // Total receipts the SDK reported for this event BEFORE the FFI cap
-    // (>= readBy.size()). The ingest clamps it to at least the delivered
-    // list size, so mock/HTTP rows that never set it stay consistent.
+    // Total receipts before the FFI cap (>= readBy.size()). The ingest clamps
+    // it to the delivered list size, so rows that never set it stay consistent.
     int readByTotal = 0;
 
-    // v0.7: MSC3381 poll presentation (type == Poll, Rust backend only).
-    // Aggregation is SDK/ruma-owned; these fields carry only the outcome.
+    // MSC3381 poll presentation (type == Poll, Rust backend only). Aggregation
+    // is SDK/ruma-owned; these fields carry only the outcome.
     QString pollQuestion;
     QString pollKind;            // "disclosed" | "undisclosed"
     int pollMaxSelections = 1;
@@ -275,69 +230,52 @@ struct TimelineEvent {
     bool pollEnded = false;
     QList<PollAnswer> pollAnswers;
 
-    // v0.9.0: a shared place (type == Location).
+    // A shared place (type == Location).
     //
-    // `locationHasPoint` is the load-bearing field. A geo URI is a message
-    // field anyone can send, and one that does not parse — or names a point
-    // that is not on Earth — leaves the coordinates UNSET rather than zero,
-    // because 0,0 is a spot in the Atlantic and a UI reading it would draw a
-    // confident link to the wrong place. False means render the body text
-    // and no map link.
+    // `locationHasPoint` is load-bearing: a geo URI that does not parse, or
+    // names a point not on Earth, leaves the coordinates unset rather than 0,0
+    // (a real spot in the Atlantic). False means render the body and no map
+    // link.
     bool locationHasPoint = false;
     double locationLat = 0.0;
     double locationLon = 0.0;
     /// The sender's stated accuracy in metres, 0 when they gave none.
     double locationUncertaintyM = 0.0;
     QString locationDescription;
-    /// "m.self" — the sender's own position — or "m.pin", a place they are
-    /// pointing at. Different sentences on screen.
+    /// "m.self" (the sender's own position) or "m.pin" (a place they point at).
     QString locationAsset;
     /// A live share (MSC3672) rather than a single point.
     bool locationLive = false;
-    /// Whether that live share is STILL current. The SDK checks the flag and
-    /// `ts + timeout` together; showing an expired share as live tells the
-    /// reader somebody is somewhere they may have left an hour ago.
+    /// Whether the live share is still current (the SDK checks the flag and
+    /// `ts + timeout`); an expired share must not be shown as live.
     bool locationLiveActive = false;
 
-    // Encryption flags (v0.5.0-prep+6). Populated by the Rust backend
-    // when it parses events out of the Matrix Rust SDK; HTTP and Mock
-    // leave everything at its default (all false / empty). The C++ UI
-    // must never derive plaintext from these flags — they carry only
-    // metadata:
-    //   isEncrypted  — the on-wire event was m.room.encrypted or the
-    //                  SDK decrypted it from one.
-    //   isDecrypted  — the SDK produced usable plaintext for `body`.
-    //                  Implies isEncrypted == true.
-    //   undecryptable — the SDK could not decrypt this event. Body is
-    //                   the localised placeholder; original ciphertext
-    //                   is deliberately NOT forwarded through the FFI.
-    //   errorKind    — best-effort hint from the SDK: "no_key",
-    //                  "session_missing", or empty. Never contains
-    //                  crypto material.
+    // Encryption flags, populated by the Rust backend; HTTP and Mock leave the
+    // defaults. Metadata only; never derive plaintext from them:
+    //   isEncrypted   - the event was m.room.encrypted or decrypted from one.
+    //   isDecrypted   - the SDK produced usable plaintext for `body`; implies
+    //                   isEncrypted.
+    //   undecryptable - the SDK could not decrypt it. Body is the localised
+    //                   placeholder; ciphertext never crosses the FFI.
+    //   errorKind     - SDK hint: "no_key", "session_missing", or empty. Never
+    //                   crypto material.
     bool    isEncrypted = false;
     bool    isDecrypted = false;
     bool    undecryptable = false;
     QString errorKind;
 
-    // Live SDK timeline metadata (v0.5.7). Populated only by the Rust
-    // backend's matrix-sdk-ui timeline path.
-    //   itemId            — the SDK's stable unique timeline-item id. The
-    //                       authoritative row identity for diff application;
-    //                       survives local-echo → remote reconciliation and
-    //                       undecryptable → decrypted replacement.
-    //   transactionId     — send-queue transaction id while the row is a
-    //                       local echo; used for retryFailedSend.
-    //   isLocalEcho       — true until the SDK reconciles the remote echo.
-    //   sendErrorCategory — coarse non-secret category ("network",
-    //                       "rejected") when status == Failed.
-    //   uploadedBytes /   — real media-upload progress while status ==
-    //   uploadTotalBytes    Sending, from the SDK send queue's own
-    //                       MediaUpload reports. BOTH ZERO means the total
-    //                       is not known: a text send has no upload at all,
-    //                       and the first diff of a media send can arrive
-    //                       before the first progress report. That is a
-    //                       spinner, never a 0% bar — the presentation side
-    //                       must not invent a denominator.
+    // Live SDK timeline metadata (Rust matrix-sdk-ui path only).
+    //   itemId            - the SDK's stable timeline-item id, the row identity
+    //                       for diffs; survives echo reconciliation and late
+    //                       decryption.
+    //   transactionId     - send-queue id while a local echo; for
+    //                       retryFailedSend.
+    //   isLocalEcho       - true until the remote echo is reconciled.
+    //   sendErrorCategory - coarse category ("network", "rejected") when
+    //                       status == Failed.
+    //   uploadedBytes /   - media-upload progress while Sending, from the SDK
+    //   uploadTotalBytes    send queue. Both zero means the total is unknown (a
+    //                       spinner, never a 0% bar).
     QString itemId;
     QString transactionId;
     bool    isLocalEcho = false;
@@ -351,11 +289,9 @@ struct TimelineEvent {
     }
 };
 
-// Every member is an implicitly-shared Qt value type (or trivial), so a
-// TimelineEvent can be moved by memcpy. Without this, QList treats the
-// struct as non-relocatable and every insert/prepend/removeAt shifts
-// elements through the full copy-constructor chain (~30 QString refcount
-// round trips each) — measurable on every pagination prepend.
+// All members are implicitly shared Qt types or trivial, so these structs
+// are relocatable; otherwise QList moves them through the copy constructor on
+// every insert/prepend (measurable on pagination).
 Q_DECLARE_TYPEINFO(Reaction, Q_RELOCATABLE_TYPE);
 Q_DECLARE_TYPEINFO(ReadReceipt, Q_RELOCATABLE_TYPE);
 Q_DECLARE_TYPEINFO(PollAnswer, Q_RELOCATABLE_TYPE);

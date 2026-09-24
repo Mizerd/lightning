@@ -15,16 +15,15 @@
 #include <QMimeData>
 
 namespace {
-// matrix-sdk 0.18 advertises a four-second typing timeout and suppresses
-// redundant calls itself. Renew just before expiry; text is never forwarded.
+// The SDK advertises a four-second typing timeout and suppresses redundant
+// calls itself; renew just before expiry. Text is never forwarded.
 constexpr int kTypingRefreshMs = 3000;
 constexpr int kTypingTimeoutMs = 4000;
-// Clipboard images beyond this edge are scaled down before encoding so a
-// paste can never trigger an unbounded allocation or upload.
+// Clipboard images larger than this are scaled down before encoding, so a
+// paste cannot cause an unbounded allocation or upload.
 constexpr int kMaxPasteEdge = 4096;
-// Draft-save debounce: long enough to coalesce a typing burst, short
-// enough that a crash loses at most a second of text. Room switches save
-// synchronously regardless.
+// Coalesces a typing burst while losing at most a second of text on a crash.
+// Room switches save synchronously.
 constexpr int kDraftSaveMs = 1000;
 }
 
@@ -42,8 +41,8 @@ MessageComposer::MessageComposer(QObject *parent)
         Q_EMIT attachmentsChanged();
         updateCanSend();
     });
-    // A video queued before its poster finished decoding dispatches here,
-    // the moment the poster resolves (or definitively fails).
+    // A video queued before its poster was ready dispatches once the poster
+    // resolves or fails.
     connect(m_attachments, &AttachmentQueueModel::entryPrepared,
             this, &MessageComposer::dispatchAttachment);
     m_draftDebounce.setSingleShot(true);
@@ -56,8 +55,7 @@ void MessageComposer::saveDraftNow()
 {
     if (!m_drafts || m_roomId.isEmpty() || m_restoringDraft)
         return;
-    // Edit mode: the text is the edited event's body. Saving it would
-    // resurrect an old message as a "draft".
+    // Edit mode: the text is the edited event's body, not a draft.
     if (!m_editingEventId.isEmpty())
         return;
     QVariantMap draft;
@@ -66,10 +64,8 @@ void MessageComposer::saveDraftNow()
         draft.insert(QStringLiteral("replyToEventId"), m_replyingToEventId);
         draft.insert(QStringLiteral("replyToSender"), m_replyingToSender);
         draft.insert(QStringLiteral("replyToPreview"), m_replyingToPreview);
-        // The banner thumbnail's key (the reply target's event id — a
-        // stable public identifier, never media bytes). Without it a
-        // room switch restored the text preview but silently dropped
-        // the thumbnail (review find, 2026-08-18).
+        // The banner thumbnail's key (the reply target's event id), so a room
+        // switch restores the thumbnail with the text.
         if (!m_replyingToMediaKey.isEmpty())
             draft.insert(QStringLiteral("replyToMediaKey"),
                          m_replyingToMediaKey);
@@ -107,18 +103,16 @@ void MessageComposer::restoreDraft()
         ref.displayText = map.value(QStringLiteral("displayText")).toString();
         ref.start = map.value(QStringLiteral("start")).toInt();
         ref.length = map.value(QStringLiteral("length")).toInt();
-        // Fail closed: a ref whose slice no longer matches its display
-        // text contributes nothing rather than mis-tagging someone.
+        // Fail closed: a ref whose slice no longer matches its text contributes
+        // nothing.
         if (!ref.userId.isEmpty() && ref.start >= 0 && ref.length > 0
             && ref.start + ref.length <= m_text.size()
             && m_text.mid(ref.start, ref.length) == ref.displayText) {
             m_mentionRefs.append(ref);
         }
     }
-    // The reply target is restored tolerantly: if the referenced event was
-    // redacted or is unavailable, the reply still sends (Matrix allows
-    // replying to a redacted event) and the user can always cancel the
-    // chip — a dangling target must never block editing or sending.
+    // Restored tolerantly: replying to a redacted or unavailable event is
+    // allowed, and a dangling target must never block editing or sending.
     m_replyingToEventId =
         draft.value(QStringLiteral("replyToEventId")).toString();
     m_replyingToSender =
@@ -143,9 +137,8 @@ void MessageComposer::setClient(MatrixClient *client)
     if (m_client) {
         connect(m_client, &MatrixClient::attachmentQueueFinished,
                 this, &MessageComposer::onAttachmentQueueFinished);
-        // Scoped to the room the composer is in: a late answer for a room
-        // the user has already left must not report over the new one (the
-        // same rule the attachment-failure notice follows).
+        // Scoped to the current room: a late answer for a room the user left
+        // must not report over the new one.
         connect(m_client, &MatrixClient::messageEditsRemoved, this,
                 [this](const QString &roomId, const QString &eventId, bool ok,
                        int removed, int failed, bool truncated) {
@@ -156,16 +149,13 @@ void MessageComposer::setClient(MatrixClient *client)
                 });
         connect(m_client, &MatrixClient::loggedOut, this, [this] {
             m_attachments->clearAll();
-            // Unresolved voice recordings must not outlive the session on
-            // disk; their ops can never resolve past this point.
+            // Unresolved voice recordings must not outlive the session on disk.
             for (const VoiceOp &op : std::as_const(m_voiceOps))
                 QFile::remove(op.localPath);
             m_voiceOps.clear();
-            // Review M2: a pending draft save must die WITH the session —
-            // firing after DraftStore's own loggedOut wipe would re-insert
-            // the signed-out account's plaintext into the store the next
-            // account inherits. The text goes too: it belongs to the
-            // account that typed it.
+            // A pending draft save must die with the session: firing after
+            // DraftStore's loggedOut wipe would re-insert the signed-out
+            // account's plaintext. The text goes too.
             m_draftDebounce.stop();
             m_roomId.clear();
             cancelReplyOrEdit(); // may re-arm the debounce — stop it again
@@ -209,8 +199,8 @@ bool MessageComposer::pasteFromClipboard()
     if (!mime)
         return false;
 
-    // Real file MIME data (text/uri-list) — e.g. copy from a file manager.
-    // Plain text is deliberately NOT interpreted as paths.
+    // Real file MIME data (text/uri-list), e.g. from a file manager. Plain text
+    // is never interpreted as paths.
     if (mime->hasUrls()) {
         bool any = false;
         const auto urls = mime->urls();
@@ -255,22 +245,15 @@ void MessageComposer::setSendTextAsCaption(bool on)
     Q_EMIT sendTextAsCaptionChanged();
 }
 
-// Attach the typed text to ONE queued attachment as its caption, and report
-// whether an attachment took it. A caption belongs to a single event — the
-// setting promises "one event instead of two", not one caption per file — so
-// the FIRST queued entry that can carry one takes it.
-//
-// Four cases deliberately fall back to the separate text message rather than
-// dropping the text on the floor:
+// Attach the typed text as the caption of one queued attachment (the first
+// that can carry one) and report whether it was taken. Falls back to a
+// separate text message when:
 //   * the setting is off;
-//   * nothing queued can carry a caption. A pasted image goes out through
-//     sendAttachmentBytes, which has no caption parameter at any layer;
-//   * the text carries @-mentions. A caption is a plain body: the m.mentions
-//     list has nowhere to go and the expanded matrix.to markdown would be
-//     shown literally, so mentions keep working by staying a real message;
-//   * the composer is in thread-reply mode. The attachment dispatch targets
-//     the ROOM, so a caption would move a thread reply into the main timeline
-//     (CLAUDE.md §8) — the one failure here that is not merely cosmetic.
+//   * nothing queued can carry a caption (sendAttachmentBytes, used for
+//     pasted images, has no caption parameter);
+//   * the text has @-mentions, which a plain caption body cannot carry;
+//   * the composer is in thread-reply mode: attachments target the room, so a
+//     caption would move a thread reply into the main timeline.
 bool MessageComposer::takeTextAsCaption(const QString &body,
                                         const QStringList &mentionIds)
 {
@@ -301,10 +284,9 @@ void MessageComposer::dispatchAttachments()
     }
 }
 
-// v0.7 video round: one entry's dispatch, separated out because a video
-// waits for its locally extracted poster. The wait is bounded by the
-// extractor's own timeout and resolves either way; a video whose poster
-// could not be produced still sends, just without one.
+// One entry's dispatch, separate because a video waits for its extracted
+// poster. The wait is bounded and resolves either way; without a poster the
+// video still sends.
 void MessageComposer::dispatchAttachment(int row)
 {
     if (!m_client || m_roomId.isEmpty())
@@ -316,17 +298,10 @@ void MessageComposer::dispatchAttachment(int row)
     if (entry.state != QLatin1String("queued") || !entry.sendRequested
         || entry.posterPending)
         return;
-    // The typed text rides along as the attachment's CAPTION when the user
-    // has asked for that (Settings → Appearance → Message box). One event
-    // instead of two. Empty when the setting is off, which is the previous
-    // behaviour exactly — the argument was a literal QString() before.
-    //
-    // TAKEN, NOT COPIED: send() attaches the text to exactly one queued entry
-    // and skips the separate text message under exactly the same condition,
-    // or a subsequent plain send would repeat it and the user would see their
-    // caption twice. A clipboard image never carries one: sendAttachmentBytes
-    // has no caption parameter at any layer, which is why takeTextAsCaption
-    // refuses an entry with no local path.
+    // The typed text as caption when the user enabled that (one event instead
+    // of two); empty otherwise. Taken, not copied: send() skips the separate
+    // text message under the same condition, so the caption never appears
+    // twice.
     const QString caption = entry.caption;
     quint64 opId = 0;
     if (entry.localPath.isEmpty()) {
@@ -339,9 +314,8 @@ void MessageComposer::dispatchAttachment(int row)
                                    entry.durationMs, entry.poster,
                                    entry.posterWidth, entry.posterHeight);
     } else {
-        // The duration is 0 for everything that is not a timed medium, and
-        // 0 for a timed one whose length could not be decoded — the send
-        // path treats both as "absent" rather than writing a literal zero.
+        // Duration is 0 for non-timed media or an undecodable length; both are
+        // sent as absent, never as a literal zero.
         opId = m_client->sendAttachment(m_roomId, entry.localPath,
                                         entry.mime, caption, entry.width,
                                         entry.height, entry.animated,
@@ -368,11 +342,9 @@ void MessageComposer::sendVoiceMessage(const QString &localPath,
         Q_EMIT attachmentRejected(tr("The voice message could not be sent."));
         return;
     }
-    // Preflight against the server's advertised upload limit, exactly like a
-    // tray attachment. A recording is the one attachment the user cannot
-    // resize, so failing it here — before an upload that the server would
-    // reject — is the only useful moment to say so. Silent when the limit is
-    // unknown: no invented ceiling refuses what the server would accept.
+    // Preflight against the server's upload limit: a recording cannot be
+    // resized, so fail before an upload the server would reject. Silent when
+    // the limit is unknown.
     const qint64 recordedBytes = QFileInfo(localPath).size();
     if (m_attachments && m_attachments->exceedsUploadLimit(recordedBytes)) {
         QFile::remove(localPath);
@@ -392,7 +364,7 @@ void MessageComposer::sendVoiceMessage(const QString &localPath,
         targetRoom, localPath, mime, static_cast<qint64>(durationMs),
         amplitudes);
     if (opId == 0) {
-        // Never queued: the recording is dead — reclaim it now.
+        // Never queued: reclaim the recording now.
         QFile::remove(localPath);
         Q_EMIT attachmentRejected(tr("The voice message could not be sent."));
         return;
@@ -408,26 +380,21 @@ void MessageComposer::onAttachmentQueueFinished(quint64 opId,
     Q_UNUSED(category);
     if (const auto voiceIt = m_voiceOps.constFind(opId);
         voiceIt != m_voiceOps.constEnd()) {
-        // The op owns its recording file; queued or failed, the SDK holds
-        // the bytes (or nothing) — the path is no longer needed. Cleanup is
-        // unconditional so a recording can never be orphaned on disk.
+        // The op owns its recording file; once queued or failed the path is no
+        // longer needed, so cleanup is unconditional.
         const VoiceOp op = voiceIt.value();
         QFile::remove(op.localPath);
         m_voiceOps.erase(voiceIt);
-        // Voice sends have no tray entry; only a failure needs surfacing —
-        // success already shows as the SDK local echo in the timeline. The
-        // notice is scoped to the room the recording was sent to: a failure
-        // that resolves after the user has switched away belongs to that
-        // conversation, not to whatever is on screen now, and there is no
-        // banner to leave behind when they return.
+        // Voice sends have no tray entry; success shows as the local echo, so
+        // only a failure is surfaced, and only in the room the recording was
+        // sent to.
         if (!ok && op.roomId == m_roomId)
             Q_EMIT attachmentRejected(
                 tr("The voice message could not be sent."));
         return;
     }
-    // Tray entries belong to the room they were prepared in — setRoomId
-    // clears them — so a late result for another room matches no row. The
-    // explicit guard keeps that true even if that ever changes.
+    // Tray entries belong to the room they were prepared in; setRoomId clears
+    // them. The explicit guard keeps a late result from matching another room.
     if (!roomId.isEmpty() && roomId != m_roomId)
         return;
     auto &entries = m_attachments->entries();
@@ -435,9 +402,8 @@ void MessageComposer::onAttachmentQueueFinished(quint64 opId,
         if (entries[row].opId != opId || opId == 0)
             continue;
         if (ok) {
-            // The SDK local echo now owns this attachment's send state; the
-            // tray entry has served its purpose. (State leaves "dispatching"
-            // first so removeAt's mid-dispatch guard does not apply.)
+            // The SDK local echo now owns the send state. Leave "dispatching"
+            // first so removeAt's mid-dispatch guard does not apply.
             entries[row].state = QStringLiteral("sent");
             m_attachments->removeAt(row);
         } else {
@@ -454,20 +420,18 @@ void MessageComposer::setText(const QString &t)
 {
     if (m_text == t)
         return;
-    // Keep the mention ranges in sync with an ordinary edit (typing, deletion,
-    // paste): a ref whose slice no longer matches is dropped fail-closed.
+    // Keep mention ranges in sync with ordinary edits; a ref whose slice no
+    // longer matches is dropped.
     m_mentionRefs = mention::shiftRefs(m_mentionRefs, m_text, t);
     m_text = t;
     Q_EMIT textChanged();
     Q_EMIT mentionRangesChanged();
-    // Any edit invalidates a standing command refusal and can change the
-    // command-completion match set.
+    // Any edit invalidates a command refusal and can change completion matches.
     setCommandError(QString());
     Q_EMIT commandCompletionsChanged();
     updateCanSend();
     refreshTypingState();
-    // Coalesced draft persistence; never during a restore (the restore IS
-    // the draft) and never in edit mode (saveDraftNow refuses it anyway).
+    // Coalesced draft persistence; never during a restore or in edit mode.
     if (m_drafts && !m_restoringDraft && !m_roomId.isEmpty())
         m_draftDebounce.start();
 }
@@ -476,20 +440,18 @@ void MessageComposer::setRoomId(const QString &r)
 {
     if (m_roomId == r)
         return;
-    // The old room's draft is saved BEFORE anything below mutates state:
-    // the debounce is stopped so it cannot fire mid-switch, and the save
-    // reads the still-current room. This also makes the Settings
-    // round-trip (setRoomId("") then back) draft-preserving.
+    // Save the old room's draft before anything changes: stop the debounce and
+    // save against the still-current room. Keeps a setRoomId("") round trip
+    // draft-preserving.
     m_draftDebounce.stop();
     saveDraftNow();
     // Cancel typing on the previous room and any pending reply/edit.
     if (!m_roomId.isEmpty()) stopTyping();
     cancelReplyOrEdit();
-    // cancelReplyOrEdit may have re-armed the debounce; nothing may fire
-    // between here and the restore below.
+    // cancelReplyOrEdit may have re-armed the debounce.
     m_draftDebounce.stop();
-    // Queued attachments belong to the room they were prepared in; entries
-    // already dispatched continue in the SDK send queue regardless.
+    // Queued attachments belong to their room; dispatched ones continue in the
+    // SDK send queue.
     m_attachments->clearAll();
     m_roomId = r;
     m_text.clear();
@@ -522,18 +484,15 @@ void MessageComposer::sendBypassingCommands()
 void MessageComposer::sendInternal(bool allowCommands)
 {
     if (!m_canSend || !m_client) return;
-    // v0.7: expand inserted @-mentions into matrix.to markdown links and
-    // collect the deduped MXIDs for m.mentions. With no mentions this is the
-    // trimmed text and an empty id list, so the previous behaviour is exact.
+    // Expand inserted @-mentions into matrix.to markdown links and collect the
+    // MXIDs for m.mentions. Without mentions this is just the trimmed text.
     const mention::Expansion expansion = mention::expand(m_text, m_mentionRefs);
     QString body = expansion.body.trimmed();
     const QStringList mentionIds = expansion.userIds;
 
-    // v0.9 slash commands. Only a fresh message can be one — an EDIT of a
-    // message that happens to start with "/" is text being edited, not a
-    // command being issued. The parse runs on the expanded body, which is
-    // safe because a mention ref can never sit at position 0 covering the
-    // leading slash.
+    // Slash commands apply only to fresh messages, never to an edit. Parsing
+    // the expanded body is safe: a mention ref can never cover the leading
+    // slash.
     if (allowCommands && m_editingEventId.isEmpty()) {
         const SlashCommands::Parse parsed = SlashCommands::parse(body);
         switch (parsed.kind) {
@@ -544,18 +503,10 @@ void MessageComposer::sendInternal(bool allowCommands)
             body = parsed.literalText.trimmed();
             break;
         case SlashCommands::Parse::Unknown:
-            // SENT AS TEXT, NOT REFUSED. Reported as issue #11: people run
-            // bots whose command sets Lightning cannot know, so "/new" met
-            // "Unknown command. It was not sent." and a mouse trip to a
-            // button, every single time. A client cannot tell a bot's command
-            // from a typo, and refusing every one of them to guard against
-            // the typo is the wrong trade: the bot case is constant and the
-            // typo case is rare and recoverable by redacting.
-            //
-            // Falls through to the ordinary send with the leading slash
-            // intact, which is what the bot needs to receive. A KNOWN command
-            // with bad arguments still refuses, because there Lightning does
-            // know what was meant. `//text` still escapes to a literal.
+            // Unknown commands are sent as text, not refused: a client cannot
+            // tell a bot's command from a typo, and bots are the common case. A
+            // known command with bad arguments still refuses; `//text` escapes
+            // to a literal.
             break;
         case SlashCommands::Parse::Known:
             if (executeCommand(parsed, mentionIds))
@@ -570,15 +521,10 @@ void MessageComposer::sendInternal(bool allowCommands)
         m_client->editMessage(editTargetTimelineId(), m_editingEventId, body,
                               mentionIds);
     } else {
-        // v0.5.9: attachments go first (each becomes its own SDK local
-        // echo), then the text as a separate message — matching how other
-        // Matrix clients compose "files + comment".
-        //
-        // …unless the user asked for the text to ride along as the first
-        // attachment's caption, in which case there is no second message.
-        // The caption is attached BEFORE dispatch: an entry held back for
-        // its poster is dispatched later, and the caption has to be waiting
-        // on it when it goes.
+        // Attachments go first (each its own local echo), then the text as a
+        // separate message, unless the text rides as a caption. The caption is
+        // set before dispatch because an entry waiting for its poster
+        // dispatches later.
         const bool captioned = takeTextAsCaption(body, mentionIds);
         dispatchAttachments();
         if (!body.isEmpty() && !captioned)
@@ -592,9 +538,8 @@ void MessageComposer::sendPrepared(const QString &body, const QString &html,
 {
     if (!m_client || m_roomId.isEmpty() || body.trimmed().isEmpty())
         return;
-    // An unformatted rich-mode message travels the PLAIN lane: the body is
-    // sent verbatim, never re-read as markdown (a WYSIWYG editor showing
-    // "*not bold*" must send exactly that).
+    // An unformatted rich-mode message uses the plain lane: the body is sent
+    // verbatim, never re-read as markdown.
     const QVariantMap spec = html.isEmpty()
         ? QVariantMap{ { QStringLiteral("format"), QStringLiteral("plain") } }
         : QVariantMap{ { QStringLiteral("format"), QStringLiteral("html") },
@@ -616,14 +561,9 @@ void MessageComposer::setEmoticonResolver(
 }
 
 namespace {
-/// The `:shortcode:` runs in a body, resolved against the user's installed
-/// packs. Only shortcodes that actually resolve are returned, so an ordinary
-/// message full of colons costs one scan and produces nothing.
-///
-/// Deliberately NOT a general emoji parser: it finds candidates and the
-/// resolver decides. Where a candidate is left alone — inside code, inside a
-/// URL — is decided on the Rust side, over the formatted body, because that
-/// is the only place the distinction still exists after markdown.
+/// The `:shortcode:` runs in a body that resolve against the user's installed
+/// packs; ordinary colons produce nothing. Not an emoji parser: code spans and
+/// URLs are excluded later in Rust, over the formatted body.
 QVariantMap resolveShortcodes(
     const QString &body,
     const std::function<QString(const QString &)> &resolve)
@@ -666,16 +606,10 @@ void MessageComposer::sendComposed(const QString &body,
 {
     if (!m_client || body.isEmpty())
         return;
-    // MSC2545 inline custom emoji, added HERE because this is the one point
-    // every send goes through — send(), sendPrepared(), the slash-command
-    // lane and send-later all arrive with their own spec, and enriching each
-    // of them separately is how one of them ends up forgotten.
-    //
-    // The MAP crosses to Rust rather than finished HTML: the default path is
-    // MARKDOWN, and building the <img> here would mean sending
-    // `format: html` and losing markdown for every message with an emoji in
-    // it. Rust substitutes after markdown, where code spans and URLs are
-    // still distinguishable.
+    // MSC2545 inline custom emoji, added here because every send path passes
+    // through. The shortcode map crosses to Rust rather than finished HTML, so
+    // markdown still applies; Rust substitutes after markdown, where code spans
+    // and URLs are distinguishable.
     QVariantMap bodySpec = bodySpecIn;
     const QVariantMap emoticons = resolveShortcodes(body, m_emoticonResolver);
     if (!emoticons.isEmpty()) {
@@ -686,8 +620,7 @@ void MessageComposer::sendComposed(const QString &body,
         bodySpec.insert(QStringLiteral("emoticons"), emoticons);
     }
     if (!m_threadRootId.isEmpty()) {
-        // v0.4.1: thread replies. Mock preserves thread grouping; HTTP
-        // falls back to sendReply via the interface default.
+        // Thread replies. The HTTP backend falls back to sendReply.
         m_client->sendThreadReplyTo(m_roomId, m_threadRootId, QString(), body,
                                     mentionIds, bodySpec);
     } else if (!m_replyingToEventId.isEmpty()) {
@@ -708,14 +641,11 @@ void MessageComposer::finishSuccessfulSend()
 bool MessageComposer::executeCommand(const SlashCommands::Parse &parsed,
                                      const QStringList &mentionIds)
 {
-    // The command semantics live in SlashCommands::execute, shared with the
-    // thread panel's composer; this adapter supplies THIS composer's lanes.
-    // Every action is a real backend verb with an explicit room id (the
-    // op-id results surface through the existing moderation toasts; a
-    // permission refusal comes back from the server the way it does from
-    // the member list's buttons), except the two that only ASK: mode is a
-    // setting QML owns, display-name changes carry AppController's op-id
-    // bookkeeping.
+    // Command semantics live in SlashCommands::execute (shared with the thread
+    // composer); this adapter supplies this composer's lanes. Each action is a
+    // real backend verb with an explicit room id, except mode (a QML setting)
+    // and display-name changes (AppController's op bookkeeping), which only
+    // ask.
     SlashCommands::Actions actions;
     actions.send = [this](const QString &body, const QStringList &ids,
                           const QVariantMap &spec) {
@@ -746,17 +676,15 @@ bool MessageComposer::executeCommand(const SlashCommands::Parse &parsed,
         Q_EMIT displayNameChangeRequested(name);
     };
     actions.toggleComposerMode = [this] {
-        // The draft is deliberately KEPT across a mode switch; only the
-        // command text itself is removed so it is never sent later.
+        // The draft is kept across a mode switch; only the command text is
+        // removed.
         Q_EMIT composerModeToggleRequested();
         clear();
     };
     actions.clearComposer = [this] {
-        // Documented semantics: /clear empties the COMPOSER — the draft and
-        // the queued attachments. It never touches the timeline, the local
-        // cache, or anything server-side; those live in the SDK's event
-        // cache and clearing them would force even the live tail to
-        // refetch (CLAUDE.md §16: never RoomEventCache::clear()).
+        // /clear empties the composer (draft and queued attachments) only. It
+        // never touches the timeline, local cache or server; clearing the SDK
+        // event cache would force a refetch.
         if (m_attachments)
             m_attachments->clearAll();
         stopTyping();
@@ -778,8 +706,7 @@ bool MessageComposer::executeCommand(const SlashCommands::Parse &parsed,
 QVariantList MessageComposer::commandCompletions() const
 {
     QVariantList out;
-    // Completion only while a command word is being typed in a FRESH
-    // message; an edit is never a command.
+    // Completion only while typing a command word in a fresh message.
     if (!m_editingEventId.isEmpty())
         return out;
     const QList<SlashCommands::Command> matches =
@@ -821,12 +748,8 @@ void MessageComposer::setEmoticonSearch(
 }
 
 namespace {
-/// The `:token` the caret is inside, as [start, length], or {-1, 0}.
-///
-/// A token is an unbroken `:` followed by shortcode characters, with the
-/// caret at or after the colon. Deliberately strict about what precedes the
-/// colon: completion must not fire in the middle of `http://host:8080` or
-/// `10:30`, so the colon has to start a word.
+/// The `:token` the caret is inside, as [start, length], or {-1, 0}. The
+/// colon must start a word, so `http://host:8080` and `10:30` never complete.
 QPair<int, int> emojiTokenAt(const QString &text, int cursor)
 {
     if (cursor < 0 || cursor > text.size())
@@ -845,8 +768,8 @@ QPair<int, int> emojiTokenAt(const QString &text, int cursor)
     if (i == 0 || text.at(i - 1) != QLatin1Char(':'))
         return { -1, 0 };
     const int colon = i - 1;
-    // The colon must START a word: preceded by nothing, whitespace, or an
-    // opening bracket. `8080:` and `10:30` are not shortcodes.
+    // The colon must start a word: preceded by nothing, whitespace or an
+    // opening bracket.
     if (colon > 0) {
         const QChar before = text.at(colon - 1);
         if (!(before.isSpace() || before == QLatin1Char('(')
@@ -856,8 +779,8 @@ QPair<int, int> emojiTokenAt(const QString &text, int cursor)
     return { colon, cursor - colon };
 }
 
-/// True when the caret sits inside a fenced or inline code run. A shortcode
-/// there is text the author meant literally.
+/// True when the caret is inside a fenced or inline code run, where a
+/// shortcode is literal.
 bool insideCode(const QString &text, int cursor)
 {
     int ticks = 0;
@@ -877,8 +800,7 @@ QVariantList MessageComposer::emojiCompletionsAt(int cursorPos) const
     const auto token = emojiTokenAt(m_text, cursorPos);
     if (token.first < 0)
         return out;
-    // One character of query minimum: offering every emoji the instant a
-    // colon is typed turns ordinary punctuation into a popup.
+    // At least one query character, so typing a colon does not open a popup.
     const QString prefix = m_text.mid(token.first + 1, token.second - 1);
     if (prefix.isEmpty() || insideCode(m_text, cursorPos))
         return out;
@@ -910,8 +832,8 @@ int MessageComposer::acceptCommandCompletion(const QString &name)
 
 void MessageComposer::clear()
 {
-    // A successful send and an explicit clear both retire the draft; a
-    // pending debounce must not resurrect the text afterwards.
+    // A send or explicit clear retires the draft; a pending debounce must not
+    // resurrect it.
     m_draftDebounce.stop();
     if (m_drafts && !m_roomId.isEmpty())
         m_drafts->clear(m_roomId);
@@ -933,8 +855,8 @@ QVariantMap MessageComposer::mentionTokenAt(const QString &text,
         out.insert(QStringLiteral("active"), false);
         return out;
     }
-    // Suppress the popup when the detected token overlaps an already-inserted
-    // mention (for example the trailing space right after "@Name ").
+    // Suppress the popup when the token overlaps an inserted mention (e.g. the
+    // space right after "@Name ").
     const int tokEnd = qBound(0, cursorPos, text.length());
     for (const mention::MentionRef &ref : m_mentionRefs) {
         const int rs = ref.start;
@@ -958,8 +880,7 @@ int MessageComposer::insertMention(const QString &userId,
         return cursorPos;
     const mention::InsertResult res = mention::buildInsertion(
         m_text, tokenStart, cursorPos, userId, displayName);
-    // The insertion is one atomic edit: shift existing refs across it, then
-    // record the new one (it never overlaps an existing ref).
+    // One atomic edit: shift existing refs across it, then record the new one.
     m_mentionRefs = mention::shiftRefs(m_mentionRefs, m_text, res.text);
     m_mentionRefs.append(res.ref);
     m_text = res.text;
@@ -1003,11 +924,9 @@ void MessageComposer::beginEdit(const QString &eventId,
     m_threadPreview.clear();
     Q_EMIT threadStateChanged();
     m_editingEventId = eventId;
-    // Legacy sends carry raw [@x](https://matrix.to/…) markdown in the
-    // body; newer sends carry display text with the mention identities
-    // only in the formatted body's mention: anchors. Recover the semantic
-    // refs from whichever form this event has, or the resend would
-    // silently drop m.mentions.
+    // Older sends carry raw [@x](https://matrix.to/…) markdown in the body;
+    // newer ones carry display text with mention: anchors in the formatted
+    // body. Recover the refs from either, or the edit would drop m.mentions.
     const mention::Recovery recovered = mention::recoverFromBody(currentBody);
     m_text = recovered.text;
     m_mentionRefs = recovered.refs;
@@ -1135,7 +1054,7 @@ void MessageComposer::sendFileFromPath(const QString &localPath)
 
 void MessageComposer::updateCanSend()
 {
-    // Sendable with text, or with queued attachments (outside edit mode).
+    // Sendable with text, or with queued attachments outside edit mode.
     const bool hasQueuedAttachment =
         hasAttachments() && m_editingEventId.isEmpty();
     const bool next = m_client

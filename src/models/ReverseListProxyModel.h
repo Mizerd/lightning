@@ -5,26 +5,15 @@
 #include <QTimer>
 #include <QVector>
 
-// Flat-list proxy that exposes source rows in reverse order without sorting
-// on model data. Source prepends therefore become proxy appends, while source
-// appends become proxy prepends. TimelinePane combines this with a rotated
-// viewport so loading older history extends the far/top edge instead of
-// inserting before every visible delegate.
+// Flat-list proxy that exposes source rows in reverse order. Source prepends
+// become proxy appends, so with TimelinePane's rotated viewport loading older
+// history extends the far edge instead of inserting before visible delegates.
 //
-// It also PACES how fast newly paginated history becomes visible to the view.
-// TimelinePane instantiates every row it is given (no height virtualization,
-// so that row heights are measured rather than estimated), and a backward
-// pagination page is around twenty rows at once. Handing all of them over in
-// one event-loop turn means constructing twenty full message delegates before
-// the next frame can be painted, which the user feels as the timeline locking
-// up while history loads.
-//
-// So the oldest source rows are held back and released a few per timer tick.
-// This is purely a delivery schedule, never a filter: nothing is dropped, the
-// source model stays authoritative for every non-visual consumer, and the
-// backlog drains within a few frames. Rows that arrive at the NEWEST end (a
-// live message) are exempt and appear immediately — pacing there would be
-// visible.
+// It also paces how fast paginated history reaches the view: TimelinePane
+// instantiates every row (heights are measured, not estimated), and handing a
+// whole page over in one event-loop turn stalls painting. The oldest rows are
+// held back and released a few per tick. This is a delivery schedule, never a
+// filter; rows arriving at the newest end (live messages) appear immediately.
 class ReverseListProxyModel final : public QAbstractProxyModel
 {
     Q_OBJECT
@@ -32,114 +21,65 @@ class ReverseListProxyModel final : public QAbstractProxyModel
 public:
     explicit ReverseListProxyModel(QObject *parent = nullptr);
 
-    // Release the whole paced backlog now, in one batch.
-    //
-    // Pacing is a delivery schedule for rows the reader has not reached yet,
-    // and it is only ever correct while nothing needs to address them. Jumping
-    // to a specific event — a reply target, a search hit, a permalink — does
-    // need to: the row exists in the source model, and a view that has not
-    // been handed it yet would resolve the jump to "no such row" and silently
-    // do nothing. Callers on those paths release first.
-    //
-    // Deliberately synchronous and unpaced: the reader has asked to go
-    // somewhere specific and a brief hitch is the honest cost of arriving,
-    // where a silent no-op is not.
+    // Release the whole paced backlog now. Jumping to a specific event (reply
+    // target, search hit, permalink) must be able to address rows the view has
+    // not been handed yet, so those paths release first. Synchronous by design:
+    // a brief hitch beats a silent no-op.
     Q_INVOKABLE void releaseAll();
 
-    // ── 2026-08-19: the sliding window ──────────────────────────────────
+    // ── Sliding window ──────────────────────────────────────────────────
     //
-    // Why this exists: the view instantiates every row it is given, and
-    // per-frame cost was MEASURED to scale with the total instantiated item
-    // count — scene-graph node sync and event delivery both walk the whole
-    // tree, while layout is only ~1% of a frame. At 1000 loaded rows that is
-    // ~10.4 ms per wheel notch against ~4.4 ms at 600, so reading deep in a
-    // long room degrades badly. Pacing alone cannot help: it only delays
-    // rows, it never takes any back.
+    // Per-frame cost scales with the number of instantiated rows, so a long
+    // room read deep gets slow; pacing only delays rows and never takes any
+    // back.
     //
-    // The window is TWO integers, and every transition between two windows
-    // is a single insert-or-remove at one end:
-    //   * `windowSkip` — how many of the NEWEST source rows are excluded.
-    //     Proxy row 0 is the (windowSkip)th newest, not necessarily the
-    //     newest. Zero means "the window includes the live edge", which is
-    //     the only state in which the physical bottom of the view is the
-    //     newest message — so the pane must return to zero before the
-    //     reader can reach the bottom.
-    //   * the exposed count (`m_revealedRows`), unchanged in meaning.
+    // The window is two integers, and every transition is a single insert or
+    // remove at one end:
+    //   * `windowSkip`: how many of the newest source rows are excluded. Zero
+    //     means the window includes the live edge, the only state in which the
+    //     view's physical bottom is the newest message.
+    //   * the exposed count (`m_revealedRows`).
     //
-    // Releasing at the OLDEST end is free: those rows are at the far end of
-    // the rotated view, and removing children from the tail of a Column
-    // moves nothing the reader can see. Releasing at the NEWEST end shifts
-    // every kept row, so the pane corrects contentY by the exact height
-    // delta — never an estimate, and only when the reader is settled.
+    // Releasing at the oldest end moves nothing visible (tail of the rotated
+    // Column). Releasing at the newest end shifts every kept row, so the pane
+    // corrects contentY by the exact height delta, only while the reader is
+    // settled.
     Q_PROPERTY(int windowSkip READ windowSkip NOTIFY windowChanged)
     int windowSkip() const { return m_windowSkip; }
     // The oldest source row currently exposed (-1 when nothing is).
-    /// True when the paced reveal has nothing left to hand over.
-    ///
-    /// This is the EXACT condition scheduleReveal() and revealNextChunk()
-    /// use to stop the timer, exposed so a caller can wait on the producer
-    /// instead of guessing from the outside. A test that waits for
-    /// contentHeight to "look stable" is timing the POLLER, not the reveal:
-    /// the tick interval here is 16-250 ms and ADAPTIVE (kRevealBudgetMs is
-    /// a per-tick work budget, not the interval), so a quiet window shorter
-    /// than the current interval proves nothing — and the interval grows
-    /// precisely when rows are expensive, which is the loaded machine a
-    /// flake shows up on.
-    /// NOT BINDABLE — there is no change signal. `visible: view.revealIdle()`
-    /// compiles, evaluates once and never updates again. Call it; do not
-    /// bind to it.
-    /// DEFINED IN THE .cpp ON PURPOSE, not inline here. `revealTarget()` is
-    /// a private member defined in the source file, so an inline body would
-    /// create a link dependency in EVERY target that includes this header —
-    /// the shape that cost 0.8.0 its `build-deb` job twice (CLAUDE.md §16).
+    /// True when the paced reveal has nothing left to hand over: the same
+    /// condition that stops the reveal timer, so callers (tests) can wait on
+    /// the producer rather than on an adaptive-interval poll. Not bindable (no
+    /// change signal); call it, do not bind to it. Defined in the .cpp on
+    /// purpose: an inline body would call a private out-of-line member and add
+    /// a link dependency to every includer.
     Q_INVOKABLE bool revealIdle() const;
     Q_INVOKABLE int oldestExposedSourceRow() const;
-    // Move to the window (skipNewest, rows). Clamped to what the source
-    // holds; performs at most one structural op per end, oldest end first.
+    // Move to the window (skipNewest, rows), clamped to the source. At most one
+    // structural op per end, oldest end first.
     Q_INVOKABLE void setWindow(int skipNewest, int rows);
-    // Back to "everything, live edge included" — what every jump/search
-    // path needs before it can address an arbitrary row.
+    // Back to everything including the live edge; needed before any jump/search
+    // can address an arbitrary row.
     Q_INVOKABLE void clearWindow();
 
-    // Re-expose up to `extraRows` more of the OLDEST source rows the window
-    // is holding back, through the PACED reveal rather than a synchronous
-    // insert. Rows older than the window's oldest exposed row are already in
-    // the source model, so this is a local operation: the pane calls it when
-    // the reader reaches the window's old edge, instead of asking the
-    // homeserver for history it already has. Releasing at the oldest end
-    // appends to the tail of the rotated view, beyond the reader, so nothing
-    // the reader is looking at moves.
+    // Re-expose up to `extraRows` more of the oldest rows the window holds
+    // back, through the paced reveal. They are already in the source model, so
+    // the pane calls this at the window's old edge instead of asking the
+    // server; nothing visible moves.
     //
-    // Returns true only when the WINDOW's cap was what withheld rows and has
-    // now been raised. False means the caller should fall back to its normal
-    // behaviour (for the pane: ask the server). Distinguishing this from the
-    // PACING backlog matters: pacing also leaves rows unexposed, but it is
-    // already releasing them on its own timer, and treating that as "the
-    // window is withholding" swallowed the near-top request on every
-    // timeline whose initial reveal was still in flight.
+    // Returns true only when the window cap was withholding rows and has been
+    // raised. False means fall back (the pane asks the server). Rows still in
+    // the pacing backlog do not count: they release on their own timer.
     Q_INVOKABLE bool extendWindowAtOldEnd(int extraRows);
 
-    // The symmetric half: give back up to `extraRows` of the NEWEST source
-    // rows the window is holding back, synchronously, as ONE insert at the
-    // head.
+    // Give back up to `extraRows` of the newest rows the window holds back,
+    // synchronously, as one head insert. Under a window wheelMinY() is a
+    // synthetic newest edge, so a long downward gesture would otherwise stop
+    // short of loaded messages. Not paced: the reader is moving toward these
+    // rows, and the pane must measure them at once to correct contentY.
     //
-    // Why this is needed at all: under a window `wheelMinY()` is the window's
-    // SYNTHETIC newest edge, so a sustained downward gesture longer than the
-    // pane's runway reaches it and the motion settles — the reader stops
-    // before the newest message while those rows sit loaded in the source
-    // model, hidden by nothing but the skip.
-    //
-    // Why NOT paced like the old end: these are rows the reader is actively
-    // moving toward, and handing them over a few per tick would stall the
-    // gesture exactly the same way. They also have to exist synchronously,
-    // because a head insert shifts every kept row and the pane corrects
-    // contentY by their exact summed MEASURED height — the same arithmetic
-    // setWindow()'s newest-end release already performs, in reverse.
-    //
-    // Returns false when the window is already at the live edge (skip == 0):
-    // the caller must be able to tell "extended" from "already live", because
-    // "already live" is the one state in which the physical bottom of the
-    // view really is the newest message.
+    // Returns false when the window is already at the live edge (skip == 0), so
+    // the caller can tell "extended" from "already live".
     Q_INVOKABLE bool extendWindowAtNewEnd(int extraRows);
 
 Q_SIGNALS:
@@ -161,9 +101,8 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
 private:
-    // THE only writer of m_windowSkip, and the only emitter of
-    // windowChanged(). Every mutation goes through here — see the comment on
-    // the definition for what happened when five of them did not.
+    // The only writer of m_windowSkip and emitter of windowChanged(); see the
+    // definition.
     void setWindowSkip(int skip);
     void disconnectSource();
     // Rows in the source model, regardless of how many are released yet.
@@ -175,16 +114,15 @@ private:
 
     QVector<QMetaObject::Connection> m_sourceConnections;
 
-    // How many of the newest source rows are currently exposed. Always
-    // <= sourceRowTotal(); the difference is the paced backlog of oldest rows.
+    // How many of the newest source rows are exposed; <= sourceRowTotal(). The
+    // difference is the paced backlog of oldest rows.
     int m_revealedRows = 0;
-    // How many of the NEWEST source rows the window excludes. 0 = the
-    // window reaches the live edge (the only state where proxy row 0 is the
-    // newest message). Never assign this directly — setWindowSkip().
+    // How many of the newest source rows the window excludes; 0 means it
+    // reaches the live edge. Only written through setWindowSkip().
     int m_windowSkip = 0;
-    // Guards the reveal timer from undoing a deliberate window: pacing may
-    // only ever grow the window toward the OLDEST end, never past a cap the
-    // pane set, and never back over rows the pane released at the newest end.
+    // Keeps the reveal timer from undoing a window: pacing grows the window
+    // only toward the oldest end, never past the pane's cap and never back over
+    // rows the pane released at the newest end.
     int m_windowCap = 0;   // 0 = uncapped
     // Set between an announced beginInsertRows/beginRemoveRows pair so the
     // matching source signal knows whether it opened one.

@@ -13,40 +13,37 @@ class MatrixClient;
 class TimelineModel;
 struct TimelineEvent;
 
-// v0.5.11: backward-pagination policy for the live SDK timeline.
+// Backward-pagination policy for the live SDK timeline.
 //
-// The Rust bridge already single-flights `paginate_backwards` and reports
-// loading / idle / failed / reached_start through generation-stamped events;
-// RustSdkMatrixClient mirrors that per room. This controller adds the
-// missing request POLICY on top of that state:
+// The Rust bridge single-flights `paginate_backwards` and reports loading /
+// idle / failed / reached_start through generation-stamped events, which
+// RustSdkMatrixClient mirrors per room. This controller adds the request
+// policy:
 //
-//   * two request reasons — filling a too-short initial viewport
-//     (ViewportFill) and the user approaching the top (NearTop);
-//   * controller-level single-flight that also covers the window between
-//     dispatch and the first "loading" poll event;
-//   * a bounded automatic-fill budget plus no-progress detection so an
-//     initial viewport fill can never loop forever;
-//   * stale-result isolation by room and by controller generation, so a
-//     room switch, timeline reset, or sign-out during a request can never
-//     complete into the newly shown timeline;
+//   * two request reasons: filling a short initial viewport (ViewportFill)
+//     and the user approaching the top (NearTop);
+//   * single-flight that also covers the gap between dispatch and the first
+//     "loading" event;
+//   * a bounded automatic-fill budget with no-progress detection, so a fill
+//     can never loop forever;
+//   * stale-result isolation by room and controller generation, so a room
+//     switch, reset or sign-out never completes into the new timeline;
 //   * explicit retry after a transient failure.
 //
-// QML drives it with requestViewportFill() / requestNearTop() / retry().
-// It does NOT listen to paginationCompleted: since v0.7.2 the timeline keeps
-// ONE position-preserving mechanism (TimelinePane.qml's view anchor, driven by
-// coalesced content-height changes regardless of why height changed), so there
-// is no pagination-specific restore step to trigger. The signal survives as the
-// controller's completion contract for tests and any future consumer.
+// QML drives it with requestViewportFill() / requestNearTop() / retry(). It
+// does not listen to paginationCompleted: the timeline has one
+// position-preserving mechanism (TimelinePane.qml's view anchor), so there is
+// no pagination-specific restore step. The signal remains the completion
+// contract for tests.
 //
-// Never logs message bodies, room ids, or URLs — only reasons, counts and
+// Never logs message bodies, room ids or URLs; only reasons, counts and
 // generations.
 class PaginationController : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
-    // Instantiated in C++ and exposed to QML only as the "app.pagination"
-    // context-property instance; this registration exists so TimelinePane.qml
-    // can name the PresentationState enum as PaginationController.Loading etc.
+    // Exposed to QML only as the "app.pagination" context property; registered
+    // so TimelinePane.qml can name the PresentationState enum.
     QML_UNCREATABLE("PaginationController is exposed via app.pagination")
     Q_PROPERTY(QString roomId READ roomId WRITE setRoomId NOTIFY roomIdChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
@@ -57,55 +54,29 @@ class PaginationController : public QObject
     // True once automatic viewport filling stopped itself (budget spent or
     // no progress). User-driven NearTop requests remain available.
     Q_PROPERTY(bool fillStopped READ fillStopped NOTIFY stateChanged)
-    // How many automatic-fill pages have COMPLETED against the backend while
-    // adding no row and without reaching the start of history — the shape a
-    // run of MatrixRTC membership churn produces, where the SDK walked twenty
-    // real events forward and Lightning's own timeline filter dropped every
-    // one (§16; `lightning_event_filter`).
+    // Automatic-fill pages that completed without adding a row or reaching the
+    // start of history, as a run of filtered MatrixRTC membership events
+    // produces. Monotonic within a room, reset on every (re)open, so QML can
+    // compare two fill attempts:
     //
-    // Monotonic within a room and reset on every (re)open, so QML can compare
-    // it across two fill attempts and tell the two indistinguishable-looking
-    // failures apart:
-    //
-    //   * the counter ADVANCED — the backend really did page through history
-    //     and the reader gained nothing visible. That is invisible PROGRESS:
-    //     the pagination cursor moved twenty events closer to the first real
-    //     message, and the fill must be allowed to keep walking.
-    //   * the counter did NOT advance — the dispatch went nowhere (this
-    //     controller dropped it, or no page ever landed). Nothing moved, and
-    //     the small no-progress bound is the right one.
-    //
-    // Without this the pane counts both as "no progress" and gives up after
-    // eight, which is the 2026-09-16 report: a DM whose recent history is
-    // call churn opened showing one message over an empty viewport.
+    //   * advanced: the backend really paged through history and nothing was
+    //     visible. That is progress (the cursor moved), so the fill may
+    //     continue.
+    //   * did not advance: the dispatch went nowhere, and the small no-progress
+    //     bound applies.
     Q_PROPERTY(int emptyFillPages READ emptyFillPages NOTIFY stateChanged)
-    // v0.7 initial-hydration gate: true once the automatic initial history
-    // fill for the open room cannot add more content on its own — a fill
-    // batch landed, filling stopped itself, the start of history is loaded,
-    // or the fill failed and awaits a user Retry. QML combines this with
-    // its own viewport geometry to decide when the room is presentable.
+    // Initial-hydration gate: true once the automatic history fill cannot add
+    // more on its own (a batch landed, filling stopped itself, the start is
+    // loaded, or the fill failed and awaits Retry). QML combines it with its
+    // viewport geometry to decide when the room is presentable.
     Q_PROPERTY(bool initialContentSettled READ initialContentSettled
                    NOTIFY stateChanged)
     Q_PROPERTY(QString highlightedEventId READ highlightedEventId NOTIFY navigationChanged)
     Q_PROPERTY(QString navigationMessage READ navigationMessage NOTIFY navigationChanged)
-    // v0.7.x: true while a NearTop-driven backfill run is in flight or a
-    // bounded continuation to one is scheduled. A page that grew the mirror
-    // ends the run (see finishBatch()); only a page that delivered nothing
-    // new schedules one more bounded try, up to kMaxNearTopEmptyStrikes. Test
-    // hook / diagnostic surface only — nothing in production QML reads this
-    // any more. (v0.6.6: TimelineModel's near-top "virtual scrolling"
-    // staging window, which this property used to help gate from
-    // TimelinePane.qml, was removed outright — see TimelineModel's history.
-    // A held gesture at one bounded page per approach coalesced nothing
-    // (there was rarely more than one page in flight to hold), while the
-    // staging window cost a hard wall for the reader between "one page
-    // landed" and "the gesture physically ends" — the loaded page sat
-    // invisible and contentY could not advance, the opposite of the
-    // maintainer's ask. The whole hidden-prefix mechanism, its
-    // backfillStagingActive plumbing, and the navigation flush hooks that
-    // existed only to see past it are gone; every landed batch is now an
-    // ordinary immediate prepend again, exactly like the un-staged path
-    // already was for ViewportFill/Retry.)
+    // True while a NearTop backfill run is in flight or a bounded continuation
+    // is scheduled. A page that grew the mirror ends the run (finishBatch());
+    // an empty page schedules one more try, up to kMaxNearTopEmptyStrikes. Test
+    // and diagnostic surface only; production QML does not read it.
     Q_PROPERTY(bool nearTopRunActive READ nearTopRunActive NOTIFY stateChanged)
 
 public:
@@ -123,77 +94,37 @@ public:
 
     explicit PaginationController(QObject *parent = nullptr);
 
-    // The ONE wording for "the navigation target could not be reached".
-    // ThreadController shows the same sentence when a thread-local reply
-    // cannot be paginated into the thread panel: a second phrasing for the
-    // same fact would read to the user as a different failure, and lupdate
-    // still sees exactly one translatable source.
-    // QCoreApplication::translate() rather than tr(), and inline, so
-    // ThreadController can show it without linking this class's metaobject
-    // (its own suites do not build PaginationController.cpp). The context
-    // string and the source key are exactly what tr() produced here before,
-    // so existing translations are unaffected.
+    // The one wording for "the navigation target could not be reached", shared
+    // with ThreadController so the same fact never reads as two failures.
+    // QCoreApplication::translate() inline rather than tr(), so
+    // ThreadController can use it without linking this class's metaobject. The
+    // context and source key match what tr() produced, so translations are
+    // unaffected.
     static QString unavailableTargetMessage()
     {
         return QCoreApplication::translate(
             "PaginationController", "Original message is unavailable.");
     }
-    // Reply-highlight lifetime, and how long the unavailable notice stays.
-    // Shared with ThreadController so the room timeline and the thread panel
-    // pulse and expire identically.
+    // Reply-highlight lifetime and how long the unavailable notice stays,
+    // shared with ThreadController so both pulse and expire identically.
     static constexpr int kDefaultHighlightDurationMs = 1800;
 
-    // 12, matching kMaxNoProgressStrikes and the pane's own
-    // maxInvisibleFillRetries, because all three face the SAME phenomenon: a
-    // long run of history the timeline filters out. Four was chosen before
-    // MatrixRTC membership events were dropped at the SDK, and in a room that
-    // hosts calls those are most of the history -- one participant per minute
-    // per call -- so a twenty-event page routinely inserts NOTHING. The
-    // reader scrolls, a page loads, no message appears, and the chain latches
-    // after four: reported as "it just stops loading, I have to scroll up
-    // like five times and then messages continue to load above it", and
-    // visible in that session's log as eight consecutive near_top completions
-    // with added=0.
-    //
-    // This is not the v0.6.6 storm branch returning. That one continued
-    // REGARDLESS of growth, so a single held gesture could paginate a whole
-    // room. This continues only when the backend advanced its cursor and the
-    // mirror gained nothing, which is precisely the filtered case, and it
-    // still stops at the start of history, on any inserted row, and on the
-    // strike bound. Twelve pages is ~240 filtered events, the scale the fill
-    // budget was measured against.
-    /// The same bound, raised, for the one case where stopping is worse than
-    /// continuing: the fill is walking a run of history the timeline filter
-    /// empties, and the VIEWPORT IT EXISTS TO FILL IS STILL NOT FULL.
+    /// The strike bound for a fill walking history the timeline filter empties
+    /// while the viewport it exists to fill is still not full. Fills are only
+    /// requested while the viewport is short (TimelinePane.qml returns early at
+    /// `contentHeight >= height`), so an empty fill page is by construction
+    /// spent on a viewport that is not yet full. Stopping with a blank viewport
+    /// just hands the user the work.
     ///
-    /// "Still not full" is the criterion, and until 2026-09-16 this bound
-    /// tested `eventCount() == 0` instead — the timeline being COMPLETELY
-    /// empty. That is a proxy, and it is wrong by exactly one message: a DM
-    /// whose recent history is MatrixRTC churn opened showing a single image
-    /// over an otherwise blank viewport, which made `eventCount()` non-zero,
-    /// which handed the room the ordinary twelve. Reported 2026-09-16, and
-    /// the reader's experience is identical to the empty room the 2026-09-15
-    /// round fixed — they see nothing and have to scroll by hand.
-    ///
-    /// There is no separate "is the viewport full" question to ask here: an
-    /// automatic viewport fill is only ever REQUESTED while the viewport is
-    /// short (TimelinePane.qml returns early at `contentHeight >= height`),
-    /// so a fill page that came back empty is by construction a page spent on
-    /// a viewport that is not yet full.
-    ///
-    /// Twelve pages is ~240 filtered events, and the maintainer's own account
-    /// had a room whose MatrixRTC churn run was longer than that — the fill
-    /// gave up a page or two short of the first real message and left a blank
-    /// room the reader had to scroll by hand (2026-09-15). Stopping with a
-    /// FULL viewport is a bounded, reasonable thing to do; stopping with a
-    /// blank one just hands the user the work.
-    ///
-    /// Affordable because these pages are cheap: a filtered page is normally
-    /// served from the event-cache STORE one chunk at a time (matrix-sdk's
-    /// load_more_events_backwards) and no longer pays the completion settle
-    /// timer either, so the run is local reads rather than round trips.
-    /// Still bounded, and still far below a room's whole history.
+    /// Affordable because filtered pages are usually served from the
+    /// event-cache store one chunk at a time and skip the completion settle
+    /// timer. Still far below a room's whole history.
     static constexpr int kMaxFilteredRunStrikes = 60;
+    // Automatic near-top continuations allowed for pages that inserted
+    // nothing, matching kMaxNoProgressStrikes and the pane's
+    // maxInvisibleFillRetries: all three face long runs of filtered history.
+    // Continues only when the backend advanced and the mirror gained nothing,
+    // and still stops at the start of history or on any inserted row.
     static constexpr int kMaxNearTopEmptyStrikes = 12;
     static constexpr int kNavigationMessageDurationMs = 3000;
 
@@ -215,34 +146,22 @@ public:
     QString highlightedEventId() const { return m_highlightedEventId; }
     QString navigationMessage() const { return m_navigationMessage; }
 
-    // Ask for one more batch because the viewport is not filled yet.
-    // Budget-limited and no-progress-guarded; safe to call repeatedly from
-    // QML size-change handlers.
+    // Ask for one more batch because the viewport is not filled yet. Budget-
+    // and no-progress-guarded; safe to call repeatedly from size handlers.
     Q_INVOKABLE void requestViewportFill();
-    // Ask for one more batch because the user scrolled near the top. A genuine
-    // user scroll gesture (userInitiated=true) re-arms the automatic backfill
-    // cap; passive geometry-driven calls (userInitiated=false) are bounded so a
-    // long run of no-op (filtered thread-only) pages cannot spin near the top.
+    // Ask for one more batch because the user scrolled near the top. A real
+    // user gesture (userInitiated=true) re-arms the automatic backfill cap;
+    // passive geometry-driven calls are bounded so runs of filtered pages
+    // cannot spin near the top.
     Q_INVOKABLE void requestNearTop(bool userInitiated = false);
     // Clear a failure and request again (user pressed Retry).
     Q_INVOKABLE void retry();
     Q_INVOKABLE void jumpToEvent(const QString &eventId);
-    // Reveal an event ONLY if it is already in the loaded timeline.
-    //
-    // WHY THIS IS NOT jumpToEvent WITH A FLAG. jumpToEvent's contract is "get
-    // me to this message", and the price it is allowed to pay for that is
-    // kMaxNavigationBatches real backward paginations plus the unavailable
-    // notice when they run out. That is right when the reader asked for THAT
-    // message. It is wrong when the message is only CONTEXT for a
-    // destination they have already been taken to: a thread notification
-    // opens the thread panel, and a thread root can be arbitrarily old, so
-    // asking the room timeline to hunt for it walks the reader's room view
-    // backwards through months of history they did not ask to see — reported
-    // as a notification click that "started scrolling backwards" until it
-    // reached the previous month.
-    //
-    // So this locates the row when it is free and does NOTHING otherwise: no
-    // pagination, and no failure message either, because nothing failed.
+    // Reveal an event only if it is already loaded: no pagination, and no
+    // failure message. Unlike jumpToEvent, which may paginate to reach its
+    // target, this is for context around a destination already shown (e.g. a
+    // thread root when a notification opens the thread panel), where walking
+    // months of room history backwards would be wrong.
     Q_INVOKABLE void revealIfLoaded(const QString &eventId);
     Q_INVOKABLE void saveScrollAnchor(const QString &roomId,
                                       const QString &eventId,
@@ -250,21 +169,14 @@ public:
                                       bool followingLatest);
     Q_INVOKABLE void restoreScrollAnchor(const QString &roomId);
     Q_INVOKABLE void saveFollowingLatest(const QString &roomId);
-    // Retire an in-flight navigation because the reader took the view.
-    //
-    // A Restore started by restoreScrollAnchor() can spend up to
-    // kMaxNavigationBatches REAL backward paginations — comfortably five to
-    // fifteen seconds — before it locates its target and emits
-    // targetLocated(). Cancelling the landing in the view is not enough on
-    // its own: the view can only retire a landing that is already armed, and
-    // this one gets armed AFTER the reader started scrolling. Without a way
-    // to reach the controller, the restore still lands and yanks the reader
-    // back to the position the room was opened at.
+    // Retire an in-flight navigation because the reader took over the view. A
+    // restore from restoreScrollAnchor() can spend up to kMaxNavigationBatches
+    // real paginations and is armed after scrolling may have begun; without
+    // this it would still land and yank the reader back.
     Q_INVOKABLE void cancelNavigation();
 
-    // Monotonic controller generation. Bumped on room change, timeline
-    // reset, and sign-out; exposed so anchor bookkeeping can reject stale
-    // completions.
+    // Monotonic generation, bumped on room change, timeline reset and sign-out,
+    // so anchor bookkeeping can reject stale completions.
     quint64 generation() const { return m_generation; }
 
     // Test hooks.
@@ -281,14 +193,12 @@ public:
 Q_SIGNALS:
     void roomIdChanged();
     void stateChanged();
-    // One completed backward batch for the CURRENT room and generation.
-    // insertedCount is what the reader actually gained: the larger of the
-    // prepends this controller observed and the rows the model grew by (see
-    // batchRowGrowth() for why the two disagree on the real backend).
-    // willContinue: THIS completion scheduled a bounded near-top continuation
-    // (zero rows gained, start not reached, strike budget left). That
-    // continuation still re-checks row growth before dispatching, so
-    // willContinue=true means "scheduled", not "will certainly fetch".
+    // One completed backward batch for the current room and generation.
+    // insertedCount is what the reader gained: the larger of the observed
+    // prepends and the model's row growth (see batchRowGrowth()).
+    // willContinue: this completion scheduled a bounded near-top continuation;
+    // that continuation re-checks growth before dispatching, so it means
+    // "scheduled", not "will fetch".
     void paginationCompleted(int insertedCount, bool reachedStart,
                              bool willContinue);
     void targetLocated(int row, qreal pixelOffset, bool highlight);
@@ -320,69 +230,32 @@ private:
     void request(Reason reason);
     void resetPerRoomState();
     void finishBatch(bool reachedStart);
-    // Give up on a dispatched batch that never reached ANY terminal state.
+    // Give up on a dispatched batch that never reached any terminal state.
+    // Rust's `paginate_back` can return Ok without enqueuing anything (start
+    // already reached, or another request holds its single-flight), and the
+    // bounded event queue can drop a terminal event, which would leave busy()
+    // latched and the room stuck on "Loading" with no Retry.
     //
-    // m_requestActive was cleared only by loading -> idle/failed, by a room
-    // switch, or by a synchronous dispatch failure. Two things break that.
-    // The Rust `paginate_back` returns Ok WITHOUT enqueuing anything at all
-    // when the start of history is already reached and when another request
-    // holds its single-flight, so no `loading` and no terminal state ever
-    // arrives; and the bridge's event queue is bounded, so a poll-timer stall
-    // can drop the terminal event outright. Either way the flag latched and
-    // busy() stayed true -- the room stuck on "Loading" for the rest of the
-    // visit, with no Retry offered, because the overlay is Loading and not
-    // Failed.
-    //
-    // This is NOT a completion: nothing was delivered, so paginationCompleted
-    // is not emitted and no near-top continuation is scheduled. It clears the
-    // flight so the ordinary triggers -- a layout pass, the reader's next
-    // approach to the top, Retry -- can dispatch again, and counts a fill
-    // strike so a backend that never answers cannot leave the automatic fill
+    // Not a completion: paginationCompleted is not emitted and no continuation
+    // is scheduled. It clears the flight so normal triggers can dispatch again,
+    // and counts a fill strike so an unresponsive backend cannot keep the fill
     // asking forever.
     void abandonStalledRequest();
-    // Schedules exactly one more NearTop request, paced by
-    // m_nearTopContinuationDelayMs (never a tight loop). Only reached for a
-    // page that reported no mirror growth (the backend delivered nothing new
-    // — never "no visible rows": there is no separate visible/hidden
-    // distinction any more, see TimelineModel::eventCount()) and has not hit
-    // the empty-strike bound yet — that gate is decided once, synchronously,
-    // in finishBatch(); this function is only ever called when it already
-    // passed. (v0.6.6 regression fix: an earlier "becauseStagingHeld" branch
-    // kept dispatching unconditionally while a since-removed staging window
-    // was held, effectively prefetching the rest of the room behind a held
-    // gesture — see the 52cf6ca-round trace: chains of ~30 near_top requests
-    // per session with signalled=0 on every completion and multi-thousand-
-    // pixel displacedApplied corrections on release. Removed; see git
-    // history for the withdrawn mechanism and for TimelineModel's staging
-    // window, removed outright in the same round.)
-    // At FIRE time (after the delay), this re-checks real model growth
-    // before dispatching — see batchRowGrowth() — so a page that DID add
-    // rows (just reported late by the async backend) cancels the
-    // continuation instead of fetching one the reader did not need, and
-    // re-checks the SAME kMaxNearTopEmptyStrikes bound one more time: not
-    // redundant with finishBatch()'s own gate — a fresh userInitiated
-    // requestNearTop() landing in the delay window can dispatch and
-    // complete its OWN batch (resetting or further incrementing
-    // m_nearTopEmptyStrikes) before this stale continuation fires, so the
-    // bound must be live-read here too, not just captured at schedule time.
+    // Schedules exactly one more NearTop request after
+    // m_nearTopContinuationDelayMs. Only reached for a page that reported no
+    // mirror growth and passed the empty-strike gate in finishBatch(). At fire
+    // time it re-checks real model growth (batchRowGrowth()), so a page whose
+    // rows arrived late cancels the continuation, and re-reads
+    // kMaxNearTopEmptyStrikes live: a user-initiated request in the delay
+    // window may already have changed m_nearTopEmptyStrikes.
     void scheduleNearTopContinuation();
-    // Rows the timeline model actually gained since the active batch was
-    // dispatched. THE authoritative progress measure for the near-top
-    // continuation, because the signal-counted m_batchInserted is not
-    // trustworthy on the real backend: it only counts eventsPrepended /
-    // eventInsertedAt(index 0) seen inside the request window, and the Rust
-    // bridge delivers a batch's item diffs from a task independent of the one
-    // that reports pagination idle, through a 100 ms poll that is capped per
-    // drain. A page that really did deliver twenty messages can therefore
-    // still be classified "no growth" by the signal count alone — and four
-    // such pages per approach is the reported "it keeps loading old messages
-    // each time I scroll up". Deliberately TimelineModel::eventCount()
-    // (the mirror the backend actually delivered into), never rowCount() —
-    // there is only one row space now that staging is gone, so the two
-    // happen to read identically today, but this is a progress question
-    // about backend delivery, not a view-geometry one, and the distinction
-    // is the whole reason this helper exists rather than a bare eventCount()
-    // read at each call site.
+    // Rows the model gained since the active batch was dispatched; the
+    // authoritative progress measure. The signal-counted m_batchInserted is
+    // unreliable on the Rust backend, which delivers a batch's diffs from a
+    // task independent of the one reporting idle, through a capped 100 ms poll,
+    // so a full page can look like "no growth". Uses
+    // TimelineModel::eventCount(): this is a backend-delivery question, not a
+    // view-geometry one.
     int batchRowGrowth() const;
     void scheduleAutomaticRetry();
     void continueNavigation(bool reachedStart);
@@ -395,8 +268,8 @@ private:
     QString m_roomId;
     quint64 m_generation = 0;
 
-    // Controller-level single flight. True from dispatch until the batch
-    // reaches a terminal state (idle / failed / room switch / sign-out).
+    // Controller-level single flight, from dispatch until a terminal state
+    // (idle / failed / room switch / sign-out).
     bool m_requestActive = false;
     Reason m_activeReason = Reason::None;
     int m_batchInserted = 0;
@@ -406,13 +279,8 @@ private:
     QSet<QString> m_batchStableIds;
     bool m_deferredFill = false;
     /// Duplicate requests suppressed since the last dispatch, and what asked.
-    ///
-    /// COUNTED, not logged one line at a time. A viewport fill re-asks on
-    /// every layout pass while a batch is in flight, so the per-call line
-    /// this replaces produced fourteen identical entries in a row in a real
-    /// session log — the "a line that fires per CALLER does not belong in a
-    /// default-on category, only state transitions do" rule. The count is
-    /// reported once, on the dispatch that ends the run.
+    /// Counted rather than logged per call (a viewport fill re-asks on every
+    /// layout pass); reported once on the dispatch that ends the run.
     int m_suppressedSinceDispatch = 0;
     QString m_suppressedReason;
     bool m_completionPending = false;
@@ -421,16 +289,14 @@ private:
     bool m_initialHistoryRequested = false;
     bool m_initialHistoryHasSucceeded = false;
     QTimer m_autoRetryTimer;
-    // The Rust SDK reports pagination idle independently from the timeline
-    // diff stream. Keep the request single-flight until either its atomic row
-    // range arrives or this bounded late-delivery window expires; otherwise a
-    // second request can start between `complete` and the first request's rows.
+    // The SDK reports pagination idle independently of the diff stream. Stay
+    // single-flight until the batch's rows arrive or this bounded window
+    // expires, or a second request can start before the first one's rows land.
     QTimer m_completionSettleTimer;
     int m_completionSettleDelayMs = 250;
-    // Last resort for a dispatched batch that reports nothing at all; see
-    // abandonStalledRequest(). Generously long -- a real page against a slow
-    // homeserver is seconds, not tens of seconds, and this must never fire on
-    // a request that is merely working.
+    // Last resort for a dispatched batch that reports nothing at all (see
+    // abandonStalledRequest()). Long enough never to fire on a request that is
+    // merely slow.
     QTimer m_requestWatchdogTimer;
     int m_requestWatchdogMs = 30000;
     quint64 m_requestWatchdogGeneration = 0;
@@ -439,47 +305,30 @@ private:
     int m_maxAutomaticRetries = 3;
     int m_autoRetryBaseDelayMs = 150;
 
-    // Automatic-fill safety. Both reset on every room (re)open.
+    // Automatic-fill safety; reset on every room (re)open.
     int m_fillRequests = 0;
-    // Consecutive fill requests that inserted NOTHING before the fill gives
-    // up. 12, not 8, since 2026-09-05: MatrixRTC membership churn no longer
-    // becomes timeline items (rust/src/timeline.rs, lightning_event_filter),
-    // so a page of twenty such events inserts zero rows and costs only its
-    // fetch — a two-hour call leaves ~240 of them between two messages, and
-    // the fill must be allowed to walk through that run. The pane's own row
-    // cap (maxViewportFillRows) bounds what does get inserted.
-    // 60, and it is the SAME number as kMaxFilteredRunStrikes on purpose: the
-    // two bounds count the two halves of one event (a fill was dispatched; the
-    // page came back empty) and a room that trips one has tripped the other.
-    // 12 until 2026-09-16, which capped the dispatches BELOW the strike bound
-    // and so decided the filtered-run allowance by itself, silently.
-    //
-    // Only CONSECUTIVE unproductive fills spend it — any page that inserts a
-    // row refunds it — so the cost of 60 is 60 pages that each add no delegate
-    // and, when fully filtered, pay no completion settle either. The other way
-    // to be unproductive is a dispatch that never completes, and that is
-    // bounded separately and much sooner by kMaxNoProgressStrikes (12) in
-    // abandonStalledRequest().
+    // Consecutive fill requests that inserted nothing before the fill gives up.
+    // Equal to kMaxFilteredRunStrikes on purpose: the two count halves of one
+    // event (a fill was dispatched; the page came back empty). Filtered
+    // MatrixRTC churn inserts zero rows, and a long call can leave hundreds of
+    // such events between two messages; the pane's row cap bounds what does get
+    // inserted. Any page that inserts a row refunds it. Dispatches that never
+    // complete are bounded separately and much sooner by kMaxNoProgressStrikes.
     int m_maxFillRequests = 60;
     int m_noProgressStrikes = 0;
     bool m_fillStopped = false;
-    /// See the emptyFillPages property. Monotonic within a room, so QML can
-    /// compare it across two fill attempts; reset on every room (re)open.
+    /// See the emptyFillPages property; reset on every room (re)open.
     int m_emptyFillPages = 0;
-    // Consecutive automatic (non-user) NearTop batches that added no visible
-    // events. Bounds passive geometry-driven backfill; reset by a user gesture,
-    // any batch that adds content, reaching the start, or a room (re)open.
+    // Consecutive automatic NearTop batches that added nothing. Reset by a user
+    // gesture, any productive batch, reaching the start, or a room (re)open.
     int m_nearTopEmptyStrikes = 0;
-    // How long the bounded continuation waits before dispatching. Long enough
-    // for one more 100 ms bridge poll to deliver a batch's item diffs, so
-    // batchRowGrowth() can cancel a continuation the page did not need.
+    // Delay before a continuation dispatches: long enough for one more 100 ms
+    // bridge poll, so batchRowGrowth() can cancel an unneeded continuation.
     int m_nearTopContinuationDelayMs = 250;
-    // A bounded continuation is scheduled and has not yet run. Folded into
-    // busy() so presentationState() stays Loading across the gap: without it
-    // the pagination overlay collapses to 0 px and re-expands once per chained
-    // page, which is a new visible flicker in a round about jitter. (The
-    // overlay is a sibling of the ListView, never list content, so it cannot
-    // move timeline geometry either way — this is purely cosmetic.)
+    // A continuation is scheduled but has not run. Folded into busy() so the
+    // pagination overlay stays Loading across the gap instead of collapsing and
+    // re-expanding per chained page (a cosmetic flicker; the overlay is not
+    // list content).
     bool m_continuationPending = false;
 
     NavigationPurpose m_navigationPurpose = NavigationPurpose::None;
@@ -492,10 +341,9 @@ private:
     QHash<QString, ScrollAnchor> m_scrollAnchors;
     int m_highlightDurationMs = kDefaultHighlightDurationMs;
 
-    // Fill dispatches that never COMPLETED - the bound abandonStalledRequest()
-    // spends, and the only remaining user of this constant. Deliberately much
-    // smaller than the filtered-run bound: a page that walked twenty events is
-    // progress, a page that never arrived is a backend that is not answering.
+    // Fill dispatches that never completed, spent by abandonStalledRequest().
+    // Much smaller than the filtered-run bound: a page that walked events is
+    // progress, a page that never arrived means the backend is not answering.
     static constexpr int kMaxNoProgressStrikes = 12;
     static constexpr int kMaxNavigationBatches = 8;
     static constexpr int kMaxScrollAnchors = 64;

@@ -75,9 +75,8 @@ Parse parse(const QString &text)
         result.literalText = text.mid(1);
         return result;
     }
-    // "/", "/ x", "/1x", "/¯\_(ツ)_/¯": ordinary text. Only a letter can
-    // begin a command word — this is what keeps a slash-leading emoticon or
-    // path from becoming a surprise error.
+    // Only a letter can begin a command word, so a slash-leading emoticon or
+    // path ("/", "/ x", "/1x", "/¯\_(ツ)_/¯") stays ordinary text.
     if (text.size() < 2 || !text.at(1).isLetter())
         return result;
 
@@ -85,8 +84,7 @@ Parse parse(const QString &text)
     while (wordEnd < text.size() && !text.at(wordEnd).isSpace())
         ++wordEnd;
     const QString word = text.mid(1, wordEnd - 1);
-    // A command word is letters only; "/me2" or "/me…" is text, not a typo
-    // of /me — refusing to guess keeps false positives near zero.
+    // A command word is letters only; "/me2" is text, not a typo of /me.
     for (const QChar &c : word) {
         if (!c.isLetter())
             return result;
@@ -102,10 +100,9 @@ QString takeUserIdToken(QString &rest)
     rest = rest.trimmed();
     if (rest.isEmpty())
         return {};
-    // Markdown mention link first — the label may contain spaces, so a
-    // whitespace split cannot find its end.
-    // The expansion percent-encodes the MXID ("%40bob%3Aexample.org"), so
-    // the id is decoded AFTER capture and checked for its '@' then.
+    // Markdown mention link first: the label may contain spaces. The MXID is
+    // percent-encoded ("%40bob%3Aexample.org"), so it is decoded after capture
+    // and checked for its '@' then.
     static const QRegularExpression mentionLink(QStringLiteral(
         "^\\[[^\\]]*\\]\\(https://matrix\\.to/#/([^)?]+)[^)]*\\)"));
     const QRegularExpressionMatch link = mentionLink.match(rest);
@@ -193,14 +190,11 @@ Outcome execute(const Parse &parsed, const QStringList &mentionIds,
     if (name == QLatin1String("spoiler")) {
         if (!actions.send)
             return refuse(unavailable);
-        // Matrix spoiler (spec §11.36): a data-mx-spoiler span in the
-        // formatted body; the plain body carries the text, matching
-        // Element. The content is HTML-escaped here and strict-sanitized
-        // again in Rust.
-        // A mention pill in the argument is markdown link syntax in
-        // `parsed.args` (the composer's send-time expansion); the spoiler
-        // is a formatted send, so the pill becomes a real matrix.to anchor
-        // in the HTML and its display text in the plain body.
+        // Matrix spoiler: a data-mx-spoiler span in the formatted body, with
+        // the text in the plain body (as Element does). Escaped here and
+        // sanitized again in Rust. A mention pill in the argument becomes a
+        // real matrix.to anchor in the HTML and its display text in the plain
+        // body.
         const mention::Recovery recovered = mention::recoverFromBody(parsed.args);
         QString inner;
         int pos = 0;
@@ -287,8 +281,7 @@ Outcome execute(const Parse &parsed, const QStringList &mentionIds,
         if (!actions.toggleComposerMode)
             return refuse(unavailable);
         actions.toggleComposerMode();
-        // The host removes the command text itself but keeps no draft to
-        // retire — there is none, the command was the whole message.
+        // The command was the whole message, so there is no draft to retire.
         return done(false);
     }
     if (name == QLatin1String("clear")) {
@@ -305,8 +298,7 @@ QList<Command> completions(const QString &text)
     QList<Command> matches;
     if (!text.startsWith(QLatin1Char('/')) || text.startsWith(QStringLiteral("//")))
         return matches;
-    // Completion is offered only while the command WORD is being typed;
-    // once whitespace follows, the user is on the arguments.
+    // Completion is offered only while the command word is being typed.
     const QString rest = text.mid(1);
     for (const QChar &c : rest) {
         if (c.isSpace())

@@ -9,16 +9,13 @@
 #include <QList>
 #include <QString>
 
-// v0.5.7: pure translation layer between the Rust bridge's live-timeline
-// JSON protocol (timeline_reset / timeline_diff envelopes) and the C++
-// TimelineEvent mirror. No Qt models, no FFI, no I/O — fully unit-testable
-// without cargo or a homeserver.
+// Pure translation between the Rust bridge's live-timeline JSON
+// (timeline_reset / timeline_diff) and the C++ TimelineEvent mirror. No Qt
+// models, FFI or I/O, so fully unit-testable.
 //
-// Identity contract: the Rust side (matrix-sdk-ui) owns item identity and
-// index math. This layer validates every index/count against the local
-// mirror before mutating it; an invalid diff leaves the mirror untouched
-// and reports DiffOutcome::Invalid so the caller can request one full
-// timeline reset instead of corrupting model state.
+// matrix-sdk-ui owns item identity and index math. Every index/count is
+// validated against the mirror first; an invalid diff leaves it untouched and
+// reports DiffOutcome::Invalid so the caller can request a full reset.
 namespace matrix::rust_timeline {
 
 // One applied diff, described so the caller can emit the matching granular
@@ -42,17 +39,11 @@ struct DiffOutcome {
     QList<TimelineEvent> items;  // Appended / Prepended / Inserted / Changed / Reset
 };
 
-// The row kind for one bridge `msgtype` string — the Rust side's vocabulary
-// ("text", "notice", "emote", "image", "video", "audio", "file", "sticker",
-// "poll", "location", "state", "call", "encrypted", "redacted"), not Matrix's
-// `m.` names. `Unknown` for anything this client has no row for.
-//
-// SHARED ON PURPOSE. The live-timeline ingest and the sync `timeline_event`
-// path (RustSdkMatrixClient) both translate this field, and they had drifted:
-// the sync path knew notice and emote and called everything else a plain
-// text message, so a media row arriving from sync was typed TextMessage and
-// lost the wording, icon and preview that its real kind carries. Two
-// producers of one field must not disagree.
+// Row kind for one bridge `msgtype` (the Rust vocabulary: "text", "notice",
+// "emote", "image", "video", "audio", "file", "sticker", "poll", "location",
+// "state", "call", "encrypted", "redacted"), or Unknown. Shared by the
+// live-timeline ingest and the sync `timeline_event` path so the two
+// producers cannot disagree.
 TimelineEvent::Type rowTypeForMsgtype(const QString &msgtype);
 
 // Convert one Rust item payload into a TimelineEvent. Virtual rows
@@ -69,18 +60,15 @@ DiffOutcome applyTimelineDiff(QList<TimelineEvent> &mirror,
                               const QJsonObject &diff,
                               const QString &roomId);
 
-// v0.6.5: translate a room_members payload's member rows into per-room
-// member-cache entries — the cache behind displayNameFor()/avatarMxcFor(),
-// which mention chips, reply headers, and thread summaries resolve
-// through. Rows without a user id are dropped; display name and avatar may
-// legitimately be empty. Pure — unit-testable without the FFI.
+// Translate room_members rows into member-cache entries (the cache behind
+// displayNameFor()/avatarMxcFor()). Rows without a user id are dropped; name
+// and avatar may be empty.
 QHash<QString, MemberInfo> membersFromPayload(const QJsonArray &rows);
 
-// Tracks which (room, room_generation) pair the C++ side currently accepts.
-// The generation is minted by Rust; C++ adopts it from the timeline_reset
-// snapshot of the most recently *requested* room and rejects everything
-// else — stale diffs from a previous room, a previous open of the same
-// room, or a signed-out lifecycle can never mutate visible state.
+// Tracks which (room, room_generation) the C++ side accepts. Rust mints the
+// generation; C++ adopts it from the timeline_reset of the most recently
+// requested room and rejects everything else, so stale diffs (previous room,
+// previous open, signed-out lifecycle) never mutate visible state.
 class TimelineGenerationTracker
 {
 public:
@@ -93,9 +81,8 @@ public:
         m_generation = 0;
     }
 
-    // Adopt a reset snapshot. Returns false (no adoption) when the reset is
-    // for a room we did not just request, or is older than what we already
-    // adopted for it.
+    // Adopt a reset snapshot. Returns false when the reset is for a room we did
+    // not just request, or is older than what we adopted.
     bool adoptReset(const QString &roomId, quint64 generation)
     {
         if (roomId.isEmpty() || roomId != m_requestedRoom || generation == 0)

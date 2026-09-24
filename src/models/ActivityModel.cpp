@@ -9,8 +9,8 @@
 #include <utility>
 
 namespace {
-// Every kind a row may claim. "highlight" is the one the SERVER gives us
-// without saying which push rule matched, so it states only that much.
+// Every kind a row may claim. "highlight" is what the server gives without
+// saying which push rule matched, so it claims only that.
 const QStringList kKnownKinds{
     QStringLiteral("mention"),      QStringLiteral("room_mention"),
     QStringLiteral("reply"),        QStringLiteral("thread"),
@@ -55,26 +55,18 @@ void ActivityModel::setClient(MatrixClient *client)
         if (state == MatrixClient::Syncing)
             loadStore();
     });
-    // A room whose unread state has gone clear has been read — on THIS
-    // device or on another one. See reconcileRoomsAgainstTheirReadState().
+    // A room whose unread state has gone clear has been read, on this device or
+    // another; see reconcileRoomsAgainstTheirReadState().
     //
-    // roomsChanged AND NOT roomUpdated, and that distinction is the whole
-    // correctness of this. The four unread fields are written in exactly one
-    // place, `rust_rooms::roomInfoFromJson`, reached only from the room
-    // PAYLOAD handlers — and every one of those emits roomsChanged.
-    // roomUpdated is emitted from the timeline-event path, which raises
-    // `lastActivity` to the new event's own timestamp and touches no unread
-    // field at all. Listening to it marked a brand-new mention seen the
-    // instant it arrived: the counters still read clear from before the
-    // message, and lastActivity had just been raised to that very message, so
-    // the "nothing newer than lastActivity" bound protected nothing. The bell
-    // would have hidden the first mention in every already-read room — the
-    // exact failure this whole change exists to avoid, in the opposite
-    // direction and worse.
+    // roomsChanged, not roomUpdated: the unread fields are only written by the
+    // room payload handlers, which emit roomsChanged. roomUpdated comes from
+    // the timeline path, which raises lastActivity to the new event without
+    // touching the counters, so listening to it would mark a brand-new mention
+    // seen the instant it arrived.
     connect(m_client, &MatrixClient::roomsChanged, this,
             &ActivityModel::reconcileRoomsAgainstTheirReadState);
-    // The same payload that carries the unread counters carries the room's
-    // NAME, so one signal settles both halves of what the seed could not do.
+    // The payload that carries the unread counters also carries the room's
+    // name.
     connect(m_client, &MatrixClient::roomsChanged, this, [this] {
         resolvePendingSeedNames();
         if (m_seedAwaitingRooms.isEmpty())
@@ -83,38 +75,23 @@ void ActivityModel::setClient(MatrixClient *client)
         bool flipped = false;
         m_seedAwaitingRooms =
             reconcileSeedAgainstRoomCounts(pending, &flipped);
-        // ONLY when a row actually changed, and a dataChanged rather than a
-        // reset. `seenMark` is not part of passesFilter(), so no row's
-        // VISIBILITY can move here — a rebuildVisible() would be a full model
-        // reset (losing the list's scroll position and every delegate's
-        // state) to republish one role. And the obvious gate, "the pending
-        // list shrank", is true in the common case where the room arrives
-        // with highlightCount 0 and every row was already marked read: a
-        // reset for nothing. Raised in review; markAllSeen() is the
-        // precedent for the shape.
+        // Only when a row changed, and as dataChanged rather than a reset:
+        // seenMark does not affect passesFilter(), so no row's visibility
+        // moves, and a reset would lose scroll position and delegate state (as
+        // in markAllSeen()).
         if (flipped) {
             if (!m_visible.isEmpty())
                 Q_EMIT dataChanged(index(0), index(m_visible.size() - 1),
                                    { SeenRole });
-            // OUTSIDE the visible-rows guard: unseenCount() counts every
-            // ENTRY, not every visible row, so with a filter active that
-            // hides all of them the badge would go stale until the next
-            // event. Raised in review.
+            // Outside the visible-rows guard: unseenCount() counts every entry,
+            // not just visible rows.
             Q_EMIT unseenCountChanged();
         }
     });
-    // A member snapshot, which is what turns a sender id into a name.
-    // membersChanged and NOT roomMemberEventSeen: the latter fires per member
-    // event in a busy bridged room and is documented as reaching only the
-    // roster refetch consumers.
-    //
-    // SCOPE, because it is not unconditional: this is emitted only for a
-    // FULL roster (`RustSdkMatrixClient` suppresses it while `partial`), and
-    // the fetch is started from room open, Room Information, mention
-    // suggestions and SpaceManager -- so a row in a room the user never opens
-    // keeps its id. The roomsChanged sweep above is what catches the rest: it
-    // re-resolves with no room id, so a name that reached the member cache
-    // through a partial merge is still picked up on the next room payload.
+    // A member snapshot turns a sender id into a name. membersChanged, not
+    // roomMemberEventSeen, which fires per member event and is meant for roster
+    // refetches only. It is emitted only for full rosters of rooms something
+    // fetched; the roomsChanged sweep above re-resolves everything else.
     connect(m_client, &MatrixClient::membersChanged, this,
             [this](const QString &roomId) { resolvePendingSeedNames(roomId); });
 }
@@ -253,9 +230,7 @@ void ActivityModel::markAllSeen()
         e.seenMark = true;
         newest = std::max(newest, e.timestampMs);
     }
-    // Nothing later than "now" can be marked from here: an entry with a
-    // future (skewed) timestamp stays unseen rather than pushing the
-    // marker past real time.
+    // Never mark past "now": a future-dated (skewed) entry stays unseen.
     m_seenUpToMs = std::min(newest, QDateTime::currentMSecsSinceEpoch());
     saveStore();
     if (!m_visible.isEmpty())
@@ -271,9 +246,8 @@ void ActivityModel::markRoomReadUpTo(const QString &roomId, qint64 timestampMs)
     for (Entry &e : m_entries) {
         if (e.seenMark || e.roomId != roomId)
             continue;
-        // An entry with no timestamp cannot be compared, so it is left
-        // alone rather than assumed old — the same restraint markAllSeen
-        // applies to a future-dated one.
+        // An entry without a timestamp cannot be compared; leave it rather than
+        // assume it is old.
         if (e.timestampMs <= 0 || e.timestampMs > timestampMs)
             continue;
         e.seenMark = true;
@@ -281,36 +255,23 @@ void ActivityModel::markRoomReadUpTo(const QString &roomId, qint64 timestampMs)
     }
     if (!changed)
         return;
-    // Per-entry marks only: m_seenUpToMs stays where it is, because a
-    // receipt in ONE room says nothing about any other room's rows.
-    //
-    // NOT persisted, and it does not need to be. saveStore() writes only
-    // seenUpToMs and the keywords, and neither moved. Across a restart the
-    // durability comes from the other end, in seed().
-    //
-    // It used to say that durability was the server's own `read` flag, since
-    // a read receipt is what sets it. THAT WAS NOT ENOUGH, and a live report
-    // on 0.8.4 proved it: rows the room list considered read came back with
-    // `read: false` days later. reconcileSeedAgainstRoomCounts() is what
-    // makes this stick now — a room the user read reports no unread
-    // highlights, and its rows are marked seen whatever the per-row flag
-    // claims.
+    // Per-entry marks only: a receipt in one room says nothing about other
+    // rooms, so m_seenUpToMs stays put. Not persisted; across a restart
+    // reconcileSeedAgainstRoomCounts() re-derives it from the server, since the
+    // per-notification `read` flag alone was found to be unreliable.
     rebuildVisible();
     Q_EMIT unseenCountChanged();
 }
 
-// One pass over the rooms this model actually holds unseen rows for, so a
-// batch costs one rebuild rather than one per room.
+// One pass over the rooms holding unseen rows, so a batch costs one rebuild.
 void ActivityModel::reconcileRoomsAgainstTheirReadState()
 {
     if (!m_client || !m_client->tracksRoomReadState())
         return;
     QSet<QString> rooms;
     for (const Entry &e : m_entries) {
-        // isSeen(), not seenMark: after a restart the marker carries the
-        // seen state and seenMark is false on every row, so keying on the
-        // raw flag reconciles (and resets the model for) every room the bell
-        // has ever held.
+        // isSeen(), not seenMark: after a restart the marker carries the state
+        // and seenMark is false everywhere.
         if (!isSeen(e) && e.kind != QLatin1String("invite"))
             rooms.insert(e.roomId);
     }
@@ -323,20 +284,18 @@ void ActivityModel::reconcileRoomsAgainstTheirReadState()
     Q_EMIT unseenCountChanged();
 }
 
-// The marking half, with no signalling: the batch above emits once.
+// The marking half, without signalling; the batch above emits once.
 bool ActivityModel::markRoomReadIfClear(const QString &roomId)
 {
     if (!m_client || roomId.isEmpty())
         return false;
-    // A BACKEND THAT DOES NOT ANSWER MUST NOT BE READ AS ANSWERING "read".
-    // hasUnreadMessages and markedUnread are never written by the mock or
-    // the HTTP backend, so the predicate below would collapse onto
-    // notification_count alone there — which §16 records is not a read
+    // A backend that does not track read state must not be read as reporting
+    // "read": the mock and HTTP backends never write hasUnreadMessages or
+    // markedUnread, leaving only notification_count, which is not a read
     // signal. See MatrixClient::tracksRoomReadState.
     if (!m_client->tracksRoomReadState())
         return false;
-    // Cheap rejection first: this runs on every room payload, and most of
-    // them are for rooms the bell holds nothing for.
+    // Cheap rejection first; this runs on every room payload.
     bool holds = false;
     for (const Entry &e : m_entries) {
         if (!isSeen(e) && e.roomId == roomId
@@ -350,24 +309,22 @@ bool ActivityModel::markRoomReadIfClear(const QString &roomId)
     const RoomInfo info = m_client->roomInfo(roomId);
     if (info.id != roomId)
         return false;
-    // ALL of them, not any of them. num_unread_messages is the receipt-
-    // derived one and the reason this works across devices; the counts and
-    // the manual flag are what keep a partially-read room's rows.
+    // All of them must be clear. num_unread_messages is receipt-derived and
+    // works across devices; the counts and the manual flag keep a
+    // partially-read room's rows.
     if (info.markedUnread || info.hasUnreadMessages || info.unreadCount > 0
         || info.highlightCount > 0) {
         return false;
     }
-    // The newest thing the room is known to hold is the furthest the user
-    // can have read to. Nothing newer is ever marked.
+    // The room's newest known activity bounds how far the user can have read.
     if (!info.lastActivity.isValid())
         return false;
     const qint64 readUpToMs = info.lastActivity.toMSecsSinceEpoch();
     if (readUpToMs <= 0)
         return false;
-    // Per-entry marks only, exactly as markRoomReadUpTo: one room's read
-    // state says nothing about any other room's rows, so m_seenUpToMs does
-    // not move. Durability across a restart comes from seed() and
-    // reconcileSeedAgainstRoomCounts(), which read the same server state.
+    // Per-entry marks only, as in markRoomReadUpTo; m_seenUpToMs does not move.
+    // Durability across a restart comes from seed() and
+    // reconcileSeedAgainstRoomCounts().
     bool changed = false;
     for (Entry &e : m_entries) {
         if (e.seenMark || e.roomId != roomId)
@@ -482,9 +439,9 @@ bool ActivityModel::matchesKeyword(const QString &body, const QString &keyword)
     const QString k = keyword.trimmed();
     if (k.isEmpty() || body.isEmpty())
         return false;
-    // Whole-word, case-insensitive; a keyword that itself starts or ends
-    // with punctuation (e.g. "#lightning") still needs a boundary on the
-    // side that has a word character.
+    // Whole-word, case-insensitive. A keyword starting or ending with
+    // punctuation (e.g. "#lightning") needs a boundary only on its
+    // word-character side.
     QString pattern;
     if (k.front().isLetterOrNumber())
         pattern += QStringLiteral("(?<![\\p{L}\\p{N}_])");
@@ -554,8 +511,7 @@ void ActivityModel::rememberOwn(const TimelineEvent &event)
         m_ownEventIds.remove(m_ownEventOrder.first());
         m_ownEventOrder.removeFirst();
     }
-    // A thread the user started (their own message became a root) or took
-    // part in (their own reply names the root) is "their" thread.
+    // A thread the user started or replied in is "their" thread.
     if (event.isThreadRoot)
         m_ownThreadRoots.insert(event.eventId);
     if (!event.threadRootId.isEmpty())
@@ -583,9 +539,8 @@ bool ActivityModel::ingest(const TimelineEvent &event, const QString &roomName)
     e.senderId = event.sender;
     e.senderName = event.senderDisplayName.isEmpty() ? event.sender
                                                      : event.senderDisplayName;
-    // Same placeholder treatment as the seed: a live highlight can arrive
-    // before this room's roster does, and an id is not an answer. The
-    // resolver works off these flags, not off "seededness".
+    // As in the seed: a live highlight can arrive before the room's roster, and
+    // an id is not a name. The resolver works off these flags.
     e.senderNamePending = e.senderName == e.senderId;
     e.preview = previewOf(event);
     e.encrypted = event.undecryptable;
@@ -638,10 +593,9 @@ bool ActivityModel::noteInvite(const RoomInfo &room)
     e.senderId = room.inviterUserId;
     e.senderName = room.inviterDisplayName.isEmpty() ? room.inviterUserId
                                                      : room.inviterDisplayName;
-    // An INVITE is the one place a raw id is genuinely likely to stick: the
-    // client is not in the room, so no roster is ever fetched for it. The
-    // flag costs nothing and the roomsChanged sweep can still answer the room
-    // half from the invite's own payload.
+    // Invites are where a raw id is most likely to stick (no roster is fetched
+    // for a room the user is not in); the roomsChanged sweep can still name the
+    // room from the invite payload.
     e.senderNamePending = e.senderName == e.senderId;
     e.timestampMs = QDateTime::currentMSecsSinceEpoch();
     return addEntry(std::move(e));
@@ -674,32 +628,22 @@ void ActivityModel::seed(const QVariantList &entries)
         if (e.id.isEmpty() || e.roomId.isEmpty() || m_ids.contains(e.id)
             || e.senderId == self)
             continue;
-        // Validated against the known set, like setFilter. An unknown kind
-        // would render with the fallback icon and NO label at all — a row
-        // naming a room and a body while saying nothing about what happened.
-        // "highlight" is the honest default here: the seed's rows are the
-        // server's highlights and it does not say which rule matched.
+        // Validated against the known set, like setFilter: an unknown kind
+        // would render with no label. "highlight" is the honest default for
+        // server highlights.
         e.kind = m.value(QStringLiteral("kind")).toString();
         if (!kKnownKinds.contains(e.kind))
             e.kind = QStringLiteral("highlight");
         e.roomName = m.value(QStringLiteral("roomName")).toString();
         if (e.roomName.isEmpty() && m_client)
             e.roomName = m_client->roomInfo(e.roomId).name;
-        // `|| == the id`, NOT `isEmpty()` alone, and the sender half is the
-        // reason: MatrixClient's documented fallback is "MXID / empty"
-        // (MatrixClient.h:130) and every backend honours it -- displayNameFor
-        // returns the USER ID for an unknown room or member, never "". The
-        // only caller of seed() pre-fills this key with exactly that call
-        // (AppController.cpp), so at seed time the value arrives as
-        // "@bob:server": NON-empty, and an isEmpty() test left the row
-        // unpending and unresolvable for the session. That was the half of
-        // this defect actually reported live, and a first version of the fix
-        // did not close it -- the room half worked only because roomInfo()'s
-        // fallback really is an empty-named default, which is what hid the
-        // asymmetry. Raised in review.
+        // Compare against the id as well as empty: displayNameFor() returns the
+        // user id, never "", for unknown members, and the seed's caller
+        // pre-fills this key with that call, so an isEmpty() check would leave
+        // the row unresolvable for the session.
         if (e.roomName.isEmpty() || e.roomName == e.roomId) {
             e.roomName = e.roomId;
-            e.roomNamePending = true;   // an id is a placeholder, not an answer
+            e.roomNamePending = true;   // an id is a placeholder, not a name
         }
         e.senderName = m.value(QStringLiteral("senderName")).toString();
         if (e.senderName.isEmpty() || e.senderName == e.senderId) {
@@ -711,10 +655,8 @@ void ActivityModel::seed(const QVariantList &entries)
         e.timestampMs = m.value(QStringLiteral("timestampMs")).toLongLong();
         e.eventId = e.id;
         e.threadRootId = m.value(QStringLiteral("threadRootId")).toString();
-        // The server's own read flag counts as seen: it is what Element
-        // shows, and re-surfacing a mention the user already dealt with
-        // elsewhere would be noise. It is NOT trusted alone — see
-        // reconcileSeedAgainstRoomCounts() below.
+        // The server's read flag counts as seen, as in Element, but it is not
+        // trusted alone; see reconcileSeedAgainstRoomCounts().
         e.seenMark = m.value(QStringLiteral("read")).toBool();
         m_ids.insert(e.id);
         seeded.append(e.id);
@@ -734,36 +676,23 @@ void ActivityModel::seed(const QVariantList &entries)
     Q_EMIT unseenCountChanged();
 }
 
-// THE BELL AND THE ROOM LIST MUST NOT DISAGREE ABOUT THE SAME ACCOUNT.
+// The bell and the room list must not disagree about the same account.
 //
-// Reported live 2026-09-03 with a screenshot: no room showed unread and the
-// bell said 25, every row a "Highlighted for you" from the seed and some of
-// them six days old. Opening the room emptied it — which is
-// markRoomReadUpTo() working, and also the proof that a receipt had not been
-// recorded past those events before.
+// The seed is `GET /notifications?only=highlight`, each with its own `read`
+// flag, which can stay false long after the room was read. The room list uses
+// `highlight_count` (the bridge reports max(num_unread_mentions, sync
+// highlight_count)); when they disagree the room list wins.
 //
-// The seed is `GET /notifications?only=highlight`, and each notification
-// carries its own `read` flag. The room list uses a DIFFERENT answer from the
-// same server: `highlight_count`, which the Rust bridge reports as
-// `max(num_unread_mentions, sync highlight_count)`. When those two disagree
-// the room list's is the one to keep — it is what the user is looking at, it
-// is what every other client shows, and a badge that contradicts the list
-// beside it is worse than a badge that is slightly conservative.
+// Per room, the server says N highlights are unread: the newest N seeded rows
+// stay unseen and the rest are read. Exact when the seed holds the room's
+// whole backlog, conservative otherwise.
 //
-// So: per room, the server says exactly N of its highlights are unread. Order
-// that room's seeded rows newest-first and let the newest N stay unseen; the
-// rest are read. Exact when the seed holds the room's whole backlog, and
-// conservative in the right direction when it does not (a room with more
-// unread highlights than seeded rows marks none of them).
+// Only rooms the client knows take part: roomInfo() returns a default
+// RoomInfo for an unknown room, whose zero count means "unknown", not
+// "nothing unread". Name and count arrive in the same payload, so a room with
+// a resolved name has an equally fresh count.
 //
-// Only rooms the client actually KNOWS take part. `roomInfo()` answers a
-// default-constructed RoomInfo for an unknown room, whose count would be a
-// zero that means "never heard of it" rather than "nothing unread" — and
-// reading that as "all seen" would swallow a real mention. The name and the
-// count arrive in the SAME room payload, so a room whose name resolved has a
-// count that is exactly as fresh.
-//
-// A row the server already called read is never un-marked here.
+// A row the server already called read is never un-marked.
 QStringList ActivityModel::reconcileSeedAgainstRoomCounts(const QStringList &seededIds,
                                                           bool *flippedAny)
 {
@@ -773,7 +702,7 @@ QStringList ActivityModel::reconcileSeedAgainstRoomCounts(const QStringList &see
         return {};
     const QSet<QString> seeded(seededIds.begin(), seededIds.end());
 
-    // Rooms in this batch, each with its own unread-highlight budget.
+    // Rooms in this batch, each with its unread-highlight budget.
     QHash<QString, int> budget;
     QSet<QString> unknownRooms;
     for (const Entry &e : m_entries) {
@@ -781,10 +710,9 @@ QStringList ActivityModel::reconcileSeedAgainstRoomCounts(const QStringList &see
             continue;
         const RoomInfo info = m_client->roomInfo(e.roomId);
         if (info.id != e.roomId) {
-            // Unknown room: leave its rows to the server's flag FOR NOW and
-            // hand them back to the caller. A room is unknown as a whole, so
-            // either every one of its rows is reconciled or none is, and a
-            // retry cannot double-spend a budget it never spent.
+            // Unknown room: leave its rows to the server's flag for now and
+            // return them to the caller. A room is reconciled all-or-nothing,
+            // so a retry cannot double-spend its budget.
             unknownRooms.insert(e.roomId);
             continue;
         }
@@ -801,8 +729,7 @@ QStringList ActivityModel::reconcileSeedAgainstRoomCounts(const QStringList &see
     if (budget.isEmpty())
         return deferred;
 
-    // m_entries is already newest-first, so spending each room's budget in
-    // order hands it to that room's newest rows.
+    // m_entries is newest-first, so each room's budget goes to its newest rows.
     for (Entry &e : m_entries) {
         if (e.seenMark || !seeded.contains(e.id))
             continue;
@@ -820,16 +747,9 @@ QStringList ActivityModel::reconcileSeedAgainstRoomCounts(const QStringList &see
     return deferred;
 }
 
-// THE SEED'S PLACEHOLDERS ARE NOT ANSWERS, and nothing used to replace them.
-//
-// A seeded row that could not name its room or its sender rendered the raw id
-// for the whole session -- `!abc:server` as a room title, `@bob:server` where
-// every other surface in the application says "bob". The names arrive
-// seconds later, with the first room payload and the first `/members` fetch,
-// and this is what picks them up.
-//
-// Rows are only ever moved FROM a placeholder: a row that already carries a
-// real name is left alone, so a later empty answer can never un-name one.
+// Replace the seed's placeholder names (raw room and user ids) once real
+// names arrive with the first room payload or /members fetch. Rows only ever
+// move away from a placeholder, so a later empty answer cannot un-name one.
 void ActivityModel::resolvePendingSeedNames(const QString &roomId)
 {
     if (!m_client)
@@ -859,8 +779,8 @@ void ActivityModel::resolvePendingSeedNames(const QString &roomId)
         }
         if (!changed)
             continue;
-        // The row's position does not move -- only two of its strings -- so
-        // this is a dataChanged on the VISIBLE index, never a reset.
+        // Only two strings changed, so dataChanged on the visible index, never
+        // a reset.
         const int visibleRow = m_visible.indexOf(i);
         if (visibleRow >= 0) {
             const QModelIndex idx = index(visibleRow, 0);
@@ -875,8 +795,8 @@ bool ActivityModel::addEntry(Entry entry)
     if (m_ids.contains(entry.id))
         return false;
     m_ids.insert(entry.id);
-    // Newest first; a live append is almost always the newest, but a
-    // backlog burst can arrive out of order.
+    // Newest first; a live append is usually newest, but a backlog burst can
+    // arrive out of order.
     int pos = 0;
     while (pos < m_entries.size() && m_entries.at(pos).timestampMs > entry.timestampMs)
         ++pos;

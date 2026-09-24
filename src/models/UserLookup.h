@@ -2,24 +2,21 @@
 
 #include <QString>
 
-// v0.5.11: pure helpers for the invite/user-search flow. No Qt models, no
-// FFI, no I/O — fully unit-testable.
+// Pure helpers for the invite/user-search flow; no models, FFI or I/O.
 //
-// The user directory on many homeservers does not list local users that
-// have never shared a room with the searcher, so a plausible query like
-// "admin" must additionally be resolved as "@admin:<own-server>" through an
-// exact profile lookup. These helpers derive that candidate; they never
-// hardcode a server name and never fabricate an id from an invalid
-// localpart.
+// Many homeservers' user directories omit local users who share no room with
+// the searcher, so a query like "admin" is also resolved as
+// "@admin:<own-server>" by exact profile lookup. These helpers derive that
+// candidate without hardcoding a server or fabricating ids from invalid
+// localparts.
 namespace matrix::user_lookup {
 
 // Server name of a full Matrix user id ("@a:server[:port]" -> "server[:port]").
 // Empty when the id has no server part.
 QString serverNameFromUserId(const QString &userId);
 
-// Matrix-spec localpart grammar (historical ids are accepted by the exact
-// lookup anyway once typed fully; candidates are only constructed from the
-// strict grammar so no malformed id is ever fabricated).
+// Strict Matrix localpart grammar. Candidates are only built from it, so no
+// malformed id is fabricated (historical ids still work when typed in full).
 bool isValidLocalpart(const QString &localpart);
 
 // dns-name[:port] (no IPv6 literal support — consistent with
@@ -40,10 +37,8 @@ QString exactCandidate(const QString &rawQuery, const QString &ownServerName);
 // bare-localpart guess against the user's own homeserver.
 bool queryNamesServer(const QString &rawQuery);
 
-// v0.7: the shared visible-name fallback for a user with no resolved
-// display name anywhere: the localpart of the Matrix id ("@matas:server"
-// -> "matas"). The complete MXID is returned only when no localpart can be
-// derived; it stays available separately for tooltips/disambiguation.
+// Visible-name fallback when no display name is known: the localpart
+// ("@matas:server" -> "matas"), or the full id if none can be derived.
 QString localpartOrUserId(const QString &userId);
 
 } // namespace matrix::user_lookup

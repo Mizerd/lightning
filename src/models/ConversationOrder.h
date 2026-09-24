@@ -1,38 +1,26 @@
 #pragma once
 
-// The one recency comparator for conversation lists.
+// The recency comparator shared by conversation lists.
 //
-// Classic (RoomListModel) and Channels (SpaceChannelModel) both order
-// conversations by "when did somebody last actually say something here", and
-// they must agree: two lists over the same rooms that disagree about which is
-// newer is a bug the user sees as rooms swapping places when they switch
-// layout. Both call this, so there is nothing to drift.
+// Classic (RoomListModel) and Channels (SpaceChannelModel) must order rooms
+// identically, or rooms swap places when the layout changes.
 //
-// WHAT COUNTS AS ACTIVITY IS DECIDED UPSTREAM, not here. RoomInfo::lastActivity
-// is written only through raiseActivity(), which is monotonic, and its writers
-// exclude state changes, call rows and virtual events; on the Rust side the
-// sort key is the SDK's LatestEventValue, which is the room-list preview value
-// and so is message-like by construction, including the local echo of a message
-// the user has just sent. Reading a room, changing its topic or renaming it
-// therefore does not move it. If a room jumps for something nobody said, the
-// defect is in a writer of lastActivity, not in this file.
+// What counts as activity is decided upstream: RoomInfo::lastActivity is
+// written only through the monotonic raiseActivity(), whose writers exclude
+// state changes, call rows and virtual events; on Rust the key is the SDK's
+// LatestEventValue (message-like, including local echoes). A room that moves
+// for something nobody said is a lastActivity writer bug, not this file's.
 //
-// Header-only on purpose: roughly twenty test targets link the models, and a
-// new .cpp would mean editing every one of their source lists.
+// Header-only so the many test targets linking the models need no new source.
 
 #include <QDateTime>
 #include <QString>
 
 namespace conversation {
 
-/// Strict-weak ordering: newest conversation activity first.
-///
-/// The tiebreak is not decoration. Rooms with no activity yet share an invalid
-/// timestamp, and a great many rooms can share a timestamp to the millisecond
-/// after a backfill, so without a total order the list reshuffles itself
-/// between syncs purely from the order the backend happened to hand rooms
-/// over. Name first so a tie reads alphabetically to a human, then id, which
-/// is unique.
+/// Strict-weak ordering: newest activity first. The tiebreak (name, then the
+/// unique id) gives a total order, so rooms sharing a timestamp (none, or the
+/// same millisecond after a backfill) do not reshuffle between syncs.
 inline bool moreRecent(const QDateTime &aWhen, const QString &aName,
                        const QString &aId, const QDateTime &bWhen,
                        const QString &bName, const QString &bId)

@@ -13,19 +13,16 @@ class MatrixClient;
 class StagedImageStore;
 class VideoPosterExtractor;
 
-// v0.5.9: attachments prepared in the composer before sending.
+// Attachments prepared in the composer before sending.
 //
-// Entries come from the file picker, drag-and-drop, or clipboard image
-// paste. Validation happens on add: regular readable non-empty file, MIME
-// detected from *content* (QMimeDatabase), bounded against the server's
-// m.upload.size when known. Nothing is uploaded until the user sends;
-// dispatch itself is owned by MessageComposer. Clipboard images stay in
-// memory (QByteArray) — no temporary file is ever written.
+// Entries come from the file picker, drag-and-drop or clipboard paste.
+// Validated on add: regular, readable, non-empty file, MIME detected from
+// content, bounded by the server's m.upload.size when known. Nothing uploads
+// until the user sends; MessageComposer owns dispatch. Clipboard images stay
+// in memory; no temporary file is written.
 //
-// v0.7: a queued VIDEO additionally gets a poster frame extracted from the
-// file on add, so the outgoing Matrix event can carry a real thumbnail. The
-// model owns that job; the dispatcher (MessageComposer / ThreadController)
-// only waits for entryPrepared() before sending that one entry.
+// A queued video also gets a poster frame extracted on add so the event can
+// carry a thumbnail; dispatchers wait for entryPrepared() for that entry.
 class AttachmentQueueModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -41,12 +38,9 @@ public:
         IsImageRole,
         StateRole,        // "queued" | "dispatching" | "failed"
         ErrorRole,
-        // What QML should point an Image at to preview this entry BEFORE it
-        // is sent: the file URL for a picked file, an
-        // image://lightning-staged/<token> URL for clipboard bytes (which
-        // have no file), and empty for anything that is not a still image.
-        // LocalUrlRole is empty for pasted data, which is why the composer
-        // chip showed a generic icon for every pasted screenshot.
+        // Image source for previewing the entry before sending: the file URL
+        // for a picked file, image://lightning-staged/<token> for clipboard
+        // bytes, empty for anything that is not a still image.
         PreviewSourceRole,
     };
 
@@ -66,13 +60,10 @@ public:
         QString state = QStringLiteral("queued");
         QString error;
         quint64 opId = 0;    // set while dispatching
-        // v0.7 video round: a picked video is postered locally so the
-        // outgoing Matrix event carries a real thumbnail (see
-        // startPosterJob). Extraction runs the moment the file is queued —
-        // by the time the user presses send it is normally already done —
-        // and `posterPending` holds the dispatch of THIS entry only until
-        // it resolves either way. Extraction failure is not send failure:
-        // the poster stays empty and the video sends without one.
+        // Videos are postered locally as soon as they are queued (see
+        // startPosterJob); `posterPending` holds only this entry's dispatch
+        // until it resolves. Extraction failure is not send failure: the video
+        // goes out without a poster.
         bool isVideo = false;
         // Decoded for its DURATION only; there is no poster to grab.
         bool isAudio = false;
@@ -83,22 +74,17 @@ public:
         int posterWidth = 0;
         int posterHeight = 0;
         qint64 durationMs = 0;  // 0 when the decoder never reported one
-        // The composer's typed text, when the user has asked for it to be
-        // sent as this attachment's caption. Empty otherwise, which is the
-        // previous behaviour exactly. It lives on the ENTRY rather than on
-        // the composer because dispatch is NOT in row order — a video whose
-        // poster is still being extracted is held back while the next entry
-        // goes out — so "the composer's pending caption" would land on
-        // whichever event happened to be dispatched first, and a retry of a
-        // failed entry would lose it.
+        // The composer text to send as this attachment's caption, or empty.
+        // Stored on the entry because dispatch is not in row order (a video
+        // awaiting its poster is held back) and a retry must keep it.
         QString caption;
     };
 
     explicit AttachmentQueueModel(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
-    // Where clipboard bytes are registered so QML can preview them. Optional:
-    // without a store a pasted image simply has no preview, exactly as before.
+    // Where clipboard bytes are registered for preview. Optional: without it a
+    // pasted image has no preview.
     void setStagedImages(StagedImageStore *store) { m_stagedImages = store; }
 
     int rowCount(const QModelIndex &parent = {}) const override;
@@ -121,53 +107,46 @@ public:
 
     static QString humanSize(qint64 bytes);
 
-    // The homeserver's advertised m.upload.size, or 0 when it is UNKNOWN
-    // (not advertised, not answered yet, or the lookup failed). 0 is never
-    // treated as unlimited and never replaced by a client-side default —
-    // see the definition for why an invented ceiling is worse than none.
+    // The homeserver's m.upload.size, or 0 when unknown. 0 is never treated as
+    // unlimited nor replaced by a client-side default; see the definition.
     qint64 uploadLimit() const;
-    // True only when a real server limit is known AND `bytes` exceeds it.
-    // Exactly at the limit is allowed. Shared by every send path so the
-    // preflight cannot drift between composers.
+    // True only when a real server limit is known and `bytes` exceeds it (the
+    // limit itself is allowed). Shared by every send path.
     bool exceedsUploadLimit(qint64 bytes) const;
     // Human-readable refusal for an oversized payload, e.g. for a notice.
     // Only meaningful when exceedsUploadLimit() is true.
     QString uploadLimitMessage() const;
 
-    // v0.7 video round. Test seam: replaces the offscreen video decoder so
-    // a poster outcome can be exercised without a real media backend or a
-    // real video file. The hook receives (tag, localPath) and is expected
-    // to call applyPoster() with that tag later. Production never sets it.
+    // Test seam replacing the video decoder: receives (tag, localPath) and
+    // later calls applyPoster() with that tag. Never set in production.
     using PosterRequestHook =
         std::function<void(const QString &tag, const QString &localPath)>;
     void setPosterRequestHook(PosterRequestHook hook);
-    // Deliver a poster outcome for a queued video. An empty `jpeg` is the
-    // honest "no poster could be produced" answer: the entry still becomes
-    // dispatchable, it simply carries no thumbnail.
+    // Deliver a poster outcome. An empty `jpeg` means no poster could be made;
+    // the entry becomes dispatchable without a thumbnail.
     void applyPoster(const QString &tag, const QByteArray &jpeg,
                      const QSize &posterSize, const QSize &sourceSize,
                      qint64 durationMs);
 
 Q_SIGNALS:
     void countChanged();
-    // A queued entry finished preparing (today: its poster resolved) and is
-    // now dispatchable. Carries the row as it stands at emit time.
+    // A queued entry finished preparing (its poster resolved) and can be
+    // dispatched.
     void entryPrepared(int row);
 
 private:
     void startPosterJob(int row);
     int rowForPosterTag(const QString &tag) const;
 
-    // Drops an entry's staged-image registration, whichever way it is
-    // leaving the queue. Every removal path must call it: a token left
-    // behind holds the bytes for the life of the session.
+    // Drops an entry's staged-image registration. Every removal path must call
+    // it, or the bytes are held for the whole session.
     void releaseStaged(const Entry &entry);
 
     MatrixClient *m_client = nullptr;
     StagedImageStore *m_stagedImages = nullptr;
     QList<Entry> m_entries;
-    // Created lazily on the first video, so a session that never attaches
-    // one never constructs a QMediaPlayer.
+    // Created lazily on the first video so sessions without one never construct
+    // a QMediaPlayer.
     VideoPosterExtractor *m_posterExtractor = nullptr;
     PosterRequestHook m_posterHook;
     quint64 m_nextPosterTag = 1;

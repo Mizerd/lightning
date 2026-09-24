@@ -34,15 +34,13 @@ class MessageComposer : public QObject
     Q_PROPERTY(QString threadRootId READ threadRootId NOTIFY threadStateChanged)
     Q_PROPERTY(QString threadPreview READ threadPreview NOTIFY threadStateChanged)
     Q_PROPERTY(bool inThread READ inThread NOTIFY threadStateChanged)
-    // v0.5.9: attachment tray (Rust backend; SDK send queue).
+    // Attachment tray (Rust backend; SDK send queue).
     Q_PROPERTY(AttachmentQueueModel* attachments READ attachments CONSTANT)
     Q_PROPERTY(bool hasAttachments READ hasAttachments NOTIFY attachmentsChanged)
     Q_PROPERTY(bool attachmentsSupported READ attachmentsSupported NOTIFY roomIdChanged)
-    // Composer policy, pushed in from QML (qml/Main.qml) the same way the
-    // theme settings are pushed into AppTheme: text typed alongside an
-    // attachment is sent as that attachment's CAPTION — one event instead of
-    // two — rather than as a separate message. Default false, which is the
-    // behaviour every release so far has had.
+    // Composer policy pushed in from QML (qml/Main.qml): text typed alongside
+    // an attachment is sent as that attachment's caption, one event instead of
+    // two. Default false.
     Q_PROPERTY(bool sendTextAsCaption READ sendTextAsCaption
                    WRITE setSendTextAsCaption NOTIFY sendTextAsCaptionChanged)
     // Current mention ranges as [{start, length}] for the composer's chip
@@ -50,15 +48,13 @@ class MessageComposer : public QObject
     // refs; re-announced on every text change (the refs re-anchor there).
     Q_PROPERTY(QVariantList mentionRanges READ mentionRanges
                    NOTIFY mentionRangesChanged)
-    // v0.9 slash commands. `commandError` is a non-destructive refusal (an
-    // unknown command or missing arguments): the draft stays, the message is
-    // not sent, and the QML bar shows the text with a "send as a message"
-    // affordance (sendBypassingCommands). Cleared by any text change, a room
-    // change, or a successful send. `commandCompletions` is the popup model
-    // while the command word is being typed: [{name, argsHint, description,
-    // enabled}] — `enabled` reflects commandPermissions, a courtesy hint
-    // pushed in from QML (RoomInfoController's can* booleans); the server
-    // stays the enforcer.
+    // Slash commands. `commandError` is a non-destructive refusal (unknown
+    // command or missing arguments): the draft stays and the QML bar offers
+    // sendBypassingCommands. Cleared by any text change, room change or
+    // successful send. `commandCompletions` is the popup model while a command
+    // word is typed: [{name, argsHint, description, enabled}], where `enabled`
+    // reflects commandPermissions, a courtesy hint from QML; the server
+    // enforces.
     Q_PROPERTY(QString commandError READ commandError
                    NOTIFY commandErrorChanged)
     Q_PROPERTY(QVariantList commandCompletions READ commandCompletions
@@ -70,8 +66,8 @@ public:
     explicit MessageComposer(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
-    // v0.7.x drafts: injected by AppController. Optional — without a store
-    // the composer behaves exactly as before (wipe on switch).
+    // Injected by AppController. Without a store the composer wipes text on a
+    // room switch.
     void setDraftStore(class DraftStore *store) { m_drafts = store; }
 
     QString text() const { return m_text; }
@@ -96,21 +92,11 @@ public:
     bool sendTextAsCaption() const { return m_sendTextAsCaption; }
     void setSendTextAsCaption(bool on);
 
-    // HIGHLIGHT ranges, and every one is checked against the text it claims to
-    // cover before it is handed out.
-    //
-    // MentionHighlighter paints whatever offsets it is given, so a ref whose
-    // start/length no longer line up with the composer's text colours an
-    // arbitrary run of words in the accent -- reported against an edit as "its
-    // only part blue". A ref can go stale legitimately (the text is replaced
-    // wholesale by beginEdit or a draft restore, or the user edits in front of
-    // a mention), and no producer can be sure its offsets survive that.
-    //
-    // So this fails closed the way the draft restore already does: a range is
-    // offered only while the slice it names is still exactly the mention's own
-    // display text. Dropping a stale highlight is invisible; painting the wrong
-    // words is not. This is presentation only -- the send path reads
-    // m_mentionRefs directly, so nothing here can change what is sent.
+    // Highlight ranges, each checked against the text it claims to cover.
+    // MentionHighlighter paints whatever offsets it gets, and a ref can go
+    // stale (beginEdit, draft restore, edits in front of a mention), so a range
+    // is offered only while its slice still equals the mention's display text.
+    // Presentation only: sending reads m_mentionRefs directly.
     QVariantList mentionRanges() const
     {
         QVariantList out;
@@ -130,52 +116,41 @@ public:
     }
 
     Q_INVOKABLE void send();
-    // "Send as a message" on the unknown-command error bar: the same send,
-    // with command parsing skipped, so "/typo hello" can still be posted
-    // deliberately.
+    // "Send as a message" on the unknown-command bar: the same send with
+    // command parsing skipped.
     Q_INVOKABLE void sendBypassingCommands();
-    // v0.9 scheduled send (phase 11): the message the composer WOULD send
-    // now — {body, mentionIds, bodySpec(empty = markdown), roomId,
-    // threadRootId, replyToEventId} — without sending it. The scheduler
-    // takes the snapshot and the composer is cleared by the caller.
+    // Scheduled send: the message the composer would send now — {body,
+    // mentionIds, bodySpec (empty = markdown), roomId, threadRootId,
+    // replyToEventId} — without sending it. The caller clears the composer.
     Q_INVOKABLE QVariantMap composedMessage() const;
 
-    /// How a `:shortcode:` in the composer becomes an inline custom emoji.
-    /// Returns the pack image's `mxc://` URI, or "" when the shortcode is not
-    /// one the user has installed — in which case it stays literal text.
+    /// How a `:shortcode:` becomes an inline custom emoji: returns the pack
+    /// image's `mxc://` URI, or "" to leave the shortcode as literal text.
     void setEmoticonResolver(
         std::function<QString(const QString &shortcode)> resolve);
-    // v0.9 rich composer: send a PRE-COMPOSED (plainBody, html, mentions)
-    // triple — both bodies derived from one QTextDocument by
-    // RichComposition, handed over by RichComposerBridge. Context routing
-    // (edit / thread / reply / room) and the send tail are identical to the
-    // markdown path. Attachments dispatch alongside; the text-as-caption
-    // convenience deliberately does NOT apply to a formatted message (a
-    // caption is plain text).
+    // Rich composer: send a pre-composed (plainBody, html, mentions) triple
+    // derived by RichComposition from one QTextDocument. Routing and the send
+    // tail match the markdown path. Text-as-caption does not apply: a caption
+    // is plain text.
     Q_INVOKABLE void sendPrepared(const QString &body, const QString &html,
                                   const QStringList &mentionUserIds);
-    // Replace the in-progress command word with the chosen completion
-    // ("/ki" -> "/kick "). Returns the new cursor position.
+    // Replace the command word being typed with the chosen completion ("/ki" ->
+    // "/kick "). Returns the new cursor position.
     Q_INVOKABLE int acceptCommandCompletion(const QString &name);
 
     // ── Inline custom emoji completion (MSC2545) ─────────────────────────
     //
-    // Cursor-driven rather than a NOTIFY property, unlike commandCompletions:
-    // a slash command is always at position 0, while a shortcode can be
-    // anywhere, so the answer depends on where the caret is and QML is what
-    // knows that.
-    //
-    // Returns [{shortcode, url, packName}], most recently used first, or an
-    // empty list when the caret is not inside a `:token` that should
-    // complete — which includes inside a URL and inside a code span, where a
-    // colon is ordinary text.
+    // Cursor-driven rather than a property: a shortcode can be anywhere, and
+    // QML knows where the caret is. Returns [{shortcode, url, packName}], most
+    // recently used first, or empty when the caret is not in a completable
+    // `:token` (including inside a URL or code span).
     Q_INVOKABLE QVariantList emojiCompletionsAt(int cursorPos) const;
     /// Replace the `:token` under the caret with `:shortcode: ` and return
     /// the new cursor position, or -1 when there was nothing to replace.
     Q_INVOKABLE int acceptEmojiCompletionAt(int cursorPos,
                                             const QString &shortcode);
-    /// Supplies the candidate list. Set by AppController from the installed
-    /// packs; without it completion is simply never offered.
+    /// Supplies the candidates. Set by AppController from the installed packs;
+    /// without it completion is never offered.
     void setEmoticonSearch(
         std::function<QVariantList(const QString &prefix, int limit)> search);
     Q_INVOKABLE void clear();
@@ -183,92 +158,78 @@ public:
                                 const QString &sender,
                                 const QString &preview,
                                 const QString &mediaKey = QString());
-    // sanitizedHtml (optional): the event's sanitized formatted body, used
-    // to recover mention refs when the plain body carries display text
-    // (sends after the plain-body reduction have no markdown to parse).
-    // `timelineId` names the timeline that HOLDS the event being edited: the
-    // plain room id from the main timeline, the §8 composite from a thread
-    // panel. Empty keeps the composer's own room, which is the historical
-    // behaviour and correct for every main-timeline edit.
-    //
-    // It exists because the thread panel's Edit routes through THIS composer,
-    // whose m_roomId is the room — and matrix-sdk resolves an edit against
-    // the timeline's own items, so a thread reply edited with the room id
-    // failed every time. The other three members of that family (redact,
-    // retry/cancel, react) each carry the thread root for the same reason.
+    // sanitizedHtml (optional): the event's sanitized formatted body, used to
+    // recover mention refs when the plain body carries display text.
+    // `timelineId` names the timeline holding the event: the room id from the
+    // main timeline, the composite id from a thread panel. Empty means this
+    // composer's room. Needed because matrix-sdk resolves an edit against the
+    // timeline's own items, so a thread reply must be edited through its
+    // thread.
     Q_INVOKABLE void beginEdit(const QString &eventId,
                                const QString &currentBody,
                                const QString &sanitizedHtml = QString(),
                                const QString &timelineId = QString());
-    // v0.4.1: enter thread-reply mode. `preview` is a short body preview of
-    // the thread root, used to render the composer chip. Cleared by
-    // cancelReplyOrEdit() or by the next successful send().
+    // Enter thread-reply mode. `preview` is a short preview of the thread root
+    // for the composer chip. Cleared by cancelReplyOrEdit() or the next send().
     Q_INVOKABLE void beginThreadReply(const QString &rootEventId,
                                       const QString &preview);
     Q_INVOKABLE void cancelReplyOrEdit();
     Q_INVOKABLE void reactTo(const QString &targetEventId, const QString &key);
     Q_INVOKABLE void redact(const QString &eventId);
-    // 2026-08-18 tester request ("add function remove all edits"): redact the
-    // m.replace events attached to one of the user's own messages so it
-    // returns to its original text. Backend-gated — the relations are only
-    // reachable through the SDK.
+    // Redact the m.replace events on one of the user's own messages so it
+    // returns to its original text. Backend-gated.
     Q_INVOKABLE bool canRemoveEdits() const;
     Q_INVOKABLE void removeEdits(const QString &eventId);
 
-    // v0.7 outgoing @-mentions. `mentionTokenAt` reports the active @-token at
-    // the cursor ({active, start, query}); it is ref-aware, so a cursor sitting
-    // over an already-inserted mention reports inactive (the pill is complete).
-    // `insertMention` replaces that token with "@DisplayName ", records the
-    // mention range, and returns the new cursor position. Send-time expansion
-    // rewrites the recorded ranges into matrix.to markdown links.
+    // Outgoing @-mentions. `mentionTokenAt` reports the active @-token at the
+    // cursor ({active, start, query}); a cursor over an inserted mention
+    // reports inactive. `insertMention` replaces the token with "@DisplayName
+    // ", records the range and returns the new cursor. Sending expands recorded
+    // ranges into matrix.to links.
     Q_INVOKABLE QVariantMap mentionTokenAt(const QString &text,
                                            int cursorPos) const;
     Q_INVOKABLE int insertMention(const QString &userId,
                                   const QString &displayName,
                                   int tokenStart, int cursorPos);
 
-    // v0.7: MSC3381 poll actions on the current room. `threadRootId` is
-    // non-empty when the acting delegate lives in the thread panel, so the
-    // backend can route through the thread-focused timeline. Aggregation
-    // and permission enforcement stay SDK/server-side.
+    // MSC3381 poll actions on the current room. `threadRootId` is set when the
+    // acting delegate is in the thread panel, so the backend routes through the
+    // thread timeline. Aggregation and permissions stay SDK/server-side.
     Q_INVOKABLE bool pollsSupported() const;
     Q_INVOKABLE void votePoll(const QString &pollEventId,
                               const QStringList &answerIds,
                               const QString &threadRootId = QString());
     Q_INVOKABLE void endPoll(const QString &pollEventId,
                              const QString &threadRootId = QString());
-    // Creates the poll in the composer's current context: the open thread
-    // when the composer is in thread-reply mode, else the room timeline.
+    // Creates the poll in the composer's context: the open thread in
+    // thread-reply mode, else the room timeline.
     Q_INVOKABLE void createPoll(const QString &question,
                                 const QStringList &answers,
                                 bool undisclosed,
                                 int maxSelections);
     Q_INVOKABLE void sendImageFromPath(const QString &localPath);
     Q_INVOKABLE void sendFileFromPath(const QString &localPath);
-    // v0.7: MSC3245 voice message from VoiceRecorder's finalized output.
-    // waveform entries are 0..=100; failure surfaces via
-    // attachmentRejected exactly like tray attachments.
+    // MSC3245 voice message from VoiceRecorder's output. Waveform entries are
+    // 0..=100; failure surfaces via attachmentRejected.
     Q_INVOKABLE void sendVoiceMessage(const QString &localPath,
                                       const QString &mime,
                                       qreal durationMs,
                                       const QVariantList &waveform);
 
-    // v0.5.9 attachment tray.
+    // Attachment tray.
     AttachmentQueueModel *attachments() const { return m_attachments; }
     bool hasAttachments() const { return m_attachments && !m_attachments->isEmpty(); }
     bool attachmentsSupported() const;
     // Add a picked/dropped file; emits attachmentRejected(reason) when the
     // file fails validation (directory, unreadable, empty, over limit).
     Q_INVOKABLE void addAttachment(const QUrl &fileUrl);
-    // Intercept Ctrl+V: returns true when the clipboard held an image or
-    // local file URLs and they were queued as attachments; false lets the
-    // text editor perform a normal text paste. Plain text that merely looks
-    // like a path is never treated as a file.
+    // Ctrl+V: returns true when the clipboard held an image or local file URLs
+    // that were queued; false lets the editor paste text. Text that looks like
+    // a path is never treated as a file.
     Q_INVOKABLE bool pasteFromClipboard();
 
-    // Formatting toolbar (design shell): markdown wrap/unwrap over the
-    // editor's selection, and the active-state flags for the toolbar chips.
-    // Pure text transforms — see MarkdownFormat.
+    // Formatting toolbar: markdown wrap/unwrap over the selection and the
+    // active flags for the chips. Pure text transforms; see MarkdownFormat.
     Q_INVOKABLE QVariantMap toggleFormat(const QString &format,
                                          const QString &text,
                                          int selectionStart,
@@ -290,11 +251,10 @@ Q_SIGNALS:
     void commandErrorChanged();
     void commandCompletionsChanged();
     void commandPermissionsChanged();
-    // /markdown: the composer MODE is presentation state owned by QML/
-    // settings, so the command only asks; nothing here flips it.
+    // /markdown: the composer mode is owned by QML/settings; this only asks.
     void composerModeToggleRequested();
-    // /nick: display-name changes carry op-id bookkeeping owned by
-    // AppController (submitOwnDisplayName); the command only asks.
+    // /nick: display-name op bookkeeping is AppController's
+    // (submitOwnDisplayName); this only asks.
     void displayNameChangeRequested(const QString &name);
     void replyStateChanged();
     void editStateChanged();
@@ -307,13 +267,10 @@ Q_SIGNALS:
     void attachmentRejected(const QString &reason);
 
 public:
-    /// Whether "… is typing" leaves this device at all (Settings ->
-    /// Privacy). A seam rather than a SettingsManager dependency: this class
-    /// has none, and its test target does not link one.
-    ///
-    /// Turning it OFF while a notice is live sends the STOP immediately
-    /// rather than waiting for the server's timeout — the user asked to stop
-    /// disclosing it, and "in up to 30 seconds" is not that.
+    /// Whether "… is typing" leaves this device (Settings -> Privacy). A seam
+    /// rather than a SettingsManager dependency. Turning it off while a notice
+    /// is live sends the stop immediately instead of waiting for the server
+    /// timeout.
     void setTypingNotificationsEnabled(bool enabled);
     bool typingNotificationsEnabled() const { return m_typingEnabled; }
 
@@ -327,25 +284,23 @@ private:
     void stopTyping();
     // The one send implementation behind send()/sendBypassingCommands().
     void sendInternal(bool allowCommands);
-    // Route one composed body through the current context (thread / reply /
-    // room) with a v0.9 body spec; empty spec = the markdown path.
+    // Route one body through the current context (thread / reply / room) with a
+    // body spec; an empty spec means markdown.
     void sendComposed(const QString &body, const QStringList &mentionIds,
                       const QVariantMap &bodySpec);
-    // Execute a parsed slash command. Returns true when the command was
-    // handled (successfully or with a commandError) and the ordinary text
-    // send must not run.
+    // Execute a parsed slash command. Returns true when it was handled (or
+    // refused with commandError) and the ordinary send must not run.
     bool executeCommand(const SlashCommands::Parse &parsed,
                         const QStringList &mentionIds);
     void setCommandError(const QString &error);
-    // stopTyping + cancelReplyOrEdit + clear, the tail every successful
-    // send and content-sending command shares.
+    // stopTyping + cancelReplyOrEdit + clear: the tail shared by every
+    // successful send and content-sending command.
     void finishSuccessfulSend();
     void dispatchAttachments();
-    // One entry, once it is dispatchable (a video waits for its poster).
+    // One entry, once dispatchable (a video waits for its poster).
     void dispatchAttachment(int row);
-    // Attaches `body` to ONE queued attachment as its caption and reports
-    // whether an attachment took it. False means the text still has to be
-    // sent as its own message.
+    // Attach `body` to one queued attachment as its caption; false means it
+    // must be sent as its own message.
     bool takeTextAsCaption(const QString &body, const QStringList &mentionIds);
 
     MatrixClient *m_client = nullptr;
@@ -360,8 +315,8 @@ private:
     QString m_replyingToPreview;
     QString m_replyingToMediaKey;
     QString m_editingEventId;
-    /// The timeline that holds `m_editingEventId` — a composite when the edit
-    /// began in a thread panel. Empty means "this composer's own room".
+    /// The timeline holding `m_editingEventId` (a composite for a thread-panel
+    /// edit). Empty means this composer's room.
     QString m_editingTimelineId;
     /// Where an edit must be sent: the recorded timeline, or this composer's
     /// room when none was recorded.
@@ -374,14 +329,10 @@ private:
     QList<mention::MentionRef> m_mentionRefs;
     QString m_commandError;
     QVariantMap m_commandPermissions;
-    // Voice send ops in flight. Each carries the recording file it owns AND
-    // the room it was sent to. The file is deleted when the op resolves (the
-    // SDK reads the bytes into its queue at queueing time and never re-reads
-    // the path), but the FAILURE is only surfaced when the composer is still
-    // showing that room: an upload that fails after the user has moved on
-    // must not appear over an unrelated conversation. Cleanup is
-    // unconditional, reporting is scoped — the two are deliberately not the
-    // same decision.
+    // Voice send ops in flight, each with the recording file it owns and its
+    // room. The file is deleted when the op resolves (the SDK copies the bytes
+    // at queue time), but a failure is only surfaced while the composer still
+    // shows that room. Cleanup is unconditional; reporting is scoped.
     struct VoiceOp {
         QString localPath;
         QString roomId;
@@ -392,10 +343,9 @@ private:
     bool    m_typingEnabled = true;
     QTimer  m_typingRefresh;
 
-    // v0.7.x drafts. The debounce is stopped BEFORE every room change and
-    // the save reads the CURRENT room, so a stale timer can never write
-    // one room's text under another's key. Edit mode never saves — the
-    // text then is the edited event's body, not a draft.
+    // Drafts. The debounce is stopped before every room change and the save
+    // reads the current room, so a stale timer never writes under another
+    // room's key. Edit mode never saves.
     void saveDraftNow();
     void restoreDraft();
     class DraftStore *m_drafts = nullptr;

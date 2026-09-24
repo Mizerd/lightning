@@ -227,11 +227,11 @@ void CppHttpMatrixClient::login(const QString &homeserver,
         }
         if (m_settings) {
             m_settings->saveSession(m_homeserver, m_userId, m_deviceId, m_accessToken);
-            // A fresh login starts from a new since-less sync. Do not let a
-            // previous run's resume token survive for the same MXID.
+            // A fresh login starts with a since-less sync; drop any previous
+            // resume token for this MXID.
             m_settings->setSyncToken({});
         }
-        // Fresh session gets a fresh cache — different user must not see the
+        // A fresh session gets a fresh cache so a different user never sees the
         // previous user's history.
         if (m_cache) { m_cache->clearAll(); m_cache->close(); m_cache.reset(); }
         openCacheFor(m_userId);
@@ -259,20 +259,16 @@ bool CppHttpMatrixClient::restoreSession()
 
     setState(Connecting);
     openCacheFor(m_userId);
-    // openCacheFor() nulls m_cache when the cache could not be opened at all
-    // (e.g. an unresolved app-data root). That is a purely local failure and
-    // says nothing about the validity of the server-side /sync token.
+    // m_cache is null when the cache could not be opened at all; that local
+    // failure says nothing about the server-side /sync token.
     const bool cacheOpened = static_cast<bool>(m_cache);
     const int cachedVisibleRoomCount = loadCachedState();
     if (cacheOpened && cachedVisibleRoomCount == 0 && !m_syncToken.isEmpty()) {
-        // A /sync since token is only useful together with the local state
-        // that token advances from. If the SQLite cache OPENED but is empty,
-        // missing rooms, or only contains Space rooms that are hidden from the
-        // visible room list, an incremental sync can correctly return no
-        // joined-room objects and leave the app looking empty. Force a
-        // since-less initial sync so the server sends a full room snapshot
-        // again. When the cache failed to open we KEEP the token: discarding
-        // it there is what forced a full initial sync on every Windows launch.
+        // A since token is only useful with the local state it advances from.
+        // If the cache opened but is empty, missing rooms, or holds only hidden
+        // Space rooms, an incremental sync can return nothing and leave the app
+        // empty, so force a full initial sync. Keep the token when the cache
+        // failed to open, or every such launch pays for a full sync.
         qCWarning(lcHttp)
             << "discarding stored sync token because cache has no visible rooms;"
             << "forcing initial sync";
@@ -342,10 +338,9 @@ void CppHttpMatrixClient::logout()
 
 bool CppHttpMatrixClient::detachSession()
 {
-    // v0.7 account switch: end the local session without a server logout.
-    // Persisted session metadata, tokens, and the per-account cache file
-    // stay intact; only the in-memory state (and the open cache handle)
-    // are released so restoreSession() can activate another account.
+    // Account switch: end the local session without a server logout. Session
+    // metadata, tokens and the per-account cache file stay; only in-memory
+    // state and the cache handle are released.
     if (m_cache) {
         m_cache->close();
         m_cache.reset();
@@ -408,11 +403,8 @@ void CppHttpMatrixClient::startNextSync()
     if (!m_syncActive || !m_loggedIn)
         return;
 
-    // v0.4.6 — the initial sync (no since token) uses timeout=0 so the
-    // server returns current state immediately instead of long-polling.
-    // Follow-up syncs long-poll with timeout=30000. Matches the Matrix
-    // spec recommendation and makes "still loading rooms" feel snappy
-    // instead of dead.
+    // The initial (since-less) sync uses timeout=0 so the server answers
+    // immediately; later syncs long-poll with 30 s.
     const bool initial = m_syncToken.isEmpty();
 
     QUrl url = endpoint(QStringLiteral("/sync"));
@@ -430,9 +422,8 @@ void CppHttpMatrixClient::startNextSync()
 
     QNetworkRequest req(url);
     applyBearer(req);
-    // Long-poll: allow 30s server-side timeout + response streaming.
-    // 60s hard cap avoids indefinite hangs on stalled TLS connections but
-    // is comfortably above the 30s the server may hold the connection.
+    // 30 s server-side long-poll plus streaming; the 60 s cap avoids hangs on
+    // stalled TLS connections.
     req.setTransferTimeout(initial ? 30000 : 60000);
 
     qCInfo(lcHttp) << "sync request:"
@@ -511,18 +502,15 @@ void CppHttpMatrixClient::handleSyncResponse(const QJsonObject &obj)
     if (!joined.isEmpty())
         processJoinedRooms(joined);
 
-    // v0.4.6: mark initial sync complete after the first response is
-    // parsed, even if `join` was empty (the account may legitimately be
-    // in zero joined rooms). QML uses this to switch from "Loading
-    // rooms…" to "No joined rooms" / "No rooms in this Space".
+    // Mark the initial sync done after the first response even if `join` was
+    // empty, so QML can switch from "Loading rooms…" to an empty state.
     if (!m_initialSyncDone) {
         m_initialSyncDone = true;
         qCInfo(lcHttp) << "initial sync complete; rooms in memory ="
                        << m_rooms.size();
         Q_EMIT initialSyncDoneChanged();
-        // Emit roomsChanged unconditionally on first response so any
-        // model already bound to the client picks up the "0 rooms" case
-        // as a real state, not the pre-sync default.
+        // Emit on the first response so bound models treat "0 rooms" as real
+        // state.
         Q_EMIT roomsChanged();
     }
 }
@@ -565,16 +553,14 @@ void CppHttpMatrixClient::processStateEvent(RoomInfo &room, const QJsonObject &e
         room.members.insert(stateKey, m);
         if (m_cache) m_cache->saveMember(room.id, m);
     } else if (type == QLatin1String("m.room.create")) {
-        // v0.4.2: Spaces. A room is a Space when its creation content
-        // declares type == "m.space". This event only fires once per room
-        // so we set the flag idempotently.
+        // Spaces: a room is a Space when its creation content has type
+        // "m.space".
         const QString roomType = content.value(QStringLiteral("type")).toString();
         room.isSpace = (roomType == QLatin1String("m.space"));
     } else if (type == QLatin1String("m.space.child")) {
-        // v0.4.2: Space hierarchy edges. The state_key is the child room
-        // id. An active edge carries a non-empty `via` array with servers
-        // that can be used to join. Removing the edge produces a state
-        // event whose content is either empty {} or missing `via`.
+        // Space hierarchy edges: the state_key is the child room id. An active
+        // edge has a non-empty `via`; a removed edge has empty content or no
+        // `via`.
         const QString childRoomId = ev.value(QStringLiteral("state_key")).toString();
         if (childRoomId.isEmpty()) return;
         const auto via = content.value(QStringLiteral("via")).toArray();
@@ -585,10 +571,9 @@ void CppHttpMatrixClient::processStateEvent(RoomInfo &room, const QJsonObject &e
         } else {
             room.childRoomIds.removeAll(childRoomId);
         }
-        // NB: we intentionally do NOT set `room.spaceId` on the *child*
-        // here — spaceId is a primary-parent hint and SpaceManager builds
-        // membership from Space.childRoomIds, so this stays consistent
-        // even when a child room appears in multiple Spaces.
+        // Deliberately not setting `spaceId` on the child: SpaceManager builds
+        // membership from childRoomIds, which stays consistent when a room is
+        // in several Spaces.
     }
 }
 
@@ -615,14 +600,14 @@ void CppHttpMatrixClient::applyRedaction(const QString &roomId,
     auto tlIt = m_timelines.find(roomId);
     if (tlIt == m_timelines.end()) return;
 
-    // A redaction may target a reaction. In that case we want to remove it
-    // from its parent's reactions list.
+    // A redaction may target a reaction, which must then be removed from its
+    // parent's reaction list.
     QString parentEventId;
     QString reactionKey;
     bool wasMineReaction = false;
     for (auto &e : *tlIt) {
-        // Scan reactions on every event; if we find one whose myEventId
-        // matches, we know the redacted event is a reaction.
+        // A reaction whose myEventId matches means the redacted event is a
+        // reaction.
         for (const auto &r : e.reactions) {
             if (r.myEventId == redactedEventId) {
                 parentEventId  = e.eventId;
@@ -808,8 +793,8 @@ void CppHttpMatrixClient::processTimelineEvent(const QString &roomId,
 
             const bool encFile = content.contains(QStringLiteral("file"));
             if (encFile) {
-                // Encrypted media envelope. We don't decrypt yet — show a
-                // placeholder rather than trying to fetch and rendering junk.
+                // Encrypted media is not supported by this backend; show a
+                // placeholder rather than fetching ciphertext.
                 te.body = tr("[encrypted media - E2EE not implemented yet]");
                 te.mediaMxcUrl.clear();
             } else {
@@ -828,24 +813,19 @@ void CppHttpMatrixClient::processTimelineEvent(const QString &roomId,
             return; // unsupported msgtype
         }
 
-        // v0.4.4: thread relation. When rel_type == "m.thread" the
-        // referenced event_id is the thread root. This is set even when
-        // the message *also* carries m.in_reply_to (which it does when
-        // is_falling_back is true — that's how non-thread-aware clients
-        // still see it as a reply). Populate both fields; QML gives the
-        // "in thread" badge priority via TimelineModel.
+        // Thread relation: the event_id is the thread root. The event may also
+        // carry m.in_reply_to (is_falling_back, for non-thread-aware clients);
+        // populate both and let the thread badge take priority.
         if (relType == QLatin1String("m.thread")) {
             te.threadRootId = relatesTo.value(QStringLiteral("event_id")).toString();
         }
 
-        // Reply metadata (via m.in_reply_to). Populated for both plain
-        // replies and thread fallbacks.
+        // Reply metadata from m.in_reply_to, for plain replies and thread
+        // fallbacks.
         const auto inReply = relatesTo.value(QStringLiteral("m.in_reply_to")).toObject();
         te.replyToEventId = inReply.value(QStringLiteral("event_id")).toString();
-        // If this is a thread reply, hide the plain-reply preview strip in
-        // QML — the thread badge already tells the user the context. The
-        // spec-compliant fallback reply id is still available in
-        // replyToEventId for anything that needs it.
+        // Thread replies show the thread badge, not the reply strip; the
+        // fallback id stays available in replyToEventId.
         if (!te.threadRootId.isEmpty()) {
             te.replyToEventId.clear();
         }
@@ -924,7 +904,7 @@ void CppHttpMatrixClient::processJoinedRooms(const QJsonObject &joined)
                 t == QLatin1String("m.room.encryption") ||
                 t == QLatin1String("m.room.canonical_alias") ||
                 t == QLatin1String("m.room.member") ||
-                // v0.4.2: Spaces state can arrive in either bucket.
+                // Spaces state can arrive in either bucket.
                 t == QLatin1String("m.room.create") ||
                 t == QLatin1String("m.space.child")) {
                 processStateEvent(room, e);
@@ -980,9 +960,8 @@ void CppHttpMatrixClient::processJoinedRooms(const QJsonObject &joined)
             Q_EMIT roomUpdated(roomId);
         if (membersChangedFlag) {
             Q_EMIT membersChanged(roomId);
-            // The roster-refetch consumers listen to the poke signal
-            // since review H1; this backend's sync detection serves both
-            // meanings.
+            // The roster-refetch consumers listen to the poke signal; this
+            // backend's sync detection serves both meanings.
             Q_EMIT roomMemberEventSeen(roomId);
         }
     }
@@ -1234,17 +1213,11 @@ void CppHttpMatrixClient::sendThreadReply(const QString &roomId,
         return;
     }
 
-    // v0.4.4: real thread relation (spec: m.thread rel_type).
-    // Content carries m.relates_to =
-    //   { rel_type: "m.thread",
-    //     event_id: <root>,
-    //     is_falling_back: true,
-    //     m.in_reply_to: { event_id: <latest-in-thread-or-root> } }
-    //
-    // is_falling_back + m.in_reply_to make non-thread-aware clients render
-    // the reply as a normal in-reply-to chain. If we already have a local
-    // event whose threadRootId matches, use the newest server-confirmed one
-    // as the fallback target; otherwise fall back to the root itself.
+    // Thread relation per spec: { rel_type: "m.thread", event_id: <root>,
+    // is_falling_back: true, m.in_reply_to: { event_id:
+    // <latest-in-thread-or-root> } } The fallback lets non-thread-aware clients
+    // render an in-reply-to chain. Use the newest server-confirmed reply in the
+    // thread as the target, else the root.
     QString fallbackReplyTarget = threadRootEventId;
     {
         const auto tlIt = m_timelines.constFind(roomId);
@@ -1262,11 +1235,8 @@ void CppHttpMatrixClient::sendThreadReply(const QString &roomId,
     TimelineEvent echo = buildOwnEcho(roomId, body, TimelineEvent::TextMessage);
     echo.eventId       = QLatin1String("local:") + nextTxnId();
     echo.threadRootId  = threadRootEventId;
-    // Do NOT set replyToEventId on the echo — the "in thread" chip in QML
-    // is what the user asked for; adding a reply preview strip on top of
-    // that duplicates the UI. Once the real event round-trips through
-    // /sync we still parse the fallback m.in_reply_to for spec-compliance
-    // with non-thread-aware clients, but the local echo stays clean.
+    // No replyToEventId on the echo: the thread chip already shows the context,
+    // and a reply strip would duplicate it.
     m_timelines[roomId].append(echo);
     if (m_cache) m_cache->appendEvent(echo);
     Q_EMIT eventAppended(roomId, echo);
@@ -1363,8 +1333,7 @@ void CppHttpMatrixClient::toggleReaction(const QString &roomId,
             "Cannot send to encrypted rooms yet: E2EE backend is not implemented."));
         return;
     }
-    // If I've already reacted with this key on this target, remove it (redact
-    // my reaction event).
+    // Already reacted with this key: redact our reaction instead.
     const auto tlIt = m_timelines.constFind(roomId);
     if (tlIt != m_timelines.constEnd()) {
         for (const auto &e : *tlIt) {
@@ -1679,8 +1648,8 @@ void CppHttpMatrixClient::loadOlderMessages(const QString &roomId)
             rIt->prevBatchToken = endToken;
         if (m_cache) m_cache->saveRoom(*rIt);
 
-        // /messages returns events in reverse chronological order when dir=b.
-        // Convert to chronological order, dedup against what we already have.
+        // /messages with dir=b is newest-first; convert to chronological order
+        // and dedup against what is loaded.
         QList<TimelineEvent> prepended;
         QSet<QString> existingIds;
         for (const auto &e : m_timelines[roomId])
@@ -1694,8 +1663,7 @@ void CppHttpMatrixClient::loadOlderMessages(const QString &roomId)
             if (type != QLatin1String("m.room.message") &&
                 type != QLatin1String("m.room.encrypted"))
                 continue;
-            // Skip edit-wrapper events; those need their target already loaded,
-            // and pagination isn't the right moment to reconcile them.
+            // Skip edit wrappers; their targets may not be loaded yet.
             const auto content = ev.value(QStringLiteral("content")).toObject();
             const auto rel = content.value(QStringLiteral("m.relates_to")).toObject();
             if (rel.value(QStringLiteral("rel_type")).toString()
@@ -1741,7 +1709,7 @@ void CppHttpMatrixClient::loadOlderMessages(const QString &roomId)
                 } else {
                     continue;
                 }
-                // v0.4.4: thread relation on backfilled events.
+                // Thread relation on backfilled events.
                 if (rel.value(QStringLiteral("rel_type")).toString()
                         == QLatin1String("m.thread")) {
                     te.threadRootId = rel.value(QStringLiteral("event_id")).toString();
@@ -1749,8 +1717,8 @@ void CppHttpMatrixClient::loadOlderMessages(const QString &roomId)
                 const auto inReply = rel.value(QStringLiteral("m.in_reply_to")).toObject();
                 te.replyToEventId = inReply.value(QStringLiteral("event_id")).toString();
                 if (!te.threadRootId.isEmpty()) {
-                    // Same UX rule as /sync: thread events use the thread
-                    // badge; the plain-reply preview strip would be noise.
+                    // As in /sync: thread events use the badge, not the reply
+                    // strip.
                     te.replyToEventId.clear();
                 }
             }

@@ -31,12 +31,11 @@ class TimelineModel : public QAbstractListModel
     Q_PROPERTY(QString typingText READ typingText NOTIFY typingTextChanged)
     Q_PROPERTY(bool canPaginate READ canPaginate NOTIFY paginationChanged)
     Q_PROPERTY(bool paginating READ paginating NOTIFY paginationChanged)
-    // v0.5.7: last backward pagination failed; QML shows a Retry affordance.
+    // Last backward pagination failed; QML shows a Retry affordance.
     Q_PROPERTY(bool paginationFailed READ paginationFailed NOTIFY paginationChanged)
-    // v0.6.1: find-in-loaded-messages. Searches only the events currently
-    // present in this timeline (main or thread) — never a server history
-    // search, never a persistent plaintext index. State is memory-only and is
-    // cleared on endSearch() and on any room/thread switch.
+    // Find-in-loaded-messages: searches only events currently in this timeline
+    // (main or thread), never server history or a persistent index.
+    // Memory-only; cleared on endSearch() and on any room/thread switch.
     Q_PROPERTY(bool searchActive READ searchActive NOTIFY searchChanged)
     Q_PROPERTY(QString searchQuery READ searchQuery NOTIFY searchChanged)
     Q_PROPERTY(int searchResultCount READ searchResultCount NOTIFY searchChanged)
@@ -46,19 +45,14 @@ class TimelineModel : public QAbstractListModel
                    NOTIFY searchChanged)
     Q_PROPERTY(QString searchCurrentEventId READ searchCurrentEventId
                    NOTIFY searchChanged)
-    // v0.7.4: the presentation preference that decides whether routine
-    // room-activity rows render at all. The model needs it because a DATE
-    // DIVIDER's own visibility depends on whether anything it introduces is
-    // drawn (see DividerIntroducesVisibleContentRole) — a question no
-    // delegate can answer for itself without scanning its neighbours. The
-    // rows themselves are never filtered here: the timeline stays the
-    // authoritative event list and QML keeps the zero-height filter.
+    // Whether routine room-activity rows render at all. Needed here because a
+    // date divider's visibility depends on whether anything it introduces is
+    // drawn (DividerIntroducesVisibleContentRole). Rows are never filtered
+    // here; QML keeps the zero-height filter.
     Q_PROPERTY(bool showRoomActivity READ showRoomActivity
                    WRITE setShowRoomActivity NOTIFY showRoomActivityChanged)
-    // 2026-08-26: the two halves of "room activity", for the same divider
-    // question. Each defaults TRUE so the split is invisible to anyone who
-    // never opens it — master on plus both halves on is exactly the previous
-    // behaviour — and each is subordinate to the master switch.
+    // The two halves of "room activity". Each defaults true and is subordinate
+    // to the master switch.
     Q_PROPERTY(bool showMembershipEvents READ showMembershipEvents
                    WRITE setShowMembershipEvents
                    NOTIFY showMembershipEventsChanged)
@@ -95,11 +89,10 @@ public:
         IsImageRole,
         IsFileRole,
         ReactionsRole,
-        // v0.4.1
         ThreadRootIdRole,        // Non-empty on thread replies.
         IsThreadRootRole,        // True if any event in this room has this as root.
         ThreadReplyCountRole,    // Number of visible replies for a thread root.
-        // v0.6.0: SDK thread-summary presentation roles (thread roots only).
+        // SDK thread-summary presentation roles (thread roots only).
         ThreadLatestPreviewRole,   // Sanitized preview of the latest reply.
         ThreadLatestKindRole,      // Semantic kind for a safe label (image/gif/…).
         ThreadLatestSenderRole,    // MXID of the latest reply's sender.
@@ -107,28 +100,24 @@ public:
         ThreadLatestSenderAvatarMxcRole,   // mxc:// via the safe avatar path.
         ThreadLatestTimestampRole, // QDateTime of the latest reply.
         ThreadUnreadRole,          // Conservative receipt-based unread hint.
-        // v0.6.0 checkpoint 11: m.mentions metadata (SDK-parsed).
+        // m.mentions metadata (SDK-parsed).
         MentionsMeRole,
         MentionsRoomRole,
-        // v0.5.0-prep+12: encryption metadata roles surface the four
-        // flags C++ already carries on TimelineEvent so MessageDelegate
-        // can style undecryptable rows without body-string matching.
+        // Encryption metadata, so MessageDelegate can style undecryptable rows
+        // without matching body strings.
         IsEncryptedRole,
         IsDecryptedRole,
         UndecryptableRole,
         ErrorKindRole,
-        // v0.5.7: live SDK timeline roles.
+        // Live SDK timeline roles.
         ItemIdRole,          // Stable SDK item id (survives in-place updates).
         IsLocalEchoRole,     // True until the remote echo reconciles.
         SendErrorRole,       // Coarse category when status == Failed.
-        // Media-upload progress while status == Sending: 0.0-1.0 when the
-        // SDK has reported a total, and -1 when it has NOT. -1 means
-        // "uploading, extent unknown" — a text send and a media send whose
-        // first progress report has not landed both report it, and the
-        // delegate draws an indeterminate bar rather than a 0% one.
+        // Upload progress while Sending: 0.0-1.0 once the SDK reports a total,
+        // else -1 ("extent unknown"), which draws an indeterminate bar.
         UploadProgressRole,
         IsVirtualRole,       // Date divider / read marker / timeline start.
-        // v0.5.9: media bridge + identity presentation.
+        // Media bridge and identity presentation.
         MediaKeyRole,             // Retrieval key for MatrixClient::fetchMedia.
         MediaSourceAvailableRole, // Bytes fetchable (incl. encrypted media).
         MediaThumbAvailableRole,  // Server-side thumbnail exists.
@@ -140,11 +129,8 @@ public:
         StateGroupIdRole,
         StateGroupLeaderRole,
         StateGroupEntriesRole,
-        // Consecutive REDACTED rows collapse the same way a run of state
-        // changes does: the first row of a run reports itself the leader and
-        // carries the run's length, and the rest render nothing. A moderator
-        // clearing twenty messages should cost twenty lines of "[message
-        // deleted]" exactly as little as twenty joins cost twenty lines.
+        // Consecutive redacted rows collapse like a state run: the first row is
+        // the leader and carries the run's length; the rest render nothing.
         DeletedGroupLeaderRole,
         DeletedGroupCountRole,
         SenderAvatarMxcRole,
@@ -154,16 +140,16 @@ public:
         EndsSenderGroupRole,
         ShowSenderIdentityRole,
         StableEventIdRole,
-        // v0.7: typed media presentation (video/audio/voice/sticker rows
-        // reserve type-correct geometry before any bytes arrive).
+        // Typed media presentation: video/audio/voice/sticker rows reserve
+        // correct geometry before any bytes arrive.
         IsVideoRole,
         IsAudioRole,
         IsStickerRole,
         MediaDurationMsRole,
         MediaIsVoiceRole,
         MediaWaveformRole,   // real MSC3245 envelope (0..100); may be empty
-        // v0.7: MSC3381 polls. Aggregation is SDK-owned; these roles only
-        // present the outcome. Counts are 0 while an undisclosed poll runs.
+        // MSC3381 polls. Aggregation is SDK-owned; counts are 0 while an
+        // undisclosed poll runs.
         IsPollRole,
         PollQuestionRole,
         PollKindRole,           // "disclosed" | "undisclosed"
@@ -172,9 +158,8 @@ public:
         PollTotalVotersRole,
         PollEndedRole,
         CanEndPollRole,         // own poll, not ended (conservative rule)
-        // v0.9.0: a shared place. `locationHasPoint` gates every other one:
-        // a geo URI that did not parse leaves the coordinates absent rather
-        // than at 0,0, which is a real spot in the Atlantic.
+        // Shared location. `locationHasPoint` gates the others: an unparsed geo
+        // URI leaves coordinates absent rather than at 0,0.
         IsLocationRole,
         LocationHasPointRole,
         LocationLatRole,
@@ -184,75 +169,52 @@ public:
         LocationAssetRole,
         LocationLiveRole,
         LocationLiveActiveRole,
-        // Element-style read-receipt chips: OTHER users whose read receipt
-        // points at this event, newest first, as a list of
-        // {userId, displayName, avatarMxc, tsMs}. Excluded (Element
-        // convention): ONLY the local user. A user's marker renders even
-        // on their own message (the SDK's implicit sender receipt) — that
-        // is how a DM says "they have read up to here"; hiding it made
-        // receipts vanish the moment the other side sent (live two-device
-        // report, 2026-08-11). Names/avatars resolve live through the
-        // same member lookup as every other identity. Thread timelines
-        // always answer an empty list: their builders deliberately leave
-        // SDK receipt tracking Disabled (the SDK's receipt handling is not
-        // thread-aware; enabling it would attach unthreaded receipts to
-        // thread rows).
+        // Read-receipt chips: other users whose receipt points here, newest
+        // first, as {userId, displayName, avatarMxc, tsMs}. Only the local user
+        // is excluded (Element convention); a user's receipt shows even on
+        // their own message, which is how a DM says "read up to here". Names
+        // and avatars resolve through the member lookup. Thread timelines
+        // always answer empty: their SDK receipt tracking is disabled because
+        // it is not thread-aware.
         ReadReceiptsRole,
-        // Companion count for the "+N" overflow chip: total OTHER readers
-        // (uncapped server-side count minus the self exclusion above), >=
-        // the list size ReadReceiptsRole answers. The FFI window is capped
-        // at 16 newest receipts, so a self-receipt hiding beyond the
-        // window can overcount by at most 1 in >16-reader rooms —
-        // conservative, never an undercount of what is visibly shown.
+        // Total other readers for the "+N" chip (uncapped count minus self), >=
+        // the list size. The FFI window is capped at 16, so a hidden
+        // self-receipt can overcount by one in larger rooms, never undercount.
         ReadReceiptsTotalRole,
-        // v0.7.4: fenced code blocks. An ordered list of
-        // {kind, text, language} maps (kind 0 = rich text, 1 = code block)
-        // for a body that actually CONTAINS a code block; EMPTY for every
-        // other row, so the ordinary message keeps its single-TextEdit path
-        // and its existing cost. See MessageHtml::segments().
+        // Fenced code blocks: ordered {kind, text, language} maps (kind 0 rich
+        // text, 1 code block) for bodies that contain one; empty otherwise, so
+        // ordinary rows keep the single-TextEdit path. See
+        // MessageHtml::segments().
         MessageSegmentsRole,
-        // v0.7.4: meaningful on DateDivider rows — true when at least one
-        // row between this divider and the next one is actually drawn. A
-        // divider whose whole run is hidden (routine activity with the
-        // preference off, or non-leader rows of a collapsed group) is an
-        // orphan date label and must not occupy space. Always true on a
-        // non-divider row, so a QML gate can read it unconditionally.
+        // On DateDivider rows: true when at least one row before the next
+        // divider is drawn; an orphan date label must take no space. Always
+        // true on other rows so QML can read it unconditionally.
         DividerIntroducesVisibleContentRole,
-        // ── 2026-08-26: the typed call row ───────────────────────────────
-        // A call somebody started is room HISTORY, so it draws its own row
-        // (CallEventDelegate.qml) instead of becoming an entry in the
-        // collapsed "N room updates" group — which is what it was, and one
-        // call therefore read "1 room update" expanding to the literal words
-        // "call event".
-        //
-        // True on a Rust-backend `call` row AND on the legacy shape (a
-        // StateChange whose stateKind is "m.call"/"m.call.video"), so a row
-        // that predates the bridge change, or a backend that still phrases
-        // calls as state, renders the same way rather than falling back into
-        // the activity group.
+        // ── Typed call rows ─────────────────────────────────────────────── A
+        // call is room history and draws its own row (CallEventDelegate.qml)
+        // instead of joining the collapsed "N room updates" group. True for the
+        // Rust `call` row and for the legacy StateChange with stateKind
+        // "m.call" / "m.call.video".
         IsCallEventRole,
-        // The finished sentence, TRANSLATED and written with the actor's
-        // resolved display name. The bridge sends an empty body for these
-        // rows on purpose: an English sentence built in Rust could be
-        // neither translated nor given a resolved name.
+        // The finished sentence, translated and using the actor's resolved
+        // name. The bridge sends an empty body so the sentence can be
+        // localized.
         CallEventTextRole,
-        // The caller's stated VIDEO intent. False means "not known to be
+        // The caller's stated video intent. False means "not known to be
         // video", never "audio only".
         CallIsVideoRole,
-        // How many people declined. A COUNT — the decliners' ids never
-        // cross the FFI.
+        // How many people declined. A count only; decliner ids never cross the
+        // FFI.
         CallDeclinedCountRole,
-        // ── 2026-09-23: MSC4274 galleries and the reply target's kind ────
-        // Every attachment of a gallery row (two or more in ONE event — what
-        // Sable sends for several pictures) as a list of {mediaKey, kind,
-        // filename, mimetype, size, width, height, durationMs,
-        // thumbAvailable} maps in the sender's order; EMPTY for every other
-        // row. The row's own media roles keep describing its primary item.
+        // ── MSC4274 galleries and the reply target's kind ──── Every
+        // attachment of a gallery row (two or more in one event) as {mediaKey,
+        // kind, filename, mimetype, size, width, height, durationMs,
+        // thumbAvailable} in the sender's order; empty for other rows. The
+        // row's own media roles describe its primary item.
         GalleryItemsRole,
-        // What the replied-to event is ("image", "file", …; empty when not
-        // loaded) and, for a gallery, how many attachments it carries (0
-        // otherwise), so the quote can say "Image" / "2 images" when the
-        // target has no words to quote.
+        // The replied-to event's kind ("image", "file", …; empty when not
+        // loaded) and, for a gallery, its attachment count, so a quote without
+        // words can say "Image" / "2 images".
         ReplyToKindRole,
         ReplyToCountRole,
     };
@@ -260,57 +222,32 @@ public:
     explicit TimelineModel(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
-    // Global profiles for mention targets the member snapshot cannot name
-    // (2026-09-05). Optional; without one an unknown target shows its
-    // localpart, exactly as before.
+    // Global profiles for mention targets the member snapshot cannot name.
+    // Optional; without it an unknown target shows its localpart.
     void setProfileResolver(UserProfileResolver *resolver);
 
     QString roomId() const { return m_roomId; }
     void setRoomId(const QString &roomId);
-    // Row count — what the view sees. Also the authoritative progress
-    // measure for PaginationController's near-top continuation accounting
-    // (batchRowGrowth()): with no held/hidden prefix, every row the backend
-    // delivers is immediately exposed, so there is no separate "internal
-    // mirror size" any more — this IS both the view count and the backend
-    // growth count.
+    // Row count as the view sees it. Also PaginationController's progress
+    // measure (batchRowGrowth()): every delivered row is exposed immediately.
     int eventCount() const { return static_cast<int>(m_events.size()); }
 
-    /// The event id of the NEWEST call row currently loaded, or empty.
-    ///
-    /// Exists so a call row can tell whether it is the one the room's live
-    /// session belongs to. `RtcController::participantCount` answers for the
-    /// ROOM, so every call row in a room bound to it identically — and while
-    /// any call was up, EVERY historical "started a call" row grew a Join
-    /// button. Reported by the maintainer looking at a room with a day of
-    /// call history in it. MatrixRTC has one session per room, so joining
-    /// from an old row and from the newest are the same action; the defect is
-    /// that a row reading as history offers it at all.
+    /// Event id of the newest loaded call row, or empty. MatrixRTC has one
+    /// session per room, so only the newest call row offers Join; older rows
+    /// read as history.
     QString latestCallEventId() const { return m_latestCallEventId; }
-    /// The loaded rows that are REAL events — date dividers, the read marker
-    /// and the timeline-start row excluded.
-    ///
-    /// `count` counts rows, which is what a view wants and what any
-    /// "how many messages are here" label must NOT use. The thread panel's
-    /// "N replies" divider read `count - 1`, subtracting the thread root and
-    /// nothing else, so every virtual row inflated it: measured live on
-    /// 2026-09-11, a thread with two replies and one date divider announced
-    /// "3 replies" while the room's own summary card — which reads the SDK's
-    /// num_replies — correctly said two. A thread spanning several days
-    /// drifts by one per day.
-    ///
-    /// O(rows) and deliberately not cached: a thread timeline is small, it is
-    /// read by one label, and a cached counter is a second thing that every
-    /// mutation point would have to remember to update.
+    /// Loaded rows that are real events, excluding date dividers, the read
+    /// marker and the timeline-start row. `count` counts rows and must not be
+    /// used for "how many messages" labels. O(rows) and deliberately uncached:
+    /// it is read by one label on a small thread timeline.
     int realEventCount() const
     {
         return static_cast<int>(std::count_if(
             m_events.begin(), m_events.end(),
             [](const TimelineEvent &e) { return !e.isVirtual(); }));
     }
-    /// The loaded rows, virtual ones included. Read-only and by reference:
-    /// the export renderer walks them and copying a busy room's timeline to
-    /// count it would be pointless work. Callers must not hold it across a
-    /// model change.
+    /// The loaded rows, virtual ones included, by reference (the export
+    /// renderer walks them). Do not hold across a model change.
     const QList<TimelineEvent> &events() const { return m_events; }
 
     QString typingText() const { return m_typingText; }
@@ -325,38 +262,29 @@ public:
     bool showProfileChangeEvents() const { return m_showProfileChangeEvents; }
     void setShowProfileChangeEvents(bool show);
 
-    // Whether a routine state row of this kind is drawn. PUBLIC because it
-    // is a pure query and the sentence-matrix precedent above applies: the
-    // filter matrix is worth testing without a backend. The QML zero-height
-    // row filter (qml/MessageDelegate.qml, roomActivityVisible) applies the
-    // SAME matrix to the rows themselves — keep the two in step.
+    // Whether a routine state row of this kind is drawn. Public so the filter
+    // matrix is testable without a backend. The QML row filter
+    // (qml/MessageDelegate.qml, roomActivityVisible) applies the same matrix;
+    // keep them in step.
     bool activityKindVisible(const QString &stateKind) const;
 
-    // Presentation-layer sentence for a typed m.room.member profile change
-    // (stateKind == "member_profile"), which the bridge deliberately does
-    // NOT phrase: an English sentence built in Rust could be neither
-    // translated nor written with the actor's resolved display name.
-    // `actorDisplayName` is the resolved name (localpart fallback, never a
-    // bare MXID). The old/new names are UNTRUSTED plain text and are
-    // rendered as PlainText, never as rich text. Static so the sentence
-    // matrix is testable without a model or a backend.
+    // Sentence for a typed m.room.member profile change (stateKind
+    // "member_profile"), which the bridge leaves unphrased so it can be
+    // translated and use the actor's resolved name. Old/new names are untrusted
+    // plain text, rendered as PlainText. Static so it is testable without a
+    // model.
     static QString profileChangeDescription(const TimelineEvent &e,
                                             const QString &actorDisplayName);
 
-    // Whether a row is a call somebody started, in EITHER shape: the Rust
-    // backend's typed `call` row, or the legacy "state event with kind
-    // m.call" a pre-2026-08-26 bridge (and the mock/HTTP backends) produce.
-    // Static and free of model state so the whole routing decision is
-    // testable without a backend, and so every reader — grouping, roles,
-    // the divider scan — asks exactly one question.
+    // Whether a row is a call somebody started, in either shape: the Rust
+    // `call` row or the legacy "state event with kind m.call" (older bridges,
+    // mock/HTTP). Static and stateless so every reader asks one question.
     static bool isCallEventRow(const TimelineEvent &e);
-    /// Recomputes latestCallEventId() and emits when it moves. Called
-    /// wherever the row set changes; cheap because it scans from the newest
-    /// end and stops at the first call row.
+    /// Recomputes latestCallEventId() and emits when it moves. Cheap: scans
+    /// from the newest end and stops at the first call row.
     void refreshLatestCallEvent();
-    // Presentation-layer sentence for a call row. Same contract as
-    // profileChangeDescription: the bridge sends NO sentence, this builds
-    // the translated one with the actor's resolved display name.
+    // Sentence for a call row, built here with the actor's resolved name (the
+    // bridge sends none); same contract as profileChangeDescription.
     static QString callEventDescription(const TimelineEvent &e,
                                         const QString &actorDisplayName);
 
@@ -368,50 +296,47 @@ public:
     Q_INVOKABLE void markVisibleAsRead(int firstVisibleRow, int lastVisibleRow);
     Q_INVOKABLE QString ownUserId() const { return m_selfUserId; }
 
-    // v0.5.11: newest event that may legitimately receive a read receipt —
-    // skips virtual rows, local echoes without a remote id, and failed
-    // sends. Optionally reports the event's origin timestamp so callers can
-    // enforce "never regress to an older receipt".
+    // Newest event that may receive a read receipt: skips virtual rows, local
+    // echoes without a remote id and failed sends. Optionally reports its
+    // timestamp so callers never regress to an older receipt.
     QString latestReadableEventId(qint64 *timestampMs = nullptr) const;
 
-    // v0.5.11: stable-anchor plumbing for backward-pagination scroll
-    // preservation. stableIdAt prefers the SDK item id (survives in-place
-    // updates) over the event id; rowForStableId matches either.
+    // Stable anchors for backward-pagination scroll preservation. stableIdAt
+    // prefers the SDK item id (survives in-place updates); rowForStableId
+    // matches either.
     Q_INVOKABLE QString stableIdAt(int row) const;
-    // Matrix event id only. Unlike the SDK item id this is suitable for
-    // restoring a room after its live timeline has been reconstructed.
+    // Matrix event id only; unlike the SDK item id it survives a rebuilt live
+    // timeline.
     Q_INVOKABLE QString eventIdAt(int row) const;
     Q_INVOKABLE int rowForStableId(const QString &stableId) const;
-    // Small presentation-safe subset used by TableView while a row is still
-    // unloaded. Reserving media geometry from Matrix `info` metadata avoids
-    // the 112px fallback expanding only when an image/video delegate enters
-    // the viewport. QML remains the owner of all layout arithmetic.
+    // Presentation-safe subset for rows not yet loaded by the view, so media
+    // geometry can be reserved from Matrix `info` metadata. QML still owns all
+    // layout arithmetic.
     Q_INVOKABLE QVariantMap layoutMetadataAt(int row) const;
 
-    // Stable-id message action helpers. Each call re-resolves the event in
-    // the current room so a recycled QML delegate cannot act on another row.
+    // Stable-id action helpers; each re-resolves the event so a recycled
+    // delegate cannot act on another row.
     Q_INVOKABLE QString visibleTextForEvent(const QString &eventId) const;
-    // Media-bridge key for replying TO an image event (empty otherwise) —
-    // lets the composer banner show the same thumbnail the quote will.
+    // Media-bridge key for replying to an image event (empty otherwise), so the
+    // composer banner shows the same thumbnail as the quote.
     Q_INVOKABLE QString mediaKeyForEvent(const QString &eventId) const;
-    // The event's sanitized formatted body (same output as
-    // FormattedBodyRole), for the edit flow: display-text plain bodies
-    // carry no mention markdown, so the composer recovers mention refs
-    // from the sanitized mention: anchors instead.
-    /// How an inline custom emoji's `mxc:` source becomes something the view
-    /// can render. Never applied to the memoized sanitizer output — see
-    /// MessageHtml::resolveInlineImages for why that separation matters.
+    /// How an inline custom emoji's `mxc:` source becomes renderable. Never
+    /// applied to the memoized sanitizer output; see
+    /// MessageHtml::resolveInlineImages.
     void setInlineImageResolver(
         std::function<QString(const QString &mxcUri)> resolve);
-    /// Media arrived: re-read the formatted bodies that carry emoji. A no-op
-    /// in a timeline that holds none, which is almost all of them.
+    /// Media arrived: re-read formatted bodies carrying emoji. A no-op when
+    /// there are none.
     void notifyInlineImagesChanged();
 
+    // Sanitized formatted body (as FormattedBodyRole) for the edit flow:
+    // plain display text carries no mention markdown, so the composer
+    // recovers mention refs from the sanitized mention: anchors.
     Q_INVOKABLE QString sanitizedHtmlForEvent(const QString &eventId) const;
 
-    // v0.6.1: loaded-timeline search. beginSearch/updateSearch (re)compute
-    // matches over the currently loaded, visible message text; next/prev walk
-    // them (wrapping); endSearch clears all state. Case-insensitive.
+    // Loaded-timeline search. beginSearch/updateSearch recompute matches over
+    // the loaded visible text; next/prev walk them (wrapping); endSearch clears
+    // all state. Case-insensitive.
     bool searchActive() const { return m_searchActive; }
     QString searchQuery() const { return m_searchQuery; }
     int searchResultCount() const { return m_searchResults.size(); }
@@ -425,116 +350,83 @@ public:
     Q_INVOKABLE void searchPrev();
     Q_INVOKABLE void endSearch();
     Q_INVOKABLE QString messagePermalink(const QString &eventId) const;
-    // v0.7.x: the REAL Matrix room id for an event in this model — thread
-    // timelines carry the internal composite id in roomId, which must
-    // never reach a protocol call (reporting included).
+    // The real Matrix room id for an event; thread timelines carry the
+    // composite id, which must never reach a protocol call.
     Q_INVOKABLE QString realRoomIdForEvent(const QString &eventId) const;
-    // Composition of the loaded timeline, for the opt-in scroll trace only
-    // (LIGHTNING_SCROLL_TRACE). Counts only — no ids, no bodies, no senders.
-    // O(rows), called at most once per completed gesture and only while the
-    // trace is on, so it never costs anything in a normal session.
-    //
-    // These exist so a scroll-performance report can be ANSWERED rather than
-    // guessed at: "rows=1200 stateRows=1100 stateGroups=3" and
-    // "rows=1200 stateRows=4" are different defects, and the difference is
-    // not visible from row count alone.
-    /// Source row of the SDK's read-marker ("New messages") virtual row, or
-    /// -1 when the loaded timeline does not carry one.
+    /// Source row of the SDK's read-marker ("New messages") virtual row, or -1
+    /// when the loaded timeline does not carry one.
     ///
-    /// NOTIFY countChanged is exact rather than lazy: the marker is a VIRTUAL
-    /// ROW, so it can only move by being inserted or removed, and every one of
-    /// this model's mutation points ends in countChanged().
+    /// NOTIFY countChanged is exact: a virtual row only moves by insertion or
+    /// removal, and every mutation ends in countChanged().
     ///
-    /// THE ROW IS THE MARKER; there is no event id to jump to. The SDK places
-    /// this row from `m.fully_read`, which Lightning writes with every read
-    /// receipt, so its presence IS "there is unread history below here" — and
-    /// its absence is either "nothing unread" or "the marker is further back
-    /// than the loaded window", which the caller has to tell apart by
-    /// paginating rather than by asking again.
+    /// The row is the marker; there is no event id to jump to. The SDK places
+    /// it from `m.fully_read`, so its absence means either nothing unread or a
+    /// marker beyond the loaded window, which the caller resolves by
+    /// paginating.
     Q_INVOKABLE int readMarkerRow() const;
+    // Loaded-timeline composition for the opt-in scroll trace
+    // (LIGHTNING_SCROLL_TRACE). Counts only; O(rows).
     Q_INVOKABLE int stateActivityRowCount() const;
     Q_INVOKABLE int stateGroupCount() const;
     Q_INVOKABLE QVariantMap messageDetails(const QString &eventId) const;
-    // v0.9 (phase 7): message edit history and event source, answered on
-    // the signals below for THIS timeline's room only. The revisions and
-    // the JSON are display data held by the open dialog — never cached.
+    // Edit history and event source for this timeline's room, answered on the
+    // signals below. Display data held by the open dialog; never cached.
     Q_INVOKABLE void requestEditHistory(const QString &eventId);
     Q_INVOKABLE void requestEventSource(const QString &eventId);
-    // Sanitize an arbitrary formatted body with this timeline's mention
-    // style and name resolver — the SAME MessageHtml::sanitize the rows use,
-    // for the edit-history dialog's revisions (untrusted HTML, never raw).
+    // Sanitize an arbitrary formatted body exactly as rows are (mention style
+    // and name resolver), for the edit-history dialog's untrusted revisions.
     Q_INVOKABLE QString sanitizeHtml(const QString &html) const;
     Q_INVOKABLE bool canEditEvent(const QString &eventId) const;
     Q_INVOKABLE bool canRedactEvent(const QString &eventId) const;
-    /// Delete and react THROUGH THE MODEL THAT SHOWS THE EVENT, because only
-    /// it knows which timeline that is. The shared MessageDelegate used to
-    /// send both to `app.composer`, the ROOM composer, so in the thread panel
-    /// a delete and a reaction were addressed to the live room timeline —
-    /// which is built with hide_threaded_events and cannot find a thread
-    /// reply. Deleting reported a send failure and never sent; reacting was a
-    /// silent no-op. This model's own id is the composite in a thread and the
-    /// real room id in main, which is exactly the distinction that was
-    /// missing.
+    /// Delete and react through the model showing the event, since only it
+    /// knows which timeline that is: in a thread this model's id is the
+    /// composite, and the live room timeline (hide_threaded_events) cannot find
+    /// thread replies.
     Q_INVOKABLE void redactEvent(const QString &eventId,
                                  const QString &reason = QString());
     Q_INVOKABLE void toggleReaction(const QString &eventId, const QString &key);
 
-    // v0.5.7: retry a failed outgoing message (row must be a failed local
-    // echo with a transaction id). Routed to the backend send queue; the
-    // SDK re-attempts the same queued item, so no duplicate can appear.
+    // Retry a failed local echo with a transaction id through the backend send
+    // queue; the SDK re-attempts the same item, so no duplicate appears.
     Q_INVOKABLE void retrySend(int row);
-    // Discard a local echo that has not reached the server. Valid while the
-    // row is Sending OR Failed: a failed send is still a queued item the
-    // user may simply not want any more. The row disappears only when the
-    // backend confirms the abort — see the .cpp.
+    // Discard a local echo that has not reached the server, while Sending or
+    // Failed. The row disappears only when the backend confirms the abort.
     Q_INVOKABLE bool canCancelSend(int row) const;
     Q_INVOKABLE void cancelSend(int row);
 
-    // v0.6.0 checkpoint 8: manual decryption retry for this timeline's
-    // visible unable-to-decrypt events (backend no-op without a crypto
-    // machine).
+    // Manual decryption retry for this timeline's unable-to-decrypt events
+    // (no-op without a crypto machine).
     Q_INVOKABLE void retryDecryption();
 
-    // v0.5.9: image events currently loaded in this timeline, oldest
-    // first, for the image viewer's previous/next navigation. Each entry:
-    // {row, mediaKey, filename, sender, timestamp, mime, httpUrl}. Only
-    // loaded rows — no history is fetched.
+    // Loaded image events, oldest first, for the image viewer's navigation.
+    // Each entry: {row, mediaKey, filename, sender, timestamp, mime, httpUrl}.
+    // No history is fetched.
     Q_INVOKABLE QVariantList imageEntries() const;
-    // All media events (images + files) currently loaded, oldest first,
-    // for the Room Information "Media & Files" list. Adds isImage and
-    // size to the imageEntries() shape.
+    // All loaded media events (images and files), oldest first, for Room
+    // Information's "Media & Files". Adds isImage and size to imageEntries().
     Q_INVOKABLE QVariantList mediaEntries() const;
 
-    // Theme ink for timeline mentions and links, pushed from QML because
-    // AppTheme is the sole token source. accentColor marks a mention of the
-    // local user; linkColor covers every other mention and every external
-    // URL (empty falls back to accentColor). Values must be OPAQUE #rrggbb —
-    // anything else is dropped and that ink degrades to Qt's default link
-    // appearance. Re-announces every row's FormattedBodyRole so live theme
-    // switches restyle existing rows.
-    //
-    // softColor is vestigial: it was the chip surface, and the mention no
-    // longer has one (MessageHtml::MentionStyle records the measurements).
-    // It is kept so the existing QML call site keeps its arity.
+    // Timeline mention and link ink, pushed from QML (AppTheme is the sole
+    // token source). accentColor marks mentions of the local user; linkColor
+    // covers other mentions and URLs (empty falls back to accentColor). Values
+    // must be opaque #rrggbb; anything else degrades to Qt's default link look.
+    // Live theme switches re-announce FormattedBodyRole. softColor is unused
+    // and kept for the QML call's arity.
     Q_INVOKABLE void setMentionStyle(const QString &accentColor,
                                      const QString &softColor,
                                      const QString &codeBackground = QString(),
                                      const QString &linkColor = QString());
 
-    // Styles the literal "@room" in a body that already carries
-    // m.mentions.room (the mentionsRoom role). The delegate calls this for
-    // BOTH body paths — sanitized formatted HTML and linkified plain text —
-    // because a whole-room mention is plain text in either one.
-    //
-    // The caller owns the m.mentions.room test. This does not re-check it,
-    // and must never be applied to a body that merely contains the words.
+    // Styles the literal "@room" in a body that carries m.mentions.room, for
+    // both formatted and linkified plain bodies. The caller owns the
+    // m.mentions.room test; never apply this to a body that merely contains the
+    // words.
     Q_INVOKABLE QString markRoomMention(const QString &safeHtml) const;
 
 Q_SIGNALS:
-    // v0.9 (phase 7). SENSITIVE in an encrypted room (plaintext bodies /
-    // decrypted JSON): consumers display and drop, never log or store.
-    // `partial` = this is not the whole history (server unreachable, or more
-    // revisions than one page). See MatrixClient::editHistoryReceived.
+    // SENSITIVE in encrypted rooms (plaintext bodies, decrypted JSON): display
+    // and drop, never log or store. `partial` means not the whole history; see
+    // MatrixClient::editHistoryReceived.
     void editHistoryReceived(const QString &eventId, bool ok, bool partial,
                              const QVariantList &revisions);
     void eventSourceReceived(const QString &eventId, bool ok,
@@ -544,8 +436,8 @@ Q_SIGNALS:
     void latestCallEventIdChanged();
     void typingTextChanged();
     void paginationChanged();
-    // v0.5.11: a backward-pagination batch prepended `count` rows; existing
-    // rows shifted down by exactly that amount. Fired once per landed batch.
+    // A backward-pagination batch prepended `count` rows, shifting existing
+    // rows by that amount. Fired once per batch.
     void olderPrepended(int count);
     void searchChanged();
     void showRoomActivityChanged();
@@ -565,9 +457,8 @@ private Q_SLOTS:
     void onReactionsChanged(const QString &roomId, const QString &eventId);
     void onEventsPrepended(const QString &roomId, const QList<TimelineEvent> &events);
     void onTimelineReset(const QString &roomId);
-    // v0.5.7 index-based diff application. Every index is validated
-    // against the local copy; on mismatch the model self-heals by
-    // reloading the backend's full timeline instead of corrupting state.
+    // Index-based diff application. Every index is validated; on mismatch the
+    // model reloads the backend's timeline rather than corrupting state.
     void onEventInsertedAt(const QString &roomId, int index,
                            const TimelineEvent &event);
     void onEventsInsertedAt(const QString &roomId, int index,
@@ -579,10 +470,8 @@ private Q_SLOTS:
     void onLoggedOut();
     void onTypingChanged(const QString &roomId);
     void onMembersChanged(const QString &roomId);
-    // Re-render ONLY the rows whose mention pills would now read differently
-    // (a member arrived, was renamed, or a global profile answered), and
-    // announce them by row. Shared by member hydration and the profile
-    // resolver; see the comment in onMembersChanged().
+    // Re-render only rows whose mention pills would now read differently and
+    // announce them. Shared by member hydration and the profile resolver.
     int refreshStaleMentionRows();
     void onPaginationStateChanged(const QString &roomId);
 
@@ -593,18 +482,12 @@ private:
     void recomputeSearch();
     void reload();
     int rowForEventId(const QString &eventId) const;
-    // Lazily rebuilt eventId -> row map behind rowForEventId/eventForId.
-    // Every structural mutation (and every whole-event replacement, whose
-    // id can change local: -> remote) calls invalidateRowIndex(); the next
-    // lookup rebuilds once in O(n). Turns the previously-linear lookups —
-    // several of which sat inside per-row bindings and per-diff handlers —
-    // into amortized O(1).
+    // Lazily rebuilt eventId -> row map behind rowForEventId/eventForId. Every
+    // structural mutation (and whole-event replacement, which can rename local:
+    // -> remote) calls invalidateRowIndex(); the next lookup rebuilds in O(n).
     void invalidateRowIndex() const { m_rowIndexDirty = true; }
-    // Newest row (highest index) carrying each user's read receipt. A user
-    // has read up to ONE position, so a host row shows a reader only when no
-    // newer row carries them — with hosting, a receipt the backend left on
-    // an older row would otherwise show twice (2026-09-05 report: the same
-    // avatar on a call row and on the message after it).
+    // Newest row carrying each user's read receipt. A user has read up to one
+    // position, so a host shows a reader only when no newer row carries them.
     const QHash<QString, int> &latestReceiptRows() const;
     mutable QHash<QString, int> m_latestReceiptRow;
     mutable bool m_latestReceiptRowDirty = true;
@@ -614,20 +497,17 @@ private:
     const QHash<QString, int> &rowIndex() const;
     void refreshTypingText();
     QVariantList reactionsVariant(const TimelineEvent &e) const;
-    // One resolver for every identity the timeline shows for a user id that
-    // is NOT the row's own sender (reactors, readers): member lookup, then
-    // the LOCALPART. Mirrors senderDisplayName()'s fallback order — the
-    // complete MXID is never the visible label, and a backend that answers
-    // with the raw user id has told us "unresolved", not a display name.
+    // Resolves identities other than the row's own sender (reactors, readers):
+    // member lookup, then the localpart. A raw user id from the backend means
+    // unresolved, never a display name.
     QString memberDisplayName(const QString &roomId,
                               const QString &userId) const;
-    // The row's visible text. Redacted rows read as deleted, and a typed
-    // profile-change row is PHRASED here rather than carrying a sentence in
-    // `body` — the bridge leaves that field empty for those rows, so
-    // anything still reading `body` directly would render nothing.
+    // The row's visible text. Redacted rows read as deleted, and typed
+    // profile-change rows are phrased here because the bridge leaves `body`
+    // empty.
     QString visibleBodyFor(const TimelineEvent &e) const;
-    // Answers DividerIntroducesVisibleContentRole for one divider row.
-    // O(rows until the next divider), and it stops at the first drawn row.
+    // Answers DividerIntroducesVisibleContentRole. O(rows to the next divider),
+    // stopping at the first drawn row.
     bool dividerIntroducesVisibleContent(int dividerRow) const;
     QVariantList pollAnswersVariant(const TimelineEvent &e) const;
     QVariantList readReceiptsVariant(const TimelineEvent &e) const;
@@ -635,23 +515,18 @@ private:
     // every following row it hosts, one entry per reader, newest first.
     QList<ReadReceipt> hostedReceipts(int row, int *reportedTotal) const;
     /// Announce every host whose receipts the mutation at `row` may have
-    /// changed: the row's own host and its neighbour above (a span may have
-    /// split or merged there), plus the host each reader LEFT and the host
-    /// they ARRIVED at — found by comparing `before`, captured by the caller
-    /// AHEAD of the mutation, with the rebuilt index. `before` is keyed by
-    /// event id because an insert or a removal shifts every row index.
-    /// `hostingChanged`: the mutation added or removed a row that hosts for
-    /// itself (or flipped `row`'s own hosting), so the neighbour above may
-    /// have gained or lost a span and is announced too. `announceRow`: the
-    /// caller does NOT emit for `row` itself (a removal), so this does.
-    /// Everything else is announced only when a reader's position moved —
-    /// a Set that changes one row must announce one row.
+    /// changed: the row's own host, its neighbour above, and the hosts each
+    /// reader left and reached, found by comparing `before` (captured by event
+    /// id ahead of the mutation) with the rebuilt index. `hostingChanged`: a
+    /// self-hosting row appeared, vanished or flipped, so the neighbour above
+    /// is announced too. `announceRow`: the caller does not emit for `row` (a
+    /// removal). Otherwise a row is announced only when a reader's position
+    /// moved.
     void announceReceiptHost(int row, const QHash<QString, QString> &before,
                              bool hostingChanged, bool announceRow);
-    // Grouping is transparent through read markers and timeline-start, but a
-    // DATE DIVIDER ends the run (one collapsed group must not span calendar
-    // days under a single date separator). A visible message/media/call
-    // event ends a group as always. See TimelineModel.cpp for the rationale.
+    // Grouping is transparent through read markers and timeline start, but a
+    // date divider ends the run; a visible message/media/call event always
+    // does.
     int stateGroupLeaderRow(int row) const;
     // First row of the run of redacted messages containing `row`, or -1 when
     // that row is not redacted. Mirrors stateGroupLeaderRow, including its
@@ -662,21 +537,17 @@ private:
 
     // ── Read-receipt hosting ─────────────────────────────────────────────
     //
-    // The SDK attaches a reader's receipt to the newest event they read,
-    // and that is very often a row that draws NO body: a call-membership
-    // update (every participant re-publishes one during a call), a folded
-    // member of a state run, an activity kind the settings hide. Reported
-    // as "when call event read receipts disappear" — the chips were on rows
-    // nobody can see. So a row that draws no body HOSTS nothing, and its
-    // receipts are presented on the nearest row ABOVE that does; the
-    // ReadReceipts roles of a hosting row merge every row it hosts.
+    // The SDK attaches a receipt to the newest event read, often a row that
+    // draws no body (call-membership updates, folded state rows, hidden
+    // activity). Such rows host nothing; their receipts show on the nearest
+    // drawn row above, and a hosting row's ReadReceipts roles merge every row
+    // it hosts.
     bool rowHostsReceipts(int row) const;
     int receiptHostRow(int row) const;
-    // Re-read grouping roles only around a structural boundary. New rows
-    // already query their correct roles on first bind; only their existing
-    // neighbours (and a state-activity run crossing the boundary) can change.
-    // A whole-model dataChanged here made every pagination page increasingly
-    // expensive as loaded history grew and destabilized TableView geometry.
+    // Re-read grouping roles only around a structural boundary: new rows query
+    // their roles on first bind, so only existing neighbours (and a state run
+    // crossing the boundary) can change. A whole-model dataChanged grows with
+    // history and destabilizes view geometry.
     void emitPresentationGroupingChanged(int first, int last);
     // Shared by the room-activity master switch and both of its halves, so a
     // sub-toggle can never refresh differently from the master.
@@ -687,9 +558,8 @@ private:
     int previousMessageRowForGrouping(int row) const;
     int nextMessageRowForGrouping(int row) const;
     bool continuesSenderGroup(int row) const;
-    // True when an in-place event update changed a field the presentation
-    // grouping actually reads, so a Set diff only refreshes neighbours when
-    // it must (profile/body/media updates never force a grouping sweep).
+    // True when an in-place update changed a field grouping reads, so a Set
+    // refreshes neighbours only when it must.
     bool groupingInputsDiffer(const TimelineEvent &before,
                               const TimelineEvent &after) const;
     QUrl mediaHttp(const QString &mxc) const;
@@ -697,59 +567,43 @@ private:
 
     MatrixClient *m_client = nullptr;
     QString m_roomId;
-    // THE ROOM ID EVERY ROOM-KEYED LOOKUP MUST USE.
-    //
-    // A thread model's m_roomId is the composite `room ␟ thread ␟ root`
-    // (ThreadController::open binds the model to timelineId()), because that
-    // is what addresses this timeline in the backend's diff stream. Nothing
-    // keyed by a ROOM is keyed by it — not the member cache behind
-    // displayNameFor()/avatarMxcFor(), not membersChanged — so a lookup made
-    // with m_roomId silently missed for the whole life of a thread panel.
-    // Identical to m_roomId for an ordinary room (threadTimelineRoomId()
-    // returns its input unchanged with no separator present). Cached because
-    // it is read on every identity resolution; written ONLY beside m_roomId.
+    // The room id every room-keyed lookup must use. A thread model's m_roomId
+    // is the composite `room ␟ thread ␟ root` (what addresses its diff stream),
+    // and nothing room-keyed (member cache, membersChanged) matches it. Equal
+    // to m_roomId for an ordinary room. Written only beside m_roomId.
     QString m_realRoomId;
     mutable QHash<QString, int> m_rowIndex;
     mutable bool m_rowIndexDirty = true;
-    // Memoized MessageHtml::sanitize output per event id (FormattedBodyRole
-    // is re-read for every row on member hydration; the sanitize walk is the
-    // costly part). Invalidated per event on edit/replace/redact and
-    // wholesale on member hydration, theme-color change, and reload.
+    // Memoized MessageHtml::sanitize output per event id. Invalidated per event
+    // on edit/replace/redact and wholesale on hydration, theme-colour change
+    // and reload.
     mutable QHash<QString, QString> m_sanitizedHtmlCache;
-    // Every (user id -> name the render used) pair a cached sanitize walk
-    // resolved, per event. This is what makes member hydration PRECISE: a
-    // hydration re-resolves each recorded pair and forgets only the rows
-    // where an answer changed, instead of dropping every cached body and
-    // rebuilding every row (which was a full timeline relayout on each
-    // first room open — the buffering readers reported on 0.9.0).
+    // Every (user id -> name used) pair a cached sanitize resolved, per event,
+    // so member hydration re-checks those pairs and forgets only rows whose
+    // answer changed instead of rebuilding every row.
     mutable QHash<QString, QList<QPair<QString, QString>>> m_htmlMemberDeps;
     UserProfileResolver *m_profiles = nullptr;
-    // The name a mention pill shows for `userId` right now: the room's own
-    // member name, else the resolver's global profile, else empty (the
-    // sanitizer then prints the localpart). `ask` lets a render request an
-    // unknown profile; a comparison must not.
+    // The name a mention pill shows for `userId`: the room member name, else
+    // the resolver's global profile, else empty (the sanitizer prints the
+    // localpart). `ask` lets a render request an unknown profile; comparisons
+    // must not.
     QString mentionNameFor(const QString &userId, bool ask) const;
     std::function<QString(const QString &)> m_inlineImageResolver;
-    /// True once any loaded event's formatted body carries an emoticon, so
-    /// the media-arrival re-read costs nothing without one.
+    /// True once any loaded formatted body carries an emoticon, so media
+    /// arrival costs nothing otherwise.
     mutable bool m_hasInlineEmoji = false;
-    // Memoized MessageSegmentsRole payload per event id. Derived from the
-    // SAME inputs as m_sanitizedHtmlCache (formatted body, mention style,
-    // member lookup), so the two are invalidated together through
-    // forgetRenderedHtml()/clearRenderedHtml() rather than through a dozen
-    // parallel remove() calls — this file already has eleven invalidation
-    // sites, and a class that mutates state at N sites eventually misses
-    // one (ReverseListProxyModel missed five of its own notify sites).
-    // Only rows that really carry a code block get an entry: an ordinary
-    // body is answered by a substring test with no sanitize walk at all.
+    // Memoized MessageSegmentsRole payload per event id. Same inputs as
+    // m_sanitizedHtmlCache, so both are invalidated together through
+    // forgetRenderedHtml()/clearRenderedHtml(). Only rows with a code block get
+    // an entry.
     mutable QHash<QString, QVariantList> m_messageSegmentsCache;
     void forgetRenderedHtml(const QString &eventId);
     void clearRenderedHtml();
 
 public:
-    // v0.9 spoilers: flip one event's click-to-reveal state (delegate
-    // routes the internal spoiler:toggle anchor here). Model-level so the
-    // choice survives delegate churn; dies with the timeline.
+    // Flip one event's spoiler reveal (the delegate routes the internal
+    // spoiler:toggle anchor here). Model-level so it survives delegate churn;
+    // dies with the timeline.
     Q_INVOKABLE void toggleSpoilers(const QString &eventId);
 
 private:
@@ -758,46 +612,35 @@ private:
     QList<TimelineEvent> m_events;
     /// Cache for latestCallEventId(); see refreshLatestCallEvent().
     QString m_latestCallEventId;
-    // Loaded thread replies per root event id. IsThreadRootRole and
-    // ThreadReplyCountRole used to answer by scanning the WHOLE event list
-    // on every query, and every delegate binds both — so each instantiated
-    // row cost two full-timeline scans on creation and on every
-    // dataChanged, growing linearly with loaded history. That is O(rows x
-    // events) per refresh and was a measurable source of scroll jitter
-    // while backfilling a long room. Rebuilt on every structural mutation
-    // (one pass per batch) so both roles answer in O(1).
+    // Loaded thread replies per root event id, so IsThreadRootRole and
+    // ThreadReplyCountRole answer in O(1) instead of scanning the event list
+    // per row. Rebuilt once per structural mutation.
     QHash<QString, int> m_threadReplyCounts;
     void rebuildThreadReplyIndex();
-    // Newest SDK-profile avatar this timeline has seen per sender. Receipt
-    // chips resolve avatars through the member cache first; this catches
-    // readers whose roster row is missing or unhydrated while their own
-    // messages in the loaded timeline carry a profile avatar (live report
-    // 2026-08-14: chips rendered letter fallbacks beside rows that showed
-    // the same user's picture). Room-scoped: rebuilt on reload/room switch.
+    // Newest SDK-profile avatar seen per sender, a fallback for receipt chips
+    // whose reader is missing from the member cache. Rebuilt on reload/room
+    // switch.
     QHash<QString, QString> m_senderAvatarIndex;
     void noteSenderAvatar(const TimelineEvent &event);
     void rebuildSenderAvatarIndex();
     QString m_typingText;
 
-    // v0.6.1 loaded-timeline search (memory-only; never persisted).
+    // Loaded-timeline search (memory-only; never persisted).
     bool m_searchActive = false;
     QString m_searchQuery;
     QStringList m_searchResults;   // matching event ids, oldest → newest
     int m_searchIndex = -1;        // index into m_searchResults; -1 = none
 
-    // Mention and link ink (validated OPAQUE #rrggbb strings; see
-    // setMentionStyle). Empty until QML pushes the current theme.
+    // Mention and link ink (validated opaque #rrggbb; see setMentionStyle).
+    // Empty until QML pushes the theme.
     QString m_mentionAccentColor;
     QString m_mentionLinkColor;
     QString m_codeBackgroundColor;
 
-    // Mirrors SettingsManager::showRoomActivity (default true, matching it).
-    // Only DividerIntroducesVisibleContentRole reads it; nothing here
-    // filters rows.
+    // Mirrors SettingsManager::showRoomActivity. Only
+    // DividerIntroducesVisibleContentRole reads it; no rows are filtered here.
     bool m_showRoomActivity = true;
-    // The two halves of "room activity", each defaulting TRUE so the split
-    // is invisible to anyone who never opens it: master on + both halves on
-    // is exactly the previous behaviour.
+    // The two halves of "room activity", each defaulting true.
     bool m_showMembershipEvents = true;
     bool m_showProfileChangeEvents = true;
 };

@@ -37,8 +37,8 @@ void MentionSuggestionModel::setClient(MatrixClient *client)
     if (m_client) {
         connect(m_client, &MatrixClient::roomMembersReceived, this,
                 &MentionSuggestionModel::onRoomMembersReceived);
-        // The sync poke, not membersChanged — same rationale as
-        // RoomInfoController (review H1): this model REFETCHES on it.
+        // The sync poke, not membersChanged: this model refetches on it, as
+        // RoomInfoController does.
         connect(m_client, &MatrixClient::roomMemberEventSeen, this,
                 &MentionSuggestionModel::onMembersChanged);
         connect(m_client, &MatrixClient::loggedOut, this,
@@ -54,10 +54,8 @@ void MentionSuggestionModel::setRoomId(const QString &roomId)
     // A new room invalidates any in-flight request and the cached snapshot.
     m_membersOp = 0;
     m_all.clear();
-    // ...and the @room permission, which belongs to the room we just left.
-    // Back to UNKNOWN, which means offered: a room the user may @room in
-    // must not inherit "no" from the previous one, and the server refuses
-    // what the level does not allow anyway.
+    // Reset the @room permission to unknown (offered): it belonged to the
+    // previous room, and the server refuses what the level does not allow.
     setRoomMentionAllowed(true);
     clearResults();
     Q_EMIT roomIdChanged();
@@ -97,17 +95,10 @@ void MentionSuggestionModel::onRoomMembersReceived(quint64 opId,
     if (!snapshot.value(QStringLiteral("ok")).toBool())
         return;
 
-    // Whether this account may notify the whole room rides the SAME roster
-    // snapshot this model already asked for, so @room is gated on the room
-    // the SUGGESTIONS are for — never on whatever room the info panel
-    // happens to be showing.
-    //
-    // Applied only when the key is actually PRESENT. `contains` is the whole
-    // point: QVariantMap::value() on a missing key returns a default-
-    // constructed QVariant whose toBool() is false, so reading it blind makes
-    // "this backend never told us" indistinguishable from "you are not
-    // allowed" — and that is exactly the defect this replaces. A backend that
-    // says nothing leaves the permission UNKNOWN, which means offered.
+    // Whether this account may notify the whole room comes from the same roster
+    // snapshot, so @room is gated on the room the suggestions are for. Applied
+    // only when the key is present: a missing key reads as false, which would
+    // turn "backend never said" into "not allowed". Unknown means offered.
     if (snapshot.contains(QStringLiteral("canNotifyRoom")))
         setRoomMentionAllowed(
             snapshot.value(QStringLiteral("canNotifyRoom")).toBool());
@@ -126,14 +117,9 @@ void MentionSuggestionModel::onRoomMembersReceived(quint64 opId,
             continue; // never suggest the signed-in user
         const QString membership =
             row.value(QStringLiteral("membership")).toString();
-        // ALLOW-list, not a deny-list: only members actually in (or
-        // invited to) the room are suggestable. The snapshot now carries
-        // banned members (so unban is reachable) and backends are not
-        // constrained to one spelling of the excluded states — an
-        // unlisted label must fail closed, never be suggested. Both
-        // spellings are legitimate: the Rust snapshot says
-        // "joined"/"invited", the mock backend the raw Matrix
-        // "join"/"invite" (the HTTP backend never delivers this payload).
+        // Allow-list: only joined or invited members are suggestable, and any
+        // other label fails closed (the snapshot also carries banned members).
+        // Rust says "joined"/"invited"; the mock uses raw "join"/"invite".
         if (membership != QLatin1String("joined")
             && membership != QLatin1String("join")
             && membership != QLatin1String("invited")
@@ -160,8 +146,8 @@ void MentionSuggestionModel::onRoomMembersReceived(quint64 opId,
 
 void MentionSuggestionModel::onMembersChanged(const QString &roomId)
 {
-    // Authoritative membership changed for the open room: refresh the snapshot
-    // unless a request is already in flight.
+    // Membership changed for the open room: refresh unless a request is in
+    // flight.
     if (roomId == m_roomId && !m_roomId.isEmpty() && m_membersOp == 0)
         requestMembers();
 }
@@ -216,10 +202,8 @@ int MentionSuggestionModel::matchScore(const QString &query,
     return best;
 }
 
-// "@room" is offered for an empty query and for any prefix of "room" — the
-// user is typing the word, and "@r" should already show it. Deliberately not
-// a fuzzy match: a whole-room notification is not something to surface by
-// accident because a query happened to score.
+// "@room" is offered for an empty query or any prefix of "room"; never via
+// fuzzy scoring, so it is not surfaced by accident.
 static bool matchesRoomMention(const QString &query)
 {
     const QString q = query.trimmed().toLower();
@@ -261,15 +245,12 @@ void MentionSuggestionModel::rebuild()
 
     QList<Member> next;
     next.reserve(qMin(int(scored.size()), kMaxResults) + 1);
-    // @room first, when it is offered at all. It is the broadest thing in the
-    // list, it is the one entry that is not a person, and a reader scanning
-    // for it should not have to pass twelve names to find it — Element puts
-    // it at the top for the same reason.
+    // @room first when offered: it is the one non-person entry, and Element
+    // lists it at the top too.
     if (m_roomMentionAllowed && matchesRoomMention(m_query)) {
         Member room;
         room.userId = QStringLiteral("@room");
-        // "room", not "@room": the insertion builder prefixes the @ itself,
-        // so carrying it here would compose "@@room".
+        // "room", not "@room": the insertion builder adds the @.
         room.displayName = QStringLiteral("room");
         room.rawDisplayName = room.displayName;
         room.isRoom = true;

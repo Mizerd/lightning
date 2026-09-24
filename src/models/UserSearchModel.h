@@ -7,25 +7,21 @@
 
 class MatrixClient;
 
-// v0.5.9: reusable, debounced Matrix user-directory search model.
+// Debounced Matrix user-directory search model.
 //
-// QML binds `query`; the model debounces (300 ms), dispatches through
-// MatrixClient::searchUsers, and rejects stale completions by operation id.
+// QML binds `query`; the model debounces, dispatches through
+// MatrixClient::searchUsers and rejects stale completions by op id.
 //
-// v0.5.11: in addition to the directory search, a plausible exact candidate
-// is resolved through MatrixClient::fetchUserProfile — the directory on many
-// homeservers does not list local users that never shared a room with the
-// searcher, so "admin" is also looked up as "@admin:<own-server>" (server
-// derived from the authenticated account, never hardcoded):
-//   * a complete typed Matrix id ("@x:server" / "x:server") is offered as a
-//     result row immediately (exactMxid provenance) and enriched with the
-//     confirmed display name when the profile lookup succeeds;
-//   * a bare localpart candidate ("admin" / "@admin") appears ONLY after the
-//     homeserver confirms the profile (exactLocal provenance) — a result is
-//     never invented merely because the id is syntactically valid.
-// Duplicate user IDs are removed; the current user is excluded (you cannot
-// DM/invite yourself). No query text or result payload is ever logged, and
-// nothing is persisted.
+// Many directories omit local users who share no room with the searcher, so
+// a plausible exact candidate is also resolved via fetchUserProfile ("admin"
+// -> "@admin:<own-server>", server taken from the account, never hardcoded):
+//   * a complete typed id ("@x:server" / "x:server") is offered immediately
+//     (exactMxid) and enriched with the display name once confirmed;
+//   * a bare-localpart candidate ("admin" / "@admin") appears only after the
+//     homeserver confirms the profile (exactLocal); syntax alone never
+//     invents a result.
+// Duplicates are removed and the current user is excluded. Query text and
+// results are never logged or persisted.
 class UserSearchModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -40,7 +36,7 @@ public:
         DisplayNameRole,
         AvatarUrlRole,
         IsExactMxidRole,
-        SourceRole, // v0.5.11: "directory" | "exact_local" | "exact_mxid"
+        SourceRole, // "directory" | "exact_local" | "exact_mxid"
     };
 
     struct Result {
@@ -74,10 +70,9 @@ public:
     // static so it is unit-testable.
     static bool looksLikeMxid(const QString &text);
 
-    // v0.5.11: pure merge of exact candidates and directory rows —
-    // deduplicated by user id (first occurrence keeps its provenance, a
-    // later duplicate only contributes missing display name / avatar),
-    // `ownUser` excluded. Public and static so it is unit-testable.
+    // Merge exact candidates and directory rows: deduplicated by user id (the
+    // first keeps its provenance, later ones only fill missing name/avatar),
+    // `ownUser` excluded.
     static QList<Result> mergeResults(const QList<Result> &exact,
                                       const QList<Result> &directory,
                                       const QString &ownUser);
@@ -115,7 +110,7 @@ private:
     bool m_directoryOk = true;
     QList<Result> m_directoryResults;
 
-    // Exact-candidate lifecycle (v0.5.11).
+    // Exact-candidate lifecycle.
     quint64 m_pendingProfileOp = 0;
     QString m_candidateUserId;
     bool m_candidateNamesServer = false; // typed with an explicit server

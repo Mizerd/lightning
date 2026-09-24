@@ -8,30 +8,23 @@
 class MatrixClient;
 class TimelineModel;
 
-// v0.5.11: automatic SDK-backed read receipts.
+// Automatic SDK-backed read receipts.
 //
-// The UI reports coarse visibility state (window active, timeline visible,
-// user near the bottom); the coordinator combines that with the newest
-// receipt-eligible event from the TimelineModel and sends ONE receipt
-// through MatrixClient::sendReadReceipt — but only after the state has held
-// for a brief debounce period and every condition still holds at fire time.
-//
-// A receipt is eligible only when, simultaneously:
-//   1. a room is open (model has a room id);
-//   2. the application window is active;
+// The UI reports coarse visibility (window active, timeline visible, near the
+// bottom); the coordinator combines it with the newest receipt-eligible event
+// and sends one receipt through MatrixClient::sendReadReceipt after a short
+// debounce, if every condition still holds at fire time:
+//   1. a room is open;
+//   2. the window is active;
 //   3. the timeline is visible;
-//   4. the user is at/near the newest messages;
-//   5. the newest readable event has a real remote event id (no local
-//      echoes without one, no failed sends, no virtual rows);
+//   4. the user is at or near the newest messages;
+//   5. the newest readable event has a real remote event id (no local echoes,
+//      failed sends or virtual rows);
 //   6. that event has not already received the same or a newer receipt.
 //
-// Room switches, focus loss, upward scrolling, timeline resets and sign-out
-// during the debounce all cancel or re-validate the pending receipt; a
-// bumped generation guarantees a stale timer can never ack into a
-// different room. Receipts go through the Matrix SDK (Rust bridge) — this
-// class never merely clears a local badge.
-//
-// Nothing here logs event bodies; only room-free diagnostic state.
+// Room switches, focus loss, scrolling up, resets and sign-out cancel or
+// re-validate a pending receipt; a generation counter keeps a stale timer
+// from acking into another room. Never logs event bodies.
 class ReadReceiptCoordinator : public QObject
 {
     Q_OBJECT
@@ -65,10 +58,8 @@ public:
 
 Q_SIGNALS:
     void inputsChanged();
-    // A receipt was handed to the backend. Carries the room, the event id
-    // (safe to log by existing convention) and the event's timestamp — a
-    // consumer that wants to mirror "read up to here" needs all three, and
-    // sendNow() already holds them.
+    // A receipt was handed to the backend: room, event id and timestamp, all a
+    // consumer mirroring "read up to here" needs.
     void receiptSent(const QString &roomId, const QString &eventId,
                      qint64 timestampMs);
 

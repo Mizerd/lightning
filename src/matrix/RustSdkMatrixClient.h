@@ -28,20 +28,17 @@ public:
     /// quarantine and process exit — never on an account switch.
     static constexpr int kStoreCloseBudgetMs = 15000;
 
-    /// Block until every handle retired by releaseRustHandle() has finished
-    /// closing, or the budget expires. Returns true if the pool drained.
+    /// Block until every handle retired by releaseRustHandle() has closed, or
+    /// the budget expires. Returns true if the pool drained.
     ///
-    /// ONLY for callers that are about to touch the store on disk — deleting,
-    /// renaming or quarantining it — where a still-open SQLite connection
-    /// would race the change, and for process exit. Never call it to "make
-    /// switching safe": switching is safe precisely because it does not wait.
+    /// Only for callers about to delete, rename or quarantine the store on
+    /// disk, where an open SQLite connection would race, and for process exit.
+    /// Account switching must never wait.
     static bool waitForRustRetirement(int budgetMs);
 
-    /// Runs the blocking half of releaseRustHandle() — joining managed tasks
-    /// and dropping the tokio runtime — on a worker thread, taking ownership
-    /// of `handle`. Public so a test can hand it a real Rust client and
-    /// measure that the CALLER returns immediately; that property is the
-    /// whole point of the change and is not observable any other way.
+    /// Runs the blocking half of releaseRustHandle() (joining managed tasks,
+    /// dropping the tokio runtime) on a worker thread that takes ownership of
+    /// `handle`. Public so a test can verify the caller returns immediately.
     static void retireRustHandleAsync(void *handle, const QString &typingRoom);
 
     explicit RustSdkMatrixClient(SettingsManager *settings, QObject *parent = nullptr);
@@ -53,13 +50,10 @@ public:
     QString rustBackendVersion() const;
     bool    rustSupportsE2ee() const;
 
-    // Testing hook. When non-empty, the SDK store is created at exactly
-    // this absolute path, bypassing the per-account subdirectory layout
-    // under matrix::app_data::primaryRoot(). Reserved for the headless
-    // smoke harness so back-to-back password logins start from a clean
-    // temporary crypto store and cannot hit the SDK's
-    // "account in the store doesn't match the account in the
-    // constructor" error. Must be called BEFORE login() / restoreSession().
+    // Testing hook: when non-empty, the SDK store is created at exactly this
+    // absolute path instead of the per-account layout, so the headless smoke
+    // harness starts each login from a clean crypto store. Call before login()
+    // / restoreSession().
     void setStorePathOverride(const QString &absolutePath);
 
     // Smoke-only session sidecar used with LIGHTNING_TEST_PERSISTENT_STORE=1.
@@ -89,61 +83,42 @@ public:
     bool restoreSessionFromFile(const QString &homeserver,
                                 const QString &userIdForStore);
 
-    // Encrypted-room test probe (v0.5.0-prep+6). Bypasses the C++
-    // CryptoManager::supportsE2ee gate and calls
-    // mx_rust_probe_encrypted_send. The Rust side still performs the
-    // encryption via matrix-sdk (e2e-encryption + sqlite features);
-    // C++ never handles ciphertext or keys. Reserved for the headless
-    // smoke harness so E2EE can be verified before the UI gate is
-    // flipped. Emits encryptedSendProbeResult(...) with a safe marker
-    // and either an SDK event id or a non-secret failure message. Do
-    // NOT wire this into QML — the interactive send path stays gated
-    // on supportsE2ee.
+    // Encrypted-room smoke probe: calls mx_rust_probe_encrypted_send, bypassing
+    // the CryptoManager::supportsE2ee gate. Encryption happens in matrix-sdk;
+    // C++ never handles ciphertext or keys. Emits
+    // encryptedSendProbeResult(...). Do not wire this into QML.
     void probeEncryptedSend(const QString &roomId,
                             const QString &body,
                             const QString &marker);
 
-    // Key-backup recovery (v0.5.0-prep+7). Wraps
-    // mx_rust_recover_from_backup so the smoke harness can attempt to
-    // restore room keys via matrix-sdk's server-side secret storage
-    // WITHOUT the recovery key ever transiting a log or QML property.
-    // Result flows through keyBackupResult(...). Do NOT expose to QML.
+    // Key-backup recovery for the smoke harness (mx_rust_recover_from_backup).
+    // The recovery key never transits a log or QML property. Result flows
+    // through keyBackupResult(...). Do not expose to QML.
     void recoverFromBackup(const QString &recoveryKey);
 
-    // v0.5.0-prep+11. Reload a room's recent timeline from matrix-sdk
-    // (calls Room::messages). Timeline events dedupe by event_id in
-    // handleTimelineEvent so this is safe to call at any time. Emits
-    // roomTimelineReloaded(roomId, total, decrypted, undecryptable)
-    // when the SDK finishes, or errorOccurred with a non-secret
-    // message on failure.
-    //
-    // v0.5.7: kept only as a smoke-test helper. The interactive room
-    // history path is openRoomTimeline() below — do not use this for UI
-    // room opens; it cannot update already-visible rows in place.
+    // Smoke-test helper: reload a room's recent timeline via Room::messages
+    // (events dedupe by event_id). Emits roomTimelineReloaded(...) or
+    // errorOccurred. Not for UI room opens; use openRoomTimeline(), which
+    // updates visible rows in place.
     void reloadRoomTimeline(const QString &roomId, int limit = 30);
 
-    // v0.5.7. Open (or re-open) the live matrix-sdk-ui timeline for a
-    // room. Rust cancels any previous room subscription, builds a
-    // persistent SDK Timeline, sends one timeline_reset snapshot, and
-    // streams incremental VectorDiff updates that are applied in place —
-    // including undecryptable → decrypted replacements after room-key
-    // import, SDK local echoes with send-state transitions, and backward
-    // pagination prepends. Safe to call repeatedly; each call advances
-    // the Rust room generation and stale callbacks are rejected.
+    // Open (or re-open) the live matrix-sdk-ui timeline for a room. Rust
+    // cancels the previous subscription, sends one timeline_reset snapshot,
+    // then streams VectorDiff updates applied in place (late decryptions, local
+    // echoes with send states, pagination prepends). Each call advances the
+    // Rust room generation, so stale callbacks are rejected.
     void openRoomTimeline(const QString &roomId);
-    // 2026-08-19: re-open the live timeline after the SDK event cache has
-    // released the paginated backlog. Explicit jump-to-latest from far back
-    // ONLY — see mx_rust_timeline_reload_at_live.
-    // Returns false when the dispatch itself failed, so the caller never
-    // commits to a reset that will not arrive.
+    // Re-open the live timeline after the SDK event cache has released the
+    // paginated backlog; explicit jump-to-latest from far back only (see
+    // mx_rust_timeline_reload_at_live). Returns false when dispatch failed, so
+    // the caller never waits for a reset that will not arrive.
     bool reloadRoomTimelineAtLive(const QString &roomId);
     void closeRoomTimeline();
 
-    // v0.5.0. SAS emoji verification (receive-first). Drives
-    // mx_rust_accept_verification / confirm / mismatch / cancel.
-    // Results flow through the verification* signals below. Only one
-    // active flow at a time in the Rust bridge; calling accept on a
-    // stale flow id returns a non-secret error via errorOccurred.
+    // SAS emoji verification (receive-first) via mx_rust_accept_verification /
+    // confirm / mismatch / cancel. Results flow through the verification*
+    // signals. One active flow at a time; a stale flow id yields a non-secret
+    // error via errorOccurred.
     void acceptVerification(const QString &flowId);
     void confirmVerification(const QString &flowId);
     void mismatchVerification(const QString &flowId);
@@ -153,56 +128,42 @@ public:
     // change; this never promotes trust locally.
     void confirmQrVerification(const QString &flowId);
 
-    // v0.5.6. Lightning-initiated SAS verification of the current
-    // session against another session belonging to the same Matrix
-    // account. Emits verificationStartFailed(reason) synchronously
-    // when the request cannot be dispatched (already active, no own
-    // identity, not logged in); success flows through the normal
-    // verificationRequestStarted / verificationSasReady / verificationDone
-    // events. Only advertises SAS as a method.
+    // Lightning-initiated SAS verification of this session against another
+    // session of the same account. Emits verificationStartFailed(reason)
+    // synchronously when it cannot be dispatched; success flows through
+    // verificationRequestStarted / verificationSasReady / verificationDone.
+    // Advertises SAS only.
     void startOwnVerification();
 
-    // v0.7.2. Ask the Rust recovery coordinator for a fresh
-    // standards-based encryption-secret request round ("Request keys
-    // again"). Progress arrives as cryptoBootstrapEvent state updates;
-    // failures to dispatch surface through errorOccurred.
+    // "Request keys again": ask the Rust recovery coordinator for a fresh
+    // encryption-secret request round. Progress arrives as
+    // cryptoBootstrapEvent; dispatch failures via errorOccurred.
     void requestMissingSecrets();
 
-    // v0.6.0 checkpoint 7. Ask Rust for one sanitized E2EE health snapshot
-    // (device trust, cross-signing keys, backup/recovery/secret-storage
-    // state). Result arrives as cryptoHealthUpdated(map). Safe to call at
-    // any time; skipped when not logged in.
+    // One sanitized E2EE health snapshot (device trust, cross-signing keys,
+    // backup/recovery/secret-storage state) via cryptoHealthUpdated(map).
+    // Skipped when not logged in.
     void queryCryptoHealth();
 
-    // v0.6.0 checkpoint 9. Ask Rust for the account's device/session list
-    // (server metadata + SDK crypto trust). Result arrives as
+    // The account's device list (server metadata plus SDK crypto trust) via
     // deviceListUpdated(ok, devices).
     void requestDeviceList();
 
-    // v0.5.6. Snapshot the current session's cross-signing trust state
-    // from the SDK. Emits ownDeviceStatusUpdated(...) with only the
-    // aggregate fields the UI displays. Safe to call at any time; the
-    // wrapper skips the call when not logged in.
+    // Snapshot this session's cross-signing trust state via
+    // ownDeviceStatusUpdated(...), aggregate fields only. Skipped when not
+    // logged in.
     void refreshOwnDeviceStatus();
 
-    // B006/B011. Ask whether the curve25519 identity key this device
-    // PUBLISHES on the server is the one its local Olm account holds. When
-    // it is not, every peer encrypts to a key we cannot read: nothing
-    // arrives decryptable, ever, while sending keeps working — encrypted
-    // messages sit on "Waiting for keys…" and an encrypted call is silent
-    // one way. Answers through ownDeviceIdentityKeyChecked(...).
-    //
-    // Asynchronous because it needs a /keys/query; it must never block the
-    // GUI thread the way refreshOwnDeviceStatus() does. Performs exactly one
-    // check per call — the rate limit is the caller's (see
-    // matrix::crypto::OwnDeviceKeyWatch).
+    // Check whether the curve25519 identity key this device publishes matches
+    // its local Olm account. If not, peers encrypt to a key we cannot read:
+    // nothing decrypts while sending still works. Answers through
+    // ownDeviceIdentityKeyChecked(...). Asynchronous (needs /keys/query); one
+    // check per call, rate-limited by matrix::crypto::OwnDeviceKeyWatch.
     void checkOwnIdentityKey();
 
-    // v0.5.6. Encrypted Megolm room-key import. The path is passed to
-    // Rust unchanged; the passphrase is forwarded once and never
-    // logged. Results flow through roomKeyImportStarted /
-    // roomKeyImportProgress / roomKeyImportDone / roomKeyImportFailed.
-    // Only one import may be active per Rust client.
+    // Encrypted Megolm room-key import. The path goes to Rust unchanged; the
+    // passphrase is forwarded once and never logged. Results flow through the
+    // roomKeyImport* signals. One import at a time per client.
     void importRoomKeys(const QString &filePath, const QString &passphrase);
     bool roomKeyImportActive() const;
 
@@ -214,10 +175,9 @@ public:
     bool restoreSession() override;
     bool detachSession() override;
 
-    // OAuth 2.0 / OIDC. See the two-phase store lifecycle note in
-    // rust/src/oauth.rs: phase A authenticates on a store-less bootstrap
-    // handle, phase B opens the real account store only once the homeserver
-    // has named the account and device.
+    // OAuth 2.0 / OIDC. Phase A authenticates on a store-less bootstrap handle;
+    // phase B opens the account store once the homeserver has named the account
+    // and device (see rust/src/oauth.rs).
     bool supportsOAuthLogin() const override { return true; }
     void discoverAuthMethods(const QString &homeserver) override;
     void beginOAuthLogin(const QString &homeserver) override;
@@ -254,7 +214,7 @@ public:
     void sendReply(const QString &roomId,
                    const QString &replyToEventId,
                    const QString &body) override;
-    // v0.7 outgoing @-mentions: attach m.mentions through the SDK send path.
+    // Outgoing @-mentions: attach m.mentions through the SDK send path.
     void sendTextMessage(const QString &roomId, const QString &body,
                          const QStringList &mentionUserIds) override;
     void sendReply(const QString &roomId,
@@ -268,8 +228,8 @@ public:
                      const QString &targetEventId,
                      const QString &newBody,
                      const QStringList &mentionUserIds) override;
-    // v0.9 formatted sends: the bodySpec crosses the FFI as one JSON
-    // argument; Rust re-validates it and strict-sanitizes any HTML.
+    // Formatted sends: the bodySpec crosses the FFI as one JSON argument; Rust
+    // re-validates it and strict-sanitizes any HTML.
     void sendTextMessage(const QString &roomId, const QString &body,
                          const QStringList &mentionUserIds,
                          const QVariantMap &bodySpec) override;
@@ -290,14 +250,13 @@ public:
                         const QString &targetEventId,
                         const QString &key) override;
 
-    // 2026-08-18: redact this message's own m.replace events (see
-    // rooms::remove_message_edits). Rust backend only: it needs the event
-    // relations, which only the SDK exposes.
+    // Redact this message's own m.replace events (rooms::remove_message_edits);
+    // needs event relations, which only the SDK exposes.
     bool supportsRemovingEdits() const override { return true; }
     void removeMessageEdits(const QString &roomId,
                             const QString &eventId) override;
 
-    // v0.7: MSC3381 polls through the SDK timeline (room or thread target).
+    // MSC3381 polls through the SDK timeline (room or thread target).
     bool supportsPolls() const override { return true; }
     void sendPollResponse(const QString &roomId,
                           const QString &threadRootId,
@@ -316,10 +275,9 @@ public:
     void sendTyping(const QString &roomId, bool isTyping, int timeoutMs = 20000) override;
     void sendReadReceipt(const QString &roomId, const QString &eventId) override;
     void setReadReceiptPrivacy(int mode) override;
-    /// MSC4153 "invisible crypto", process-wide. STATIC and handle-free
-    /// because the Rust side reads it when a client is BUILT — there is no
-    /// runtime setter in matrix-sdk 0.18 for either half — so it must be set
-    /// before a sign-in rather than on a live client.
+    /// MSC4153 "invisible crypto", process-wide. Static because Rust reads it
+    /// when a client is built (matrix-sdk has no runtime setter), so it must be
+    /// set before sign-in.
     static void setStrictDeviceTrust(bool enabled);
     void setRoomMarkedUnread(const QString &roomId, bool unread) override;
     bool supportsRoomFavourites() const override { return true; }
@@ -333,13 +291,11 @@ public:
     void clearRoomNotificationMode(const QString &roomId) override;
     void requestThreadParticipants(const QString &roomId,
                                    const QString &rootEventId) override;
-    // v0.7.x Matrix presence: bounded polling (Sliding Sync carries no
-    // presence events) + own-state publication. Policy lives in
-    // PresenceManager; these are thin command wrappers.
+    // Presence: bounded polling (Sliding Sync carries no presence events) plus
+    // own-state publication. Policy lives in PresenceManager.
     bool supportsPresence() const override { return true; }
-    // The SDK derives num_unread_messages/mentions/notifications from
-    // the user's own read receipt, whichever device published it, and
-    // roomInfoFromJson writes all four fields on every room payload.
+    // The SDK derives unread counts from the user's own read receipt from any
+    // device, and roomInfoFromJson writes all four fields on every payload.
     bool tracksRoomReadState() const override { return true; }
     void requestPresence(const QStringList &userIds, quint64 opId) override;
     bool supportsProfileBanners() const override { return true; }
@@ -403,9 +359,9 @@ public:
     void sendImage(const QString &roomId, const QString &localPath) override;
     void sendFile(const QString &roomId, const QString &localPath) override;
 
-    // v0.6.0: SDK-backed thread timelines (TimelineFocus::Thread in Rust).
-    // The thread flows through the same diff signals under its composite
-    // timeline id; the pagination methods below answer for both id kinds.
+    // SDK-backed thread timelines (TimelineFocus::Thread). A thread uses the
+    // same diff signals under its composite id; the pagination methods below
+    // handle both id kinds.
     bool supportsThreadTimelines() const override { return true; }
     void openThread(const QString &roomId, const QString &rootEventId) override;
     void closeThread() override;
@@ -453,7 +409,7 @@ public:
     void retryFailedSend(const QString &roomId,
                          const QString &transactionId) override;
 
-    // v0.5.9 — conversation creation, membership, room editing, media.
+    // Conversation creation, membership, room editing, media.
     bool supportsRoomManagement() const override { return true; }
     bool supportsAttachmentSend() const override { return true; }
     bool supportsMediaBridge() const override { return true; }
@@ -485,12 +441,12 @@ public:
                     const QString &reason) override;
     quint64 unbanUser(const QString &roomId, const QString &userId,
                       const QString &reason) override;
-    // v0.7.x room administration + pinned messages.
+    // Room administration and pinned messages.
     quint64 setMemberPowerLevel(const QString &roomId, const QString &userId,
                                 qlonglong level) override;
     quint64 setRoomPowerLevelKey(const QString &roomId, const QString &key,
                                  qlonglong level) override;
-    // v0.9 scheduled send (phase 11).
+    // Scheduled send.
     void probeDelayedEvents() override;
     quint64 scheduleMessage(const QString &roomId, const QString &body,
                             const QVariantMap &bodySpec,
@@ -504,7 +460,7 @@ public:
                             const QString &replyToEventId,
                             const QString &threadRootEventId) override;
     void requestActivitySeed(int limit) override;
-    // v0.9 message edit history + event source (phase 7).
+    // Message edit history and event source.
     void requestEditHistory(const QString &roomId, const QString &eventId) override;
     void requestEventSource(const QString &roomId, const QString &eventId) override;
     quint64 eventAtTimestamp(const QString &roomId, qint64 timestampMs) override;
@@ -534,14 +490,14 @@ public:
                                 const QString &mxc) override;
     bool supportsRoomProfiles() const override
     { return m_rustHandle != nullptr; }
-    // v0.9 device + backup management (phase 9).
+    // Device and backup management.
     quint64 renameDevice(const QString &deviceId, const QString &name) override;
     quint64 backupAction(const QString &action) override;
     void requestBackupProgress() override;
-    // v0.9 room upgrade (phase 8).
+    // Room upgrade.
     void requestRoomVersions() override;
     quint64 upgradeRoom(const QString &roomId, const QString &newVersion) override;
-    // v0.9 room access (phase 4).
+    // Room access.
     quint64 setRoomJoinRule(const QString &roomId, const QString &rule,
                             const QStringList &allowedRoomIds) override;
     quint64 setRoomHistoryVisibility(const QString &roomId,
@@ -600,8 +556,7 @@ public:
                            const QString &partyId,
                            const QVariantList &candidates) override;
     quint64 requestCallTurnServers() override;
-    // MatrixRTC (MSC4143): observation and discovery. There is deliberately
-    // no join/publish override — see MatrixClient::supportsMatrixRtc.
+    // MatrixRTC (MSC4143).
     bool supportsMatrixRtc() const override { return true; }
     quint64 rtcSession(const QString &roomId, bool preferServer) override;
     quint64 rtcTransports(const QString &roomId) override;
@@ -703,60 +658,50 @@ public:
     qint64 maxUploadSize() const override { return m_maxUploadSize; }
 
 Q_SIGNALS:
-    // v0.5.0-prep+6. Fires exactly once per probeEncryptedSend call.
-    // `ok`: true when matrix-sdk returned a real server event id.
-    // `marker`: caller-supplied opaque identifier (never contains
-    //           the probe body). Safe to log.
-    // `serverEventId`: only meaningful when ok == true.
-    // `message`: non-secret failure detail when ok == false; empty on
-    //            success. May be truncated / one-lined by the caller.
+    // Fires once per probeEncryptedSend call.
+    // `ok`: matrix-sdk returned a real server event id.
+    // `marker`: caller-supplied opaque id (never the probe body); safe to log.
+    // `serverEventId`: meaningful only when ok.
+    // `message`: non-secret failure detail when not ok; empty on success.
     void encryptedSendProbeResult(const QString &roomId,
                                   const QString &marker,
                                   bool ok,
                                   const QString &serverEventId,
                                   const QString &message);
 
-    // v0.5.0-prep+7. Fires once per recoverFromBackup call.
-    // `state`: "attempted" (dispatch received) or "ok" / "failed" once
-    //          matrix-sdk finishes. `message`: non-secret failure detail
-    //          or empty. Never contains the recovery key or imported
-    //          key material.
+    // Fires once per recoverFromBackup call. `state` is "attempted", then "ok"
+    // or "failed". `message` is non-secret failure detail or empty; never the
+    // recovery key or imported key material.
     void keyBackupResult(const QString &state, const QString &message);
 
-    // v0.5.0-prep+11. Fires once per reloadRoomTimeline() call.
+    // Fires once per reloadRoomTimeline() call.
     void roomTimelineReloaded(const QString &roomId,
                               int totalEvents,
                               int decryptedEvents,
                               int undecryptableEvents);
 
-    // v0.5.0. SAS emoji verification lifecycle.
+    // SAS emoji verification lifecycle.
     void verificationRequestReceived(const QString &flowId,
                                      const QString &otherUserId,
                                      const QString &otherDeviceId,
                                      bool isSelfVerification);
-    // Both sides have exchanged m.key.verification.ready and the SDK is
-    // driving the m.key.verification.start/accept/key exchange. This used
-    // to be dropped on the floor as "informational", which left the UI
-    // parked on "Incoming verification request" — Accept still offered —
-    // for the whole handshake, with no way to tell progress from a stall.
-    // Flow id only; no key, MAC or SAS material crosses this boundary.
+    // Both sides exchanged m.key.verification.ready and the SDK is running the
+    // start/accept/key exchange; lets the UI show progress instead of an
+    // unanswered request. Flow id only; no key, MAC or SAS material.
     void verificationReady(const QString &flowId);
     void verificationSasReady(const QString &flowId,
                               const QVariantList &emojis,
                               const QVariantList &decimals);
-    // v0.7.1. OUR side's "They match" was registered by the SDK
-    // (SasState::Confirmed) — the flow now waits for the OTHER session's
-    // confirmation before verificationDone can fire. Emitted at most once
-    // per flow; carries the flow id only, never emoji values.
+    // Our "They match" was registered (SasState::Confirmed); waiting for the
+    // other session before verificationDone. At most once per flow; flow id
+    // only, never emoji values.
     void verificationSasConfirmed(const QString &flowId);
-    // Show-QR verification. Lightning DISPLAYS a code for the other device
-    // to scan; it never scans (no camera), so m.qr_code.scan.v1 is never
-    // advertised. `modules` is the code's width in modules and `bits` its
-    // row-major bitmap (MSB first, each row starting on a fresh byte,
-    // stride = (modules + 7) / 8, set bit = dark module). ONLY that
-    // geometry crosses this boundary — the payload the code encodes is
-    // cross-signing key material and the flow's shared secret, and it never
-    // leaves the Rust bridge.
+    // Show-QR verification. Lightning displays a code for the other device to
+    // scan; it never scans (no camera), so m.qr_code.scan.v1 is not advertised.
+    // `modules` is the width in modules and `bits` a row-major bitmap (MSB
+    // first, each row byte-aligned, stride = (modules + 7) / 8, set bit =
+    // dark). Only geometry crosses: the encoded payload is cross-signing key
+    // material and the shared secret, and it never leaves Rust.
     void verificationQrReady(const QString &flowId, int modules,
                              const QByteArray &bits);
     // The peer scanned our code. The user must now confirm that the other
@@ -772,40 +717,29 @@ Q_SIGNALS:
     void verificationCancelled(const QString &flowId, const QString &message);
     void verificationFailed(const QString &flowId, const QString &message);
 
-    // v0.5.6. Emitted when Lightning successfully dispatches a SAS
-    // verification request through mx_rust_start_own_verification. The
-    // flow id and self-verification flag are safe metadata; the SDK
-    // has already signed and sent the outbound m.key.verification.request.
+    // A SAS request was dispatched through mx_rust_start_own_verification. The
+    // flow id and self-verification flag are safe metadata.
     void verificationRequestStarted(const QString &flowId,
                                     const QString &otherUserId,
                                     bool isSelfVerification);
 
-    // v0.5.6. Aggregate cross-signing trust snapshot from the SDK. All
-    // fields are non-secret metadata; the UI must derive its "Verified"
-    // label from deviceCrossSigned, not from generic own-device trust.
-    // v0.6.0 checkpoint 7: sanitized E2EE health snapshot (booleans, enum
-    // names, public device id only).
+    // Sanitized E2EE health snapshot (booleans, enum names, public device id
+    // only). Any "Verified" label derives from deviceCrossSigned, not generic
+    // own-device trust.
     void cryptoHealthUpdated(const QVariantMap &snapshot);
-    // v0.7: sanitized verified-session bootstrap observer events (state
-    // names + key counts only; never key material or session ids).
-    //
-    // `inconclusive` is how many of a pass taught us NOTHING (unreachable,
-    // rate-limited). It is a fourth parameter because the payload carried it
-    // and this signal did not, so the count was computed, serialised and
-    // dropped here -- the same defect, in this same file, that this round
-    // opened by fixing: a field the Rust lane computes and the bridge forgets
-    // to carry. Zero for every kind that has no such notion.
+    // Sanitized verified-session bootstrap events (state names and key counts
+    // only; never key material or session ids). `inconclusive` counts attempts
+    // that taught nothing (unreachable, rate-limited); zero for kinds without
+    // that notion.
     void cryptoBootstrapEvent(const QString &kind, const QString &state,
                               quint64 count, quint64 inconclusive);
-    // v0.6.0 checkpoint 9: entries carry deviceId, displayName, lastSeenTs,
-    // lastSeenIp, isCurrent, hasCryptoIdentity, verified, crossSigned.
+    // Entries carry deviceId, displayName, lastSeenTs, lastSeenIp, isCurrent,
+    // hasCryptoIdentity, verified, crossSigned.
     void deviceListUpdated(bool ok, const QVariantList &devices);
-    // `deviceCrossSigned` is `is_cross_signed_by_owner()` and IS the flag
-    // the current session's trust label uses. Do NOT add
-    // `Device::is_verified()` here for that purpose: matrix-sdk marks our own
-    // device locally trusted at creation, so it is a constant true for the
-    // one device this signal describes. A round that added it had to be
-    // undone.
+    // `deviceCrossSigned` is `is_cross_signed_by_owner()` and is what the
+    // current session's trust label uses. Do not use `Device::is_verified()`
+    // for that: matrix-sdk marks our own device locally trusted at creation, so
+    // it is always true here.
     void ownDeviceStatusUpdated(const QString &deviceId,
                                 bool ownIdentityAvailable,
                                 bool ownIdentityVerified,
@@ -813,18 +747,16 @@ Q_SIGNALS:
                                 bool hasMasterKey,
                                 bool hasSelfSigningKey,
                                 bool hasUserSigningKey);
-    // B006/B011 tri-state, deliberately NOT folded into the signal above:
-    // that one reports verification trust, this one reports a device that
-    // can never decrypt anything.
+    // Kept separate from the verification signal above: this reports a device
+    // that can never decrypt anything.
     //   established == false          -> could not be answered (offline,
-    //                                    keys not uploaded yet). NOT a fault.
+    //                                    keys not uploaded yet). Not a fault.
     //   established && !matchesServer -> the fault.
-    // Two booleans rather than one because "unknown" must be impossible to
-    // misread as "broken".
+    // Two booleans so "unknown" cannot be misread as "broken".
     void ownDeviceIdentityKeyChecked(bool established, bool matchesServer);
 
-    // v0.5.6. Encrypted room-key import lifecycle. Aggregate counts and
-    // affected room IDs only; the decrypted export never leaves Rust.
+    // Encrypted room-key import lifecycle. Aggregate counts and affected room
+    // ids only; the decrypted export never leaves Rust.
     void roomKeyImportStarted();
     void roomKeyImportProgress(int imported, int total);
     void roomKeyImportDone(int imported,
@@ -833,28 +765,23 @@ Q_SIGNALS:
                            const QStringList &roomIds);
     void roomKeyImportFailed(const QString &category, const QString &message);
 
-    // v0.5.7. Emitted after a room-key import triggered an immediate
-    // decryption retry on the open SDK timeline. Counts only — imported
-    // session identifiers stay inside Rust.
+    // A room-key import triggered an immediate decryption retry on the open
+    // timeline. Counts only; session ids stay in Rust.
     void roomKeysApplied(const QString &roomId, int sessionCount);
 
     // Structured lifecycle state consumed by AppController/QML.
     //
-    // `userId`/`homeserver` identify the account whose local session actually
-    // failed to open, which is NOT always the one the settings currently
-    // point at (an add-account attempt fails while settings still describe
-    // the previously active account). Carrying the identity is what lets the
-    // UI repair the right account without asking the user to retype their
-    // Matrix ID. Either may be empty when the failure is precisely that no
-    // usable identity could be resolved.
+    // `userId`/`homeserver` identify the account whose session failed to open,
+    // which may differ from the one settings point at (e.g. a failed
+    // add-account attempt), so the UI can repair the right account. Either may
+    // be empty when no usable identity could be resolved.
     void localSessionResetRequired(const QString &reasonCode,
                                    const QString &userId,
                                    const QString &homeserver);
-    // A local session could not be opened, but deleting local data is NOT the
-    // remedy — a missing store, a revoked access token, contestable store
-    // ownership. Same payload as above; kept separate so the destructive
-    // recovery UI is never armed for a condition it cannot fix. The accurate
-    // explanation reaches the user through loginFailed().
+    // A local session could not be opened, but deleting local data is not the
+    // remedy (missing store, revoked token, contested ownership). Separate so
+    // the destructive recovery UI is never armed for a condition it cannot fix.
+    // The explanation reaches the user through loginFailed().
     void localSessionBlocked(const QString &reasonCode,
                              const QString &userId,
                              const QString &homeserver);
@@ -873,16 +800,14 @@ private:
 
     /// A feature this backend genuinely does not have (sendImage, sendFile).
     void refuseSend(const char *op);
-    /// The room has no live SDK timeline yet, which is transient. Eleven of
-    /// this file's thirteen refusals are this and used to claim the feature
-    /// was unimplemented; see the implementation.
+    /// The room has no live SDK timeline yet, which is transient.
     void refuseUntilTimelineReady(const char *op);
     void setState(ConnectionState state);
     void setInitialSyncDone(bool done);
     void clearLocalState();
     void ensurePollTimer();
     bool ensureRustHandleForUser(const QString &userIdForStore);
-    // Preferred entry point: opens the account's RECORDED store directory.
+    // Preferred entry point: opens the account's recorded store directory.
     bool ensureRustHandleForIdentity(
         const matrix::app_data::AccountIdentity &identity);
     bool ensureRustHandleForStorePath(const QString &storePath,
@@ -890,22 +815,18 @@ private:
     void releaseRustHandle();
 
 
-    // Phase A: a handle with NO persistent store, used only to discover a
-    // server's auth methods and to run the browser sign-in.
-    //
-    // It is deliberately SEPARATE from m_rustHandle rather than replacing it.
-    // Discovery runs as soon as a homeserver is entered, and adding a second
-    // account must not tear down the signed-in account's live session just
-    // because the user typed a URL. It also has no store, so it has no
-    // generation to protect — the guard that matters is m_oauthInFlight.
+    // Phase A: a handle with no persistent store, used only for auth discovery
+    // and the browser sign-in. Separate from m_rustHandle so typing a
+    // homeserver while adding an account does not tear down the signed-in
+    // session. It has no store and so no generation; m_oauthInFlight is the
+    // guard.
     bool ensureOAuthBootstrapHandle();
     void releaseAuthHandle();
-    // Drains the bootstrap handle's event queue. Runs on the same poll timer
-    // as the session queue but independently of it, because during a sign-in
-    // there may be no session handle at all.
+    // Drains the bootstrap handle's queue on the same poll timer but
+    // independently, since a sign-in may have no session handle at all.
     void drainAuthEvents();
-    // Phase B: the homeserver has answered with the canonical identity, so the
-    // real account store can finally be chosen, gated and opened.
+    // Phase B: the homeserver has named the canonical identity, so the account
+    // store can be chosen, gated and opened.
     void completeOAuthLogin(const QString &userId,
                             const QString &deviceId,
                             const QString &clientId,
@@ -922,18 +843,13 @@ private:
                           const QString &refreshToken);
     void endSsoAttempt();
 
-    // PHASE B, shared by both browser flows.
+    // Phase B, shared by both browser flows. Holds the store-ownership gate (a
+    // device the server just issued must never adopt a store belonging to a
+    // different device); shared so a fix cannot land on one flow only.
     //
-    // This is where the store-ownership gate lives — "a device the server just
-    // issued must never adopt a store belonging to a different device" — and
-    // it is shared precisely BECAUSE it is the security-critical step. Two
-    // copies would let a future fix land on one flow and not the other.
-    //
-    // `authType` is the persisted routing discriminator ("oauth" or "sso"),
-    // and `clientId` is the dynamic-registration id for OAuth and empty for
-    // SSO. `restore` performs the SDK-specific session restore once the store
-    // is open: oauth().restore_session() for OAuth, the ordinary matrix_auth()
-    // path for SSO, which is what an SSO session actually is.
+    // `authType` is the persisted routing discriminator ("oauth" or "sso");
+    // `clientId` is the OAuth dynamic-registration id, empty for SSO. `restore`
+    // performs the SDK-specific restore once the store is open.
     void adoptBrowserSession(
         const QString &homeserver,
         const QString &userId,
@@ -948,46 +864,34 @@ private:
     // Phase A handle. Never carries a session and never syncs.
     void *m_authHandle = nullptr;
     class OAuthCallbackServer *m_oauthCallback = nullptr;
-    // The homeserver this OAuth attempt targets. Held for phase B, which must
-    // derive the account identity from the SERVER's answer plus this URL.
+    // The homeserver this OAuth attempt targets; phase B derives the identity
+    // from the server's answer plus this URL.
     QString m_oauthHomeserver;
     // True between beginOAuthLogin() and a terminal outcome. Guards against a
-    // second attempt racing the first and against a late callback completing
-    // a cancelled sign-in.
+    // second attempt racing the first and a late callback completing a
+    // cancelled sign-in.
     bool m_oauthInFlight = false;
     class OAuthCallbackServer *m_ssoCallback = nullptr;
     QString m_ssoHomeserver;
-    // Same guard as m_oauthInFlight, for the SSO flow. Separate rather than
-    // shared so a stale callback from one flow can never complete the other.
+    // Same guard for SSO, kept separate so a stale callback from one flow can
+    // never complete the other.
     bool m_ssoInFlight = false;
     QString rustStorePathForUser(const QString &userIdForStore) const;
     void pollRustEvents();
     void handleRustEvent(const QJsonObject &event, quint64 eventGeneration);
 
-    /// Feed ONE event through the dispatcher `pollRustEvents` uses, at the
-    /// live generation.
+    /// Feed one event through the dispatcher `pollRustEvents` uses, at the live
+    /// generation, so tests can drive the real handler with real payloads
+    /// without a live FFI handle.
     ///
-    /// The connection-state rules are otherwise reachable only by owning a
-    /// real account whose homeserver is down: `setState` is private, the
-    /// offline-restore override is set by a Rust event, and the two things
-    /// that would overwrite it (startSync, and the sync lane's own "starting")
-    /// both need a live FFI handle. This drives the REAL dispatcher with the
-    /// REAL payloads, which is the closest a test can get without one.
-    ///
-    /// PRIVATE, WITH ONE FRIEND, unlike the plain `…ForTest` setters
-    /// elsewhere in this tree. Those set one field; this dispatches an
-    /// ARBITRARY payload through the real handler, which can reach
-    /// `saveSession` and `updateSessionTokens`, and it will begin a lifecycle
-    /// generation on a client that has none — including one mid-shutdown,
-    /// where resurrecting a generation would be exactly wrong. Nothing in
-    /// `src/` calls it and QML cannot (not a slot, not Q_INVOKABLE), so the
-    /// friend is narrowing an API surface rather than closing a hole.
+    /// Private with one friend rather than a plain `…ForTest` setter: it
+    /// dispatches arbitrary payloads that can reach `saveSession` and
+    /// `updateSessionTokens`, and begins a lifecycle generation even on a
+    /// client mid-shutdown. Nothing in src/ calls it and QML cannot.
     void handleRustEventForTest(const QJsonObject &event)
     {
-        // A session first, or the generation gate drops everything: the guard
-        // starts at 0 and `acceptsActive(0)` is false by construction, so a
-        // client that has never logged in silently ignores every event. One
-        // per test object, exactly as a real login does.
+        // Start a session first or the generation gate drops everything
+        // (`acceptsActive(0)` is false).
         if (!m_lifecycle.acceptsActive(m_lifecycle.activeGeneration()))
             m_lifecycle.beginSession();
         handleRustEvent(event, m_lifecycle.activeGeneration());
@@ -1001,26 +905,22 @@ private:
                                bool *matchedRecord = nullptr);
     void requireLocalReset(const QString &reasonCode,
                            const matrix::app_data::AccountIdentity &identity);
-    // Report a blocked open with its own accurate message instead of the one
-    // "belongs to a different session or device" string every condition used
-    // to share.
+    // Report a blocked open with its own accurate message.
     void failWithBlockReason(matrix::rust_session::StoreBlockReason reason,
                              const matrix::app_data::AccountIdentity &identity);
-    // Adopt a store an older build wrote under the TYPED localpart casing so
-    // a saved account can be restored instead of dead-ending on a store that
-    // was never at the canonical path. Adoption RECORDS the directory and
-    // rebinds `identity` to it — nothing on disk is moved or deleted, and the
-    // SDK's own account-ownership check remains the authority on whether the
-    // adoption was correct. Refuses whenever ownership is contestable.
+    // Adopt a store an older build wrote under the typed localpart casing.
+    // Adoption records the directory and rebinds `identity`; nothing on disk is
+    // moved or deleted, and the SDK's ownership check remains authoritative.
+    // Refuses whenever ownership is contested.
     bool adoptDivergentStoreIfUnambiguous(
         matrix::app_data::AccountIdentity *identity,
         matrix::rust_session::StoreBlockReason *refusal);
-    // Persist where this session's store really is, taken from the directory
-    // that was actually opened rather than re-derived from the user id.
+    // Persist where this session's store really is, from the directory actually
+    // opened.
     void recordStoreLocation(const matrix::app_data::AccountIdentity &identity);
-    // The index base: `room_list_reset` (and the legacy `rooms` envelope),
-    // which is the ONLY producer allowed to define what m_roomOrder's
-    // indices mean. See matrix::rust_rooms.
+    // The index base: `room_list_reset` (and the legacy `rooms` envelope), the
+    // only producer allowed to define m_roomOrder's indices. See
+    // matrix::rust_rooms.
     void handleRoomsEvent(const QJsonArray &rooms);
     // `room_snapshot`: the SDK state-store walk. Updates m_rooms; never
     // touches m_roomOrder.
@@ -1029,20 +929,18 @@ private:
     void handleSpacesEvent(const QJsonArray &spaces);
     RoomInfo roomInfoFromJson(const QJsonObject &obj) const;
     void handleTimelineEvent(const QJsonObject &event);
-    // v0.5.7 live-timeline event handlers.
+    // Live-timeline event handlers.
     void handleTimelineReset(const QJsonObject &event);
     void handleTimelineDiff(const QJsonObject &event);
-    /// Report and reset the stale-diff run, if there is one.
-    ///
-    /// A superseded generation keeps delivering until its subscription stops,
-    /// so the run is a whole timeline's worth of diffs. One line per diff is
-    /// O(timeline) for a guard that is working correctly.
+    /// Report and reset the stale-diff run, if any. A superseded generation
+    /// keeps delivering until its subscription stops, so this is counted, not
+    /// logged per diff.
     void reportStaleTimelineDiffs();
     void handleTimelinePagination(const QJsonObject &event);
     void flushTimelineInsertBatch();
     void clearTimelineInsertBatch();
-    // v0.6.0: thread-timeline event handlers (same envelopes as the room
-    // handlers, addressed by the composite thread timeline id).
+    // Thread-timeline handlers (same envelopes, addressed by the composite
+    // thread timeline id).
     void handleThreadReset(const QJsonObject &event);
     void handleThreadDiff(const QJsonObject &event);
     void handleThreadPagination(const QJsonObject &event);
@@ -1050,18 +948,11 @@ private:
     void handleThreadClosed(const QJsonObject &event);
     bool threadTimelineActiveFor(const QString &timelineId) const;
     void clearThreadTimelineState();
-    /// Retire the C++ event mirror of a room whose live SDK timeline is gone.
-    ///
-    /// The room analogue of clearThreadTimelineState(): the thread mirrors are
-    /// removed outright when their timeline closes, and until 2026-09-10 the
-    /// ROOM mirrors were not removed at all. Reduces the mirror back to
-    /// matrix::rust_timeline::kBackgroundMirrorCap — which is the bound a
-    /// never-opened room's mirror already lives under, and the whole reason
-    /// that bound exists (RustTimelineMirror.h) — and drops the pagination
-    /// state, which every open re-creates.
-    ///
-    /// A no-op for the room the tracker currently wants, so a re-open of the
-    /// SAME room keeps its rows until its own reset replaces them.
+    /// Retire the C++ mirror of a room whose live SDK timeline is gone (the
+    /// room analogue of clearThreadTimelineState()). Trims it back to
+    /// kBackgroundMirrorCap, the bound unopened rooms live under, and drops the
+    /// pagination state. A no-op for the room the tracker currently wants, so a
+    /// re-open keeps its rows until its reset replaces them.
     void retireRoomTimelineMirror(const QString &roomId);
     void handleThreadListReset(const QJsonObject &event);
     void handleThreadSubscriptionEvent(const QString &type,
@@ -1076,11 +967,10 @@ private:
     quint64 moderateUser(const QString &roomId, const QString &userId,
                          const QString &reason, int op);
 
-    // v0.5.9: new-command plumbing. nextOpId() never returns 0 (0 means
-    // "unsupported" at the interface level).
+    // nextOpId() never returns 0 (0 means "unsupported" at the interface).
     // Media-capable SDP store (see MatrixClient::setCallMediaCapable and
-    // calls::SdpStore): populated ONLY while media-capable mode is on,
-    // wiped with the session.
+    // calls::SdpStore): populated only in media-capable mode, wiped with the
+    // session.
     calls::SdpStore m_callSdpStore;
     bool m_callMediaCapable = false;
 
@@ -1118,15 +1008,12 @@ private:
     QString m_userId;
     QString m_deviceId;
     bool m_loggedIn = false;
-    // This session was opened from the local store because the homeserver
-    // could not be reached (see `session_restored_offline` in Rust). Used to
-    // start the connection state at Offline rather than claiming to connect
-    // to a server that did not answer. Cleared wherever a session ends, with
-    // the rest of the per-session state.
+    // Opened from the local store because the homeserver was unreachable (see
+    // `session_restored_offline` in Rust); the connection state starts at
+    // Offline. Cleared wherever a session ends.
     bool m_restoredOffline = false;
-    // B006/B011. Latched so the 15-minute backstop logs the fault once
-    // per transition rather than once per check; cleared when a later
-    // check reports agreement.
+    // Latched so the periodic backstop logs the fault once per transition;
+    // cleared when a later check agrees.
     bool m_ownIdentityKeyMismatchLogged = false;
     ConnectionState m_state = Disconnected;
     bool m_initialSyncDone = false;
@@ -1135,84 +1022,75 @@ private:
     matrix::app_data::AccountIdentity m_signOutIdentity;
     QString m_signOutDeviceId;
     QTimer m_pollTimer;
-    // Every room this session knows, by id — INCLUDING Spaces and, on the
-    // classic-sync fallback, rooms no index space names.
+    // Every room this session knows, including Spaces and, on classic sync,
+    // rooms no index space names.
     QHash<QString, RoomInfo> m_rooms;
-    // The SDK room list's index space, one entry for one entry, because every
-    // room-list diff addresses it BY INDEX. Only `room_list_*` diffs and
-    // `room_list_reset` — the producer that owns those indices — may write
-    // it; a `room_snapshot` never does. See matrix::rust_rooms.
+    // The SDK room list's index space, one-for-one, because room-list diffs
+    // address it by index. Only `room_list_*` diffs and `room_list_reset` may
+    // write it; never `room_snapshot`. See matrix::rust_rooms.
     QStringList m_roomOrder;
     QString m_syncMode = QStringLiteral("stopped");
     QString m_lastSyncState;
     QHash<QString, QString> m_lastReceiptSent;
-    // Held here as well as on the bridge so it survives a login: the setting
-    // is read at startup, before any bridge exists to hold it.
+    // Kept here too so it survives a login: the setting is read at startup,
+    // before any bridge exists.
     int m_readReceiptPrivacy = 0;
     QString m_typingRoom;
     QHash<QString, QList<TimelineEvent>> m_timelines;
-    // One Rust poll normally contains a whole backward-pagination page, but
-    // matrix-sdk-ui describes it as many one-item inserts after the leading
-    // timeline-start sentinel. Keep the mirror exact for every diff while
-    // publishing one contiguous Qt model transaction at the drain boundary.
+    // A backward-pagination page arrives as many one-item inserts after the
+    // timeline-start sentinel. Keep the mirror exact per diff but publish one
+    // contiguous model transaction at the drain boundary.
     bool m_coalesceTimelineInserts = false;
     QString m_timelineInsertBatchRoom;
     quint64 m_timelineInsertBatchGeneration = 0;
     int m_timelineInsertBatchFirst = -1;
     int m_timelineInsertBatchCount = 0;
-    // `set` diffs are commonly interleaved with the insert diffs that build a
-    // pagination page. Updates to rows inside the new range are already folded
-    // into the final range payload; updates to existing rows are published
-    // after the atomic insertion, resolved by stable identity because their
-    // numeric indices move while the page is assembled.
+    // `set` diffs interleave with the inserts building a page. Updates inside
+    // the new range fold into its payload; updates to existing rows are
+    // published after the insertion, resolved by stable id since indices move.
     QStringList m_timelineInsertBatchChangedIds;
     QHash<QString, PendingSend> m_pendingSends;
     QHash<QString, PendingProbe> m_pendingProbes;
     quint64 m_txnCounter = 0;
 
-    // v0.5.7 live SDK timeline state. The tracker adopts the Rust room
-    // generation from timeline_reset and rejects stale diffs; pagination
-    // state is per room and reset on every (re)open.
+    // Live SDK timeline state. The tracker adopts the Rust room generation from
+    // timeline_reset and rejects stale diffs; pagination state is per room and
+    // reset on every (re)open.
     struct PaginationState {
         bool loading = false;
         bool reachedStart = false;
         bool failed = false;
         bool failureTransient = false;
-        // ADAPTIVE PAGE SIZE FOR A FULLY FILTERED RUN. See loadOlderMessages
-        // and the `timeline_pagination` idle branch: a page in which the
-        // timeline filter dropped EVERY event it was offered costs a round
-        // trip and produces no row, so the next one asks for more. Reset to
-        // the default the moment a page yields anything.
-        unsigned short batchSize = 0;   // 0 = the default
-        // The last completed page handed the timeline events and every one of
-        // them was filtered out. See lastPaginationFullyFiltered.
+        // Adaptive page size: after a page whose events were all filtered out,
+        // ask for more; back to the default as soon as a page yields a row. See
+        // loadOlderMessages.
+        unsigned short batchSize = 0; // 0 = the default
+        // The last completed page's events were all filtered out. See
+        // lastPaginationFullyFiltered.
         bool lastFullyFiltered = false;
-        // Cumulative filter totals as of this room's last completed page, so
-        // the next one can be compared against them.
+        // Cumulative filter totals as of this room's last page, for comparison.
         quint64 lastFilterOffered = 0;
         quint64 lastFilterDropped = 0;
     };
     matrix::rust_timeline::TimelineGenerationTracker m_timelineTracker;
-    /// The superseded generation currently being counted, and how many of its
-    /// diffs have been dropped. Reported once, by the first diff the new
-    /// generation accepts.
+    /// The superseded generation being counted and its dropped diffs; reported
+    /// once by the first diff the new generation accepts.
     quint64 m_staleDiffGeneration = 0;
     int m_staleDiffCount = 0;
-    // v0.6.0: same tracker type for the single open thread timeline, keyed
-    // by the composite thread timeline id and stamped with Rust's
-    // thread_generation.
+    // Same tracker for the single open thread timeline, keyed by composite id
+    // and stamped with Rust's thread_generation.
     matrix::rust_timeline::TimelineGenerationTracker m_threadTracker;
     QHash<QString, PaginationState> m_pagination;
-    // v0.6.0 checkpoint 5: the room whose Threads view is open, plus the
-    // adopted Rust thread-list generation (stale snapshots are rejected).
+    // The room whose Threads view is open, plus the adopted thread-list
+    // generation (stale snapshots are rejected).
     QString m_threadListRoom;
     quint64 m_threadListGeneration = 0;
-    // v0.6.0 checkpoint 8: bound manual decryption retries (one dispatch per
-    // room per short window — a double-click never doubles the SDK work).
+    // Bounds manual decryption retries to one dispatch per room per short
+    // window.
     QHash<QString, qint64> m_lastDecryptionRetryMs;
 
-    // v0.5.9: operation-id counter for room-management/media commands and
-    // the cached server upload limit (0 until the first upload_limit event).
+    // Op-id counter for room-management/media commands, and the cached upload
+    // limit (0 until the first upload_limit event).
     quint64 m_opCounter = 0;
     qint64 m_maxUploadSize = 0;
     bool m_uploadLimitRequested = false;

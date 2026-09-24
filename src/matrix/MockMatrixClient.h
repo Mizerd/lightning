@@ -10,9 +10,8 @@
 
 class SettingsManager;
 
-// Deterministic in-memory backend used by the `--mock` CLI flag. Emits
-// signals via QTimer::singleShot for realism where async matters. Zero
-// network activity.
+// Deterministic in-memory backend for `--mock`. Emits via
+// QTimer::singleShot where async matters. No network activity.
 class MockMatrixClient : public MatrixClient
 {
     Q_OBJECT
@@ -26,25 +25,21 @@ public:
     bool restoreSession() override;
     bool detachSession() override;
 
-    // v0.7: lets the mock restore/switch sessions from the persisted
-    // account registry so account-switch lifecycle tests can run offline.
+    // Lets the mock restore/switch sessions from the persisted account registry
+    // so account-switch tests run offline.
     void setSettings(SettingsManager *settings) { m_settings = settings; }
 
-    // Development-only screenshot/demo dataset. When enabled, rooms()/timeline()
-    // serve a richer, fully deterministic scene (fictional people, Spaces,
-    // polished conversations, a poll, media placeholders, fixed timestamps)
-    // instead of the compact shared test fixtures. Enabled ONLY by
-    // AppController::beginScreenshotDemo (never by tests), so the fixtures the
-    // mock tests assert on are unchanged. No network; no real stores.
+    // Development-only screenshot dataset: a richer, deterministic scene
+    // (fictional people, Spaces, a poll, media placeholders, fixed timestamps)
+    // instead of the shared test fixtures. Enabled only by
+    // AppController::beginScreenshotDemo, never by tests.
     void setScreenshotDemoMode(bool on);
     bool screenshotDemoMode() const { return m_screenshotDemoMode; }
 
-    // Development-only screenshot-demo multi-account support. Three fictional
-    // accounts (Alex / Taylor / Nova) each own a full, deterministic
-    // room/timeline scene. The active account's scene is the live working copy
-    // (m_rooms/m_timelines); switching snapshots it back and loads the target,
-    // so each account's local mutations (sends, reactions, votes, read/unread)
-    // survive a round trip. Everything is in-memory; no store, no network.
+    // Screenshot-demo accounts (Alex / Taylor / Nova), each with a full
+    // deterministic scene. The active scene is the live working copy; switching
+    // snapshots it back so each account's local mutations survive a round trip.
+    // In-memory only.
     QStringList demoAccountUserIds() const { return m_demoAccountOrder; }
     QString demoDefaultRoom(const QString &userId) const;
     // Swap the live dataset to `userId`'s scene. Called by login/restoreSession
@@ -60,20 +55,16 @@ public:
     // The first thread-root event id in a room (for scenario "open thread"),
     // or empty if the room has no thread.
     QString demoThreadRoot(const QString &roomId) const;
-    // Panel toggles: globally suppress the seeded typing indicators, and hide
-    // all room-list unread badges. Read-time filters (no data mutation), so they
-    // are fully reversible. Emit the relevant change signals.
+    // Panel toggles: suppress seeded typing indicators and hide room-list
+    // unread badges. Read-time filters, so fully reversible.
     void setDemoTypingSuppressed(bool suppressed);
     void setDemoUnreadHidden(bool hidden);
     bool demoTypingSuppressed() const { return m_demoTypingSuppressed; }
     bool demoUnreadHidden() const { return m_demoHideUnread; }
 
-    // Development-only local interactions on the demo scene. Each mutates the
-    // in-memory working set and emits the change signal the real UI listens to,
-    // so poll voting, invite accept/reject and mark-unread all work locally;
-    // resetDemoData/resetDemoAccount restore the deterministic state. All are
-    // gated on demo mode, so the shared mock fixtures (and every other backend)
-    // are unchanged.
+    // Development-only local interactions on the demo scene (poll voting,
+    // invite accept/reject, mark unread). Each mutates the working set and
+    // emits the signal the UI listens to. Gated on demo mode.
     bool supportsPolls() const override { return m_screenshotDemoMode; }
     void sendPollResponse(const QString &roomId, const QString &threadRootId,
                           const QString &pollStartEventId,
@@ -81,9 +72,8 @@ public:
     void acceptInvite(const QString &roomId) override;
     void rejectInvite(const QString &roomId) override;
     void setRoomMarkedUnread(const QString &roomId, bool unread) override;
-    // The mock has no server to disagree with, so unlike the HTTP backend it
-    // DOES offer favourites: the flag is the fixture's own state, which is
-    // what makes the Favourites section reachable in a QML/demo run.
+    // Unlike the HTTP backend the mock offers favourites (the fixture's own
+    // state), which makes the Favourites section reachable in QML/demo runs.
     bool supportsRoomFavourites() const override { return true; }
     void setRoomFavourite(const QString &roomId, bool favourite) override;
     bool isLoggedIn() const override { return m_loggedIn; }
@@ -105,12 +95,9 @@ public:
     QUrl mediaThumbnailUrl(const QString &mxcUrl,
                            int width, int height, bool crop) const override;
 
-    // Development-only screenshot-demo media bridge. When the demo scene is
-    // active the mock serves bundled local fixtures through the SAME
-    // MediaBridge → MediaImageProvider path the Rust backend uses, so image /
-    // video-poster / GIF rows and avatars render as real pictures (no network,
-    // no mxc fetch, no token). Off outside demo mode, so the shared mock
-    // fixtures and every other backend behaviour are unchanged.
+    // Screenshot-demo media bridge: bundled fixtures served through the same
+    // MediaBridge -> MediaImageProvider path as the Rust backend, so demo
+    // images, posters, GIFs and avatars render. Off outside demo mode.
     bool supportsMediaBridge() const override
     { return m_screenshotDemoMode || m_mediaBridgeSupportedForTest; }
     quint64 fetchMedia(const QString &mediaKey, int kind,
@@ -124,8 +111,8 @@ public:
     void sendThreadReply(const QString &roomId,
                          const QString &threadRootEventId,
                          const QString &body) override;
-    // v0.7 outgoing @-mentions: record the ids (and expanded body) for tests,
-    // then forward to the existing non-mention behaviour.
+    // Outgoing @-mentions: record the ids and expanded body for tests, then
+    // forward to the non-mention path.
     void sendTextMessage(const QString &roomId, const QString &body,
                          const QStringList &mentionUserIds) override;
     void sendReply(const QString &roomId, const QString &replyToEventId,
@@ -139,9 +126,9 @@ public:
     quint64 requestRoomMembers(const QString &roomId) override;
     QString lastSentBodyForTest() const { return m_lastSentBody; }
     QStringList lastMentionIdsForTest() const { return m_lastMentionIds; }
-    // v0.6.0: mock thread timelines so ThreadController and the thread UI
-    // are testable without a homeserver. Mirrors the composite timeline-id
-    // contract of the Rust backend (root first, replies in room order).
+    // Mock thread timelines so ThreadController and the thread UI are testable
+    // offline. Follows the Rust backend's composite-id contract (root first,
+    // replies in room order).
     bool supportsThreadTimelines() const override { return true; }
     void openThread(const QString &roomId, const QString &rootEventId) override;
     void closeThread() override;
@@ -154,8 +141,7 @@ public:
                            const QString &inReplyToEventId,
                            const QString &body,
                            const QStringList &mentionUserIds) override;
-    // v0.6.1: thread attachment sending — mirrors the SDK thread path so
-    // ThreadController's attachment queue is testable without a homeserver.
+    // Thread attachment sending, mirroring the SDK thread path.
     bool supportsAttachmentSend() const override { return true; }
     quint64 sendThreadAttachment(const QString &roomId,
                                  const QString &rootEventId,
@@ -169,10 +155,10 @@ public:
                                       const QString &mime, int width,
                                       int height) override;
     int threadAttachmentCallsForTest() const { return m_threadAttachmentCalls; }
-    // Make the NEXT thread attachment send fail (queue rejection) for tests.
+    // Make the next thread attachment send fail (queue rejection).
     void failNextThreadAttachmentForTest() { m_failNextThreadAttachment = true; }
-    // v0.6.0 checkpoint 5: deterministic thread list + follow state. The
-    // subscription map is mock-local (a stand-in for MSC4306 server state).
+    // Deterministic thread list + follow state; the subscription map stands in
+    // for MSC4306 server state.
     bool supportsThreadList() const override { return true; }
     void openThreadList(const QString &roomId) override;
     void closeThreadList() override;
@@ -221,20 +207,18 @@ public:
     bool paginationFailureTransient(const QString &roomId) const override
     { return m_transientPaginationFailures.contains(roomId); }
 
-    // Deterministic runtime-QML coverage for the Retry presentation. This
-    // backend is test/demo-only and never performs network I/O.
+    // Deterministic coverage for the Retry presentation.
     void failNextPaginationForTest(bool transient = false)
     { m_failNextPagination = true; m_nextPaginationFailureTransient = transient; }
 
-    // v0.7 timeline-hydration test hooks — the mock mirror of the Rust SDK
-    // diff surface so the QML gate/anchor tests can stage the exact live
-    // sequence (small snapshot → async fill batches → in-place Set updates)
-    // deterministically. Test/demo-only; no network I/O.
+    // Timeline-hydration test hooks mirroring the Rust diff surface, so QML
+    // tests can stage the live sequence (small snapshot, async fill batches,
+    // in-place Sets) deterministically.
     void resetTimelineForTest(const QString &roomId,
                               const QList<TimelineEvent> &events,
                               int paginationPages);
-    // 2026-08-18 round 2: drive the wired call stack (AppController →
-    // CallController → NotificationManager) from integration tests.
+    // Drive the wired call stack (AppController -> CallController ->
+    // NotificationManager) from integration tests.
     void emitCallSignalForTest(const CallSignal &signal)
     {
         Q_EMIT callSignalReceived(signal);
@@ -245,31 +229,21 @@ public:
     void setPaginationDelayForTest(int ms) { m_paginationDelayMs = ms; }
     void setPaginationChunkForTest(const QList<TimelineEvent> &chunk)
     { m_paginationChunkOverride = chunk; }
-    /// Serve the next `pages` back-paginations as FULLY FILTERED pages: the
-    /// backend walks its cursor and hands the timeline nothing, without
-    /// reaching the start of history.
-    ///
-    /// This is the single most consequential pagination shape this project
-    /// has — a room whose recent history is MatrixRTC membership churn, every
-    /// event of which `lightning_event_filter` drops (§16) — and until
-    /// 2026-09-16 the mock could not express it at all: an empty chunk
-    /// override falls through to the default three synthetic events, so every
-    /// mock page always added rows. A defect that only appears on pages that
-    /// add NOTHING therefore had no reachable fixture at the QML layer, which
-    /// is why it shipped twice.
+    /// Serve the next `pages` back-paginations as fully filtered pages: the
+    /// cursor advances, the timeline gets nothing, and the start is not
+    /// reached. This is the shape of a room whose recent history is MatrixRTC
+    /// membership churn, which `lightning_event_filter` drops; without it the
+    /// mock could only produce pages that add rows.
     void setFilteredPaginationPagesForTest(int pages)
     { m_filteredPaginationPages = pages; }
-    // v0.7 startup-lifecycle hooks: hold the restoration state open long
-    // enough to assert on it, or reject the next restore like an expired
-    // session would.
+    // Startup-lifecycle hooks: hold restoration open long enough to assert on
+    // it, or reject the next restore like an expired session.
     void setRestoreDelayForTest(int ms) { m_restoreDelayMs = ms; }
     void failNextRestoreForTest() { m_failNextRestore = true; }
 
-    // Read-receipt-chip avatar hooks (2026-08 live bug): serve avatar bytes
-    // through the REAL MediaBridge → MediaImageProvider path without the
-    // demo scene, and hydrate one room member exactly like the Rust
-    // backend's room_members merge does (merge into the member cache, then
-    // membersChanged). Test-only; no network I/O.
+    // Read-receipt avatar hooks: serve avatar bytes through the real
+    // MediaBridge -> MediaImageProvider path without the demo scene, and
+    // hydrate one member the way the Rust room_members merge does.
     void setSupportsMediaBridgeForTest(bool on)
     { m_mediaBridgeSupportedForTest = on; }
     void setAvatarBytesForTest(const QString &mxc, const QByteArray &bytes,
@@ -317,7 +291,7 @@ private:
     void ackAfter(int ms, const QString &roomId, const QString &eventId);
 
     SettingsManager *m_settings = nullptr; // not owned; may stay null
-    QString m_lastSentBody;                 // v0.7 mention-test recording
+    QString m_lastSentBody;                 // mention-test recording
     QStringList m_lastMentionIds;
     bool m_loggedIn = false;
     ConnectionState m_state = Disconnected;
@@ -334,11 +308,11 @@ private:
     bool m_nextPaginationFailureTransient = false;
     int m_paginationDelayMs = 300;
     QList<TimelineEvent> m_paginationChunkOverride;
-    /// Remaining pages to serve fully filtered. See
+    /// Remaining pages to serve fully filtered; see
     /// setFilteredPaginationPagesForTest.
     int m_filteredPaginationPages = 0;
-    /// Whether the page that just completed was one of them, so
-    /// lastPaginationFullyFiltered() answers the way the Rust backend does.
+    /// Whether the last completed page was one of them, answering
+    /// lastPaginationFullyFiltered() like the Rust backend.
     QSet<QString> m_lastPaginationFiltered;
     int m_restoreDelayMs = 0;
     bool m_failNextRestore = false;
@@ -354,17 +328,16 @@ private:
     quint64 m_eventCounter = 0;
     quint64 m_txnCounter = 0;
 
-    // v0.6.0: the single open mock thread timeline (composite id), rebuilt
-    // from the room timeline on open and kept in sync by sendThreadReply.
+    // The single open mock thread timeline (composite id), rebuilt from the
+    // room timeline on open and kept in sync by sendThreadReply.
     QString m_openThreadTimelineId;
     void rebuildOpenThreadTimeline();
-    // v0.6.0 checkpoint 5.
     QString m_openThreadListRoom;
     QHash<QString, bool> m_threadSubscriptions; // roomId+"\x1f"+rootId → followed
     int m_markThreadReadCalls = 0;
     QStringList m_decryptionRetryRooms;
     void emitThreadList(const QString &roomId);
-    // v0.6.1: thread attachment sending.
+    // Thread attachment sending.
     quint64 m_opCounter = 0;
     int m_threadAttachmentCalls = 0;
     bool m_failNextThreadAttachment = false;
@@ -374,10 +347,9 @@ private:
                                    const QString &mime);
 
 public:
-    // ── v0.7.x Discover / Join, search, UIA, moderation, drafts test
-    // surface. Scriptable knobs are plain public members (existing mock
-    // style); every completion is emitted through QTimer::singleShot so
-    // op ids are stored before answers arrive, like the real backend. ──
+    // ── Discover / Join, search, UIA, moderation, drafts. Knobs are plain
+    // public members; completions go through QTimer::singleShot so op ids are
+    // stored before answers arrive, as with the real backend. ──
     bool supportsRoomDiscovery() const override { return true; }
     quint64 resolveRoomTarget(const QString &input) override;
     quint64 searchPublicRooms(const QString &query, const QString &server,
@@ -390,31 +362,20 @@ public:
     quint64 requestSpaceChildren(const QString &spaceId) override;
     bool supportsMessageSearch() const override { return true; }
 
-    // ── Local search, over the mock's own timelines ──────────────────────
+    // ── Local search over the mock's own timelines ──────────────────────
     //
-    // The real index is SQLite FTS5 in Rust. This is not that, and does not
-    // pretend to be: it is a substring scan over the timelines the mock
-    // already holds, matching the REAL index's observable contract — newest
-    // first, room-scoped or account-wide, a three-character minimum reported
-    // as "too_short" rather than as an empty result, and redactions and
-    // unsent echoes excluded.
-    //
-    // It exists because the contract is what every QML surface binds to, and
-    // a mock that answered "unsupported" would leave the whole find-bar path
-    // — the source strip, the coverage line, the too-short state — reachable
-    // only against a live homeserver. That is precisely the gap that let the
-    // GIF picker's blank Saved tab ship (§16): the surface was only ever
-    // exercised where its model could not answer.
+    // Not the real SQLite FTS5 index: a substring scan that matches its
+    // observable contract (newest first, room-scoped or account-wide, a
+    // three-character minimum reported as "too_short", redactions and unsent
+    // echoes excluded), so the find-bar surfaces are testable without a
+    // homeserver.
     bool supportsLocalSearch() const override { return true; }
 
-    // Widgets. The mock serves whatever `mockWidgets` holds, so the list, the
-    // consent sheet and the REFUSAL rows are all reachable without a
-    // homeserver — a refused widget is the case most worth being able to see,
-    // and it is the one a real room is least likely to contain.
+    // Widgets. Serves whatever `mockWidgets` holds, so the list, consent sheet
+    // and refusal rows are reachable without a homeserver.
     bool supportsWidgets() const override { return true; }
-    // Name colours: enough to exercise the manager's caching and dedup.
-    // `mockNameColors` is what the "server" holds; `nameColorFetches` counts
-    // requests, which is the property the manager is actually about.
+    // Name colours: enough to exercise the manager's caching and dedup;
+    // `nameColorFetches` counts requests.
     bool supportsNameColors() const override { return true; }
     void fetchNameColor(const QString &userId, quint64 opId) override;
     void setNameColor(const QString &value, quint64 opId) override;
@@ -423,20 +384,18 @@ public:
     bool nameColorsSupportedOnServer = true;
     quint64 roomWidgets(const QString &roomId, const QString &theme,
                         const QString &language) override;
-    /// READY PAYLOADS, not raw state: {id, creator, kind, name, url, refusal,
-    /// discloses}. The mock serves what the backend would have ANSWERED rather
-    /// than re-deriving it, because the derivation — templating, the https
-    /// rule, the userinfo rule, the templated-authority rule — is security
-    /// logic that exists once, in Rust, with its own tests. A second copy here
-    /// could pass while the real one failed.
+    /// Ready payloads, not raw state: {id, creator, kind, name, url, refusal,
+    /// discloses}. The derivation (templating, https and authority rules) is
+    /// security logic that lives once, in Rust, with its own tests; a second
+    /// copy here could pass while the real one failed.
     QVariantList mockWidgets;
-    // Pinned messages: off by default so no existing fixture grows a Pinned
-    // tab; a test that needs the room-info strip to overflow turns it on.
+    // Off by default so no fixture grows a Pinned tab; turned on by tests that
+    // need the room-info strip to overflow.
     bool mockSupportsPinnedMessages = false;
     bool supportsPinnedMessages() const override
     { return mockSupportsPinnedMessages; }
-    // Whether the mock says this account may write widget state — true so
-    // tests can exercise add/remove; a test proves the gate by flipping it.
+    // Whether this account may write widget state; tests flip it to prove the
+    // gate.
     bool mockWidgetsCanManage = true;
     // Every widget write the controller asked for: (roomId, widgetId, json).
     QList<std::tuple<QString, QString, QString>> widgetWrites;
@@ -446,15 +405,13 @@ public:
     QString lastWidgetTheme;
     QString lastWidgetLanguage;
 
-    // Bridges (MSC2346). READY PAYLOADS again, for the same reason: the
-    // sanitising and the tombstone rule live once, in Rust, with their own
-    // tests. `bridgeReads` records (roomId, allowNetwork) so a test can prove
-    // the budget rule — that the room LIST never triggers a /state read and
-    // that a room is only asked once per session.
+    // Bridges (MSC2346). Ready payloads again: sanitising lives in Rust.
+    // `bridgeReads` records (roomId, allowNetwork) so tests can prove the room
+    // list never triggers a /state read and a room is asked once per session.
     bool mockSupportsRoomBridges = true;
     bool supportsRoomBridges() const override { return mockSupportsRoomBridges; }
-    /// Per room: the list the "bridge" would have answered with. A room with
-    /// no entry answers an empty list, which is a fact, not an error.
+    /// Per room: the list the bridge would answer. A missing entry answers an
+    /// empty list, which is a fact, not an error.
     QHash<QString, QVariantList> mockRoomBridges;
     QList<std::pair<QString, bool>> bridgeReads;
     quint64 roomBridges(const QString &roomId, bool allowNetwork) override;
@@ -466,9 +423,9 @@ public:
     void forgetIndexedEvent(const QString &eventId) override;
     void forgetIndexedRoom(const QString &roomId) override;
     void clearSearchIndex() override;
-    /// Mirrors localsearch::MIN_QUERY_CHARS. Duplicated deliberately: a
-    /// backend cannot include a Rust constant, and a mock that used a
-    /// different minimum would let a UI pass here and fail in production.
+    /// Mirrors localsearch::MIN_QUERY_CHARS (a Rust constant cannot be
+    /// included); a different minimum would let a UI pass here and fail in
+    /// production.
     static constexpr int kMockMinQueryChars = 3;
     /// Event ids the test has "redacted" from the index.
     QSet<QString> forgottenIndexEvents;
@@ -491,22 +448,17 @@ public:
     quint64 reportMessage(const QString &roomId, const QString &eventId,
                           const QString &reason) override;
 
-    // ── v0.7.4 own profile. The mock stands in for the whole Rust + server
-    // path, so it answers BOTH halves: the write, and the read-back the
-    // account registry caches. Without the read-back the non-Rust tree's
-    // cached display name is permanently empty, which is what made this
-    // surface untestable offline.
+    // ── Own profile. The mock answers both the write and the read-back the
+    // account registry caches, so the surface is testable offline.
     //
-    // The lookup deliberately answers "not_found" for anyone but the own
-    // account and the explicitly seeded rows: a mock backend knows only
-    // the account it is signed in as, and confirming arbitrary user ids
-    // would quietly change what every other mock-backed surface believes
-    // about strangers.
+    // Lookup answers "not_found" for anyone but the own account and seeded
+    // rows: confirming arbitrary user ids would change what other mock-backed
+    // surfaces believe about strangers.
     bool supportsOwnProfileEditing() const override { return true; }
     quint64 fetchUserProfile(const QString &userId) override;
     void setOwnDisplayName(const QString &name, quint64 opId) override;
 
-    // Knobs (read/written by tests directly).
+    // Knobs, read and written by tests directly.
     QVariantMap mockResolveResult;      // empty → ok=false, category invalid
     QVariantList mockPublicRooms;       // rows for one directory page
     QString mockPublicRoomsNextBatch;
@@ -526,19 +478,16 @@ public:
     QStringList lastDeletedDevices;
     QStringList joinedTargets;          // every join target dispatched
 
-    // Profiles by user id. An ABSENT own-account row means "never set",
-    // and the lookup then reports the localpart, the way a fresh account
-    // usually reads. A CLEARED name is stored as an empty QString and
-    // stays empty — otherwise the localpart fallback would silently undo
-    // the clear and make that path untestable.
+    // Profiles by user id. An absent own-account row means "never set" and the
+    // lookup reports the localpart; a cleared name is stored as an empty string
+    // and stays empty.
     QHash<QString, QString> mockDisplayNames;
     QHash<QString, QString> mockAvatarUrls;
-    // Non-empty → every display-name write fails with this as the server's
-    // own message. Sticky, so the retry-after-failure path is drivable.
+    // Non-empty: every display-name write fails with this as the server's
+    // message. Sticky, so retry-after-failure is drivable.
     QString mockDisplayNameFailReason;
-    // Fail with NO message at all — a timeout, or a server that sent
-    // nothing usable. A distinct knob because the two failures are
-    // presented differently: only this one gets Lightning's own wording.
+    // Fail with no message (timeout, or nothing usable), which the UI words
+    // differently from a server message.
     bool mockDisplayNameFailSilently = false;
     int displayNameWrites = 0;          // dispatched writes (dedup checks)
 };

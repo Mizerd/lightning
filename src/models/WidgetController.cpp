@@ -28,9 +28,8 @@ void WidgetController::setClient(MatrixClient *client)
     connect(m_client, &MatrixClient::roomWidgetsReceived, this,
             [this](quint64 opId, const QString &roomId, bool ok,
                    bool canManage, const QVariantList &widgets) {
-        // BOTH checks. The op id alone would let an answer for a room the user
-        // has since left repaint the panel, because ids are unique per request
-        // and not per room.
+        // Check the room as well as the op id: ids are unique per request, not
+        // per room.
         if (opId != m_pendingOp || roomId != m_roomId)
             return;
         m_pendingOp = 0;
@@ -51,17 +50,15 @@ void WidgetController::setClient(MatrixClient *client)
                    const QString &category) {
         if (opId == 0 || opId != m_writeOp)
             return;
-        // Final for OUR op whatever room is showing now — leaving the op
-        // behind after a room switch wedged `writing` for the session
-        // (found in review).
+        // Final for our op whatever room is showing, or `writing` stays stuck
+        // after a room switch.
         m_writeOp = 0;
         if (roomId != m_roomId) {
             Q_EMIT stateChanged();
             return;
         }
-        // Nothing was applied optimistically: on success the authoritative
-        // list is re-read, so the panel shows what the room holds rather than
-        // what was asked for. A refusal leaves the last known list alone.
+        // Nothing is applied optimistically: on success the list is re-read; a
+        // refusal leaves it alone.
         if (ok)
             refresh();
         const QString error = ok ? QString() : category;
@@ -112,9 +109,8 @@ void WidgetController::setRoomId(const QString &roomId)
 
 bool WidgetController::urlIsAcceptable(const QString &text) const
 {
-    // The SAME rule UrlLauncher applies at the one exit to the browser, and
-    // the same one the Rust write re-checks: https, a host, no credentials.
-    // A widget this client would refuse to open must not be published.
+    // Same rule as UrlLauncher and the Rust write: https, a host, no
+    // credentials. Never publish a widget this client would refuse to open.
     const QUrl url(text.trimmed(), QUrl::StrictMode);
     return url.isValid() && url.scheme().toLower() == QLatin1String("https")
         && !url.host().isEmpty() && url.userInfo().isEmpty();
@@ -125,10 +121,8 @@ QJsonObject WidgetController::widgetContent(const QString &kind,
                                             const QString &url,
                                             const QString &creatorUserId)
 {
-    // Element's shape, field for field, so every client that lists widgets
-    // reads this one. `waitForIframeLoad` is Element's own default and is
-    // meaningless to a client that never embeds; it is written because a
-    // reader that expects it exists.
+    // Element's shape, field for field, so every client can list it.
+    // `waitForIframeLoad` is meaningless here but expected by readers.
     QJsonObject content{
         { QStringLiteral("type"), kind },
         { QStringLiteral("url"), url.trimmed() },
@@ -138,9 +132,8 @@ QJsonObject WidgetController::widgetContent(const QString &kind,
     };
     QJsonObject data;
     if (kind == QLatin1String("m.jitsi")) {
-        // A Jitsi widget carries its conference in `data`, which is what
-        // Element reads rather than the URL. Derived from the URL the user
-        // gave: host and first path segment.
+        // A Jitsi widget carries its conference in `data`, which Element reads;
+        // derived from the URL's host and first path segment.
         const QUrl u(url.trimmed());
         const QString conference =
             u.path().section(QLatin1Char('/'), 0, 0, QString::SectionSkipEmpty);
@@ -164,9 +157,8 @@ void WidgetController::addWidget(const QString &kind, const QString &name,
     };
     if (!kKinds.contains(kind) || !urlIsAcceptable(url))
         return;
-    // The id is the state key. Opaque and fresh: Element reads the id back
-    // from the envelope, and a guessable id would let a later write from
-    // another client land on this widget's key by accident.
+    // The id is the state key: a fresh UUID, so another client's write cannot
+    // land on this key by accident.
     const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     const QJsonObject content = widgetContent(
         kind, name.isEmpty() ? kind : name, url, m_client->currentUserId());
@@ -188,18 +180,15 @@ void WidgetController::removeWidget(int row)
     if (row < 0 || row >= m_rows.size())
         return;
     const QVariantMap &target = m_rows.at(row);
-    // The reader strips control characters and bounds the DISPLAY id; the
-    // tombstone must name the exact state key, and a row the reader could
-    // not name exactly (or that came from the legacy `m.widget` type, which
-    // this tombstone does not cover) is not removable (found in review).
+    // The tombstone must name the exact state key; rows whose key the reader
+    // could not preserve exactly (or legacy `m.widget` rows) are not removable.
     if (target.value(QStringLiteral("removable"), true).toBool() == false)
         return;
     const QString id = target.value(QStringLiteral("stateKey"),
                                     target.value(QStringLiteral("id"))).toString();
     if (id.isEmpty())
         return;
-    // An EMPTY content object is the removal — how Element removes a widget,
-    // and what widget_from_state already reads as "no widget".
+    // An empty content object removes the widget, as in Element.
     const quint64 op = m_client->writeRoomWidget(m_roomId, id,
                                                  QStringLiteral("{}"));
     if (op == 0) {
@@ -265,8 +254,8 @@ QVariant WidgetController::data(const QModelIndex &index, int role) const
     case OpenableRole:
         return !row.value(QStringLiteral("url")).toString().isEmpty();
     case StateKeyRole:  return row.value(QStringLiteral("stateKey"));
-    // Absent (mock rows, older payloads) reads as removable, matching
-    // removeWidget()'s own default.
+    // Absent (mock rows, older payloads) reads as removable, like
+    // removeWidget().
     case RemovableRole: return row.value(QStringLiteral("removable"), true);
     default: return {};
     }
@@ -296,11 +285,8 @@ bool WidgetController::openWidget(int row)
     if (address.isEmpty())
         return false;
     const QUrl url(address);
-    // The SECOND gate. Rust already refused anything but https with a host and
-    // no userinfo; this asks the application's single desktop exit whether it
-    // would open the scheme at all. Two independent checks on the one path
-    // that leaves the process is the right number for a URL that arrived as
-    // room state.
+    // Second gate after Rust's https/host/no-userinfo check: ask the single
+    // desktop exit whether it would open the scheme at all.
     if (!url.isValid() || url.scheme() != QLatin1String("https"))
         return false;
     if (!lightning::urls::isOpenableExternally(url))
@@ -317,8 +303,7 @@ QVariantMap WidgetController::rowAt(int row) const
 
 QString WidgetController::disclosureText(const QString &key) const
 {
-    // One sentence per key, phrased as what the SITE learns rather than as a
-    // field name. "user_id" tells nobody anything; "your full Matrix ID" does.
+    // Phrased as what the site learns, not as a field name.
     if (key == QLatin1String("user_id"))
         return tr("Your full Matrix ID");
     if (key == QLatin1String("display_name"))
@@ -337,9 +322,8 @@ QString WidgetController::disclosureText(const QString &key) const
         return tr("Your homeserver's address");
     if (key == QLatin1String("connection"))
         return tr("Your IP address, and anything your browser normally sends");
-    // An unknown key is disclosed HONESTLY rather than hidden: a widget API
-    // that grows a variable Lightning does not recognise must not make the
-    // notice quietly shorter.
+    // Unknown keys are disclosed rather than hidden, so the notice never
+    // quietly shrinks.
     return tr("Something this build does not recognise (%1)").arg(key);
 }
 

@@ -10,9 +10,8 @@
 
 namespace {
 
-// Inline/block formatting tags allowed through (attributes stripped). This is
-// the intersection of the Matrix suggested subset and the Qt RichText subset,
-// so everything here actually renders.
+// Formatting tags allowed through (attributes stripped): the intersection of
+// the Matrix suggested subset and Qt's RichText subset.
 const QSet<QString> &allowedTags()
 {
     static const QSet<QString> s = {
@@ -33,8 +32,7 @@ const QSet<QString> &allowedTags()
     return s;
 }
 
-// Tags dropped WITH their content — nothing between the open and close tag is
-// rendered.
+// Tags dropped together with their content.
 const QSet<QString> &dropContentTags()
 {
     static const QSet<QString> s = {
@@ -55,37 +53,26 @@ struct ParsedTag {
     QString raw; // inside of <...>, sans the surrounding brackets
 };
 
-// One left-to-right pass over one string, and the ONLY way to parse a tag.
-//
-// WHY THIS IS A CLASS AND NOT A FREE FUNCTION. Parsing used to be
-// "indexOf('>') from HERE", which is linear in the REST of the input — and
-// every loop below advances by ONE character when a '<' turns out not to be
-// a tag. A `formatted_body` of "<a" repeated 32k times therefore cost ~10^9
-// QChar reads inside TimelineModel::data(), on the GUI thread, from a
-// message any user can send in any room. The free function DID discover
-// "there is no '>' left" and set endOut to the end of the input; all four
-// callers threw that conclusion away and advanced one character, and a flag
-// they could equally forget to read would have been the same design. A
-// scanner that OWNS the cursor cannot be bypassed: the '>' search always
-// RESUMES where the last one stopped, so the whole pass is linear, and no
-// future caller can reintroduce the cost by forgetting to check something.
+// Tag parser for one left-to-right pass. It owns the cursor so the '>'
+// search always resumes where the last one stopped: the pass stays linear
+// even for inputs like "<a" repeated (remote input parsed on the GUI thread),
+// and no caller can reintroduce the quadratic scan.
 class TagScanner
 {
 public:
     explicit TagScanner(const QString &s) : m_s(s) {}
     TagScanner(QString &&) = delete; // the scanner does not own the string
 
-    // Parse a tag beginning at m_s[pos] == '<'. endOut receives the index
-    // just past the closing '>'. valid is false for a stray '<' that is not
-    // a tag. `pos` must not move backwards between calls (every caller is a
-    // single forward pass); if it ever does the memo is simply rebuilt.
+    // Parse a tag at m_s[pos] == '<'. endOut receives the index just past '>'.
+    // valid is false for a stray '<'. `pos` only moves forward; if it ever
+    // moves back, the memo is rebuilt.
     ParsedTag tagAt(qsizetype pos, qsizetype &endOut)
     {
         ParsedTag t;
         endOut = pos + 1;
         const qsizetype n = m_s.size();
-        // A '<' only starts a tag when immediately followed by a letter or
-        // '/' (HTML rule). "a < b" is literal text, not a broken tag.
+        // A '<' only starts a tag when followed by a letter or '/' (HTML rule);
+        // "a < b" is literal text.
         if (pos + 1 >= n)
             return t;
         const QChar after = m_s[pos + 1];
@@ -97,11 +84,8 @@ public:
             return t;
         }
         endOut = gt + 1;
-        // VIEWS, not copies. An interior is materialized only for a tag that
-        // actually parses, because "</" repeated with a single '>' far away
-        // is a '<' that is never a tag — and copying the whole remainder
-        // twice (mid(), then mid(1)) to discover that was the second half of
-        // the quadratic cost, in memcpy rather than in comparisons.
+        // Views, not copies: an interior is materialized only for a tag that
+        // parses, so stray '<' characters cost no copying of the remainder.
         const QStringView raw =
             QStringView(m_s).mid(pos + 1, gt - pos - 1).trimmed();
         if (raw.isEmpty())
@@ -124,14 +108,9 @@ public:
     }
 
 private:
-    // Index of the first '>' at or after `from`, or -1 when there is none.
-    //
-    // The memo is what makes the pass linear. m_gt is the first '>' at or
-    // after m_from, so for any later `from` <= m_gt there is no '>' in
-    // [from, m_gt) and m_gt is still the answer — O(1). A rescan only ever
-    // starts PAST the previous answer, so the scanned ranges are disjoint
-    // and their total is the length of the input. "None left" is remembered
-    // rather than rediscovered at every remaining position.
+    // Index of the first '>' at or after `from`, or -1. Memoized: m_gt is the
+    // first '>' at or after m_from, so any later `from` <= m_gt reuses it and
+    // rescans start past the previous answer. Total scanning is linear.
     qsizetype gtAtOrAfter(qsizetype from)
     {
         if (from >= m_from) {
@@ -168,9 +147,8 @@ QString extractHref(const QString &rawInside)
     return v;
 }
 
-/// One attribute's value out of a raw tag interior, quoted either way.
-/// Mirrors extractHref, which is the same job for the one attribute that
-/// already had a reader.
+/// One attribute value from a raw tag interior, quoted either way (like
+/// extractHref).
 QString extractAttr(const QString &rawInside, const QString &name)
 {
     const QRegularExpression re(
@@ -188,10 +166,8 @@ QString extractAttr(const QString &rawInside, const QString &name)
     return v;
 }
 
-/// True when the raw tag interior carries `data-mx-emoticon` as a bare
-/// attribute name. MSC2545 says the value is IGNORED — "some libraries may
-/// automatically add an empty value" — so presence is the whole test, and a
-/// value must not be required or a conformant sender is refused.
+/// True when the tag carries `data-mx-emoticon` as an attribute name. MSC2545
+/// says the value is ignored, so presence alone is the test.
 bool hasEmoticonMarker(const QString &rawInside)
 {
     static const QRegularExpression re(
@@ -232,17 +208,11 @@ QString localpart(const QString &userId)
     return colon > 0 ? lp.left(colon) : lp;
 }
 
-// ---- Code-block segmentation helpers (v0.7.4) ----------------------------
+// ---- Code-block segmentation helpers --------------------------------------
 
-// Decode the entities a formatted body can carry into their literal
-// characters. Code-block text is PLAIN text (the UI renders it with
-// Text.PlainText), so "&lt;script&gt;" must arrive as those six literal
-// characters and can never become markup again.
-//
-// ONE left-to-right pass, deliberately: a second pass over the result would
-// turn "&amp;lt;" — which the sender wrote to display the literal string
-// "&lt;" — into "<". Decoding once is both correct and unable to resurrect
-// markup from escaped text.
+// Decode entities into literal characters. Code-block text is rendered as
+// plain text, so "&lt;script&gt;" stays literal. One pass only: a second would
+// turn "&amp;lt;" into "<".
 QString decodeEntities(const QString &in)
 {
     QString out;
@@ -256,8 +226,8 @@ QString decodeEntities(const QString &in)
             continue;
         }
         const qsizetype semi = in.indexOf(QLatin1Char(';'), i + 1);
-        // An unterminated or absurdly long "&…" is not an entity. Keep the
-        // ampersand literally instead of swallowing the rest of the line.
+        // An unterminated or overlong "&…" is not an entity; keep the
+        // ampersand.
         if (semi < 0 || semi - i > 12) {
             out += c;
             ++i;
@@ -285,8 +255,7 @@ QString decodeEntities(const QString &in)
                 value = QStringView(name).mid(2).toUInt(&ok, 16);
             else
                 value = QStringView(name).mid(1).toUInt(&ok, 10);
-            // Reject surrogates and out-of-range code points rather than
-            // planting a replacement character of our own invention.
+            // Reject surrogates and out-of-range code points.
             if (ok && value > 0 && value <= 0x10FFFFu
                 && !(value >= 0xD800u && value <= 0xDFFFu)) {
                 const char32_t ucs = static_cast<char32_t>(value);
@@ -304,16 +273,14 @@ QString decodeEntities(const QString &in)
     return out;
 }
 
-// The validated language token from a `class="language-rust"` / `lang-rust`.
-// Fail closed: anything that is not a short plain identifier yields an empty
-// language. The RAW class string is never returned — it is sender-chosen text
-// that would end up in a label and an accessible name.
+// The validated language token from `class="language-rust"` / `lang-rust`.
+// Fails closed: anything other than a short identifier yields empty. The raw
+// class string is sender text and is never returned.
 QString languageFromClass(const QString &rawInside)
 {
     static const QRegularExpression attr(
-        // The tag name is always first in `raw`, so a real class attribute is
-        // preceded by whitespace. Anchoring on that stops `data-class=` (and
-        // any other suffix attribute) being read as the class.
+        // The tag name comes first, so a real class attribute follows
+        // whitespace; this keeps `data-class=` from matching.
         QStringLiteral("(?:\\A|\\s)class\\s*=\\s*"
                        "(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'=<>`]+))"),
         QRegularExpression::CaseInsensitiveOption);
@@ -344,10 +311,9 @@ QString languageFromClass(const QString &rawInside)
     return {};
 }
 
-// Tags that carry no content of their own — a run made only of these is
-// spacing, not a message. Dropping such a run is what stops an empty line
-// rendering between two adjacent code blocks; an <hr>, a list or a heading
-// is real content and deliberately does NOT appear here.
+// Tags with no content of their own; a run of only these is spacing, and
+// dropping it avoids an empty line between adjacent code blocks. <hr>, lists
+// and headings are content and are not here.
 bool isLayoutOnlyTag(const QString &name)
 {
     return name == QLatin1String("p") || name == QLatin1String("br")
@@ -375,9 +341,8 @@ bool richTextCarriesContent(const QString &rich)
         qsizetype end = 0;
         const ParsedTag t = scanner.tagAt(i, end);
         if (!t.valid) {
-            // A stray '<' the sanitizer escaped is text, so this can only be
-            // malformed output; treat it as content rather than silently
-            // dropping the run.
+            // A stray '<' would have been escaped, so this is malformed output;
+            // treat it as content rather than dropping the run.
             return true;
         }
         if (!isLayoutOnlyTag(t.name))
@@ -387,9 +352,8 @@ bool richTextCarriesContent(const QString &rich)
     return false;
 }
 
-// Trim the markup shape off a decoded code block: normalize line endings so
-// the renderer's line count is the program's, drop the one leading newline a
-// `<pre><code>` almost always carries, and drop trailing newlines.
+// Normalize line endings, drop the leading newline `<pre><code>` usually
+// carries, and drop trailing newlines.
 QString normalizeCodeText(QString text)
 {
     text.replace(QLatin1String("\r\n"), QLatin1String("\n"));
@@ -401,10 +365,8 @@ QString normalizeCodeText(QString text)
     return text;
 }
 
-// Is there a real code block in here? Cheap reject first — every formatted
-// body in the timeline runs through this, and the ordinary message must not
-// pay for the parser. A <pre> inside dropped content (a <script>, an
-// <mx-reply> fallback) is NOT a code block: nothing in there is rendered.
+// Cheap reject first: every formatted body runs through this. A <pre> inside
+// dropped content (<script>, <mx-reply>) is not a code block.
 bool containsCodeBlock(const QString &html)
 {
     if (!html.contains(QLatin1String("<pre"), Qt::CaseInsensitive))
@@ -451,11 +413,9 @@ struct CodepointRange {
     char32_t hi;
 };
 
-// Emoji_Presentation=Yes: the codepoints a conforming shaper draws as a
-// PICTURE with no variation selector. This is the set that may be enlarged,
-// and it is deliberately the narrow one — "1" and "#" and "(c)" are Emoji=Yes
-// too, and blowing a digit up to 1.5x because a keycap exists somewhere in
-// Unicode would be a rendering bug, not a feature.
+// Emoji_Presentation=Yes: code points drawn as a picture without a variation
+// selector. The narrow set that may be enlarged; digits, "#" and "(c)" are
+// Emoji=Yes too and must not be.
 constexpr CodepointRange kEmojiPresentation[] = {
     {0x231Au, 0x231Bu},   {0x23E9u, 0x23ECu},   {0x23F0u, 0x23F0u},
     {0x23F3u, 0x23F3u},   {0x25FDu, 0x25FEu},   {0x2614u, 0x2615u},
@@ -508,15 +468,11 @@ bool isSkinToneModifier(char32_t cp) { return cp >= 0x1F3FBu && cp <= 0x1F3FFu; 
 bool isRegionalIndicator(char32_t cp) { return cp >= 0x1F1E6u && cp <= 0x1F1FFu; }
 bool isTagCharacter(char32_t cp) { return cp >= 0xE0020u && cp <= 0xE007Fu; }
 
-// The BROAD test, used only to decide whether a body is "nothing but emoji"
-// (see markEmoji). It must be a superset of everything the narrow test
-// accepts AND of everything EmojiCatalog's catalogue lookup accepts, because
-// a cluster this misses while the catalogue counts it would let a big-emoji
-// body be enlarged twice. It covers Emoji=Yes characters that carry no
-// default emoji presentation — a bare U+2764 HEAVY BLACK HEART is in the
-// catalogue and is not in the table above. CJK and kana are deliberately
-// OUTSIDE the band: they are letters, and a three-character Japanese message
-// must not read as an emoji-only one.
+// The broad test, used only to decide whether a body is emoji-only (see
+// markEmoji). It must be a superset of the narrow test and of EmojiCatalog's
+// lookup, or a big-emoji body could be enlarged twice; it covers Emoji=Yes
+// characters without default emoji presentation (a bare U+2764). CJK and kana
+// are letters and deliberately outside it.
 bool couldCarryEmoji(char32_t cp)
 {
     return cp == 0x00A9u || cp == 0x00AEu
@@ -528,8 +484,8 @@ bool couldCarryEmoji(char32_t cp)
         || isTagCharacter(cp);
 }
 
-// Does this grapheme cluster render as a picture? Narrow by design: it is
-// what gets enlarged.
+// Does this grapheme cluster render as a picture? Narrow by design: it
+// decides what is enlarged.
 bool clusterIsEmoji(const QList<char32_t> &cps)
 {
     if (cps.isEmpty())
@@ -542,9 +498,9 @@ bool clusterIsEmoji(const QList<char32_t> &cps)
         if (cp == kVs16)
             sawVs16 = true;
     }
-    // An explicit U+FE0F asks for emoji presentation on a base that does not
-    // default to it (U+2764 U+FE0F, U+2708 U+FE0F). Qualified on the base
-    // being a symbol so a selector after a letter cannot resize a word.
+    // U+FE0F requests emoji presentation for a non-default base (U+2764
+    // U+FE0F). The base must be a symbol so a selector after a letter cannot
+    // resize a word.
     return sawVs16 && couldCarryEmoji(cps.first());
 }
 
@@ -568,8 +524,7 @@ bool clusterIsWhitespace(const QList<char32_t> &cps)
     return !cps.isEmpty();
 }
 
-// One O(n) gate over the whole body. An ASCII message — most of them — leaves
-// here without allocating anything or building a boundary finder.
+// One O(n) gate; an ASCII body leaves without allocating anything.
 bool mayHoldEmoji(const QString &html)
 {
     for (const QChar c : html) {
@@ -586,21 +541,14 @@ bool mayHoldEmoji(const QString &html)
     return false;
 }
 
-// Is html[i] the start of a character entity? Returns its end (past the ';')
-// or -1. Entities are ATOMIC here for the same reason they are in
-// markRoomMention: splitting "&amp;" corrupts the markup, and can even
+// Is html[i] the start of a character entity? Returns its end (past ';') or
+// -1. Entities are atomic: splitting "&amp;" corrupts markup and can even
 // manufacture a tag.
 qsizetype entityEnd(const QString &html, qsizetype i)
 {
-    // BOUND THE SEARCH, do not search the whole body and reject afterwards.
-    //
-    // This is the same shape as the tag scan above and the same magnitude:
-    // `indexOf(';', i + 1)` is linear in the REST of the string, markEmoji
-    // calls it once per `&` in every text run, and the `semi - i > 10` reject
-    // happens only after the scan has already run. A body of "&" repeated —
-    // remote input, from any user in any room — is O(n²) on the GUI thread.
-    // The reject already says no entity is longer than ten characters, so
-    // that is how far the search may look. Raised in review.
+    // Bound the search rather than scanning the whole rest and rejecting after:
+    // a body of repeated "&" would otherwise be quadratic. No entity is longer
+    // than ten characters.
     const qsizetype limit = qMin(i + 11, html.size());
     const qsizetype semi = QStringView(html).mid(i + 1, limit - (i + 1))
                                .indexOf(QLatin1Char(';'));
@@ -627,9 +575,8 @@ QString MessageHtml::sanitize(
     int dropDepth = 0;      // inside a dropped-content element
     int mentionSwallow = 0; // inside a mention whose text we already replaced
     QList<bool> anchorEmitted; // did each open <a> emit an <a> we must close?
-    // Per open <span>: was it emitted as a spoiler (anchor-wrapped)? The
-    // stack is what keeps a plain </span> from closing a spoiler anchor and
-    // vice versa when spans nest.
+    // Per open <span>: was it emitted as a spoiler anchor? Keeps a plain
+    // </span> from closing a spoiler anchor and vice versa.
     QList<bool> spanIsSpoiler;
 
     const qsizetype n = in.size();
@@ -650,8 +597,8 @@ QString MessageHtml::sanitize(
         qsizetype end = 0;
         const ParsedTag t = scanner.tagAt(ltPos, end);
         if (!t.valid) {
-            // Literal '<' (stray, or unterminated tag): escape only this
-            // character and keep scanning the rest of the text.
+            // Literal '<' (stray or unterminated tag): escape just this
+            // character and keep scanning.
             if (dropDepth == 0 && mentionSwallow == 0)
                 out += QLatin1String("&lt;");
             i = ltPos + 1;
@@ -675,20 +622,15 @@ QString MessageHtml::sanitize(
 
         // ── Inline custom emoji (MSC2545) ────────────────────────────────
         //
-        // The ONLY <img> this sanitizer emits, and it is deliberately not a
-        // general image permission. `<img>` used to be dropped outright,
-        // documented as "a formatted body can never make the client fetch a
-        // remote/tracking image", and that property is kept exactly: an image
-        // is rendered only when it is MARKED as an emoticon and addressed by
-        // `mxc:`, which cannot be fetched without going through Lightning's
-        // authenticated media path.
+        // The only <img> this sanitizer emits; not a general image permission.
+        // A formatted body can never make the client fetch a remote/tracking
+        // image: an image is rendered only when marked as an emoticon and
+        // addressed by `mxc:`, which goes through the authenticated media path.
         //
-        // What is emitted is still the MXC form, NOT a resolved local source.
-        // sanitize()'s output has one non-render consumer —
-        // TimelineModel::sanitizedHtmlForEvent -> MessageComposer::beginEdit —
-        // and rewriting the src here would put a local `image://` URL into an
-        // edited message's outgoing formatted_body. Resolution happens at
-        // render time instead (resolveInlineImages).
+        // The mxc form is emitted, not a resolved local source: sanitize()
+        // output is also used by MessageComposer::beginEdit, and an `image://`
+        // URL must not end up in an outgoing formatted_body. Resolution happens
+        // at render time (resolveInlineImages).
         if (name == QLatin1String("img")) {
             if (t.closing)
                 continue;
@@ -699,14 +641,14 @@ QString MessageHtml::sanitize(
                 || src.length() <= int(sizeof("mxc://") - 1)) {
                 continue;   // unaddressable, or not ours to fetch
             }
-            // An mxc URI has no query, no fragment and no credentials; a
-            // value carrying any of those is not one, whatever it claims.
+            // An mxc URI has no query, fragment or credentials; a value with
+            // any of those is not one.
             if (src.contains(QLatin1Char('"')) || src.contains(QLatin1Char('<'))
                 || src.contains(QLatin1Char('>')) || src.contains(QLatin1Char(' '))) {
                 continue;
             }
-            // The shortcode is remote text shown to the reader on hover and
-            // read by assistive technology, so it is escaped and bounded.
+            // The shortcode is remote text shown on hover and read by assistive
+            // technology: escaped and bounded.
             QString alt = extractAttr(t.raw, QStringLiteral("alt"));
             if (alt.isEmpty())
                 alt = extractAttr(t.raw, QStringLiteral("title"));
@@ -718,11 +660,8 @@ QString MessageHtml::sanitize(
                     + QStringLiteral("\" title=\"") + alt.toHtmlEscaped()
                     + QStringLiteral("\"");
             }
-            // The sender's own `height` is NOT honoured. It is remote input
-            // that decides how much of the reader's message list one glyph
-            // occupies, and "SHOULD be 32" is not a constraint anybody has to
-            // obey. A fixed inline size is what makes an emoticon an
-            // emoticon rather than a picture.
+            // The sender's `height` is not honoured: a fixed inline size keeps
+            // a remote emoticon from taking over the reader's message list.
             out += QStringLiteral(" height=\"20\" width=\"20\">");
             continue;
         }
@@ -742,10 +681,8 @@ QString MessageHtml::sanitize(
                 continue;
             }
             const QString href = extractHref(t.raw);
-            // Inside a COVERED spoiler nothing is a link: the whole slab is
-            // the reveal toggle, and a nested anchor would otherwise take the
-            // click the user meant as "show me" and open a browser or a
-            // profile. Revealed, the links come back.
+            // Inside a covered spoiler nothing is a link: the whole slab is the
+            // reveal toggle. Links return once revealed.
             const bool coveredSpoiler = !revealSpoilers && spanIsSpoiler.contains(true);
             const QString mentionUser = matrixToUserId(href);
             if (!mentionUser.isEmpty() && coveredSpoiler) {
@@ -772,23 +709,18 @@ QString MessageHtml::sanitize(
                     disp.clear();
                 if (disp.startsWith(QLatin1Char('@')))
                     disp = disp.mid(1);
-                // The resolver answers the room's member name, or a global
-                // profile name for a user the snapshot cannot place; the
-                // localpart is the last resort. The label the SENDER wrote
-                // inside the anchor is deliberately NOT a source (2026-09-05,
-                // considered and refused): a pill that reads "@admin" while
-                // linking to @attacker:evil is exactly the spoof the localpart
-                // fallback prevents, and Element ignores the anchor text for
-                // the same reason. A sender who is not in the room resolves
-                // through the profile resolver instead.
+                // The resolver answers the member name, else a global profile
+                // name, else the localpart. The sender's anchor text is
+                // deliberately never used: a pill reading "@admin" that links
+                // to @attacker:evil is the spoof this prevents (Element ignores
+                // it too).
                 if (disp.isEmpty())
                     disp = localpart(mentionUser);
                 const bool self =
                     !ownUserId.isEmpty() && mentionUser == ownUserId;
-                // The accent is reserved for a mention of YOU; everyone else
-                // takes the link ink (see MentionStyle). Either ink standing
-                // in for a missing other, so a theme that pushes only one
-                // still styles both cases rather than half of them.
+                // The accent is reserved for a mention of you; others take the
+                // link ink (see MentionStyle). Each ink falls back to the
+                // other, so a theme that sets only one still styles both.
                 const QString &preferred = self ? mentionStyle.accentColor
                                                 : mentionStyle.linkColor;
                 const QString &alternate = self ? mentionStyle.linkColor
@@ -798,22 +730,20 @@ QString MessageHtml::sanitize(
                 out += QStringLiteral("<a href=\"mention:")
                     + mentionUser.toHtmlEscaped() + QStringLiteral("\"");
                 if (!ink.isEmpty()) {
-                    // Ink and weight only — no surface. Qt paints an inline
-                    // background as an unroundable full-line-height slab, and
-                    // `text-decoration:none` is required or the anchor keeps
-                    // Qt's default underline (both verified against 6.11).
-                    // The colors are model-validated hex literals, escaped
-                    // again here so a style break-out is impossible.
+                    // Ink and weight only, no surface: Qt paints an inline
+                    // background as a full-line-height slab, and
+                    // `text-decoration:none` is needed to drop the default
+                    // underline. Colors are model-validated hex, escaped again
+                    // so a style break-out is impossible.
                     out += QStringLiteral(" style=\"color:")
                         + ink.toHtmlEscaped()
                         + QStringLiteral(";font-weight:600")
                         + QStringLiteral(";text-decoration:none\"");
                 }
                 out += QStringLiteral(">");
-                // <b> stays the self-mention marker rather than a heavier
-                // font-weight in the style: it is the ONE signal that also
-                // survives an unstyled body, so the two paths agree and
-                // MentionTokenizer's recovery keeps matching one shape.
+                // <b> stays the self-mention marker because it survives an
+                // unstyled body, so both paths agree and MentionTokenizer's
+                // recovery matches one shape.
                 if (self)
                     out += QLatin1String("<b>");
                 out += (QStringLiteral("@") + disp).toHtmlEscaped();
@@ -825,11 +755,9 @@ QString MessageHtml::sanitize(
             }
             const QUrl u(href);
             if (isSafeHttp(u)) {
-                // Nothing ever gave message links a colour, so Qt painted
-                // them in its built-in link blue (#0000ff) — a hard primary
-                // blue that is close to unreadable on the dark timeline
-                // grounds. The underline stays: it is what separates a URL
-                // from a mention now that both carry the theme's link ink.
+                // Give links the theme's link ink instead of Qt's default
+                // #0000ff, which is unreadable on dark themes. The underline
+                // separates a URL from a mention.
                 const QString linkInk = mentionStyle.linkColor.isEmpty()
                     ? mentionStyle.accentColor
                     : mentionStyle.linkColor;
@@ -850,15 +778,12 @@ QString MessageHtml::sanitize(
             continue; // drop any other markup inside a replaced mention
 
         if (name == QLatin1String("span")) {
-            // v0.9 spoilers (spec §11.36): a data-mx-spoiler span becomes a
-            // click-to-reveal run. Covered = a solid codeBackground slab
-            // (background AND text in the same ink — Qt paints an inline
-            // background as a full-line-height slab, which is exactly the
-            // cover a spoiler wants); revealed keeps the slab as background
-            // only. Both states wrap the run in the internal spoiler:toggle
-            // anchor the delegate routes back to the model, never to a
-            // browser. The optional reason value is deliberately ignored;
-            // every other span stays attribute-stripped as before.
+            // Spoilers: a data-mx-spoiler span becomes a click-to-reveal run.
+            // Covered is a solid codeBackground slab (background and text in
+            // one ink); revealed keeps only the background. Both wrap the run
+            // in the internal spoiler:toggle anchor, routed to the model, never
+            // a browser. The optional reason is ignored; other spans stay
+            // attribute-stripped.
             static const QRegularExpression spoilerAttr(
                 QStringLiteral("(?:\\A|\\s)data-mx-spoiler(?:\\s*=|\\s|\\z)"),
                 QRegularExpression::CaseInsensitiveOption);
@@ -897,30 +822,12 @@ QString MessageHtml::sanitize(
             if (t.closing) {
                 out += QStringLiteral("</") + name + QStringLiteral(">");
             } else if (name == QLatin1String("ol")) {
-                // `start` SURVIVES ON `<ol>`, AND IT IS THE ONE ATTRIBUTE
-                // THAT HAS TO.
-                //
-                // Reported 2026-09-07: "Your message changed to 1. on
-                // everything after reloading". A numbered list whose items
-                // are separated by nested bullets is not one list in HTML,
-                // it is SEVERAL — every markdown generator emits
-                // `<ol><li>1</li></ol> … <ol start="2"><li>2</li></ol> …` —
-                // so with attributes stripped every one of those restarted
-                // at 1 and a four point list rendered as "1. 1. 1. 1.". It
-                // looked right until the message was re-rendered from its
-                // formatted body, which is why it appeared on reload.
-                //
-                // MEASURED before relying on it, because Qt's documented
-                // HTML subset does not advertise this: on Qt 6.11
-                // `QTextListFormat::start()` reads 3 from
-                // `<ol start="3">`, and a second list with `start="2"`
-                // after an intervening `<ul>` numbers its item 2. So the
-                // attribute is honoured and this is worth carrying.
-                //
-                // Digits only, and bounded. The value reaches a rich text
-                // engine, so it is re-emitted from a parsed integer rather
-                // than passed through: nothing a sender writes survives as
-                // text.
+                // `start` survives on <ol>. Markdown splits a numbered list
+                // interrupted by nested bullets into several <ol start="N">
+                // lists; without it every one restarts at 1. Qt 6 honours it
+                // (QTextListFormat::start()), although its documented subset
+                // does not say so. Digits only and bounded, re-emitted from a
+                // parsed integer so no sender text survives.
                 const QString rawStart =
                     extractAttr(t.raw, QStringLiteral("start"));
                 bool ok = false;
@@ -934,25 +841,19 @@ QString MessageHtml::sanitize(
             } else if (!mentionStyle.codeBackground.isEmpty()
                        && (name == QLatin1String("code")
                            || name == QLatin1String("pre"))) {
-                // Give inline `code` and ```code blocks``` a subtle boxed
-                // background so they read as code rather than blending into the
-                // chat text. The colour is a validated theme QColor, escaped
-                // again here so a style break-out is impossible; the plain
-                // </tag> emitted above closes it.
+                // Inline code and code blocks get a subtle boxed background.
+                // The colour is a validated theme QColor, escaped again; the
+                // plain </tag> above closes it.
                 out += QStringLiteral("<") + name
                     + QStringLiteral(" style=\"background-color:")
                     + mentionStyle.codeBackground.toHtmlEscaped()
                     + QStringLiteral("\">");
             } else if (!mentionStyle.linkColor.isEmpty()
                        && name == QLatin1String("blockquote")) {
-                // A QUOTE BAR. Qt renders a bare <blockquote> as an indent and
-                // nothing else, so a quoted line read as an accidentally
-                // indented one — no bar, no tint, nothing saying "somebody
-                // else said this". Qt 6 does honour block border properties
-                // (QTextBlockFormat gained them in 5.14), so a left rule in
-                // the theme's own link ink is the same treatment every other
-                // client uses. The colour is a validated theme QColor, escaped
-                // again here so a style break-out is impossible.
+                // A quote bar: Qt renders a bare <blockquote> as an indent
+                // only. Qt 6 honours block border properties, so draw a left
+                // rule in the theme's link ink. The colour is a validated theme
+                // QColor, escaped again.
                 out += QStringLiteral("<blockquote style=\"border-left:3px "
                                       "solid ")
                     + mentionStyle.linkColor.toHtmlEscaped()
@@ -973,11 +874,8 @@ QString MessageHtml::sanitize(
         if (anchorEmitted.takeLast())
             out += QLatin1String("</a>");
     }
-    // Inline emoji sizing is the LAST step, over output this function has
-    // already made safe. It is applied here rather than at each render site
-    // so the formatted path and the segmented code-block path cannot drift;
-    // the one non-render consumer of this output
-    // (TimelineModel::sanitizedHtmlForEvent -> MessageComposer::beginEdit ->
+    // Emoji sizing runs last, over already-safe output, so the formatted and
+    // code-block paths share it. The one non-render consumer (beginEdit ->
     // mention::refsFromSanitizedHtml) matches only mention anchors and strips
     // inner tags, so the span never reaches an outgoing formatted_body.
     return markEmoji(out);
@@ -987,14 +885,12 @@ QString MessageHtml::resolveInlineImages(
     const QString &safeHtml,
     const std::function<QString(const QString &)> &resolve)
 {
-    // Nothing to do for the overwhelming majority of messages, and this runs
-    // on every read of a formatted body.
+    // Nothing to do for most messages, and this runs on every read.
     if (!resolve || !safeHtml.contains(QLatin1String("data-mx-emoticon")))
         return safeHtml;
 
-    // Operates on sanitize()'s OWN output, which is why this can be a
-    // targeted rewrite rather than another parser: the only `<img>` that can
-    // be here is the one the sanitizer emitted, in the exact shape it emits.
+    // Operates on sanitize()'s own output, so the only possible <img> is the
+    // one it emitted, in its exact shape.
     static const QRegularExpression re(
         QStringLiteral("<img data-mx-emoticon src=\"(mxc://[^\"]+)\"([^>]*)>"),
         QRegularExpression::CaseInsensitiveOption);
@@ -1010,9 +906,8 @@ QString MessageHtml::resolveInlineImages(
         const QString mxc = m.captured(1);
         const QString source = resolve(mxc);
         if (source.isEmpty()) {
-            // NOT CACHED YET. A broken-image glyph in the middle of a
-            // sentence is worse than the shortcode it stands for, and the
-            // fetch this call started will bring the reader back here.
+            // Not cached yet: show the shortcode rather than a broken-image
+            // glyph; the fetch just started will re-render this.
             static const QRegularExpression altRe(
                 QStringLiteral("alt=\"([^\"]*)\""),
                 QRegularExpression::CaseInsensitiveOption);
@@ -1034,27 +929,17 @@ QList<MessageHtml::Segment> MessageHtml::segments(
     const MentionStyle &mentionStyle,
     bool revealSpoilers)
 {
-    // Bounds. A Matrix event is capped at 65536 bytes by the spec, so none of
-    // these is reachable from a well-formed server; they exist so a hostile or
-    // broken body degrades into "fewer segments" rather than into unbounded
-    // work. The input bound is deliberately ABOVE the code-text bound so the
-    // code-text bound is the binding one and can actually be proven.
-    //
-    // It is applied BEFORE containsCodeBlock() on purpose. `formatted_body`
-    // reaches this uncapped from the Rust bridge, and the cheap-reject scan
-    // that runs for EVERY message in the timeline was the one piece of work
-    // in here that no bound covered — the constants below bound the OUTPUT,
-    // not the scan. A body whose only <pre> sits past this cut could not have
-    // become a code segment anyway: the loop below never reads that far.
+    // Bounds. Well-formed events are capped at 64 KiB by the spec; these make a
+    // hostile body degrade into fewer segments rather than unbounded work. The
+    // input bound is above the code-text bound so the latter binds. Applied
+    // before containsCodeBlock(), since formatted_body arrives uncapped and
+    // that scan runs for every message.
     static constexpr qsizetype kMaxSegmentInput = 1024 * 1024;
     const QString in = html.size() > kMaxSegmentInput
         ? html.left(kMaxSegmentInput) : html;
 
-    // The ordinary message: exactly one RichText segment whose text IS
-    // sanitize()'s output. It is the SAME call, on the untouched input —
-    // reproducing the sanitizer's bound or its scan here would make the two
-    // free to drift, and the drift would be invisible until a body rendered
-    // differently depending on which entry point read it.
+    // The ordinary message: one RichText segment from the same sanitize() call
+    // on the untouched input, so the two entry points cannot drift.
     if (!containsCodeBlock(in)) {
         return QList<Segment>{
             Segment{SegmentKind::RichText,
@@ -1064,8 +949,7 @@ QList<MessageHtml::Segment> MessageHtml::segments(
     }
 
     static constexpr qsizetype kMaxSegments = 64;
-    // Counted in QChar (UTF-16) units, which is what bounds the memory the
-    // renderer will hold.
+    // In QChar (UTF-16) units, which bounds the renderer's memory.
     static constexpr qsizetype kMaxCodeChars = 256 * 1024;
 
     QList<Segment> out;
@@ -1082,9 +966,8 @@ QList<MessageHtml::Segment> MessageHtml::segments(
         richSource.clear();
         if (exhausted || source.isEmpty())
             return;
-        // The run is handed to the sanitizer VERBATIM: it owns the allowlist,
-        // the href policy and the mention rewriting, and a second copy of any
-        // of that here would be a second sanitizer to keep in step.
+        // Handed to the sanitizer verbatim; it owns the allowlist, href policy
+        // and mention rewriting.
         const QString rich =
             sanitize(source, resolveDisplayName, ownUserId, mentionStyle,
                      revealSpoilers);
@@ -1137,9 +1020,8 @@ QList<MessageHtml::Segment> MessageHtml::segments(
         const ParsedTag t = scanner.tagAt(ltPos, end);
         if (!t.valid) {
             if (dropDepth == 0) {
-                // Inside a code block a stray '<' is a literal character of
-                // the program. Outside, the raw '<' goes to the sanitizer,
-                // which escapes exactly this character and keeps scanning.
+                // Inside a code block a stray '<' is part of the program.
+                // Outside, the sanitizer escapes it.
                 if (preDepth > 0)
                     codeText += QLatin1Char('<');
                 else
@@ -1153,8 +1035,7 @@ QList<MessageHtml::Segment> MessageHtml::segments(
         const QString &name = t.name;
 
         if (dropContentTags().contains(name)) {
-            // Drop-with-content still drops INSIDE a code block: a <script>
-            // body is not source the sender asked us to display.
+            // Drop-with-content still applies inside a code block.
             if (t.closing) {
                 if (dropDepth > 0)
                     --dropDepth;
@@ -1173,7 +1054,7 @@ QList<MessageHtml::Segment> MessageHtml::segments(
                     if (preDepth == 0)
                         flushCode();
                 }
-                // A stray </pre> outside a block is markup noise: dropped.
+                // A stray </pre> outside a block is noise: dropped.
                 continue;
             }
             if (preDepth == 0) {
@@ -1181,16 +1062,14 @@ QList<MessageHtml::Segment> MessageHtml::segments(
                 codeText.clear();
                 codeLanguage = languageFromClass(t.raw);
             }
-            // A nested <pre> is NOT a second block. The outer one owns the
-            // text; the inner tag is dropped like any other tag inside.
+            // A nested <pre> is not a second block; the inner tag is dropped.
             ++preDepth;
             continue;
         }
 
         if (preDepth > 0) {
-            // Inside a code block <br> is the only markup with meaning
-            // (senders emit one per line); every other tag is dropped and its
-            // text keeps flowing.
+            // Inside a code block only <br> has meaning (one per line); other
+            // tags are dropped and their text flows.
             if (name == QLatin1String("br") && !t.closing)
                 codeText += QLatin1Char('\n');
             else if (name == QLatin1String("code") && !t.closing
@@ -1202,8 +1081,7 @@ QList<MessageHtml::Segment> MessageHtml::segments(
         richSource += QLatin1Char('<') + t.raw + QLatin1Char('>');
     }
 
-    // An unclosed <pre> still describes one block — the sender's markup ran
-    // out, the code did not.
+    // An unclosed <pre> still describes one block.
     if (preDepth > 0)
         flushCode();
     flushRich();
@@ -1217,8 +1095,8 @@ QString MessageHtml::markRoomMention(const QString &safeHtml,
     if (safeHtml.isEmpty() || color.isEmpty() || !safeHtml.contains(kNeedle))
         return safeHtml;
 
-    // A match must stand alone. Without this "@roomba" and "user@room.example"
-    // would both light up as whole-room pings.
+    // A match must stand alone, so "@roomba" and "user@room.example" are not
+    // room pings.
     const auto boundaryBefore = [](QChar c) {
         return !(c.isLetterOrNumber() || c == QLatin1Char('@')
                  || c == QLatin1Char('_') || c == QLatin1Char('-')
@@ -1242,8 +1120,8 @@ QString MessageHtml::markRoomMention(const QString &safeHtml,
     while (i < n) {
         const QChar ch = safeHtml.at(i);
         if (ch == QLatin1Char('<')) {
-            // Copy the whole tag through untouched, and track code spans so a
-            // literal @room inside one is left as the string it is.
+            // Copy the tag through untouched and track code spans, so a literal
+            // @room in code is left alone.
             const qsizetype gt = safeHtml.indexOf(QLatin1Char('>'), i);
             const qsizetype end = gt < 0 ? n : gt + 1;
             const QString tag = safeHtml.mid(i, end - i);
@@ -1259,8 +1137,7 @@ QString MessageHtml::markRoomMention(const QString &safeHtml,
             continue;
         }
         if (ch == QLatin1Char('&')) {
-            // Entities are atomic: splitting "&amp;" would corrupt the markup
-            // and could even manufacture a tag.
+            // Entities are atomic: splitting "&amp;" would corrupt markup.
             const qsizetype semi = safeHtml.indexOf(QLatin1Char(';'), i);
             if (semi > i && semi - i <= 10) {
                 out += safeHtml.mid(i, semi - i + 1);
@@ -1290,18 +1167,17 @@ QString MessageHtml::markRoomMention(const QString &safeHtml,
 
 QString MessageHtml::markEmoji(const QString &safeHtml)
 {
-    // The style is a compile-time constant of ours. `x-large` is Qt's
-    // FontSizeAdjustment +2, i.e. the 1.5 rung of its 0.7/0.8/1.0/1.2/1.5/
-    // 2.0/2.4 ladder — the one scale-RELATIVE lever this renderer offers
-    // (`em` and `%` are silently ignored by Qt's CSS parser; see the header).
+    // Constant style. `x-large` is Qt's FontSizeAdjustment +2, the 1.5 rung of
+    // its size ladder and the only scale-relative option (`em` and `%` are
+    // ignored by Qt's CSS parser; see the header).
     static const QString kOpen =
         QStringLiteral("<span style=\"font-size:x-large\">");
     static const QString kClose = QStringLiteral("</span>");
-    // A hostile body cannot make this grow without bound: each run costs a
-    // fixed 43 characters and there are at most this many of them.
+    // Each run costs a fixed 43 characters and there are at most this many, so
+    // output growth is bounded.
     static constexpr int kMaxRuns = 256;
-    // A body of 1-3 emoji sequences is the big-emoji row, already rendered at
-    // 48/60 px by the delegate. Enlarging it again would take it past 90.
+    // A body of 1-3 emoji is the big-emoji row, already enlarged by the
+    // delegate.
     static constexpr int kBigEmojiMaxSequences = 3;
 
     if (safeHtml.isEmpty() || !mayHoldEmoji(safeHtml))
@@ -1322,9 +1198,8 @@ QString MessageHtml::markEmoji(const QString &safeHtml)
 
     while (i < n) {
         if (safeHtml.at(i) == QLatin1Char('<')) {
-            // Copy-through territory: track code spans exactly as
-            // markRoomMention does, so an emoji in a code sample stays the
-            // size of the characters around it.
+            // Track code spans as markRoomMention does, so emoji in code stay
+            // text-sized.
             const qsizetype gt = safeHtml.indexOf(QLatin1Char('>'), i);
             const qsizetype end = gt < 0 ? n : gt + 1;
             const QString lower = safeHtml.mid(i, end - i).toLower();
@@ -1341,9 +1216,8 @@ QString MessageHtml::markEmoji(const QString &safeHtml)
         qsizetype lt = safeHtml.indexOf(QLatin1Char('<'), i);
         if (lt < 0)
             lt = n;
-        // Walk this text run by GRAPHEME cluster: one ZWJ family, one flag,
-        // one keycap and one tone variant are each a single picture, and
-        // splitting them would wrap half a glyph.
+        // Walk by grapheme cluster so ZWJ families, flags, keycaps and tone
+        // variants are never split.
         QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme,
                                    safeHtml.constData() + i, lt - i);
         qsizetype cursor = i;
@@ -1351,17 +1225,15 @@ QString MessageHtml::markEmoji(const QString &safeHtml)
         const auto closeRun = [&](qsizetype at) {
             if (runStart < 0)
                 return;
-            // Past the cap the run is dropped rather than merged into a
-            // neighbour: a body that hits it is pathological, and a wrong
-            // span is worse than a missing one.
+            // Past the cap runs are dropped, not merged: a wrong span is worse
+            // than a missing one.
             if (runs.size() < kMaxRuns)
                 runs.append(Run{runStart, at});
             runStart = -1;
         };
         while (cursor < lt) {
-            // An entity is atomic and is never an emoji here: "&#128522;" is
-            // markup for one, not the character itself, and re-encoding it
-            // would mean decoding sender text and writing it back out.
+            // An entity is never an emoji here; re-encoding it would mean
+            // decoding and rewriting sender text.
             if (safeHtml.at(cursor) == QLatin1Char('&')) {
                 const qsizetype ee = entityEnd(safeHtml, cursor);
                 if (ee > 0 && ee <= lt) {
@@ -1392,9 +1264,7 @@ QString MessageHtml::markEmoji(const QString &safeHtml)
             }
 
             if (clusterIsWhitespace(cps)) {
-                // Whitespace ENDS a run rather than joining it: a space at
-                // 1.5x is a wider space, and the gap between two emoji is
-                // not part of either picture.
+                // Whitespace ends a run: a 1.5x space is just a wider gap.
                 closeRun(cursor);
             } else if (clusterCouldBeEmoji(cps)) {
                 ++emojiish;
@@ -1416,10 +1286,9 @@ QString MessageHtml::markEmoji(const QString &safeHtml)
 
     if (runs.isEmpty())
         return safeHtml;
-    // The big-emoji suppression. `emojiish` is the BROAD test on purpose (see
-    // couldCarryEmoji): it is a superset of both this file's narrow test and
-    // EmojiCatalog's catalogue lookup, so where the two detectors disagree
-    // the disagreement can only suppress — never enlarge a 60 px glyph again.
+    // Big-emoji suppression. `emojiish` uses the broad test (see
+    // couldCarryEmoji), a superset of both detectors, so disagreement can only
+    // suppress, never enlarge twice.
     if (nonEmojiish == 0 && emojiish >= 1 && emojiish <= kBigEmojiMaxSequences)
         return safeHtml;
 

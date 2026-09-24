@@ -16,25 +16,21 @@
 
 class MatrixClient;
 
-// v0.9 (phase 2): the global Activity Center.
+// The global Activity Center.
 //
-// One account-wide list of the things that were addressed TO the user,
-// across every room: mentions (@user and @room), replies to the user's
-// messages, replies in threads the user started or took part in, reactions
-// to the user's messages, room invites, and keyword highlights. It is fed
-// INCREMENTALLY from the same `eventAppended` tap NotificationManager uses
-// (AppController), plus the invite diff and a reaction lane, and it never
-// scans timelines on its own.
+// One account-wide list of things addressed to the user: mentions (@user
+// and @room), replies to their messages, replies in threads they started or
+// joined, reactions to their messages, room invites, and keyword highlights.
+// Fed incrementally from the same `eventAppended` tap NotificationManager
+// uses, plus the invite diff and a reaction lane; it never scans timelines.
 //
-// Seen state is its OWN: the badge counts entries newer than a per-account
-// "seen up to" marker (plus per-entry marks), independent of read receipts
-// — reading a room does not silently clear the Activity list, and opening
-// the Activity list sends no receipt.
+// Seen state is its own: the badge counts entries newer than a per-account
+// "seen up to" marker (plus per-entry marks). Opening the list sends no
+// receipt.
 //
-// PRIVACY: an entry's preview can be decrypted plaintext. Entries are
-// memory-only and die with the session; the ONLY persisted state is the
-// seen marker and the keyword list, through the `Store` callbacks
-// (account-scoped in SettingsManager). Previews are never logged.
+// PRIVACY: previews can be decrypted plaintext. Entries are memory-only and
+// die with the session; only the seen marker and keyword list persist,
+// through the `Store` callbacks. Previews are never logged.
 class ActivityModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -93,12 +89,12 @@ public:
     QStringList keywords() const { return m_keywords; }
     void setKeywords(const QStringList &keywords);
 
-    // ---- feeds (AppController). `event` must already be the ROOM copy
-    // (thread-timeline duplicates filtered by the caller, as for
-    // notifications). Returns true when an entry was added.
+    // ---- Feeds (AppController). `event` must be the room copy
+    // (thread-timeline duplicates filtered by the caller). Returns true when an
+    // entry was added.
     bool ingest(const TimelineEvent &event, const QString &roomName);
-    // A reaction event from any room (sender, key, target). Only reactions
-    // to the user's OWN messages become entries.
+    // A reaction from any room; only reactions to the user's own messages
+    // become entries.
     bool noteReaction(const QString &roomId, const QString &roomName,
                       const QString &reactionEventId, const QString &targetEventId,
                       const QString &senderId, const QString &senderName,
@@ -107,62 +103,36 @@ public:
     bool noteInvite(const RoomInfo &room);
     // The invite was answered (accepted or declined): drop its entry.
     void inviteResolved(const QString &roomId);
-    // Entries the server remembers (GET /notifications) for a fresh
-    // session, oldest first; ids already present are skipped.
+    // Entries the server remembers (GET /notifications) for a fresh session,
+    // oldest first; ids already present are skipped.
     void seed(const QVariantList &entries);
 
     Q_INVOKABLE void markAllSeen();
     Q_INVOKABLE void markSeen(const QString &id);
-    /// Everything in `roomId` up to and including `timestampMs` has been
-    /// READ, so it is seen here too.
-    ///
-    /// The Activity Center keeps its own marker on purpose — a row you never
-    /// looked at should survive a glance at the room list. But the marker was
-    /// advanced by NOTHING except the panel's own "mark all seen" button, so
-    /// reading the very message that produced a row left the bell counting
-    /// it, sometimes for days. Reported from real use on 0.8.4.
-    ///
-    /// Driven by the read RECEIPT rather than by opening a room: a receipt is
-    /// the point at which this client has told the server the user read up to
-    /// a specific event, which is exactly the claim being mirrored here.
+    /// Everything in `roomId` up to `timestampMs` has been read, so it is seen
+    /// here too. Driven by the read receipt this client sends, which is exactly
+    /// the claim being mirrored.
     void markRoomReadUpTo(const QString &roomId, qint64 timestampMs);
-    /// Everything in every room this model holds an unseen row for has been
-    /// READ — whoever read it — so those rows are seen here too.
+    /// Every room holding unseen rows whose unread state is now fully clear has
+    /// been read, on any device, so its rows are seen. Uses the SDK's
+    /// receipt-derived unread state: num_unread_messages, the notification and
+    /// highlight counts, and the mark-as-unread flag must all be clear.
     ///
-    /// markRoomReadUpTo() above is driven by receiptSent, which fires only
-    /// when THIS client sends a receipt. Read the message on a phone and
-    /// Lightning never sends one, so the bell kept counting a mention the
-    /// user had already answered while the room's own badge was clear:
-    /// "the bell shows unread messages, even though there are zero
-    /// notifications on the rooms themselves".
+    /// There is deliberately no per-room public form: the obvious hook,
+    /// MatrixClient::roomUpdated, never carries unread state and would mark a
+    /// new mention seen as it arrives. Only roomsChanged follows a write of
+    /// this state.
     ///
-    /// The signal is the SDK's own unread state, computed from the user's
-    /// read receipt whichever device published it, so this is the same claim
-    /// as a receipt rather than a new heuristic. EVERY unread signal must be
-    /// clear — num_unread_messages, the notification and highlight counts,
-    /// and the manual mark-as-unread flag — so a room with anything still
-    /// outstanding keeps its rows.
-    ///
-    /// THERE IS DELIBERATELY NO PER-ROOM PUBLIC FORM OF THIS. One existed
-    /// and was wired to MatrixClient::roomUpdated, which is the one room
-    /// signal that never carries unread state: it is emitted from the
-    /// timeline-event path, which raises the room's lastActivity to the new
-    /// event's own timestamp and touches no unread field, so a brand-new
-    /// mention was marked seen the instant it arrived. Only roomsChanged
-    /// follows a write of the state this reads. Do not re-add the pairing.
-    ///
-    /// INVITE ROWS ARE EXEMPT. An invited room has nothing to read by
-    /// construction, so every unread signal is trivially clear and the
-    /// invite would be marked seen the moment it arrived. They are cleared
-    /// by inviteResolved() or by the user, never by this.
+    /// Invite rows are exempt (nothing to read); inviteResolved() or the user
+    /// clears them.
     void reconcileRoomsAgainstTheirReadState();
-    // Navigate: emits openRequested with the exact target and marks seen.
+    // Navigate: emits openRequested with the exact target and marks it seen.
     Q_INVOKABLE void open(const QString &id);
     Q_INVOKABLE void clear();
     Q_INVOKABLE QVariantMap entryAt(int row) const;
 
-    // Pure classifier, exposed for tests: the kind an event would get, or
-    // "" when it is not activity for `selfUserId`.
+    // Pure classifier for tests: the kind an event would get, or "" when it is
+    // not activity for `selfUserId`.
     static QString classify(const TimelineEvent &event, const QString &selfUserId,
                             const QSet<QString> &ownEventIds,
                             const QSet<QString> &ownThreadRoots,
@@ -192,44 +162,31 @@ private:
         QString reactionKey;
         bool encrypted = false;
         bool seenMark = false;
-        // THE SEED RUNS BEFORE THE ACCOUNT IS FURNISHED, and both of these
-        // record that a row is displaying an id because the answer had not
-        // arrived yet -- not because there is no better answer. The seed is
-        // dispatched on the FIRST `Syncing` state change, which means the
-        // sliding-sync connection came up, not that any room payload or
-        // member snapshot has landed; roomInfo() then answers a
-        // default-constructed RoomInfo and displayNameFor() answers the USER
-        // ID -- its documented fallback is "MXID / empty"
-        // (MatrixClient.h:130), NOT an empty string -- and the row baked
-        // `!abc:server` / `@bob:server` in for the life of the session. That
-        // distinction is load-bearing: a pending test of `isEmpty()` alone
-        // never fires for the sender. Seen live on the packaged flatpak 2026-09-13: an
-        // Activity row read "@lightningtest2:matrix.smetonis.net" where the
-        // timeline two panes away read "lightningtest".
+        // The seed runs on the first Syncing state, before room payloads or
+        // member snapshots arrive, so a row may display a raw room or user id.
+        // These flags mark that it is waiting for a real name. displayNameFor()
+        // falls back to the user id, not "", so pending cannot be detected with
+        // isEmpty() alone.
         bool roomNamePending = false;
         bool senderNamePending = false;
     };
 
     bool isSeen(const Entry &e) const;
-    /// Marking half of reconcileRoomsAgainstTheirReadState, without the
-    /// signalling, so a batch emits once. True when a row changed.
+    /// Marking half of reconcileRoomsAgainstTheirReadState without signalling,
+    /// so a batch emits once. True when a row changed.
     bool markRoomReadIfClear(const QString &roomId);
     bool passesFilter(const Entry &e) const;
     void rebuildVisible();
     bool addEntry(Entry entry); // false = already listed
     // The seed's per-notification `read` flag and the room list's
-    // highlight_count are two answers from the same server, and they were
-    // observed disagreeing on a live account. This keeps the room list's.
-    /// Returns the ids it could NOT account for, because their room was not
-    /// known to the client yet. Those are kept and retried; see
-    /// m_seedAwaitingRooms. `flippedAny`, when given, reports whether any row
-    /// actually changed — the retry needs that to avoid republishing for a
-    /// batch that changed nothing.
+    // highlight_count can disagree; this keeps the room list's answer.
+    /// Returns the ids it could not account for because their room was not yet
+    /// known; they are retried (see m_seedAwaitingRooms). `flippedAny` reports
+    /// whether any row changed, so a retry can avoid republishing.
     QStringList reconcileSeedAgainstRoomCounts(const QStringList &seededIds,
                                                bool *flippedAny = nullptr);
-    /// Re-resolve the ids the seed had to fall back to, once the answers
-    /// exist. Empty roomId means "every pending row"; a room id narrows it to
-    /// that room, which is what membersChanged carries.
+    /// Re-resolve the ids the seed fell back to. Empty roomId means every
+    /// pending row; a room id (from membersChanged) narrows it.
     void resolvePendingSeedNames(const QString &roomId = QString());
     void rememberOwn(const TimelineEvent &event);
     void loadStore();
@@ -248,10 +205,8 @@ private:
     QStringList m_keywords;
     qint64 m_seenUpToMs = 0;
     bool m_storeLoaded = false;
-    // Seeded rows whose room the client did not know when the seed landed, so
-    // reconcileSeedAgainstRoomCounts() could not spend that room's budget and
-    // left them on the server's own `read` flag. Retried on roomsChanged. A
-    // seed that lands before any room payload leaves EVERY row here, which is
-    // the whole bell-vs-room-list reconciliation silently not running.
+    // Seeded rows whose room was unknown when the seed landed, left on the
+    // server's `read` flag. Retried on roomsChanged; a seed before any room
+    // payload leaves every row here.
     QStringList m_seedAwaitingRooms;
 };

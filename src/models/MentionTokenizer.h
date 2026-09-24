@@ -4,13 +4,13 @@
 #include <QString>
 #include <QStringList>
 
-// v0.7 outgoing @-mentions — pure, presentation-agnostic helpers shared by the
-// room composer (MessageComposer) and the thread composer (ThreadController).
+// Outgoing @-mentions: pure helpers shared by the room composer
+// (MessageComposer) and the thread composer (ThreadController).
 //
-// Nothing here talks to Matrix, the network, or member data: it only detects
-// the active @-token at the cursor, keeps a list of inserted mention ranges in
-// sync with the visible editor text across single edits, and expands those
-// ranges into matrix.to markdown links at send time. Never logs message text.
+// Nothing here touches Matrix, the network or member data: it detects the
+// active @-token, keeps inserted mention ranges in sync with the editor text,
+// and expands them into matrix.to markdown links at send time. Never logs
+// message text.
 namespace mention {
 
 // One inserted mention. `displayText` is the exact human-readable slice in the
@@ -60,7 +60,6 @@ InsertResult buildInsertion(const QString &text, int tokenStart, int cursorPos,
 QList<MentionRef> shiftRefs(const QList<MentionRef> &refs,
                             const QString &oldText, const QString &newText);
 
-// Send-time expansion.
 struct Expansion {
     QString body;            // markdown body with matrix.to mention links
     QStringList userIds;     // deduped MXIDs in first-appearance order

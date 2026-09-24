@@ -124,9 +124,9 @@ void UserSearchModel::dispatchSearch()
     }
     m_pendingOp = opId;
 
-    // v0.5.11: exact candidate against the account's own server (bare
-    // localpart) or the explicitly named server. Confirmed via profile
-    // lookup; bare-localpart candidates surface only after confirmation.
+    // Exact candidate on the account's own server (bare localpart) or the named
+    // server, confirmed by profile lookup; bare-localpart candidates surface
+    // only after confirmation.
     const QString ownUser = m_client->currentUserId();
     const QString ownServer =
         matrix::user_lookup::serverNameFromUserId(ownUser);
@@ -135,8 +135,8 @@ void UserSearchModel::dispatchSearch()
     if (!candidate.isEmpty() && candidate != ownUser) {
         m_candidateUserId = candidate;
         m_candidateNamesServer = matrix::user_lookup::queryNamesServer(trimmed);
-        // 0 = backend without profile lookup: typed-MXID rows still appear
-        // unconfirmed below; bare-localpart candidates stay hidden.
+        // 0 means no profile lookup on this backend: typed full ids still
+        // appear unconfirmed; bare-localpart candidates stay hidden.
         m_pendingProfileOp = m_client->fetchUserProfile(candidate);
     }
 
@@ -222,8 +222,7 @@ void UserSearchModel::onSearchFinished(quint64 opId, bool ok,
 {
     Q_UNUSED(limited);
     Q_UNUSED(category);
-    // Stale-by-generation: only the most recently dispatched operation may
-    // populate the model. Older completions are dropped silently.
+    // Only the most recently dispatched op may populate the model.
     if (opId != m_pendingOp || m_pendingOp == 0)
         return;
     m_pendingOp = 0;
@@ -261,9 +260,9 @@ void UserSearchModel::onProfileFinished(quint64 opId, bool ok,
         return; // candidate changed while the lookup was in flight
 
     if (ok) {
-        // The homeserver confirmed the user exists. A failed lookup keeps
-        // bare-localpart candidates hidden (nothing is invented); typed
-        // full ids stay offered unconfirmed for federated invites.
+        // The homeserver confirmed the user. A failed lookup keeps
+        // bare-localpart candidates hidden; typed full ids stay offered for
+        // federated invites.
         m_candidateConfirmed = true;
         m_candidateDisplayName = displayName;
         m_candidateAvatarUrl = avatarUrl;
