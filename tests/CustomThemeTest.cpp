@@ -1164,7 +1164,7 @@ private Q_SLOTS:
         const QString qml = appTheme();
         QVERIFY2(qml.contains(QStringLiteral("effectiveTheme === 12")),
                  "`dark` no longer special-cases the custom palette");
-        QVERIFY2(qml.contains(QStringLiteral("relativeLuminance(_p.background)")),
+        QVERIFY2(qml.contains(QStringLiteral("relativeLuminance(_asColor(_p.background))")),
                  "the custom palette must be classified by its own background");
     }
 
